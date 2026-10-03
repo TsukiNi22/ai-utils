@@ -521,7 +521,7 @@ window.DOC_FR = {
   "Overloads": "Surcharges",
   "Pure virtual": "Virtuelle pure",
   "yes": "oui",
-  "Drag: rotate · Shift + drag: move · scroll: zoom": "Glisser : tourner · Maj + glisser : déplacer · molette : zoom",
+  "Drag: rotate · Shift + drag: move · drag a node: place it · scroll: zoom · axes: reset the angle": "Glisser : tourner · Maj + glisser : déplacer · glisser un nœud : le placer · molette : zoom · axes : réinitialiser l'angle",
   "Drag: move · scroll: zoom · click: details": "Glisser : déplacer · molette : zoom · clic : détails",
   "No node: enable some categories / groups": "Aucun nœud : activer des catégories / groupes",
   "Double click: description and example": "Double-clic : description et exemple",
@@ -1046,7 +1046,7 @@ function extractGraph(files, opts) {
         kinds: new Set(PRESETS.overview[0]), linkKinds: new Set(PRESETS.overview[1]), groups: new Set(), knownGroups: new Set(),
         mode: "2d", colorBy: "kind", cluster: false, labels: true, particles: false, isolate: false, search: "",
         visible: [], vlinks: [], neighbors: new Map(), selected: null, hover: null,
-        alpha: 1, paused: false, cam: {x: 0, y: 0, k: 1, yaw: 0.6, pitch: -0.35, dist: 600}, w: 0, h: 0, dpr: 1, colors: {}
+        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: 0.6, pitch: -0.35, dist: 600}, w: 0, h: 0, dpr: 1, colors: {}
     };
 
     window.graphState = state;
@@ -1098,7 +1098,7 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("Drag: rotate · Shift + drag: move · scroll: zoom") : tr("Drag: move · scroll: zoom · click: details")) : tr("No node: enable some categories / groups");
+        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("Drag: rotate · Shift + drag: move · drag a node: place it · scroll: zoom · axes: reset the angle") : tr("Drag: move · scroll: zoom · click: details")) : tr("No node: enable some categories / groups");
     }
 
     // ---------- Legends / chips ---------- //
@@ -1225,7 +1225,7 @@ function extractGraph(files, opts) {
         const c = state.cam;
         if (state.mode === "2d") return {x: state.w / 2 + (p.x - c.x) * c.k, y: state.h / 2 + (p.y - c.y) * c.k, s: c.k, z: 0};
         const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
-        const x1 = (p.x - c.x) * cy - p.z * sy, z1 = (p.x - c.x) * sy + p.z * cy;
+        const x1 = (p.x - c.x) * cy - (p.z - c.z) * sy, z1 = (p.x - c.x) * sy + (p.z - c.z) * cy;
         const y2 = (p.y - c.y) * cp - z1 * sp, z2 = (p.y - c.y) * sp + z1 * cp;
         const s = 700 / Math.max(60, z2 + c.dist);
         return {x: state.w / 2 + x1 * s, y: state.h / 2 + y2 * s, s, z: z2};
@@ -1238,7 +1238,7 @@ function extractGraph(files, opts) {
         for (const n of nodes) { const p = state.pos.get(n.id); x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); mx += p.x; my += p.y; }
         mx /= nodes.length; my /= nodes.length;
         for (const n of nodes) { const p = state.pos.get(n.id); r = Math.max(r, Math.hypot(p.x - mx, p.y - my, p.z)); }
-        state.cam.x = (x0 + x1) / 2; state.cam.y = (y0 + y1) / 2;
+        state.cam.x = (x0 + x1) / 2; state.cam.y = (y0 + y1) / 2; state.cam.z = 0;
         state.cam.k = Math.min(4, 0.88 * Math.min(state.w / Math.max(60, x1 - x0), state.h / Math.max(60, y1 - y0)));
         state.cam.dist = Math.max(200, r * 2.4 * Math.max(1, 700 / Math.min(state.w, state.h)));
     }
@@ -1254,45 +1254,47 @@ function extractGraph(files, opts) {
         const x1 = x * cy - z * sy, z1 = x * sy + z * cy;
         return {x: x1, y: y * cp - z1 * sp, z: y * sp + z1 * cp};
     }
+    function unrotateDir(x, y, z) { // view direction -> world direction (inverse of rotateDir)
+        const c = state.cam, cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
+        const y0 = y * cp + z * sp, z1 = -y * sp + z * cp;
+        return {x: x * cy + z1 * sy, y: y0, z: -x * sy + z1 * cy};
+    }
+    const GIZMO = {x: 44, r: 38, len: 26}; // axes gizmo, bottom left (y = state.h - 44)
+    const LIGHT = (() => { const v = [-0.55, -0.75, -0.35], l = Math.hypot(...v); return v.map(x => x / l); })(); // world direction to the light (top, left, front)
     function drawFloor(C) {
         const nodes = state.visible;
         if (!nodes.length) return;
-        let y1 = -Infinity, mx = 0, mz = 0, r = 0;
+        let y1 = -Infinity, mx = 0, mz = 0;
         for (const n of nodes) { const p = state.pos.get(n.id); y1 = Math.max(y1, p.y); mx += p.x; mz += p.z; }
         mx /= nodes.length; mz /= nodes.length;
         const ds = nodes.map(n => { const p = state.pos.get(n.id); return Math.hypot(p.x - mx, p.z - mz); }).sort((a, b) => a - b);
-        r = ds[Math.floor(ds.length * 0.9)] || 1; // ignore the far isolated nodes
-        const floor = y1 + 40, step = Math.max(20, Math.round(r / 4 / 10) * 10), ext = Math.ceil(r * 1.15 / step) * step;
+        const r = ds[Math.floor(ds.length * 0.9)] || 1; // ignore the far isolated nodes
+        const floor = y1 + 40, step = Math.max(20, Math.round(r / 4 / 10) * 10), ext = Math.ceil(r * 1.4 / step) * step;
+        // Centered on the camera target (snapped to the grid): the floor follows a move, like an endless plane
+        const gx = Math.round(state.cam.x / step) * step, gz = Math.round(state.cam.z / step) * step;
         const ok = (q) => q.z + state.cam.dist > 80; // in front of the camera
         ctx.strokeStyle = C.muted; ctx.lineWidth = 1;
         for (let v = -ext; v <= ext; v += step) {
             for (let u = -ext; u < ext; u += step) { // short segments, faded towards the border of the floor
-                const edge = 1 - Math.max(Math.abs(v), Math.abs(u + step / 2)) / (ext + step);
-                for (const [a, b] of [[{x: mx + v, y: floor, z: mz + u}, {x: mx + v, y: floor, z: mz + u + step}],
-                                      [{x: mx + u, y: floor, z: mz + v}, {x: mx + u + step, y: floor, z: mz + v}]]) {
+                for (const [a, b] of [[{x: gx + v, y: floor, z: gz + u}, {x: gx + v, y: floor, z: gz + u + step}],
+                                      [{x: gx + u, y: floor, z: gz + v}, {x: gx + u + step, y: floor, z: gz + v}]]) {
                     const pa = project(a), pb = project(b);
                     if (!ok(pa) || !ok(pb)) continue;
-                    ctx.globalAlpha = 0.22 * edge;
+                    const mid = Math.hypot((a.x + b.x) / 2 - state.cam.x, (a.z + b.z) / 2 - state.cam.z);
+                    ctx.globalAlpha = 0.22 * Math.max(0, 1 - mid / (ext + step));
                     ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
                 }
             }
         }
-        ctx.fillStyle = C.text; // shadow of every node on the floor
-        for (const n of nodes) {
-            const p = state.pos.get(n.id), s = project({x: p.x, y: floor, z: p.z});
-            if (!ok(s)) continue;
-            const rr = radiusOf(n) * s.s * 1.1;
-            ctx.globalAlpha = 0.1;
-            ctx.beginPath(); ctx.ellipse(s.x, s.y, rr, rr * Math.max(0.15, Math.abs(Math.sin(state.cam.pitch))), 0, 0, Math.PI * 2); ctx.fill();
-        }
         ctx.globalAlpha = 1;
     }
     function drawAxes(C) {
-        const ox = 44, oy = state.h - 44, len = 26;
+        const ox = GIZMO.x, oy = state.h - GIZMO.x, len = GIZMO.len;
         const axes = [["X", 1, 0, 0, "#e5534b"], ["Y", 0, -1, 0, "#3fb950"], ["Z", 0, 0, 1, "#539bf5"]]
             .map(([l, x, y, z, c]) => ({l, c, d: rotateDir(x, y, z)})).sort((a, b) => b.d.z - a.d.z);
         ctx.globalAlpha = 0.9; ctx.lineWidth = 2; ctx.font = "600 10px system-ui, sans-serif"; ctx.textAlign = "center";
-        ctx.fillStyle = C.surface; ctx.beginPath(); ctx.arc(ox, oy, len + 12, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = C.surface; ctx.beginPath(); ctx.arc(ox, oy, GIZMO.r, 0, Math.PI * 2); ctx.fill();
+        if (state.gizmoHover) { ctx.globalAlpha = 1; ctx.lineWidth = 1.5; ctx.strokeStyle = C.accent; ctx.stroke(); ctx.lineWidth = 2; }
         for (const a of axes) {
             const ex = ox + a.d.x * len, ey = oy + a.d.y * len;
             ctx.globalAlpha = a.d.z > 0 ? 0.45 : 0.95; // pointing away: fainter
@@ -1312,6 +1314,7 @@ function extractGraph(files, opts) {
         let z0 = Infinity, z1 = -Infinity;
         if (d3) { for (const p of proj.values()) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } drawFloor(C); }
         const depth = (z) => d3 && z1 > z0 ? (z - z0) / (z1 - z0) : 0; // 0 = closest, 1 = farthest
+        const light = d3 ? rotateDir(...LIGHT) : null; // light direction in the view
         const focus = state.hover || state.selected;
         const near = focus ? state.neighbors.get(focus) || new Set() : null;
         const lh = state.legendHover;
@@ -1367,9 +1370,11 @@ function extractGraph(files, opts) {
             ctx.fillStyle = colorOf(n);
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
             if (d3) { // shaded sphere (light from the top left) + fog towards the background with the depth
-                const hl = ctx.createRadialGradient(p.x - r * 0.38, p.y - r * 0.42, r * 0.05, p.x - r * 0.2, p.y - r * 0.2, r * 1.05);
-                hl.addColorStop(0, "rgba(255,255,255,.75)"); hl.addColorStop(0.35, "rgba(255,255,255,.12)");
-                hl.addColorStop(0.7, "rgba(0,0,0,0)"); hl.addColorStop(1, "rgba(0,0,0,.45)");
+                // the light is fixed in the scene: its side of the sphere turns with the camera
+                const hx = p.x + light.x * r * 0.55, hy = p.y + light.y * r * 0.55, front = Math.max(0, -light.z);
+                const hl = ctx.createRadialGradient(hx, hy, r * 0.05, hx, hy, r * 1.75);
+                hl.addColorStop(0, "rgba(255,255,255," + (0.25 + 0.5 * front).toFixed(2) + ")"); hl.addColorStop(0.25, "rgba(255,255,255,.1)");
+                hl.addColorStop(0.55, "rgba(0,0,0,0)"); hl.addColorStop(1, "rgba(0,0,0,.55)");
                 ctx.fillStyle = hl; ctx.fill();
                 const t = depth(p.z);
                 if (t > 0.02) { ctx.globalAlpha = (faded ? 0.12 : 1) * 0.62 * t; ctx.fillStyle = C.bg; ctx.fill(); ctx.globalAlpha = faded ? 0.12 : 1; }
@@ -1419,14 +1424,18 @@ function extractGraph(files, opts) {
     let drag = null;
     canvas.addEventListener("pointerdown", (e) => {
         const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+        if (onGizmo(mx, my)) { resetAngle(); return; }
         const n = pick(mx, my);
-        drag = {x: mx, y: my, sx: mx, sy: my, node: n && state.mode === "2d" ? n : null, clicked: n, pan: e.shiftKey || e.button === 2};
+        drag = {x: mx, y: my, sx: mx, sy: my, node: n && !(e.shiftKey || e.button === 2) ? n : null, clicked: n, pan: e.shiftKey || e.button === 2};
         canvas.setPointerCapture(e.pointerId);
         canvas.classList.add("dragging");
     });
     canvas.addEventListener("pointermove", (e) => {
         const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
         if (!drag) {
+            const g = onGizmo(mx, my);
+            if (g !== !!state.gizmoHover) { state.gizmoHover = g; state.dirty = true; canvas.classList.toggle("pointer", g); }
+            if (g) return;
             const n = pick(mx, my);
             const id = n ? n.id : null;
             if (id !== state.hover) { state.hover = id; state.dirty = true; canvas.classList.toggle("pointer", !!n); }
@@ -1437,11 +1446,15 @@ function extractGraph(files, opts) {
         const c = state.cam;
         if (drag.node) {
             const p = state.pos.get(drag.node.id);
-            p.x += dx / c.k; p.y += dy / c.k; p.fixed = true;
+            if (state.mode === "2d") { p.x += dx / c.k; p.y += dy / c.k; }
+            else { const s = project(p).s, w = unrotateDir(dx / s, dy / s, 0); p.x += w.x; p.y += w.y; p.z += w.z; } // in the plane of the screen
+            p.fixed = true;
             state.alpha = Math.max(state.alpha, 0.25);
-        } else if (state.mode === "2d" || drag.pan) {
-            const s = state.mode === "2d" ? c.k : 700 / c.dist;
-            c.x -= dx / s; c.y -= dy / s;
+        } else if (state.mode === "2d") {
+            c.x -= dx / c.k; c.y -= dy / c.k;
+        } else if (drag.pan) { // move the target (and the rotation center) in the plane of the screen
+            const s = 700 / c.dist, w = unrotateDir(-dx / s, -dy / s, 0);
+            c.x += w.x; c.y += w.y; c.z += w.z;
         } else {
             c.yaw += dx * 0.008; c.pitch = Math.max(-1.5, Math.min(1.5, c.pitch + dy * 0.008));
         }
@@ -1453,6 +1466,18 @@ function extractGraph(files, opts) {
         if (Math.hypot(drag.x - drag.sx, drag.y - drag.sy) < 4) select(drag.clicked ? drag.clicked.id : null);
         drag = null;
         canvas.classList.remove("dragging");
+    }
+    function onGizmo(mx, my) { return state.mode === "3d" && Math.hypot(mx - GIZMO.x, my - (state.h - GIZMO.x)) <= GIZMO.r; }
+    function resetAngle() { // animated back to the default angle (the position and the zoom are kept)
+        const c = state.cam, from = [c.yaw, c.pitch], t0 = performance.now();
+        let to = 0.6; while (to - from[0] > Math.PI) to -= 2 * Math.PI; while (from[0] - to > Math.PI) to += 2 * Math.PI;
+        const step = (now) => {
+            const k = Math.min(1, (now - t0) / 350), e = 1 - Math.pow(1 - k, 3);
+            c.yaw = from[0] + (to - from[0]) * e; c.pitch = from[1] + (-0.35 - from[1]) * e;
+            state.dirty = true;
+            if (k < 1) requestAnimationFrame(step); else c.yaw = 0.6;
+        };
+        requestAnimationFrame(step);
     }
     canvas.addEventListener("pointerup", endDrag);
     canvas.addEventListener("pointercancel", endDrag);
@@ -1502,7 +1527,7 @@ function extractGraph(files, opts) {
         refilter(false);
         select(id);
         const p = state.pos.get(id);
-        state.cam.x = p.x; state.cam.y = p.y;
+        state.cam.x = p.x; state.cam.y = p.y; if (state.mode === "3d") state.cam.z = p.z;
         if (state.mode === "2d") state.cam.k = Math.max(state.cam.k, 1.6);
         state.dirty = true;
     }
@@ -1655,7 +1680,7 @@ function extractGraph(files, opts) {
     const HELP = {
         update: ["Update", "Fetches the last version of the GitHub repository and rebuilds the graph.", "Asks the GitHub API for the last commit of the branch. If it is newer than the graph shown, the sources are downloaded and the graph is rebuilt in the browser (and cached). Run once automatically at load. Offline, private repository or API limit: the embedded graph stays and the status says why.", "overview"],
         mode2d: ["2D view", "Flat graph: drag to move, scroll to zoom.", "Flat rendering, the most readable for the names. Dragging the background moves the view, dragging a node moves it, the scroll zooms under the cursor, a click opens the details.", "flat"],
-        mode3d: ["3D view", "Graph in perspective: drag to rotate, Shift + drag to move.", "Nodes are shaded spheres spread in depth: the closest are bigger and brighter, the farthest fade out; a floor grid with their shadows and the X / Y / Z gizmo (bottom left) show the orientation. Dragging rotates the scene, Shift + drag (or right click) moves it, the scroll brings the camera closer. Useful to untangle a dense graph.", "persp"],
+        mode3d: ["3D view", "Graph in perspective: drag to rotate, Shift + drag to move.", "Nodes are shaded spheres spread in depth: the closest are bigger and brighter, the farthest fade out; the light is fixed in the scene, a floor grid and the X / Y / Z gizmo (bottom left, click: reset the angle) show the orientation. Dragging a node moves it in the plane of the screen; dragging the background rotates the scene, Shift + drag (or right click) moves it, the scroll brings the camera closer. Useful to untangle a dense graph.", "persp"],
         fit: ["Fit", "Centers and zooms to see every displayed node.", "Computes the box containing every visible node and adapts the zoom (2D) or the camera distance (3D).", "overview"],
         pause: ["Freeze / Resume", "Stops or restarts the force simulation.", "Nodes are placed by a physical simulation (repulsion between nodes, springs on the relations). Freeze keeps the current layout to read it quietly; Resume puts it in motion again.", "flat"],
         search: ["Search", "Highlights the nodes whose name or path contains the text.", "The search looks at the name and the path of the visible nodes. The others are faded; Enter centers the view on the first result and opens its details.", "isolate"],
@@ -1701,7 +1726,7 @@ function extractGraph(files, opts) {
     const HELP_FR = {
         update: ["Mettre à jour", "Récupère la dernière version du dépôt GitHub et reconstruit le graphe.", "Interroge l'API GitHub pour le dernier commit de la branche. S'il est plus récent que le graphe affiché, les sources sont téléchargées et le graphe est reconstruit dans le navigateur (gardé en cache). Lancé une fois automatiquement au chargement. Hors ligne, dépôt privé ou limite d'API : le graphe embarqué reste affiché et le statut dit pourquoi.", "overview"],
         mode2d: ["Vue 2D", "Graphe à plat : glisser pour déplacer, molette pour zoomer.", "Rendu à plat, le plus lisible pour lire les noms. Glisser le fond déplace la vue, glisser un nœud le déplace, la molette zoome sous le curseur, un clic ouvre les détails.", "flat"],
-        mode3d: ["Vue 3D", "Graphe en perspective : glisser pour tourner, Maj + glisser pour déplacer.", "Les nœuds sont des sphères ombrées réparties en profondeur : les plus proches sont plus gros et plus nets, les plus lointains s'estompent ; un sol quadrillé avec leurs ombres et le repère X / Y / Z (en bas à gauche) montrent l'orientation. Glisser fait tourner la scène, Maj + glisser (ou clic droit) la déplace, la molette rapproche la caméra. Utile pour démêler un graphe dense.", "persp"],
+        mode3d: ["Vue 3D", "Graphe en perspective : glisser pour tourner, Maj + glisser pour déplacer.", "Les nœuds sont des sphères ombrées réparties en profondeur : les plus proches sont plus gros et plus nets, les plus lointains s'estompent ; la lumière est fixe dans la scène, un sol quadrillé et le repère X / Y / Z (en bas à gauche, clic : réinitialiser l'angle) montrent l'orientation. Glisser un nœud le déplace dans le plan de l'écran ; glisser le fond fait tourner la scène, Maj + glisser (ou clic droit) la déplace, la molette rapproche la caméra. Utile pour démêler un graphe dense.", "persp"],
         fit: ["Ajuster", "Recentre et zoome pour voir tous les nœuds affichés.", "Calcule la boîte qui contient tous les nœuds visibles et adapte le zoom (2D) ou la distance de la caméra (3D).", "overview"],
         pause: ["Figer / Relancer", "Arrête ou relance la simulation des forces.", "Le placement des nœuds est calculé par une simulation physique (répulsion entre nœuds, ressorts sur les relations). Figer la fige dans son état actuel pour lire tranquillement ; Relancer la remet en mouvement.", "flat"],
         search: ["Recherche", "Surligne les nœuds dont le nom ou le chemin contient le texte.", "La recherche porte sur le nom et le chemin des nœuds visibles. Les autres sont estompés ; Entrée centre la vue sur le premier résultat et ouvre ses détails.", "isolate"],

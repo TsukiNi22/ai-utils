@@ -99,7 +99,8 @@ Interactive graph drawn on a canvas by an embedded engine (no library); the pane
 groups, line swatch for the relations, count on the right, disabled entries faded, `all` / `none` buttons; hovering
 an entry highlights its nodes / relations; clicking it shows / hides them, a relation toggle doesn't move the
 layout): 2D (pan, zoom, drag nodes) and
-3D (rotate, Shift+drag to pan, zoom; shaded spheres, depth fog, floor grid with the node shadows, X/Y/Z gizmo), search, presets (overview, files & includes, classes & inheritance,
+3D (rotate, Shift+drag to move the target in the screen plane, drag a node to place it, zoom; spheres lit by a
+light fixed in the scene, depth fog, floor grid following the camera, X/Y/Z gizmo resetting the angle on click), search, presets (overview, files & includes, classes & inheritance,
 classes & methods, tests, build, all), toggles per **category** (header, source, test file, class, struct,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
 (module folder) and per **relation** (includes, defines, member, inherits, implements, compiled-into, links,
