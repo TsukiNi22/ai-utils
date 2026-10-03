@@ -55,15 +55,9 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 ## Library conventions (to use it the right way)
 - Everything is in `utils::<section>` (see the index); a few grouping folders don't add a level
   (`manip/iomanip` -> `utils::iomanip`, `network/socket` -> `utils::network`).
-- Errors: exceptions, never error codes.
-  ```cpp
-  throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "info");
-  std::cerr << utils::exception::WarningException(utils::exception::InternalCode::UnknownId, id).formated() << std::endl;
-  catch (const utils::exception::IException& e) {std::cerr << e.formated() << std::endl;}
-  ```
-  `FatalException` = unrecoverable, `NoneException` = clean exit, `CustomException(type, info)`.
-  A project adds its own codes (`utils::exception::ExternalCode::X`) with JSON files generated into
-  `generated_external_exception_header.hpp` (same format as `LIBUTILS/cmake/config/exceptions`).
+- Errors: exceptions, never error codes (`throw utils::exception::ErrorException(InternalCode::X, "info")`,
+  `catch (const utils::exception::IException& e) {... e.formated() ...}`). Everything about the exception
+  classes, the restrictions and adding project codes (JSON + generator + CMake): the `libutils-exception` skill.
 - Many APIs take a `failsafe` (warn instead of throw) or `safe_mode` (lock) boolean.
 - Check hooks return `std::optional<std::string>`: `std::nullopt` = valid, string = error message
   (`ArgParser`, `Settings`, default hooks `default*ParsingHook`).

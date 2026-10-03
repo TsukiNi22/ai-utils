@@ -1,0 +1,20 @@
+{
+    "errors": [
+        {
+            "code": "UnknownMode",
+            "message": "Unknown mode, can't dispatch the execution...",
+            "restrictions": ["Fatal", "Error"]
+        },
+        {
+            "code": "InvalidConfig",
+            "message": "Error during the configuration parsing",
+            "info": "Default info used when none is given at the throw",
+            "restrictions": ["Fatal", "Error", "Warning"]
+        },
+        {
+            "code": "Stop",
+            "message": "Stop requested",
+            "restrictions": ["None"]
+        }
+    ]
+}

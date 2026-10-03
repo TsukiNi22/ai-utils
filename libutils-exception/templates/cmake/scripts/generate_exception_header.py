@@ -1,0 +1,188 @@
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+ ██╗  ██╗ █████╗ ██████╗ ████████╗ █████╗ ███╗   ██╗██╗ █████╗ 
+ ╚██╗██╔╝██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗████╗  ██║██║██╔══██╗
+  ╚███╔╝ ███████║██████╔╝   ██║   ███████║██╔██╗ ██║██║███████║
+  ██╔██╗ ██╔══██║██╔══██╗   ██║   ██╔══██║██║╚██╗██║██║██╔══██║
+ ██╔╝ ██╗██║  ██║██║  ██║   ██║   ██║  ██║██║ ╚████║██║██║  ██║
+ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
+
+Edition:
+##  28/07/2026 by Tsukini
+
+File Name:
+##  generate_exception_header.py
+
+File Description:
+##  Generate the exception header from the config file
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+##### Import #####
+# Import that can't be in the try
+from const import RETURN, ERROR, VALUES, FILES, NAMES
+from sys import exit, stderr, stdout
+from os import geteuid
+
+# Try to install dependencies (failsafe)
+try:
+    # Avoid pip install when running as root
+    if geteuid() != 0:
+        from sys import executable
+        from subprocess import check_call
+        check_call([executable, "-m", "ensurepip", "--upgrade"])
+        check_call([executable, "-m", "pip", "install", "-r", FILES.REQUIREMENTS])
+    else:
+        stdout.write("Running as root: skipping Python dependency installation\n")
+except Exception: pass
+
+# Import that can be checked
+try:
+    from hashlib import sha256 # Used to identify different error
+    from pathlib import Path # Used to create & edit files and to get the file name
+    import json # Used to get the json data
+    import re # Used for pattern matching
+except ImportError as e:
+    stderr.write(f"Import Error ({__file__}): {e}\n")
+    stderr.write(f"Auto generated header '{FILES.GENERATED_EXCEPTION_HEADER}': FAIL\n")
+    exit(ERROR.FATAL)
+
+# Check if the program is call and not imported
+if __name__ != "__main__":
+    stderr.write(f"The {__file__} can only be executed and not imported!\n")
+    stderr.write(f"Auto generated header '{FILES.GENERATED_EXCEPTION_HEADER}': FAIL\n")
+    exit(ERROR.FATAL)
+
+##### Tools #####
+def uint64_hash(s):
+    digest = sha256(s.encode()).digest()
+    value = int.from_bytes(digest[:8], "big") # 8 octets = 64 bits
+    return 1 + (value % VALUES.SIZE_MAX) # limit values
+
+##### Program #####
+# Recuperation of the data
+data = {} # {code: [message, info, restriction], ...}
+for json_file in Path(FILES.CONFIG_EXCEPTION).rglob("*.json"):
+    with json_file.open("r", encoding="utf-8") as f:
+        json_content = json.load(f)
+        for error in json_content.get("errors", []):
+            if data.__contains__(error["code"]):
+                stderr.write(f"Duplicated error code encoutered in data extraction '{error['code']}'\n")
+                stderr.write(f"Auto generated header '{FILES.GENERATED_EXCEPTION_HEADER}': FAIL\n")
+                exit(RETURN.KO)
+            data[error["code"]] = [error["message"], error["info"] if error.__contains__("info") else "[None]", error["restrictions"] if error.__contains__("restrictions") else []]
+
+# Format the data
+code_str = ""
+message_str = ""
+info_str = ""
+restriction_str = ""
+data_list = list(data.items())
+for i, (code, [message, info, restriction]) in enumerate(data_list):
+    # code
+    code_str += f"    {code} = {uint64_hash(code + NAMES.CODE_SECTION)}ull,"
+    # message
+    escaped_message = message.replace('"', r'\"')
+    message_str += f'    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::{code}, "{escaped_message}"}},'
+    # info
+    escaped_info = info.replace('"', r'\"')
+    info = ("nullptr" if escaped_info == "[None]" else f'"{escaped_info}"')
+    info_str += f'    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::{code}, {info}}},'
+    # restriction
+    value = 0
+    types = ""
+    for j in range(len(restriction)):
+        t = restriction[j]
+        value |= VALUES.EXCEPTION_TYPE.get(t, 0)
+        if VALUES.EXCEPTION_TYPE.get(t, 0) != 0: types += t + (", " if j != len(restriction) - 1 else "")
+    restriction_str += f"    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::{code}, {value:#0{len(VALUES.EXCEPTION_TYPE) + 2}b}}}, // allow: {'All' if types == '' else types}"
+    # End of line
+    if i != len(data_list) - 1:
+        code_str += "\n"
+        info_str += "\n"
+        message_str += "\n"
+        restriction_str += "\n"
+
+# Build the restriction comment
+restriction_lines = [
+    "// 0b0000 = no restriction\t(allow all)",
+]
+for name in VALUES.EXCEPTION_TYPE:
+    restriction_lines.append(f"// {VALUES.EXCEPTION_TYPE[name]:#0{len(VALUES.EXCEPTION_TYPE) + 2}b} = {name}\t\t\t(allow {name})")
+restriction_str_comment = "\n".join(restriction_lines)
+
+# Create the file
+header = Path(FILES.GENERATED_EXCEPTION_HEADER)
+
+# Build of the content
+content = f"""
+/**************************************************************\\
+Edition (auto):
+##  --/--/---- by {Path(__file__).name}
+
+File Name:
+##  @file {header.name}
+
+File Description:
+##  Header auto generated by the python script at compilation
+##  Generated from the files in '{FILES.CONFIG_EXCEPTION}'
+##  Used for exception code & message definition
+\\**************************************************************/
+
+#ifndef {NAMES.GUARD + Path(FILES.GENERATED_EXCEPTION_HEADER).stem.upper()}_H
+    #define {NAMES.GUARD + Path(FILES.GENERATED_EXCEPTION_HEADER).stem.upper()}_H
+
+    //----------------------------------------------------------------//
+    /* INCLUDE */
+
+    #include <unordered_map>    // std::unordered_map
+    #include <iterator>         // std::size
+    #include <cstddef>          // std::size_t
+    #include <cstdint>          // std::uint8_t
+
+namespace {NAMES.EXCEPTION_SCOPE} {{ // namespace start
+//----------------------------------------------------------------//
+/* TYPEDEF */
+
+/* Definition of the different exception code */
+enum class {NAMES.CODE_SECTION}: std::size_t {{
+    Undefined = 0,
+{code_str}
+}};
+
+/* Corresponding exception message for each code */
+inline const std::unordered_map<{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}, const char*> {NAMES.MESSAGES_SECTION} = {{
+    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::Undefined, "An undefined error has occured"}},
+{message_str}
+}};
+
+/* Potential default info: nullptr same as "[None]" */
+inline const std::unordered_map<{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}, const char*> {NAMES.INFO_SECTION} = {{
+    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::Undefined, nullptr}},
+{info_str}
+}};
+
+/* Potential restriction on exception code */
+{restriction_str_comment}
+inline const std::unordered_map<{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}, const std::uint8_t> {NAMES.RESTRICTION_SECTION} = {{
+    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::Undefined, 0b0000}}, // allow: All
+{restriction_str}
+}};
+
+// Check at the compile time the correspondece between the message & code
+/*
+static_assert(std::size({NAMES.MESSAGES_SECTION}) == static_cast<std::size_t>({NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::CODE_SENTINEL), "The message array doesn't correspond to the available exception codes");
+static_assert(std::size({NAMES.INFO_SECTION}) == static_cast<std::size_t>({NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::CODE_SENTINEL), "The info array doesn't correspond to the available exception codes");
+static_assert(std::size({NAMES.RESTRICTION_SECTION}) == static_cast<std::size_t>({NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::CODE_SENTINEL), "The restriction array doesn't correspond to the available exception codes");
+*/
+
+}} // namespace end
+#endif /* {NAMES.GUARD + Path(FILES.GENERATED_EXCEPTION_HEADER).stem.upper()}_H */
+"""
+
+# Write the file content
+header.parent.mkdir(parents=True, exist_ok=True)
+header.write_text(content)
+
+# Success
+print(f"Auto generated header '{FILES.GENERATED_EXCEPTION_HEADER}': SUCCESS")
+exit(RETURN.OK)
