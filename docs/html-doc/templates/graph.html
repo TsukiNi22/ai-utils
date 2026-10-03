@@ -1248,12 +1248,70 @@ function extractGraph(files, opts) {
         const s = getComputedStyle(document.documentElement);
         for (const k of ["bg", "surface", "text", "muted", "border", "accent", "line"]) state.colors[k] = s.getPropertyValue("--" + k).trim();
     }
+    // 3D cues: rotation of a direction (no translation), floor grid under the nodes, axes gizmo
+    function rotateDir(x, y, z) {
+        const c = state.cam, cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
+        const x1 = x * cy - z * sy, z1 = x * sy + z * cy;
+        return {x: x1, y: y * cp - z1 * sp, z: y * sp + z1 * cp};
+    }
+    function drawFloor(C) {
+        const nodes = state.visible;
+        if (!nodes.length) return;
+        let y1 = -Infinity, mx = 0, mz = 0, r = 0;
+        for (const n of nodes) { const p = state.pos.get(n.id); y1 = Math.max(y1, p.y); mx += p.x; mz += p.z; }
+        mx /= nodes.length; mz /= nodes.length;
+        const ds = nodes.map(n => { const p = state.pos.get(n.id); return Math.hypot(p.x - mx, p.z - mz); }).sort((a, b) => a - b);
+        r = ds[Math.floor(ds.length * 0.9)] || 1; // ignore the far isolated nodes
+        const floor = y1 + 40, step = Math.max(20, Math.round(r / 4 / 10) * 10), ext = Math.ceil(r * 1.15 / step) * step;
+        const ok = (q) => q.z + state.cam.dist > 80; // in front of the camera
+        ctx.strokeStyle = C.muted; ctx.lineWidth = 1;
+        for (let v = -ext; v <= ext; v += step) {
+            for (let u = -ext; u < ext; u += step) { // short segments, faded towards the border of the floor
+                const edge = 1 - Math.max(Math.abs(v), Math.abs(u + step / 2)) / (ext + step);
+                for (const [a, b] of [[{x: mx + v, y: floor, z: mz + u}, {x: mx + v, y: floor, z: mz + u + step}],
+                                      [{x: mx + u, y: floor, z: mz + v}, {x: mx + u + step, y: floor, z: mz + v}]]) {
+                    const pa = project(a), pb = project(b);
+                    if (!ok(pa) || !ok(pb)) continue;
+                    ctx.globalAlpha = 0.22 * edge;
+                    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+                }
+            }
+        }
+        ctx.fillStyle = C.text; // shadow of every node on the floor
+        for (const n of nodes) {
+            const p = state.pos.get(n.id), s = project({x: p.x, y: floor, z: p.z});
+            if (!ok(s)) continue;
+            const rr = radiusOf(n) * s.s * 1.1;
+            ctx.globalAlpha = 0.1;
+            ctx.beginPath(); ctx.ellipse(s.x, s.y, rr, rr * Math.max(0.15, Math.abs(Math.sin(state.cam.pitch))), 0, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+    function drawAxes(C) {
+        const ox = 44, oy = state.h - 44, len = 26;
+        const axes = [["X", 1, 0, 0, "#e5534b"], ["Y", 0, -1, 0, "#3fb950"], ["Z", 0, 0, 1, "#539bf5"]]
+            .map(([l, x, y, z, c]) => ({l, c, d: rotateDir(x, y, z)})).sort((a, b) => b.d.z - a.d.z);
+        ctx.globalAlpha = 0.9; ctx.lineWidth = 2; ctx.font = "600 10px system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.fillStyle = C.surface; ctx.beginPath(); ctx.arc(ox, oy, len + 12, 0, Math.PI * 2); ctx.fill();
+        for (const a of axes) {
+            const ex = ox + a.d.x * len, ey = oy + a.d.y * len;
+            ctx.globalAlpha = a.d.z > 0 ? 0.45 : 0.95; // pointing away: fainter
+            ctx.strokeStyle = a.c; ctx.fillStyle = a.c;
+            ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ex, ey); ctx.stroke();
+            ctx.fillText(a.l, ox + a.d.x * (len + 8), oy + a.d.y * (len + 8) + 3.5);
+        }
+        ctx.globalAlpha = 1;
+    }
     function draw() {
         const C = state.colors;
         ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
         ctx.clearRect(0, 0, state.w, state.h);
         const proj = new Map();
         for (const n of state.visible) proj.set(n.id, project(state.pos.get(n.id)));
+        const d3 = state.mode === "3d";
+        let z0 = Infinity, z1 = -Infinity;
+        if (d3) { for (const p of proj.values()) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } drawFloor(C); }
+        const depth = (z) => d3 && z1 > z0 ? (z - z0) / (z1 - z0) : 0; // 0 = closest, 1 = farthest
         const focus = state.hover || state.selected;
         const near = focus ? state.neighbors.get(focus) || new Set() : null;
         const lh = state.legendHover;
@@ -1265,9 +1323,10 @@ function extractGraph(files, opts) {
             const a = proj.get(l.source), b = proj.get(l.target);
             const hot = focus && (l.source === focus || l.target === focus);
             const lit = lh && !focus && (lh.type === "link" ? l.kind === lh.key : lhMatch(l.source) && lhMatch(l.target));
-            ctx.globalAlpha = hot || lit ? 0.95 : (focus || state.match || lh ? 0.07 : state.mode === "3d" ? 0.28 : 0.35);
+            const fog = 1 - 0.75 * depth((a.z + b.z) / 2);
+            ctx.globalAlpha = (hot || lit ? 0.95 : (focus || state.match || lh ? 0.07 : d3 ? 0.4 : 0.35)) * (hot ? 1 : fog);
             ctx.strokeStyle = hot ? C.accent : LINKS[l.kind][0];
-            ctx.lineWidth = hot ? 1.6 : lit ? 2 : 1;
+            ctx.lineWidth = (hot ? 1.6 : lit ? 2 : 1) * (d3 ? Math.min(2.2, Math.max(0.5, (a.s + b.s) / 2)) : 1);
             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
             if (hot || (state.mode === "2d" && state.cam.k > 1.6)) { // arrow head
                 const r = radiusOf(state.byId.get(l.target)) * b.s + 2;
@@ -1307,6 +1366,14 @@ function extractGraph(files, opts) {
             ctx.globalAlpha = faded ? 0.12 : 1;
             ctx.fillStyle = colorOf(n);
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+            if (d3) { // shaded sphere (light from the top left) + fog towards the background with the depth
+                const hl = ctx.createRadialGradient(p.x - r * 0.38, p.y - r * 0.42, r * 0.05, p.x - r * 0.2, p.y - r * 0.2, r * 1.05);
+                hl.addColorStop(0, "rgba(255,255,255,.75)"); hl.addColorStop(0.35, "rgba(255,255,255,.12)");
+                hl.addColorStop(0.7, "rgba(0,0,0,0)"); hl.addColorStop(1, "rgba(0,0,0,.45)");
+                ctx.fillStyle = hl; ctx.fill();
+                const t = depth(p.z);
+                if (t > 0.02) { ctx.globalAlpha = (faded ? 0.12 : 1) * 0.62 * t; ctx.fillStyle = C.bg; ctx.fill(); ctx.globalAlpha = faded ? 0.12 : 1; }
+            }
             if (n.id === state.selected || n.id === state.hover || (state.match && state.match.has(n.id))) {
                 ctx.lineWidth = 2; ctx.strokeStyle = C.accent; ctx.stroke();
             } else if (n.pure || n.external) {
@@ -1317,10 +1384,12 @@ function extractGraph(files, opts) {
             if (showLabel && !faded) {
                 ctx.globalAlpha = 1;
                 ctx.fillStyle = C.text;
+                ctx.globalAlpha = 1 - 0.55 * depth(p.z);
                 ctx.fillText(n.label, p.x, p.y + r + 11);
             }
         }
         ctx.globalAlpha = 1;
+        if (d3) drawAxes(C);
     }
     function frame() {
         let moved = false;
@@ -1586,7 +1655,7 @@ function extractGraph(files, opts) {
     const HELP = {
         update: ["Update", "Fetches the last version of the GitHub repository and rebuilds the graph.", "Asks the GitHub API for the last commit of the branch. If it is newer than the graph shown, the sources are downloaded and the graph is rebuilt in the browser (and cached). Run once automatically at load. Offline, private repository or API limit: the embedded graph stays and the status says why.", "overview"],
         mode2d: ["2D view", "Flat graph: drag to move, scroll to zoom.", "Flat rendering, the most readable for the names. Dragging the background moves the view, dragging a node moves it, the scroll zooms under the cursor, a click opens the details.", "flat"],
-        mode3d: ["3D view", "Graph in perspective: drag to rotate, Shift + drag to move.", "Nodes are spread in depth (the closest are bigger). Dragging rotates the scene, Shift + drag (or right click) moves it, the scroll brings the camera closer. Useful to untangle a dense graph.", "persp"],
+        mode3d: ["3D view", "Graph in perspective: drag to rotate, Shift + drag to move.", "Nodes are shaded spheres spread in depth: the closest are bigger and brighter, the farthest fade out; a floor grid with their shadows and the X / Y / Z gizmo (bottom left) show the orientation. Dragging rotates the scene, Shift + drag (or right click) moves it, the scroll brings the camera closer. Useful to untangle a dense graph.", "persp"],
         fit: ["Fit", "Centers and zooms to see every displayed node.", "Computes the box containing every visible node and adapts the zoom (2D) or the camera distance (3D).", "overview"],
         pause: ["Freeze / Resume", "Stops or restarts the force simulation.", "Nodes are placed by a physical simulation (repulsion between nodes, springs on the relations). Freeze keeps the current layout to read it quietly; Resume puts it in motion again.", "flat"],
         search: ["Search", "Highlights the nodes whose name or path contains the text.", "The search looks at the name and the path of the visible nodes. The others are faded; Enter centers the view on the first result and opens its details.", "isolate"],
@@ -1632,7 +1701,7 @@ function extractGraph(files, opts) {
     const HELP_FR = {
         update: ["Mettre à jour", "Récupère la dernière version du dépôt GitHub et reconstruit le graphe.", "Interroge l'API GitHub pour le dernier commit de la branche. S'il est plus récent que le graphe affiché, les sources sont téléchargées et le graphe est reconstruit dans le navigateur (gardé en cache). Lancé une fois automatiquement au chargement. Hors ligne, dépôt privé ou limite d'API : le graphe embarqué reste affiché et le statut dit pourquoi.", "overview"],
         mode2d: ["Vue 2D", "Graphe à plat : glisser pour déplacer, molette pour zoomer.", "Rendu à plat, le plus lisible pour lire les noms. Glisser le fond déplace la vue, glisser un nœud le déplace, la molette zoome sous le curseur, un clic ouvre les détails.", "flat"],
-        mode3d: ["Vue 3D", "Graphe en perspective : glisser pour tourner, Maj + glisser pour déplacer.", "Les nœuds sont répartis en profondeur (les plus proches sont plus gros). Glisser fait tourner la scène, Maj + glisser (ou clic droit) la déplace, la molette rapproche la caméra. Utile pour démêler un graphe dense.", "persp"],
+        mode3d: ["Vue 3D", "Graphe en perspective : glisser pour tourner, Maj + glisser pour déplacer.", "Les nœuds sont des sphères ombrées réparties en profondeur : les plus proches sont plus gros et plus nets, les plus lointains s'estompent ; un sol quadrillé avec leurs ombres et le repère X / Y / Z (en bas à gauche) montrent l'orientation. Glisser fait tourner la scène, Maj + glisser (ou clic droit) la déplace, la molette rapproche la caméra. Utile pour démêler un graphe dense.", "persp"],
         fit: ["Ajuster", "Recentre et zoome pour voir tous les nœuds affichés.", "Calcule la boîte qui contient tous les nœuds visibles et adapte le zoom (2D) ou la distance de la caméra (3D).", "overview"],
         pause: ["Figer / Relancer", "Arrête ou relance la simulation des forces.", "Le placement des nœuds est calculé par une simulation physique (répulsion entre nœuds, ressorts sur les relations). Figer la fige dans son état actuel pour lire tranquillement ; Relancer la remet en mouvement.", "flat"],
         search: ["Recherche", "Surligne les nœuds dont le nom ou le chemin contient le texte.", "La recherche porte sur le nom et le chemin des nœuds visibles. Les autres sont estompés ; Entrée centre la vue sur le premier résultat et ouvre ses détails.", "isolate"],
