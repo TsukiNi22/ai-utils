@@ -27,10 +27,20 @@ is needed when the audience of the tool is not obvious.
   (`build_graph.mjs` runs it by itself). Online, a `HEAD` check also hides the tab of a missing page.
   File names: guide = `index.html`; technical = `index.html` when there is no guide, else `technical.html`;
   graph = `graph.html`. Generate the technical page and the graph by default (both linked to each other).
-- Theme: **moon** icon in light mode, **sun** in dark mode, never a text button; choice saved in `localStorage`
-  under `{{STORAGE_KEY}}-theme` (same key on every page, so the theme follows), default = system preference.
-- **English by default** (`<html lang="en">`, every text and UI string of the templates); another language only when
-  the user asks for it (translate the UI strings, the `HELP` table of the graph and the tab labels of `sync_nav.py`).
+- **Language switch EN | FR** (pill at the top right, before the theme switch), **English by default**, the choice
+  is saved under `{{STORAGE_KEY}}-lang` and shared by the pages:
+  - the content is written in **both languages**: every text node of the page (summary links, titles, paragraphs,
+    table cells, captions, `{{TITLE}}` / `{{SUBTITLE}}`) as a pair `<span data-lang="en">...</span><span
+    data-lang="fr">...</span>` (or a block `<div data-lang="en">` + `<div data-lang="fr">` for long parts); only the
+    active language is displayed;
+  - UI strings carry `data-i18n` (text) / `data-i18n-title|aria-label|placeholder` (attributes) and are translated
+    by `window.DOC_FR` (English text -> French text) at the top of the page: add the new UI strings there;
+  - scripts translate their generated texts with `window.docI18n.tr()` and re-render on `docI18n.onChange()`
+    (the graph does it for its legends, status, details, hint and help: `HELP` / `HELP_FR`).
+  Another language than EN/FR only on request (add a button and a dictionary).
+- **Theme switch** at the top right: a sliding toggle, blue track with a white sun (light), black track with a yellow
+  moon and stars (dark), `role="switch"` + `aria-checked`; choice saved under `{{STORAGE_KEY}}-theme`, default =
+  system preference.
 - Placeholders: `{{PROJECT}}`, `{{VERSION}}` (`vX.Y.Z`), `{{REPO_URL}}`, `{{STORAGE_KEY}}` (project slug),
   `{{TITLE}}`, `{{SUBTITLE}}`.
 - Before delivering: valid HTML, every tab/summary link points to an existing page/`id`, readable in both themes

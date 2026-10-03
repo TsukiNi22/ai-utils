@@ -34,7 +34,7 @@ def main() -> int:
         path = os.path.join(d, name)
         t = open(path, encoding="utf-8").read()
         links = "\n".join(
-            f'    <a href="{fn}"' + (' class="current" aria-current="page"' if k == kind else "") + f">{label}</a>"
+            f'    <a href="{fn}"' + (' class="current" aria-current="page"' if k == kind else "") + f" data-i18n>{label}</a>"
             for k, label, fn in present)
         hidden = " hidden" if len(present) < 2 else ""
         t = re.sub(r'<nav class="tabs"[^>]*>.*?</nav>',

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-page="technical">
+<html lang="en" data-page="technical" data-storage-key="{{STORAGE_KEY}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -176,14 +176,6 @@ svg .arrow-accent { fill: var(--accent); }
 .icon-btn:hover { color: var(--accent); border-color: var(--accent); }
 .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .icon-btn svg { width: 18px; height: 18px; }
-/* light -> show the moon (go dark), dark -> show the sun (go light) */
-.theme-toggle .icon-sun { display: none; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .theme-toggle .icon-sun { display: block; }
-  :root:not([data-theme="light"]) .theme-toggle .icon-moon { display: none; }
-}
-:root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
-:root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; padding: 24px 16px 60px; gap: 16px; }
   .topbar { gap: 10px; padding: 0 12px; }
@@ -192,6 +184,48 @@ svg .arrow-accent { fill: var(--accent); }
   section { padding: 20px 16px; }
   header h1 { font-size: 27px; }
 }
+/* Language switch (EN / FR pill) */
+.lang-switch {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border: 1.5px solid var(--border); border-radius: 999px; background: var(--surface);
+}
+.lang-switch button {
+  border: 0; background: none; color: var(--text); cursor: pointer;
+  font: 600 12.5px system-ui, sans-serif; letter-spacing: .03em;
+  padding: 4px 11px; border-radius: 999px; transition: background .2s, color .2s;
+}
+.lang-switch button.on { background: var(--accent); color: var(--surface); }
+.lang-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Theme switch: blue track + sun (light), black track + moon and stars (dark) */
+.theme-switch {
+  position: relative; width: 58px; height: 30px; flex: none; padding: 0; border: 0; border-radius: 999px;
+  background: #2196f3; cursor: pointer; transition: background .3s;
+}
+.theme-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-switch .knob {
+  position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; transition: transform .3s, background .3s;
+}
+.theme-switch .knob svg { width: 22px; height: 22px; }
+.theme-switch .sun { display: block; }
+.theme-switch .moon, .theme-switch .stars { display: none; }
+.theme-switch .stars { position: absolute; inset: 0; }
+.theme-switch .stars i { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; }
+.theme-switch .stars i:nth-child(1) { left: 9px; top: 9px; }
+.theme-switch .stars i:nth-child(2) { left: 16px; top: 18px; width: 1.5px; height: 1.5px; }
+.theme-switch .stars i:nth-child(3) { left: 21px; top: 8px; width: 1.5px; height: 1.5px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-switch { background: #0b0b0d; box-shadow: inset 0 0 0 1px #2a2c31; }
+  :root:not([data-theme="light"]) .theme-switch .knob { transform: translateX(28px); background: #ffffff; }
+  :root:not([data-theme="light"]) .theme-switch .sun { display: none; }
+  :root:not([data-theme="light"]) .theme-switch .moon, :root:not([data-theme="light"]) .theme-switch .stars { display: block; }
+}
+:root[data-theme="dark"] .theme-switch { background: #0b0b0d; box-shadow: inset 0 0 0 1px #2a2c31; }
+:root[data-theme="dark"] .theme-switch .knob { transform: translateX(28px); background: #ffffff; }
+:root[data-theme="dark"] .theme-switch .sun { display: none; }
+:root[data-theme="dark"] .theme-switch .moon, :root[data-theme="dark"] .theme-switch .stars { display: block; }
+/* Bilingual content: only the active language is shown */
+:root[lang="en"] [data-lang="fr"], :root[lang="fr"] [data-lang="en"] { display: none !important; }
 </style>
 </head>
 <body>
@@ -199,29 +233,31 @@ svg .arrow-accent { fill: var(--accent); }
   <a class="brand" href="index.html">{{PROJECT}} <span class="ver">{{VERSION}}</span></a>
   <nav class="tabs" aria-label="Pages">
     <!-- PAGES: keep only the pages that exist, the first one is index.html -->
-    <a href="index.html">Guide</a>
-    <a href="technical.html" class="current" aria-current="page">Technical</a>
-    <a href="graph.html">Graph</a>
+    <a href="index.html" data-i18n>Guide</a>
+    <a href="technical.html" class="current" aria-current="page" data-i18n>Technical</a>
+    <a href="graph.html" data-i18n>Graph</a>
   </nav>
   <span class="spacer"></span>
-  <a class="icon-btn" href="{{REPO_URL}}" title="GitHub repository" aria-label="GitHub repository">
+  <a class="icon-btn" href="{{REPO_URL}}" title="GitHub repository" data-i18n-title aria-label="GitHub repository" data-i18n-aria-label>
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
   </a>
-  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
-    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
-    </svg>
-    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4"/>
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-    </svg>
+  <div class="lang-switch" role="group" aria-label="Language">
+    <button type="button" data-set-lang="en" class="on">EN</button>
+    <button type="button" data-set-lang="fr">FR</button>
+  </div>
+  <button class="theme-switch" type="button" id="themeToggle" role="switch" aria-checked="false" aria-label="Toggle theme" data-i18n-aria-label title="Toggle theme" data-i18n-title>
+    <span class="stars" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="knob" aria-hidden="true">
+      <svg class="sun" viewBox="0 0 24 24" fill="#ffffff"><circle cx="12" cy="12" r="5.2"/><g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"><path d="M12 1.8v2.6M12 19.6v2.6M1.8 12h2.6M19.6 12h2.6M4.8 4.8l1.8 1.8M17.4 17.4l1.8 1.8M4.8 19.2l1.8-1.8M17.4 6.6l1.8-1.8"/></g></svg>
+      <svg class="moon" viewBox="0 0 24 24"><path d="M15.6 4.2a8 8 0 1 0 4.2 11.6A7 7 0 0 1 15.6 4.2z" fill="#f6c343"/></svg>
+    </span>
   </button>
 </header>
 <div class="layout">
-<nav class="toc" aria-label="Contents">
-  <p>Contents</p>
-  <a href="#overview">1. Overview</a>
-  <a href="#usage">2. Usage</a>
+<nav class="toc" aria-label="Contents" data-i18n-aria-label>
+  <p data-i18n>Contents</p>
+  <a href="#overview"><span data-lang="en">1. Overview</span><span data-lang="fr">1. Vue d'ensemble</span></a>
+  <a href="#usage"><span data-lang="en">2. Usage</span><span data-lang="fr">2. Utilisation</span></a>
 </nav>
 
 <main>
@@ -232,13 +268,13 @@ svg .arrow-accent { fill: var(--accent); }
 
 <!-- 1 -->
 <section id="overview">
-  <h2>1. Overview</h2>
-  <p>Short text. Code names <code>inline</code>.</p>
+  <h2><span data-lang="en">1. Overview</span><span data-lang="fr">1. Vue d'ensemble</span></h2>
+  <p><span data-lang="en">Short text. Code names <code>inline</code>.</span><span data-lang="fr">Texte court. Les noms de code en <code>inline</code>.</span></p>
 
   <div class="table-wrap"><table>
-    <thead><tr><th>Element</th><th>Role</th></tr></thead>
+    <thead><tr><th><span data-lang="en">Element</span><span data-lang="fr">Élément</span></th><th><span data-lang="en">Role</span><span data-lang="fr">Rôle</span></th></tr></thead>
     <tbody>
-      <tr><td><code>ISocket</code></td><td>Common interface</td></tr>
+      <tr><td><code>ISocket</code></td><td><span data-lang="en">Common interface</span><span data-lang="fr">Interface commune</span></td></tr>
     </tbody>
   </table></div>
 
@@ -256,17 +292,17 @@ svg .arrow-accent { fill: var(--accent); }
       <path class="edge" d="M240 60H516" marker-end="url(#arr)"/>
       <text class="small" x="380" y="52" text-anchor="middle">send</text>
     </svg>
-    <figcaption>Figure 1: short caption.</figcaption>
+    <figcaption><span data-lang="en">Figure 1: short caption.</span><span data-lang="fr">Figure 1 : légende courte.</span></figcaption>
   </figure>
 
-  <div class="callout"><p>Note.</p></div>
-  <div class="callout warn"><p>Limit / warning.</p></div>
+  <div class="callout"><p><span data-lang="en">Note.</span><span data-lang="fr">Remarque.</span></p></div>
+  <div class="callout warn"><p><span data-lang="en">Limit / warning.</span><span data-lang="fr">Limite / attention.</span></p></div>
 </section>
 
 <!-- 2 -->
 <section id="usage">
-  <h2>2. Usage</h2>
-  <h3>2.1 Example</h3>
+  <h2><span data-lang="en">2. Usage</span><span data-lang="fr">2. Utilisation</span></h2>
+  <h3><span data-lang="en">2.1 Example</span><span data-lang="fr">2.1 Exemple</span></h3>
 <pre><code>cmake -S . -B build
 cmake --build build --parallel $(nproc)</code></pre>
 </section>
@@ -274,16 +310,75 @@ cmake --build build --parallel $(nproc)</code></pre>
 </main>
 </div>
 <script>
+// French texts of the page (English text -> French text), extend it with the page content
+window.DOC_FR = {
+  "Guide": "Guide",
+  "Technical": "Technique",
+  "Graph": "Graphe",
+  "GitHub repository": "Dépôt GitHub",
+  "Toggle theme": "Changer de thème",
+  "Contents": "Sommaire",
+  "Language": "Langue",
+  "Pages": "Pages"
+};
+</script>
+<script>
+// Language (English by default, French on demand): [data-i18n] elements and [data-i18n-<attr>] attributes are
+// translated with window.DOC_FR (English text -> French text), [data-lang] blocks are shown for their language only.
+(function () {
+  var root = document.documentElement;
+  var key = (root.getAttribute('data-storage-key') || 'doc') + '-lang';
+  var FR = window.DOC_FR || {};
+  var listeners = [];
+  function tr(s) { return root.lang === 'fr' && Object.prototype.hasOwnProperty.call(FR, s) ? FR[s] : s; }
+  function apply() {
+    document.querySelectorAll('[data-i18n]').forEach(function (el) {
+      if (el.dataset.i18nEn === undefined) el.dataset.i18nEn = el.innerHTML.trim();
+      el.innerHTML = tr(el.dataset.i18nEn);
+    });
+    ['aria-label', 'title', 'placeholder'].forEach(function (attr) {
+      document.querySelectorAll('[data-i18n-' + attr + ']').forEach(function (el) {
+        var store = 'i18nEn' + attr.replace(/-(\w)/g, function (m, c) { return c.toUpperCase(); });
+        if (el.dataset[store] === undefined) el.dataset[store] = el.getAttribute(attr) || '';
+        el.setAttribute(attr, tr(el.dataset[store]));
+      });
+    });
+    document.querySelectorAll('[data-set-lang]').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.setLang === root.lang);
+      b.setAttribute('aria-pressed', b.dataset.setLang === root.lang ? 'true' : 'false');
+    });
+  }
+  function set(lang) {
+    root.lang = lang === 'fr' ? 'fr' : 'en';
+    try { localStorage.setItem(key, root.lang); } catch (e) { /* storage unavailable */ }
+    apply();
+    listeners.forEach(function (f) { f(root.lang); });
+  }
+  var saved = null;
+  try { saved = localStorage.getItem(key); } catch (e) { /* storage unavailable */ }
+  root.lang = saved === 'fr' ? 'fr' : 'en';
+  window.docI18n = { tr: tr, set: set, onChange: function (f) { listeners.push(f); }, lang: function () { return root.lang; } };
+  document.querySelectorAll('[data-set-lang]').forEach(function (b) {
+    b.addEventListener('click', function () { set(b.dataset.setLang); });
+  });
+  apply();
+})();
+</script>
+<script>
 (function () {
   var root = document.documentElement;
   var key = '{{STORAGE_KEY}}-theme';
   var btn = document.getElementById('themeToggle');
   try { var saved = localStorage.getItem(key); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
-  btn.addEventListener('click', function () {
-    var dark = root.getAttribute('data-theme') === 'dark' ||
+  function isDark() {
+    return root.getAttribute('data-theme') === 'dark' ||
       (!root.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    var next = dark ? 'light' : 'dark';
+  }
+  btn.setAttribute('aria-checked', isDark() ? 'true' : 'false');
+  btn.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
+    btn.setAttribute('aria-checked', next === 'dark' ? 'true' : 'false');
     try { localStorage.setItem(key, next); } catch (e) {}
   });
 
