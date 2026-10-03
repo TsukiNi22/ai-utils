@@ -21,6 +21,15 @@
   Markdown, docs, READMEs, audits...) are written in English, unless the user explicitly
   asks for another language. Only the conversation itself follows the user's language.
 
+# Shell aliases
+
+- The Bash tool runs with the user's zsh aliases loaded (some names are aliased to
+  unexpected commands). Run real binaries with `command <cmd>` or `\<cmd>` (ex:
+  `\git status`, `command mkdir -p x`, `command sudo -A ...`) so that no alias is triggered.
+- Check the alias list given at the start of the session (SessionStart hook): some aliases
+  are useful and are meant to be used as they are (build shortcuts like `cm`, `cmd`, `cma`,
+  `cmR`, `buildD`...); use those on purpose when they fit, bypass all the others.
+
 # Subagents — token cost
 
 - NEVER launch a fork agent (`subagent_type: "fork"`) on your own initiative, under any
@@ -31,8 +40,7 @@
 
 # Root access (sudo) — no TTY on this PC
 
-The shell used by Claude has no terminal: a plain `sudo` can't ask for the password
-(and `sudo` is aliased to `lock` in the user's zsh, never call it bare).
+The shell used by Claude has no terminal: a plain `sudo` can't ask for the password.
 - Run root commands with the graphical prompt (GNOME, zenity):
   `SUDO_ASKPASS=~/.local/bin/sudo-askpass command sudo -A <command>`
   The user types the password in a window showing the command. Fallback when sudo -A
