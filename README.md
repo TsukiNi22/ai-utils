@@ -16,6 +16,7 @@ file layout, tooling), so that what it generates looks like something I wrote my
 | [`git-conventions`](git-conventions/SKILL.md) | Commit messages `type(scope): message`, CI keywords, tags, GitHub releases, CHANGELOG, branches & PRs (to be defined), no AI attribution. |
 | [`readme-style`](readme-style/SKILL.md) | README / Markdown docs structure: Table of Contents, Dependencies, Packages, Quick Setup, Usage, GitHub callouts, tables. |
 | [`html-doc`](html-doc/SKILL.md) | One uniform style for every HTML documentation page (summary, numbered cards, light/dark theme with a sun/moon button, SVG diagrams). |
+| [`libutils`](libutils/SKILL.md) | Reference of my library [libutils](https://github.com/TsukiNi22/libutils): every section, header and public API generated from a recorded version/commit (`reference/VERSION.md`), integration and conventions, plus `scripts/update.sh` to see what changed since that commit and regenerate. |
 
 Everything is based on my own work, mainly [libutils](https://github.com/TsukiNi22/libutils).
 
