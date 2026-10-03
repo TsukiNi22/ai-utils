@@ -1380,14 +1380,9 @@ function extractGraph(files, opts) {
     }
     function drawAxes(C) {
         const ox = GIZMO.x, oy = state.h - GIZMO.x, R = GIZMO.r, len = GIZMO.len;
-        // Ball: shaded sphere + its 3 great circles (back half faint), then the axes on top
+        // Ball: flat disc + the 3 great circles of the sphere (back half faint), then the axes on top
         ctx.globalAlpha = 1;
-        const g = ctx.createRadialGradient(ox - R * 0.35, oy - R * 0.4, R * 0.1, ox, oy, R);
-        g.addColorStop(0, C.surface); g.addColorStop(1, C.bg);
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ox, oy, R, 0, Math.PI * 2); ctx.fill();
-        const shade = ctx.createRadialGradient(ox - R * 0.35, oy - R * 0.4, R * 0.05, ox, oy, R * 1.05);
-        shade.addColorStop(0, "rgba(255,255,255,.16)"); shade.addColorStop(0.5, "rgba(255,255,255,0)"); shade.addColorStop(1, "rgba(0,0,0,.35)");
-        ctx.fillStyle = shade; ctx.fill();
+        ctx.fillStyle = C.surface; ctx.beginPath(); ctx.arc(ox, oy, R, 0, Math.PI * 2); ctx.fill(); // flat: no light effect
         ctx.lineWidth = 1; ctx.strokeStyle = state.gizmoHover ? C.accent : C.border; ctx.stroke();
         const rings = [[(a) => [Math.cos(a), Math.sin(a), 0], "#539bf5"], [(a) => [Math.cos(a), 0, Math.sin(a)], "#3fb950"], [(a) => [0, Math.cos(a), Math.sin(a)], "#e5534b"]];
         for (const [f, col] of rings) { // each ring is perpendicular to the axis of its colour
