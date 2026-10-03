@@ -30,7 +30,7 @@ bash SKILL_DIR/scripts/new_project.sh <dir> <name> <Core> [--no-libutils]
 Copies the committed template (local clone or GitHub), removes the template-only files (`setup.sh`, `setup.yml`,
 `scripts.zip`, the template repository condition of `build.yml`), renames `template` -> `<name>` and `Core` ->
 `<Core>` (files, folders, CMake, sources, workflows, guard `<CORE>_H`), namespace = name without `-`, sets the
-header dates to today, writes a minimal README. Never commits.
+header dates to today, writes a minimal README, fills the `.gitignore` block (step 7). Never commits.
 
 ## 3. Adapt by type (rules and templates of `cmake-style`)
 | Type | CMake | Sources |
@@ -73,17 +73,30 @@ in `.gitignore`.
   (`--no-sudo`, `--pre`, `--no-install`); remove the shell completion part (`--no-rc`, `*_block`, `setup_rc`)
   when the project has no completion files.
 
-## 7. Docs & repository
+## 7. .gitignore of the produced files
+After the CMake is final (and after every change of targets/outputs):
+```bash
+python3 SKILL_DIR/scripts/update_gitignore.py <dir>
+```
+It reads the CMake (and its `add_subdirectory`) and keeps a managed block in `.gitignore` with what the build writes
+in the sources: executables written at the root (`/<name>`, `/unit_tests`), plugins/libraries written in the
+sources (`/plugins/rules/*.so`...), generated files (exception header, `configure_file` outputs), packages
+(`*.rpm`, `*.deb`, `_CPack_Packages/` when CPack is used) and `/build`; lines already ignored (even by a global
+`*.so`) are not repeated, the block is regenerated at each run. Other custom outputs (data files, logs, generated
+assets of the project): add them under the block in a `## <Name>` group like the existing ones.
+
+## 8. Docs & repository
 - README (`readme-style`, full template for a packaged project, small one otherwise), `CHANGELOG.md`
   (`git-conventions/templates/CHANGELOG.md`), HTML docs (`html-doc`) if chosen.
 - Repository only on request: `git init -b main`, `gh repo create TsukiNi22/<name> --public --source . --remote origin`,
   first commit `chore: setup c++20 project from cpp_project_template` (`git-conventions`, no AI attribution);
   team project -> `dev` branch + protection of `main` (`git-conventions`).
 
-## 8. Check
+## 9. Check
 - `make` (or `cmake -S . -B build && cmake --build build`), run the binary (`./<name>`), `-DBUILD_TESTS=ON` + `ctest`,
   `cmake --build build --target get_unregistered_files` (no unregistered `.cpp`).
 - Library: `cmake --install build --prefix <tmp>` then `find_package(<name>)` from a tiny consumer.
+- `git status --ignored --short` after a build: every produced file is ignored, no source is.
 - Workflows: valid YAML (`python3 -c "import yaml; yaml.safe_load(open(f))"`), no `{{...}}` left
   (`grep -rn '{{' .`), no `template` / `Core` left from the base.
 - Report: created tree, type, CI/CD and what the user still has to configure (variables, secrets, gh-pages).

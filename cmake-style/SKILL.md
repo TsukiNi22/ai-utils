@@ -86,4 +86,6 @@ Sections, each introduced by the 3-line banner (`# ` + 25 `=`), one empty line b
 - Packages: `CPACK_GENERATOR "RPM;DEB"`, vendor/maintainer `TsukiNi22`, contact `xartania.contact@gmail.com`, MIT,
   channel `-pre` unless `<NAME>_STABLE_RELEASE`, the stable package obsoletes/replaces the `-pre` one and both
   conflict, release number `1` for stable / `${PACKAGE_RELEASE}` (CI run number) / `0`.
+- New target / output written in the sources (executable at the root, plugin dir, generated file): update the
+  `.gitignore` with `python3 ~/.claude/skills/cpp-project/scripts/update_gitignore.py <root>`.
 - Root `Makefile` wrapper (`all`, `clean`, `fclean`, `re`) calling CMake with `BUILD_DIR := build`.

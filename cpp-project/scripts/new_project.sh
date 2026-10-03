@@ -114,4 +114,5 @@ EOF
 
 command mkdir -p "$TARGET"
 cp -r "$TMP"/. "$TARGET"/
+python3 "$(dirname "$0")/update_gitignore.py" "$TARGET" > /dev/null || echo "warning: .gitignore not updated" >&2
 echo "Project '$NAME' (core '$CORE', namespace '$NS') created in '$TARGET' from $FROM"
