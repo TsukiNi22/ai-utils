@@ -15,6 +15,13 @@
 - When work is done, just report the changed files; suggest the commit command
   instead of running it.
 
+# Reports — always PDF
+
+- Every audit, review, analysis, benchmark or summary delivered to the user is written in
+  Markdown and converted to PDF with the `pdf-report` skill (its style, its script
+  `~/.claude/skills/pdf-report/scripts/md2pdf.py`). The chat only gives the verdict and
+  the paths of the `.md` and `.pdf`.
+
 # Subagents — token cost
 
 - NEVER launch a fork agent (`subagent_type: "fork"`) on your own initiative, under any
