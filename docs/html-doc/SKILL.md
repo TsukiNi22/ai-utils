@@ -22,8 +22,14 @@ is needed when the audience of the tool is not obvious.
 - Style: the R-Type doc colors (CSS variables, never changed) merged with the layout of the context-forge site.
 - Top bar: mobile menu button (guide / technical), **project logo** (inline SVG in `.brand`, `currentColor` = accent;
   replace the default glyph by the project logo when there is one) + name + **version badge** (`{{VERSION}}`), page
-  tabs (`<nav class="tabs">`, hidden on mobile where the sidebar menu replaces them), GitHub icon (`{{REPO_URL}}`),
-  language switch, theme switch.
+  tabs (`<nav class="tabs">`, hidden on mobile where the menu replaces them), then the grouped actions
+  `.top-actions`: GitHub icon (`{{REPO_URL}}`) | divider | language switch, theme switch (same height).
+- **Repository data fetched**: `<html data-repo="{{GITHUB_REPO}}">` (`owner/repo`); at load the page asks the GitHub
+  API (cached 1 h) for the repository name, latest release (or tag), license and URL and replaces the written values
+  in `.repo-name` (brand, footer, page title), `.repo-version`, `.repo-license`, `a.repo-link`. Offline / private /
+  API limit: the written placeholders stay, so still fill them correctly.
+- No scroll beyond the page (`overscroll-behavior: none`); on wide screens the content column is centered on the
+  page, the contents list sits on its left.
 - **The pages are independent**: each declares its kind (`<html data-page="guide|technical|graph">`). After creating
   or removing a page, run `python3 SKILL_DIR/scripts/sync_nav.py docs`: it rebuilds the tabs of every page from the
   pages present (Guide, Technical, Graph), marks the current one and **hides the tabs when there is a single page**
@@ -45,7 +51,7 @@ is needed when the audience of the tool is not obvious.
   moon and stars (dark), `role="switch"` + `aria-checked`; choice saved under `{{STORAGE_KEY}}-theme`, default =
   system preference.
 - Placeholders: `{{PROJECT}}`, `{{VERSION}}` (`vX.Y.Z`), `{{REPO_URL}}`, `{{STORAGE_KEY}}` (project slug),
-  `{{TITLE}}`, `{{SUBTITLE}}`, `{{LICENSE}}` (SPDX id, footer).
+  `{{TITLE}}`, `{{SUBTITLE}}`, `{{LICENSE}}` (SPDX id, footer), `{{GITHUB_REPO}}` (`owner/repo`).
 - Page header: `.page-eyebrow` (small accent uppercase label: "User guide", "Technical documentation", "Architecture"),
   `h1`, `p.lead` (muted introduction).
 - Footer `footer.site` (guide / technical): "<project> documentation · generated from the repository (version,
@@ -63,10 +69,9 @@ For people who just want to **use** the tool: no jargon, no internal detail, tas
 - Say what the user sees when it works; one action per step.
 
 ## 2. Technical documentation (`templates/technical.html`)
-- **Sidebar tree** `<aside class="sidebar">` on the left (sticky, off-canvas menu on mobile): uppercase group titles
-  ("User guide": guide; "Developer guide": technical, graph), the page links, and under the **current page** its
-  sections in `<div class="sub">` (one link per section, same numbering); the current page and the visible section are
-  highlighted. `sync_nav.py` rebuilds the groups / page links and keeps the `.sub` block you write.
+- **Contents list** `<aside class="sidebar">` on the left (sticky, off-canvas menu on mobile): title "Contents", one
+  link per section of the page (same numbering, left border), the visible section highlighted. The pages are reached
+  by the top tabs and the previous / next cards.
 - `h2` / `h3` with an `id` (or in a `section[id]`) get a `#` anchor link on hover.
 - One `<section id="...">` card per topic, preceded by `<!-- N -->`, `<h2>N. Title</h2>`, sub-parts `<h3>N.M</h3>`.
   Usual order: overview, split into libraries/modules, each module, network/protocol, build. 5-9 sections.
@@ -91,7 +96,9 @@ For people who just want to **use** the tool: no jargon, no internal detail, tas
 ## 3. Project graph (`templates/graph.html`)
 Interactive graph drawn on a canvas by an embedded engine (no library); the panel starts with the eyebrow
 "Architecture", and the categories / groups / relations are **two-column legends** (dot swatch for the nodes and the
-groups, line swatch for the relations, count on the right, disabled entries faded): 2D (pan, zoom, drag nodes) and
+groups, line swatch for the relations, count on the right, disabled entries faded, `all` / `none` buttons; hovering
+an entry highlights its nodes / relations; clicking it shows / hides them, a relation toggle doesn't move the
+layout): 2D (pan, zoom, drag nodes) and
 3D (rotate, Shift+drag to pan, zoom), search, presets (overview, files & includes, classes & inheritance,
 classes & methods, tests, build, all), toggles per **category** (header, source, test file, class, struct,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**

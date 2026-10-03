@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-page="guide" data-storage-key="{{STORAGE_KEY}}">
+<html lang="en" data-page="guide" data-storage-key="{{STORAGE_KEY}}" data-repo="{{GITHUB_REPO}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -248,16 +248,10 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
 .brand .ver { font-size: 12px; color: var(--muted); font-weight: 500; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; }
 .menu-btn { display: none; }
 /* ---------- Sidebar tree (pages > sections of the current page) ---------- */
-.sidebar { position: sticky; top: 76px; align-self: start; max-height: calc(100vh - 96px); overflow-y: auto; font-size: 14px; }
-.sidebar h4 { margin: 18px 0 6px; padding: 0 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-.sidebar h4:first-child { margin-top: 0; }
-.sidebar a { display: block; padding: 5px 10px; border-radius: 6px; color: var(--text); text-decoration: none; }
-.sidebar a:hover { background: var(--code-bg); }
-.sidebar a.current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.sidebar .sub { margin: 2px 0 6px; }
-.sidebar .sub a { padding-left: 24px; color: var(--muted); font-size: 13.5px; }
-.sidebar .sub a:hover { color: var(--text); }
-.sidebar .sub a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.sidebar { position: sticky; top: 80px; align-self: start; max-height: calc(100vh - 100px); overflow-y: auto; font-size: 14px; }
+.sidebar p { margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+.sidebar a { display: block; padding: 5px 10px; color: var(--muted); text-decoration: none; border-left: 2px solid var(--border); }
+.sidebar a:hover, .sidebar a.active { color: var(--accent); border-left-color: var(--accent); }
 /* ---------- Page header: eyebrow + title + lead ---------- */
 .page-eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); margin-bottom: 6px; }
 header .lead { font-size: 17px; color: var(--muted); margin: 0 0 32px; max-width: 70ch; }
@@ -312,12 +306,35 @@ footer.site a { color: var(--accent); }
   .topbar a.icon-btn[href] { display: none; } /* GitHub link: also in the footer / graph panel */
   .lang-switch button { padding: 4px 9px; }
 }
+@media (min-width: 1340px) {
+  .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 880px) minmax(0, 1fr); max-width: none; }
+  .layout > .sidebar { grid-column: 1; justify-self: end; width: 230px; }
+  .layout > main { grid-column: 2; }
+  footer.site { max-width: 880px; }
+}
+/* ---------- No scroll beyond the page ---------- */
+html, body { overscroll-behavior: none; }
+/* ---------- Top right actions: same height, grouped, divider ---------- */
+.top-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.top-actions .divider { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
+.top-actions .icon-btn { width: 34px; height: 34px; }
+.top-actions .lang-switch { height: 34px; padding: 3px; background: var(--code-bg); border: 1px solid var(--border); }
+.top-actions .lang-switch button { height: 26px; padding: 0 10px; font-size: 12px; }
+.top-actions .theme-switch { width: 56px; height: 30px; border: 1px solid transparent; }
+.top-actions .theme-switch .knob { top: 2px; left: 2px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .top-actions .theme-switch { border-color: var(--border); box-shadow: none; }
+  :root:not([data-theme="light"]) .top-actions .theme-switch .knob { transform: translateX(26px); }
+}
+:root[data-theme="dark"] .top-actions .theme-switch { border-color: var(--border); box-shadow: none; }
+:root[data-theme="dark"] .top-actions .theme-switch .knob { transform: translateX(26px); }
+@media (max-width: 480px) { .top-actions .divider { display: none; } }
 </style>
 </head>
 <body>
 <header class="topbar">
   <button class="icon-btn menu-btn" type="button" id="menuBtn" aria-label="Open the navigation" data-i18n-aria-label><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-  <a class="brand" href="index.html"><svg class="logo" viewBox="0 0 32 32" fill="none" aria-hidden="true"><!-- default logo: replace with the project logo (inline SVG, currentColor) --><rect x="4" y="4" width="18" height="22" rx="3" fill="currentColor" opacity=".35"/><rect x="9" y="7" width="18" height="22" rx="3" fill="currentColor"/><path d="M13 14h10M13 18h10M13 22h6" stroke="var(--surface)" stroke-width="2" stroke-linecap="round"/></svg><span>{{PROJECT}}</span><span class="ver">{{VERSION}}</span></a>
+  <a class="brand" href="index.html"><svg class="logo" viewBox="0 0 32 32" fill="none" aria-hidden="true"><!-- default logo: replace with the project logo (inline SVG, currentColor) --><rect x="4" y="4" width="18" height="22" rx="3" fill="currentColor" opacity=".35"/><rect x="9" y="7" width="18" height="22" rx="3" fill="currentColor"/><path d="M13 14h10M13 18h10M13 22h6" stroke="var(--surface)" stroke-width="2" stroke-linecap="round"/></svg><span class="repo-name">{{PROJECT}}</span><span class="ver repo-version">{{VERSION}}</span></a>
   <nav class="tabs" aria-label="Pages">
     <!-- PAGES: keep only the pages that exist, the first one is index.html -->
     <a href="index.html" class="current" aria-current="page" data-i18n>Guide</a>
@@ -325,9 +342,11 @@ footer.site a { color: var(--accent); }
     <a href="graph.html" data-i18n>Graph</a>
   </nav>
   <span class="spacer"></span>
-  <a class="icon-btn" href="{{REPO_URL}}" title="GitHub repository" data-i18n-title aria-label="GitHub repository" data-i18n-aria-label>
+  <div class="top-actions">
+  <a class="icon-btn repo-link" href="{{REPO_URL}}" title="GitHub repository" data-i18n-title aria-label="GitHub repository" data-i18n-aria-label>
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
   </a>
+  <span class="divider" aria-hidden="true"></span>
   <div class="lang-switch" role="group" aria-label="Language">
     <button type="button" data-set-lang="en" class="on">EN</button>
     <button type="button" data-set-lang="fr">FR</button>
@@ -339,19 +358,16 @@ footer.site a { color: var(--accent); }
       <svg class="moon" viewBox="0 0 24 24"><path d="M15.6 4.2a8 8 0 1 0 4.2 11.6A7 7 0 0 1 15.6 4.2z" fill="#f6c343"/></svg>
     </span>
   </button>
+  </div>
 </header>
 <div class="layout">
-<aside class="sidebar" id="sidebar" aria-label="Navigation" data-i18n-aria-label>
-  <!-- sync_nav.py rebuilds the page links; the .sub block (sections of this page) is kept -->
-  <h4 data-i18n>User guide</h4>
-  <a href="index.html" class="current" aria-current="page" data-i18n>Guide</a>
-  <div class="sub">
-    <a href="#about"><span data-lang="en">1. About</span><span data-lang="fr">1. Présentation</span></a>
-    <a href="#install"><span data-lang="en">2. Installation</span><span data-lang="fr">2. Installation</span></a>
-    <a href="#start"><span data-lang="en">3. First steps</span><span data-lang="fr">3. Premiers pas</span></a>
-    <a href="#use"><span data-lang="en">4. Usage</span><span data-lang="fr">4. Utilisation</span></a>
-    <a href="#faq"><span data-lang="en">5. FAQ</span><span data-lang="fr">5. Questions fréquentes</span></a>
-  </div>
+<aside class="sidebar" id="sidebar" aria-label="Contents" data-i18n-aria-label>
+  <p data-i18n>Contents</p>
+  <a href="#about"><span data-lang="en">1. About</span><span data-lang="fr">1. Présentation</span></a>
+  <a href="#install"><span data-lang="en">2. Installation</span><span data-lang="fr">2. Installation</span></a>
+  <a href="#start"><span data-lang="en">3. First steps</span><span data-lang="fr">3. Premiers pas</span></a>
+  <a href="#use"><span data-lang="en">4. Usage</span><span data-lang="fr">4. Utilisation</span></a>
+  <a href="#faq"><span data-lang="en">5. FAQ</span><span data-lang="fr">5. Questions fréquentes</span></a>
 </aside>
 
 <main>
@@ -418,7 +434,7 @@ footer.site a { color: var(--accent); }
 <nav class="pager" aria-label="Pages"></nav>
 </main>
 </div>
-<footer class="site"><span data-lang="en">{{PROJECT}} documentation · generated from the <a href="{{REPO_URL}}">repository</a> ({{VERSION}}, {{LICENSE}})</span><span data-lang="fr">Documentation de {{PROJECT}} · générée depuis le <a href="{{REPO_URL}}">dépôt</a> ({{VERSION}}, {{LICENSE}})</span></footer>
+<footer class="site"><span data-lang="en"><span class="repo-name">{{PROJECT}}</span> documentation · generated from the <a class="repo-link" href="{{REPO_URL}}">repository</a> (<span class="repo-version">{{VERSION}}</span>, <span class="repo-license">{{LICENSE}}</span>)</span><span data-lang="fr">Documentation de <span class="repo-name">{{PROJECT}}</span> · générée depuis le <a class="repo-link" href="{{REPO_URL}}">dépôt</a> (<span class="repo-version">{{VERSION}}</span>, <span class="repo-license">{{LICENSE}}</span>)</span></footer>
 <script>
 // French texts of the page (English text -> French text), extend it with the page content
 window.DOC_FR = {
@@ -486,6 +502,43 @@ window.DOC_FR = {
 })();
 </script>
 <script>
+// Project data from the linked GitHub repository (<html data-repo="owner/repo">): name, latest version, license and
+// URL are fetched (cached 1 h) and replace the written values in .repo-name / .repo-version / .repo-license /
+// .repo-link and in the page title. Offline, private repository or API limit: the written values stay.
+(function () {
+  var root = document.documentElement, repo = root.getAttribute('data-repo') || '';
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return;
+  var key = (root.getAttribute('data-storage-key') || 'doc') + '-repo', TTL = 3600 * 1000;
+  function apply(info) {
+    if (!info) return;
+    var oldName = (document.querySelector('.repo-name') || {}).textContent;
+    if (info.name) document.querySelectorAll('.repo-name').forEach(function (e) { e.textContent = info.name; });
+    if (info.version) document.querySelectorAll('.repo-version').forEach(function (e) { e.textContent = info.version; });
+    if (info.license) document.querySelectorAll('.repo-license').forEach(function (e) { e.textContent = info.license; });
+    if (info.url) document.querySelectorAll('a.repo-link').forEach(function (e) { e.href = info.url; });
+    if (info.name && oldName && document.title.indexOf(oldName) === 0) document.title = info.name + document.title.slice(oldName.length);
+  }
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { /* storage unavailable */ }
+  if (cached && cached.repo === repo) apply(cached);
+  // A language change rewrites the translated texts from their original: apply the fetched data again
+  if (window.docI18n) window.docI18n.onChange(function () { var c = null; try { c = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { /* storage unavailable */ } apply(window.docRepoInfo || c); });
+  if (cached && cached.repo === repo && Date.now() - cached.time < TTL) return;
+  var api = 'https://api.github.com/repos/' + repo;
+  var get = function (u) { return fetch(u, { headers: { Accept: 'application/vnd.github+json' } }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); };
+  get(api).then(function (r) {
+    var info = { repo: repo, time: Date.now(), name: r.name, url: r.html_url, license: r.license && r.license.spdx_id && r.license.spdx_id !== 'NOASSERTION' ? r.license.spdx_id : '' };
+    return get(api + '/releases/latest').then(function (rel) { info.version = rel.tag_name; return info; })
+      .catch(function () { return get(api + '/tags?per_page=1').then(function (tags) { if (tags[0]) info.version = tags[0].name; return info; }); })
+      .catch(function () { return info; });
+  }).then(function (info) {
+    window.docRepoInfo = info;
+    apply(info);
+    try { localStorage.setItem(key, JSON.stringify(info)); } catch (e) { /* storage unavailable */ }
+  }).catch(function () { /* keep the written values */ });
+})();
+</script>
+<script>
 (function () {
   var root = document.documentElement;
   var key = '{{STORAGE_KEY}}-theme';
@@ -504,7 +557,7 @@ window.DOC_FR = {
   });
 
   // Highlight the section visible in the summary
-  var links = document.querySelectorAll('.sidebar .sub a');
+  var links = document.querySelectorAll('.sidebar a[href^="#"]');
   if (!('IntersectionObserver' in window)) return;
   var observer = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {

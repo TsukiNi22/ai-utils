@@ -72,7 +72,7 @@ const json = (o) => JSON.stringify(o).replace(/<\//g, "<\\/");
 const config = {project, repo: github, branch, storageKey: key};
 html = html.replace(/(<script id="graph-config" type="application\/json">)[\s\S]*?(<\/script>)/, (_, a, b) => a + json(config) + b);
 html = html.replace(/(<script id="graph-snapshot" type="application\/json">)[\s\S]*?(<\/script>)/, (_, a, b) => a + json(graph) + b);
-html = html.replaceAll("{{VERSION}}", version).replaceAll("{{PROJECT}}", project).replaceAll("{{STORAGE_KEY}}", key).replaceAll("{{REPO_URL}}", github ? "https://github.com/" + github : "#");
+html = html.replaceAll("{{GITHUB_REPO}}", github).replaceAll("{{VERSION}}", version).replaceAll("{{PROJECT}}", project).replaceAll("{{STORAGE_KEY}}", key).replaceAll("{{REPO_URL}}", github ? "https://github.com/" + github : "#");
 mkdirSync(dirname(out), {recursive: true});
 writeFileSync(out, html);
 // Tabs of the pages that exist in the same folder (guide / technical / graph)

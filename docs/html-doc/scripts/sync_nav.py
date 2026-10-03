@@ -7,8 +7,6 @@ Usage:
 
 Each page declares its kind with <html data-page="guide|technical|graph">. For every page:
 - the top tabs (<nav class="tabs">): Guide, Technical, Graph, the current one marked, hidden for a single page;
-- the sidebar tree (<aside class="sidebar">, guide / technical pages): groups "User guide" (guide) and
-  "Developer guide" (technical, graph), the current page highlighted with its own sections (.sub block, kept);
 - the previous / next links (<nav class="pager">);
 - the brand link -> first page.
 Pages are independent: removing one and re-running this script removes it everywhere.
@@ -19,7 +17,7 @@ import os
 import re
 import sys
 
-ORDER = [("guide", "Guide", "User guide"), ("technical", "Technical", "Developer guide"), ("graph", "Graph", "Developer guide")]
+ORDER = [("guide", "Guide", ""), ("technical", "Technical", ""), ("graph", "Graph", "")]
 
 
 def main() -> int:
@@ -41,20 +39,6 @@ def main() -> int:
                           for k, label, _, fn in present)
         hidden = " hidden" if len(present) < 2 else ""
         t = re.sub(r'<nav class="tabs"[^>]*>.*?</nav>', f'<nav class="tabs" aria-label="Pages"{hidden}>\n{links}\n  </nav>', t, count=1, flags=re.S)
-        # Sidebar tree (keeps the sections of the current page)
-        m = re.search(r'(<aside class="sidebar"[^>]*>\n)(.*?)(</aside>)', t, re.S)
-        if m:
-            sub = re.search(r'  <div class="sub">.*?\n  </div>\n', m.group(2), re.S)
-            body, last_group = "  <!-- sync_nav.py rebuilds the page links; the .sub block (sections of this page) is kept -->\n", None
-            for k, label, group, fn in present:
-                if group != last_group:
-                    body += f"  <h4 data-i18n>{group}</h4>\n"
-                    last_group = group
-                if k == kind:
-                    body += f'  <a href="{fn}" class="current" aria-current="page" data-i18n>{label}</a>\n' + (sub.group(0) if sub else "")
-                else:
-                    body += f'  <a href="{fn}" data-i18n>{label}</a>\n'
-            t = t[:m.start(2)] + body + t[m.end(2):]
         # Previous / next
         prev_, next_ = (present[i - 1] if i > 0 else None), (present[i + 1] if i + 1 < len(present) else None)
         pager = ""
