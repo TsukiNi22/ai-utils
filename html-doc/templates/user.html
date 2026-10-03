@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{PROJECT}} · Guide d'utilisation</title>
+<style>
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1d1f23;
+  --muted: #5d636e;
+  --border: #dfe1e5;
+  --accent: #2f5bd3;
+  --accent-soft: #e6ecfb;
+  --warn: #a8540a;
+  --warn-soft: #fbefe3;
+  --ok: #1f7a4a;
+  --ok-soft: #e3f4ea;
+  --code-bg: #f1f2f4;
+  --node: #ffffff;
+  --node-alt: #eef1f8;
+  --line: #8a909b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b;
+    --surface: #1d2025;
+    --text: #e6e7ea;
+    --muted: #9aa0ab;
+    --border: #30343b;
+    --accent: #7d9cf0;
+    --accent-soft: #232c45;
+    --warn: #f0a868;
+    --warn-soft: #3a2a1b;
+    --ok: #6fcf97;
+    --ok-soft: #1b3326;
+    --code-bg: #24272d;
+    --node: #23262c;
+    --node-alt: #283043;
+    --line: #747a85;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b;
+  --surface: #1d2025;
+  --text: #e6e7ea;
+  --muted: #9aa0ab;
+  --border: #30343b;
+  --accent: #7d9cf0;
+  --accent-soft: #232c45;
+  --warn: #f0a868;
+  --warn-soft: #3a2a1b;
+  --ok: #6fcf97;
+  --ok-soft: #1b3326;
+  --code-bg: #24272d;
+  --node: #23262c;
+  --node-alt: #283043;
+  --line: #747a85;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 40px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+nav {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: 14px;
+}
+nav p { margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+nav a {
+  display: block;
+  padding: 5px 10px;
+  color: var(--muted);
+  text-decoration: none;
+  border-left: 2px solid var(--border);
+}
+nav a:hover, nav a.active { color: var(--accent); border-left-color: var(--accent); }
+main { min-width: 0; }
+header h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; }
+header p { color: var(--muted); margin: 0 0 32px; max-width: 70ch; }
+section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  scroll-margin-top: 72px;
+}
+h2 { font-size: 22px; margin: 0 0 16px; }
+h3 { font-size: 17px; margin: 28px 0 10px; }
+p, li { max-width: 75ch; }
+a { color: var(--accent); }
+code {
+  font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+pre {
+  background: var(--code-bg);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+pre code { background: none; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.callout {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding: 12px 16px;
+  border-radius: 0 6px 6px 0;
+  margin: 16px 0;
+}
+.callout.warn { background: var(--warn-soft); border-left-color: var(--warn); }
+.callout.ok { background: var(--ok-soft); border-left-color: var(--ok); }
+.callout > :first-child { margin-top: 0; }
+.callout > :last-child { margin-bottom: 0; }
+figure { margin: 20px 0; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+svg .box { fill: var(--node); stroke: var(--line); stroke-width: 1.2; }
+svg .box-alt { fill: var(--node-alt); stroke: var(--accent); stroke-width: 1.2; }
+svg .group { fill: none; stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 5 4; }
+svg .lbl { fill: var(--text); font: 13px system-ui, sans-serif; }
+svg .small { fill: var(--muted); font: 11.5px system-ui, sans-serif; }
+svg .title { fill: var(--muted); font: 600 12px system-ui, sans-serif; letter-spacing: .05em; }
+svg .edge { stroke: var(--line); stroke-width: 1.4; fill: none; }
+svg .edge-accent { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+svg .dash { stroke-dasharray: 4 4; }
+svg .arrow { fill: var(--line); }
+svg .arrow-accent { fill: var(--accent); }
+.steps { list-style: none; counter-reset: step; padding: 0; margin: 16px 0; }
+.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0 0 18px 46px;
+  border-left: 2px solid var(--border);
+  margin-left: 15px;
+}
+.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+.steps > li::before {
+  content: counter(step);
+  position: absolute; left: -16px; top: -2px;
+  display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--accent); color: var(--surface);
+  font-weight: 700; font-size: 14px;
+}
+.steps > li > strong:first-child { display: block; margin-bottom: 2px; }
+kbd {
+  font: 0.85em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 1px 6px; border-radius: 5px;
+  border: 1px solid var(--border); border-bottom-width: 2px;
+  background: var(--surface);
+}
+details.faq { border-bottom: 1px solid var(--border); padding: 10px 0; }
+details.faq summary { cursor: pointer; font-weight: 600; list-style: none; }
+details.faq summary::-webkit-details-marker { display: none; }
+details.faq summary::before { content: "+"; display: inline-block; width: 18px; color: var(--accent); font-weight: 700; }
+details.faq[open] summary::before { content: "−"; }
+details.faq > :not(summary) { margin: 8px 0 0 18px; }
+.lead { font-size: 17px; }
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 18px;
+  height: 56px; padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: baseline; gap: 8px; color: var(--text); text-decoration: none; font-weight: 700; }
+.brand .ver { color: var(--muted); font-weight: 500; font-size: 13px; }
+.tabs { display: flex; gap: 4px; margin-left: 8px; overflow-x: auto; }
+.tabs a {
+  padding: 6px 12px; border-radius: 6px;
+  color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap;
+}
+.tabs a:hover { color: var(--text); background: var(--code-bg); }
+.tabs a.current { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.topbar .spacer { flex: 1; }
+.icon-btn {
+  display: grid; place-items: center;
+  width: 36px; height: 36px; padding: 0;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 50%;
+  cursor: pointer; text-decoration: none;
+  transition: border-color .15s, color .15s;
+}
+.icon-btn:hover { color: var(--accent); border-color: var(--accent); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon-btn svg { width: 18px; height: 18px; }
+/* light -> show the moon (go dark), dark -> show the sun (go light) */
+.theme-toggle .icon-sun { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .icon-sun { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle .icon-moon { display: none; }
+}
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; padding: 24px 16px 60px; gap: 16px; }
+  .topbar { gap: 10px; padding: 0 12px; }
+  .brand .ver { display: none; }
+  nav { position: static; }
+  section { padding: 20px 16px; }
+  header h1 { font-size: 27px; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html">{{PROJECT}} <span class="ver">{{VERSION}}</span></a>
+  <nav class="tabs" aria-label="Pages">
+    <!-- PAGES: keep only the pages that exist, the first one is index.html -->
+    <a href="index.html" class="current" aria-current="page">Guide</a>
+    <a href="technical.html">Technique</a>
+    <a href="graph.html">Graphe</a>
+  </nav>
+  <span class="spacer"></span>
+  <a class="icon-btn" href="{{REPO_URL}}" title="Dépôt GitHub" aria-label="Dépôt GitHub">
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+  </a>
+  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Changer de thème" title="Changer de thème">
+    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+    </svg>
+    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+    </svg>
+  </button>
+</header>
+<div class="layout">
+<nav aria-label="Sommaire">
+  <p>Sommaire</p>
+  <a href="#about">1. Présentation</a>
+  <a href="#install">2. Installation</a>
+  <a href="#start">3. Premiers pas</a>
+  <a href="#use">4. Utilisation</a>
+  <a href="#faq">5. Questions fréquentes</a>
+</nav>
+
+<main>
+<header>
+  <h1>{{TITLE}}</h1>
+  <p>{{SUBTITLE}}</p>
+</header>
+
+<!-- 1 -->
+<section id="about">
+  <h2>1. Présentation</h2>
+  <p class="lead">Ce que l'outil permet de faire, en une ou deux phrases, sans jargon.</p>
+  <p>Pour qui il est fait, et ce dont on a besoin avant de commencer.</p>
+  <div class="callout ok"><p>Ce que l'utilisateur obtient à la fin (le résultat concret).</p></div>
+</section>
+
+<!-- 2 -->
+<section id="install">
+  <h2>2. Installation</h2>
+  <ol class="steps">
+    <li><strong>Télécharger</strong> Où et quoi télécharger.</li>
+    <li><strong>Installer</strong> La commande à copier ou le fichier à ouvrir :
+<pre><code>commande à copier</code></pre></li>
+    <li><strong>Vérifier</strong> Ce que l'on doit voir si tout s'est bien passé.</li>
+  </ol>
+  <div class="callout warn"><p>Limite connue ou système non supporté.</p></div>
+</section>
+
+<!-- 3 -->
+<section id="start">
+  <h2>3. Premiers pas</h2>
+  <ol class="steps">
+    <li><strong>Lancer</strong> Comment démarrer (raccourci <kbd>Ctrl</kbd> + <kbd>C</kbd> pour arrêter).</li>
+    <li><strong>Premier résultat</strong> Le plus petit exemple utile.</li>
+  </ol>
+</section>
+
+<!-- 4 -->
+<section id="use">
+  <h2>4. Utilisation</h2>
+  <h3>4.1 Une tâche courante</h3>
+  <p>Une sous-partie par tâche, formulée comme ce que l'utilisateur veut faire.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Je veux…</th><th>Je fais…</th></tr></thead>
+    <tbody>
+      <tr><td>Exemple de besoin</td><td>Action correspondante</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 5 -->
+<section id="faq">
+  <h2>5. Questions fréquentes</h2>
+  <details class="faq">
+    <summary>Le problème tel que l'utilisateur le voit ?</summary>
+    <p>La cause en une phrase, puis la solution.</p>
+  </details>
+  <details class="faq">
+    <summary>Une autre question ?</summary>
+    <p>Réponse.</p>
+  </details>
+</section>
+
+</main>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  var key = '{{STORAGE_KEY}}-theme';
+  var btn = document.getElementById('themeToggle');
+  try { var saved = localStorage.getItem(key); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  btn.addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem(key, next); } catch (e) {}
+  });
+
+  // Highlight the section visible in the summary
+  var links = document.querySelectorAll('nav a');
+  if (!('IntersectionObserver' in window)) return;
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      links.forEach(function (a) { a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id); });
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  document.querySelectorAll('main section[id]').forEach(function (s) { observer.observe(s); });
+})();
+</script>
+</body>
+</html>

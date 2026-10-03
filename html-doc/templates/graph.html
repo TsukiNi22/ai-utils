@@ -1,0 +1,1213 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{PROJECT}} · Graphe du projet</title>
+<style>
+
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1d1f23;
+  --muted: #5d636e;
+  --border: #dfe1e5;
+  --accent: #2f5bd3;
+  --accent-soft: #e6ecfb;
+  --warn: #a8540a;
+  --warn-soft: #fbefe3;
+  --ok: #1f7a4a;
+  --ok-soft: #e3f4ea;
+  --code-bg: #f1f2f4;
+  --node: #ffffff;
+  --node-alt: #eef1f8;
+  --line: #8a909b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b;
+    --surface: #1d2025;
+    --text: #e6e7ea;
+    --muted: #9aa0ab;
+    --border: #30343b;
+    --accent: #7d9cf0;
+    --accent-soft: #232c45;
+    --warn: #f0a868;
+    --warn-soft: #3a2a1b;
+    --ok: #6fcf97;
+    --ok-soft: #1b3326;
+    --code-bg: #24272d;
+    --node: #23262c;
+    --node-alt: #283043;
+    --line: #747a85;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b;
+  --surface: #1d2025;
+  --text: #e6e7ea;
+  --muted: #9aa0ab;
+  --border: #30343b;
+  --accent: #7d9cf0;
+  --accent-soft: #232c45;
+  --warn: #f0a868;
+  --warn-soft: #3a2a1b;
+  --ok: #6fcf97;
+  --ok-soft: #1b3326;
+  --code-bg: #24272d;
+  --node: #23262c;
+  --node-alt: #283043;
+  --line: #747a85;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 18px;
+  height: 56px; padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: baseline; gap: 8px; color: var(--text); text-decoration: none; font-weight: 700; }
+.brand .ver { color: var(--muted); font-weight: 500; font-size: 13px; }
+.tabs { display: flex; gap: 4px; margin-left: 8px; overflow-x: auto; }
+.tabs a {
+  padding: 6px 12px; border-radius: 6px;
+  color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap;
+}
+.tabs a:hover { color: var(--text); background: var(--code-bg); }
+.tabs a.current { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.topbar .spacer { flex: 1; }
+.icon-btn {
+  display: grid; place-items: center;
+  width: 36px; height: 36px; padding: 0;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 50%;
+  cursor: pointer; text-decoration: none;
+  transition: border-color .15s, color .15s;
+}
+.icon-btn:hover { color: var(--accent); border-color: var(--accent); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon-btn svg { width: 18px; height: 18px; }
+/* light -> show the moon (go dark), dark -> show the sun (go light) */
+.theme-toggle .icon-sun { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .icon-sun { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle .icon-moon { display: none; }
+}
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+body { overflow: hidden; }
+.graph-shell {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  height: calc(100vh - 56px);
+  height: calc(100dvh - 56px);
+}
+.panel {
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 18px 18px 40px;
+  font-size: 14px;
+}
+.panel h1 { font-size: 20px; margin: 0 0 6px; }
+.panel p { margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.ps { border-top: 1px solid var(--border); padding: 14px 0 4px; margin-top: 12px; }
+.ps h4 {
+  margin: 0 0 8px; font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em;
+  display: flex; align-items: center; gap: 6px;
+}
+.ps h4 .count { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.ps h4 .mini { margin-left: auto; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn.primary:hover { filter: brightness(1.08); color: var(--surface); }
+.btn:disabled { opacity: .55; cursor: progress; }
+.btn svg { width: 15px; height: 15px; }
+.btn.spin svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.mini { border: 0; background: none; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; padding: 0 2px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); color: var(--muted); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.seg button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+input[type="search"], select {
+  width: 100%; padding: 7px 10px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 13.5px;
+}
+select { width: auto; }
+.status {
+  border-radius: 8px; padding: 9px 11px; margin: 10px 0;
+  background: var(--code-bg); font-size: 12.5px; line-height: 1.45;
+  border-left: 3px solid var(--line);
+}
+.status.ok { background: var(--ok-soft); border-left-color: var(--ok); }
+.status.warn { background: var(--warn-soft); border-left-color: var(--warn); }
+.status.busy { background: var(--accent-soft); border-left-color: var(--accent); }
+.status code { font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: inherit; font-size: 12.5px; cursor: pointer; user-select: none;
+}
+.chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.chip .n { color: var(--muted); font-size: 11.5px; }
+.chip.off { opacity: .42; }
+.chip.off .dot { background: transparent !important; outline: 1.5px solid var(--line); }
+.chip:hover { border-color: var(--accent); }
+.opt { display: flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; }
+.stage { position: relative; min-width: 0; overflow: hidden; background: var(--bg); }
+#graph { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+#graph.dragging { cursor: grabbing; }
+#graph.pointer { cursor: pointer; }
+.hint {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px 14px; font-size: 12.5px; color: var(--muted); pointer-events: none;
+  white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
+}
+.details {
+  position: absolute; top: 14px; right: 14px; width: 340px; max-height: calc(100% - 28px); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 18px; font-size: 13.5px; box-shadow: 0 8px 28px rgba(0, 0, 0, .14);
+}
+.details h3 { margin: 4px 0 8px; font-size: 17px; word-break: break-word; }
+.details .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; color: var(--muted); font-size: 22px; cursor: pointer; }
+.details .kind { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.details dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0 0 10px; }
+.details dt { color: var(--muted); }
+.details dd { margin: 0; word-break: break-all; }
+.details h5 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.details ul { list-style: none; padding: 0; margin: 0; }
+.details li a { display: flex; align-items: center; gap: 6px; padding: 2px 0; color: var(--text); text-decoration: none; cursor: pointer; }
+.details li a:hover { color: var(--accent); }
+.details li .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.panel-toggle { display: none; position: absolute; top: 12px; left: 12px; z-index: 5; }
+.help p { font-size: 12.5px; color: var(--muted); }
+@media (max-width: 860px) {
+  .topbar { gap: 10px; padding: 0 12px; }
+  .brand .ver { display: none; }
+  .graph-shell { grid-template-columns: 1fr; }
+  .panel { position: absolute; z-index: 6; top: 56px; bottom: 0; left: 0; width: min(340px, 88vw); transform: translateX(-100%); transition: transform .2s; box-shadow: 0 8px 28px rgba(0, 0, 0, .2); }
+  .panel:not(.open) { box-shadow: none; }
+  .panel.open { transform: none; }
+  .panel-toggle { display: inline-flex; }
+  .details { left: 12px; right: 12px; width: auto; top: auto; bottom: 12px; max-height: 50%; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html">{{PROJECT}} <span class="ver">{{VERSION}}</span></a>
+  <nav class="tabs" aria-label="Pages">
+    <!-- PAGES: keep only the pages that exist, the first one is index.html -->
+    <a href="index.html">Guide</a>
+    <a href="technical.html">Technique</a>
+    <a href="graph.html" class="current" aria-current="page">Graphe</a>
+  </nav>
+  <span class="spacer"></span>
+  <a class="icon-btn" href="{{REPO_URL}}" title="Dépôt GitHub" aria-label="Dépôt GitHub">
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+  </a>
+  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Changer de thème" title="Changer de thème">
+    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+    </svg>
+    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+    </svg>
+  </button>
+</header>
+
+<div class="graph-shell">
+  <aside class="panel" id="panel" aria-label="Contrôles du graphe">
+    <h1>Graphe du projet</h1>
+    <p class="muted small">Fichiers, classes, fonctions, tests, cibles CMake et dépendances externes de <code>{{PROJECT}}</code>, extraits des sources. Cliquer sur un nœud pour l'inspecter, glisser pour déplacer, molette pour zoomer.</p>
+
+    <div class="status" id="status">Chargement…</div>
+    <div class="row">
+      <button class="btn primary" id="update" type="button" title="Récupérer la dernière version du dépôt et reconstruire le graphe">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        Mettre à jour
+      </button>
+    </div>
+
+    <div class="ps">
+      <div class="row">
+        <div class="seg" role="group" aria-label="Rendu">
+          <button id="mode2d" class="active" type="button">2D</button>
+          <button id="mode3d" type="button">3D</button>
+        </div>
+        <button class="btn" id="fit" type="button" title="Recentrer le graphe">Ajuster</button>
+        <button class="btn" id="pause" type="button" title="Figer / relancer la simulation">Figer</button>
+      </div>
+      <input id="search" type="search" placeholder="Rechercher un nœud… (ex : Server, parse, .hpp)" autocomplete="off">
+    </div>
+
+    <div class="ps">
+      <h4>Vues</h4>
+      <div class="chips" id="presets">
+        <button class="chip" type="button" data-preset="overview">Vue d'ensemble</button>
+        <button class="chip" type="button" data-preset="files">Fichiers &amp; includes</button>
+        <button class="chip" type="button" data-preset="classes">Classes &amp; héritage</button>
+        <button class="chip" type="button" data-preset="members">Classes &amp; méthodes</button>
+        <button class="chip" type="button" data-preset="tests">Tests</button>
+        <button class="chip" type="button" data-preset="build">Build</button>
+        <button class="chip" type="button" data-preset="all">Tout</button>
+      </div>
+    </div>
+
+    <div class="ps">
+      <h4>Catégories <span class="count muted" id="nodeCount"></span><button class="mini" type="button" data-all="kinds">tout</button><button class="mini" type="button" data-none="kinds">aucun</button></h4>
+      <div class="chips" id="kinds"></div>
+    </div>
+
+    <div class="ps">
+      <h4>Groupes <span class="count muted" id="groupCount"></span><button class="mini" type="button" data-all="groups">tout</button><button class="mini" type="button" data-none="groups">aucun</button></h4>
+      <div class="chips" id="groups"></div>
+    </div>
+
+    <div class="ps">
+      <h4>Relations <span class="count muted" id="linkCount"></span><button class="mini" type="button" data-all="links">tout</button><button class="mini" type="button" data-none="links">aucun</button></h4>
+      <div class="chips" id="linkKinds"></div>
+    </div>
+
+    <div class="ps">
+      <h4>Options</h4>
+      <label class="opt">Couleur par
+        <select id="colorBy"><option value="kind">catégorie</option><option value="group">groupe</option></select>
+      </label>
+      <label class="opt"><input type="checkbox" id="cluster"> Rapprocher les nœuds d'un même groupe</label>
+      <label class="opt"><input type="checkbox" id="labels" checked> Afficher les noms</label>
+      <label class="opt"><input type="checkbox" id="isolate"> Isoler la sélection (voisins seulement)</label>
+    </div>
+
+    <div class="ps help">
+      <h4>Lecture</h4>
+      <p>Les flèches vont du dépendant vers la dépendance : <em>fichier → header inclus</em>, <em>classe → classe de base</em>, <em>source → cible CMake</em>, <em>cible → bibliothèque liée</em>, <em>test → classe testée</em>. La taille d'un nœud augmente avec son nombre de relations.</p>
+      <p>Le graphe embarqué vient du commit indiqué ci-dessus ; « Mettre à jour » (lancé une fois au chargement) récupère la dernière version du dépôt GitHub et le reconstruit dans le navigateur.</p>
+    </div>
+  </aside>
+
+  <div class="stage">
+    <canvas id="graph" aria-label="Graphe interactif du projet"></canvas>
+    <button class="btn panel-toggle" id="panelToggle" type="button" aria-label="Afficher les contrôles">☰ Contrôles</button>
+    <div class="details" id="details" hidden></div>
+    <div class="hint" id="hint">Chargement du graphe…</div>
+  </div>
+</div>
+
+<script id="graph-config" type="application/json">{"project": "{{PROJECT}}", "repo": "{{GITHUB_REPO}}", "branch": "{{BRANCH}}", "storageKey": "{{STORAGE_KEY}}"}</script>
+<script id="graph-snapshot" type="application/json">{"meta": {}, "nodes": [], "links": []}</script>
+<script>
+// <extractor> (shared with scripts/build_graph.mjs: keep it free of DOM / browser APIs)
+function extractGraph(files, opts) {
+    opts = opts || {};
+    const nodes = new Map();
+    const links = [];
+    const linkKeys = new Set();
+    const HEADER = /\.(hpp|hh|hxx|h|tpp|inl|ipp|h\+\+)$/;
+    const CODE = /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c|c\+\+)$/;
+    const POSIX = new Set(("unistd fcntl poll dlfcn signal errno termios pthread sched semaphore dirent netdb pwd grp glob spawn syslog time string strings stdio stdlib math assert limits stdint stddef ctype locale wchar wctype setjmp stdarg float iso646 fenv inttypes stdbool complex tgmath uchar execinfo cxxabi elf link malloc memory alloca getopt libgen regex fnmatch ifaddrs utime ucontext").split(" "));
+    const SYSDIRS = new Set(["sys", "netinet", "arpa", "linux", "bits", "net", "asm", "machine", "mach", "x86intrin"]);
+    const ATTR = /^_[a-z]+$/; // libutils attribute macros (_hot, _nodiscard, ...)
+    const SKIPNAMES = new Set(["if", "for", "while", "switch", "return", "sizeof", "decltype", "alignas", "alignof", "requires", "static_assert", "noexcept", "throw", "catch", "defined", "static_cast", "reinterpret_cast", "const_cast", "dynamic_cast", "operator"]);
+    const byPath = new Map(files.map(f => [f.path, f]));
+    const classByName = new Map(); // simple name -> [ids]
+    const pendingImpl = []; // [fileId, className]
+    const pendingBases = []; // [classId, baseName]
+
+    function node(id, kind, label, extra) {
+        if (!nodes.has(id)) nodes.set(id, Object.assign({id, kind, label}, extra || {}));
+        return nodes.get(id);
+    }
+    function link(source, target, kind) {
+        if (source === target) return;
+        const key = source + "\u0000" + target + "\u0000" + kind;
+        if (linkKeys.has(key)) return;
+        linkKeys.add(key);
+        links.push({source, target, kind});
+    }
+    function groupOf(path) {
+        const p = path.split("/");
+        if (p[0] === "tests" || p[0] === "test") return p.length >= 3 ? p[1] : "tests";
+        if (p[0] === "include" || p[0] === "src" || p[0] === "lib" || p[0] === "source") {
+            if (p.length >= 4) return p[2];
+            if (p.length === 3) return p[1];
+            return "root";
+        }
+        return p.length > 1 ? p[0] : "root";
+    }
+    function dirname(p) { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i); }
+    function normalize(p) {
+        const out = [];
+        for (const s of p.split("/")) {
+            if (!s || s === ".") continue;
+            if (s === "..") out.pop(); else out.push(s);
+        }
+        return out.join("/");
+    }
+    function stripCode(text) {
+        // Remove comments, strings, chars and preprocessor lines (keeps the structure)
+        let out = "", i = 0, n = text.length, lineStart = true;
+        while (i < n) {
+            const c = text[i], d = text[i + 1];
+            if (lineStart) {
+                let j = i;
+                while (j < n && (text[j] === " " || text[j] === "\t")) j++;
+                if (text[j] === "#") { // preprocessor (with continuations)
+                    while (j < n && text[j] !== "\n") { if (text[j] === "\\" && text[j + 1] === "\n") j++; j++; }
+                    i = j; out += "\n"; continue;
+                }
+                lineStart = false;
+            }
+            if (c === "/" && d === "/") { while (i < n && text[i] !== "\n") i++; continue; }
+            if (c === "/" && d === "*") { const e = text.indexOf("*/", i + 2); i = e < 0 ? n : e + 2; out += " "; continue; }
+            if (c === "R" && d === "\"") { // raw string R"delim(...)delim"
+                const p = text.indexOf("(", i + 2);
+                const delim = text.slice(i + 2, p);
+                const e = text.indexOf(")" + delim + "\"", p);
+                i = e < 0 ? n : e + delim.length + 2; out += "\"\""; continue;
+            }
+            if (c === "\"" || c === "'") {
+                let j = i + 1;
+                while (j < n && text[j] !== c && text[j] !== "\n") { if (text[j] === "\\") j++; j++; }
+                i = j + 1; out += c + c; continue;
+            }
+            if (c === "\n") lineStart = true;
+            out += c; i++;
+        }
+        return out;
+    }
+    function stripTemplate(h) {
+        h = h.trim();
+        while (h.startsWith("template")) {
+            const s = h.indexOf("<");
+            if (s < 0) break;
+            let depth = 0, i = s;
+            for (; i < h.length; i++) {
+                if (h[i] === "<") depth++;
+                else if (h[i] === ">" && --depth === 0) break;
+            }
+            h = h.slice(i + 1).trim();
+        }
+        return h;
+    }
+    function funcName(h) {
+        h = stripTemplate(h).replace(/\[\[.*?\]\]/g, " ");
+        const re = /(operator\s*(?:\(\)|\[\]|[^\s(]+)|~?[A-Za-z_][\w:]*)\s*\(/g;
+        let m;
+        while ((m = re.exec(h))) {
+            const full = m[1].replace(/\s+/g, "");
+            const name = full.split("::").pop();
+            if (SKIPNAMES.has(name) || ATTR.test(name)) continue;
+            return full;
+        }
+        return "";
+    }
+    function addClassName(name, id) {
+        if (!classByName.has(name)) classByName.set(name, []);
+        if (!classByName.get(name).includes(id)) classByName.get(name).push(id);
+    }
+
+    // Files & includes
+    for (const f of files) {
+        if (!CODE.test(f.path)) continue;
+        const kind = /^(tests?)\//.test(f.path) ? "test-file" : HEADER.test(f.path) ? "header" : "source";
+        node("file:" + f.path, kind, f.path.split("/").pop(), {path: f.path, group: groupOf(f.path), loc: f.text.split("\n").length});
+    }
+    const paths = files.map(f => f.path);
+    function resolveInclude(from, inc, quoted) {
+        const cands = [];
+        if (quoted) cands.push(normalize(dirname(from) + "/" + inc));
+        cands.push("include/" + inc, "src/" + inc, inc, "tests/" + inc);
+        for (const c of cands) if (byPath.has(c) && CODE.test(c)) return c;
+        const suffix = paths.filter(p => p.endsWith("/" + inc));
+        return suffix.length === 1 ? suffix[0] : null;
+    }
+    for (const f of files) {
+        if (!CODE.test(f.path)) continue;
+        const re = /^[ \t]*#[ \t]*include[ \t]*([<"])([^>"]+)[>"]/gm;
+        let m;
+        while ((m = re.exec(f.text))) {
+            const target = resolveInclude(f.path, m[2], m[1] === "\"");
+            if (target) { link("file:" + f.path, "file:" + target, "includes"); continue; }
+            if (m[1] === "\"") continue; // generated / not in the repository
+            const inc = m[2], first = inc.split("/")[0], base = first.replace(/\.(h|hpp|hh|hxx|h\+\+)$/, "");
+            if (!inc.includes("/") && !inc.includes(".")) continue; // standard library
+            if (SYSDIRS.has(first) || POSIX.has(base)) continue;
+            node("ext:" + base.toLowerCase(), "external", base, {group: "external"});
+            link("file:" + f.path, "ext:" + base.toLowerCase(), "includes");
+        }
+    }
+
+    // C++ declarations
+    for (const f of files) {
+        if (!CODE.test(f.path)) continue;
+        const fileId = "file:" + f.path;
+        const group = groupOf(f.path);
+        const code = stripCode(f.text);
+        const stack = []; // {type, name, id, access}
+        let head = "";
+        let skip = 0; // depth inside a function / enum / initializer body
+        const nsName = () => stack.filter(s => s.type === "namespace" && s.name).map(s => s.name).join("::");
+        const inClass = () => stack.length && stack[stack.length - 1].type === "class" ? stack[stack.length - 1] : null;
+        const atNamespace = () => stack.every(s => s.type === "namespace");
+        function takeAccess(h) {
+            const cls = inClass();
+            let m;
+            while ((m = /^\s*(public|private|protected)\s*:(?!:)/.exec(h))) {
+                if (cls) cls.access = m[1];
+                h = h.slice(m[0].length);
+            }
+            return h.trim();
+        }
+        function onFunction(h, isDefinition) {
+            if (/^(using|typedef|friend|static_assert|return|extern\s+template)\b/.test(h) || /=\s*delete\s*$/.test(h)) return;
+            if (/^(class|struct|union|enum)\b/.test(h) && !h.includes("(")) return;
+            const full = funcName(h);
+            if (!full) return;
+            const name = full.split("::").pop();
+            const cls = inClass();
+            if (cls) {
+                if (name === cls.name || name === "~" + cls.name || name.startsWith("operator")) return;
+                const id = cls.id + "::" + name;
+                const n = node(id, "method", name + "()", {group, path: f.path, access: cls.access, overloads: 0});
+                n.overloads++;
+                if (/=\s*0\s*$/.test(h)) { n.pure = true; cls.pure = true; }
+                link(cls.id, id, "member");
+                return;
+            }
+            if (!atNamespace()) return;
+            const parts = full.split("::");
+            if (parts.length >= 2 && isDefinition) { // ns::Class::method definition in a source
+                const owner = parts[parts.length - 2];
+                if (owner && owner[0] === owner[0].toUpperCase()) { pendingImpl.push([fileId, owner, name]); return; }
+            }
+            if (name === "main") { node(fileId, "source"); return; }
+            const ns = nsName() || (parts.length > 1 ? parts.slice(0, -1).join("::") : "");
+            const id = "fn:" + (ns ? ns + "::" : "") + name;
+            node(id, "function", name + "()", {group, path: f.path, ns});
+            link(fileId, id, "defines");
+        }
+        for (let i = 0; i < code.length; i++) {
+            const c = code[i];
+            if (skip) {
+                if (c === "{") skip++;
+                else if (c === "}") { skip--; if (!skip) head = ""; }
+                continue;
+            }
+            if (c === "{") {
+                let h = takeAccess(head.replace(/\s+/g, " "));
+                head = "";
+                const t = stripTemplate(h);
+                if (/^(inline\s+)?namespace\b/.test(t) || /^extern\s*""$/.test(t) || t === "") {
+                    const m = /namespace\s+([\w:]+)/.exec(t);
+                    stack.push({type: t.startsWith("extern") || t === "" ? "block" : "namespace", name: m ? m[1] : ""});
+                    if (t === "" && !atNamespace()) { stack.pop(); skip = 1; }
+                    continue;
+                }
+                let m = /^(class|struct|union)\s+(?:(?:\[\[.*?\]\]|alignas\([^)]*\)|_[a-z]+(?:\([^)]*\))?)\s+)*([A-Za-z_]\w*)(?:\s*<[^{]*>)?(?:\s+final)?\s*(?::\s*(.*))?$/.exec(t);
+                if (m && !/\)\s*$/.test(t.split(":")[0])) {
+                    const name = m[2];
+                    const parent = inClass();
+                    const qual = (parent ? parent.id.slice(4) : (nsName() ? nsName() + "::" : "")) + (parent ? "::" : "") + name;
+                    const id = "cls:" + qual;
+                    let kind = m[1] === "class" ? "class" : "struct";
+                    if (/^I[A-Z]/.test(name)) kind = "interface";
+                    else if (/^A[A-Z]/.test(name)) kind = "abstract";
+                    const n = node(id, kind, name, {group, path: f.path, ns: nsName()});
+                    if (n.kind === "struct" && kind !== "struct") n.kind = kind;
+                    addClassName(name, id);
+                    link(fileId, id, "defines");
+                    if (m[3]) {
+                        let depth = 0, cur = "";
+                        const bases = [];
+                        for (const ch of m[3]) {
+                            if (ch === "<") depth++;
+                            if (ch === ">") depth--;
+                            if (ch === "," && !depth) { bases.push(cur); cur = ""; } else cur += ch;
+                        }
+                        bases.push(cur);
+                        for (let b of bases) {
+                            b = b.replace(/\b(public|protected|private|virtual)\b/g, "").replace(/<.*>/, "").trim();
+                            if (b) pendingBases.push([id, b.split("::").pop()]);
+                        }
+                    }
+                    stack.push({type: "class", name, id, access: m[1] === "class" ? "private" : "public", kindRef: n});
+                    continue;
+                }
+                m = /^enum\s+(?:class\s+|struct\s+)?(?:_[a-z]+\s+)?([A-Za-z_]\w*)/.exec(t);
+                if (m) {
+                    const parent = inClass();
+                    const id = "enum:" + (parent ? parent.id.slice(4) + "::" : (nsName() ? nsName() + "::" : "")) + m[1];
+                    node(id, "enum", m[1], {group, path: f.path, ns: nsName()});
+                    link(parent ? parent.id : fileId, id, parent ? "member" : "defines");
+                    skip = 1;
+                    continue;
+                }
+                if (t.includes(")") && !/=\s*$/.test(t)) onFunction(t.replace(/\)\s*:(?!:).*$/s, ")").replace(/\s*(const|noexcept|override|final|->[^{]*)\s*$/g, ""), true);
+                skip = 1;
+                continue;
+            }
+            if (c === "}") {
+                const s = stack.pop();
+                if (s && s.type === "class" && s.pure && s.kindRef.kind === "class") s.kindRef.kind = "abstract";
+                head = "";
+                continue;
+            }
+            if (c === ";") {
+                const h = takeAccess(head.replace(/\s+/g, " "));
+                head = "";
+                if (h.includes("(") && (inClass() || atNamespace())) onFunction(stripTemplate(h), false);
+                continue;
+            }
+            head += c;
+        }
+    }
+    for (const [cls, base] of pendingBases) {
+        const ids = classByName.get(base);
+        if (ids) for (const id of ids) link(cls, id, "inherits");
+        else {
+            const ext = /^std$|^[a-z]/.test(base) ? null : base;
+            if (ext) { node("cls:?" + base, "external", base, {group: "external", external: true}); link(cls, "cls:?" + base, "inherits"); }
+        }
+    }
+    for (const [fileId, owner] of pendingImpl) {
+        const ids = classByName.get(owner);
+        if (ids) for (const id of ids) link(fileId, id, "implements");
+    }
+
+    // Tests: test cases + tested classes
+    const classNames = [...classByName.keys()].filter(n => n.length > 2);
+    for (const f of files) {
+        if (!/^(tests?)\//.test(f.path) || !CODE.test(f.path)) continue;
+        const fileId = "file:" + f.path;
+        const re = /\b(TEST|TEST_F|TEST_P|TYPED_TEST)\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g;
+        let m;
+        while ((m = re.exec(f.text))) {
+            const id = "test:" + f.path + ":" + m[2] + "." + m[3];
+            node(id, "test", m[2] + "." + m[3], {group: groupOf(f.path), path: f.path});
+            link(fileId, id, "defines");
+        }
+        const words = new Set(f.text.match(/[A-Za-z_]\w*/g) || []);
+        for (const name of classNames) if (words.has(name)) for (const id of classByName.get(name)) link(fileId, id, "tests");
+    }
+
+    // CMake: targets, sources, linked libraries
+    const vars = {CMAKE_SOURCE_DIR: "", CMAKE_CURRENT_SOURCE_DIR: "", PROJECT_SOURCE_DIR: ""};
+    const targets = new Set();
+    function expand(s, v) {
+        for (let k = 0; k < 10 && /\$\{\w+\}/.test(s); k++) s = s.replace(/\$\{(\w+)\}/g, (_, x) => v[x] !== undefined ? v[x] : "");
+        return s;
+    }
+    function args(s, v) {
+        const out = [];
+        for (const tok of s.match(/"[^"]*"|[^\s"]+/g) || []) {
+            const e = expand(tok.replace(/^"|"$/g, ""), v);
+            for (const p of e.split(";")) if (p) out.push(p);
+        }
+        return out;
+    }
+    function cmakeCommands(text) {
+        const clean = text.replace(/"[^"]*"|#[^\n]*/g, m => m[0] === "#" ? "" : m);
+        const cmds = [];
+        const re = /([A-Za-z_]\w*)\s*\(/g;
+        let m;
+        while ((m = re.exec(clean))) {
+            let depth = 1, i = re.lastIndex;
+            for (; i < clean.length && depth; i++) { if (clean[i] === "(") depth++; else if (clean[i] === ")") depth--; }
+            cmds.push([m[1].toLowerCase(), clean.slice(re.lastIndex, i - 1)]);
+            re.lastIndex = i;
+        }
+        return cmds;
+    }
+    function runCMake(dir, v, depth) {
+        const path = (dir ? dir + "/" : "") + "CMakeLists.txt";
+        if (!byPath.has(path) || depth > 4) return;
+        v = Object.assign({}, v, {CMAKE_CURRENT_SOURCE_DIR: dir});
+        const cmds = cmakeCommands(byPath.get(path).text);
+        const exec = (list) => {
+            for (let k = 0; k < list.length; k++) {
+                const [name, raw] = list[k];
+                if (name === "foreach") {
+                    let d = 1, e = k + 1;
+                    for (; e < list.length; e++) { if (list[e][0] === "foreach") d++; if (list[e][0] === "endforeach" && !--d) break; }
+                    const a = args(raw, v);
+                    const items = a[1] === "IN" ? a.slice(3) : a.slice(1);
+                    for (const it of items) { v[a[0]] = it; exec(list.slice(k + 1, e)); }
+                    k = e;
+                    continue;
+                }
+                const a = args(raw, v);
+                if (name === "set" && a.length) v[a[0]] = a.slice(1).filter(x => x !== "PARENT_SCOPE" && x !== "CACHE").join(";");
+                else if (name === "list" && a[0] === "REMOVE_ITEM") v[a[1]] = (v[a[1]] || "").split(";").filter(x => !a.slice(2).includes(x)).join(";");
+                else if (name === "list" && a[0] === "APPEND") v[a[1]] = [(v[a[1]] || ""), ...a.slice(2)].filter(Boolean).join(";");
+                else if (name === "list" && a[0] === "TRANSFORM" && a[2] === "PREPEND") v[a[1]] = (v[a[1]] || "").split(";").filter(Boolean).map(x => a[3] + x).join(";");
+                else if (name === "add_subdirectory" && a[0]) runCMake(normalize((dir ? dir + "/" : "") + a[0]), v, depth + 1);
+                else if ((name === "add_executable" || name === "add_library") && a[0]) {
+                    const tname = a[0];
+                    const type = name === "add_executable" ? "executable" : "library";
+                    targets.add(tname);
+                    node("target:" + tname, type, tname, {group: "build"});
+                    for (const s of a.slice(1)) {
+                        if (/^(STATIC|SHARED|MODULE|INTERFACE|OBJECT|EXCLUDE_FROM_ALL|WIN32|IMPORTED)$/.test(s)) continue;
+                        const p = normalize(s.startsWith("/") ? s.slice(1) : (dir && !s.startsWith(dir + "/") && !byPath.has(s) ? dir + "/" + s : s));
+                        if (byPath.has(p)) link("file:" + p, "target:" + tname, "compiled-into");
+                    }
+                }
+                else if (name === "target_link_libraries" && a[0]) {
+                    for (const lib of a.slice(1)) {
+                        if (/^(PRIVATE|PUBLIC|INTERFACE|debug|optimized|general)$/.test(lib) || lib.startsWith("$<") || lib.startsWith("-")) continue;
+                        if (targets.has(lib)) { link("target:" + a[0], "target:" + lib, "links"); continue; }
+                        let root = lib.includes("::") ? lib.split("::")[lib.toLowerCase().startsWith("pkgconfig::") ? 1 : 0] : lib;
+                        root = root.toLowerCase().replace(/xx$/, "");
+                        if (root === "ssl" || root === "crypto") root = "openssl";
+                        node("ext:" + root, "external", root, {group: "external"});
+                        link("target:" + a[0], "ext:" + root, "links");
+                    }
+                }
+            }
+        };
+        exec(cmds);
+    }
+    runCMake("", vars, 0);
+
+    // Classes / functions / methods written in the tests are test helpers (fixtures, mocks)
+    for (const n of nodes.values()) if (n.path && /^(tests?)\//.test(n.path) && !["test-file", "test"].includes(n.kind)) n.kind = "test-helper";
+
+    // Degrees
+    const deg = new Map();
+    for (const l of links) { deg.set(l.source, (deg.get(l.source) || 0) + 1); deg.set(l.target, (deg.get(l.target) || 0) + 1); }
+    const out = [...nodes.values()];
+    for (const n of out) { n.degree = deg.get(n.id) || 0; if (!n.group) n.group = "root"; }
+    return {nodes: out, links: links.filter(l => nodes.has(l.source) && nodes.has(l.target))};
+}
+// </extractor>
+
+(function () {
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const CONFIG = JSON.parse($("graph-config").textContent);
+    let SNAPSHOT = JSON.parse($("graph-snapshot").textContent);
+    const KEY = (CONFIG.storageKey || "doc") + "-graph";
+    const KINDS = {
+        header: ["#5b8def", "Header"], source: ["#2fa36b", "Source"], "test-file": ["#d9822b", "Fichier de test"],
+        class: ["#8e6cf0", "Classe"], struct: ["#a77bd9", "Struct"], interface: ["#e05a9b", "Interface"],
+        abstract: ["#c44fd1", "Abstraite"], enum: ["#c9a227", "Enum"], function: ["#20a4b8", "Fonction"],
+        method: ["#7f8ea3", "Méthode"], test: ["#e0a458", "Test"], "test-helper": ["#b98a5e", "Aide de test"], executable: ["#e5484d", "Exécutable"],
+        library: ["#f07a3a", "Bibliothèque"], external: ["#98a2b3", "Externe"]
+    };
+    const LINKS = {
+        includes: ["#8a909b", "inclut"], defines: ["#9aa5b8", "définit"], member: ["#a3acbd", "membre"],
+        inherits: ["#8e6cf0", "hérite de"], implements: ["#2fa36b", "implémente"], "compiled-into": ["#f07a3a", "compilé dans"],
+        links: ["#e5484d", "lié à"], tests: ["#d9822b", "teste"]
+    };
+    const PRESETS = {
+        overview: [["header", "source", "class", "struct", "interface", "abstract", "enum", "function", "executable", "library", "external"], ["includes", "inherits", "defines", "compiled-into", "links"]],
+        files: [["header", "source", "test-file", "external"], ["includes"]],
+        classes: [["class", "struct", "interface", "abstract"], ["inherits"]],
+        members: [["class", "struct", "interface", "abstract", "enum", "method"], ["inherits", "member"]],
+        tests: [["test-file", "test", "test-helper", "class", "struct", "interface", "abstract"], ["tests", "defines", "inherits"]],
+        build: [["source", "executable", "library", "external"], ["compiled-into", "links"]],
+        all: [Object.keys(KINDS), Object.keys(LINKS)]
+    };
+
+    const canvas = $("graph"), ctx = canvas.getContext("2d");
+    window.graphState = null; // set below, handy to inspect the graph from the console
+    const state = {
+        data: {nodes: [], links: []}, byId: new Map(), pos: new Map(),
+        kinds: new Set(PRESETS.overview[0]), linkKinds: new Set(PRESETS.overview[1]), groups: new Set(), knownGroups: new Set(),
+        mode: "2d", colorBy: "kind", cluster: false, labels: true, isolate: false, search: "",
+        visible: [], vlinks: [], neighbors: new Map(), selected: null, hover: null,
+        alpha: 1, paused: false, cam: {x: 0, y: 0, k: 1, yaw: 0.6, pitch: -0.35, dist: 600}, w: 0, h: 0, dpr: 1, colors: {}
+    };
+
+    window.graphState = state;
+
+    // ---------- Storage (optional, never required) ---------- //
+    function store(k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) { /* quota / private mode */ } }
+    function load(k) { try { const v = localStorage.getItem(KEY + ":" + k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+
+    // ---------- Data ---------- //
+    function setData(graph, meta) {
+        state.data = graph;
+        state.meta = meta || graph.meta || {};
+        state.byId = new Map(graph.nodes.map(n => [n.id, n]));
+        const groups = new Set(graph.nodes.map(n => n.group));
+        for (const g of groups) if (!state.knownGroups.has(g)) { state.knownGroups.add(g); state.groups.add(g); }
+        const r = Math.sqrt(graph.nodes.length) * 14 + 40;
+        for (const n of graph.nodes) {
+            if (!state.pos.has(n.id)) {
+                const a = Math.random() * Math.PI * 2, b = Math.acos(2 * Math.random() - 1), d = r * Math.cbrt(Math.random());
+                state.pos.set(n.id, {x: d * Math.sin(b) * Math.cos(a), y: d * Math.sin(b) * Math.sin(a), z: d * Math.cos(b), vx: 0, vy: 0, vz: 0});
+            }
+        }
+        if (state.selected && !state.byId.has(state.selected)) state.selected = null;
+        buildLegends();
+        refilter(true);
+    }
+    function refilter(reheat) {
+        const q = state.search.trim().toLowerCase();
+        let vis = state.data.nodes.filter(n => state.kinds.has(n.kind) && state.groups.has(n.group));
+        let ids = new Set(vis.map(n => n.id));
+        let vl = state.data.links.filter(l => state.linkKinds.has(l.kind) && ids.has(l.source) && ids.has(l.target));
+        if (state.isolate && state.selected && ids.has(state.selected)) {
+            const keep = new Set([state.selected]);
+            for (const l of vl) { if (l.source === state.selected) keep.add(l.target); if (l.target === state.selected) keep.add(l.source); }
+            vis = vis.filter(n => keep.has(n.id)); ids = keep;
+            vl = vl.filter(l => keep.has(l.source) && keep.has(l.target));
+        }
+        state.visible = vis;
+        state.vlinks = vl;
+        state.match = q ? new Set(vis.filter(n => n.label.toLowerCase().includes(q) || (n.path || "").toLowerCase().includes(q)).map(n => n.id)) : null;
+        state.neighbors = new Map();
+        for (const l of vl) {
+            if (!state.neighbors.has(l.source)) state.neighbors.set(l.source, new Set());
+            if (!state.neighbors.has(l.target)) state.neighbors.set(l.target, new Set());
+            state.neighbors.get(l.source).add(l.target); state.neighbors.get(l.target).add(l.source);
+        }
+        $("nodeCount").textContent = vis.length + " / " + state.data.nodes.length;
+        $("linkCount").textContent = vl.length + " / " + state.data.links.length;
+        $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
+        updateChips();
+        if (reheat) state.alpha = Math.max(state.alpha, 0.6);
+        $("hint").textContent = vis.length ? (state.mode === "3d" ? "Glisser : tourner · Maj + glisser : déplacer · molette : zoom" : "Glisser : déplacer · molette : zoom · clic : détails") : "Aucun nœud : activer des catégories / groupes";
+    }
+
+    // ---------- Legends / chips ---------- //
+    function chip(label, color, count, on, onclick) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "chip" + (on ? "" : " off");
+        b.innerHTML = (color ? '<span class="dot"></span>' : "") + "<span></span>" + (count !== undefined ? ' <span class="n">' + count + "</span>" : "");
+        if (color) b.firstChild.style.background = color;
+        b.querySelector("span:not(.dot):not(.n)").textContent = label;
+        b.addEventListener("click", onclick);
+        return b;
+    }
+    function groupColor(g) {
+        let h = 0;
+        for (const c of String(g)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+        return "hsl(" + (h % 360) + " 55% 55%)";
+    }
+    function buildLegends() {
+        const kc = {}, gc = {}, lc = {};
+        for (const n of state.data.nodes) { kc[n.kind] = (kc[n.kind] || 0) + 1; gc[n.group] = (gc[n.group] || 0) + 1; }
+        for (const l of state.data.links) lc[l.kind] = (lc[l.kind] || 0) + 1;
+        const fill = (el, entries, set, color, label) => {
+            el.textContent = "";
+            for (const [k, n] of entries) el.appendChild(chip(label(k), color(k), n, set.has(k), () => { set.has(k) ? set.delete(k) : set.add(k); refilter(true); }));
+        };
+        fill($("kinds"), Object.keys(KINDS).filter(k => kc[k]).map(k => [k, kc[k]]), state.kinds, k => KINDS[k][0], k => KINDS[k][1]);
+        fill($("groups"), Object.keys(gc).sort().map(g => [g, gc[g]]), state.groups, g => groupColor(g), g => g);
+        fill($("linkKinds"), Object.keys(LINKS).filter(k => lc[k]).map(k => [k, lc[k]]), state.linkKinds, k => LINKS[k][0], k => LINKS[k][1]);
+    }
+    function updateChips() {
+        const sync = (el, set, keys) => [...el.children].forEach((c, i) => c.classList.toggle("off", !set.has(keys[i])));
+        const kc = new Set(state.data.nodes.map(n => n.kind)), lc = new Set(state.data.links.map(l => l.kind));
+        sync($("kinds"), state.kinds, Object.keys(KINDS).filter(k => kc.has(k)));
+        sync($("groups"), state.groups, [...new Set(state.data.nodes.map(n => n.group))].sort());
+        sync($("linkKinds"), state.linkKinds, Object.keys(LINKS).filter(k => lc.has(k)));
+        for (const b of $("presets").children) {
+            const p = PRESETS[b.dataset.preset];
+            b.classList.toggle("off", !(p[0].length === state.kinds.size && p[0].every(k => state.kinds.has(k)) && p[1].length === state.linkKinds.size && p[1].every(k => state.linkKinds.has(k))));
+        }
+    }
+    function colorOf(n) {
+        if (state.colorBy === "group") return groupColor(n.group);
+        return (KINDS[n.kind] || KINDS.external)[0];
+    }
+    function radiusOf(n) {
+        const base = n.kind === "method" || n.kind === "test" ? 2.2 : n.kind === "external" || n.kind === "executable" || n.kind === "library" ? 5 : 3.2;
+        return base + Math.sqrt(n.degree || 0) * 1.3;
+    }
+
+    // ---------- Simulation ---------- //
+    function tick() {
+        const nodes = state.visible, n = nodes.length;
+        if (!n || state.paused || state.alpha < 0.004) return false;
+        const a = state.alpha, d3 = state.mode === "3d";
+        const P = nodes.map(x => state.pos.get(x.id));
+        const strength = 220 * a;
+        for (let i = 0; i < n; i++) {
+            const p = P[i];
+            for (let j = i + 1; j < n; j++) {
+                const q = P[j];
+                let dx = p.x - q.x, dy = p.y - q.y, dz = d3 ? p.z - q.z : 0;
+                let d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 > 250000) continue;
+                if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+                if (d2 < 25) d2 = 25;
+                const f = strength / d2;
+                p.vx += dx * f; p.vy += dy * f; q.vx -= dx * f; q.vy -= dy * f;
+                if (d3) { p.vz += dz * f; q.vz -= dz * f; }
+            }
+        }
+        for (const l of state.vlinks) {
+            const p = state.pos.get(l.source), q = state.pos.get(l.target);
+            const ns = state.byId.get(l.source), nt = state.byId.get(l.target);
+            const len = l.kind === "member" || l.kind === "defines" ? 22 : 45;
+            const dx = q.x - p.x, dy = q.y - p.y, dz = d3 ? q.z - p.z : 0;
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+            // d3-like: strength 1 / min(degree), the node with the lowest degree moves the most
+            const k = (d - len) / d * a * 0.7 / Math.max(1, Math.min(ns.degree, nt.degree));
+            const bias = (ns.degree || 1) / ((ns.degree || 1) + (nt.degree || 1));
+            q.vx -= dx * k * bias; q.vy -= dy * k * bias; p.vx += dx * k * (1 - bias); p.vy += dy * k * (1 - bias);
+            if (d3) { q.vz -= dz * k * bias; p.vz += dz * k * (1 - bias); }
+        }
+        if (state.cluster) {
+            const c = new Map();
+            nodes.forEach((x, i) => { const g = c.get(x.group) || {x: 0, y: 0, z: 0, n: 0}; g.x += P[i].x; g.y += P[i].y; g.z += P[i].z; g.n++; c.set(x.group, g); });
+            nodes.forEach((x, i) => { const g = c.get(x.group); P[i].vx += (g.x / g.n - P[i].x) * 0.06 * a; P[i].vy += (g.y / g.n - P[i].y) * 0.06 * a; if (d3) P[i].vz += (g.z / g.n - P[i].z) * 0.06 * a; });
+        }
+        let cx = 0, cy = 0, cz = 0;
+        for (const p of P) { cx += p.x; cy += p.y; cz += p.z; }
+        cx /= n; cy /= n; cz /= n;
+        for (const p of P) {
+            if (p.fixed) { p.vx = p.vy = p.vz = 0; continue; }
+            p.vx *= 0.6; p.vy *= 0.6; p.vz *= 0.6;
+            const sp = Math.hypot(p.vx, p.vy, p.vz);
+            if (sp > 40) { p.vx *= 40 / sp; p.vy *= 40 / sp; p.vz *= 40 / sp; }
+            p.x += p.vx - cx * 0.02; p.y += p.vy - cy * 0.02;
+            p.z = d3 ? p.z + p.vz - cz * 0.02 : p.z * 0.9;
+        }
+        state.alpha *= 0.985;
+        return true;
+    }
+
+    // ---------- Projection ---------- //
+    function project(p) {
+        const c = state.cam;
+        if (state.mode === "2d") return {x: state.w / 2 + (p.x - c.x) * c.k, y: state.h / 2 + (p.y - c.y) * c.k, s: c.k, z: 0};
+        const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
+        const x1 = (p.x - c.x) * cy - p.z * sy, z1 = (p.x - c.x) * sy + p.z * cy;
+        const y2 = (p.y - c.y) * cp - z1 * sp, z2 = (p.y - c.y) * sp + z1 * cp;
+        const s = 700 / Math.max(60, z2 + c.dist);
+        return {x: state.w / 2 + x1 * s, y: state.h / 2 + y2 * s, s, z: z2};
+    }
+    function fit() {
+        const nodes = state.visible;
+        if (!nodes.length) return;
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, r = 0;
+        let mx = 0, my = 0;
+        for (const n of nodes) { const p = state.pos.get(n.id); x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); mx += p.x; my += p.y; }
+        mx /= nodes.length; my /= nodes.length;
+        for (const n of nodes) { const p = state.pos.get(n.id); r = Math.max(r, Math.hypot(p.x - mx, p.y - my, p.z)); }
+        state.cam.x = (x0 + x1) / 2; state.cam.y = (y0 + y1) / 2;
+        state.cam.k = Math.min(4, 0.88 * Math.min(state.w / Math.max(60, x1 - x0), state.h / Math.max(60, y1 - y0)));
+        state.cam.dist = Math.max(200, r * 2.4 * Math.max(1, 700 / Math.min(state.w, state.h)));
+    }
+
+    // ---------- Drawing ---------- //
+    function readColors() {
+        const s = getComputedStyle(document.documentElement);
+        for (const k of ["bg", "surface", "text", "muted", "border", "accent", "line"]) state.colors[k] = s.getPropertyValue("--" + k).trim();
+    }
+    function draw() {
+        const C = state.colors;
+        ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+        ctx.clearRect(0, 0, state.w, state.h);
+        const proj = new Map();
+        for (const n of state.visible) proj.set(n.id, project(state.pos.get(n.id)));
+        const focus = state.hover || state.selected;
+        const near = focus ? state.neighbors.get(focus) || new Set() : null;
+        const dim = (id) => (near && id !== focus && !near.has(id)) || (state.match && !state.match.has(id));
+        ctx.lineWidth = 1;
+        for (const l of state.vlinks) {
+            const a = proj.get(l.source), b = proj.get(l.target);
+            const hot = focus && (l.source === focus || l.target === focus);
+            ctx.globalAlpha = hot ? 0.95 : (focus || state.match ? 0.07 : state.mode === "3d" ? 0.28 : 0.35);
+            ctx.strokeStyle = hot ? C.accent : LINKS[l.kind][0];
+            ctx.lineWidth = hot ? 1.6 : 1;
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+            if (hot || (state.mode === "2d" && state.cam.k > 1.6)) { // arrow head
+                const r = radiusOf(state.byId.get(l.target)) * b.s + 2;
+                const ang = Math.atan2(b.y - a.y, b.x - a.x);
+                const tx = b.x - Math.cos(ang) * r, ty = b.y - Math.sin(ang) * r;
+                ctx.fillStyle = ctx.strokeStyle;
+                ctx.beginPath(); ctx.moveTo(tx, ty);
+                ctx.lineTo(tx - Math.cos(ang - 0.45) * 7, ty - Math.sin(ang - 0.45) * 7);
+                ctx.lineTo(tx - Math.cos(ang + 0.45) * 7, ty - Math.sin(ang + 0.45) * 7);
+                ctx.fill();
+            }
+        }
+        const order = state.mode === "3d" ? [...state.visible].sort((a, b) => proj.get(b.id).z - proj.get(a.id).z) : state.visible;
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        for (const n of order) {
+            const p = proj.get(n.id);
+            const r = Math.max(1.5, radiusOf(n) * (state.mode === "3d" ? p.s : Math.sqrt(p.s)));
+            if (p.x < -50 || p.y < -50 || p.x > state.w + 50 || p.y > state.h + 50) continue;
+            const faded = dim(n.id);
+            ctx.globalAlpha = faded ? 0.12 : 1;
+            ctx.fillStyle = colorOf(n);
+            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+            if (n.id === state.selected || n.id === state.hover || (state.match && state.match.has(n.id))) {
+                ctx.lineWidth = 2; ctx.strokeStyle = C.accent; ctx.stroke();
+            } else if (n.pure || n.external) {
+                ctx.lineWidth = 1.2; ctx.strokeStyle = C.bg; ctx.stroke();
+            }
+            const showLabel = n.id === focus || (near && near.has(n.id)) || (state.match && state.match.has(n.id)) ||
+                (state.labels && !faded && (state.mode === "2d" ? state.cam.k * (1 + Math.sqrt(n.degree) / 3) > 1.25 : p.s > 1.25 || n.degree > 12));
+            if (showLabel && !faded) {
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = C.text;
+                ctx.fillText(n.label, p.x, p.y + r + 11);
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
+    function frame() {
+        let moved = false;
+        for (let i = 0; i < (state.visible.length > 900 ? 1 : 2); i++) moved = tick() || moved;
+        if (moved || state.dirty) { draw(); state.dirty = false; }
+        requestAnimationFrame(frame);
+    }
+    function resize() {
+        const r = canvas.getBoundingClientRect();
+        state.dpr = window.devicePixelRatio || 1;
+        state.w = r.width; state.h = r.height;
+        canvas.width = Math.round(r.width * state.dpr); canvas.height = Math.round(r.height * state.dpr);
+        state.dirty = true;
+    }
+
+    // ---------- Interaction ---------- //
+    function pick(mx, my) {
+        let best = null, bd = Infinity;
+        for (const n of state.visible) {
+            const p = project(state.pos.get(n.id));
+            const r = Math.max(6, radiusOf(n) * (state.mode === "3d" ? p.s : Math.sqrt(p.s)) + 3);
+            const d = Math.hypot(p.x - mx, p.y - my);
+            if (d < r && (d < bd || (state.mode === "3d" && d - bd < 2))) { best = n; bd = d; }
+        }
+        return best;
+    }
+    let drag = null;
+    canvas.addEventListener("pointerdown", (e) => {
+        const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+        const n = pick(mx, my);
+        drag = {x: mx, y: my, sx: mx, sy: my, node: n && state.mode === "2d" ? n : null, clicked: n, pan: e.shiftKey || e.button === 2};
+        canvas.setPointerCapture(e.pointerId);
+        canvas.classList.add("dragging");
+    });
+    canvas.addEventListener("pointermove", (e) => {
+        const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+        if (!drag) {
+            const n = pick(mx, my);
+            const id = n ? n.id : null;
+            if (id !== state.hover) { state.hover = id; state.dirty = true; canvas.classList.toggle("pointer", !!n); }
+            return;
+        }
+        const dx = mx - drag.x, dy = my - drag.y;
+        drag.x = mx; drag.y = my;
+        const c = state.cam;
+        if (drag.node) {
+            const p = state.pos.get(drag.node.id);
+            p.x += dx / c.k; p.y += dy / c.k; p.fixed = true;
+            state.alpha = Math.max(state.alpha, 0.25);
+        } else if (state.mode === "2d" || drag.pan) {
+            const s = state.mode === "2d" ? c.k : 700 / c.dist;
+            c.x -= dx / s; c.y -= dy / s;
+        } else {
+            c.yaw += dx * 0.008; c.pitch = Math.max(-1.5, Math.min(1.5, c.pitch + dy * 0.008));
+        }
+        state.dirty = true;
+    });
+    function endDrag(e) {
+        if (!drag) return;
+        if (drag.node) state.pos.get(drag.node.id).fixed = false;
+        if (Math.hypot(drag.x - drag.sx, drag.y - drag.sy) < 4) select(drag.clicked ? drag.clicked.id : null);
+        drag = null;
+        canvas.classList.remove("dragging");
+    }
+    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointercancel", endDrag);
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    canvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const c = state.cam, f = Math.exp(-e.deltaY * 0.0015);
+        if (state.mode === "3d") { c.dist = Math.max(60, Math.min(20000, c.dist / f)); }
+        else {
+            const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left - state.w / 2, my = e.clientY - r.top - state.h / 2;
+            const k = Math.max(0.05, Math.min(12, c.k * f));
+            c.x += mx / c.k - mx / k; c.y += my / c.k - my / k; c.k = k;
+        }
+        state.dirty = true;
+    }, {passive: false});
+
+    // ---------- Details ---------- //
+    function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c]); }
+    function select(id) {
+        state.selected = id;
+        const box = $("details");
+        if (!id) { box.hidden = true; if (state.isolate) refilter(true); state.dirty = true; return; }
+        const n = state.byId.get(id);
+        const out = {}, inc = {};
+        for (const l of state.data.links) {
+            if (l.source === id) (out[l.kind] = out[l.kind] || []).push(l.target);
+            if (l.target === id) (inc[l.kind] = inc[l.kind] || []).push(l.source);
+        }
+        const list = (title, m) => Object.keys(m).map(k => "<h5>" + esc(title) + " · " + esc(LINKS[k] ? LINKS[k][1] : k) + " (" + m[k].length + ")</h5><ul>" +
+            m[k].slice(0, 60).map(t => { const x = state.byId.get(t); return x ? '<li><a data-id="' + esc(t) + '"><span class="dot" style="background:' + colorOf(x) + '"></span>' + esc(x.label) + "</a></li>" : ""; }).join("") +
+            (m[k].length > 60 ? '<li class="muted">… ' + (m[k].length - 60) + " de plus</li>" : "") + "</ul>").join("");
+        const meta = [["Groupe", n.group], ["Chemin", n.path], ["Namespace", n.ns], ["Lignes", n.loc], ["Accès", n.access], ["Surcharges", n.overloads > 1 ? n.overloads : ""], ["Virtuelle pure", n.pure ? "oui" : ""], ["Relations", n.degree]]
+            .filter(x => x[1] !== undefined && x[1] !== "").map(x => "<dt>" + x[0] + "</dt><dd>" + esc(x[1]) + "</dd>").join("");
+        box.innerHTML = '<button class="close" type="button" aria-label="Fermer">×</button><div class="kind"><span class="dot" style="width:9px;height:9px;border-radius:50%;background:' + colorOf(n) + '"></span>' +
+            esc((KINDS[n.kind] || ["", n.kind])[1]) + "</div><h3>" + esc(n.label) + "</h3><dl>" + meta + "</dl>" + list("Sortant", out) + list("Entrant", inc);
+        box.hidden = false;
+        box.querySelector(".close").addEventListener("click", () => select(null));
+        box.querySelectorAll("a[data-id]").forEach(a => a.addEventListener("click", () => { focusOn(a.dataset.id); }));
+        if (state.isolate) refilter(true);
+        state.dirty = true;
+    }
+    function focusOn(id) {
+        const n = state.byId.get(id);
+        if (!n) return;
+        if (!state.kinds.has(n.kind)) state.kinds.add(n.kind);
+        if (!state.groups.has(n.group)) state.groups.add(n.group);
+        refilter(false);
+        select(id);
+        const p = state.pos.get(id);
+        state.cam.x = p.x; state.cam.y = p.y;
+        if (state.mode === "2d") state.cam.k = Math.max(state.cam.k, 1.6);
+        state.dirty = true;
+    }
+
+    // ---------- Status / update from GitHub ---------- //
+    function short(sha) { return sha ? String(sha).slice(0, 7) : "?"; }
+    function day(d) { return d ? String(d).slice(0, 10) : "?"; }
+    function setStatus(html, cls) { const s = $("status"); s.className = "status" + (cls ? " " + cls : ""); s.innerHTML = html; }
+    function describe(meta) { return "commit <code>" + short(meta.sha) + "</code> du " + day(meta.date) + (meta.source === "live" ? " (récupéré du dépôt)" : " (embarqué)"); }
+    async function gh(path) {
+        const r = await fetch("https://api.github.com" + path, {headers: {Accept: "application/vnd.github+json"}});
+        if (!r.ok) throw new Error(r.status === 403 || r.status === 429 ? "limite de l'API GitHub atteinte" : r.status === 404 ? "dépôt introuvable ou privé" : "HTTP " + r.status);
+        return r.json();
+    }
+    async function update(manual) {
+        const btn = $("update");
+        if (!CONFIG.repo || CONFIG.repo.includes("{{")) { setStatus("Graphe " + describe(state.meta) + ". Aucun dépôt configuré pour la mise à jour.", "warn"); return; }
+        btn.disabled = true; btn.classList.add("spin");
+        try {
+            setStatus("Vérification du dépôt <code>" + esc(CONFIG.repo) + "</code>…", "busy");
+            const head = await gh("/repos/" + CONFIG.repo + "/commits/" + encodeURIComponent(CONFIG.branch || "main"));
+            const sha = head.sha, date = head.commit && head.commit.committer && head.commit.committer.date;
+            if (sha === state.meta.sha) { setStatus("À jour : " + describe(state.meta) + ".", "ok"); return; }
+            if (date && state.meta.date && new Date(date) < new Date(state.meta.date)) {
+                setStatus("Le graphe affiché (" + describe(state.meta) + ") est plus récent que le dépôt (<code>" + short(sha) + "</code> du " + day(date) + ") : commits locaux non poussés ?", "ok");
+                return;
+            }
+            const cached = load("graph");
+            if (cached && cached.meta && cached.meta.sha === sha) { setData(cached, cached.meta); setStatus("Mis à jour : " + describe(cached.meta) + ".", "ok"); return; }
+            const tree = await gh("/repos/" + CONFIG.repo + "/git/trees/" + sha + "?recursive=1");
+            const wanted = tree.tree.filter(t => t.type === "blob" && t.size < 600000 &&
+                (/(^|\/)CMakeLists\.txt$/.test(t.path) || /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c)$/.test(t.path)) &&
+                !/(^|\/)(build|_deps|third_party|vendor|external|\.git|docs|node_modules)\//.test(t.path)).map(t => t.path).slice(0, 2500);
+            const files = [];
+            let done = 0;
+            const queue = wanted.slice();
+            const worker = async () => {
+                while (queue.length) {
+                    const path = queue.shift();
+                    const r = await fetch("https://raw.githubusercontent.com/" + CONFIG.repo + "/" + sha + "/" + path.split("/").map(encodeURIComponent).join("/"));
+                    if (r.ok) files.push({path, text: await r.text()});
+                    if (++done % 10 === 0 || done === wanted.length) setStatus("Téléchargement des sources : " + done + " / " + wanted.length + "…", "busy");
+                }
+            };
+            await Promise.all(Array.from({length: 8}, worker));
+            setStatus("Construction du graphe…", "busy");
+            const graph = extractGraph(files);
+            graph.meta = {sha, date, source: "live", files: files.length};
+            setData(graph, graph.meta);
+            store("graph", graph);
+            setStatus("Mis à jour : " + describe(graph.meta) + " · " + graph.nodes.length + " nœuds.", "ok");
+        } catch (e) {
+            setStatus("Mise à jour impossible (" + esc(e.message || e) + "). Graphe affiché : " + describe(state.meta) + ".", "warn");
+        } finally {
+            btn.disabled = false; btn.classList.remove("spin");
+        }
+    }
+
+    // ---------- Controls ---------- //
+    function setMode(m) {
+        state.mode = m;
+        $("mode2d").classList.toggle("active", m === "2d"); $("mode3d").classList.toggle("active", m === "3d");
+        if (m === "3d") for (const n of state.visible) { const p = state.pos.get(n.id); if (Math.abs(p.z) < 1) p.z = (Math.random() - 0.5) * 80; }
+        state.alpha = Math.max(state.alpha, 0.7);
+        fit(); refilter(false); state.dirty = true;
+    }
+    $("mode2d").addEventListener("click", () => setMode("2d"));
+    $("mode3d").addEventListener("click", () => setMode("3d"));
+    $("fit").addEventListener("click", () => { fit(); state.dirty = true; });
+    $("pause").addEventListener("click", () => { state.paused = !state.paused; $("pause").textContent = state.paused ? "Relancer" : "Figer"; if (!state.paused) state.alpha = Math.max(state.alpha, 0.3); });
+    $("search").addEventListener("input", (e) => { state.search = e.target.value; refilter(false); state.dirty = true; });
+    $("search").addEventListener("keydown", (e) => { if (e.key === "Enter" && state.match && state.match.size) focusOn([...state.match][0]); });
+    $("colorBy").addEventListener("change", (e) => { state.colorBy = e.target.value; state.dirty = true; if (state.selected) select(state.selected); });
+    $("cluster").addEventListener("change", (e) => { state.cluster = e.target.checked; state.alpha = Math.max(state.alpha, 0.6); });
+    $("labels").addEventListener("change", (e) => { state.labels = e.target.checked; state.dirty = true; });
+    $("isolate").addEventListener("change", (e) => { state.isolate = e.target.checked; refilter(true); state.dirty = true; });
+    $("update").addEventListener("click", () => update(true));
+    $("panelToggle").addEventListener("click", () => $("panel").classList.toggle("open"));
+    for (const b of $("presets").children) b.addEventListener("click", () => {
+        const p = PRESETS[b.dataset.preset];
+        state.kinds = new Set(p[0]); state.linkKinds = new Set(p[1]);
+        refilter(true); setTimeout(() => { fit(); state.dirty = true; }, 400);
+    });
+    document.querySelectorAll("[data-all],[data-none]").forEach(b => b.addEventListener("click", () => {
+        const what = b.dataset.all || b.dataset.none, on = !!b.dataset.all;
+        const set = what === "kinds" ? state.kinds : what === "links" ? state.linkKinds : state.groups;
+        set.clear();
+        if (on) {
+            const src = what === "kinds" ? state.data.nodes.map(n => n.kind) : what === "links" ? state.data.links.map(l => l.kind) : state.data.nodes.map(n => n.group);
+            for (const k of src) set.add(k);
+        }
+        refilter(true);
+    }));
+
+    // ---------- Theme ---------- //
+    const root = document.documentElement, themeKey = (CONFIG.storageKey || "doc") + "-theme";
+    try { const saved = localStorage.getItem(themeKey); if (saved) root.setAttribute("data-theme", saved); } catch (e) { /* storage unavailable */ }
+    $("themeToggle").addEventListener("click", () => {
+        const dark = root.getAttribute("data-theme") === "dark" || (!root.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+        const next = dark ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem(themeKey, next); } catch (e) { /* storage unavailable */ }
+        readColors(); state.dirty = true;
+    });
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); state.dirty = true; });
+
+    // ---------- Start ---------- //
+    readColors();
+    resize();
+    window.addEventListener("resize", () => { resize(); });
+    const cached = load("graph");
+    const start = cached && cached.meta && SNAPSHOT.meta && cached.meta.date && (!SNAPSHOT.meta.date || cached.meta.date > SNAPSHOT.meta.date) ? cached : SNAPSHOT;
+    setData(start, start.meta);
+    for (let i = 0; i < 120; i++) tick();
+    fit();
+    setStatus("Graphe " + describe(state.meta) + ".", "");
+    state.dirty = true;
+    requestAnimationFrame(frame);
+    update(false);
+})();
+</script>
+</body>
+</html>

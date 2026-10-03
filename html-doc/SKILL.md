@@ -1,52 +1,88 @@
 ---
 name: html-doc
-description: Uniform style for every HTML documentation page of the user's projects (architecture docs, design docs, project/user docs, docs/ folders, GitHub Pages) - one self-contained file based on the R-Type architecture doc - sticky summary, numbered card sections, light/dark theme with a sun/moon icon button, tables, callouts, inline SVG diagrams. Use whenever creating or restyling an HTML doc, unless the user explicitly asks for another style.
+description: Uniform HTML documentation of the user's projects (docs/ folder, GitHub Pages) - up to 3 static self-contained pages sharing one style based on the R-Type architecture doc - an optional user guide for non-technical users, the technical documentation (sticky summary, numbered cards, tables, callouts, SVG diagrams) and an interactive 2D/3D project graph (files, classes, functions, tests, CMake targets, externals; filters by category/group/relation; update button fetching the GitHub repository) - with a light/dark sun/moon toggle. Use whenever creating, updating or restyling an HTML doc, unless the user explicitly asks for another style.
 ---
 
-# Uniform HTML documentation style
+# Uniform HTML documentation
 
-Always start from `templates/doc.html` (style extracted from `r-type/docs/architecture.html`,
-the most recent doc of the user). Keep its CSS **as is**, unless the user explicitly asks for
-another style. Only the content changes.
+Up to **3 pages**, each a single static self-contained `.html` (inline CSS/JS, no CDN, no web font,
+no framework, works offline and from `file://`), in `docs/`:
 
-## File
-- One self-contained `.html` (inline `<style>` and `<script>`), no CDN, no web font
-  (system fonts), no framework, works offline and from `file://`.
-- Default place: `docs/<name>.html` (`docs/index.html` for the main doc of a project / GitHub Pages).
-- `lang` = the language of the request (French by default, `<html lang="fr">`); the code,
-  identifiers and file names stay as they are in English.
-- Placeholders: `{{TITLE}}` (also in `<title>`), `{{SUBTITLE}}` (1-2 sentences under the title: what
-  the document describes, planned vs implemented), `{{STORAGE_KEY}}` (project slug, ex: `rtype`).
+| Page | File | When | Template |
+|---|---|---|---|
+| Guide (user documentation) | `index.html` | **only if** the tool is meant to be used by non-technical users | `templates/user.html` |
+| Technical documentation | `technical.html` (`index.html` when there is no guide) | always | `templates/technical.html` |
+| Project graph | `graph.html` | always (C/C++ project) | `templates/graph.html` + `scripts/build_graph.mjs` |
 
-## Layout
-- `<nav aria-label="Sommaire">` on the left (sticky, `Sommaire` label), one link per section,
-  same numbering as the sections. The visible section is highlighted by the script.
-- `<header>`: `h1` + subtitle paragraph.
-- One `<section id="...">` card per topic, preceded by `<!-- N -->`, titled `<h2>N. Title</h2>`,
-  sub-parts `<h3>N.M Title</h3>`. Usual order for a project: overview, split into libraries/modules,
-  each module, network/protocol, build. Keep the number of sections reasonable (5-9).
-- Theme button at the top right: round icon button, **moon** in light mode, **sun** in dark mode
-  (`aria-label="Changer de thème"`), never a text button. Choice saved in `localStorage`
-  (`<STORAGE_KEY>-theme`), default = system preference.
+Keep the CSS of the templates **as is** (style of `r-type/docs/architecture.html`), unless the user
+explicitly asks for another style. Only the content changes. Ask (AskUserQuestion) whether the guide page
+is needed when the audience of the tool is not obvious.
 
-## Content components
-| Need | Component |
-|---|---|
-| list of elements with attributes | `<div class="table-wrap"><table>` with `<thead>` |
-| remark / info | `<div class="callout">` |
-| limit, risk, planned-not-done | `<div class="callout warn">` |
-| validated / good practice | `<div class="callout ok">` |
-| code, command, path, type | `<code>` inline, `<pre><code>` block |
-| architecture, flow, tree, loop | inline `<svg>` inside `<figure>` + `<figcaption>Figure N : ...` |
+## Common to the 3 pages
+- Top bar: project name + version (`{{PROJECT}}`, `{{VERSION}}`), page tabs (`<nav class="tabs">`), GitHub icon
+  link (`{{REPO_URL}}`), round theme button. **Keep only the tabs of the pages that exist**; the current one has
+  `class="current" aria-current="page"`; the first page is always `index.html`.
+- Theme: **moon** icon in light mode, **sun** in dark mode, never a text button; choice saved in `localStorage`
+  under `{{STORAGE_KEY}}-theme` (same key on every page, so the theme follows), default = system preference.
+- `lang` = language of the request (French by default); code, identifiers and file names stay in English.
+- Placeholders: `{{PROJECT}}`, `{{VERSION}}` (`vX.Y.Z`), `{{REPO_URL}}`, `{{STORAGE_KEY}}` (project slug),
+  `{{TITLE}}`, `{{SUBTITLE}}`.
+- Before delivering: valid HTML, every tab/summary link points to an existing page/`id`, readable in both themes
+  and at phone width (860px breakpoint, no horizontal scroll).
 
-SVG diagrams: `viewBox="0 0 760 H"`, `role="img"` + `aria-label` describing the diagram, only the
-classes of the template (`box`, `box-alt` for the highlighted node, `group` for dashed groups, `lbl`,
-`small`, `title`, `edge`, `edge-accent`, `dash`, `arrow`, `arrow-accent`) so both themes work, markers
-defined once in `<defs>`. Draw the real mechanism (components and messages), not decoration.
+## 1. Guide (`templates/user.html`, optional)
+For people who just want to **use** the tool: no jargon, no internal detail, task oriented.
+- Sections: Présentation, Installation, Premiers pas, Utilisation (one sub-part per task, "Je veux… / Je fais…"
+  table), Questions fréquentes. Adapt the titles, keep 4-6 sections.
+- Components: numbered steps `<ol class="steps">` (each `<li><strong>Action</strong> detail`), `<kbd>` keys,
+  commands to copy in `<pre><code>`, FAQ `<details class="faq"><summary>`, callouts for warnings/results,
+  `p.lead` for the intro sentence.
+- Say what the user sees when it works; one action per step.
 
-## Writing
-- Short paragraphs, factual, present tense; say explicitly what is **planned** vs **implemented**.
-- Every identifier in `<code>`; tables rather than long lists.
-- No emoji, no gradient, no extra colors: only the CSS variables of the template.
-- Before delivering: valid HTML, every nav link points to an existing `id`, readable in both themes
-  and at phone width (the template has the 860px breakpoint).
+## 2. Technical documentation (`templates/technical.html`)
+- `<nav aria-label="Sommaire">` on the left (sticky), one link per section, same numbering; the visible section
+  is highlighted.
+- One `<section id="...">` card per topic, preceded by `<!-- N -->`, `<h2>N. Title</h2>`, sub-parts `<h3>N.M</h3>`.
+  Usual order: overview, split into libraries/modules, each module, network/protocol, build. 5-9 sections.
+- Components:
+
+  | Need | Component |
+  |---|---|
+  | list of elements with attributes | `<div class="table-wrap"><table>` with `<thead>` |
+  | remark / info | `<div class="callout">` |
+  | limit, risk, planned-not-done | `<div class="callout warn">` |
+  | validated / good practice | `<div class="callout ok">` |
+  | code, command, path, type | `<code>` inline, `<pre><code>` block |
+  | architecture, flow, tree, loop | inline `<svg>` in `<figure>` + `<figcaption>Figure N : ...` |
+- SVG: `viewBox="0 0 760 H"`, `role="img"` + `aria-label`, only the template classes (`box`, `box-alt`, `group`,
+  `lbl`, `small`, `title`, `edge`, `edge-accent`, `dash`, `arrow`, `arrow-accent`), markers once in `<defs>`.
+  Draw the real mechanism, not decoration. Link to the graph page for the full dependency view.
+- Short factual paragraphs, present tense, explicit **planned** vs **implemented**; every identifier in `<code>`;
+  no emoji, no gradient, only the CSS variables.
+
+## 3. Project graph (`templates/graph.html`)
+Interactive graph drawn on a canvas by an embedded engine (no library): 2D (pan, zoom, drag nodes) and
+3D (rotate, Shift+drag to pan, zoom), search, presets (overview, files & includes, classes & inheritance,
+classes & methods, tests, build, all), toggles per **category** (header, source, test file, class, struct,
+interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
+(module folder) and per **relation** (includes, defines, member, inherits, implements, compiled-into, links,
+tests), colour by category or group, cluster by group, labels, isolate the selection, details panel with
+clickable in/out relations.
+
+Generation (never fill the snapshot by hand):
+```bash
+node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/graph.html] [--ref HEAD] \
+     [--github owner/repo] [--branch main] [--project name] [--version vX.Y.Z]
+```
+- Reads the sources **from the git commit** (`--ref`), extracts the graph with the `extractGraph()` of the page
+  (single source of truth, between the `// <extractor>` markers), embeds the snapshot (commit hash + date) and the
+  config (GitHub repo from `origin`, branch, version from `project(... VERSION)`).
+- Re-running it on an existing page keeps its HTML/CSS and replaces the script, the config and the snapshot.
+- The page shows the embedded snapshot, then **once at load** (and on the "Mettre à jour" button) asks the
+  GitHub API for the last commit of the branch: if it is newer, it downloads the sources
+  (`raw.githubusercontent.com`) and rebuilds the graph in the browser (cached in `localStorage`). Offline, API
+  limit (60 requests/h), private repository or local commits not pushed: the snapshot is kept and the status says why.
+- The extractor targets C/C++ projects in the user's style (`include/`, `src/`, `tests/`, `CMakeLists.txt` with
+  `add_subdirectory`, `foreach`, `set(SRC ...)`). For another language, adapt `extractGraph()` in the template
+  (files -> nodes/links) and keep the rest.
+- Check after generation: open it (or screenshot it) and look at the node/link counts printed by the script.
