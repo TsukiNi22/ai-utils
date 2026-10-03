@@ -6,8 +6,7 @@
 
 _hot void {{NAMESPACE}}::{{CLASS}}::run(void)
 {
-    // Short comment above each logical block
-    this->internal();
+    /* Nothing */
 }
 
 _cold void {{NAMESPACE}}::{{CLASS}}::internal(void)

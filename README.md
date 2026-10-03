@@ -10,7 +10,14 @@ file layout, tooling), so that what it generates looks like something I wrote my
 
 | Skill | Description |
 |---|---|
-| [`cpp-class`](cpp-class/SKILL.md) | Generates C++20 `.hpp`/`.cpp` files and class architectures (interface `I*`, abstract `A*`, class, template, `Type`/`Define` headers) in my style, based on [libutils](https://github.com/TsukiNi22/libutils) and my nvim config. Adds the Xartania header, picks libutils attributes or standard `[[...]]` ones, and registers the new sources in the `CMakeLists.txt`. |
+| [`cpp-class`](cpp-class/SKILL.md) | Sets up a C++20 architecture / new `.hpp` & `.cpp` files (interface `I*`, abstract `A*`, class, template, `Type`/`Define`, family headers) with the namespaces, the Xartania header and **empty bodies only** (never the logic), picks libutils attributes or standard `[[...]]` ones and registers the sources in the `CMakeLists.txt`. Requires `cpp-style` & `cpp-comments`. |
+| [`cpp-style`](cpp-style/SKILL.md) | My C++ coding style: naming, indentation, braces, spacing, loops, switch, lambdas, const correctness, attributes. |
+| [`cpp-comments`](cpp-comments/SKILL.md) | How I comment C++ code: section separators, `/* group */` labels, aligned trailing comments, no Doxygen. |
+| [`git-conventions`](git-conventions/SKILL.md) | Commit messages `type(scope): message`, CI keywords, tags, GitHub releases, CHANGELOG, branches & PRs (to be defined), no AI attribution. |
+| [`readme-style`](readme-style/SKILL.md) | README / Markdown docs structure: Table of Contents, Dependencies, Packages, Quick Setup, Usage, GitHub callouts, tables. |
+| [`html-doc`](html-doc/SKILL.md) | One uniform style for every HTML documentation page (summary, numbered cards, light/dark theme with a sun/moon button, SVG diagrams). |
+
+Everything is based on my own work, mainly [libutils](https://github.com/TsukiNi22/libutils).
 
 ## Installation
 
@@ -37,13 +44,17 @@ no need to reinstall. `remove` only deletes skills that come from this repositor
 ## Usage
 
 Once installed, the skill is used automatically when relevant
-(ex: *"create a `Timer` class in `utils::system`"*), or explicitly with `/cpp-class`.
+(ex: *"create a `Timer` class in `utils::system`"*, *"write the commit message"*),
+or explicitly with `/<skill>` (`/cpp-class`, `/git-conventions`...).
+
+A skill can require other ones (`<skill>/requires.txt`): `./setup.sh install <skill>` installs them too.
 
 ## Layout
 
 ```
 <skill>/
 ├── SKILL.md       # instructions loaded by the assistant
+├── requires.txt   # other skills needed (optional)
 ├── reference/     # detailed rules, read on demand
 ├── templates/     # file templates
 ├── examples/      # real files used as ground truth

@@ -4,7 +4,7 @@
 # Usage: ./setup.sh <command> [skill...] [options]
 #
 # Commands:
-#   install [skill...]   install the given skills (default: all)
+#   install [skill...]   install the given skills and their requirements (default: all)
 #   remove  [skill...]   remove the given skills (default: all the skills of this repo)
 #   list                 list the skills available in this repo
 #   status               show which skills are installed
@@ -89,6 +89,21 @@ fi
 for skill in "${SKILLS[@]}"; do
     [ -f "$REPO/$skill/SKILL.md" ] || error "unknown skill '$skill' (see: $0 list)"
 done
+
+# Add the skills required by the selected ones (<skill>/requires.txt), only for install
+if [ "$COMMAND" = "install" ]; then
+    i=0
+    while [ $i -lt ${#SKILLS[@]} ]; do
+        req="$REPO/${SKILLS[$i]}/requires.txt"
+        if [ -f "$req" ]; then
+            for dep in $(cat "$req"); do
+                [ -f "$REPO/$dep/SKILL.md" ] || error "'${SKILLS[$i]}' requires an unknown skill '$dep'"
+                [[ " ${SKILLS[*]} " == *" $dep "* ]] || SKILLS+=("$dep")
+            done
+        fi
+        i=$((i + 1))
+    done
+fi
 
 # =========================
 # Commands

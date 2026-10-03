@@ -7,7 +7,7 @@
     /* INCLUDE */
 
     /* type */
-    #include "{{ATTRIBUTE_INCLUDE}}"   // _cold, _hot, _nodiscard, _unlikely
+    #include "{{ATTRIBUTE_INCLUDE}}"   // _cold, _hot, _nodiscard
     #include <type_traits>                  // std::is_integral_v
     #include <mutex>                        // std::mutex
 
@@ -26,12 +26,8 @@ class {{CLASS}} {
         // ------------ Function ---------- //
         _hot T compute_(const bool safe_mode = true)
         {
-            std::unique_lock<std::mutex> lock(this->_lock, std::defer_lock);
-            if (safe_mode) lock.lock();
-            else (void)lock.try_lock();
-
-            // Short comment above each logical block
-            return ++this->_value;
+            /* Nothing */
+            return {};
         };
 
     public:
