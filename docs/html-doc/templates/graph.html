@@ -1050,7 +1050,7 @@ function extractGraph(files, opts) {
 
     const canvas = $("graph"), ctx = canvas.getContext("2d");
     window.graphState = null; // set below, handy to inspect the graph from the console
-    const VIEW = {yaw: 0.78, pitch: -0.62}; // default 3D angle: diagonal to the floor grid (~45°), seen from slightly above (~35°)
+    const VIEW = {yaw: 0.78, pitch: 0.62}; // default 3D angle: diagonal to the floor grid (~45°), looking down from slightly above (~35°; pitch > 0 = from above)
     const state = {
         data: {nodes: [], links: []}, byId: new Map(), pos: new Map(),
         kinds: new Set(PRESETS.overview[0]), linkKinds: new Set(PRESETS.overview[1]), groups: new Set(), knownGroups: new Set(),
