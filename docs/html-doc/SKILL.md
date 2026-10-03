@@ -101,7 +101,8 @@ an entry highlights its nodes / relations; clicking it shows / hides them, a rel
 layout): 2D (pan, zoom, drag nodes) and
 3D (rotate, Shift+drag to move the target in the screen plane, drag a node to place it, zoom; spheres lit by a
 light fixed in the scene, depth fog, floor grid following the camera, X/Y/Z gizmo ball resetting the angle on
-click; arrow heads on the relations in both styles; bottom right switch **Realistic** (default) / **Technical** = faceted spheres (16 x 12 faces, soft light from the top, no light spot, like context-forge) + cone arrows, no fog / floor,
+click; arrow heads on the relations in both styles; bottom right switch **Realistic** (default) / **Technical** = the nodes of context-forge (3d-force-graph): 8 x 8 faceted sphere, Lambert light per pixel with
+an ambient 0.8 + a directional 0.6 from the top, opacity 0.95) + cone arrows, no fog / floor,
 remembered); key **F** centers the camera on the selected node (2D and 3D); slightly transparent nodes in 3D, a near plane (nodes the camera passes are
 clipped like behind a WebGL camera, the camera can fly through the graph); hint in the context-forge wording
 ("drag to orbit · scroll to zoom · ...", all lowercase), search, presets (overview, files & includes, classes & inheritance,
