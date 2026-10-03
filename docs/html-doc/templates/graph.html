@@ -1519,7 +1519,9 @@ function extractGraph(files, opts) {
     $("panelToggle").addEventListener("click", () => $("panel").classList.toggle("open"));
     for (const b of $("presets").children) b.addEventListener("click", () => {
         const p = PRESETS[b.dataset.preset];
-        state.kinds = new Set(p[0]); state.linkKinds = new Set(p[1]);
+        // Fill the sets in place: the legend entries keep a reference to them (a new Set would cut them off)
+        state.kinds.clear(); p[0].forEach(k => state.kinds.add(k));
+        state.linkKinds.clear(); p[1].forEach(k => state.linkKinds.add(k));
         refilter(true); setTimeout(() => { fit(); state.dirty = true; }, 400);
     });
     document.querySelectorAll("[data-all],[data-none]").forEach(b => b.addEventListener("click", () => {
