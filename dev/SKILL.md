@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, git, doc and coding-style routers: cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style, libutils, libutils-exception, git-conventions, readme-style, html-doc) before doing the task.
+description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, git, doc and coding-style routers: cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc) before doing the task.
 disable-model-invocation: true
 ---
 
@@ -33,6 +33,7 @@ The category routers (`cpp`, `git`, `doc`, `coding-style`) are manual-only: don'
 | C++ code, classes, main, architecture | `cpp-class`, `cpp-style`, `cpp-comments` | `cpp` |
 | CMake, tests CMake, packaging | `cmake-style` | `cpp` |
 | libutils APIs / exceptions | `libutils`, `libutils-exception` | `cpp` |
+| install / update libutils on the computer, add it to the project | `libutils-install`, `libutils-setup` | `cpp` |
 | style only (format / review like the user) | `cpp-style`, `cpp-comments`, `cmake-style` by file type | `coding-style` |
 | README, wiki, Markdown docs | `readme-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |

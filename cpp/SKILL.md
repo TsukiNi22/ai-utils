@@ -29,6 +29,8 @@ if there is none, inspect the project and propose what can be done).
 | `CMakeLists.txt`, tests CMake, packaging, CPack, `find_package` | `cmake-style` |
 | "how to do X", which class/function, links/includes of libutils, what's new in libutils | `libutils` |
 | throw/catch/print errors, new error codes, exception JSON, generated exception header | `libutils-exception` (+ `libutils`) |
+| install / update / remove libutils, build fails because libutils is missing or too old | `libutils-install` |
+| add libutils to the current project (CMake, custom exceptions setup) | `libutils-setup` |
 | new `.cpp` added | also `cmake-style` (registration in `SRC`, `cpp-class/scripts/cmake_add.py`) |
 | commit / docs asked at the end | `git-conventions` / `readme-style`, `html-doc` |
 

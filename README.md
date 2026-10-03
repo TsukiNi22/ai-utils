@@ -13,7 +13,7 @@ skills below by themselves. `/dev` is enough most of the time.
 | Router | Loads |
 |---|---|
 | [`/dev`](dev/SKILL.md) | everything below, depending on the context (global development entry point) |
-| [`/cpp`](cpp/SKILL.md) | `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `libutils`, `libutils-exception` |
+| [`/cpp`](cpp/SKILL.md) | `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup` |
 | [`/git`](git/SKILL.md) | `git-conventions` |
 | [`/doc`](doc/SKILL.md) | `readme-style`, `html-doc`, `git-conventions` (CHANGELOG), `cpp-comments` |
 | [`/coding-style`](coding-style/SKILL.md) | `cpp-style`, `cpp-comments`, `cmake-style` (by file type) |
@@ -32,6 +32,8 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`cmake-style`](cmake-style/SKILL.md) | `CMakeLists.txt` in my style: section order, explicit sources, Debug/Asan/Optimized modes, release targets, GTest tests, install + `find_package` config, CPack RPM/DEB stable/pre channels, with app/lib/tests templates. |
 | [`libutils`](libutils/SKILL.md) | Reference of my library [libutils](https://github.com/TsukiNi22/libutils): every section, header and public API generated from a recorded version/commit (`reference/VERSION.md`), integration and conventions, plus `scripts/update.sh` to see what changed since that commit and regenerate. |
 | [`libutils-exception`](libutils-exception/SKILL.md) | libutils exceptions: classes, codes, throw/catch patterns, and how to add new exception codes to a project (JSON, generator script, CMake block). Requires `libutils`. |
+| [`libutils-install`](libutils-install/SKILL.md) | Installs / updates / removes libutils on the computer by itself from the OS (dnf, apt, or build from the sources), last version through `libutils-pre`, debug/asan variants, mirror setup, `/usr/local` shadowing check. |
+| [`libutils-setup`](libutils-setup/SKILL.md) | Adds libutils to the current project: `find_package`/`utils::utils` in the CMake and optionally the custom exceptions (JSON, scripts, generation block), installing libutils first if needed. |
 
 Everything is based on my own work, mainly [libutils](https://github.com/TsukiNi22/libutils).
 
