@@ -1,0 +1,36 @@
+@PACKAGE_INIT@
+
+# Dependencies
+include(CMakeFindDependencyMacro)
+#find_dependency(<Dependency> REQUIRED)
+
+# Custom error message if the require file doesn't exist
+set(_<name>_libdir "${CMAKE_CURRENT_LIST_DIR}/../../")
+if(CMAKE_BUILD_TYPE STREQUAL "Asan")
+    if(NOT EXISTS "${_<name>_libdir}/lib<name>_asan.a")
+        message(FATAL_ERROR
+            "The Asan version of lib<name> is not installed.\n"
+            "Please build it with 'cmake --build <build> --target install_release'.\n"
+        )
+    endif()
+
+elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    if(NOT EXISTS "${_<name>_libdir}/lib<name>_debug.a")
+        message(FATAL_ERROR
+            "The Debug version of lib<name> is not installed.\n"
+            "Please build it with 'cmake --build <build> --target install_release'.\n"
+        )
+    endif()
+
+else() # Default selection for noconfig
+    if(NOT EXISTS "${_<name>_libdir}/lib<name>.a")
+        message(FATAL_ERROR
+            "The Optimized version of lib<name> is not installed.\n"
+            "Please build it with 'cmake --build <build> --target install_release'.\n"
+        )
+    endif()
+endif()
+
+# Load and check tools
+include("${CMAKE_CURRENT_LIST_DIR}/<name>Targets.cmake")
+check_required_components(<name>)
