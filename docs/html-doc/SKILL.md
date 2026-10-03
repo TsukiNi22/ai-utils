@@ -101,7 +101,7 @@ an entry highlights its nodes / relations; clicking it shows / hides them, a rel
 layout): 2D (pan, zoom, drag nodes) and
 3D (rotate, Shift+drag to move the target in the screen plane, drag a node to place it, zoom; spheres lit by a
 light fixed in the scene, depth fog, floor grid following the camera, X/Y/Z gizmo ball resetting the angle on
-click; bottom right switch **Realistic** (default) / **Technical** = flat nodes + arrows, no light / fog / floor,
+click; arrow heads on the relations in both styles; bottom right switch **Realistic** (default) / **Technical** = low poly spheres with flat shaded faces + cone arrows, no fog / floor,
 remembered); key **F** centers the camera on the selected node (2D and 3D), search, presets (overview, files & includes, classes & inheritance,
 classes & methods, tests, build, all), toggles per **category** (header, source, test file, class, struct,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
