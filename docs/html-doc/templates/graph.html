@@ -1417,24 +1417,35 @@ function extractGraph(files, opts) {
         const dim = (id) => (near && id !== focus && !near.has(id)) || (state.match && !state.match.has(id)) || (lh && !focus && !lhMatch(id));
         ctx.lineWidth = 1;
         const drawnR = (n, q) => Math.max(1.5, radiusOf(n) * (d3 ? q.s : NODE_2D * Math.sqrt(q.s))); // radius as drawn below
-        for (const l of state.vlinks) {
-            let a = proj.get(l.source), b = proj.get(l.target);
+        const ring = (id) => id === state.selected || id === state.hover ? 1.5 : 0.5; // accent ring of the focused node
+        const ends = (l) => { // screen ends of a relation, outside the nodes (on their border); null when nothing to draw
+            let a = proj.get(l.source), b = proj.get(l.target), ca = false, cb = false;
             if (d3 && (a.behind || b.behind)) {
-                if (a.behind && b.behind) continue;
-                if (a.behind) a = clipNear(a, b); else b = clipNear(b, a);
+                if (a.behind && b.behind) return null;
+                if (a.behind) { a = clipNear(a, b); ca = true; } else { b = clipNear(b, a); cb = true; }
             }
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            const ra = ca ? 0 : drawnR(state.byId.get(l.source), a) + ring(l.source), rb = cb ? 0 : drawnR(state.byId.get(l.target), b) + ring(l.target);
+            if (len <= ra + rb) return null; // the nodes overlap
+            const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
+            return {a, b, ux, uy, cb, len: len - ra - rb, x0: a.x + ux * ra, y0: a.y + uy * ra, x1: b.x - ux * rb, y1: b.y - uy * rb};
+        };
+        for (const l of state.vlinks) {
+            const e = ends(l);
+            if (!e) continue;
+            const a = e.a, b = e.b;
             const hot = focus && (l.source === focus || l.target === focus);
             const lit = lh && !focus && (lh.type === "link" ? l.kind === lh.key : lhMatch(l.source) && lhMatch(l.target));
             const fog = 1 - 0.75 * depth((a.z + b.z) / 2);
             ctx.globalAlpha = (hot || lit ? 0.95 : (focus || state.match || lh ? 0.07 : real ? 0.4 : d3 ? 0.45 : 0.35)) * (hot ? 1 : fog);
             ctx.strokeStyle = hot ? C.accent : LINKS[l.kind][0];
             ctx.lineWidth = (hot ? 1.6 : lit ? 2 : 1) * (real ? Math.min(2.2, Math.max(0.5, (a.s + b.s) / 2)) : 1);
-            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-            if ((hot || (state.mode === "2d" && state.cam.k > 1.6) || d3) && !proj.get(l.target).behind) { // arrow head, on the border of the target
-                const r = drawnR(state.byId.get(l.target), b) + (l.target === state.selected || l.target === state.hover ? 1.5 : 0.5);
-                const ang = Math.atan2(b.y - a.y, b.x - a.x);
-                const tx = b.x - Math.cos(ang) * r, ty = b.y - Math.sin(ang) * r;
-                const al = !d3 ? 7 : real ? Math.max(3, Math.min(6, 4 * b.s)) : Math.max(4.5, Math.min(10, 6.5 * b.s)) * (hot ? 1.15 : 1);
+            const arrow = (hot || (state.mode === "2d" && state.cam.k > 1.6) || d3) && !e.cb;
+            const al = !d3 ? 7 : real ? Math.max(3, Math.min(6, 4 * b.s)) : Math.max(4.5, Math.min(10, 6.5 * b.s)) * (hot ? 1.15 : 1);
+            const back = arrow ? Math.min(e.len, al * 0.9) : 0; // the line stops at the base of the arrow
+            ctx.beginPath(); ctx.moveTo(e.x0, e.y0); ctx.lineTo(e.x1 - e.ux * back, e.y1 - e.uy * back); ctx.stroke();
+            if (arrow) { // arrow head, its tip on the border of the target
+                const ang = Math.atan2(e.uy, e.ux), tx = e.x1, ty = e.y1;
                 const lx = tx - Math.cos(ang - 0.38) * al, ly = ty - Math.sin(ang - 0.38) * al;
                 const rx = tx - Math.cos(ang + 0.38) * al, ry = ty - Math.sin(ang + 0.38) * al;
                 if (d3 && !real) { // cone: lit half + shaded half
@@ -1453,12 +1464,14 @@ function extractGraph(files, opts) {
                 const a = proj.get(l.source), b = proj.get(l.target);
                 const hot = focus && (l.source === focus || l.target === focus);
                 if ((focus && !hot) || a.behind || b.behind) continue;
+                const e = ends(l);
+                if (!e) continue;
                 if (l._h === undefined) l._h = Math.random();
                 ctx.fillStyle = hot ? C.accent : LINKS[l.kind][0];
                 ctx.globalAlpha = hot ? 1 : 0.85;
                 for (let k = 0; k < 2; k++) {
                     const f = (time * 0.32 + l._h + k / 2) % 1;
-                    ctx.beginPath(); ctx.arc(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, hot ? 2.6 : 1.9, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(e.x0 + (e.x1 - e.x0) * f, e.y0 + (e.y1 - e.y0) * f, hot ? 2.6 : 1.9, 0, Math.PI * 2); ctx.fill();
                 }
             }
             ctx.globalAlpha = 1;
