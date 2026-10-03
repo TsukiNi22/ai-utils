@@ -1184,9 +1184,11 @@ function extractGraph(files, opts) {
         return (KINDS[n.kind] || KINDS.external)[0];
     }
     const NODE_2D = 1.25; // size factor of the nodes in 2D
+    // Layout density: node size, length of the relations, repulsion (bigger + closer nodes, like a 3d-force-graph)
+    const LAYOUT = {size: 1.3, link: 34, linkShort: 18, repulsion: 150, gap: 3};
     function radiusOf(n) {
         const base = n.kind === "method" || n.kind === "test" ? 2.2 : n.kind === "external" || n.kind === "executable" || n.kind === "library" ? 5 : 3.2;
-        return base + Math.sqrt(n.degree || 0) * 1.3;
+        return (base + Math.sqrt(n.degree || 0) * 1.3) * LAYOUT.size;
     }
 
     // ---------- Simulation ---------- //
@@ -1195,7 +1197,7 @@ function extractGraph(files, opts) {
         if (!n || state.paused || state.alpha < 0.004) return false;
         const a = state.alpha, d3 = state.mode === "3d";
         const P = nodes.map(x => state.pos.get(x.id));
-        const strength = 220 * a;
+        const strength = LAYOUT.repulsion * a, R = nodes.map(radiusOf);
         for (let i = 0; i < n; i++) {
             const p = P[i];
             for (let j = i + 1; j < n; j++) {
@@ -1205,7 +1207,9 @@ function extractGraph(files, opts) {
                 if (d2 > 250000) continue;
                 if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
                 if (d2 < 25) d2 = 25;
-                const f = strength / d2;
+                let f = strength / d2;
+                const min = R[i] + R[j] + LAYOUT.gap; // collision: the nodes don't overlap
+                if (d2 < min * min) f += 0.5 * (min - Math.sqrt(d2)) / Math.sqrt(d2);
                 p.vx += dx * f; p.vy += dy * f; q.vx -= dx * f; q.vy -= dy * f;
                 if (d3) { p.vz += dz * f; q.vz -= dz * f; }
             }
@@ -1213,7 +1217,7 @@ function extractGraph(files, opts) {
         for (const l of state.vlinks) {
             const p = state.pos.get(l.source), q = state.pos.get(l.target);
             const ns = state.byId.get(l.source), nt = state.byId.get(l.target);
-            const len = l.kind === "member" || l.kind === "defines" ? 22 : 45;
+            const len = l.kind === "member" || l.kind === "defines" ? LAYOUT.linkShort : LAYOUT.link;
             const dx = q.x - p.x, dy = q.y - p.y, dz = d3 ? q.z - p.z : 0;
             const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
             // d3-like: strength 1 / min(degree), the node with the lowest degree moves the most
@@ -1264,10 +1268,16 @@ function extractGraph(files, opts) {
         let mx = 0, my = 0;
         for (const n of nodes) { const p = state.pos.get(n.id); x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); mx += p.x; my += p.y; }
         mx /= nodes.length; my /= nodes.length;
-        for (const n of nodes) { const p = state.pos.get(n.id); r = Math.max(r, Math.hypot(p.x - mx, p.y - my, p.z)); }
+        const ds = nodes.map(n => { const p = state.pos.get(n.id); return Math.hypot(p.x - mx, p.y - my, p.z); }).sort((a, b) => a - b);
+        r = ds[Math.floor((ds.length - 1) * 0.9)] || 0; // 90 % of the nodes: the far isolated ones don't shrink the view
         state.cam.x = (x0 + x1) / 2; state.cam.y = (y0 + y1) / 2; state.cam.z = 0;
         state.cam.k = Math.min(4, 0.88 * Math.min(state.w / Math.max(60, x1 - x0), state.h / Math.max(60, y1 - y0)));
-        state.cam.dist = Math.max(200, r * 2.4 * Math.max(1, 700 / Math.min(state.w, state.h)));
+        state.cam.dist = Math.max(120, r * 2.7 * Math.max(1, 700 / Math.min(state.w, state.h)));
+        if (state.mode === "3d") { // centered on the mean position (the isolated nodes don't shift it)
+            let mz = 0;
+            for (const n of nodes) mz += state.pos.get(n.id).z;
+            state.cam.x = mx; state.cam.y = my; state.cam.z = mz / nodes.length;
+        }
     }
 
     // ---------- Drawing ---------- //
