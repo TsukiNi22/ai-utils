@@ -6,6 +6,18 @@ This repository holds [Claude Code skills](https://docs.claude.com/en/docs/claud
 built from my own projects and habits. Each skill teaches the assistant how I work (code style,
 file layout, tooling), so that what it generates looks like something I wrote myself.
 
+## Routers
+Skills invoked **manually** that look at the request, the project and the language, then load the right
+skills below by themselves. `/dev` is enough most of the time.
+
+| Router | Loads |
+|---|---|
+| [`/dev`](dev/SKILL.md) | everything below, depending on the context (global development entry point) |
+| [`/cpp`](cpp/SKILL.md) | `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `libutils`, `libutils-exception` |
+| [`/git`](git/SKILL.md) | `git-conventions` |
+| [`/doc`](doc/SKILL.md) | `readme-style`, `html-doc`, `git-conventions` (CHANGELOG), `cpp-comments` |
+| [`/coding-style`](coding-style/SKILL.md) | `cpp-style`, `cpp-comments`, `cmake-style` (by file type) |
+
 ## Skills
 
 | Skill | Description |
