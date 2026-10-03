@@ -1,6 +1,6 @@
 ---
 name: git-conventions
-description: Tsukini's git conventions (from libutils) - commit message format type(scope): message, CI keywords [build]/[release]/[ignore], tags vX.Y.Z / vX.Y.Z-pre, GitHub release descriptions, CHANGELOG entries, branch and PR naming, and NO AI attribution in commits. Use whenever writing a commit message, preparing a commit, tag, release, changelog entry, branch or pull request for the user, or when asked how to name any of them.
+description: Tsukini's git conventions (from libutils) - commit message format type(scope): message, CI keywords [build]/[release]/[ignore], tags vX.Y.Z / vX.Y.Z-pre, GitHub release descriptions, CHANGELOG entries, branches (solo: main only; team: main protected, dev, sub/, feat/, fix/), pull requests (CHANGELOG-style body, gh assignee/labels), and NO AI attribution. Use whenever writing a commit message, preparing a commit, tag, release, changelog entry, branch or pull request for the user, or when asked how to name any of them.
 ---
 
 # Tsukini git conventions
@@ -76,14 +76,45 @@ Title = the tag (`v2.13.2`). Body from `templates/release.md`:
 - Compare links at the bottom: `[vX.Y.Z]: https://github.com/<owner>/<repo>/compare/<prev>...<tag>`.
 
 ## Branches
-> [!NOTE]
-> **To define with the user** (not used in libutils yet). Only observed: `feat/warpping-handling`.
-> Provisional rule until then: `<type>/<kebab-case-subject>` with the commit types
-> (`feat/shared-memory-join`, `fix/argparser-crash`), main branch `main`.
+**Solo project: only `main`**, every commit goes directly on it. The flow below only applies to a
+project **with several people** (ask if unsure: `git shortlog -sn --all` / collaborators of the repository).
+
+| Branch | Role | Created from | Merged into |
+|---|---|---|---|
+| `main` | production, protected: **nobody pushes on it, only PRs** | - | - |
+| `dev` | development, integration of everything before `main` | `main` | `main` (PR) |
+| `sub/<name>` | big feature grouping several `feat/` / `fix/` | `dev` | `dev` (PR) |
+| `feat/<name>` | one feature, a few commits (often one) | `dev` or its `sub/` | its parent (PR) |
+| `fix/<name>` | one fix, same as `feat/` | `dev`, its `sub/`, or `main` for a production fix | its parent (PR) |
+
+- `<name>`: kebab-case, short, the subject of the work (`feat/shared-memory-join`, `fix/argparser-crash`,
+  `sub/network-v2`). Delete the branch once merged.
+- When the repository is set up with `gh` (only on request), protect `main` so that it only accepts PRs:
+  ```bash
+  gh api -X PUT repos/<owner>/<repo>/branches/main/protection --input - <<'JSON'
+  {"required_status_checks": null, "enforce_admins": true,
+   "required_pull_request_reviews": {"required_approving_review_count": 1},
+   "restrictions": null, "allow_force_pushes": false, "allow_deletions": false}
+  JSON
+  ```
+  (`required_approving_review_count` / `enforce_admins` to adapt with the user; a free private repository
+  can't use branch protection.)
 
 ## Pull requests
-> [!NOTE]
-> **To define with the user** (no PR in libutils yet). Provisional rule until then:
-> title = the commit subject format (`feat(shm): add join for SharedMemory`), description =
-> `## Summary` (1-3 sentences), `## Changes` (bullets, CHANGELOG style), `## Tests` (what was run),
-> never any AI attribution.
+Only for a project **with several people**, and only **when the user asks** (same rule as commits).
+- Target: the parent branch (`feat/` & `fix/` -> `dev` or their `sub/`, `sub/` -> `dev`, `dev` -> `main`).
+- Title = commit subject format: `feat(shm): add join for SharedMemory`; a `dev` -> `main` PR is titled
+  with the version: `release: v2.14.0`.
+- Description from `templates/pull-request.md`, in the user's writing style (like a release): a `> [!NOTE]`
+  summary of 1-3 sentences, then the list of what was done **CHANGELOG style** (`### Added` / `### Changed` /
+  `### Fixed` / `### Removed`, one line per change, code in backticks, `**[MAJOR]**` for breaking changes),
+  then `### Tests` (what was run), optional `> [!IMPORTANT]` for what the reviewer must check.
+  Build the list from `git log --oneline <parent>..HEAD` and the diff, never invent.
+- Classify it with `gh`: assignee, labels (create them if missing: `feat`, `fix`, `docs`, `chore`, `test`,
+  `breaking`, `release`), reviewer, milestone when the project uses them:
+  ```bash
+  gh pr create --base dev --head feat/<name> --title "feat(<scope>): <message>" --body-file <body.md> \
+      --assignee @me --label feat [--reviewer <login>] [--milestone <vX.Y.Z>]
+  ```
+  Ask the user who to assign / request a review from when it isn't them.
+- Never any AI attribution in the title, body, labels or comments.
