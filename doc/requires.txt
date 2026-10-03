@@ -1,1 +1,1 @@
-readme-style html-doc git-conventions cpp-comments
+readme-style html-doc git-conventions cpp-comments comments pdf-report

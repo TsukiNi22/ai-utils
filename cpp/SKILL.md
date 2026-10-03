@@ -24,13 +24,16 @@ if there is none, inspect the project and propose what can be done).
 | new project / repository / "setup" | `cpp-project` (it loads the others it needs) |
 | new class, interface, abstract, struct, enum, module, main, architecture | `cpp-class` (+ `cpp-style`, `cpp-comments`) |
 | write / edit / refactor / fix C++ code | `cpp-style` + `cpp-comments` (+ `libutils` if the project uses it) |
-| comments only | `cpp-comments` |
+| comments only | `cpp-comments` (`comments` for CMake/shell/other files of the project) |
 | review C++ code against the user's style | `cpp-style` + `cpp-comments` (+ `cmake-style` if CMake changed) |
 | `CMakeLists.txt`, tests CMake, packaging, CPack, `find_package` | `cmake-style` |
 | "how to do X", which class/function, links/includes of libutils, what's new in libutils | `libutils` |
 | throw/catch/print errors, new error codes, exception JSON, generated exception header | `libutils-exception` (+ `libutils`) |
 | install / update / remove libutils, build fails because libutils is missing or too old | `libutils-install` |
 | add libutils to the current project (CMake, custom exceptions setup) | `libutils-setup` |
+| unit tests: setup, write tests for a module / the whole project, coverage | `cpp-tests` |
+| bugs, UB, crashes, memory errors, sanitizers, correctness review | `audit-bugs` |
+| cleanliness / conventions audit, report of the project quality | `audit-quality` (PDF through `pdf-report`) |
 | new `.cpp` added | also `cmake-style` (registration in `SRC`, `cpp-class/scripts/cmake_add.py`) |
 | commit / docs asked at the end | `git-conventions` / `readme-style`, `html-doc` |
 

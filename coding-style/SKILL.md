@@ -15,14 +15,17 @@ Load the skills with the Skill tool (never the other routers: they are manual-on
 | Files | Skills |
 |---|---|
 | `.cpp`, `.hpp`, `.h`, `.tpp`, `.inl` | `cpp-style` + `cpp-comments` |
+| comments of any file (C, CMake, Makefile, shell, Python, Lua, YAML...) | `comments` |
 | new C++ files / classes | `cpp-class` (layout, header, sections) + the two above |
 | `CMakeLists.txt`, `*.cmake`, `*.cmake.in` | `cmake-style` |
 | Markdown docs | `readme-style` |
 | HTML docs | `html-doc` |
 | commit messages | `git-conventions` |
-| another language (Python, shell, Lua...) | no dedicated skill yet: follow the closest existing file of the project (indentation 4 spaces, short English comments) and say that no skill covers it |
+| another language (Python, shell, Lua...) | no dedicated style skill yet: follow the closest existing file of the project (indentation 4 spaces) + `comments` for the comments, and say that no skill covers the rest |
+| whole project review with a report | `audit-quality` (PDF) |
 
 ## Review mode
+The review is delivered as a **PDF** through `pdf-report` (`audit-quality` for a whole project).
 List the deviations per file with the rule they break (skill + rule), most important first, then propose the
 fixes; only apply them if asked. Never change the logic while restyling.
 Start the answer with one line listing the loaded skills.

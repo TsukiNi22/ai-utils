@@ -13,10 +13,11 @@ skills below by themselves. `/dev` is enough most of the time.
 | Router | Loads |
 |---|---|
 | [`/dev`](dev/SKILL.md) | everything below, depending on the context (global development entry point) |
-| [`/cpp`](cpp/SKILL.md) | `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup` |
+| [`/cpp`](cpp/SKILL.md) | `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `cpp-tests`, `audit-bugs`, `audit-quality`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup` |
 | [`/git`](git/SKILL.md) | `git-conventions` |
-| [`/doc`](doc/SKILL.md) | `readme-style`, `html-doc`, `git-conventions` (CHANGELOG), `cpp-comments` |
-| [`/coding-style`](coding-style/SKILL.md) | `cpp-style`, `cpp-comments`, `cmake-style` (by file type) |
+| [`/doc`](doc/SKILL.md) | `readme-style`, `html-doc`, `pdf-report`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
+| [`/coding-style`](coding-style/SKILL.md) | `cpp-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
+| [`/legal`](legal/SKILL.md) | `license`, `deps-license` (and the future legal skills) |
 
 ## Skills
 
@@ -30,6 +31,14 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`html-doc`](html-doc/SKILL.md) | One uniform style for the HTML documentation: an optional user guide, the technical documentation and an interactive 2D/3D project graph (filters by category/group/relation, rebuilt from the GitHub repository with an update button), all static self-contained pages with a sun/moon theme button. |
 | [`cpp-project`](cpp-project/SKILL.md) | Sets up a new C++ project from [cpp_project_template](https://github.com/TsukiNi22/cpp_project_template): renaming, binary / packaged binary / `.a` / `.so` / header-only, libutils or not, exceptions, GTest, CI/CD workflows (build check or full packages + gh-pages mirror), install script, README/CHANGELOG/docs, using the other skills. |
 | [`cmake-style`](cmake-style/SKILL.md) | `CMakeLists.txt` in my style: section order, explicit sources, Debug/Asan/Optimized modes, release targets, GTest tests, install + `find_package` config, CPack RPM/DEB stable/pre channels, with app/lib/tests templates. |
+| [`cpp-tests`](cpp-tests/SKILL.md) | C++ unit tests like libutils: GoogleTest setup (CMake, CI, `unit_tests`), one test file per module, isolation of the blocking cases, known bugs kept as failing tests, `scripts/untested.py` to list what is never tested. |
+| [`tests`](tests/SKILL.md) | Unit tests for any language: detects the existing framework or asks which one to use, then setup, tests, CI (defers to `cpp-tests` for C++). |
+| [`comments`](comments/SKILL.md) | My comment style for every language (C, C++, CMake, Makefile, shell, Python, Lua, YAML, Markdown) and which file header goes where. |
+| [`audit-bugs`](audit-bugs/SKILL.md) | Bug / UB audit loop (sanitizers, tests, static tools, code review, verification of each finding), single agent or subagents on request, fixes only after confirmation. |
+| [`audit-quality`](audit-quality/SKILL.md) | Cleanliness / conventions audit of a project (`scripts/collect.py` metrics + review against the style skills) delivered as a PDF report. |
+| [`pdf-report`](pdf-report/SKILL.md) | Results delivered as PDF in my report style (Markdown -> WeasyPrint, A4, Noto, navy tables and callouts) with `scripts/md2pdf.py`. |
+| [`license`](license/SKILL.md) | Finds the license matching the needs (comparison matrix), negotiates the close ones, fetches the official text, replaces the current LICENSE only after confirmation, checks dependencies compatibility. |
+| [`deps-license`](deps-license/SKILL.md) | Dependencies (direct + transitive): licenses to credit, copyleft / non-commercial / paid / unknown ones, THIRD_PARTY_NOTICES generation, and known vulnerabilities / compromised versions (OSV, dnf, GitHub advisories), as a PDF report. |
 | [`libutils`](libutils/SKILL.md) | Reference of my library [libutils](https://github.com/TsukiNi22/libutils): every section, header and public API generated from a recorded version/commit (`reference/VERSION.md`), integration and conventions, plus `scripts/update.sh` to see what changed since that commit and regenerate. |
 | [`libutils-exception`](libutils-exception/SKILL.md) | libutils exceptions: classes, codes, throw/catch patterns, and how to add new exception codes to a project (JSON, generator script, CMake block). Requires `libutils`. |
 | [`libutils-install`](libutils-install/SKILL.md) | Installs / updates / removes libutils on the computer by itself from the OS (dnf, apt, or build from the sources), last version through `libutils-pre`, debug/asan variants, mirror setup, `/usr/local` shadowing check. |

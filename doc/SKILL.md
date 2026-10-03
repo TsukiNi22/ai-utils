@@ -22,10 +22,12 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 | README, wiki page, Markdown guide | `readme-style` |
 | HTML documentation, `docs/` site, GitHub Pages, project graph | `html-doc` (+ `readme-style` for the README link) |
 | CHANGELOG, release notes, PR description | `git-conventions` |
-| comments / documentation inside C++ code | `cpp-comments` (no Doxygen) |
+| comments / documentation inside the code (any language), file headers | `comments` (+ `cpp-comments` for C++) |
+| a result / report / study delivered as PDF | `pdf-report` |
 | doc of a libutils based project | also `libutils` (exact APIs) |
 | full documentation pass | `readme-style` + `html-doc` + `git-conventions` (CHANGELOG) |
 
 ## Always
+- An audit / summary of the docs is delivered as **PDF** through `pdf-report`.
 - Check every name/command/API against the code before writing it; mark planned vs implemented.
 - Start the answer with one line listing the loaded skills.
