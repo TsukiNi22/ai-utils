@@ -550,8 +550,8 @@ window.DOC_FR = {
   "Architecture": "Architecture",
   "Realistic": "Réaliste",
   "3D style": "Style 3D",
-  "Drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset": "Glisser pour orbiter · clic droit + glisser pour déplacer · glisser un nœud pour le déplacer · molette pour zoomer · F pour centrer la sélection · cliquer les axes pour réinitialiser",
-  "Drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection": "Glisser pour déplacer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection"
+  "drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset": "glisser pour orbiter · clic droit + glisser pour déplacer · glisser un nœud pour le déplacer · molette pour zoomer · F pour centrer la sélection · cliquer les axes pour réinitialiser",
+  "drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection": "glisser pour déplacer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection"
 };
 </script>
 <script>
@@ -1107,7 +1107,7 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("Drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset") : tr("Drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection")) : tr("No node: enable some categories / groups");
+        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset") : tr("drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection")) : tr("No node: enable some categories / groups");
     }
 
     // ---------- Legends / chips ---------- //
