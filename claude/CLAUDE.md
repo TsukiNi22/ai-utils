@@ -21,17 +21,6 @@
   Markdown, docs, READMEs, audits...) are written in English, unless the user explicitly
   asks for another language. Only the conversation itself follows the user's language.
 
-# Reports — always PDF
-
-- Every audit, review, analysis, benchmark or summary delivered to the user is written in
-  Markdown and converted to PDF with the `pdf-report` skill (its style, its script
-  `~/.claude/skills/pdf-report/scripts/md2pdf.py`). Ask once which outputs are wanted:
-  both `.md` + `.pdf` (recommended), PDF only or Markdown only. The chat only gives the
-  verdict and the paths.
-- Default locations: audits in `audit/` at the root of the repository (or of the current
-  folder outside a repository), READMEs at the root of the repository (or the current
-  folder); `docs/` only when the user asks for it.
-
 # Subagents — token cost
 
 - NEVER launch a fork agent (`subagent_type: "fork"`) on your own initiative, under any
