@@ -19,8 +19,8 @@ File/class layout (header, sections, blocks): the `cpp-class` skill. Comments: t
 | free tool function | snake_case | `is_ip`, `resolve_hostname`, `rotate_point_3D` |
 | hook / callback function | camelCase | `defaultHelpHook`, `defaultInt32ParsingHook` |
 | member | `_camelCase` | `_usedIds`, `_helpHook`, `_fd` |
-| local variable / parameter | camelCase, short names fine in small scopes (`i`, `j`, `f`, `it`, `e`, `s`) | `alreadyFailed`, `equalFound`, `argOrigin` |
-| bool option parameter | snake_case is common | `safe_mode`, `ignore_case`, `failsafe` |
+| local variable / parameter | camelCase (bool included), short names fine in small scopes (`i`, `j`, `f`, `it`, `e`, `s`) | `alreadyFailed`, `equalFound`, `argOrigin` |
+| special bool parameter (a mode / switch with a default value) | snake_case, **only** for these | `const bool safe_mode = true`, `const bool ignore_case = false`, `failsafe` |
 | macro / define | UPPER_SNAKE | `SOCKET_CHUNK_SIZE`, `OVERFLOW_LIMIT` |
 | attribute macro (libutils) | `_lower` | `_hot`, `_nodiscard`, `_migration(4, 0, 0)` |
 | enum value | PascalCase, trailing comma | `Status::Up`, `InternalCode::UnknownId` |
@@ -44,7 +44,7 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
 ## Spacing
 - `if (`, `for (`, `while (`, `switch (`: space after the keyword; no space inside the parentheses.
 - Binary operators surrounded by spaces, no space for unary (`!x`, `++i`, `*it`).
-- `for (const auto& x: list)`, `class A: public B`, `enum class E: std::size_t`: **no space before `:`**.
+- `for (const std::string& x: list)`, `class A: public B`, `enum class E: std::size_t`: **no space before `:`**.
 - Init list on its own line, `: ` at column 0: `: _binary{binary}, _description{description}`.
 - `&`/`*` glued to the type: `const std::string& name`, `char* buf`, `auto &[a, b]` for structured bindings.
 - `template<typename T>` without space. `(void)` for an empty parameter list, always.
@@ -69,8 +69,8 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
   Several statements on one line inside braces are fine for tiny cases: `{ids.push_back(fid); unknown = false; break;}`.
 - Early return for trivial cases: `if (this->_finished.empty()) return;`.
 - Loops:
-  - range-for first, with `const auto&` or the explicit type (`for (const std::string& id: ids)`),
-    structured bindings `for (const auto &[fid, flag]: this->_flags)` with `_` for unused parts;
+  - range-for first, with the explicit type (`for (const std::string& id: ids)`),
+    structured bindings `for (const auto &[fid, flag]: this->_flags)` (the only syntax possible) with `_` for unused parts;
   - index loops `for (std::size_t i = 0; i < n; ++i)` (prefer `++i`, `std::size_t` for indexes);
   - `while (true)` + `break` with a comment per exit condition;
   - `do { ... } while (cond);` when the first iteration is mandatory;
@@ -83,14 +83,19 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
       default: event.button = utils::iomanip::MouseButton::Unknown; break;
   }
   ```
-- Lambdas: `[&](const auto& p) {return p.first == id;}`, captures listed explicitly when stored
+- Lambdas: `[&](const std::pair<std::string, bool>& p) {return p.first == id;}` (explicit parameter types), captures listed explicitly when stored
   (`[this, id, delay, fn](std::stop_token stoken) {`).
 - Ternaries for short choices, parenthesized when nested.
 - Discarded return values are cast: `(void)lock.try_lock();`.
 
 ## Types & C++ usage
-- Fully qualified names, no `using namespace` (`std::size_t`, `utils::exception::ErrorException`).
-  `using` only for type aliases.
+- Fully qualified names, never `using namespace` (`std::size_t`, `utils::exception::ErrorException`).
+- **No `auto`**: always write the type, even when it is long. Allowed only for an iterator
+  (`auto it = this->_tasks.find(id);`), the structured bindings (`const auto &[a, b]`, mandatory syntax), or when
+  the user explicitly asks for it.
+- **No `using`** except to name a **custom type** of the project (`using Payloads = std::vector<utils::network::Payload>;`,
+  `using ParsedUsages = ...;`, migration aliases), or when the user explicitly asks for it. Never `using std::...;`,
+  never a `using` to shorten a standard type in the code.
 - `const` everywhere it applies: by-value parameters too (`const bool safe_mode`, `const std::size_t i`),
   `const&` for objects, `const` methods, `mutable` for the mutex.
 - Default values at the declaration (`int _fd = -1;`, `std::string _description = "...";`), `"[None]"` as
