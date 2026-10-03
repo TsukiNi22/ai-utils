@@ -1,0 +1,64 @@
+---
+name: audit-quality
+description: Audit the cleanliness and conventions of a project (the user's coding style, comments, file layout, CMake, git history, tests coverage, docs, hygiene) and deliver the result as a PDF report in the user's report style. Use whenever the user asks for an audit of cleanliness / quality / conventions / style / code hygiene, a "rapport de propreté", or a review of a whole project against his conventions (not for bugs/UB: audit-bugs).
+---
+
+# Cleanliness / convention audit -> PDF report
+
+Report only: **never modify the project** during the audit (fixes only if asked afterwards).
+`SKILL_DIR` = directory of this file.
+
+## 1. Ask (one AskUserQuestion call, French) - only what the request doesn't say
+- Scope: whole project / a module / the changes since a ref.
+- Compiler warnings pass (`--build`, slower: separate build dir in /tmp).
+- Output: `docs/audit/<AAAA-MM-JJ>-proprete.{md,pdf}` (default) or another path; language (French default).
+Never start subagents (forks) by yourself: propose them only for very big projects and wait for the user's yes.
+
+## 2. Objective metrics
+```bash
+python3 SKILL_DIR/scripts/collect.py <root> --json /tmp/audit.json --md /tmp/audit-tables.md [--build]
+```
+Categories (every finding has `file:line`): `headers` (Xartania/Epitech header missing), `guards` (`NAME_H` not
+matching the file), `auto` (outside iterators / structured bindings / lambdas), `using-namespace`, `void-params`
+(function with a return type and `()`), `c-cast`, `null`, `tabs`, `trailing-spaces`, `todo`, `cmake` (source not
+listed, GLOB), `gitignore` (outputs not ignored), `commits` (not `type(scope): message`), `ai-attribution`,
+`untested` (public names never referenced by the tests, via `cpp-tests`), `docs` (README/CHANGELOG/LICENSE missing,
+CHANGELOG version != CMake version), `warnings` (with `--build`).
+The script is heuristic: check a sample of each category before reporting it, drop the false positives.
+
+## 2b. Dependencies (licenses + vulnerabilities, transitive)
+```bash
+python3 ~/.claude/skills/deps-license/scripts/deps.py <root> --transitive --json /tmp/deps.json --md /tmp/deps.md
+python3 ~/.claude/skills/deps-license/scripts/vulns.py <root> --json /tmp/vulns.json --md /tmp/vulns.md
+```
+Licenses to credit / restrictive / unknown (see `deps-license`), known vulnerabilities and compromised versions
+(OSV, dnf advisories, GitHub advisories), **recent** ones (< 90 days) first; for each one check whether the project
+uses the vulnerable part. Dependencies of the dependencies are included.
+
+## 3. Manual review (what a script can't see)
+Load the convention skills and read a representative sample of each module (most recent files first):
+- `cpp-style` (naming, braces, `this->`, one-liners, const, alignment), `cpp-comments` / `comments`, `cpp-class`
+  (`reference/layout.md`: sections, class blocks order, rule of five, include comments, namespaces),
+- `cmake-style` (section order, banners, modes, packaging), `git-conventions` (history, tags, CHANGELOG),
+- `readme-style` / `html-doc` (docs), `cpp-tests` (tests structure), `license` (`scripts/license.py identify`).
+Also: dead code, duplicated code, very long functions, magic numbers, inconsistent naming between modules,
+files in the wrong folder, leftovers at the root (`tmp.cpp`, `a.out`...).
+
+## 4. Score and priorities
+Per category: number of findings, severity (**élevée**: breaks the build/CI/conventions everywhere, **moyenne**:
+recurrent deviation, **faible**: cosmetic), a 0-10 score, the fix (and if it can be automated: `sed`, script,
+clang-format...). Then a **top 10** of the actions with the best gain / effort ratio.
+
+## 5. Report (pdf-report skill)
+Write the Markdown from `pdf-report/templates/report.md`, sections:
+1. **Résumé**: table `| Catégorie | Constats | Sévérité | Note /10 |` + global score + 3-line verdict.
+2. **Méthode**: scope, commit (`git rev-parse --short HEAD`), date, tools and skills used, limits (heuristics).
+3. **Constats par catégorie**: one `###` per category, a short explanation of the rule (with the skill it comes
+   from), a table `| Fichier:ligne | Constat | Correction |` (max ~15 rows, the rest in the annex).
+4. **Dépendances**: licences (table + obligations) and vulnérabilités (table by severity, recent first, fixed
+   version, action).
+5. **Priorités**: the top 10, numbered `1. **Action.** gain, effort, files`.
+6. **Annexe**: full lists per category (from the JSON), module sizes table.
+7. **Sources**: the skills / rules / tools used.
+Then `python3 ~/.claude/skills/pdf-report/scripts/md2pdf.py <report.md> --footer "<Projet> — audit de propreté"`,
+check the rendering (pdftoppm on 2 pages) and give both paths + page count.
