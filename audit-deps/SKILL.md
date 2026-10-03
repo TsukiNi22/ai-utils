@@ -1,5 +1,5 @@
 ---
-name: deps-license
+name: audit-deps
 description: Check the dependencies of a project (direct and transitive - CMake packages, pkg-config, FetchContent, submodules, vendored code, prebuilt binaries, includes, pip/npm/cargo) for their licenses - what must be credited, copyleft constraints, non-commercial / source-available / paid / proprietary terms, dependencies without license or of unknown origin - generate the third-party notices, and check their known vulnerabilities / compromised versions; result delivered as a PDF report. Use whenever the user asks what the dependencies allow, what to credit, if a dependency is legal/paid/restrictive, a THIRD_PARTY_NOTICES file, or a dependency security check.
 ---
 
@@ -61,9 +61,9 @@ compared with the installed version (`gh`). Advisories published in the last 90 
 For each finding: affected version, fixed version, the project usage (is the vulnerable feature used? grep it),
 action (update the package, bump the requirement, pin/replace). Debian/Ubuntu: also `debsecan` if installed.
 
-## 5. Report (always PDF)
-Through the `pdf-report` skill (`docs/audit/<AAAA-MM-JJ>-dependances.{md,pdf}` by default):
-**Résumé** (counts per category, blocking points first), **Méthode** (commit, tools, date, limits), **Licences**
-(table per dependency: version, licence, catégorie, portée, obligation), **Obligations** (what to credit and
-where), **Points bloquants / à clarifier**, **Vulnérabilités** (table by severity, recent first, fixed version,
-action), **Sources**. Then give both paths.
+## 5. Report
+Through the `pdf-report` skill: ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only), location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-dependencies.{md,pdf}`), English unless
+asked. Sections: **Summary** (counts per category, blocking points first), **Method** (commit, tools, date, limits),
+**Licenses** (table per dependency: version, license, category, scope, obligation), **Obligations** (what to credit and
+where), **Blocking / to clarify**, **Vulnerabilities** (table by severity, recent first, fixed version, action),
+**Sources**. Then give the path(s).

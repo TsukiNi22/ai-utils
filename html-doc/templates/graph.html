@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="fr" data-page="graph">
+<html lang="en" data-page="graph">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{PROJECT}} · Graphe du projet</title>
+<title>{{PROJECT}} · Project graph</title>
 <style>
 
 :root {
@@ -223,7 +223,7 @@ select { width: auto; }
 .helpcard svg { width: 100%; height: auto; display: block; margin-top: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
 .helpcard svg .n-lbl { fill: var(--text); font: 11px system-ui, sans-serif; }
 .helpcard svg .e-lbl { fill: var(--muted); font: 10.5px system-ui, sans-serif; }
-[data-help] { cursor: help; }
+[data-help] { cursor: help; user-select: none; -webkit-user-select: none; }
 button[data-help], .chip[data-help] { cursor: pointer; }
 .panel-toggle { display: none; position: absolute; top: 12px; left: 12px; z-index: 5; }
 .help p { font-size: 12.5px; color: var(--muted); }
@@ -245,14 +245,14 @@ button[data-help], .chip[data-help] { cursor: pointer; }
   <nav class="tabs" aria-label="Pages">
     <!-- PAGES: keep only the pages that exist, the first one is index.html -->
     <a href="index.html">Guide</a>
-    <a href="technical.html">Technique</a>
-    <a href="graph.html" class="current" aria-current="page">Graphe</a>
+    <a href="technical.html">Technical</a>
+    <a href="graph.html" class="current" aria-current="page">Graph</a>
   </nav>
   <span class="spacer"></span>
-  <a class="icon-btn" href="{{REPO_URL}}" title="Dépôt GitHub" aria-label="Dépôt GitHub">
+  <a class="icon-btn" href="{{REPO_URL}}" title="GitHub repository" aria-label="GitHub repository">
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
   </a>
-  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Changer de thème" title="Changer de thème">
+  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
     <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
     </svg>
@@ -264,15 +264,15 @@ button[data-help], .chip[data-help] { cursor: pointer; }
 </header>
 
 <div class="graph-shell">
-  <aside class="panel" id="panel" aria-label="Contrôles du graphe">
-    <h1>Graphe du projet</h1>
-    <p class="muted small">Fichiers, classes, fonctions, tests, cibles CMake et dépendances externes de <code>{{PROJECT}}</code>, extraits des sources. Cliquer sur un nœud pour l'inspecter, glisser pour déplacer, molette pour zoomer.</p>
+  <aside class="panel" id="panel" aria-label="Graph controls">
+    <h1>Project graph</h1>
+    <p class="muted small">Files, classes, functions, tests, CMake targets and external dependencies of <code>{{PROJECT}}</code>, extracted from the sources. Click a node to inspect it, drag to move, scroll to zoom.</p>
 
-    <div class="status" id="status">Chargement…</div>
+    <div class="status" id="status">Loading…</div>
     <div class="row">
       <button class="btn primary" id="update" type="button" data-help="update">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-        Mettre à jour
+        Update
       </button>
     </div>
 
@@ -282,70 +282,70 @@ button[data-help], .chip[data-help] { cursor: pointer; }
           <button id="mode2d" class="active" type="button" data-help="mode2d">2D</button>
           <button id="mode3d" type="button" data-help="mode3d">3D</button>
         </div>
-        <button class="btn" id="fit" type="button" data-help="fit">Ajuster</button>
-        <button class="btn" id="pause" type="button" data-help="pause">Figer</button>
+        <button class="btn" id="fit" type="button" data-help="fit">Fit</button>
+        <button class="btn" id="pause" type="button" data-help="pause">Freeze</button>
       </div>
-      <input id="search" data-help="search" type="search" placeholder="Rechercher un nœud… (ex : Server, parse, .hpp)" autocomplete="off">
+      <input id="search" data-help="search" type="search" placeholder="Search a node… (e.g. Server, parse, .hpp)" autocomplete="off">
     </div>
 
     <div class="ps">
-      <h4>Vues</h4>
+      <h4>Views</h4>
       <div class="chips" id="presets">
-        <button class="chip" type="button" data-preset="overview" data-help="preset:overview">Vue d'ensemble</button>
-        <button class="chip" type="button" data-preset="files" data-help="preset:files">Fichiers &amp; includes</button>
-        <button class="chip" type="button" data-preset="classes" data-help="preset:classes">Classes &amp; héritage</button>
-        <button class="chip" type="button" data-preset="members" data-help="preset:members">Classes &amp; méthodes</button>
+        <button class="chip" type="button" data-preset="overview" data-help="preset:overview">Overview</button>
+        <button class="chip" type="button" data-preset="files" data-help="preset:files">Files &amp; includes</button>
+        <button class="chip" type="button" data-preset="classes" data-help="preset:classes">Classes &amp; inheritance</button>
+        <button class="chip" type="button" data-preset="members" data-help="preset:members">Classes &amp; methods</button>
         <button class="chip" type="button" data-preset="tests" data-help="preset:tests">Tests</button>
         <button class="chip" type="button" data-preset="build" data-help="preset:build">Build</button>
-        <button class="chip" type="button" data-preset="all" data-help="preset:all">Tout</button>
+        <button class="chip" type="button" data-preset="all" data-help="preset:all">All</button>
       </div>
     </div>
 
     <div class="ps">
-      <h4>Catégories <span class="count muted" id="nodeCount"></span><button class="mini" type="button" data-all="kinds">tout</button><button class="mini" type="button" data-none="kinds">aucun</button></h4>
+      <h4>Categories <span class="count muted" id="nodeCount"></span><button class="mini" type="button" data-all="kinds">all</button><button class="mini" type="button" data-none="kinds">none</button></h4>
       <div class="chips" id="kinds"></div>
     </div>
 
     <div class="ps">
-      <h4>Groupes <span class="count muted" id="groupCount"></span><button class="mini" type="button" data-all="groups">tout</button><button class="mini" type="button" data-none="groups">aucun</button></h4>
+      <h4>Groups <span class="count muted" id="groupCount"></span><button class="mini" type="button" data-all="groups">all</button><button class="mini" type="button" data-none="groups">none</button></h4>
       <div class="chips" id="groups"></div>
     </div>
 
     <div class="ps">
-      <h4>Relations <span class="count muted" id="linkCount"></span><button class="mini" type="button" data-all="links">tout</button><button class="mini" type="button" data-none="links">aucun</button></h4>
+      <h4>Relations <span class="count muted" id="linkCount"></span><button class="mini" type="button" data-all="links">all</button><button class="mini" type="button" data-none="links">none</button></h4>
       <div class="chips" id="linkKinds"></div>
     </div>
 
     <div class="ps">
       <h4>Options</h4>
-      <label class="opt" data-help="colorBy">Couleur par
-        <select id="colorBy"><option value="kind">catégorie</option><option value="group">groupe</option></select>
+      <label class="opt" data-help="colorBy">Color by
+        <select id="colorBy"><option value="kind">category</option><option value="group">group</option></select>
       </label>
-      <label class="opt" data-help="cluster"><input type="checkbox" id="cluster"> Rapprocher les nœuds d'un même groupe</label>
-      <label class="opt" data-help="labels"><input type="checkbox" id="labels" checked> Afficher les noms</label>
-      <label class="opt" data-help="particles"><input type="checkbox" id="particles"> Animer le sens des relations</label>
-      <label class="opt" data-help="isolate"><input type="checkbox" id="isolate"> Isoler la sélection (voisins seulement)</label>
+      <label class="opt" data-help="cluster"><input type="checkbox" id="cluster"> Cluster the nodes of a group</label>
+      <label class="opt" data-help="labels"><input type="checkbox" id="labels" checked> Show names</label>
+      <label class="opt" data-help="particles"><input type="checkbox" id="particles"> Animate the direction of the relations</label>
+      <label class="opt" data-help="isolate"><input type="checkbox" id="isolate"> Isolate the selection (neighbours only)</label>
     </div>
 
     <div class="ps help">
-      <h4>Lecture</h4>
-      <p>Les flèches vont du dépendant vers la dépendance : <em>fichier → header inclus</em>, <em>classe → classe de base</em>, <em>source → cible CMake</em>, <em>cible → bibliothèque liée</em>, <em>test → classe testée</em>. La taille d'un nœud augmente avec son nombre de relations.</p>
-      <p>Le graphe embarqué vient du commit indiqué ci-dessus ; « Mettre à jour » (lancé une fois au chargement) récupère la dernière version du dépôt GitHub et le reconstruit dans le navigateur.</p>
+      <h4>Reading</h4>
+      <p>Arrows go from the dependent to the dependency: <em>file → included header</em>, <em>class → base class</em>, <em>source → CMake target</em>, <em>target → linked library</em>, <em>test → tested class</em>. The size of a node grows with its number of relations.</p>
+      <p>The embedded graph comes from the commit shown above; "Update" (run once at load) fetches the last version of the GitHub repository and rebuilds it in the browser. Hover a control for a short help, double click it for a detailed one.</p>
     </div>
   </aside>
 
   <div class="stage">
-    <canvas id="graph" aria-label="Graphe interactif du projet"></canvas>
-    <button class="btn panel-toggle" id="panelToggle" type="button" aria-label="Afficher les contrôles">☰ Contrôles</button>
+    <canvas id="graph" aria-label="Interactive project graph"></canvas>
+    <button class="btn panel-toggle" id="panelToggle" type="button" aria-label="Show the controls">☰ Controls</button>
     <div class="details" id="details" hidden></div>
-    <div class="hint" id="hint">Chargement du graphe…</div>
+    <div class="hint" id="hint">Loading the graph…</div>
   </div>
 </div>
 <div class="tip" id="tip" role="tooltip" hidden></div>
 <div class="helpcard-back" id="helpBack" hidden>
   <div class="helpcard" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
-    <button class="close" type="button" id="helpClose" aria-label="Fermer">×</button>
-    <div class="kind">Aide · double-clic</div>
+    <button class="close" type="button" id="helpClose" aria-label="Close">×</button>
+    <div class="kind">Help · double click</div>
     <h3 id="helpTitle"></h3>
     <div id="helpBody"></div>
     <div id="helpSvg"></div>
@@ -747,16 +747,16 @@ function extractGraph(files, opts) {
     let SNAPSHOT = JSON.parse($("graph-snapshot").textContent);
     const KEY = (CONFIG.storageKey || "doc") + "-graph";
     const KINDS = {
-        header: ["#5b8def", "Header"], source: ["#2fa36b", "Source"], "test-file": ["#d9822b", "Fichier de test"],
-        class: ["#8e6cf0", "Classe"], struct: ["#a77bd9", "Struct"], interface: ["#e05a9b", "Interface"],
-        abstract: ["#c44fd1", "Abstraite"], enum: ["#c9a227", "Enum"], function: ["#20a4b8", "Fonction"],
-        method: ["#7f8ea3", "Méthode"], test: ["#e0a458", "Test"], "test-helper": ["#b98a5e", "Aide de test"], executable: ["#e5484d", "Exécutable"],
-        library: ["#f07a3a", "Bibliothèque"], external: ["#98a2b3", "Externe"]
+        header: ["#5b8def", "Header"], source: ["#2fa36b", "Source"], "test-file": ["#d9822b", "Test file"],
+        class: ["#8e6cf0", "Class"], struct: ["#a77bd9", "Struct"], interface: ["#e05a9b", "Interface"],
+        abstract: ["#c44fd1", "Abstract"], enum: ["#c9a227", "Enum"], function: ["#20a4b8", "Function"],
+        method: ["#7f8ea3", "Method"], test: ["#e0a458", "Test"], "test-helper": ["#b98a5e", "Test helper"], executable: ["#e5484d", "Executable"],
+        library: ["#f07a3a", "Library"], external: ["#98a2b3", "External"]
     };
     const LINKS = {
-        includes: ["#8a909b", "inclut"], defines: ["#9aa5b8", "définit"], member: ["#a3acbd", "membre"],
-        inherits: ["#8e6cf0", "hérite de"], implements: ["#2fa36b", "implémente"], "compiled-into": ["#f07a3a", "compilé dans"],
-        links: ["#e5484d", "lié à"], tests: ["#d9822b", "teste"]
+        includes: ["#8a909b", "includes"], defines: ["#9aa5b8", "defines"], member: ["#a3acbd", "member"],
+        inherits: ["#8e6cf0", "inherits"], implements: ["#2fa36b", "implements"], "compiled-into": ["#f07a3a", "compiled into"],
+        links: ["#e5484d", "links"], tests: ["#d9822b", "tests"]
     };
     const PRESETS = {
         overview: [["header", "source", "class", "struct", "interface", "abstract", "enum", "function", "executable", "library", "external"], ["includes", "inherits", "defines", "compiled-into", "links"]],
@@ -827,7 +827,7 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, 0.6);
-        $("hint").textContent = vis.length ? (state.mode === "3d" ? "Glisser : tourner · Maj + glisser : déplacer · molette : zoom" : "Glisser : déplacer · molette : zoom · clic : détails") : "Aucun nœud : activer des catégories / groupes";
+        $("hint").textContent = vis.length ? (state.mode === "3d" ? "Drag: rotate · Shift + drag: move · scroll: zoom" : "Drag: move · scroll: zoom · click: details") : "No node: enable some categories / groups";
     }
 
     // ---------- Legends / chips ---------- //
@@ -1121,8 +1121,8 @@ function extractGraph(files, opts) {
         }
         const list = (title, m) => Object.keys(m).map(k => "<h5>" + esc(title) + " · " + esc(LINKS[k] ? LINKS[k][1] : k) + " (" + m[k].length + ")</h5><ul>" +
             m[k].slice(0, 60).map(t => { const x = state.byId.get(t); return x ? '<li><a data-id="' + esc(t) + '"><span class="dot" style="background:' + colorOf(x) + '"></span>' + esc(x.label) + "</a></li>" : ""; }).join("") +
-            (m[k].length > 60 ? '<li class="muted">… ' + (m[k].length - 60) + " de plus</li>" : "") + "</ul>").join("");
-        const meta = [["Groupe", n.group], ["Chemin", n.path], ["Namespace", n.ns], ["Lignes", n.loc], ["Accès", n.access], ["Surcharges", n.overloads > 1 ? n.overloads : ""], ["Virtuelle pure", n.pure ? "oui" : ""], ["Relations", n.degree]]
+            (m[k].length > 60 ? '<li class="muted">… ' + (m[k].length - 60) + " more</li>" : "") + "</ul>").join("");
+        const meta = [["Group", n.group], ["Path", n.path], ["Namespace", n.ns], ["Lines", n.loc], ["Access", n.access], ["Overloads", n.overloads > 1 ? n.overloads : ""], ["Pure virtual", n.pure ? "yes" : ""], ["Relations", n.degree]]
             .filter(x => x[1] !== undefined && x[1] !== "").map(x => "<dt>" + x[0] + "</dt><dd>" + esc(x[1]) + "</dd>").join("");
         box.innerHTML = '<button class="close" type="button" aria-label="Fermer">×</button><div class="kind"><span class="dot" style="width:9px;height:9px;border-radius:50%;background:' + colorOf(n) + '"></span>' +
             esc((KINDS[n.kind] || ["", n.kind])[1]) + "</div><h3>" + esc(n.label) + "</h3><dl>" + meta + "</dl>" + list("Sortant", out) + list("Entrant", inc);
@@ -1149,27 +1149,27 @@ function extractGraph(files, opts) {
     function short(sha) { return sha ? String(sha).slice(0, 7) : "?"; }
     function day(d) { return d ? String(d).slice(0, 10) : "?"; }
     function setStatus(html, cls) { const s = $("status"); s.className = "status" + (cls ? " " + cls : ""); s.innerHTML = html; }
-    function describe(meta) { return "commit <code>" + short(meta.sha) + "</code> du " + day(meta.date) + (meta.source === "live" ? " (récupéré du dépôt)" : " (embarqué)"); }
+    function describe(meta) { return "commit <code>" + short(meta.sha) + "</code> of " + day(meta.date) + (meta.source === "live" ? " (fetched from the repository)" : " (embedded)"); }
     async function gh(path) {
         const r = await fetch("https://api.github.com" + path, {headers: {Accept: "application/vnd.github+json"}});
-        if (!r.ok) throw new Error(r.status === 403 || r.status === 429 ? "limite de l'API GitHub atteinte" : r.status === 404 ? "dépôt introuvable ou privé" : "HTTP " + r.status);
+        if (!r.ok) throw new Error(r.status === 403 || r.status === 429 ? "GitHub API rate limit reached" : r.status === 404 ? "repository not found or private" : "HTTP " + r.status);
         return r.json();
     }
     async function update(manual) {
         const btn = $("update");
-        if (!CONFIG.repo || CONFIG.repo.includes("{{")) { setStatus("Graphe " + describe(state.meta) + ". Aucun dépôt configuré pour la mise à jour.", "warn"); return; }
+        if (!CONFIG.repo || CONFIG.repo.includes("{{")) { setStatus("Graph " + describe(state.meta) + ". No repository configured for the update.", "warn"); return; }
         btn.disabled = true; btn.classList.add("spin");
         try {
-            setStatus("Vérification du dépôt <code>" + esc(CONFIG.repo) + "</code>…", "busy");
+            setStatus("Checking the repository <code>" + esc(CONFIG.repo) + "</code>…", "busy");
             const head = await gh("/repos/" + CONFIG.repo + "/commits/" + encodeURIComponent(CONFIG.branch || "main"));
             const sha = head.sha, date = head.commit && head.commit.committer && head.commit.committer.date;
-            if (sha === state.meta.sha) { setStatus("À jour : " + describe(state.meta) + ".", "ok"); return; }
+            if (sha === state.meta.sha) { setStatus("Up to date: " + describe(state.meta) + ".", "ok"); return; }
             if (date && state.meta.date && new Date(date) < new Date(state.meta.date)) {
-                setStatus("Le graphe affiché (" + describe(state.meta) + ") est plus récent que le dépôt (<code>" + short(sha) + "</code> du " + day(date) + ") : commits locaux non poussés ?", "ok");
+                setStatus("The graph shown (" + describe(state.meta) + ") is newer than the repository (<code>" + short(sha) + "</code> of " + day(date) + "): local commits not pushed?", "ok");
                 return;
             }
             const cached = load("graph");
-            if (cached && cached.meta && cached.meta.sha === sha) { setData(cached, cached.meta); setStatus("Mis à jour : " + describe(cached.meta) + ".", "ok"); return; }
+            if (cached && cached.meta && cached.meta.sha === sha) { setData(cached, cached.meta); setStatus("Updated: " + describe(cached.meta) + ".", "ok"); return; }
             const tree = await gh("/repos/" + CONFIG.repo + "/git/trees/" + sha + "?recursive=1");
             const wanted = tree.tree.filter(t => t.type === "blob" && t.size < 600000 &&
                 (/(^|\/)CMakeLists\.txt$/.test(t.path) || /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c)$/.test(t.path)) &&
@@ -1182,18 +1182,18 @@ function extractGraph(files, opts) {
                     const path = queue.shift();
                     const r = await fetch("https://raw.githubusercontent.com/" + CONFIG.repo + "/" + sha + "/" + path.split("/").map(encodeURIComponent).join("/"));
                     if (r.ok) files.push({path, text: await r.text()});
-                    if (++done % 10 === 0 || done === wanted.length) setStatus("Téléchargement des sources : " + done + " / " + wanted.length + "…", "busy");
+                    if (++done % 10 === 0 || done === wanted.length) setStatus("Downloading the sources: " + done + " / " + wanted.length + "…", "busy");
                 }
             };
             await Promise.all(Array.from({length: 8}, worker));
-            setStatus("Construction du graphe…", "busy");
+            setStatus("Building the graph…", "busy");
             const graph = extractGraph(files);
             graph.meta = {sha, date, source: "live", files: files.length};
             setData(graph, graph.meta);
             store("graph", graph);
-            setStatus("Mis à jour : " + describe(graph.meta) + " · " + graph.nodes.length + " nœuds.", "ok");
+            setStatus("Updated: " + describe(graph.meta) + " · " + graph.nodes.length + " nodes.", "ok");
         } catch (e) {
-            setStatus("Mise à jour impossible (" + esc(e.message || e) + "). Graphe affiché : " + describe(state.meta) + ".", "warn");
+            setStatus("Update impossible (" + esc(e.message || e) + "). Graph shown: " + describe(state.meta) + ".", "warn");
         } finally {
             btn.disabled = false; btn.classList.remove("spin");
         }
@@ -1210,7 +1210,7 @@ function extractGraph(files, opts) {
     $("mode2d").addEventListener("click", () => setMode("2d"));
     $("mode3d").addEventListener("click", () => setMode("3d"));
     $("fit").addEventListener("click", () => { fit(); state.dirty = true; });
-    $("pause").addEventListener("click", () => { state.paused = !state.paused; $("pause").textContent = state.paused ? "Relancer" : "Figer"; if (!state.paused) state.alpha = Math.max(state.alpha, 0.3); });
+    $("pause").addEventListener("click", () => { state.paused = !state.paused; $("pause").textContent = state.paused ? "Resume" : "Freeze"; if (!state.paused) state.alpha = Math.max(state.alpha, 0.3); });
     $("search").addEventListener("input", (e) => { state.search = e.target.value; refilter(false); state.dirty = true; });
     $("search").addEventListener("keydown", (e) => { if (e.key === "Enter" && state.match && state.match.size) focusOn([...state.match][0]); });
     $("colorBy").addEventListener("change", (e) => { state.colorBy = e.target.value; state.dirty = true; if (state.selected) select(state.selected); });
@@ -1243,7 +1243,7 @@ function extractGraph(files, opts) {
     function diagram(nodes, edges, opts) {
         opts = opts || {};
         const W = 320, H = opts.h || 120, ns = "http://www.w3.org/2000/svg";
-        let s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Exemple" xmlns="' + ns + '"><defs>';
+        let s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Example" xmlns="' + ns + '"><defs>';
         const kinds = [...new Set(edges.map(e => e[2]))];
         for (const k of kinds) s += '<marker id="hm-' + k + '" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="' + L(k) + '"/></marker>';
         s += "</defs>";
@@ -1285,50 +1285,50 @@ function extractGraph(files, opts) {
         persp: () => diagram([["A", "class", 70, 35, 13], ["B", "header", 165, 60, 9], ["C", "source", 250, 80, 6]], [[2, 1, "includes"], [1, 0, "defines"]], {particles: false})
     };
     const HELP = {
-        update: ["Mettre à jour", "Récupère la dernière version du dépôt GitHub et reconstruit le graphe.", "Interroge l'API GitHub pour le dernier commit de la branche. S'il est plus récent que le graphe affiché, les sources sont téléchargées et le graphe est reconstruit dans le navigateur (gardé en cache). Lancé une fois automatiquement au chargement. Hors ligne, dépôt privé ou limite d'API : le graphe embarqué reste affiché et le statut dit pourquoi.", "overview"],
-        mode2d: ["Vue 2D", "Graphe à plat : glisser pour déplacer, molette pour zoomer.", "Rendu à plat, le plus lisible pour lire les noms. Glisser le fond déplace la vue, glisser un nœud le déplace, la molette zoome sous le curseur, un clic ouvre les détails.", "flat"],
-        mode3d: ["Vue 3D", "Graphe en perspective : glisser pour tourner, Maj + glisser pour déplacer.", "Les nœuds sont répartis en profondeur (les plus proches sont plus gros). Glisser fait tourner la scène, Maj + glisser (ou clic droit) la déplace, la molette rapproche la caméra. Utile pour démêler un graphe dense.", "persp"],
-        fit: ["Ajuster", "Recentre et zoome pour voir tous les nœuds affichés.", "Calcule la boîte qui contient tous les nœuds visibles et adapte le zoom (2D) ou la distance de la caméra (3D).", "overview"],
-        pause: ["Figer / Relancer", "Arrête ou relance la simulation des forces.", "Le placement des nœuds est calculé par une simulation physique (répulsion entre nœuds, ressorts sur les relations). Figer la fige dans son état actuel pour lire tranquillement ; Relancer la remet en mouvement.", "flat"],
-        search: ["Recherche", "Surligne les nœuds dont le nom ou le chemin contient le texte.", "La recherche porte sur le nom et le chemin des nœuds visibles. Les autres sont estompés ; Entrée centre la vue sur le premier résultat et ouvre ses détails.", "isolate"],
-        colorBy: ["Couleur par", "Colore les nœuds par catégorie (type) ou par groupe (module).", "« catégorie » : une couleur par type de nœud (header, classe, test...). « groupe » : une couleur par dossier de module, pratique pour voir le découpage du projet.", "groups"],
-        cluster: ["Rapprocher par groupe", "Attire les nœuds d'un même module les uns vers les autres.", "Ajoute une force qui tire chaque nœud vers le centre de son groupe : les modules forment des îlots séparés. À combiner avec « Couleur par groupe ».", "groups"],
-        labels: ["Afficher les noms", "Affiche le nom des nœuds quand le zoom le permet.", "Les noms apparaissent à partir d'un certain zoom (et toujours pour le nœud survolé, sélectionné, ses voisins et les résultats de recherche). Décocher pour une vue plus épurée.", "flat"],
-        particles: ["Animer le sens des relations", "Des points circulent sur chaque relation, de la source vers la cible.", "Montre le sens des flèches sans zoomer : les points partent du dépendant et vont vers la dépendance (fichier -> header inclus, classe -> classe de base, source -> cible CMake...). Désactivé par défaut car il redessine en continu (plus de calcul).", "overview"],
-        isolate: ["Isoler la sélection", "N'affiche que le nœud sélectionné et ses voisins directs.", "Une fois un nœud sélectionné (clic), seuls lui et les nœuds reliés par les relations visibles restent affichés. Pratique pour suivre les dépendances d'une classe.", "isolate"],
-        "preset:overview": ["Vue d'ensemble", "Fichiers, types, fonctions, cibles et dépendances externes, sans méthodes ni tests.", "Montre la structure du projet : headers, sources, classes/structs/enums, fonctions libres, cibles CMake et bibliothèques externes, reliés par inclut, hérite de, définit, compilé dans et lié à.", "overview"],
-        "preset:files": ["Fichiers & includes", "Uniquement les fichiers et leurs #include.", "Le graphe des inclusions : utile pour repérer les headers centraux, les dépendances circulaires ou les inclusions inutiles.", "header"],
-        "preset:classes": ["Classes & héritage", "Les types et leurs relations d'héritage.", "Interfaces (I...), classes abstraites (A...), classes et structs, reliées par « hérite de » : la hiérarchie du projet.", "iface"],
-        "preset:members": ["Classes & méthodes", "Les types avec leurs méthodes.", "Ajoute les méthodes reliées à leur classe par « membre ». Peut être dense sur un gros projet : combiner avec la recherche ou l'isolement.", "method"],
-        "preset:tests": ["Tests", "Fichiers de test, cas de test et classes testées.", "Montre ce que chaque fichier de test couvre (« teste ») et ses cas de test : une classe sans flèche « teste » n'est pas testée.", "testFile"],
-        "preset:build": ["Build", "Sources, cibles CMake et bibliothèques liées.", "Quelles sources sont compilées dans quel exécutable / bibliothèque, et ce que chaque cible lie.", "exe"],
-        "preset:all": ["Tout", "Toutes les catégories et relations.", "Tout le graphe, méthodes et tests compris. Sur un gros projet, utiliser les filtres ensuite.", "overview"],
-        "kind:header": ["Header", "Fichier d'en-tête (.hpp, .h...).", "Déclare les classes, fonctions et types. Il est inclus par les sources et les autres headers, et définit des types.", "header"],
-        "kind:source": ["Source", "Fichier source (.cpp, .c...).", "Implémente les fonctions et méthodes. Il inclut des headers et est compilé dans une cible CMake.", "source"],
-        "kind:test-file": ["Fichier de test", "Fichier du dossier tests/.", "Contient des cas de test et référence les classes qu'il teste.", "testFile"],
-        "kind:class": ["Classe", "Classe C++ (déclarée avec class).", "Définie par un header, elle a des méthodes (membre) et peut hériter d'autres classes.", "cls"],
-        "kind:struct": ["Struct", "Structure de données (struct).", "Souvent un type de données simple défini dans un header de types (XType.hpp).", "enumT"],
-        "kind:interface": ["Interface", "Classe nommée I... (méthodes virtuelles pures).", "Contrat commun : les classes abstraites A... puis concrètes en héritent.", "iface"],
-        "kind:abstract": ["Abstraite", "Classe nommée A... ou avec des méthodes virtuelles pures.", "Implémentation partagée entre une interface et les classes concrètes.", "iface"],
-        "kind:enum": ["Enum", "Énumération (enum / enum class).", "Ensemble de valeurs nommées, en général défini dans un header XDefine.hpp.", "enumT"],
-        "kind:function": ["Fonction", "Fonction libre (hors classe).", "Fonction outil déclarée dans un header ou une source.", "func"],
-        "kind:method": ["Méthode", "Méthode d'une classe.", "Reliée à sa classe par « membre ». Les méthodes surchargées n'apparaissent qu'une fois (nombre de surcharges dans les détails).", "method"],
-        "kind:test": ["Test", "Cas de test (TEST, TEST_F, TEST_P).", "Défini par un fichier de test.", "test"],
-        "kind:test-helper": ["Aide de test", "Classe ou fonction écrite pour les tests (fixture, mock).", "Ex. un mock qui implémente une interface pour tester le code qui l'utilise.", "helper"],
-        "kind:executable": ["Exécutable", "Cible CMake add_executable.", "Les sources qui y sont compilées pointent vers elle ; elle pointe vers les bibliothèques qu'elle lie.", "exe"],
-        "kind:library": ["Bibliothèque", "Cible CMake add_library (.a / .so).", "Les sources y sont compilées ; elle peut lier d'autres bibliothèques.", "lib"],
-        "kind:external": ["Externe", "Dépendance hors du projet (bibliothèque système, classe de base d'une lib).", "Apparaît par un #include <...> ou un target_link_libraries : utils, gtest, openssl...", "ext"],
-        "link:includes": ["inclut", "Un fichier fait #include d'un autre.", "Flèche du fichier qui inclut vers le fichier inclus (ou la bibliothèque externe).", ["includes", ["Server.cpp", "source"], ["Server.hpp", "header"]]],
-        "link:defines": ["définit", "Un fichier déclare un type, une fonction ou un test.", "Flèche du fichier vers ce qu'il définit.", ["defines", ["Server.hpp", "header"], ["Server", "class"]]],
-        "link:member": ["membre", "Une méthode (ou un enum interne) appartient à une classe.", "Flèche de la classe vers sa méthode.", ["member", ["Server", "class"], ["listen()", "method"]]],
-        "link:inherits": ["hérite de", "Une classe dérive d'une autre.", "Flèche de la classe dérivée vers la classe de base.", ["inherits", ["TCPSocket", "class"], ["ASocket", "abstract"]]],
-        "link:implements": ["implémente", "Une source définit les méthodes d'une classe.", "Flèche du .cpp vers la classe dont il contient les définitions (Server::listen...).", ["implements", ["Server.cpp", "source"], ["Server", "class"]]],
-        "link:compiled-into": ["compilé dans", "Une source fait partie d'une cible CMake.", "Flèche de la source vers l'exécutable ou la bibliothèque qui la compile (liste SRC).", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
-        "link:links": ["lié à", "Une cible CMake lie une bibliothèque.", "Flèche de la cible vers la bibliothèque (target_link_libraries).", ["links", ["app", "executable"], ["utils", "external"]]],
-        "link:tests": ["teste", "Un fichier de test utilise une classe.", "Flèche du fichier de test vers la classe qu'il référence : une classe sans flèche entrante « teste » n'est pas couverte.", ["tests", ["tests/Server.cpp", "test-file"], ["Server", "class"]]],
-        group: ["Groupe", "Dossier de module (include/<projet>/<module>, src/..., tests/<module>).", "Chaque nœud appartient au module de son fichier. Désactiver un groupe masque tout ce qui en vient ; « Couleur par groupe » et « Rapprocher par groupe » rendent le découpage visible.", "groups"],
-        "group:external": ["Groupe externe", "Tout ce qui vient de l'extérieur du projet.", "Bibliothèques liées ou incluses et classes de base appartenant à une bibliothèque.", "ext"],
-        "group:build": ["Groupe build", "Les cibles CMake.", "Exécutables et bibliothèques déclarés dans les CMakeLists.txt.", "exe"]
+        update: ["Update", "Fetches the last version of the GitHub repository and rebuilds the graph.", "Asks the GitHub API for the last commit of the branch. If it is newer than the graph shown, the sources are downloaded and the graph is rebuilt in the browser (and cached). Run once automatically at load. Offline, private repository or API limit: the embedded graph stays and the status says why.", "overview"],
+        mode2d: ["2D view", "Flat graph: drag to move, scroll to zoom.", "Flat rendering, the most readable for the names. Dragging the background moves the view, dragging a node moves it, the scroll zooms under the cursor, a click opens the details.", "flat"],
+        mode3d: ["3D view", "Graph in perspective: drag to rotate, Shift + drag to move.", "Nodes are spread in depth (the closest are bigger). Dragging rotates the scene, Shift + drag (or right click) moves it, the scroll brings the camera closer. Useful to untangle a dense graph.", "persp"],
+        fit: ["Fit", "Centers and zooms to see every displayed node.", "Computes the box containing every visible node and adapts the zoom (2D) or the camera distance (3D).", "overview"],
+        pause: ["Freeze / Resume", "Stops or restarts the force simulation.", "Nodes are placed by a physical simulation (repulsion between nodes, springs on the relations). Freeze keeps the current layout to read it quietly; Resume puts it in motion again.", "flat"],
+        search: ["Search", "Highlights the nodes whose name or path contains the text.", "The search looks at the name and the path of the visible nodes. The others are faded; Enter centers the view on the first result and opens its details.", "isolate"],
+        colorBy: ["Color by", "Colors the nodes by category (kind) or by group (module).", "\"category\": one color per kind of node (header, class, test...). \"group\": one color per module folder, handy to see how the project is split.", "groups"],
+        cluster: ["Cluster by group", "Pulls the nodes of a same module together.", "Adds a force pulling every node towards the center of its group: modules become separate islands. Combine it with \"Color by group\".", "groups"],
+        labels: ["Show names", "Shows the name of the nodes when the zoom allows it.", "Names appear from a given zoom (and always for the hovered or selected node, its neighbours and the search results). Uncheck for a cleaner view.", "flat"],
+        particles: ["Animate the direction", "Dots travel along every relation, from the source to the target.", "Shows the direction of the arrows without zooming: dots go from the dependent to the dependency (file -> included header, class -> base class, source -> CMake target...). Off by default since it redraws continuously (more CPU).", "overview"],
+        isolate: ["Isolate the selection", "Only shows the selected node and its direct neighbours.", "Once a node is selected (click), only it and the nodes linked by the visible relations stay displayed. Handy to follow the dependencies of a class.", "isolate"],
+        "preset:overview": ["Overview", "Files, types, functions, targets and external dependencies, no methods nor tests.", "Shows the structure of the project: headers, sources, classes/structs/enums, free functions, CMake targets and external libraries, linked by includes, inherits, defines, compiled into and links.", "overview"],
+        "preset:files": ["Files & includes", "Only the files and their #include.", "The include graph: useful to spot the central headers, circular dependencies or useless includes.", "header"],
+        "preset:classes": ["Classes & inheritance", "The types and their inheritance.", "Interfaces (I...), abstract classes (A...), classes and structs, linked by \"inherits\": the hierarchy of the project.", "iface"],
+        "preset:members": ["Classes & methods", "The types with their methods.", "Adds the methods linked to their class by \"member\". Can be dense on a big project: combine it with the search or the isolation.", "method"],
+        "preset:tests": ["Tests", "Test files, test cases and tested classes.", "Shows what each test file covers (\"tests\") and its test cases: a class without an incoming \"tests\" arrow is not tested.", "testFile"],
+        "preset:build": ["Build", "Sources, CMake targets and linked libraries.", "Which sources are compiled into which executable / library, and what each target links.", "exe"],
+        "preset:all": ["All", "Every category and relation.", "The whole graph, methods and tests included. On a big project, use the filters afterwards.", "overview"],
+        "kind:header": ["Header", "Header file (.hpp, .h...).", "Declares the classes, functions and types. It is included by the sources and the other headers, and defines types.", "header"],
+        "kind:source": ["Source", "Source file (.cpp, .c...).", "Implements the functions and methods. It includes headers and is compiled into a CMake target.", "source"],
+        "kind:test-file": ["Test file", "File of the tests/ folder.", "Contains test cases and references the classes it tests.", "testFile"],
+        "kind:class": ["Class", "C++ class (declared with class).", "Defined by a header, it has methods (member) and can inherit other classes.", "cls"],
+        "kind:struct": ["Struct", "Data structure (struct).", "Usually a plain data type defined in a types header (XType.hpp).", "enumT"],
+        "kind:interface": ["Interface", "Class named I... (pure virtual methods).", "Common contract: the abstract A... then the concrete classes inherit it.", "iface"],
+        "kind:abstract": ["Abstract", "Class named A... or with pure virtual methods.", "Shared implementation between an interface and the concrete classes.", "iface"],
+        "kind:enum": ["Enum", "Enumeration (enum / enum class).", "Set of named values, usually defined in an XDefine.hpp header.", "enumT"],
+        "kind:function": ["Function", "Free function (outside a class).", "Tool function declared in a header or a source.", "func"],
+        "kind:method": ["Method", "Method of a class.", "Linked to its class by \"member\". Overloaded methods appear once (number of overloads in the details).", "method"],
+        "kind:test": ["Test", "Test case (TEST, TEST_F, TEST_P).", "Defined by a test file.", "test"],
+        "kind:test-helper": ["Test helper", "Class or function written for the tests (fixture, mock).", "E.g. a mock implementing an interface to test the code using it.", "helper"],
+        "kind:executable": ["Executable", "CMake add_executable target.", "The sources compiled into it point to it; it points to the libraries it links.", "exe"],
+        "kind:library": ["Library", "CMake add_library target (.a / .so).", "Sources are compiled into it; it can link other libraries.", "lib"],
+        "kind:external": ["External", "Dependency outside the project (system library, base class of a library).", "Comes from an #include <...> or a target_link_libraries: utils, gtest, openssl...", "ext"],
+        "link:includes": ["includes", "A file #includes another one.", "Arrow from the including file to the included file (or the external library).", ["includes", ["Server.cpp", "source"], ["Server.hpp", "header"]]],
+        "link:defines": ["defines", "A file declares a type, a function or a test.", "Arrow from the file to what it defines.", ["defines", ["Server.hpp", "header"], ["Server", "class"]]],
+        "link:member": ["member", "A method (or an inner enum) belongs to a class.", "Arrow from the class to its method.", ["member", ["Server", "class"], ["listen()", "method"]]],
+        "link:inherits": ["inherits", "A class derives from another one.", "Arrow from the derived class to the base class.", ["inherits", ["TCPSocket", "class"], ["ASocket", "abstract"]]],
+        "link:implements": ["implements", "A source defines the methods of a class.", "Arrow from the .cpp to the class whose definitions it contains (Server::listen...).", ["implements", ["Server.cpp", "source"], ["Server", "class"]]],
+        "link:compiled-into": ["compiled into", "A source is part of a CMake target.", "Arrow from the source to the executable or library compiling it (SRC list).", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
+        "link:links": ["links", "A CMake target links a library.", "Arrow from the target to the library (target_link_libraries).", ["links", ["app", "executable"], ["utils", "external"]]],
+        "link:tests": ["tests", "A test file uses a class.", "Arrow from the test file to the class it references: a class without an incoming \"tests\" arrow is not covered.", ["tests", ["tests/Server.cpp", "test-file"], ["Server", "class"]]],
+        group: ["Group", "Module folder (include/<project>/<module>, src/..., tests/<module>).", "Every node belongs to the module of its file. Disabling a group hides everything coming from it; \"Color by group\" and \"Cluster by group\" make the split visible.", "groups"],
+        "group:external": ["External group", "Everything coming from outside the project.", "Linked or included libraries and base classes belonging to a library.", "ext"],
+        "group:build": ["Build group", "The CMake targets.", "Executables and libraries declared in the CMakeLists.txt.", "exe"]
     };
     const tip = $("tip");
     let tipTimer = null, tipEl = null;
@@ -1340,7 +1340,7 @@ function extractGraph(files, opts) {
         const h = helpOf(el);
         if (!h) return;
         tipTimer = setTimeout(() => {
-            tip.innerHTML = "<strong>" + esc(h[1][0]) + "</strong><br>" + esc(h[1][1]) + "<small>Double-clic : description et exemple</small>";
+            tip.innerHTML = "<strong>" + esc(h[1][0]) + "</strong><br>" + esc(h[1][1]) + "<small>Double click: description and example</small>";
             tip.hidden = false;
             const r = el.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
             let x = Math.min(window.innerWidth - tw - 8, Math.max(8, r.left));
@@ -1366,7 +1366,7 @@ function extractGraph(files, opts) {
     function closeHelp() { $("helpBack").hidden = true; }
     document.addEventListener("dblclick", (e) => {
         const el = e.target.closest ? e.target.closest("[data-help]") : null;
-        if (el) { e.preventDefault(); openHelp(el.dataset.help); }
+        if (el) { e.preventDefault(); try { window.getSelection().removeAllRanges(); } catch (err) { /* no selection API */ } openHelp(el.dataset.help); }
     });
     $("helpClose").addEventListener("click", closeHelp);
     $("helpBack").addEventListener("click", (e) => { if (e.target === $("helpBack")) closeHelp(); });
@@ -1393,7 +1393,7 @@ function extractGraph(files, opts) {
     setData(start, start.meta);
     for (let i = 0; i < 120; i++) tick();
     fit();
-    setStatus("Graphe " + describe(state.meta) + ".", "");
+    setStatus("Graph " + describe(state.meta) + ".", "");
     state.dirty = true;
     requestAnimationFrame(frame);
     update(false);

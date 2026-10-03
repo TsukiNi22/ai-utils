@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="fr" data-page="technical">
+<html lang="en" data-page="technical">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{PROJECT}} · Documentation technique</title>
+<title>{{PROJECT}} · Technical documentation</title>
 <style>
 :root {
   --bg: #f7f7f5;
@@ -200,14 +200,14 @@ svg .arrow-accent { fill: var(--accent); }
   <nav class="tabs" aria-label="Pages">
     <!-- PAGES: keep only the pages that exist, the first one is index.html -->
     <a href="index.html">Guide</a>
-    <a href="technical.html" class="current" aria-current="page">Technique</a>
-    <a href="graph.html">Graphe</a>
+    <a href="technical.html" class="current" aria-current="page">Technical</a>
+    <a href="graph.html">Graph</a>
   </nav>
   <span class="spacer"></span>
-  <a class="icon-btn" href="{{REPO_URL}}" title="Dépôt GitHub" aria-label="Dépôt GitHub">
+  <a class="icon-btn" href="{{REPO_URL}}" title="GitHub repository" aria-label="GitHub repository">
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
   </a>
-  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Changer de thème" title="Changer de thème">
+  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
     <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
     </svg>
@@ -218,10 +218,10 @@ svg .arrow-accent { fill: var(--accent); }
   </button>
 </header>
 <div class="layout">
-<nav class="toc" aria-label="Sommaire">
-  <p>Sommaire</p>
-  <a href="#overview">1. Vue d'ensemble</a>
-  <a href="#usage">2. Utilisation</a>
+<nav class="toc" aria-label="Contents">
+  <p>Contents</p>
+  <a href="#overview">1. Overview</a>
+  <a href="#usage">2. Usage</a>
 </nav>
 
 <main>
@@ -232,18 +232,18 @@ svg .arrow-accent { fill: var(--accent); }
 
 <!-- 1 -->
 <section id="overview">
-  <h2>1. Vue d'ensemble</h2>
-  <p>Texte court. Les noms de code en <code>inline</code>.</p>
+  <h2>1. Overview</h2>
+  <p>Short text. Code names <code>inline</code>.</p>
 
   <div class="table-wrap"><table>
-    <thead><tr><th>Élément</th><th>Rôle</th></tr></thead>
+    <thead><tr><th>Element</th><th>Role</th></tr></thead>
     <tbody>
-      <tr><td><code>ISocket</code></td><td>Interface commune</td></tr>
+      <tr><td><code>ISocket</code></td><td>Common interface</td></tr>
     </tbody>
   </table></div>
 
   <figure>
-    <svg viewBox="0 0 760 120" role="img" aria-label="A envoie vers B">
+    <svg viewBox="0 0 760 120" role="img" aria-label="A sends to B">
       <defs>
         <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path class="arrow" d="M0 0L10 5L0 10z"/>
@@ -256,17 +256,17 @@ svg .arrow-accent { fill: var(--accent); }
       <path class="edge" d="M240 60H516" marker-end="url(#arr)"/>
       <text class="small" x="380" y="52" text-anchor="middle">send</text>
     </svg>
-    <figcaption>Figure 1 : légende courte.</figcaption>
+    <figcaption>Figure 1: short caption.</figcaption>
   </figure>
 
-  <div class="callout"><p>Remarque.</p></div>
-  <div class="callout warn"><p>Limite / attention.</p></div>
+  <div class="callout"><p>Note.</p></div>
+  <div class="callout warn"><p>Limit / warning.</p></div>
 </section>
 
 <!-- 2 -->
 <section id="usage">
-  <h2>2. Utilisation</h2>
-  <h3>2.1 Exemple</h3>
+  <h2>2. Usage</h2>
+  <h3>2.1 Example</h3>
 <pre><code>cmake -S . -B build
 cmake --build build --parallel $(nproc)</code></pre>
 </section>

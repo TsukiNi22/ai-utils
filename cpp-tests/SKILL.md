@@ -71,5 +71,5 @@ ctest --test-dir build --output-on-failure --timeout 30      # or ./unit_tests -
 - Asan pass for memory errors: `-DCMAKE_BUILD_TYPE=Asan` (needs `libutils-as[-pre]` when libutils is used).
 - Optional coverage: `-DCMAKE_CXX_FLAGS="--coverage"` then `gcovr -r . --exclude tests` (or `llvm-cov` with clang).
 - Report: tests added per module, results (passed / failing = bugs found, with the reason), what remains untested
-  Deliver the report as a **PDF** through the `pdf-report` skill (`.md` + `.pdf`, both paths given), not only in the chat.
+  Deliver the report through the `pdf-report` skill (ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only)), in English, in `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-tests.*`), not only in the chat.
   (`untested.py`).

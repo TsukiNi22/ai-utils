@@ -39,7 +39,7 @@ project frames. Exit 0 = clean, 1 = reports, 2 = build failure. `--keep` to read
 
 ### Dependencies (security)
 ```bash
-python3 ~/.claude/skills/deps-license/scripts/vulns.py <project> --json /tmp/vulns.json --md /tmp/vulns.md
+python3 ~/.claude/skills/audit-deps/scripts/vulns.py <project> --json /tmp/vulns.json --md /tmp/vulns.md
 ```
 Known vulnerabilities and compromised versions of the direct **and transitive** dependencies (OSV, dnf security
 advisories, GitHub advisories of the upstreams), recent ones (< 90 days) first. For each one: is the vulnerable
@@ -82,5 +82,5 @@ finds nothing new or at the chosen budget. Never claim a bug without evidence.
 - Findings ranked by severity: `file:line`, category, title, evidence, reproduction, proposed fix (or applied fix +
   test), status (confirmed / fixed / false positive with the reason).
 - Summary table: per category x severity, iterations done, tools run (and the ones missing), false positives dropped.
-- Always delivered as a **PDF** with the `pdf-report` skill (`docs/audit/<AAAA-MM-JJ>-bugs.{md,pdf}` by default),
-  the chat only gives the verdict (counts per severity) and both paths.
+- Always delivered through the `pdf-report` skill: ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only), location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-bugs.{md,pdf}`),
+  in English unless asked; the chat only gives the verdict (counts per severity) and the paths.

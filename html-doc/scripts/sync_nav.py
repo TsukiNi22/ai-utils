@@ -6,7 +6,7 @@ Usage:
     sync_nav.py [<docs dir>]
 
 Each page declares its kind with <html data-page="guide|technical|graph">. The tabs (<nav class="tabs">) of every page
-are rebuilt in the order Guide, Technique, Graphe with the real file names, the current page marked; with a single
+are rebuilt in the order Guide, Technical, Graph with the real file names, the current page marked; with a single
 page the tabs are hidden. The brand link points to the first page. Pages are independent: removing one and
 re-running this script removes its tab everywhere.
 """
@@ -16,7 +16,7 @@ import os
 import re
 import sys
 
-ORDER = [("guide", "Guide"), ("technical", "Technique"), ("graph", "Graphe")]
+ORDER = [("guide", "Guide"), ("technical", "Technical"), ("graph", "Graph")]
 
 
 def main() -> int:

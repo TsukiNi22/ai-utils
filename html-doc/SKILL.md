@@ -23,13 +23,14 @@ is needed when the audience of the tool is not obvious.
   link (`{{REPO_URL}}`), round theme button.
 - **The pages are independent**: each declares its kind (`<html data-page="guide|technical|graph">`). After creating
   or removing a page, run `python3 SKILL_DIR/scripts/sync_nav.py docs`: it rebuilds the tabs of every page from the
-  pages present (Guide, Technique, Graphe), marks the current one and **hides the tabs when there is a single page**
+  pages present (Guide, Technical, Graph), marks the current one and **hides the tabs when there is a single page**
   (`build_graph.mjs` runs it by itself). Online, a `HEAD` check also hides the tab of a missing page.
   File names: guide = `index.html`; technical = `index.html` when there is no guide, else `technical.html`;
   graph = `graph.html`. Generate the technical page and the graph by default (both linked to each other).
 - Theme: **moon** icon in light mode, **sun** in dark mode, never a text button; choice saved in `localStorage`
   under `{{STORAGE_KEY}}-theme` (same key on every page, so the theme follows), default = system preference.
-- `lang` = language of the request (French by default); code, identifiers and file names stay in English.
+- **English by default** (`<html lang="en">`, every text and UI string of the templates); another language only when
+  the user asks for it (translate the UI strings, the `HELP` table of the graph and the tab labels of `sync_nav.py`).
 - Placeholders: `{{PROJECT}}`, `{{VERSION}}` (`vX.Y.Z`), `{{REPO_URL}}`, `{{STORAGE_KEY}}` (project slug),
   `{{TITLE}}`, `{{SUBTITLE}}`.
 - Before delivering: valid HTML, every tab/summary link points to an existing page/`id`, readable in both themes
@@ -37,15 +38,15 @@ is needed when the audience of the tool is not obvious.
 
 ## 1. Guide (`templates/user.html`, optional)
 For people who just want to **use** the tool: no jargon, no internal detail, task oriented.
-- Sections: Présentation, Installation, Premiers pas, Utilisation (one sub-part per task, "Je veux… / Je fais…"
-  table), Questions fréquentes. Adapt the titles, keep 4-6 sections.
+- Sections: About, Installation, First steps, Usage (one sub-part per task, "I want to… / I do…"
+  table), FAQ. Adapt the titles, keep 4-6 sections.
 - Components: numbered steps `<ol class="steps">` (each `<li><strong>Action</strong> detail`), `<kbd>` keys,
   commands to copy in `<pre><code>`, FAQ `<details class="faq"><summary>`, callouts for warnings/results,
   `p.lead` for the intro sentence.
 - Say what the user sees when it works; one action per step.
 
 ## 2. Technical documentation (`templates/technical.html`)
-- `<nav aria-label="Sommaire">` on the left (sticky), one link per section, same numbering; the visible section
+- `<nav class="toc" aria-label="Contents">` on the left (sticky), one link per section, same numbering; the visible section
   is highlighted.
 - One `<section id="...">` card per topic, preceded by `<!-- N -->`, `<h2>N. Title</h2>`, sub-parts `<h3>N.M</h3>`.
   Usual order: overview, split into libraries/modules, each module, network/protocol, build. 5-9 sections.
@@ -58,7 +59,7 @@ For people who just want to **use** the tool: no jargon, no internal detail, tas
   | limit, risk, planned-not-done | `<div class="callout warn">` |
   | validated / good practice | `<div class="callout ok">` |
   | code, command, path, type | `<code>` inline, `<pre><code>` block |
-  | architecture, flow, tree, loop | inline `<svg>` in `<figure>` + `<figcaption>Figure N : ...` |
+  | architecture, flow, tree, loop | inline `<svg>` in `<figure>` + `<figcaption>Figure N: ...` |
 - SVG: `viewBox="0 0 760 H"`, `role="img"` + `aria-label`, only the template classes (`box`, `box-alt`, `group`,
   `lbl`, `small`, `title`, `edge`, `edge-accent`, `dash`, `arrow`, `arrow-accent`), markers once in `<defs>`.
   Draw the real mechanism, not decoration. Link to the graph page for the full dependency view.
@@ -72,7 +73,7 @@ classes & methods, tests, build, all), toggles per **category** (header, source,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
 (module folder) and per **relation** (includes, defines, member, inherits, implements, compiled-into, links,
 tests), colour by category or group, cluster by group, labels, isolate the selection, details panel with
-clickable in/out relations, and an **"Animer le sens des relations"** option (off by default) moving dots along every
+clickable in/out relations, and an **"Animate the direction of the relations"** option (off by default) moving dots along every
 relation from the source to the target.
 Every control has a **tooltip** (short description after 0.45 s of hover) and a **help card on double click** (longer
 description + an animated SVG example), defined in the `HELP` / `EX` tables of the page: when a category, relation or
@@ -88,7 +89,7 @@ node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/gr
   config (GitHub repo from `origin`, branch, version from `project(... VERSION)`).
 - Re-running it regenerates the page from the template (new features included); `--keep-html` keeps the HTML/CSS of
   an existing page and only replaces the script, the config and the snapshot.
-- The page shows the embedded snapshot, then **once at load** (and on the "Mettre à jour" button) asks the
+- The page shows the embedded snapshot, then **once at load** (and on the "Update" button) asks the
   GitHub API for the last commit of the branch: if it is newer, it downloads the sources
   (`raw.githubusercontent.com`) and rebuilds the graph in the browser (cached in `localStorage`). Offline, API
   limit (60 requests/h), private repository or local commits not pushed: the snapshot is kept and the status says why.

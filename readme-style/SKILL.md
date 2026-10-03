@@ -5,7 +5,9 @@ description: Tsukini's style for README.md and Markdown documentation (from libu
 
 # Tsukini README / Markdown doc style
 
-English, direct, technical, no emoji, no marketing. Templates: `templates/README.md` (application or
+English (unless the user asks for another language), direct, technical, no emoji, no marketing.
+**Location**: `README.md` at the root of the repository (`git rev-parse --show-toplevel`), or in the current folder
+outside a repository; never in `docs/` unless the user asks for it. Templates: `templates/README.md` (application or
 full library) and `templates/README-lib.md` (small header-only/algorithm library).
 CHANGELOG and release descriptions: the `git-conventions` skill. HTML documentation: the `html-doc` skill.
 

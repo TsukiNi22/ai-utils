@@ -11,7 +11,7 @@ Report only: **never modify the project** during the audit (fixes only if asked 
 ## 1. Ask (one AskUserQuestion call, French) - only what the request doesn't say
 - Scope: whole project / a module / the changes since a ref.
 - Compiler warnings pass (`--build`, slower: separate build dir in /tmp).
-- Output: `docs/audit/<AAAA-MM-JJ>-proprete.{md,pdf}` (default) or another path; language (French default).
+- Output: ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only); location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-quality.{md,pdf}`); language English unless asked.
 Never start subagents (forks) by yourself: propose them only for very big projects and wait for the user's yes.
 
 ## 2. Objective metrics
@@ -28,10 +28,10 @@ The script is heuristic: check a sample of each category before reporting it, dr
 
 ## 2b. Dependencies (licenses + vulnerabilities, transitive)
 ```bash
-python3 ~/.claude/skills/deps-license/scripts/deps.py <root> --transitive --json /tmp/deps.json --md /tmp/deps.md
-python3 ~/.claude/skills/deps-license/scripts/vulns.py <root> --json /tmp/vulns.json --md /tmp/vulns.md
+python3 ~/.claude/skills/audit-deps/scripts/deps.py <root> --transitive --json /tmp/deps.json --md /tmp/deps.md
+python3 ~/.claude/skills/audit-deps/scripts/vulns.py <root> --json /tmp/vulns.json --md /tmp/vulns.md
 ```
-Licenses to credit / restrictive / unknown (see `deps-license`), known vulnerabilities and compromised versions
+Licenses to credit / restrictive / unknown (see `audit-deps`), known vulnerabilities and compromised versions
 (OSV, dnf advisories, GitHub advisories), **recent** ones (< 90 days) first; for each one check whether the project
 uses the vulnerable part. Dependencies of the dependencies are included.
 
@@ -45,20 +45,20 @@ Also: dead code, duplicated code, very long functions, magic numbers, inconsiste
 files in the wrong folder, leftovers at the root (`tmp.cpp`, `a.out`...).
 
 ## 4. Score and priorities
-Per category: number of findings, severity (**élevée**: breaks the build/CI/conventions everywhere, **moyenne**:
-recurrent deviation, **faible**: cosmetic), a 0-10 score, the fix (and if it can be automated: `sed`, script,
+Per category: number of findings, severity (**high**: breaks the build/CI/conventions everywhere, **medium**:
+recurrent deviation, **low**: cosmetic), a 0-10 score, the fix (and if it can be automated: `sed`, script,
 clang-format...). Then a **top 10** of the actions with the best gain / effort ratio.
 
 ## 5. Report (pdf-report skill)
 Write the Markdown from `pdf-report/templates/report.md`, sections:
-1. **Résumé**: table `| Catégorie | Constats | Sévérité | Note /10 |` + global score + 3-line verdict.
-2. **Méthode**: scope, commit (`git rev-parse --short HEAD`), date, tools and skills used, limits (heuristics).
-3. **Constats par catégorie**: one `###` per category, a short explanation of the rule (with the skill it comes
-   from), a table `| Fichier:ligne | Constat | Correction |` (max ~15 rows, the rest in the annex).
-4. **Dépendances**: licences (table + obligations) and vulnérabilités (table by severity, recent first, fixed
+1. **Summary**: table `| Category | Findings | Severity | Score /10 |` + global score + 3-line verdict.
+2. **Method**: scope, commit (`git rev-parse --short HEAD`), date, tools and skills used, limits (heuristics).
+3. **Findings by category**: one `###` per category, a short explanation of the rule (with the skill it comes
+   from), a table `| File:line | Finding | Fix |` (max ~15 rows, the rest in the annex).
+4. **Dependencies**: licenses (table + obligations) and vulnerabilities (table by severity, recent first, fixed
    version, action).
-5. **Priorités**: the top 10, numbered `1. **Action.** gain, effort, files`.
-6. **Annexe**: full lists per category (from the JSON), module sizes table.
+5. **Priorities**: the top 10, numbered `1. **Action.** gain, effort, files`.
+6. **Appendix**: full lists per category (from the JSON), module sizes table.
 7. **Sources**: the skills / rules / tools used.
-Then `python3 ~/.claude/skills/pdf-report/scripts/md2pdf.py <report.md> --footer "<Projet> — audit de propreté"`,
+Then `python3 ~/.claude/skills/pdf-report/scripts/md2pdf.py <report.md> --footer "<Project> — quality audit" --format <answer>`,
 check the rendering (pdftoppm on 2 pages) and give both paths + page count.

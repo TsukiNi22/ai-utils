@@ -61,4 +61,4 @@ naming the SPDX id), `CPACK_RPM_PACKAGE_LICENSE "<SPDX>"`, manifests `license` f
 headers when the project already uses them. Report: chosen license (SPDX), why, files changed, open points.
 
 An analysis delivered as a summary (comparison of licenses, compatibility of the dependencies, state of a
-project) goes in a **PDF** through `pdf-report`; a simple LICENSE change is just reported in the chat.
+project) goes through `pdf-report` (ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only), English, `audit/` at the repository root); a simple LICENSE change is just reported in the chat.

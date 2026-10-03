@@ -1,1 +1,1 @@
-license deps-license
+license audit-deps

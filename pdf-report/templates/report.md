@@ -1,49 +1,49 @@
-# [Projet] : [sujet du rapport]
+# [Project]: [subject of the report]
 
-**Date** : [JJ mois AAAA] · **Sources** : `[fichiers / dossiers analysés]`, [documents, liens]
+**Date**: [Month DD, YYYY] · **Sources**: `[analysed files / folders]`, [documents, links]
 
-> **Comment lire ce document**
+> **How to read this document**
 >
-> 1. [Ce que contient la partie 1.]
-> 2. [Ce que contient la partie 2.]
+> 1. [What part 1 contains.]
+> 2. [What part 2 contains.]
 > 3. [...]
 >
-> [Hypothèses, limites, ce qui n'est **pas** inclus.]
+> [Assumptions, limits, what is **not** included.]
 
-## Sommaire
+## Contents
 
-1. Résumé
-2. [Partie]
-3. [Partie]
+1. Summary
+2. [Part]
+3. [Part]
 4. Sources
 
-## 1. Résumé
+## 1. Summary
 
 | Point | Conclusion |
 |---|---|
-| **[Point clé]** | [Conclusion courte, chiffres en **gras**] |
-| **[Point clé]** | [...] |
+| **[Key point]** | [Short conclusion, numbers in **bold**] |
+| **[Key point]** | [...] |
 
-## 2. [Partie]
+## 2. [Part]
 
-[Paragraphe court : le contexte, puis le constat.]
+[Short paragraph: the context, then the finding.]
 
-### 2.1 [Sous-partie]
+### 2.1 [Sub-part]
 
-| [Colonne] | [Colonne] | [Colonne] |
+| [Column] | [Column] | [Column] |
 |---|---|---|
 | [...] | [...] | [...] |
 
-> **À retenir** : [une phrase.]
+> **Key takeaway**: [one sentence.]
 
-## 3. [Partie]
+## 3. [Part]
 
-1. **[Constat en gras].** [Explication, preuve, chiffre.]
-2. **[Constat en gras].** [...]
+1. **[Finding in bold].** [Explanation, evidence, number.]
+2. **[Finding in bold].** [...]
 
 ## 4. Sources
 
-**[Catégorie]** :
-- [Titre] : <https://...>
+**[Category]**:
+- [Title]: <https://...>
 
-[Ce qui est une **hypothèse** à remplacer par une mesure réelle.]
+[What is an **assumption** to replace with a real measurement.]

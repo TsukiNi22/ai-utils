@@ -55,7 +55,7 @@ def run(cmd):
 
 def http_json(url):
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "deps-license"}), timeout=15) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "audit-deps"}), timeout=15) as r:
             return json.load(r)
     except Exception:
         return None

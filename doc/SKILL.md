@@ -28,6 +28,6 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 | full documentation pass | `readme-style` + `html-doc` + `git-conventions` (CHANGELOG) |
 
 ## Always
-- An audit / summary of the docs is delivered as **PDF** through `pdf-report`.
+- An audit / summary of the docs is delivered through `pdf-report` (format asked once, English, `audit/` at the repository root).
 - Check every name/command/API against the code before writing it; mark planned vs implemented.
 - Start the answer with one line listing the loaded skills.

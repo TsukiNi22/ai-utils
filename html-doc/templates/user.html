@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="fr" data-page="guide">
+<html lang="en" data-page="guide">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{PROJECT}} · Guide d'utilisation</title>
+<title>{{PROJECT}} · User guide</title>
 <style>
 :root {
   --bg: #f7f7f5;
@@ -231,14 +231,14 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
   <nav class="tabs" aria-label="Pages">
     <!-- PAGES: keep only the pages that exist, the first one is index.html -->
     <a href="index.html" class="current" aria-current="page">Guide</a>
-    <a href="technical.html">Technique</a>
-    <a href="graph.html">Graphe</a>
+    <a href="technical.html">Technical</a>
+    <a href="graph.html">Graph</a>
   </nav>
   <span class="spacer"></span>
-  <a class="icon-btn" href="{{REPO_URL}}" title="Dépôt GitHub" aria-label="Dépôt GitHub">
+  <a class="icon-btn" href="{{REPO_URL}}" title="GitHub repository" aria-label="GitHub repository">
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
   </a>
-  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Changer de thème" title="Changer de thème">
+  <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
     <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
     </svg>
@@ -249,13 +249,13 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
   </button>
 </header>
 <div class="layout">
-<nav class="toc" aria-label="Sommaire">
-  <p>Sommaire</p>
-  <a href="#about">1. Présentation</a>
+<nav class="toc" aria-label="Contents">
+  <p>Contents</p>
+  <a href="#about">1. About</a>
   <a href="#install">2. Installation</a>
-  <a href="#start">3. Premiers pas</a>
-  <a href="#use">4. Utilisation</a>
-  <a href="#faq">5. Questions fréquentes</a>
+  <a href="#start">3. First steps</a>
+  <a href="#use">4. Usage</a>
+  <a href="#faq">5. FAQ</a>
 </nav>
 
 <main>
@@ -266,56 +266,56 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
 
 <!-- 1 -->
 <section id="about">
-  <h2>1. Présentation</h2>
-  <p class="lead">Ce que l'outil permet de faire, en une ou deux phrases, sans jargon.</p>
-  <p>Pour qui il est fait, et ce dont on a besoin avant de commencer.</p>
-  <div class="callout ok"><p>Ce que l'utilisateur obtient à la fin (le résultat concret).</p></div>
+  <h2>1. About</h2>
+  <p class="lead">What the tool does, in one or two sentences, without jargon.</p>
+  <p>Who it is for, and what is needed before starting.</p>
+  <div class="callout ok"><p>What the user gets at the end (the concrete result).</p></div>
 </section>
 
 <!-- 2 -->
 <section id="install">
   <h2>2. Installation</h2>
   <ol class="steps">
-    <li><strong>Télécharger</strong> Où et quoi télécharger.</li>
-    <li><strong>Installer</strong> La commande à copier ou le fichier à ouvrir :
-<pre><code>commande à copier</code></pre></li>
-    <li><strong>Vérifier</strong> Ce que l'on doit voir si tout s'est bien passé.</li>
+    <li><strong>Download</strong> Where and what to download.</li>
+    <li><strong>Install</strong> The command to copy or the file to open:
+<pre><code>command to copy</code></pre></li>
+    <li><strong>Check</strong> What you should see when everything went fine.</li>
   </ol>
-  <div class="callout warn"><p>Limite connue ou système non supporté.</p></div>
+  <div class="callout warn"><p>Known limit or unsupported system.</p></div>
 </section>
 
 <!-- 3 -->
 <section id="start">
-  <h2>3. Premiers pas</h2>
+  <h2>3. First steps</h2>
   <ol class="steps">
-    <li><strong>Lancer</strong> Comment démarrer (raccourci <kbd>Ctrl</kbd> + <kbd>C</kbd> pour arrêter).</li>
-    <li><strong>Premier résultat</strong> Le plus petit exemple utile.</li>
+    <li><strong>Start</strong> How to start (<kbd>Ctrl</kbd> + <kbd>C</kbd> to stop).</li>
+    <li><strong>First result</strong> The smallest useful example.</li>
   </ol>
 </section>
 
 <!-- 4 -->
 <section id="use">
-  <h2>4. Utilisation</h2>
-  <h3>4.1 Une tâche courante</h3>
-  <p>Une sous-partie par tâche, formulée comme ce que l'utilisateur veut faire.</p>
+  <h2>4. Usage</h2>
+  <h3>4.1 A common task</h3>
+  <p>One sub-part per task, phrased as what the user wants to do.</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>Je veux…</th><th>Je fais…</th></tr></thead>
+    <thead><tr><th>I want to…</th><th>I do…</th></tr></thead>
     <tbody>
-      <tr><td>Exemple de besoin</td><td>Action correspondante</td></tr>
+      <tr><td>Example of need</td><td>Matching action</td></tr>
     </tbody>
   </table></div>
 </section>
 
 <!-- 5 -->
 <section id="faq">
-  <h2>5. Questions fréquentes</h2>
+  <h2>5. FAQ</h2>
   <details class="faq">
-    <summary>Le problème tel que l'utilisateur le voit ?</summary>
-    <p>La cause en une phrase, puis la solution.</p>
+    <summary>The problem as the user sees it?</summary>
+    <p>The cause in one sentence, then the fix.</p>
   </details>
   <details class="faq">
-    <summary>Une autre question ?</summary>
-    <p>Réponse.</p>
+    <summary>Another question?</summary>
+    <p>Answer.</p>
   </details>
 </section>
 
