@@ -1,0 +1,110 @@
+name: Dispatch (CI/CD)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      stable: ${{ steps.decide.outputs.stable }}
+      ignore: ${{ steps.decide.outputs.ignore }}
+
+    steps:
+      - name: Determine branches
+        id: decide
+        run: |
+          set -e
+          MESSAGE_HAS_IGNORE='${{ contains(github.event.head_commit.message, '[ignore]') }}'
+          MESSAGE_HAS_BUILD='${{ contains(github.event.head_commit.message, '[build]') }}'
+
+          # Determine branches
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then # On tag push
+            if [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              BUILD=true; STABLE=ON; RELEASE=true
+            elif [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-.+$ ]]; then
+              BUILD=true; STABLE=OFF; RELEASE=false
+            else
+              BUILD=false; STABLE=OFF; RELEASE=false
+            fi
+            IGNORE=false
+          else # On normal push
+            [[ "$MESSAGE_HAS_BUILD" == "true" ]] && BUILD=true || BUILD=false
+            [[ "$MESSAGE_HAS_RELEASE" == "true" ]] && RELEASE=true || RELEASE=false
+            [[ "$MESSAGE_HAS_IGNORE" == "true" ]] && IGNORE=true || IGNORE=false
+            STABLE=OFF
+          fi
+
+          # Store result & display them
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
+          echo "ignore=$IGNORE" >> "$GITHUB_OUTPUT"
+          echo "Decision: build=$BUILD stable=$STABLE ignore=$IGNORE"
+
+  notify-unit-tests:
+    needs: dispatch
+    if: needs.dispatch.outputs.ignore == 'false'
+
+    runs-on: ${{ vars.RUNNER }}
+
+    steps:
+      - name: Trigger unit-tests.yml and wait
+        uses: convictional/trigger-workflow-and-wait@v1.6.5
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow_file_name: unit-tests.yml
+          ref: ${{ github.ref_name }}
+          wait_interval: 4
+          propagate_failure: true
+
+  notify-build-binary:
+    needs: [dispatch, notify-unit-tests]
+    if: needs.dispatch.outputs.ignore == 'false' && needs.dispatch.outputs.build == 'false' && needs.notify-unit-tests.result == 'success'
+  
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+  
+    steps:
+      - name: Trigger build-binary.yml (workflow_dispatch)
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-binary.yml/dispatches" \
+            -d '{"ref":"${{ github.ref_name }}"}'
+
+  notify-build-packages:
+    needs: [dispatch, notify-unit-tests]
+    if: needs.dispatch.outputs.ignore == 'false' && needs.dispatch.outputs.build == 'true' && needs.notify-unit-tests.result == 'success'
+
+    runs-on: ${{ vars.RUNNER }}
+
+    steps:
+      - name: Trigger build-packages.yml (workflow_dispatch) and wait 
+        uses: convictional/trigger-workflow-and-wait@v1.6.5
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow_file_name: build-packages.yml
+          ref: ${{ github.ref_name }}
+          wait_interval: 4
+          propagate_failure: true
+          client_payload: '{"stable": "${{ needs.dispatch.outputs.stable }}"}'

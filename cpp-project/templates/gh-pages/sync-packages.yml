@@ -1,0 +1,91 @@
+name: Sync Packages (CD)
+
+on:
+  push:
+    branches: [gh-pages]
+
+jobs:
+  sync-packages:
+    if: github.event.head_commit.author.email != 'github-actions[bot]@users.noreply.github.com' && !contains(github.event.head_commit.message, '[ignore]') && !startsWith(github.event.head_commit.message, 'Merge')
+    permissions:
+      contents: write
+
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/tsukini22/package:latest
+
+    steps:
+      - name: Checkout repository - gh-pages
+        uses: actions/checkout@v5
+        with:
+          ref: gh-pages
+          path: gh-pages
+          fetch-depth: 1
+
+      - name: Import GPG key
+        run: |
+          set -e
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+
+      - name: Update metadata and signature (RPM)
+        working-directory: gh-pages/fedora/44/x86_64
+        run: |
+          set -e
+          createrepo_c --update .
+          rm -f repodata/repomd.xml.asc
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" --detach-sign --armor repodata/repomd.xml
+
+      - name: Update metadata and signature (DEB)
+        working-directory: gh-pages/debian
+        run: |
+          set -euo pipefail
+          DIST_DIR="dists/stable/main/binary-amd64"
+          mkdir -p "$DIST_DIR"
+
+          # Generate Packages index
+          dpkg-scanpackages --multiversion pool/main /dev/null > "$DIST_DIR/Packages"
+          gzip -k -f "$DIST_DIR/Packages"
+          xz -k -f "$DIST_DIR/Packages"
+
+          # Generate Release file
+          cat > dists/stable/Release <<EOF
+          Origin: TsukiNi22
+          Label: {{NAME}}
+          Suite: stable
+          Codename: stable
+          Architectures: amd64
+          Components: main
+          Description: {{NAME}} APT repository
+          Date: $(date -Ru)
+          EOF
+
+          apt-ftparchive release dists/stable >> dists/stable/Release
+
+          # Sign the Release file
+          rm -f dists/stable/Release.gpg dists/stable/InRelease
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+            --default-key "${{ secrets.GPG_KEY_ID }}" \
+            --detach-sign --armor -o dists/stable/Release.gpg dists/stable/Release
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+            --default-key "${{ secrets.GPG_KEY_ID }}" \
+            --clearsign -o dists/stable/InRelease dists/stable/Release
+
+      - name: Commit and push
+        working-directory: gh-pages
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+            exit 0
+          fi
+          git commit -m "chore: sync packages from update (${{ github.sha }})"
+          git push origin gh-pages

@@ -1,0 +1,6 @@
+[{{NAME}}]
+name={{NAME}} repository
+baseurl=https://tsukini22.github.io/{{NAME}}/fedora/$releasever/$basearch
+enabled=1
+gpgcheck=1
+gpgkey=https://tsukini22.github.io/{{NAME}}/RPM-GPG-KEY-tsukini

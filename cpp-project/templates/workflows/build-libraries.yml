@@ -1,0 +1,52 @@
+name: Build - Libraries (CI)
+
+on:
+  workflow_dispatch: # Triggered by Dispatch (CI/CD)
+
+env:
+  LIBRARIES: "lib{{NAME}}.a lib{{NAME}}_debug.a lib{{NAME}}_asan.a"
+
+jobs:
+  build-libraries:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/tsukini22/ci:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: /github/home/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp', '**/*.hpp', 'CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Build libraries (Release)
+        run: |
+          set -e
+          cmake -S . -B build
+          cmake --build build --target release --parallel $(nproc)
+        timeout-minutes: 2
+
+      - name: Show ccache stats
+        run: ccache -s
+
+      - name: Check libraries
+        run: |
+          set -euo pipefail
+          for library in $(echo $LIBRARIES | tr ',' ' ' | xargs); do
+            if [ ! -f "./build/$library" ]; then
+              echo "::error title=Missing library, file=$library::Library '$library' not found"
+              exit 1
+            fi
+            echo "✓ Library '$library' ok"
+          done

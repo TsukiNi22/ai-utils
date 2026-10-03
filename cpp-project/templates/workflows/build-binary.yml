@@ -1,0 +1,59 @@
+name: Build - Executables (CI)
+
+on:
+  workflow_dispatch: # Triggered by Dispatch (CI/CD)
+
+env:
+  EXECUTABLES: "{{NAME}}"
+
+jobs:
+  build-executables:
+
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/tsukini22/ci:latest
+
+    steps:
+      - name: Install dependencies # remove the step when there is nothing to install
+        run: dnf install -y {{DNF_DEPS}}
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: /github/home/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp', '**/*.hpp', 'cmake/libs/*.a', 'CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Build executables
+        run: |
+          set -e
+          make re
+        timeout-minutes: 2
+
+      - name: Show ccache stats
+        run: ccache -s
+
+      - name: Check executables
+        run: |
+          set -euo pipefail
+          for executable in $(echo $EXECUTABLES | tr ',' ' ' | xargs); do
+            if [ ! -f "./$executable" ]; then
+              echo "::error title=Missing executable, file=$executable::Executable '$executable' not found"
+              exit 1
+            fi
+            if [ ! -x "$executable" ]; then
+              echo "::error title=Permission error,file=$executable::Executable '$executable' has no execution permission"
+              exit 1
+            fi
+            echo "✓ Executable '$executable' ok"
+          done

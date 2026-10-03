@@ -1,0 +1,56 @@
+name: Unit Tests - Libraries (CI)
+
+on:
+  workflow_dispatch: # Triggered by Dispatch (CI/CD)
+
+jobs:
+  build-unit-tests:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/tsukini22/unit-tests:latest
+
+    steps:
+      - name: Install dependencies # remove the step when there is nothing to install
+        run: dnf install -y {{DNF_DEPS}}
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: /github/home/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp', '**/*.hpp', 'CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Build unit-tests
+        run: |
+          set -e
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+          cmake --build build --parallel $(nproc)
+        timeout-minutes: 2
+
+      - name: Show ccache stats
+        run: ccache -s
+
+      - name: Check binary
+        run: |
+          set -euo pipefail
+          if [ ! -f "./unit_tests" ]; then
+            echo "::error title=Missing binary, unit_tests binary not found at repo root"
+            exit 1
+          fi
+          echo "✓ unit_tests binary found"
+
+      - name: Run unit-tests
+        working-directory: build
+        run: |
+          ctest --output-on-failure --timeout 30
+        timeout-minutes: 1
