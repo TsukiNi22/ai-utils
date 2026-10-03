@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-page="technical">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -74,21 +74,21 @@ body {
   margin: 0 auto;
   padding: 40px 24px 80px;
 }
-nav {
+nav.toc {
   position: sticky;
   top: 80px;
   align-self: start;
   font-size: 14px;
 }
-nav p { margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
-nav a {
+nav.toc p { margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+nav.toc a {
   display: block;
   padding: 5px 10px;
   color: var(--muted);
   text-decoration: none;
   border-left: 2px solid var(--border);
 }
-nav a:hover, nav a.active { color: var(--accent); border-left-color: var(--accent); }
+nav.toc a:hover, nav.toc a.active { color: var(--accent); border-left-color: var(--accent); }
 main { min-width: 0; }
 header h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; }
 header p { color: var(--muted); margin: 0 0 32px; max-width: 70ch; }
@@ -157,6 +157,7 @@ svg .arrow-accent { fill: var(--accent); }
 .brand { display: flex; align-items: baseline; gap: 8px; color: var(--text); text-decoration: none; font-weight: 700; }
 .brand .ver { color: var(--muted); font-weight: 500; font-size: 13px; }
 .tabs { display: flex; gap: 4px; margin-left: 8px; overflow-x: auto; }
+.tabs[hidden] { display: none; }
 .tabs a {
   padding: 6px 12px; border-radius: 6px;
   color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap;
@@ -187,7 +188,7 @@ svg .arrow-accent { fill: var(--accent); }
   .layout { grid-template-columns: 1fr; padding: 24px 16px 60px; gap: 16px; }
   .topbar { gap: 10px; padding: 0 12px; }
   .brand .ver { display: none; }
-  nav { position: static; }
+  nav.toc { position: static; }
   section { padding: 20px 16px; }
   header h1 { font-size: 27px; }
 }
@@ -217,7 +218,7 @@ svg .arrow-accent { fill: var(--accent); }
   </button>
 </header>
 <div class="layout">
-<nav aria-label="Sommaire">
+<nav class="toc" aria-label="Sommaire">
   <p>Sommaire</p>
   <a href="#overview">1. Vue d'ensemble</a>
   <a href="#usage">2. Utilisation</a>
@@ -287,7 +288,7 @@ cmake --build build --parallel $(nproc)</code></pre>
   });
 
   // Highlight the section visible in the summary
-  var links = document.querySelectorAll('nav a');
+  var links = document.querySelectorAll('nav.toc a');
   if (!('IntersectionObserver' in window)) return;
   var observer = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
@@ -296,6 +297,19 @@ cmake --build build --parallel $(nproc)</code></pre>
     });
   }, { rootMargin: '-20% 0px -70% 0px' });
   document.querySelectorAll('main section[id]').forEach(function (s) { observer.observe(s); });
+})();
+
+// Hide the tabs of the pages that don't exist (online only, sync_nav.py handles the files)
+(function () {
+  if (!/^https?:$/.test(location.protocol)) return;
+  var nav = document.querySelector('nav.tabs');
+  if (!nav) return;
+  nav.querySelectorAll('a:not(.current)').forEach(function (a) {
+    fetch(a.href, { method: 'HEAD' }).then(function (r) {
+      if (!r.ok) a.remove();
+      if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
+    }).catch(function () {});
+  });
 })();
 </script>
 </body>

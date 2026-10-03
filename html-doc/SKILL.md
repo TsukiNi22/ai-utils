@@ -20,8 +20,13 @@ is needed when the audience of the tool is not obvious.
 
 ## Common to the 3 pages
 - Top bar: project name + version (`{{PROJECT}}`, `{{VERSION}}`), page tabs (`<nav class="tabs">`), GitHub icon
-  link (`{{REPO_URL}}`), round theme button. **Keep only the tabs of the pages that exist**; the current one has
-  `class="current" aria-current="page"`; the first page is always `index.html`.
+  link (`{{REPO_URL}}`), round theme button.
+- **The pages are independent**: each declares its kind (`<html data-page="guide|technical|graph">`). After creating
+  or removing a page, run `python3 SKILL_DIR/scripts/sync_nav.py docs`: it rebuilds the tabs of every page from the
+  pages present (Guide, Technique, Graphe), marks the current one and **hides the tabs when there is a single page**
+  (`build_graph.mjs` runs it by itself). Online, a `HEAD` check also hides the tab of a missing page.
+  File names: guide = `index.html`; technical = `index.html` when there is no guide, else `technical.html`;
+  graph = `graph.html`. Generate the technical page and the graph by default (both linked to each other).
 - Theme: **moon** icon in light mode, **sun** in dark mode, never a text button; choice saved in `localStorage`
   under `{{STORAGE_KEY}}-theme` (same key on every page, so the theme follows), default = system preference.
 - `lang` = language of the request (French by default); code, identifiers and file names stay in English.
@@ -67,7 +72,11 @@ classes & methods, tests, build, all), toggles per **category** (header, source,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
 (module folder) and per **relation** (includes, defines, member, inherits, implements, compiled-into, links,
 tests), colour by category or group, cluster by group, labels, isolate the selection, details panel with
-clickable in/out relations.
+clickable in/out relations, and an **"Animer le sens des relations"** option (off by default) moving dots along every
+relation from the source to the target.
+Every control has a **tooltip** (short description after 0.45 s of hover) and a **help card on double click** (longer
+description + an animated SVG example), defined in the `HELP` / `EX` tables of the page: when a category, relation or
+option is added, add its entry there too.
 
 Generation (never fill the snapshot by hand):
 ```bash
@@ -77,7 +86,8 @@ node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/gr
 - Reads the sources **from the git commit** (`--ref`), extracts the graph with the `extractGraph()` of the page
   (single source of truth, between the `// <extractor>` markers), embeds the snapshot (commit hash + date) and the
   config (GitHub repo from `origin`, branch, version from `project(... VERSION)`).
-- Re-running it on an existing page keeps its HTML/CSS and replaces the script, the config and the snapshot.
+- Re-running it regenerates the page from the template (new features included); `--keep-html` keeps the HTML/CSS of
+  an existing page and only replaces the script, the config and the snapshot.
 - The page shows the embedded snapshot, then **once at load** (and on the "Mettre à jour" button) asks the
   GitHub API for the last commit of the branch: if it is newer, it downloads the sources
   (`raw.githubusercontent.com`) and rebuilds the graph in the browser (cached in `localStorage`). Offline, API
@@ -86,3 +96,16 @@ node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/gr
   `add_subdirectory`, `foreach`, `set(SRC ...)`). For another language, adapt `extractGraph()` in the template
   (files -> nodes/links) and keep the rest.
 - Check after generation: open it (or screenshot it) and look at the node/link counts printed by the script.
+
+## 4. Publication (GitHub Pages)
+Only when the project is a git repository (`git rev-parse --is-inside-work-tree`): ask (AskUserQuestion, French)
+**"Publier la documentation sur la branche `gh-pages` ?"** - `Oui, commit + push` · `Oui, commit local seulement` ·
+`Non (garder docs/ seulement)`. If yes:
+- work in a temporary worktree of `gh-pages` (`git worktree add <tmp> gh-pages`, or `--orphan gh-pages` when it
+  doesn't exist), copy the pages of `docs/` at its root (or in a sub-folder when the root is used: ask), **never
+  delete the other files of the branch** (packages mirror, `.repo`, workflows of libutils/context-forge live there),
+  commit with `git-conventions` (`docs(pages): update the documentation (<short sha of main>)`), push only with
+  the "commit + push" answer, then remove the worktree.
+- GitHub Pages not enabled yet (`gh api repos/<o>/<r>/pages` -> 404): propose
+  `gh api -X POST repos/<o>/<r>/pages -f "source[branch]=gh-pages" -f "source[path]=/"` and give the URL
+  `https://<owner>.github.io/<repo>/`.

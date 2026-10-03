@@ -2,14 +2,14 @@
 // Build (or refresh) the graph page of a project documentation.
 //
 // Usage: node build_graph.mjs --repo <project path> [--out <project>/docs/graph.html] [--ref HEAD]
-//                             [--github owner/repo] [--branch main] [--project name] [--version vX.Y.Z] [--key slug] [--template <html>]
+//                             [--github owner/repo] [--branch main] [--project name] [--version vX.Y.Z] [--key slug] [--template <html>] [--keep-html]
 //
 // - reads the sources from the git commit --ref (never the working tree), so the embedded
 //   snapshot matches its commit hash;
 // - runs the same extractGraph() as the page (copied from the page between the <extractor> markers);
 // - writes the page with the config (repo/branch/project) and the snapshot JSON embedded.
-// When --out already exists its HTML/CSS is kept (custom texts), the script of the skill,
-// the config and the snapshot are replaced; otherwise templates/graph.html of the skill is used.
+// The page is (re)generated from templates/graph.html of the skill; with --keep-html an existing page keeps its
+// HTML/CSS (custom texts) and only gets the new script, config and snapshot (the markup must be up to date).
 
 import {execFileSync} from "node:child_process";
 import {existsSync, readFileSync, writeFileSync, mkdirSync} from "node:fs";
@@ -56,7 +56,7 @@ const files = paths.map(path => ({path, text: git("show", sha + ":" + path)}));
 const skillPage = readFileSync(opt("template", join(SKILL_DIR, "templates", "graph.html")), "utf8");
 const lastScript = (h) => { const s = h.lastIndexOf("<script>"); return [s, h.indexOf("</script>", s) + "</script>".length]; };
 let html = skillPage;
-if (existsSync(out) && !argv.includes("--template")) {
+if (existsSync(out) && argv.includes("--keep-html")) {
     html = readFileSync(out, "utf8");
     const [a, b] = lastScript(html), [c, d] = lastScript(skillPage);
     if (a >= 0 && c >= 0) html = html.slice(0, a) + skillPage.slice(c, d) + html.slice(b);
@@ -75,6 +75,9 @@ html = html.replace(/(<script id="graph-snapshot" type="application\/json">)[\s\
 html = html.replaceAll("{{VERSION}}", version).replaceAll("{{PROJECT}}", project).replaceAll("{{STORAGE_KEY}}", key).replaceAll("{{REPO_URL}}", github ? "https://github.com/" + github : "#");
 mkdirSync(dirname(out), {recursive: true});
 writeFileSync(out, html);
+// Tabs of the pages that exist in the same folder (guide / technical / graph)
+try { console.log("tabs: " + execFileSync("python3", [join(SKILL_DIR, "scripts", "sync_nav.py"), dirname(out)], {encoding: "utf8"}).trim()); }
+catch { console.log("tabs: sync_nav.py not run (python3 missing)"); }
 
 const kinds = {};
 for (const n of graph.nodes) kinds[n.kind] = (kinds[n.kind] || 0) + 1;
