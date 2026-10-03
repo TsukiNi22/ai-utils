@@ -102,7 +102,9 @@ layout): 2D (pan, zoom, drag nodes) and
 3D (rotate, Shift+drag to move the target in the screen plane, drag a node to place it, zoom; spheres lit by a
 light fixed in the scene, depth fog, floor grid following the camera, X/Y/Z gizmo ball resetting the angle on
 click; arrow heads on the relations in both styles; bottom right switch **Realistic** (default) / **Technical** = low poly spheres with flat shaded faces + cone arrows, no fog / floor,
-remembered); key **F** centers the camera on the selected node (2D and 3D), search, presets (overview, files & includes, classes & inheritance,
+remembered); key **F** centers the camera on the selected node (2D and 3D); slightly transparent nodes in 3D, a near plane (nodes the camera passes are
+clipped like behind a WebGL camera, the camera can fly through the graph); hint in the context-forge wording
+("Drag to orbit · scroll to zoom · ..."), search, presets (overview, files & includes, classes & inheritance,
 classes & methods, tests, build, all), toggles per **category** (header, source, test file, class, struct,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
 (module folder) and per **relation** (includes, defines, member, inherits, implements, compiled-into, links,

@@ -173,7 +173,7 @@ select { width: auto; }
 .hint {
   position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
   background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-  padding: 6px 14px; font-size: 12.5px; color: var(--muted); pointer-events: none; text-align: center;
+  padding: 5px 12px; font-size: 12px; color: var(--muted); pointer-events: none; text-align: center;
   width: max-content; max-width: min(760px, calc(100% - 360px)); /* room for the axes (left) and the 3D style (right) */
 }
 .style3d { position: absolute; right: 14px; bottom: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
@@ -548,10 +548,10 @@ window.DOC_FR = {
   "GitHub API rate limit reached": "limite de l'API GitHub atteinte",
   "repository not found or private": "dépôt introuvable ou privé",
   "Architecture": "Architecture",
-  "Drag: rotate | Shift + drag: move | drag a node: place it | scroll: zoom | F: center the selection | axes: reset the angle": "Glisser : tourner | Maj + glisser : déplacer | glisser un nœud : le placer | molette : zoom | F : centrer la sélection | axes : réinitialiser l'angle",
-  "Drag: move | scroll: zoom | click: details | F: center the selection": "Glisser : déplacer | molette : zoom | clic : détails | F : centrer la sélection",
   "Realistic": "Réaliste",
-  "3D style": "Style 3D"
+  "3D style": "Style 3D",
+  "Drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset": "Glisser pour orbiter · clic droit + glisser pour déplacer · glisser un nœud pour le déplacer · molette pour zoomer · F pour centrer la sélection · cliquer les axes pour réinitialiser",
+  "Drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection": "Glisser pour déplacer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection"
 };
 </script>
 <script>
@@ -1107,7 +1107,7 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("Drag: rotate | Shift + drag: move | drag a node: place it | scroll: zoom | F: center the selection | axes: reset the angle") : tr("Drag: move | scroll: zoom | click: details | F: center the selection")) : tr("No node: enable some categories / groups");
+        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("Drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset") : tr("Drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection")) : tr("No node: enable some categories / groups");
     }
 
     // ---------- Legends / chips ---------- //
@@ -1230,14 +1230,19 @@ function extractGraph(files, opts) {
     }
 
     // ---------- Projection ---------- //
+    const NEAR = 12; // near plane of the 3D camera: what is closer (or behind) is not drawn, like a WebGL camera
+    function clipNear(a, b) { // screen point where the segment a -> b (b in front) enters the near plane
+        const k = (NEAR - a.d) / (b.d - a.d), vx = a.vx + (b.vx - a.vx) * k, vy = a.vy + (b.vy - a.vy) * k, s = 700 / NEAR;
+        return {x: state.w / 2 + vx * s, y: state.h / 2 + vy * s, s, z: a.z + (b.z - a.z) * k, d: NEAR};
+    }
     function project(p) {
         const c = state.cam;
         if (state.mode === "2d") return {x: state.w / 2 + (p.x - c.x) * c.k, y: state.h / 2 + (p.y - c.y) * c.k, s: c.k, z: 0};
         const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
         const x1 = (p.x - c.x) * cy - (p.z - c.z) * sy, z1 = (p.x - c.x) * sy + (p.z - c.z) * cy;
         const y2 = (p.y - c.y) * cp - z1 * sp, z2 = (p.y - c.y) * sp + z1 * cp;
-        const s = 700 / Math.max(60, z2 + c.dist);
-        return {x: state.w / 2 + x1 * s, y: state.h / 2 + y2 * s, s, z: z2};
+        const d = z2 + c.dist, s = 700 / Math.max(NEAR, d); // d: distance in front of the camera
+        return {x: state.w / 2 + x1 * s, y: state.h / 2 + y2 * s, s, z: z2, vx: x1, vy: y2, d, behind: d < NEAR};
     }
     function fit() {
         const nodes = state.visible;
@@ -1286,7 +1291,7 @@ function extractGraph(files, opts) {
     }
     function shadeRgb(c, k) { const v = toRgb(c); return v ? "rgb(" + v.map(x => Math.min(255, Math.round(x * k))).join(",") + ")" : c; }
     const MESH = (() => { // unit sphere, 10 meridians x 6 parallels: faces = vertices + world normal
-        const LON = 10, LAT = 6, faces = [], pt = (i, j) => { const th = j / LAT * Math.PI, ph = i / LON * Math.PI * 2; return [Math.sin(th) * Math.cos(ph), -Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
+        const LON = 8, LAT = 8, faces = [], pt = (i, j) => { const th = j / LAT * Math.PI, ph = i / LON * Math.PI * 2; return [Math.sin(th) * Math.cos(ph), -Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
         for (let j = 0; j < LAT; j++) for (let i = 0; i < LON; i++) {
             const v = [pt(i, j), pt(i + 1, j), pt(i + 1, j + 1), pt(i, j + 1)].filter((q, k, a) => k === 0 || Math.hypot(q[0] - a[k - 1][0], q[1] - a[k - 1][1], q[2] - a[k - 1][2]) > 1e-6);
             const n = v.reduce((s, q) => [s[0] + q[0], s[1] + q[1], s[2] + q[2]], [0, 0, 0]), l = Math.hypot(...n);
@@ -1294,19 +1299,27 @@ function extractGraph(files, opts) {
         }
         return faces;
     })();
+    const TOP_LIGHT = [0, -1, 0]; // technical style: directional light from the top (3d-force-graph default)
     function meshFrame() { // the faces turned with the camera, back faces removed, far first, with their light
-        return MESH.map(f => ({pts: f.v.map(q => rotateDir(...q)), n: rotateDir(...f.n), k: 0.5 + 0.62 * Math.max(0, f.n[0] * LIGHT[0] + f.n[1] * LIGHT[1] + f.n[2] * LIGHT[2])}))
+        return MESH.map(f => ({pts: f.v.map(q => rotateDir(...q)), n: rotateDir(...f.n), k: 0.62 + 0.5 * Math.max(0, f.n[0] * TOP_LIGHT[0] + f.n[1] * TOP_LIGHT[1] + f.n[2] * TOP_LIGHT[2])}))
             .filter(f => f.n.z < 0.05).sort((a, b) => b.n.z - a.n.z);
     }
+    const scratch = document.createElement("canvas"), sctx = scratch.getContext("2d");
     function drawPolySphere(x, y, r, color, mesh) {
-        ctx.lineWidth = 0.8; ctx.lineJoin = "round";
+        // Drawn opaque on a scratch canvas, then pasted with the current alpha: the faces don't show their seams
+        const m = r + 2, size = Math.min(4096, Math.ceil(2 * m * state.dpr));
+        if (scratch.width < size) { scratch.width = size; scratch.height = size; }
+        sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, size + 2, size + 2);
+        sctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+        sctx.lineWidth = 0.8; sctx.lineJoin = "round";
         for (const f of mesh) {
             const c = shadeRgb(color, f.k);
-            ctx.fillStyle = c; ctx.strokeStyle = c; // stroke of the same colour: no seam between the faces
-            ctx.beginPath(); ctx.moveTo(x + f.pts[0].x * r, y + f.pts[0].y * r);
-            for (let i = 1; i < f.pts.length; i++) ctx.lineTo(x + f.pts[i].x * r, y + f.pts[i].y * r);
-            ctx.closePath(); ctx.fill(); ctx.stroke();
+            sctx.fillStyle = c; sctx.strokeStyle = c; // stroke of the same colour: no gap between the faces
+            sctx.beginPath(); sctx.moveTo(m + f.pts[0].x * r, m + f.pts[0].y * r);
+            for (let i = 1; i < f.pts.length; i++) sctx.lineTo(m + f.pts[i].x * r, m + f.pts[i].y * r);
+            sctx.closePath(); sctx.fill(); sctx.stroke();
         }
+        ctx.drawImage(scratch, 0, 0, size, size, x - m, y - m, size / state.dpr, size / state.dpr);
     }
     function drawFloor(C) {
         const nodes = state.visible;
@@ -1388,8 +1401,13 @@ function extractGraph(files, opts) {
         const lhMatch = (id) => { const n = state.byId.get(id); return lh.type === "kind" ? n.kind === lh.key : lh.type === "group" ? n.group === lh.key : lhNodes.has(id); };
         const dim = (id) => (near && id !== focus && !near.has(id)) || (state.match && !state.match.has(id)) || (lh && !focus && !lhMatch(id));
         ctx.lineWidth = 1;
+        const drawnR = (n, q) => Math.max(1.5, radiusOf(n) * (d3 ? q.s : Math.sqrt(q.s))); // radius as drawn below
         for (const l of state.vlinks) {
-            const a = proj.get(l.source), b = proj.get(l.target);
+            let a = proj.get(l.source), b = proj.get(l.target);
+            if (d3 && (a.behind || b.behind)) {
+                if (a.behind && b.behind) continue;
+                if (a.behind) a = clipNear(a, b); else b = clipNear(b, a);
+            }
             const hot = focus && (l.source === focus || l.target === focus);
             const lit = lh && !focus && (lh.type === "link" ? l.kind === lh.key : lhMatch(l.source) && lhMatch(l.target));
             const fog = 1 - 0.75 * depth((a.z + b.z) / 2);
@@ -1397,8 +1415,8 @@ function extractGraph(files, opts) {
             ctx.strokeStyle = hot ? C.accent : LINKS[l.kind][0];
             ctx.lineWidth = (hot ? 1.6 : lit ? 2 : 1) * (real ? Math.min(2.2, Math.max(0.5, (a.s + b.s) / 2)) : 1);
             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-            if (hot || (state.mode === "2d" && state.cam.k > 1.6) || d3) { // arrow head
-                const r = radiusOf(state.byId.get(l.target)) * b.s + 2;
+            if ((hot || (state.mode === "2d" && state.cam.k > 1.6) || d3) && !proj.get(l.target).behind) { // arrow head, on the border of the target
+                const r = drawnR(state.byId.get(l.target), b) + (l.target === state.selected || l.target === state.hover ? 1.5 : 0.5);
                 const ang = Math.atan2(b.y - a.y, b.x - a.x);
                 const tx = b.x - Math.cos(ang) * r, ty = b.y - Math.sin(ang) * r;
                 const al = !d3 ? 7 : real ? Math.max(3, Math.min(6, 4 * b.s)) : Math.max(4.5, Math.min(10, 6.5 * b.s)) * (hot ? 1.15 : 1);
@@ -1419,7 +1437,7 @@ function extractGraph(files, opts) {
             for (const l of state.vlinks) {
                 const a = proj.get(l.source), b = proj.get(l.target);
                 const hot = focus && (l.source === focus || l.target === focus);
-                if (focus && !hot) continue;
+                if ((focus && !hot) || a.behind || b.behind) continue;
                 if (l._h === undefined) l._h = Math.random();
                 ctx.fillStyle = hot ? C.accent : LINKS[l.kind][0];
                 ctx.globalAlpha = hot ? 1 : 0.85;
@@ -1435,10 +1453,13 @@ function extractGraph(files, opts) {
         ctx.textAlign = "center";
         for (const n of order) {
             const p = proj.get(n.id);
-            const r = Math.max(1.5, radiusOf(n) * (state.mode === "3d" ? p.s : Math.sqrt(p.s)));
-            if (p.x < -50 || p.y < -50 || p.x > state.w + 50 || p.y > state.h + 50) continue;
+            if (d3 && p.behind) continue; // passed behind the camera
+            const r = drawnR(n, p);
+            if (p.x + r < 0 || p.y + r < 0 || p.x - r > state.w || p.y - r > state.h) continue;
             const faded = dim(n.id);
-            ctx.globalAlpha = faded ? 0.12 : 1;
+            // light transparency in 3D (realistic 0.88, technical 0.9 like context-forge), fading out just before the camera
+            const base = (faded ? 0.12 : 1) * (real ? 0.88 : d3 ? 0.9 : 1) * (d3 ? Math.min(1, (p.d - NEAR) / 40) : 1);
+            ctx.globalAlpha = base;
             if (d3 && !real && r > 2.5) {
                 drawPolySphere(p.x, p.y, r, colorOf(n), mesh);
                 ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); // path for the selection ring below
@@ -1454,7 +1475,7 @@ function extractGraph(files, opts) {
                 hl.addColorStop(0.55, "rgba(0,0,0,0)"); hl.addColorStop(1, "rgba(0,0,0,.55)");
                 ctx.fillStyle = hl; ctx.fill();
                 const t = depth(p.z);
-                if (t > 0.02) { ctx.globalAlpha = (faded ? 0.12 : 1) * 0.62 * t; ctx.fillStyle = C.bg; ctx.fill(); ctx.globalAlpha = faded ? 0.12 : 1; }
+                if (t > 0.02) { ctx.globalAlpha = base * 0.62 * t; ctx.fillStyle = C.bg; ctx.fill(); ctx.globalAlpha = base; }
             }
             if (n.id === state.selected || n.id === state.hover || (state.match && state.match.has(n.id))) {
                 ctx.lineWidth = 2; ctx.strokeStyle = C.accent; ctx.stroke();
@@ -1492,6 +1513,7 @@ function extractGraph(files, opts) {
         let best = null, bd = Infinity;
         for (const n of state.visible) {
             const p = project(state.pos.get(n.id));
+            if (state.mode === "3d" && p.behind) continue;
             const r = Math.max(6, radiusOf(n) * (state.mode === "3d" ? p.s : Math.sqrt(p.s)) + 3);
             const d = Math.hypot(p.x - mx, p.y - my);
             if (d < r && (d < bd || (state.mode === "3d" && d - bd < 2))) { best = n; bd = d; }
@@ -1579,7 +1601,7 @@ function extractGraph(files, opts) {
     canvas.addEventListener("wheel", (e) => {
         e.preventDefault();
         const c = state.cam, f = Math.exp(-e.deltaY * 0.0015);
-        if (state.mode === "3d") { c.dist = Math.max(60, Math.min(20000, c.dist / f)); }
+        if (state.mode === "3d") { c.dist = Math.max(15, Math.min(20000, c.dist / f)); } // the camera can go through the graph
         else {
             const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left - state.w / 2, my = e.clientY - r.top - state.h / 2;
             const k = Math.max(0.05, Math.min(12, c.k * f));
