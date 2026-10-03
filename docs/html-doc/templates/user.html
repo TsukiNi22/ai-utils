@@ -68,27 +68,12 @@ body {
 }
 .layout {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns: 250px minmax(0, 1fr);
   gap: 40px;
   max-width: 1180px;
   margin: 0 auto;
   padding: 40px 24px 80px;
 }
-nav.toc {
-  position: sticky;
-  top: 80px;
-  align-self: start;
-  font-size: 14px;
-}
-nav.toc p { margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
-nav.toc a {
-  display: block;
-  padding: 5px 10px;
-  color: var(--muted);
-  text-decoration: none;
-  border-left: 2px solid var(--border);
-}
-nav.toc a:hover, nav.toc a.active { color: var(--accent); border-left-color: var(--accent); }
 main { min-width: 0; }
 header h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; }
 header p { color: var(--muted); margin: 0 0 32px; max-width: 70ch; }
@@ -185,8 +170,6 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: baseline; gap: 8px; color: var(--text); text-decoration: none; font-weight: 700; }
-.brand .ver { color: var(--muted); font-weight: 500; font-size: 13px; }
 .tabs { display: flex; gap: 4px; margin-left: 8px; overflow-x: auto; }
 .tabs[hidden] { display: none; }
 .tabs a {
@@ -211,7 +194,9 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
   .layout { grid-template-columns: 1fr; padding: 24px 16px 60px; gap: 16px; }
   .topbar { gap: 10px; padding: 0 12px; }
   .brand .ver { display: none; }
-  nav.toc { position: static; }
+  .menu-btn { display: grid; }
+  .sidebar { position: fixed; top: 56px; left: 0; bottom: 0; z-index: 25; width: min(300px, 85vw); max-height: none; padding: 16px 10px; background: var(--bg); border-right: 1px solid var(--border); transform: translateX(-105%); transition: transform .2s; }
+  .sidebar.open { transform: none; box-shadow: 0 10px 40px rgba(0, 0, 0, .25); }
   section { padding: 20px 16px; }
   header h1 { font-size: 27px; }
 }
@@ -257,11 +242,82 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
 :root[data-theme="dark"] .theme-switch .moon, :root[data-theme="dark"] .theme-switch .stars { display: block; }
 /* Bilingual content: only the active language is shown */
 :root[lang="en"] [data-lang="fr"], :root[lang="fr"] [data-lang="en"] { display: none !important; }
+/* ---------- Header: logo + version badge, mobile menu ---------- */
+.brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; white-space: nowrap; }
+.brand .logo { width: 26px; height: 26px; flex: none; color: var(--accent); }
+.brand .ver { font-size: 12px; color: var(--muted); font-weight: 500; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; }
+.menu-btn { display: none; }
+/* ---------- Sidebar tree (pages > sections of the current page) ---------- */
+.sidebar { position: sticky; top: 76px; align-self: start; max-height: calc(100vh - 96px); overflow-y: auto; font-size: 14px; }
+.sidebar h4 { margin: 18px 0 6px; padding: 0 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.sidebar h4:first-child { margin-top: 0; }
+.sidebar a { display: block; padding: 5px 10px; border-radius: 6px; color: var(--text); text-decoration: none; }
+.sidebar a:hover { background: var(--code-bg); }
+.sidebar a.current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.sidebar .sub { margin: 2px 0 6px; }
+.sidebar .sub a { padding-left: 24px; color: var(--muted); font-size: 13.5px; }
+.sidebar .sub a:hover { color: var(--text); }
+.sidebar .sub a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* ---------- Page header: eyebrow + title + lead ---------- */
+.page-eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); margin-bottom: 6px; }
+header .lead { font-size: 17px; color: var(--muted); margin: 0 0 32px; max-width: 70ch; }
+/* ---------- Heading anchors ---------- */
+h2 .anchor, h3 .anchor { margin-left: 8px; color: var(--muted); font-weight: 400; text-decoration: none; opacity: 0; transition: opacity .15s; }
+h2:hover .anchor, h3:hover .anchor, .anchor:focus { opacity: 1; }
+/* ---------- Code blocks: title bar + copy button ---------- */
+pre { position: relative; }
+pre[data-title]::before {
+  content: attr(data-title); display: block; margin: -14px -16px 12px; padding: 6px 16px;
+  font: 12px system-ui, sans-serif; color: var(--muted); border-bottom: 1px solid var(--border);
+  background: var(--surface); border-radius: 8px 8px 0 0;
+}
+pre .copy {
+  position: absolute; top: 8px; right: 8px; font: 12px system-ui, sans-serif; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  border-radius: 6px; padding: 3px 8px; opacity: 0; transition: opacity .15s;
+}
+pre[data-title] .copy { top: 5px; }
+pre:hover .copy, pre .copy:focus { opacity: 1; }
+pre .copy:hover { color: var(--text); }
+/* ---------- Content tabs ---------- */
+.ctabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin: 12px 0; }
+.ctabs button { background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 12px; cursor: pointer; color: var(--muted); font: 500 14px system-ui, sans-serif; }
+.ctabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+.ctab-panel { display: none; }
+.ctab-panel.active { display: block; }
+/* ---------- Previous / next page ---------- */
+.pager { display: flex; justify-content: space-between; gap: 16px; margin-top: 32px; }
+.pager a { flex: 1; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); text-decoration: none; }
+.pager a:hover { border-color: var(--accent); }
+.pager a span { display: block; font-size: 12px; color: var(--muted); }
+.pager a.next { text-align: right; }
+.pager:empty { display: none; }
+/* ---------- Footer ---------- */
+footer.site { max-width: 1180px; margin: 0 auto; padding: 22px 24px 30px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+footer.site a { color: var(--accent); }
+@media (max-width: 860px) {
+  .menu-btn { display: grid; }
+  footer.site { padding: 20px 16px; }
+  .topbar .tabs { display: none; } /* the sidebar (menu) gives the navigation on mobile */
+}
+.topbar .icon-btn, .topbar .lang-switch, .topbar .theme-switch { flex: none; }
+.topbar .tabs { min-width: 0; }
+@media (max-width: 860px) {
+  .topbar .spacer { display: none; }
+  .topbar .tabs { flex: 1 1 auto; }
+  .topbar .icon-btn { width: 32px; height: 32px; }
+}
+@media (max-width: 480px) {
+  .topbar { gap: 8px; padding: 0 10px; }
+  .topbar a.icon-btn[href] { display: none; } /* GitHub link: also in the footer / graph panel */
+  .lang-switch button { padding: 4px 9px; }
+}
 </style>
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="index.html">{{PROJECT}} <span class="ver">{{VERSION}}</span></a>
+  <button class="icon-btn menu-btn" type="button" id="menuBtn" aria-label="Open the navigation" data-i18n-aria-label><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  <a class="brand" href="index.html"><svg class="logo" viewBox="0 0 32 32" fill="none" aria-hidden="true"><!-- default logo: replace with the project logo (inline SVG, currentColor) --><rect x="4" y="4" width="18" height="22" rx="3" fill="currentColor" opacity=".35"/><rect x="9" y="7" width="18" height="22" rx="3" fill="currentColor"/><path d="M13 14h10M13 18h10M13 22h6" stroke="var(--surface)" stroke-width="2" stroke-linecap="round"/></svg><span>{{PROJECT}}</span><span class="ver">{{VERSION}}</span></a>
   <nav class="tabs" aria-label="Pages">
     <!-- PAGES: keep only the pages that exist, the first one is index.html -->
     <a href="index.html" class="current" aria-current="page" data-i18n>Guide</a>
@@ -285,19 +341,24 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
   </button>
 </header>
 <div class="layout">
-<nav class="toc" aria-label="Contents" data-i18n-aria-label>
-  <p data-i18n>Contents</p>
-  <a href="#about"><span data-lang="en">1. About</span><span data-lang="fr">1. Présentation</span></a>
-  <a href="#install"><span data-lang="en">2. Installation</span><span data-lang="fr">2. Installation</span></a>
-  <a href="#start"><span data-lang="en">3. First steps</span><span data-lang="fr">3. Premiers pas</span></a>
-  <a href="#use"><span data-lang="en">4. Usage</span><span data-lang="fr">4. Utilisation</span></a>
-  <a href="#faq"><span data-lang="en">5. FAQ</span><span data-lang="fr">5. Questions fréquentes</span></a>
-</nav>
+<aside class="sidebar" id="sidebar" aria-label="Navigation" data-i18n-aria-label>
+  <!-- sync_nav.py rebuilds the page links; the .sub block (sections of this page) is kept -->
+  <h4 data-i18n>User guide</h4>
+  <a href="index.html" class="current" aria-current="page" data-i18n>Guide</a>
+  <div class="sub">
+    <a href="#about"><span data-lang="en">1. About</span><span data-lang="fr">1. Présentation</span></a>
+    <a href="#install"><span data-lang="en">2. Installation</span><span data-lang="fr">2. Installation</span></a>
+    <a href="#start"><span data-lang="en">3. First steps</span><span data-lang="fr">3. Premiers pas</span></a>
+    <a href="#use"><span data-lang="en">4. Usage</span><span data-lang="fr">4. Utilisation</span></a>
+    <a href="#faq"><span data-lang="en">5. FAQ</span><span data-lang="fr">5. Questions fréquentes</span></a>
+  </div>
+</aside>
 
 <main>
 <header>
+  <div class="page-eyebrow" data-i18n>User guide</div>
   <h1>{{TITLE}}</h1>
-  <p>{{SUBTITLE}}</p>
+  <p class="lead">{{SUBTITLE}}</p>
 </header>
 
 <!-- 1 -->
@@ -354,8 +415,10 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
   </details>
 </section>
 
+<nav class="pager" aria-label="Pages"></nav>
 </main>
 </div>
+<footer class="site"><span data-lang="en">{{PROJECT}} documentation · generated from the <a href="{{REPO_URL}}">repository</a> ({{VERSION}}, {{LICENSE}})</span><span data-lang="fr">Documentation de {{PROJECT}} · générée depuis le <a href="{{REPO_URL}}">dépôt</a> ({{VERSION}}, {{LICENSE}})</span></footer>
 <script>
 // French texts of the page (English text -> French text), extend it with the page content
 window.DOC_FR = {
@@ -366,7 +429,18 @@ window.DOC_FR = {
   "Toggle theme": "Changer de thème",
   "Contents": "Sommaire",
   "Language": "Langue",
-  "Pages": "Pages"
+  "Pages": "Pages",
+  "Copy": "Copier",
+  "Copied": "Copié",
+  "Select & copy": "Sélectionner et copier",
+  "Link to this section": "Lien vers cette section",
+  "Navigation": "Navigation",
+  "Open the navigation": "Ouvrir la navigation",
+  "User guide": "Guide utilisateur",
+  "Developer guide": "Guide développeur",
+  "Technical documentation": "Documentation technique",
+  "Previous": "Précédent",
+  "Next": "Suivant"
 };
 </script>
 <script>
@@ -430,7 +504,7 @@ window.DOC_FR = {
   });
 
   // Highlight the section visible in the summary
-  var links = document.querySelectorAll('nav.toc a');
+  var links = document.querySelectorAll('.sidebar .sub a');
   if (!('IntersectionObserver' in window)) return;
   var observer = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
@@ -451,6 +525,51 @@ window.DOC_FR = {
       if (!r.ok) a.remove();
       if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
     }).catch(function () {});
+  });
+})();
+
+// Sidebar (mobile), copy buttons, heading anchors, content tabs
+(function () {
+  var tr = function (s) { return window.docI18n ? window.docI18n.tr(s) : s; };
+  var menu = document.getElementById('menuBtn'), side = document.getElementById('sidebar');
+  if (menu && side) {
+    menu.addEventListener('click', function () { side.classList.toggle('open'); });
+    document.addEventListener('click', function (e) { if (!side.contains(e.target) && !menu.contains(e.target)) side.classList.remove('open'); });
+  }
+  document.querySelectorAll('main pre').forEach(function (pre) {
+    if (pre.dataset.nocopy !== undefined) return;
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'copy'; b.textContent = tr('Copy');
+    b.addEventListener('click', function () {
+      var code = pre.querySelector('code') || pre;
+      var done = function () { b.textContent = tr('Copied'); setTimeout(function () { b.textContent = tr('Copy'); }, 1400); };
+      if (navigator.clipboard) navigator.clipboard.writeText(code.innerText).then(done, function () { b.textContent = tr('Select & copy'); });
+      else b.textContent = tr('Select & copy');
+    });
+    pre.appendChild(b);
+  });
+  document.querySelectorAll('main h2[id], main h3[id], main section[id] > h2').forEach(function (h) {
+    var id = h.id || h.parentElement.id;
+    if (!id || h.querySelector('.anchor')) return;
+    var a = document.createElement('a');
+    a.className = 'anchor'; a.href = '#' + id; a.textContent = '#';
+    a.setAttribute('aria-label', tr('Link to this section'));
+    h.appendChild(a);
+  });
+  document.querySelectorAll('.ctabs').forEach(function (bar) {
+    var group = bar.dataset.tabs;
+    var buttons = bar.querySelectorAll('button');
+    var panels = document.querySelectorAll('.ctab-panel[data-tabs="' + group + '"]');
+    function show(name) {
+      buttons.forEach(function (b) { b.classList.toggle('active', b.dataset.tab === name); });
+      panels.forEach(function (p) { p.classList.toggle('active', p.dataset.tab === name); });
+    }
+    buttons.forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.tab); }); });
+    if (buttons.length) show(buttons[0].dataset.tab);
+  });
+  if (window.docI18n) window.docI18n.onChange(function () {
+    document.querySelectorAll('main pre .copy').forEach(function (b) { b.textContent = tr('Copy'); });
+    document.querySelectorAll('.anchor').forEach(function (a) { a.setAttribute('aria-label', tr('Link to this section')); });
   });
 })();
 </script>

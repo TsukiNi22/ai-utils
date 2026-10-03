@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Rewrite the page tabs of every documentation page of a folder from the pages that really exist.
+Rebuild the navigation of every documentation page of a folder from the pages that really exist.
 
 Usage:
     sync_nav.py [<docs dir>]
 
-Each page declares its kind with <html data-page="guide|technical|graph">. The tabs (<nav class="tabs">) of every page
-are rebuilt in the order Guide, Technical, Graph with the real file names, the current page marked; with a single
-page the tabs are hidden. The brand link points to the first page. Pages are independent: removing one and
-re-running this script removes its tab everywhere.
+Each page declares its kind with <html data-page="guide|technical|graph">. For every page:
+- the top tabs (<nav class="tabs">): Guide, Technical, Graph, the current one marked, hidden for a single page;
+- the sidebar tree (<aside class="sidebar">, guide / technical pages): groups "User guide" (guide) and
+  "Developer guide" (technical, graph), the current page highlighted with its own sections (.sub block, kept);
+- the previous / next links (<nav class="pager">);
+- the brand link -> first page.
+Pages are independent: removing one and re-running this script removes it everywhere.
 """
 
 import glob
@@ -16,7 +19,7 @@ import os
 import re
 import sys
 
-ORDER = [("guide", "Guide"), ("technical", "Technical"), ("graph", "Graph")]
+ORDER = [("guide", "Guide", "User guide"), ("technical", "Technical", "Developer guide"), ("graph", "Graph", "Developer guide")]
 
 
 def main() -> int:
@@ -29,19 +32,40 @@ def main() -> int:
     if not pages:
         print(f"no documentation page (data-page) in {d}")
         return 0
-    present = [(k, label, pages[k]) for k, label in ORDER if k in pages]
-    for kind, _, name in present:
+    present = [(k, label, group, pages[k]) for k, label, group in ORDER if k in pages]
+    for i, (kind, _, _, name) in enumerate(present):
         path = os.path.join(d, name)
         t = open(path, encoding="utf-8").read()
-        links = "\n".join(
-            f'    <a href="{fn}"' + (' class="current" aria-current="page"' if k == kind else "") + f" data-i18n>{label}</a>"
-            for k, label, fn in present)
+        # Top tabs
+        links = "\n".join(f'    <a href="{fn}"' + (' class="current" aria-current="page"' if k == kind else "") + f" data-i18n>{label}</a>"
+                          for k, label, _, fn in present)
         hidden = " hidden" if len(present) < 2 else ""
-        t = re.sub(r'<nav class="tabs"[^>]*>.*?</nav>',
-                   f'<nav class="tabs" aria-label="Pages"{hidden}>\n{links}\n  </nav>', t, count=1, flags=re.S)
-        t = re.sub(r'(<a class="brand" href=")[^"]*(")', rf"\g<1>{present[0][2]}\2", t, count=1)
+        t = re.sub(r'<nav class="tabs"[^>]*>.*?</nav>', f'<nav class="tabs" aria-label="Pages"{hidden}>\n{links}\n  </nav>', t, count=1, flags=re.S)
+        # Sidebar tree (keeps the sections of the current page)
+        m = re.search(r'(<aside class="sidebar"[^>]*>\n)(.*?)(</aside>)', t, re.S)
+        if m:
+            sub = re.search(r'  <div class="sub">.*?\n  </div>\n', m.group(2), re.S)
+            body, last_group = "  <!-- sync_nav.py rebuilds the page links; the .sub block (sections of this page) is kept -->\n", None
+            for k, label, group, fn in present:
+                if group != last_group:
+                    body += f"  <h4 data-i18n>{group}</h4>\n"
+                    last_group = group
+                if k == kind:
+                    body += f'  <a href="{fn}" class="current" aria-current="page" data-i18n>{label}</a>\n' + (sub.group(0) if sub else "")
+                else:
+                    body += f'  <a href="{fn}" data-i18n>{label}</a>\n'
+            t = t[:m.start(2)] + body + t[m.end(2):]
+        # Previous / next
+        prev_, next_ = (present[i - 1] if i > 0 else None), (present[i + 1] if i + 1 < len(present) else None)
+        pager = ""
+        if prev_:
+            pager += f'\n  <a class="prev" href="{prev_[3]}"><span data-i18n>Previous</span><b data-i18n>{prev_[1]}</b></a>'
+        if next_:
+            pager += f'\n  <a class="next" href="{next_[3]}"><span data-i18n>Next</span><b data-i18n>{next_[1]}</b></a>'
+        t = re.sub(r'<nav class="pager"[^>]*>.*?</nav>', f'<nav class="pager" aria-label="Pages">{pager + chr(10) if pager else ""}</nav>', t, count=1, flags=re.S)
+        t = re.sub(r'(<a class="brand" href=")[^"]*(")', rf"\g<1>{present[0][3]}\2", t, count=1)
         open(path, "w", encoding="utf-8").write(t)
-    print(", ".join(f"{label} -> {fn}" for _, label, fn in present))
+    print(", ".join(f"{label} -> {fn}" for _, label, _, fn in present))
     return 0
 
 
