@@ -212,6 +212,16 @@ select { width: auto; }
 .legend .lg .sw.line { width: 16px; height: 3px; flex-basis: 16px; border-radius: 2px; box-shadow: none; }
 .legend .lg .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .legend .lg .n { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* Hover card of a node: kind (colour of the node), name, path */
+.node-tip {
+  position: absolute; z-index: 15; max-width: min(360px, calc(100% - 24px)); pointer-events: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 11px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .22); font-size: 12.5px; line-height: 1.35;
+}
+.node-tip[hidden] { display: none; }
+.node-tip .k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.node-tip .t { font-weight: 600; color: var(--text); word-break: break-word; }
+.node-tip .p { color: var(--muted); font-size: 12px; word-break: break-all; }
 .tip {
   position: fixed; z-index: 30; max-width: 280px; pointer-events: none;
   background: var(--text); color: var(--bg);
@@ -424,6 +434,7 @@ html, body { overscroll-behavior: none; }
 
   <div class="stage">
     <canvas id="graph" aria-label="Interactive project graph" data-i18n-aria-label></canvas>
+    <div class="node-tip" id="nodeTip" hidden><div class="k"></div><div class="t"></div><div class="p"></div></div>
     <button class="btn panel-toggle" id="panelToggle" type="button" aria-label="Show the controls" data-i18n-aria-label><span data-i18n>☰ Controls</span></button>
     <div class="details" id="details" hidden></div>
     <div class="hint" id="hint">Loading the graph…</div>
@@ -1573,12 +1584,14 @@ function extractGraph(files, opts) {
         if (!drag) {
             const g = onGizmo(mx, my);
             if (g !== !!state.gizmoHover) { state.gizmoHover = g; state.dirty = true; canvas.classList.toggle("pointer", g); }
-            if (g) return;
+            if (g) { nodeTip(null); return; }
             const n = pick(mx, my);
             const id = n ? n.id : null;
             if (id !== state.hover) { state.hover = id; state.dirty = true; canvas.classList.toggle("pointer", !!n); }
+            nodeTip(n, mx, my);
             return;
         }
+        $("nodeTip").hidden = true;
         const dx = mx - drag.x, dy = my - drag.y;
         drag.x = mx; drag.y = my;
         const c = state.cam;
@@ -1598,6 +1611,22 @@ function extractGraph(files, opts) {
         }
         state.dirty = true;
     });
+    function nodeTip(n, mx, my) { // hover card next to the cursor, kept inside the graph
+        const tip = $("nodeTip");
+        if (!n) { tip.hidden = true; return; }
+        const ext = /\.[\w]+$/.exec(n.path || ""), file = /^(header|source|test-file)$/.test(n.kind);
+        tip.querySelector(".k").textContent = tr((KINDS[n.kind] || ["", n.kind])[1]) + (file && ext ? " (" + ext[0] + ")" : "");
+        tip.querySelector(".k").style.color = colorOf(n);
+        tip.querySelector(".t").textContent = n.label;
+        tip.querySelector(".p").textContent = n.path || [n.ns, n.group].filter(Boolean).join(" · ");
+        tip.hidden = false;
+        const W = canvas.clientWidth, H = canvas.clientHeight, w = tip.offsetWidth, h = tip.offsetHeight;
+        let x = mx + 14, y = my + 16;
+        if (x + w > W - 8) x = mx - w - 14;
+        if (y + h > H - 8) y = my - h - 12;
+        tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+    }
+    canvas.addEventListener("pointerleave", () => { $("nodeTip").hidden = true; if (state.hover && !drag) { state.hover = null; state.dirty = true; } });
     function endDrag(e) {
         if (!drag) return;
         if (drag.node) state.pos.get(drag.node.id).fixed = false;
