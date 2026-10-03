@@ -30,6 +30,15 @@ The files of `examples/` (real libutils code) are the ground truth for the layou
   | types | `XType.hpp` | `templates/type.hpp` |
   | defines / enums | `XDefine.hpp` | `templates/define.hpp` |
   | family / umbrella | `X.hpp` (includes the family, no namespace) | `templates/family.hpp` |
+  | entry point | `src/<root>/main.cpp` + the core class (`Core` or the project class) | `templates/main.cpp` (`main-std.cpp` in `std` mode) |
+- Entry point (new project, or when asked for a `main`): `src/<root>/main.cpp` from `templates/main.cpp`
+  (the same in context-forge, virtual-os, cpp_project_template): it only creates the core class, calls
+  `init(argc, argv)` then `run()`, catches `utils::exception::IException` (`Exit` code -> `OK`, otherwise print
+  `formated()` and return `KO`) and returns `core.exit()` (`return OK;` when the core class has no `exit`).
+  This wiring is the only body written by the skill. Create the core class with it if it doesn't exist:
+  `void init(int argc, const char *const argv[]);`, `void run(void);`, `int exit(void) const;` as
+  Pre-Functions with empty bodies. Register `main.cpp` first in `SRC`, under `# Entry`
+  (`cmake_add.py ... --group Entry`). `std` mode: `templates/main-std.cpp` (`std::exception`, `EXIT_FAILURE`).
 - An "architecture" (ex: "a socket with an interface, an abstract and a TCP impl") = several of the above,
   chained `IX` -> `AX: public IX` -> `X: public AX`.
 - Project layout: find the project root (closest `CMakeLists.txt`) and follow the existing tree.

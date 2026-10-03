@@ -17,6 +17,7 @@ even when the user describes the behavior:
   - a constructor init list that only forwards the parameters to the members;
   - accessors that only return or assign one member (`{return this->_fd;};`, `{this->_fd = fd;};`);
   - a public wrapper that only forwards to its private `name_` implementation.
+  - the `main()` of `templates/main.cpp` (pure wiring: create the core class, `init`, `run`, catch, exit).
 
 ```cpp
 _hot void utils::system::Scheduler::clear(void)
