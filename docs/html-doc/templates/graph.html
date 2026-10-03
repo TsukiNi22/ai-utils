@@ -561,8 +561,8 @@ window.DOC_FR = {
   "Architecture": "Architecture",
   "Realistic": "Réaliste",
   "3D style": "Style 3D",
-  "drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset": "glisser pour orbiter · clic droit + glisser pour déplacer · glisser un nœud pour le déplacer · molette pour zoomer · F pour centrer la sélection · cliquer les axes pour réinitialiser",
-  "drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection": "glisser pour déplacer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection"
+  "drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection": "glisser, flèches ou {MOVE} pour déplacer · {UPDOWN} pour zoomer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection",
+  "drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes to reset": "glisser pour orbiter · clic droit + glisser ou flèches pour déplacer · {MOVE} ou molette pour avancer · {UPDOWN} pour la hauteur · glisser un nœud pour le déplacer · F pour centrer la sélection · cliquer les axes pour réinitialiser"
 };
 </script>
 <script>
@@ -1094,6 +1094,14 @@ function extractGraph(files, opts) {
         buildLegends();
         refilter(true);
     }
+    // Letters of the movement keys on the user's keyboard (AZERTY: ZQSD + A / E, QWERTY: WASD + Q / E)
+    const KEYS = {move: "WASD", updown: "Q / E"};
+    if (navigator.keyboard && navigator.keyboard.getLayoutMap) navigator.keyboard.getLayoutMap().then(m => {
+        const k = (c) => (m.get(c) || "").toUpperCase();
+        if (k("KeyW")) { KEYS.move = k("KeyW") + k("KeyA") + k("KeyS") + k("KeyD"); KEYS.updown = k("KeyQ") + " / " + k("KeyE"); refilter(false); }
+    }).catch(() => { /* not available */ });
+    else if (/^fr/.test(navigator.language || "")) { KEYS.move = "ZQSD"; KEYS.updown = "A / E"; }
+    function keyHint(s) { return s.replace("{MOVE}", KEYS.move).replace("{UPDOWN}", KEYS.updown); }
     function refilter(reheat) {
         const q = state.search.trim().toLowerCase();
         let vis = state.data.nodes.filter(n => state.kinds.has(n.kind) && state.groups.has(n.group));
@@ -1119,7 +1127,7 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("drag to orbit · right-drag to pan · drag a node to move it · scroll to zoom · F to center the selection · click the axes to reset") : tr("drag to pan · scroll to zoom · drag a node to move it · click a node for details · F to center the selection")) : tr("No node: enable some categories / groups");
+        $("hint").textContent = vis.length ? keyHint(state.mode === "3d" ? tr("drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes to reset") : tr("drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection")) : tr("No node: enable some categories / groups");
     }
 
     // ---------- Legends / chips ---------- //
@@ -1554,8 +1562,35 @@ function extractGraph(files, opts) {
         ctx.globalAlpha = 1;
         if (d3) drawAxes(C);
     }
+    const keysHeld = new Set(); // arrow keys: move the view while held
+    function keyMove() {
+        if (!keysHeld.size) return false;
+        const sp = (keysHeld.has("Shift") ? 3 : 1) * 9; // pixels per frame on the screen
+        let dx = 0, dy = 0;
+        if (keysHeld.has("ArrowLeft")) dx -= sp; if (keysHeld.has("ArrowRight")) dx += sp;
+        if (keysHeld.has("ArrowUp")) dy -= sp; if (keysHeld.has("ArrowDown")) dy += sp;
+        // Physical keys (same place on AZERTY / QWERTY): KeyW/S forward/back, KeyA/D left/right, KeyQ/E down/up
+        let fw = 0, side = 0, up = 0;
+        if (keysHeld.has("KeyW")) fw += sp; if (keysHeld.has("KeyS")) fw -= sp;
+        if (keysHeld.has("KeyD")) side += sp; if (keysHeld.has("KeyA")) side -= sp;
+        if (keysHeld.has("KeyE")) up += sp; if (keysHeld.has("KeyQ")) up -= sp;
+        if (!dx && !dy && !fw && !side && !up) return false;
+        const c = state.cam;
+        if (state.mode === "2d") {
+            c.x += (dx + side) / c.k; c.y += (dy - fw) / c.k;
+            if (up) c.k = Math.max(0.05, Math.min(12, c.k * Math.exp(up * 0.004))); // no height in 2D: E / A zoom in / out
+        } else {
+            const s = 700 / c.dist, w = unrotateDir(dx / s, dy / s, 0); // arrows: in the plane of the screen
+            c.x += w.x; c.y += w.y; c.z += w.z;
+            const f = unrotateDir(0, 0, 1), r = unrotateDir(1, 0, 0); // view directions, kept horizontal (along the floor)
+            const fl = Math.hypot(f.x, f.z) || 1, rl = Math.hypot(r.x, r.z) || 1;
+            c.x += (f.x / fl * fw + r.x / rl * side) / s; c.z += (f.z / fl * fw + r.z / rl * side) / s;
+            c.y -= up / s; // world y points down
+        }
+        return true;
+    }
     function frame() {
-        let moved = false;
+        let moved = keyMove();
         for (let i = 0; i < (state.visible.length > 900 ? 1 : 2); i++) moved = tick() || moved;
         if (moved || state.dirty || state.particles) { draw(); state.dirty = false; }
         requestAnimationFrame(frame);
@@ -1668,6 +1703,15 @@ function extractGraph(files, opts) {
         };
         requestAnimationFrame(step);
     }
+    const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
+    document.addEventListener("keydown", (e) => {
+        const free = !typing() && !e.ctrlKey && !e.metaKey && !e.altKey && $("helpBack").hidden;
+        if (free && /^Arrow/.test(e.key)) { keysHeld.add(e.key); if (e.shiftKey) keysHeld.add("Shift"); e.preventDefault(); }
+        else if (free && /^Key[WASDQE]$/.test(e.code)) { keysHeld.add(e.code); if (e.shiftKey) keysHeld.add("Shift"); e.preventDefault(); }
+        else if (e.key === "Shift") keysHeld.add("Shift");
+    });
+    document.addEventListener("keyup", (e) => { keysHeld.delete(e.key); keysHeld.delete(e.code); if (e.key === "Shift") keysHeld.delete("Shift"); });
+    window.addEventListener("blur", () => keysHeld.clear());
     document.addEventListener("keydown", (e) => {
         if (e.key !== "f" && e.key !== "F") return;
         if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
@@ -1684,13 +1728,12 @@ function extractGraph(files, opts) {
         const sel = state.selected && state.pos.get(state.selected);
         if (sel) { const q = project(sel); if (!(state.mode === "3d" && q.behind)) { ax = q.x; ay = q.y; } }
         const mx = ax - state.w / 2, my = ay - state.h / 2;
-        if (state.mode === "3d") {
-            const dist = Math.max(15, Math.min(20000, c.dist / f)); // the camera can go through the graph
-            const s0 = 700 / c.dist, s1 = 700 / dist, k = 1 / s0 - 1 / s1; // move of the target in the plane of the screen
-            const w = unrotateDir(mx * k, my * k, 0);
-            c.x += w.x; c.y += w.y; c.z += w.z; c.dist = dist;
+        if (state.mode === "3d") { // the scroll moves the camera forward / backward along the ray under the anchor (no limit)
+            const step = -e.deltaY * c.dist * 0.0009, l = Math.hypot(mx / 700, my / 700, 1); // > 0: forward, same step back
+            const w = unrotateDir(mx / 700 / l * step, my / 700 / l * step, step / l);
+            c.x += w.x; c.y += w.y; c.z += w.z; // camera and target move together: free flight
         } else {
-            const k = Math.max(0.05, Math.min(12, c.k * f));
+            const k = Math.max(0.02, Math.min(60, c.k * f));
             c.x += mx / c.k - mx / k; c.y += my / c.k - my / k; c.k = k;
         }
         state.dirty = true;
