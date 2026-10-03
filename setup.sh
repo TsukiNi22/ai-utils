@@ -2,10 +2,12 @@
 # Install / remove the skills of this repository for Claude Code.
 #
 # Usage: ./setup.sh <command> [skill...] [options]
+#        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- <command> ...
 #
 # Commands:
 #   install [skill...]   install the given skills and their requirements (default: all)
 #   remove  [skill...]   remove the given skills (default: all the skills of this repo)
+#   update               pull the last version of the repository (the symlinks follow)
 #   list                 list the skills available in this repo
 #   status               show which skills are installed
 #
@@ -13,14 +15,37 @@
 #   --project <dir>      target <dir>/.claude/skills instead of ~/.claude/skills
 #   --copy               copy the files instead of a symlink (default: symlink, edits are live)
 #   --force              replace an already existing skill that doesn't come from this repo
+#   --purge              with remove: also delete the managed clone (curl/wget mode)
 #   -h, --help           show this help
+#
+# Run without a clone (curl/wget), the repository is cloned/updated into $SKILLS_HOME
+# (default: ~/.local/share/tsukini-skills) and the script runs from there.
 
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REMOTE="${SKILLS_REMOTE:-https://github.com/TsukiNi22/skills.git}"
+SKILLS_HOME="${SKILLS_HOME:-$HOME/.local/share/tsukini-skills}"
+
+# =========================
+# Piped mode (curl/wget): work from a managed clone
+# =========================
+SELF="${BASH_SOURCE[0]:-}"
+if [ -z "$SELF" ] || [ ! -f "$SELF" ] || ! ls "$(dirname "$SELF")"/*/SKILL.md > /dev/null 2>&1; then
+    command -v git > /dev/null 2>&1 || { echo "Error: git is required" >&2; exit 1; }
+    if [ -d "$SKILLS_HOME/.git" ]; then
+        git -C "$SKILLS_HOME" pull -q --ff-only || echo "warning: update of $SKILLS_HOME failed, using the local version" >&2
+    else
+        command mkdir -p "$(dirname "$SKILLS_HOME")"
+        git clone -q "$REMOTE" "$SKILLS_HOME"
+    fi
+    exec bash "$SKILLS_HOME/setup.sh" "$@"
+fi
+
+REPO="$(cd "$(dirname "$SELF")" && pwd)"
 TARGET="$HOME/.claude/skills"
 MODE="link"
 FORCE=false
+PURGE=false
 COMMAND=""
 SKILLS=()
 
@@ -28,7 +53,7 @@ SKILLS=()
 # Helpers
 # =========================
 usage() {
-    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,23p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -62,7 +87,7 @@ is_ours() {
 # =========================
 while [ $# -gt 0 ]; do
     case "$1" in
-        install|remove|list|status)
+        install|remove|update|list|status)
             [ -n "$COMMAND" ] && error "only one command allowed"
             COMMAND="$1"
             ;;
@@ -74,6 +99,7 @@ while [ $# -gt 0 ]; do
             ;;
         --copy) MODE="copy" ;;
         --force) FORCE=true ;;
+        --purge) PURGE=true ;;
         -h|--help) usage 0 ;;
         -*) error "unknown option '$1'" ;;
         *) SKILLS+=("$1") ;;
@@ -109,6 +135,10 @@ fi
 # Commands
 # =========================
 case "$COMMAND" in
+    update)
+        git -C "$REPO" pull --ff-only
+        ;;
+
     list)
         for skill in $(available); do
             printf "  %-20s %s\n" "$skill" "$(description "$skill")"
@@ -165,3 +195,12 @@ case "$COMMAND" in
         done
         ;;
 esac
+
+if [ "$COMMAND" = "remove" ] && $PURGE; then
+    if [ "$REPO" = "$(cd "$SKILLS_HOME" 2>/dev/null && pwd)" ]; then
+        rm -rf "$SKILLS_HOME"
+        echo "  purged $SKILLS_HOME"
+    else
+        echo "  --purge ignored: $REPO is not the managed clone ($SKILLS_HOME)"
+    fi
+fi
