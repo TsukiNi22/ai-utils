@@ -24,23 +24,54 @@ Everything is based on my own work, mainly [libutils](https://github.com/TsukiNi
 
 ## Installation
 
+### Quick Setup - 1 (without cloning)
+Run the setup script directly: it clones (or updates) the repository into `~/.local/share/tsukini-skills`
+(`SKILLS_HOME` to change it) and links the skills from there, nothing to clone or clean by hand.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install
+```
+
+or with `wget`:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install
+```
+
+Every command works the same way, arguments are given after `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install cpp-class  # only one skill (+ its requirements)
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- update             # pull the last version
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- remove --purge     # remove every skill and the clone
+```
+
+> [!NOTE]
+> Requires `git` and `bash`. Each run updates the managed clone first (fast-forward only).
+
+### Quick Setup - 2 (from a clone)
+
 ```bash
 git clone git@github.com:TsukiNi22/skills.git
 cd skills
 ./setup.sh install            # every skill, in ~/.claude/skills (symlinks)
 ```
 
+### Commands
+
 ```bash
 ./setup.sh list                           # available skills
 ./setup.sh status                         # what is installed
-./setup.sh install cpp-class              # only one skill
+./setup.sh install cpp-class              # only one skill (and the skills it requires)
 ./setup.sh install --project ~/my/project # in <project>/.claude/skills instead
 ./setup.sh install --copy                 # copy instead of symlink
+./setup.sh update                         # git pull of the repository
 ./setup.sh remove                         # remove every skill of this repo
 ./setup.sh remove cpp-class               # remove only one
+./setup.sh remove --purge                 # (curl/wget mode) also delete the managed clone
 ```
 
-By default the skills are **symlinked**: a `git pull` (or a local edit) is used right away,
+By default the skills are **symlinked**: an update (or a local edit) is used right away,
 no need to reinstall. `remove` only deletes skills that come from this repository
 (use `--force` otherwise).
 
