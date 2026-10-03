@@ -1678,10 +1678,18 @@ function extractGraph(files, opts) {
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("wheel", (e) => {
         e.preventDefault();
-        const c = state.cam, f = Math.exp(-e.deltaY * 0.0015);
-        if (state.mode === "3d") { c.dist = Math.max(15, Math.min(20000, c.dist / f)); } // the camera can go through the graph
-        else {
-            const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left - state.w / 2, my = e.clientY - r.top - state.h / 2;
+        const c = state.cam, f = Math.exp(-e.deltaY * 0.0015), r = canvas.getBoundingClientRect();
+        // Anchor of the zoom: the selected node, else the mouse (the point under it stays under it, zoom in and out)
+        let ax = e.clientX - r.left, ay = e.clientY - r.top;
+        const sel = state.selected && state.pos.get(state.selected);
+        if (sel) { const q = project(sel); if (!(state.mode === "3d" && q.behind)) { ax = q.x; ay = q.y; } }
+        const mx = ax - state.w / 2, my = ay - state.h / 2;
+        if (state.mode === "3d") {
+            const dist = Math.max(15, Math.min(20000, c.dist / f)); // the camera can go through the graph
+            const s0 = 700 / c.dist, s1 = 700 / dist, k = 1 / s0 - 1 / s1; // move of the target in the plane of the screen
+            const w = unrotateDir(mx * k, my * k, 0);
+            c.x += w.x; c.y += w.y; c.z += w.z; c.dist = dist;
+        } else {
             const k = Math.max(0.05, Math.min(12, c.k * f));
             c.x += mx / c.k - mx / k; c.y += my / c.k - my / k; c.k = k;
         }
