@@ -98,17 +98,28 @@ repo_ready() {
     esac
 }
 need_root() {
-    if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null && [ ! -t 0 ]; then
-        echo "Error: root rights needed and sudo asks for a password without a terminal." >&2
-        echo "Run it yourself: bash $0 $COMMAND ..." >&2
-        exit 2
+    [ -z "$SUDO" ] && return 0
+    [[ "$SUDO" == *"-A"* ]] && return 0
+    sudo -n true 2> /dev/null && return 0
+    [ -t 0 ] && return 0
+    # No terminal: graphical password prompt (sudo -A + SUDO_ASKPASS) when a display is available
+    local askpass="${SUDO_ASKPASS:-$HOME/.local/bin/sudo-askpass}"
+    [ -x "$askpass" ] || askpass="$(cd "$(dirname "$0")" && pwd)/sudo-askpass" # copy shipped with the skill
+    if [ -x "$askpass" ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        export SUDO_ASKPASS="$askpass"
+        SUDO="sudo -A"
+        return 0
     fi
+    echo "Error: root rights needed, no terminal and no graphical askpass (SUDO_ASKPASS)." >&2
+    echo "Run it yourself: bash $0 $COMMAND ..." >&2
+    exit 2
 }
 setup_repo() {
     repo_ready && return 0
     need_root
     echo "Setting up the libutils mirror ($FAMILY)..."
-    if [ -n "$SUDO" ]; then curl -fsSL "$SETUP_URL" | bash -s; else curl -fsSL "$SETUP_URL" | bash -s -- --no-sudo; fi
+    # The official script calls sudo by itself: run it as root once (--no-sudo) to ask the password only once
+    if [ -n "$SUDO" ]; then $SUDO bash -c "curl -fsSL '$SETUP_URL' | bash -s -- --no-sudo"; else curl -fsSL "$SETUP_URL" | bash -s -- --no-sudo; fi
     [ "$FAMILY" = "deb" ] && $SUDO apt-get update -q
     return 0
 }

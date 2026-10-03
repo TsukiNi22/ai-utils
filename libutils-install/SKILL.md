@@ -29,9 +29,10 @@ bash SKILL_DIR/scripts/libutils.sh install --source [<git ref>] # build from the
   the compiler and `find_package`): headers of one version, library of another. `remove --local` deletes it.
 
 ## Rules
-- `status` can always be run. **install / update / remove / repo need root**: when `sudo` asks for a password
-  the script stops (exit code 2) and the user must run it: give the exact command to run with `! ` in the prompt
-  (ex: `! bash ~/.claude/skills/libutils-install/scripts/libutils.sh update -y`). Never try to work around sudo.
+- `status` can always be run. **install / update / remove / repo need root**: without a terminal (Claude's shell)
+  the script switches by itself to `sudo -A` with the graphical prompt `~/.local/bin/sudo-askpass` (zenity window
+  showing the command, the user types the password). Without any display/askpass it stops (exit code 2): give the
+  user the command (`SUDO_ASKPASS=~/.local/bin/sudo-askpass bash .../libutils.sh <command>`). Never work around sudo.
 - Ask before `install`/`update`/`remove` (system change); `status` and reading versions need no confirmation.
 - Variants: install `db` (and `as`) when the project is built in `Debug`/`Asan` (`buildD`/`buildA` aliases of the
   user, `CMAKE_BUILD_TYPE`), otherwise the optimized build is enough.
