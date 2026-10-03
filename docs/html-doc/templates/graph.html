@@ -1292,7 +1292,7 @@ function extractGraph(files, opts) {
     }
     function shadeRgb(c, k) { const v = toRgb(c); return v ? "rgb(" + v.map(x => Math.min(255, Math.round(x * k))).join(",") + ")" : c; }
     const MESH = (() => { // unit sphere, 10 meridians x 6 parallels: faces = vertices + world normal
-        const LON = 8, LAT = 8, faces = [], pt = (i, j) => { const th = j / LAT * Math.PI, ph = i / LON * Math.PI * 2; return [Math.sin(th) * Math.cos(ph), -Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
+        const LON = 16, LAT = 12, faces = [], pt = (i, j) => { const th = j / LAT * Math.PI, ph = i / LON * Math.PI * 2; return [Math.sin(th) * Math.cos(ph), -Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
         for (let j = 0; j < LAT; j++) for (let i = 0; i < LON; i++) {
             const v = [pt(i, j), pt(i + 1, j), pt(i + 1, j + 1), pt(i, j + 1)].filter((q, k, a) => k === 0 || Math.hypot(q[0] - a[k - 1][0], q[1] - a[k - 1][1], q[2] - a[k - 1][2]) > 1e-6);
             const n = v.reduce((s, q) => [s[0] + q[0], s[1] + q[1], s[2] + q[2]], [0, 0, 0]), l = Math.hypot(...n);
@@ -1300,27 +1300,39 @@ function extractGraph(files, opts) {
         }
         return faces;
     })();
-    const TOP_LIGHT = [0, -1, 0]; // technical style: directional light from the top (3d-force-graph default)
+    const TOP_LIGHT = [0, -1, 0]; // technical style: strong ambient + soft directional light from the top, no spot (like context-forge)
     function meshFrame() { // the faces turned with the camera, back faces removed, far first, with their light
-        return MESH.map(f => ({pts: f.v.map(q => rotateDir(...q)), n: rotateDir(...f.n), k: 0.62 + 0.5 * Math.max(0, f.n[0] * TOP_LIGHT[0] + f.n[1] * TOP_LIGHT[1] + f.n[2] * TOP_LIGHT[2])}))
+        return MESH.map(f => ({pts: f.v.map(q => rotateDir(...q)), n: rotateDir(...f.n), k: 0.74 + 0.42 * Math.max(0, f.n[0] * TOP_LIGHT[0] + f.n[1] * TOP_LIGHT[1] + f.n[2] * TOP_LIGHT[2])}))
             .filter(f => f.n.z < 0.05).sort((a, b) => b.n.z - a.n.z);
     }
-    const scratch = document.createElement("canvas"), sctx = scratch.getContext("2d");
-    function drawPolySphere(x, y, r, color, mesh) {
-        // Drawn opaque on a scratch canvas, then pasted with the current alpha: the faces don't show their seams
-        const m = r + 2, size = Math.min(4096, Math.ceil(2 * m * state.dpr));
-        if (scratch.width < size) { scratch.width = size; scratch.height = size; }
-        sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, size + 2, size + 2);
-        sctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
-        sctx.lineWidth = 0.8; sctx.lineJoin = "round";
-        for (const f of mesh) {
+    // The sphere looks the same for every node of a colour (only the angle of the camera changes it): one sprite per
+    // colour and size bucket, redrawn when the angle changes, then scaled to each node (fast with many nodes)
+    const SPRITES = {key: "", map: new Map()};
+    function sphereSprite(color, r, mesh) {
+        const key = state.cam.yaw.toFixed(3) + "," + state.cam.pitch.toFixed(3) + "," + state.dpr;
+        if (SPRITES.key !== key) { SPRITES.key = key; SPRITES.map.clear(); }
+        const R = [16, 32, 64, 128, 256].find(x => x >= r) || 256, id = color + "|" + R;
+        let cv = SPRITES.map.get(id);
+        if (cv) return cv;
+        cv = document.createElement("canvas");
+        const m = R + 2, size = Math.ceil(2 * m * state.dpr);
+        cv.width = cv.height = size;
+        const g = cv.getContext("2d");
+        g.setTransform(state.dpr, 0, 0, state.dpr, 0, 0); g.lineWidth = 0.6; g.lineJoin = "round";
+        for (const f of mesh.list) { // mesh.list: computed once per frame, only when a sprite is drawn
             const c = shadeRgb(color, f.k);
-            sctx.fillStyle = c; sctx.strokeStyle = c; // stroke of the same colour: no gap between the faces
-            sctx.beginPath(); sctx.moveTo(m + f.pts[0].x * r, m + f.pts[0].y * r);
-            for (let i = 1; i < f.pts.length; i++) sctx.lineTo(m + f.pts[i].x * r, m + f.pts[i].y * r);
-            sctx.closePath(); sctx.fill(); sctx.stroke();
+            g.fillStyle = c; g.strokeStyle = c; // stroke of the same colour: no gap between the faces
+            g.beginPath(); g.moveTo(m + f.pts[0].x * R, m + f.pts[0].y * R);
+            for (let i = 1; i < f.pts.length; i++) g.lineTo(m + f.pts[i].x * R, m + f.pts[i].y * R);
+            g.closePath(); g.fill(); g.stroke();
         }
-        ctx.drawImage(scratch, 0, 0, size, size, x - m, y - m, size / state.dpr, size / state.dpr);
+        cv.R = R;
+        SPRITES.map.set(id, cv);
+        return cv;
+    }
+    function drawPolySphere(x, y, r, color, mesh) { // drawn opaque in the sprite, pasted with the current alpha
+        const cv = sphereSprite(color, r, mesh), k = r / cv.R, m = (cv.R + 2) * k;
+        ctx.drawImage(cv, x - m, y - m, 2 * m, 2 * m);
     }
     function drawFloor(C) {
         const nodes = state.visible;
@@ -1394,7 +1406,8 @@ function extractGraph(files, opts) {
         if (real) { for (const p of proj.values()) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } drawFloor(C); }
         const depth = (z) => real && z1 > z0 ? (z - z0) / (z1 - z0) : 0; // 0 = closest, 1 = farthest
         const light = d3 ? rotateDir(...LIGHT) : null; // light direction in the view
-        const mesh = d3 && !real ? meshFrame() : null;
+        let meshCache = null;
+        const mesh = d3 && !real ? {get list() { return meshCache || (meshCache = meshFrame()); }} : null;
         const focus = state.hover || state.selected;
         const near = focus ? state.neighbors.get(focus) || new Set() : null;
         const lh = state.legendHover;
@@ -1806,7 +1819,7 @@ function extractGraph(files, opts) {
         update: ["Update", "Fetches the last version of the GitHub repository and rebuilds the graph.", "Asks the GitHub API for the last commit of the branch. If it is newer than the graph shown, the sources are downloaded and the graph is rebuilt in the browser (and cached). Run once automatically at load. Offline, private repository or API limit: the embedded graph stays and the status says why.", "overview"],
         mode2d: ["2D view", "Flat graph: drag to move, scroll to zoom.", "Flat rendering, the most readable for the names. Dragging the background moves the view, dragging a node moves it, the scroll zooms under the cursor, a click opens the details.", "flat"],
         mode3d: ["3D view", "Graph in perspective: drag to rotate, Shift + drag to move.", "Nodes are shaded spheres spread in depth: the closest are bigger and brighter, the farthest fade out; the light is fixed in the scene, a floor grid and the X / Y / Z gizmo (bottom left, click: reset the angle) show the orientation. Dragging a node moves it in the plane of the screen; dragging the background rotates the scene, Shift + drag (or right click) moves it, the scroll brings the camera closer. Useful to untangle a dense graph.", "persp"],
-        style3d: ["3D style", "Realistic or technical rendering of the 3D view.", "Realistic (default): shaded spheres lit by a light fixed in the scene, depth fog and a floor grid. Technical: low poly spheres with flat shaded faces and cone arrows, no fog or floor; closer to a 3D modeling tool.", "persp"],
+        style3d: ["3D style", "Realistic or technical rendering of the 3D view.", "Realistic (default): shaded spheres lit by a light fixed in the scene, depth fog and a floor grid. Technical: faceted spheres softly lit from the top (no light spot) and cone arrows, no fog or floor; closer to a 3D modeling tool.", "persp"],
         fit: ["Fit", "Centers and zooms to see every displayed node.", "Computes the box containing every visible node and adapts the zoom (2D) or the camera distance (3D).", "overview"],
         pause: ["Freeze / Resume", "Stops or restarts the force simulation.", "Nodes are placed by a physical simulation (repulsion between nodes, springs on the relations). Freeze keeps the current layout to read it quietly; Resume puts it in motion again.", "flat"],
         search: ["Search", "Highlights the nodes whose name or path contains the text.", "The search looks at the name and the path of the visible nodes. The others are faded; Enter centers the view on the first result and opens its details.", "isolate"],
@@ -1853,7 +1866,7 @@ function extractGraph(files, opts) {
         update: ["Mettre à jour", "Récupère la dernière version du dépôt GitHub et reconstruit le graphe.", "Interroge l'API GitHub pour le dernier commit de la branche. S'il est plus récent que le graphe affiché, les sources sont téléchargées et le graphe est reconstruit dans le navigateur (gardé en cache). Lancé une fois automatiquement au chargement. Hors ligne, dépôt privé ou limite d'API : le graphe embarqué reste affiché et le statut dit pourquoi.", "overview"],
         mode2d: ["Vue 2D", "Graphe à plat : glisser pour déplacer, molette pour zoomer.", "Rendu à plat, le plus lisible pour lire les noms. Glisser le fond déplace la vue, glisser un nœud le déplace, la molette zoome sous le curseur, un clic ouvre les détails.", "flat"],
         mode3d: ["Vue 3D", "Graphe en perspective : glisser pour tourner, Maj + glisser pour déplacer.", "Les nœuds sont des sphères ombrées réparties en profondeur : les plus proches sont plus gros et plus nets, les plus lointains s'estompent ; la lumière est fixe dans la scène, un sol quadrillé et le repère X / Y / Z (en bas à gauche, clic : réinitialiser l'angle) montrent l'orientation. Glisser un nœud le déplace dans le plan de l'écran ; glisser le fond fait tourner la scène, Maj + glisser (ou clic droit) la déplace, la molette rapproche la caméra. Utile pour démêler un graphe dense.", "persp"],
-        style3d: ["Style 3D", "Rendu réaliste ou technique de la vue 3D.", "Réaliste (par défaut) : sphères ombrées éclairées par une lumière fixe dans la scène, brouillard de profondeur et sol quadrillé. Technique : sphères à facettes ombrées face par face et flèches en cônes, sans brouillard ni sol ; plus proche d'un outil de modélisation 3D.", "persp"],
+        style3d: ["Style 3D", "Rendu réaliste ou technique de la vue 3D.", "Réaliste (par défaut) : sphères ombrées éclairées par une lumière fixe dans la scène, brouillard de profondeur et sol quadrillé. Technique : sphères à facettes éclairées doucement par le haut (sans point de lumière) et flèches en cônes, sans brouillard ni sol ; plus proche d'un outil de modélisation 3D.", "persp"],
         fit: ["Ajuster", "Recentre et zoome pour voir tous les nœuds affichés.", "Calcule la boîte qui contient tous les nœuds visibles et adapte le zoom (2D) ou la distance de la caméra (3D).", "overview"],
         pause: ["Figer / Relancer", "Arrête ou relance la simulation des forces.", "Le placement des nœuds est calculé par une simulation physique (répulsion entre nœuds, ressorts sur les relations). Figer la fige dans son état actuel pour lire tranquillement ; Relancer la remet en mouvement.", "flat"],
         search: ["Recherche", "Surligne les nœuds dont le nom ou le chemin contient le texte.", "La recherche porte sur le nom et le chemin des nœuds visibles. Les autres sont estompés ; Entrée centre la vue sur le premier résultat et ouvre ses détails.", "isolate"],
