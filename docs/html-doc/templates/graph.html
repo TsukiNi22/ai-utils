@@ -561,8 +561,8 @@ window.DOC_FR = {
   "Architecture": "Architecture",
   "Realistic": "Réaliste",
   "3D style": "Style 3D",
-  "drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection": "glisser, flèches ou {MOVE} pour déplacer · {UPDOWN} pour zoomer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection",
-  "drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes to reset": "glisser pour orbiter · clic droit + glisser ou flèches pour déplacer · {MOVE} ou molette pour avancer · {UPDOWN} pour la hauteur · glisser un nœud pour le déplacer · F pour centrer la sélection · cliquer les axes pour réinitialiser"
+  "drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes: angle, double click or R: whole view": "glisser pour orbiter · clic droit + glisser ou flèches pour déplacer · {MOVE} ou molette pour avancer · {UPDOWN} pour la hauteur · glisser un nœud pour le déplacer · F pour centrer la sélection · clic sur les axes : angle, double clic ou R : toute la vue",
+  "drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection · R to reset the view": "glisser, flèches ou {MOVE} pour déplacer · {UPDOWN} pour zoomer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection · R pour réinitialiser la vue"
 };
 </script>
 <script>
@@ -1127,7 +1127,7 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").textContent = vis.length ? keyHint(state.mode === "3d" ? tr("drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes to reset") : tr("drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection")) : tr("No node: enable some categories / groups");
+        $("hint").textContent = vis.length ? keyHint(state.mode === "3d" ? tr("drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes: angle, double click or R: whole view") : tr("drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection · R to reset the view")) : tr("No node: enable some categories / groups");
     }
 
     // ---------- Legends / chips ---------- //
@@ -1680,28 +1680,31 @@ function extractGraph(files, opts) {
         canvas.classList.remove("dragging");
     }
     function onGizmo(mx, my) { return state.mode === "3d" && Math.hypot(mx - GIZMO.x, my - (state.h - GIZMO.x)) <= GIZMO.r; }
-    function resetAngle() { // animated back to the default angle (the position and the zoom are kept)
-        const c = state.cam, from = [c.yaw, c.pitch], t0 = performance.now();
-        let to = VIEW.yaw; while (to - from[0] > Math.PI) to -= 2 * Math.PI; while (from[0] - to > Math.PI) to += 2 * Math.PI;
+    let camAnim = 0; // id of the running camera animation (a new one stops the previous one)
+    function animateCam(to, ms = 350) { // eased move of the camera to the given fields (x, y, z, k, dist, yaw, pitch)
+        const c = state.cam, from = {}, id = ++camAnim, t0 = performance.now();
+        if ("yaw" in to) { while (to.yaw - c.yaw > Math.PI) to.yaw -= 2 * Math.PI; while (c.yaw - to.yaw > Math.PI) to.yaw += 2 * Math.PI; } // shortest turn
+        for (const k in to) from[k] = c[k];
         const step = (now) => {
-            const k = Math.min(1, (now - t0) / 350), e = 1 - Math.pow(1 - k, 3);
-            c.yaw = from[0] + (to - from[0]) * e; c.pitch = from[1] + (VIEW.pitch - from[1]) * e;
+            if (id !== camAnim) return;
+            const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+            for (const f in to) c[f] = from[f] + (to[f] - from[f]) * e;
             state.dirty = true;
-            if (k < 1) requestAnimationFrame(step); else c.yaw = VIEW.yaw;
+            if (k < 1) requestAnimationFrame(step); else if ("yaw" in to) c.yaw = VIEW.yaw + Math.round((c.yaw - VIEW.yaw) / (2 * Math.PI)) * 2 * Math.PI;
         };
         requestAnimationFrame(step);
     }
+    function resetAngle() { animateCam({yaw: VIEW.yaw, pitch: VIEW.pitch}); } // the position and the zoom are kept
+    function resetView() { // position, zoom and angle of the start (what Fit computes, at the default angle)
+        const c = state.cam, save = {...c};
+        c.yaw = VIEW.yaw; c.pitch = VIEW.pitch; fit();
+        const to = {x: c.x, y: c.y, z: c.z, k: c.k, dist: c.dist, yaw: VIEW.yaw, pitch: VIEW.pitch};
+        Object.assign(c, save);
+        animateCam(to, 450);
+    }
     function centerOn(id) { // animated move of the camera target to a node (the angle and the zoom are kept)
         const q = state.pos.get(id);
-        if (!q) return;
-        const c = state.cam, from = {x: c.x, y: c.y, z: c.z}, to = {x: q.x, y: q.y, z: state.mode === "3d" ? q.z : c.z}, t0 = performance.now();
-        const step = (now) => {
-            const k = Math.min(1, (now - t0) / 350), e = 1 - Math.pow(1 - k, 3);
-            for (const a of ["x", "y", "z"]) c[a] = from[a] + (to[a] - from[a]) * e;
-            state.dirty = true;
-            if (k < 1) requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
+        if (q) animateCam(state.mode === "3d" ? {x: q.x, y: q.y, z: q.z} : {x: q.x, y: q.y});
     }
     const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
     document.addEventListener("keydown", (e) => {
@@ -1716,6 +1719,13 @@ function extractGraph(files, opts) {
         if (e.key !== "f" && e.key !== "F") return;
         if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
         if (state.selected) { e.preventDefault(); centerOn(state.selected); }
+    });
+    document.addEventListener("keydown", (e) => { // R: back to the start view (position, zoom, angle)
+        if ((e.key === "r" || e.key === "R") && !typing() && !e.ctrlKey && !e.metaKey && !e.altKey && $("helpBack").hidden) { e.preventDefault(); resetView(); }
+    });
+    canvas.addEventListener("dblclick", (e) => { // double click on the axes: full reset (a single click resets the angle)
+        const r = canvas.getBoundingClientRect();
+        if (onGizmo(e.clientX - r.left, e.clientY - r.top)) { e.preventDefault(); resetView(); }
     });
     canvas.addEventListener("pointerup", endDrag);
     canvas.addEventListener("pointercancel", endDrag);
