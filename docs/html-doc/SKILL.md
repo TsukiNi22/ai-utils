@@ -100,7 +100,9 @@ groups, line swatch for the relations, count on the right, disabled entries fade
 an entry highlights its nodes / relations; clicking it shows / hides them, a relation toggle doesn't move the
 layout): 2D (pan, zoom, drag nodes) and
 3D (rotate, Shift+drag to move the target in the screen plane, drag a node to place it, zoom; spheres lit by a
-light fixed in the scene, depth fog, floor grid following the camera, X/Y/Z gizmo resetting the angle on click), search, presets (overview, files & includes, classes & inheritance,
+light fixed in the scene, depth fog, floor grid following the camera, X/Y/Z gizmo ball resetting the angle on
+click; bottom right switch **Realistic** (default) / **Technical** = flat nodes + arrows, no light / fog / floor,
+remembered); key **F** centers the camera on the selected node (2D and 3D), search, presets (overview, files & includes, classes & inheritance,
 classes & methods, tests, build, all), toggles per **category** (header, source, test file, class, struct,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
 (module folder) and per **relation** (includes, defines, member, inherits, implements, compiled-into, links,

@@ -172,10 +172,13 @@ select { width: auto; }
 #graph.pointer { cursor: pointer; }
 .hint {
   position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-  padding: 6px 14px; font-size: 12.5px; color: var(--muted); pointer-events: none;
-  white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 6px 14px; font-size: 12.5px; color: var(--muted); pointer-events: none; text-align: center;
+  width: max-content; max-width: min(760px, calc(100% - 360px)); /* room for the axes (left) and the 3D style (right) */
 }
+.style3d { position: absolute; right: 14px; bottom: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
+.style3d[hidden] { display: none; }
+@media (max-width: 760px) { .hint { bottom: 60px; max-width: calc(100% - 32px); } }
 .details {
   position: absolute; top: 14px; right: 14px; width: 340px; max-height: calc(100% - 28px); overflow-y: auto;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
@@ -424,6 +427,10 @@ html, body { overscroll-behavior: none; }
     <button class="btn panel-toggle" id="panelToggle" type="button" aria-label="Show the controls" data-i18n-aria-label><span data-i18n>☰ Controls</span></button>
     <div class="details" id="details" hidden></div>
     <div class="hint" id="hint">Loading the graph…</div>
+    <div class="seg style3d" id="style3d" role="group" aria-label="3D style" data-i18n-aria-label hidden>
+      <button type="button" class="active" data-style="real" data-help="style3d" data-i18n>Realistic</button>
+      <button type="button" data-style="tech" data-help="style3d" data-i18n>Technical</button>
+    </div>
   </div>
 </div>
 <div class="tip" id="tip" role="tooltip" hidden></div>
@@ -521,8 +528,6 @@ window.DOC_FR = {
   "Overloads": "Surcharges",
   "Pure virtual": "Virtuelle pure",
   "yes": "oui",
-  "Drag: rotate · Shift + drag: move · drag a node: place it · scroll: zoom · axes: reset the angle": "Glisser : tourner · Maj + glisser : déplacer · glisser un nœud : le placer · molette : zoom · axes : réinitialiser l'angle",
-  "Drag: move · scroll: zoom · click: details": "Glisser : déplacer · molette : zoom · clic : détails",
   "No node: enable some categories / groups": "Aucun nœud : activer des catégories / groupes",
   "Double click: description and example": "Double-clic : description et exemple",
   "of": "du",
@@ -542,7 +547,11 @@ window.DOC_FR = {
   "Graph shown:": "Graphe affiché :",
   "GitHub API rate limit reached": "limite de l'API GitHub atteinte",
   "repository not found or private": "dépôt introuvable ou privé",
-  "Architecture": "Architecture"
+  "Architecture": "Architecture",
+  "Drag: rotate | Shift + drag: move | drag a node: place it | scroll: zoom | F: center the selection | axes: reset the angle": "Glisser : tourner | Maj + glisser : déplacer | glisser un nœud : le placer | molette : zoom | F : centrer la sélection | axes : réinitialiser l'angle",
+  "Drag: move | scroll: zoom | click: details | F: center the selection": "Glisser : déplacer | molette : zoom | clic : détails | F : centrer la sélection",
+  "Realistic": "Réaliste",
+  "3D style": "Style 3D"
 };
 </script>
 <script>
@@ -1046,7 +1055,7 @@ function extractGraph(files, opts) {
         kinds: new Set(PRESETS.overview[0]), linkKinds: new Set(PRESETS.overview[1]), groups: new Set(), knownGroups: new Set(),
         mode: "2d", colorBy: "kind", cluster: false, labels: true, particles: false, isolate: false, search: "",
         visible: [], vlinks: [], neighbors: new Map(), selected: null, hover: null,
-        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: 0.6, pitch: -0.35, dist: 600}, w: 0, h: 0, dpr: 1, colors: {}
+        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: 0.6, pitch: -0.35, dist: 600}, style3d: "real", w: 0, h: 0, dpr: 1, colors: {}
     };
 
     window.graphState = state;
@@ -1098,7 +1107,7 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("Drag: rotate · Shift + drag: move · drag a node: place it · scroll: zoom · axes: reset the angle") : tr("Drag: move · scroll: zoom · click: details")) : tr("No node: enable some categories / groups");
+        $("hint").textContent = vis.length ? (state.mode === "3d" ? tr("Drag: rotate | Shift + drag: move | drag a node: place it | scroll: zoom | F: center the selection | axes: reset the angle") : tr("Drag: move | scroll: zoom | click: details | F: center the selection")) : tr("No node: enable some categories / groups");
     }
 
     // ---------- Legends / chips ---------- //
@@ -1289,17 +1298,34 @@ function extractGraph(files, opts) {
         ctx.globalAlpha = 1;
     }
     function drawAxes(C) {
-        const ox = GIZMO.x, oy = state.h - GIZMO.x, len = GIZMO.len;
+        const ox = GIZMO.x, oy = state.h - GIZMO.x, R = GIZMO.r, len = GIZMO.len;
+        // Ball: shaded sphere + its 3 great circles (back half faint), then the axes on top
+        ctx.globalAlpha = 1;
+        const g = ctx.createRadialGradient(ox - R * 0.35, oy - R * 0.4, R * 0.1, ox, oy, R);
+        g.addColorStop(0, C.surface); g.addColorStop(1, C.bg);
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ox, oy, R, 0, Math.PI * 2); ctx.fill();
+        const shade = ctx.createRadialGradient(ox - R * 0.35, oy - R * 0.4, R * 0.05, ox, oy, R * 1.05);
+        shade.addColorStop(0, "rgba(255,255,255,.16)"); shade.addColorStop(0.5, "rgba(255,255,255,0)"); shade.addColorStop(1, "rgba(0,0,0,.35)");
+        ctx.fillStyle = shade; ctx.fill();
+        ctx.lineWidth = 1; ctx.strokeStyle = state.gizmoHover ? C.accent : C.border; ctx.stroke();
+        const rings = [[(a) => [Math.cos(a), Math.sin(a), 0], "#539bf5"], [(a) => [Math.cos(a), 0, Math.sin(a)], "#3fb950"], [(a) => [0, Math.cos(a), Math.sin(a)], "#e5534b"]];
+        for (const [f, col] of rings) { // each ring is perpendicular to the axis of its colour
+            ctx.strokeStyle = col;
+            for (let i = 0; i < 48; i++) {
+                const a0 = rotateDir(...f(i / 48 * Math.PI * 2)), a1 = rotateDir(...f((i + 1) / 48 * Math.PI * 2));
+                ctx.globalAlpha = a0.z + a1.z > 0 ? 0.12 : 0.38;
+                ctx.beginPath(); ctx.moveTo(ox + a0.x * R * 0.92, oy + a0.y * R * 0.92); ctx.lineTo(ox + a1.x * R * 0.92, oy + a1.y * R * 0.92); ctx.stroke();
+            }
+        }
         const axes = [["X", 1, 0, 0, "#e5534b"], ["Y", 0, -1, 0, "#3fb950"], ["Z", 0, 0, 1, "#539bf5"]]
             .map(([l, x, y, z, c]) => ({l, c, d: rotateDir(x, y, z)})).sort((a, b) => b.d.z - a.d.z);
-        ctx.globalAlpha = 0.9; ctx.lineWidth = 2; ctx.font = "600 10px system-ui, sans-serif"; ctx.textAlign = "center";
-        ctx.fillStyle = C.surface; ctx.beginPath(); ctx.arc(ox, oy, GIZMO.r, 0, Math.PI * 2); ctx.fill();
-        if (state.gizmoHover) { ctx.globalAlpha = 1; ctx.lineWidth = 1.5; ctx.strokeStyle = C.accent; ctx.stroke(); ctx.lineWidth = 2; }
+        ctx.lineWidth = 2; ctx.font = "600 10px system-ui, sans-serif"; ctx.textAlign = "center";
         for (const a of axes) {
-            const ex = ox + a.d.x * len, ey = oy + a.d.y * len;
-            ctx.globalAlpha = a.d.z > 0 ? 0.45 : 0.95; // pointing away: fainter
+            const ex = ox + a.d.x * len, ey = oy + a.d.y * len, back = a.d.z > 0;
+            ctx.globalAlpha = back ? 0.45 : 1; // pointing away: fainter
             ctx.strokeStyle = a.c; ctx.fillStyle = a.c;
             ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ex, ey); ctx.stroke();
+            ctx.beginPath(); ctx.arc(ex, ey, back ? 2 : 3, 0, Math.PI * 2); ctx.fill();
             ctx.fillText(a.l, ox + a.d.x * (len + 8), oy + a.d.y * (len + 8) + 3.5);
         }
         ctx.globalAlpha = 1;
@@ -1312,8 +1338,9 @@ function extractGraph(files, opts) {
         for (const n of state.visible) proj.set(n.id, project(state.pos.get(n.id)));
         const d3 = state.mode === "3d";
         let z0 = Infinity, z1 = -Infinity;
-        if (d3) { for (const p of proj.values()) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } drawFloor(C); }
-        const depth = (z) => d3 && z1 > z0 ? (z - z0) / (z1 - z0) : 0; // 0 = closest, 1 = farthest
+        const real = d3 && state.style3d !== "tech"; // technical style: flat nodes, arrows, no light / fog / floor
+        if (real) { for (const p of proj.values()) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } drawFloor(C); }
+        const depth = (z) => real && z1 > z0 ? (z - z0) / (z1 - z0) : 0; // 0 = closest, 1 = farthest
         const light = d3 ? rotateDir(...LIGHT) : null; // light direction in the view
         const focus = state.hover || state.selected;
         const near = focus ? state.neighbors.get(focus) || new Set() : null;
@@ -1327,18 +1354,19 @@ function extractGraph(files, opts) {
             const hot = focus && (l.source === focus || l.target === focus);
             const lit = lh && !focus && (lh.type === "link" ? l.kind === lh.key : lhMatch(l.source) && lhMatch(l.target));
             const fog = 1 - 0.75 * depth((a.z + b.z) / 2);
-            ctx.globalAlpha = (hot || lit ? 0.95 : (focus || state.match || lh ? 0.07 : d3 ? 0.4 : 0.35)) * (hot ? 1 : fog);
+            ctx.globalAlpha = (hot || lit ? 0.95 : (focus || state.match || lh ? 0.07 : real ? 0.4 : d3 ? 0.45 : 0.35)) * (hot ? 1 : fog);
             ctx.strokeStyle = hot ? C.accent : LINKS[l.kind][0];
-            ctx.lineWidth = (hot ? 1.6 : lit ? 2 : 1) * (d3 ? Math.min(2.2, Math.max(0.5, (a.s + b.s) / 2)) : 1);
+            ctx.lineWidth = (hot ? 1.6 : lit ? 2 : 1) * (real ? Math.min(2.2, Math.max(0.5, (a.s + b.s) / 2)) : 1);
             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-            if (hot || (state.mode === "2d" && state.cam.k > 1.6)) { // arrow head
+            if (hot || (state.mode === "2d" && state.cam.k > 1.6) || (d3 && !real)) { // arrow head
                 const r = radiusOf(state.byId.get(l.target)) * b.s + 2;
                 const ang = Math.atan2(b.y - a.y, b.x - a.x);
                 const tx = b.x - Math.cos(ang) * r, ty = b.y - Math.sin(ang) * r;
+                const al = hot ? 7 : d3 ? Math.max(3, Math.min(6, 4 * b.s)) : 7; // smaller in the technical 3D view
                 ctx.fillStyle = ctx.strokeStyle;
                 ctx.beginPath(); ctx.moveTo(tx, ty);
-                ctx.lineTo(tx - Math.cos(ang - 0.45) * 7, ty - Math.sin(ang - 0.45) * 7);
-                ctx.lineTo(tx - Math.cos(ang + 0.45) * 7, ty - Math.sin(ang + 0.45) * 7);
+                ctx.lineTo(tx - Math.cos(ang - 0.4) * al, ty - Math.sin(ang - 0.4) * al);
+                ctx.lineTo(tx - Math.cos(ang + 0.4) * al, ty - Math.sin(ang + 0.4) * al);
                 ctx.fill();
             }
         }
@@ -1369,7 +1397,7 @@ function extractGraph(files, opts) {
             ctx.globalAlpha = faded ? 0.12 : 1;
             ctx.fillStyle = colorOf(n);
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
-            if (d3) { // shaded sphere (light from the top left) + fog towards the background with the depth
+            if (real) { // shaded sphere (light from the top left) + fog towards the background with the depth
                 // the light is fixed in the scene: its side of the sphere turns with the camera
                 const hx = p.x + light.x * r * 0.55, hy = p.y + light.y * r * 0.55, front = Math.max(0, -light.z);
                 const hl = ctx.createRadialGradient(hx, hy, r * 0.05, hx, hy, r * 1.75);
@@ -1381,6 +1409,8 @@ function extractGraph(files, opts) {
             }
             if (n.id === state.selected || n.id === state.hover || (state.match && state.match.has(n.id))) {
                 ctx.lineWidth = 2; ctx.strokeStyle = C.accent; ctx.stroke();
+            } else if (d3 && !real) {
+                ctx.lineWidth = 1; ctx.strokeStyle = C.bg; ctx.stroke(); // flat disc with a thin outline
             } else if (n.pure || n.external) {
                 ctx.lineWidth = 1.2; ctx.strokeStyle = C.bg; ctx.stroke();
             }
@@ -1479,6 +1509,23 @@ function extractGraph(files, opts) {
         };
         requestAnimationFrame(step);
     }
+    function centerOn(id) { // animated move of the camera target to a node (the angle and the zoom are kept)
+        const q = state.pos.get(id);
+        if (!q) return;
+        const c = state.cam, from = {x: c.x, y: c.y, z: c.z}, to = {x: q.x, y: q.y, z: state.mode === "3d" ? q.z : c.z}, t0 = performance.now();
+        const step = (now) => {
+            const k = Math.min(1, (now - t0) / 350), e = 1 - Math.pow(1 - k, 3);
+            for (const a of ["x", "y", "z"]) c[a] = from[a] + (to[a] - from[a]) * e;
+            state.dirty = true;
+            if (k < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }
+    document.addEventListener("keydown", (e) => {
+        if (e.key !== "f" && e.key !== "F") return;
+        if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+        if (state.selected) { e.preventDefault(); centerOn(state.selected); }
+    });
     canvas.addEventListener("pointerup", endDrag);
     canvas.addEventListener("pointercancel", endDrag);
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1591,8 +1638,16 @@ function extractGraph(files, opts) {
     }
 
     // ---------- Controls ---------- //
+    function setStyle3d(s) {
+        state.style3d = s === "tech" ? "tech" : "real";
+        for (const b of $("style3d").children) b.classList.toggle("active", b.dataset.style === state.style3d);
+        store("style3d", state.style3d); state.dirty = true;
+    }
+    for (const b of $("style3d").children) b.addEventListener("click", () => setStyle3d(b.dataset.style));
+    if (load("style3d")) setStyle3d(load("style3d"));
     function setMode(m) {
         state.mode = m;
+        $("style3d").hidden = m !== "3d";
         $("mode2d").classList.toggle("active", m === "2d"); $("mode3d").classList.toggle("active", m === "3d");
         if (m === "3d") for (const n of state.visible) { const p = state.pos.get(n.id); if (Math.abs(p.z) < 1) p.z = (Math.random() - 0.5) * 80; }
         state.alpha = Math.max(state.alpha, 0.7);
@@ -1681,6 +1736,7 @@ function extractGraph(files, opts) {
         update: ["Update", "Fetches the last version of the GitHub repository and rebuilds the graph.", "Asks the GitHub API for the last commit of the branch. If it is newer than the graph shown, the sources are downloaded and the graph is rebuilt in the browser (and cached). Run once automatically at load. Offline, private repository or API limit: the embedded graph stays and the status says why.", "overview"],
         mode2d: ["2D view", "Flat graph: drag to move, scroll to zoom.", "Flat rendering, the most readable for the names. Dragging the background moves the view, dragging a node moves it, the scroll zooms under the cursor, a click opens the details.", "flat"],
         mode3d: ["3D view", "Graph in perspective: drag to rotate, Shift + drag to move.", "Nodes are shaded spheres spread in depth: the closest are bigger and brighter, the farthest fade out; the light is fixed in the scene, a floor grid and the X / Y / Z gizmo (bottom left, click: reset the angle) show the orientation. Dragging a node moves it in the plane of the screen; dragging the background rotates the scene, Shift + drag (or right click) moves it, the scroll brings the camera closer. Useful to untangle a dense graph.", "persp"],
+        style3d: ["3D style", "Realistic or technical rendering of the 3D view.", "Realistic (default): shaded spheres lit by a light fixed in the scene, depth fog and a floor grid. Technical: flat nodes, arrows on every relation, no light, fog or floor; closer to a diagram.", "persp"],
         fit: ["Fit", "Centers and zooms to see every displayed node.", "Computes the box containing every visible node and adapts the zoom (2D) or the camera distance (3D).", "overview"],
         pause: ["Freeze / Resume", "Stops or restarts the force simulation.", "Nodes are placed by a physical simulation (repulsion between nodes, springs on the relations). Freeze keeps the current layout to read it quietly; Resume puts it in motion again.", "flat"],
         search: ["Search", "Highlights the nodes whose name or path contains the text.", "The search looks at the name and the path of the visible nodes. The others are faded; Enter centers the view on the first result and opens its details.", "isolate"],
@@ -1727,6 +1783,7 @@ function extractGraph(files, opts) {
         update: ["Mettre à jour", "Récupère la dernière version du dépôt GitHub et reconstruit le graphe.", "Interroge l'API GitHub pour le dernier commit de la branche. S'il est plus récent que le graphe affiché, les sources sont téléchargées et le graphe est reconstruit dans le navigateur (gardé en cache). Lancé une fois automatiquement au chargement. Hors ligne, dépôt privé ou limite d'API : le graphe embarqué reste affiché et le statut dit pourquoi.", "overview"],
         mode2d: ["Vue 2D", "Graphe à plat : glisser pour déplacer, molette pour zoomer.", "Rendu à plat, le plus lisible pour lire les noms. Glisser le fond déplace la vue, glisser un nœud le déplace, la molette zoome sous le curseur, un clic ouvre les détails.", "flat"],
         mode3d: ["Vue 3D", "Graphe en perspective : glisser pour tourner, Maj + glisser pour déplacer.", "Les nœuds sont des sphères ombrées réparties en profondeur : les plus proches sont plus gros et plus nets, les plus lointains s'estompent ; la lumière est fixe dans la scène, un sol quadrillé et le repère X / Y / Z (en bas à gauche, clic : réinitialiser l'angle) montrent l'orientation. Glisser un nœud le déplace dans le plan de l'écran ; glisser le fond fait tourner la scène, Maj + glisser (ou clic droit) la déplace, la molette rapproche la caméra. Utile pour démêler un graphe dense.", "persp"],
+        style3d: ["Style 3D", "Rendu réaliste ou technique de la vue 3D.", "Réaliste (par défaut) : sphères ombrées éclairées par une lumière fixe dans la scène, brouillard de profondeur et sol quadrillé. Technique : nœuds plats, flèches sur toutes les relations, sans lumière, brouillard ni sol ; plus proche d'un schéma.", "persp"],
         fit: ["Ajuster", "Recentre et zoome pour voir tous les nœuds affichés.", "Calcule la boîte qui contient tous les nœuds visibles et adapte le zoom (2D) ou la distance de la caméra (3D).", "overview"],
         pause: ["Figer / Relancer", "Arrête ou relance la simulation des forces.", "Le placement des nœuds est calculé par une simulation physique (répulsion entre nœuds, ressorts sur les relations). Figer la fige dans son état actuel pour lire tranquillement ; Relancer la remet en mouvement.", "flat"],
         search: ["Recherche", "Surligne les nœuds dont le nom ou le chemin contient le texte.", "La recherche porte sur le nom et le chemin des nœuds visibles. Les autres sont estompés ; Entrée centre la vue sur le premier résultat et ouvre ses détails.", "isolate"],
