@@ -107,7 +107,10 @@ remembered); key **F** centers the camera on the selected node (2D and 3D); 2D: 
 3D: free flight, the scroll moves the camera forward / backward towards the mouse (or the selected node), no limit;
 keys (physical positions, labels read from the keyboard layout): arrows = move in the screen plane, ZQSD (WASD on
 QWERTY) = move along the floor, A / E (Q / E) = height (zoom in 2D), Shift = faster; click on the axes = reset the angle, double
-click on the axes or key R = reset the whole view (position, zoom, angle; R also in 2D); hovering a node shows a card (kind in the node colour with the
+click on the axes or key R = reset the whole view (position, zoom, angle; R also in 2D);
+limits: in 3D the camera stays in a box around the nodes (the floor is its bottom), whose walls appear as an accent
+grid when the camera gets close; in 2D the view center stays near the graph and the zoom out is limited; the hover
+card follows the view when it moves under a still mouse; hovering a node shows a card (kind in the node colour with the
 file extension, name, path); slightly transparent nodes in 3D, a near plane (nodes the camera passes are
 clipped like behind a WebGL camera, the camera can fly through the graph); hint in the context-forge wording
 ("drag to orbit · scroll to zoom · ...", all lowercase), search, presets (overview, files & includes, classes & inheritance,

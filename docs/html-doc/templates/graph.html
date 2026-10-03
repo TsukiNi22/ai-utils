@@ -1407,6 +1407,68 @@ function extractGraph(files, opts) {
         }
         ctx.globalAlpha = 1;
     }
+    // ---------- Limits of the space ---------- //
+    // 3D: a box around the nodes (margin M, the floor is its bottom) that the camera can't leave; its walls fade in
+    // near the camera. 2D: the center of the view stays near the graph and the zoom out keeps it readable.
+    function bounds() {
+        const nodes = state.visible;
+        if (!nodes.length) return null;
+        const lo = {x: Infinity, y: Infinity, z: Infinity}, hi = {x: -Infinity, y: -Infinity, z: -Infinity};
+        for (const n of nodes) { const p = state.pos.get(n.id); for (const a of ["x", "y", "z"]) { lo[a] = Math.min(lo[a], p[a]); hi[a] = Math.max(hi[a], p[a]); } }
+        const size = Math.max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, 100), M = Math.max(300, size * 1.3); // the fitted camera is inside
+        return {lo: {x: lo.x - M, y: lo.y - M, z: lo.z - M}, hi: {x: hi.x + M, y: hi.y + 40 - 6, z: hi.z + M}, M, raw: {lo, hi}}; // bottom: just above the floor
+    }
+    function camPos() { const c = state.cam, b = unrotateDir(0, 0, -c.dist); return {x: c.x + b.x, y: c.y + b.y, z: c.z + b.z}; }
+    function clampCam() { // keep the camera (3D) / the view center and zoom (2D) inside the limits; true when moved
+        const B = bounds(), c = state.cam;
+        if (!B || drag && drag.node) return false;
+        let moved = false;
+        if (state.mode === "3d") {
+            const p = camPos(), gap = Math.max(60, B.M * 0.12); // stopped a bit before the walls: they stay visible in front
+            for (const a of ["x", "y", "z"]) {
+                const v = Math.min(B.hi[a] - (a === "y" ? 0 : gap), Math.max(B.lo[a] + gap, p[a]));
+                if (v !== p[a]) { c[a] += v - p[a]; moved = true; }
+            }
+        } else {
+            const r = B.raw, w = Math.max(60, r.hi.x - r.lo.x), h = Math.max(60, r.hi.y - r.lo.y);
+            const kMin = 0.3 * 0.88 * Math.min(state.w / w, state.h / h); // the graph keeps at least ~30 % of the fitted size
+            if (c.k < kMin) { c.k = kMin; moved = true; }
+            const mx = state.w / 2 / c.k * 0.4, my = state.h / 2 / c.k * 0.4; // the graph keeps reaching the middle part of the view
+            const x = Math.min(r.hi.x + mx, Math.max(r.lo.x - mx, c.x)), y = Math.min(r.hi.y + my, Math.max(r.lo.y - my, c.y));
+            if (x !== c.x || y !== c.y) { c.x = x; c.y = y; moved = true; }
+        }
+        return moved;
+    }
+    function drawWalls(C) { // the walls of the 3D box close to the camera, as an accent grid fading in
+        const B = bounds();
+        if (!B) return;
+        const p = camPos(), gap = Math.max(60, B.M * 0.12), W = gap * 4, ok = (q) => !q.behind; // gap: stop distance (clampCam)
+        const walls = [["x", B.lo.x, 1], ["x", B.hi.x, -1], ["y", B.lo.y, 1], ["z", B.lo.z, 1], ["z", B.hi.z, -1]]; // the bottom is the floor
+        ctx.strokeStyle = C.accent; ctx.lineWidth = 1;
+        for (const [axis, v, sgn] of walls) {
+            const d = (p[axis] - v) * sgn; // distance to the wall, inside > 0
+            if (d > W) continue;
+            const strength = Math.min(1, 1 - d / W);
+            const [u, w] = axis === "x" ? ["y", "z"] : axis === "y" ? ["x", "z"] : ["x", "y"];
+            const step = Math.max(10, Math.round(gap / 2.5 / 5) * 5), ext = gap * 5; // cells sized for the stop distance
+            const cu = Math.round(p[u] / step) * step, cw = Math.round(p[w] / step) * step;
+            const pt = (a, b) => { const q = {}; q[axis] = v; q[u] = a; q[w] = b; return project(q); };
+            ctx.fillStyle = C.accent; // light tint of the wall around the camera
+            const corners = [pt(cu - ext, cw - ext), pt(cu + ext, cw - ext), pt(cu + ext, cw + ext), pt(cu - ext, cw + ext)];
+            if (corners.every(ok)) { ctx.globalAlpha = 0.05 * strength; ctx.beginPath(); corners.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.fill(); }
+            for (let i = -ext; i <= ext; i += step) for (let j = -ext; j < ext; j += step) {
+                for (const [a0, b0, a1, b1] of [[cu + i, cw + j, cu + i, cw + j + step], [cu + j, cw + i, cu + j + step, cw + i]]) {
+                    const qa = pt(a0, b0), qb = pt(a1, b1);
+                    if (!ok(qa) || !ok(qb)) continue;
+                    const fade = 1 - Math.min(1, Math.hypot((a0 + a1) / 2 - p[u], (b0 + b1) / 2 - p[w]) / ext); // round patch around the camera
+                    ctx.globalAlpha = 0.5 * strength * fade;
+                    if (ctx.globalAlpha < 0.01) continue;
+                    ctx.beginPath(); ctx.moveTo(qa.x, qa.y); ctx.lineTo(qb.x, qb.y); ctx.stroke();
+                }
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
     function drawAxes(C) {
         const ox = GIZMO.x, oy = state.h - GIZMO.x, R = GIZMO.r, len = GIZMO.len;
         // Ball: flat disc + the 3 great circles of the sphere (back half faint), then the axes on top
@@ -1445,6 +1507,7 @@ function extractGraph(files, opts) {
         let z0 = Infinity, z1 = -Infinity;
         const real = d3 && state.style3d !== "tech"; // technical style: flat nodes, arrows, no light / fog / floor
         if (real) { for (const p of proj.values()) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } drawFloor(C); }
+        if (d3) drawWalls(C);
         const depth = (z) => real && z1 > z0 ? (z - z0) / (z1 - z0) : 0; // 0 = closest, 1 = farthest
         const light = d3 ? rotateDir(...LIGHT) : null; // light direction in the view
         let meshCache = null;
@@ -1589,8 +1652,20 @@ function extractGraph(files, opts) {
         }
         return true;
     }
+    let mouse = null, camSig = ""; // last mouse position on the graph; signature of the camera
+    function rehover() { // the view moved under a still mouse: update the hovered node and its card
+        const c = state.cam, sig = [c.x, c.y, c.z, c.k, c.dist, c.yaw, c.pitch, state.mode].join();
+        if (sig === camSig) return;
+        camSig = sig;
+        if (!mouse || drag) return;
+        const n = onGizmo(mouse.x, mouse.y) ? null : pick(mouse.x, mouse.y), id = n ? n.id : null;
+        if (id !== state.hover) { state.hover = id; state.dirty = true; canvas.classList.toggle("pointer", !!n); }
+        nodeTip(n, mouse.x, mouse.y);
+    }
     function frame() {
         let moved = keyMove();
+        if (clampCam()) moved = true;
+        rehover();
         for (let i = 0; i < (state.visible.length > 900 ? 1 : 2); i++) moved = tick() || moved;
         if (moved || state.dirty || state.particles) { draw(); state.dirty = false; }
         requestAnimationFrame(frame);
@@ -1626,6 +1701,7 @@ function extractGraph(files, opts) {
     });
     canvas.addEventListener("pointermove", (e) => {
         const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+        mouse = {x: mx, y: my};
         if (!drag) {
             const g = onGizmo(mx, my);
             if (g !== !!state.gizmoHover) { state.gizmoHover = g; state.dirty = true; canvas.classList.toggle("pointer", g); }
@@ -1671,7 +1747,7 @@ function extractGraph(files, opts) {
         if (y + h > H - 8) y = my - h - 12;
         tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
     }
-    canvas.addEventListener("pointerleave", () => { $("nodeTip").hidden = true; if (state.hover && !drag) { state.hover = null; state.dirty = true; } });
+    canvas.addEventListener("pointerleave", () => { mouse = null; $("nodeTip").hidden = true; if (state.hover && !drag) { state.hover = null; state.dirty = true; } });
     function endDrag(e) {
         if (!drag) return;
         if (drag.node) state.pos.get(drag.node.id).fixed = false;
