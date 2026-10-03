@@ -1,6 +1,6 @@
 ---
 name: cpp-class
-description: Generate C++ (C++20) .hpp/.cpp files and class architectures in Tsukini's style (Xartania header, indented include guards, INCLUDE/CLASS sections, Pre-Function/Function/Operator/Constructor/Destructor blocks, libutils attributes or standard [[...]]), with empty bodies only (never the logic), then register the .cpp in the CMakeLists.txt. Use whenever the user asks to create, scaffold or add a C++ class, interface (I*), abstract class (A*), template, struct/Type or Define header, module or set of .hpp/.cpp files.
+description: Generate C++ (C++20) .hpp/.cpp files and class architectures in Tsukini's style (Xartania header, indented include guards, INCLUDE/CLASS sections, Pre-Function/Function/Operator/Constructor/Destructor blocks, libutils attributes or standard [[...]]), with empty bodies only (never the logic), then register the .cpp in the CMakeLists.txt. Also creates the main.cpp entry point in the same style. Use whenever the user asks to create, scaffold or add a C++ class, a main / entry point, interface (I*), abstract class (A*), template, struct/Type or Define header, module or set of .hpp/.cpp files.
 allowed-tools: Read, Write, Edit, AskUserQuestion, Bash(python3:*), Bash(bash:*), Bash(clang++:*), Bash(g++:*)
 ---
 
