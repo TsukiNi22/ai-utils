@@ -10,6 +10,8 @@
 #   update               pull the last version of the repository (the symlinks follow)
 #   list                 list the skills available in this repo
 #   status               show which skills are installed
+#   context <command>    global context (CLAUDE.md, RTK.md, hooks, rtk) of the 'context' branch:
+#                        install | remove | update | status [options], see its README
 #
 # Options:
 #   --project <dir>      target <dir>/.claude/skills instead of ~/.claude/skills
@@ -42,6 +44,19 @@ if [ -z "$SELF" ] || [ ! -f "$SELF" ] || ! ls "$(dirname "$SELF")"/*/SKILL.md > 
 fi
 
 REPO="$(cd "$(dirname "$SELF")" && pwd)"
+
+# =========================
+# Global context (branch 'context'): delegate to its own setup.sh
+# =========================
+if [ "${1:-}" = "context" ]; then
+    shift
+    CTX="$(mktemp)"
+    trap 'rm -f "$CTX"' EXIT
+    if git -C "$REPO" fetch -q origin context 2> /dev/null && git -C "$REPO" show origin/context:setup.sh > "$CTX" 2> /dev/null; then :
+    else curl -fsSL "https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh" -o "$CTX"; fi
+    bash "$CTX" "$@"
+    exit $?
+fi
 TARGET="$HOME/.claude/skills"
 MODE="link"
 FORCE=false
@@ -53,7 +68,7 @@ SKILLS=()
 # Helpers
 # =========================
 usage() {
-    sed -n '2,23p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 

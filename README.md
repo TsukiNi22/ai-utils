@@ -90,6 +90,15 @@ By default the skills are **symlinked**: an update (or a local edit) is used rig
 no need to reinstall. `remove` only deletes skills that come from this repository
 (use `--force` otherwise).
 
+## Global context (`context` branch)
+The global / default context of Claude Code (`CLAUDE.md`, `RTK.md`, session hooks, rtk, `sudo-askpass`) is not a
+skill: it lives on the [`context`](https://github.com/TsukiNi22/skills/tree/context) branch with its own installer.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh | bash -s -- install
+./setup.sh context install        # same, from this branch (status | update | remove [--purge] too)
+```
+
 ## Usage
 
 Once installed, the skill is used automatically when relevant
