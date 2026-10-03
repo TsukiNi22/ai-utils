@@ -15,6 +15,14 @@
 - When work is done, just report the changed files; suggest the commit command
   instead of running it.
 
+# Subagents — token cost
+
+- NEVER launch a fork agent (`subagent_type: "fork"`) on your own initiative, under any
+  pretext: a fork inherits the whole conversation and costs a lot of tokens. ALWAYS ask
+  the user first (say how many agents and why), or only fork when the user asked for it.
+- Prefer doing the work directly; when a subagent is really useful, propose it first and
+  prefer a fresh specialized agent with a self-contained prompt over a fork.
+
 # Root access (sudo) — no TTY on this PC
 
 The shell used by Claude has no terminal: a plain `sudo` can't ask for the password
