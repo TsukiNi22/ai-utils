@@ -16,13 +16,26 @@ The CMake is edited in Tsukini's layout (cmake-style): '# Requirement', '# Speci
 """
 
 import argparse
+import glob
 import os
 import re
 import shutil
 import sys
 
-SKILLS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXC_TEMPLATES = os.path.join(SKILLS, "libutils-exception", "templates")
+def skill_dir(name: str) -> str:
+    """Directory of another skill: installed flat (~/.claude/skills/<name>) or in this repository (<category>/<name>)."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # this skill
+    for cand in (os.path.join(os.path.dirname(here), name), os.path.expanduser(f"~/.claude/skills/{name}")):
+        if os.path.isfile(os.path.join(cand, "SKILL.md")):
+            return cand
+    repo = os.path.dirname(os.path.dirname(here)) # repository: <category>/<skill>
+    for cand in glob.glob(os.path.join(repo, "*", name)):
+        if os.path.isfile(os.path.join(cand, "SKILL.md")):
+            return cand
+    return os.path.join(os.path.dirname(here), name)
+
+
+EXC_TEMPLATES = os.path.join(skill_dir("libutils-exception"), "templates")
 BANNER = "# ========================="
 EXC_BLOCK = '''file(GLOB_RECURSE EXCEPTION_CONFIG_FILES
     CONFIGURE_DEPENDS

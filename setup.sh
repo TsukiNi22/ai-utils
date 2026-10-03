@@ -32,7 +32,7 @@ SKILLS_HOME="${SKILLS_HOME:-$HOME/.local/share/tsukini-skills}"
 # Piped mode (curl/wget): work from a managed clone
 # =========================
 SELF="${BASH_SOURCE[0]:-}"
-if [ -z "$SELF" ] || [ ! -f "$SELF" ] || ! ls "$(dirname "$SELF")"/*/SKILL.md > /dev/null 2>&1; then
+if [ -z "$SELF" ] || [ ! -f "$SELF" ] || ! ls "$(dirname "$SELF")"/*/*/SKILL.md > /dev/null 2>&1; then
     command -v git > /dev/null 2>&1 || { echo "Error: git is required" >&2; exit 1; }
     if [ -d "$SKILLS_HOME/.git" ]; then
         git -C "$SKILLS_HOME" pull -q --ff-only || echo "warning: update of $SKILLS_HOME failed, using the local version" >&2
@@ -77,21 +77,29 @@ error() {
     exit 1
 }
 
+# Skills are stored as <category>/<skill>/SKILL.md (routers/, cpp/, docs/...), installed flat by name
 available() {
-    for dir in "$REPO"/*/; do
-        [ -f "$dir/SKILL.md" ] && basename "$dir"
+    for file in "$REPO"/*/*/SKILL.md; do
+        [ -f "$file" ] && basename "$(dirname "$file")"
+    done | sort
+}
+
+# Path of a skill in the repository from its name (empty when unknown)
+skill_dir() {
+    for dir in "$REPO"/*/"$1"; do
+        [ -f "$dir/SKILL.md" ] && { echo "$dir"; return; }
     done
 }
 
 description() {
-    sed -n 's/^description: *//p' "$REPO/$1/SKILL.md" | head -1 | cut -c1-90
+    sed -n 's/^description: *//p' "$(skill_dir "$1")/SKILL.md" | head -1 | cut -c1-90
 }
 
 # true if the installed skill comes from this repo (symlink to it or copy with the marker)
 is_ours() {
     local dest="$TARGET/$1"
     if [ -L "$dest" ]; then
-        [ "$(readlink -f "$dest")" = "$(readlink -f "$REPO/$1")" ]
+        [ "$(readlink -f "$dest")" = "$(readlink -f "$(skill_dir "$1")")" ]
     else
         [ -f "$dest/.installed-from" ] && [ "$(cat "$dest/.installed-from")" = "$REPO" ]
     fi
@@ -128,17 +136,17 @@ if [ ${#SKILLS[@]} -eq 0 ]; then
     mapfile -t SKILLS < <(available)
 fi
 for skill in "${SKILLS[@]}"; do
-    [ -f "$REPO/$skill/SKILL.md" ] || error "unknown skill '$skill' (see: $0 list)"
+    [ -n "$(skill_dir "$skill")" ] || error "unknown skill '$skill' (see: $0 list)"
 done
 
 # Add the skills required by the selected ones (<skill>/requires.txt), only for install
 if [ "$COMMAND" = "install" ]; then
     i=0
     while [ $i -lt ${#SKILLS[@]} ]; do
-        req="$REPO/${SKILLS[$i]}/requires.txt"
+        req="$(skill_dir "${SKILLS[$i]}")/requires.txt"
         if [ -f "$req" ]; then
             for dep in $(cat "$req"); do
-                [ -f "$REPO/$dep/SKILL.md" ] || error "'${SKILLS[$i]}' requires an unknown skill '$dep'"
+                [ -n "$(skill_dir "$dep")" ] || error "'${SKILLS[$i]}' requires an unknown skill '$dep'"
                 [[ " ${SKILLS[*]} " == *" $dep "* ]] || SKILLS+=("$dep")
             done
         fi
@@ -186,12 +194,12 @@ case "$COMMAND" in
                 fi
             fi
             if [ "$MODE" = "link" ]; then
-                ln -s "$REPO/$skill" "$dest"
+                ln -s "$(skill_dir "$skill")" "$dest"
             else
-                cp -r "$REPO/$skill" "$dest"
+                cp -r "$(skill_dir "$skill")" "$dest"
                 echo "$REPO" > "$dest/.installed-from"
             fi
-            find "$REPO/$skill" -path '*/scripts/*' \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} +
+            find "$(skill_dir "$skill")" -path '*/scripts/*' \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} +
             echo "  installed $skill -> $dest ($MODE)"
         done
         ;;

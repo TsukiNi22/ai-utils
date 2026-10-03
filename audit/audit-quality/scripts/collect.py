@@ -21,6 +21,7 @@ Every finding keeps file:line so the report can cite it.
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -28,7 +29,19 @@ import subprocess
 import sys
 import tempfile
 
-SKILLS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+def skill_dir(name: str) -> str:
+    """Directory of another skill: installed flat (~/.claude/skills/<name>) or in this repository (<category>/<name>)."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # this skill
+    for cand in (os.path.join(os.path.dirname(here), name), os.path.expanduser(f"~/.claude/skills/{name}")):
+        if os.path.isfile(os.path.join(cand, "SKILL.md")):
+            return cand
+    repo = os.path.dirname(os.path.dirname(here)) # repository: <category>/<skill>
+    for cand in glob.glob(os.path.join(repo, "*", name)):
+        if os.path.isfile(os.path.join(cand, "SKILL.md")):
+            return cand
+    return os.path.join(os.path.dirname(here), name)
+
+
 CODE = re.compile(r"\.(cpp|hpp|cc|hh|cxx|hxx|tpp|inl|c|h)$")
 SKIP_DIRS = {".git", "build", "_deps", "third_party", "vendor", "external", "node_modules", "docs", ".cache"}
 COMMIT = re.compile(r"^!?(feat|fix|docs|chore|test|refactor|perf|style|build|ci|release)(\([^)]+\))?!?: \S")
@@ -133,7 +146,7 @@ def main():
             if re.search(r"\.(cpp|c|cc)$", p) and not p.startswith(("tests/", "test/")) and os.path.basename(p) not in alltext and p not in alltext:
                 add("cmake", p, 1, "source not listed in any CMakeLists.txt")
     # .gitignore
-    ug = os.path.join(SKILLS, "cpp-project", "scripts", "update_gitignore.py")
+    ug = os.path.join(skill_dir("cpp-project"), "scripts", "update_gitignore.py")
     if os.path.isfile(cm) and os.path.isfile(ug):
         out = run([sys.executable, ug, root, "--dry-run"]).stdout.split("\n")
         for l in out:
@@ -152,7 +165,7 @@ def main():
         R["summary"]["commits_checked"] = total
         R["summary"]["commits_bad"] = bad
     # Tests
-    ut = os.path.join(SKILLS, "cpp-tests", "scripts", "untested.py")
+    ut = os.path.join(skill_dir("cpp-tests"), "scripts", "untested.py")
     if os.path.isdir(os.path.join(root, "include")) and os.path.isfile(ut):
         r = run([sys.executable, ut, root])
         R["summary"]["tests"] = r.stdout.strip().split("\n")[:3] if r.returncode == 0 else [r.stderr.strip()[:200]]
