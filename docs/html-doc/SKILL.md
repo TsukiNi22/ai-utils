@@ -104,7 +104,7 @@ layout): 2D (pan, zoom, drag nodes) and
 light fixed in the scene, depth fog, floor grid following the camera, X/Y/Z gizmo ball resetting the angle on
 click; arrow heads on the relations in both styles; bottom right switch **Realistic** (default) / **Technical** = the nodes of context-forge (3d-force-graph): 8 x 8 faceted sphere, Lambert light per pixel with
 an ambient 0.8 + a directional 0.6 from the top, opacity 0.95) + cone arrows, no fog / floor,
-remembered); key **F** centers and zooms the camera on the selected node, framed with its close neighbours (2D and 3D); 2D: the scroll zooms towards the mouse (or the selected node);
+remembered); key **F** centers and zooms the camera on the selected node, framed with its close neighbours (2D and 3D) and keeps the focus on it while you only zoom / dezoom (another move of the camera ends it); the 3D orbit pivots around the nearest nodes in front of the camera; 2D: the scroll zooms towards the mouse (or the selected node);
 3D: free flight, the scroll moves the camera forward / backward towards the mouse (or the selected node), no limit;
 keys (physical positions, labels read from the keyboard layout): arrows = move in the screen plane, ZQSD (WASD on
 QWERTY) = move along the floor, A / E (Q / E) = height (zoom in 2D), Shift = faster; click on the axes = reset the angle, double
@@ -130,6 +130,8 @@ relations, drawn as boxes with the 2D camera:
 - **Inheritance**: the class tree of the sources (bases on top, UML hollow triangles), wide levels wrap;
 - **Flame graph**: the static call tree (width = size of the subtree, not a measured time), double click a frame
   to zoom into it, the ancestor rows below to go back.
+  The boxes can be moved (a box, a dashed class group, or several selected boxes: Ctrl / Shift + click, Shift /
+  Ctrl + drag on the background for an area).
   In this mode the filters of the panel (views, categories, groups, relations, graph options, "Color by": the boxes
   use the category colours) are greyed; the search stays active (matching boxes outlined, Enter centers the first one or starts the diagram from it).
 Every control has a **tooltip** (short description after 0.45 s of hover) and a **help card on double click** (longer
@@ -204,6 +206,9 @@ asks for a public **GitHub or GitLab** repository (`owner/repo`, `github.com/...
 `gitlab.com/...(/-/tree/<branch>)`, a self-hosted GitLab, or `?repo=` in the address), reads its sources from the
 browser (GitHub: 3 API requests per load, raw files from `raw.githubusercontent.com`; GitLab: API v4) and builds the
 graph with the same extractor. The link stays editable in the panel (Open / Update), is remembered by the browser
-with the graph of each repository until **Ctrl + Shift + F3** (forgets them and asks again). It is published on the
+with the graph of each repository until **Ctrl + Shift + R** (forgets them and reloads the page, which asks again). It is published on the
 `gh-pages` branch of the skills repository (`graph.html` + `index.html` redirecting to it):
 https://tsukini22.github.io/skills/ - regenerate it after a change of the template.
+- Big graphs (thousands of nodes): Barnes-Hut repulsion above 300 nodes (the exact loop below, same look), cached
+  sphere sprites in both 3D styles (rebuilt per ~1.5° of camera angle), relations drawn one by one (keeps the
+  overlapping opacity of the current look).

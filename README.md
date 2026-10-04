@@ -29,7 +29,7 @@ project graph of [`html-doc`](docs/html-doc/SKILL.md) for **any public GitHub or
 draw its files, classes, functions, calls, tests and packages in 2D / 3D, plus the execution flow, inheritance tree and
 flame graph diagrams. C / C++, Python, JS / TS / web, Java / Kotlin, C#, Go, Rust, Zig, Swift, Dart, PHP, Ruby, Lua,
 Julia, Elixir, Haskell, Objective-C and shell are read. The link stays editable (and `?repo=owner/name` opens one
-directly); it is remembered by the browser until **Ctrl + Shift + F3**.
+directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets it and reloads the page).
 ## Skills
 
 | Skill | Description |
