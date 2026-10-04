@@ -2456,7 +2456,7 @@ function extractGraph(files, opts) {
         "group:build": ["Groupe build", "Les cibles CMake.", "Exécutables et bibliothèques déclarés dans les CMakeLists.txt.", "exe"]
     };
     const tip = $("tip");
-    let tipTimer = null, tipEl = null;
+    let tipTimer = null, tipEl = null, tipBlocked = null; // tipBlocked: control clicked (open list): no tooltip until it loses the focus
     const helpTable = () => (window.docI18n && window.docI18n.lang() === "fr") ? HELP_FR : HELP;
     function helpOf(el) { const k = el && el.dataset ? el.dataset.help : null; const H = helpTable(); return k && H[k] ? [k, H[k]] : null; }
     document.addEventListener("mouseover", (e) => {
@@ -2464,7 +2464,7 @@ function extractGraph(files, opts) {
         if (el === tipEl) return;
         clearTimeout(tipTimer); tip.hidden = true; tipEl = el;
         const h = helpOf(el);
-        if (!h) return;
+        if (!h || el === tipBlocked) return;
         tipTimer = setTimeout(() => {
             tip.innerHTML = "<strong>" + esc(h[1][0]) + "</strong><br>" + esc(h[1][1]) + "<small>" + tr("Double click: description and example") + "</small>";
             tip.hidden = false;
@@ -2475,6 +2475,12 @@ function extractGraph(files, opts) {
             tip.style.left = x + "px"; tip.style.top = y + "px";
         }, 450);
     });
+    document.addEventListener("pointerdown", (e) => { // a click hides the tooltip (it would cover a drop-down list)
+        clearTimeout(tipTimer); tip.hidden = true;
+        const el = e.target.closest ? e.target.closest("[data-help]") : null;
+        tipBlocked = el;
+        if (el) el.addEventListener("blur", () => { if (tipBlocked === el) tipBlocked = null; }, {once: true});
+    }, true);
     document.addEventListener("mouseout", (e) => {
         if (tipEl && (!e.relatedTarget || !tipEl.contains(e.relatedTarget))) { clearTimeout(tipTimer); tip.hidden = true; tipEl = null; }
     });
