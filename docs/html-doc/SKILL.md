@@ -160,7 +160,7 @@ node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/gr
   | Java / Kotlin | `.java .kt .scala`, `pom.xml`, `build.gradle` | imports (packages), classes / interfaces / records / objects, methods, `main` |
   | C# | `.cs`, `*.csproj` | `using` (namespaces of the project), classes / interfaces / records, methods, `Main` |
   | Go | `.go`, `go.mod` | imports (packages of the module), structs / interfaces, functions, methods (receivers, even in another file) |
-  | Rust | `.rs`, `Cargo.toml` | `mod` / `use crate::`, structs / enums / traits, `impl` (trait for type = base), functions, methods |
+  | Rust | `.rs`, `Cargo.toml` (workspaces: one package per crate) | `mod` / `use crate::` / `self::` / `super::` / sibling modules, structs / enums / traits (+ their methods), `impl` (trait for type = base, std traits ignored), functions, methods (even in another file), `Self::f()` calls, raw strings `r#"..."#` skipped, `#[test]` |
   | PHP | `.php`, `composer.json` | `use` (PSR-4 paths), require / include, classes / interfaces / traits, methods |
   | Ruby | `.rb`, `Gemfile`, `*.gemspec` | require / require_relative, classes (`<` base), modules, methods (`def ... end`) |
   | Zig | `.zig`, `build.zig.zon` | `@import`, `const X = struct / enum / union`, functions, methods, `test "..."` blocks |

@@ -1039,6 +1039,10 @@ function extractGraph(files, opts) {
                 const stop = end < i ? n : end;
                 out += text.slice(i, stop).replace(/[^\n]/g, " "); i = stop; continue;
             }
+            if (lang === "rs" && (c === "r" || c === "b") && /^b?r#*"/.test(text.slice(i, i + 12)) && !/\w/.test(text[i - 1] || "")) { // raw string r#"..."#
+                const open = /^b?r(#*)"/.exec(text.slice(i, i + 12)), e = text.indexOf('"' + open[1], i + open[0].length), end = e < 0 ? n : e + 1 + open[1].length;
+                out += '""' + text.slice(i, end).replace(/[^\n]/g, ""); i = end; continue;
+            }
             if (lang === "hs" && c === "{" && d === "-") { const e = text.indexOf("-}", i + 2), end = e < 0 ? n : e + 2; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
             if (lang === "lua" && c === "[" && /^\[=*\[/.test(text.slice(i, i + 8))) { const q = /^\[=*\[/.exec(text.slice(i, i + 8))[0], e = text.indexOf(q.replace(/\[/g, "]"), i + q.length), end = e < 0 ? n : e + q.length; out += '""' + text.slice(i, end).replace(/[^\n]/g, ""); i = end; continue; }
             if (lang === "rb" && c === "=" && text.startsWith("=begin", i) && (i === 0 || text[i - 1] === "\n")) { const e = text.indexOf("\n=end", i), end = e < 0 ? n : e + 5; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
@@ -1073,6 +1077,7 @@ function extractGraph(files, opts) {
         if (m && /^(java|cs|php)$/.test(langOf(f.path))) { const k = m[1].replace(/\\/g, "."); if (!nsFiles.has(k)) nsFiles.set(k, []); nsFiles.get(k).push(f.path); }
     }
     const capped = (list) => list.slice(0, 6);
+    const RUST_STD = new Set("Default Debug Clone Copy PartialEq Eq PartialOrd Ord Hash Display From Into TryFrom TryInto Drop AsRef AsMut Deref DerefMut Iterator IntoIterator FusedIterator DoubleEndedIterator ExactSizeIterator FromIterator Extend Read Write BufRead Seek Send Sync Sized Unpin FromStr Error Add AddAssign Sub SubAssign Mul MulAssign Div Rem Neg Not BitAnd BitOr BitXor Shl Shr Index IndexMut Fn FnMut FnOnce ToString Borrow BorrowMut ToOwned Future Any".split(" "));
     const SWIFT_STD = new Set("Foundation UIKit AppKit SwiftUI Combine XCTest Darwin Dispatch os CoreData CoreGraphics CoreFoundation Cocoa ObjectiveC Glibc Swift MapKit AVFoundation WebKit Security Network".split(" "));
     const JL_STD = new Set("Base Core Main LinearAlgebra Statistics Random Printf Test Dates Distributed Logging Markdown Pkg REPL SparseArrays Serialization Sockets Unicode InteractiveUtils Libdl Mmap SHA UUIDs DelimitedFiles".split(" "));
     const EX_STD = new Set("Kernel Enum String Map List Keyword Logger GenServer Supervisor Agent Task Process Application Code IO File Path System Regex Integer Float Atom Tuple Stream Range Access Protocol Module Macro Inspect ExUnit Mix Registry DynamicSupervisor URI Base Bitwise Calendar Date DateTime NaiveDateTime Time".split(" "));
@@ -1086,7 +1091,7 @@ function extractGraph(files, opts) {
         while ((m = re.exec(f.text))) if (!modFiles.has(m[1])) modFiles.set(m[1], f.path);
     }
     function imports(f, lang) { // -> [target file] or external ids
-        const t = f.text, dir = dirname(f.path), res = [];
+        const t = /^(rs|java|cs)$/.test(lang) ? stripOther(f.text, lang) : f.text, dir = dirname(f.path), res = []; // no "use ..." of a comment / string
         const add = (p) => { if (p && p !== f.path) res.push("file:" + p); };
         const one = (re, fn) => { let m; re.lastIndex = 0; while ((m = re.exec(t))) fn(m); };
         if (lang === "py") {
@@ -1148,7 +1153,15 @@ function extractGraph(files, opts) {
             one(/^\s*(?:pub\s+)?use\s+([\w:]+)/gm, (m) => {
                 const parts = m[1].split("::");
                 if (parts[0] === "crate") { for (let k = parts.length; k > 1; k--) { const p = tryFiles([root + parts.slice(1, k).join("/") + ".rs", root + parts.slice(1, k).join("/") + "/mod.rs"]); if (p) { add(p); break; } } return; }
-                if (!/^(std|core|alloc|self|super)$/.test(parts[0])) res.push(ext(parts[0].replace(/_/g, "-")));
+                if (parts[0] === "self" || parts[0] === "super") { // relative module path
+                    const base = parts[0] === "super" ? dirname(dir) || dir : dir;
+                    const p = tryFiles([base + "/" + parts[1] + ".rs", base + "/" + parts[1] + "/mod.rs"]);
+                    if (p) add(p);
+                    return;
+                }
+                const local = tryFiles([dir + "/" + parts[0] + ".rs", dir + "/" + parts[0] + "/mod.rs"]); // sibling module (use module::Item)
+                if (local) { add(local); return; }
+                if (!/^(std|core|alloc)$/.test(parts[0])) res.push(ext(parts[0].replace(/_/g, "-")));
             });
         } else if (lang === "php") {
             one(/^\s*use\s+(?:function\s+|const\s+)?([\w\\]+)/gm, (m) => {
@@ -1420,7 +1433,7 @@ function extractGraph(files, opts) {
                     if (x.impl) { // Rust impl block: the methods belong to the type
                         const target = classByName.get(x.impl);
                         const id = target ? target[0] : null;
-                        if (id && x.trait) pendingBases.push([id, x.trait]);
+                        if (id && x.trait && !(lang === "rs" && RUST_STD.has(x.trait))) pendingBases.push([id, x.trait]); // std traits (Debug, Clone...) are not dependencies
                         if (id && x.traits) for (const tr of x.traits) pendingBases.push([id, tr]);
                         stack.push({cls: id, implName: x.impl, close: true});
                     } else stack.push({ns: x.ns, close: true});
@@ -1519,7 +1532,8 @@ function extractGraph(files, opts) {
                 continue;
             }
             let cands = [];
-            if (op === "::" && classByName.has(qual)) cands = classByName.get(qual).map(c => c + "::" + name).filter(id => nodes.has(id));
+            if (op === "::" && qual === "Self" && cls && nodes.has(cls + "::" + name)) cands = [cls + "::" + name]; // Rust Self::f()
+            else if (op === "::" && classByName.has(qual)) cands = classByName.get(qual).map(c => c + "::" + name).filter(id => nodes.has(id));
             else if (!op) {
                 if (cls && nodes.has(cls + "::" + name)) cands = [cls + "::" + name]; // this->method()
                 else if (fnByName.has(name)) cands = fnByName.get(name);
