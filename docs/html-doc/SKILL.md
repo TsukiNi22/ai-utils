@@ -1,6 +1,6 @@
 ---
 name: html-doc
-description: Uniform HTML documentation of the user's projects (docs/ folder, GitHub Pages) - up to 3 static self-contained pages sharing one style based on the R-Type architecture doc - an optional user guide for non-technical users, the technical documentation (sticky summary, numbered cards, tables, callouts, SVG diagrams) and an interactive 2D/3D project graph of any common stack (C / C++, Python, JS / TS / web, Java / Kotlin, C#, Go, Rust, PHP, Ruby: files, classes, functions, calls, tests, build targets / packages, externals; filters by category/group/relation; update button fetching the GitHub repository) - with a light/dark sun/moon toggle. Use whenever creating, updating or restyling an HTML doc, unless the user explicitly asks for another style.
+description: Uniform HTML documentation of the user's projects (docs/ folder, GitHub Pages) - up to 3 static self-contained pages sharing one style based on the R-Type architecture doc - an optional user guide for non-technical users, the technical documentation (sticky summary, numbered cards, tables, callouts, SVG diagrams) and an interactive 2D/3D project graph of the common languages (C / C++, Python, JS / TS / web, Java / Kotlin, C#, Go, Rust, Zig, Swift, Dart, PHP, Ruby, Lua, Julia, Elixir, Haskell, Objective-C, shell: files, classes, functions, calls, tests, build targets / packages, externals; filters by category/group/relation; update button fetching the GitHub repository) - with a light/dark sun/moon toggle. Use whenever creating, updating or restyling an HTML doc, unless the user explicitly asks for another style.
 ---
 
 # Uniform HTML documentation
@@ -163,6 +163,16 @@ node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/gr
   | Rust | `.rs`, `Cargo.toml` | `mod` / `use crate::`, structs / enums / traits, `impl` (trait for type = base), functions, methods |
   | PHP | `.php`, `composer.json` | `use` (PSR-4 paths), require / include, classes / interfaces / traits, methods |
   | Ruby | `.rb`, `Gemfile`, `*.gemspec` | require / require_relative, classes (`<` base), modules, methods (`def ... end`) |
+  | Zig | `.zig`, `build.zig.zon` | `@import`, `const X = struct / enum / union`, functions, methods, `test "..."` blocks |
+  | Swift | `.swift`, `Package.swift` | imports (modules), classes / structs / protocols / actors, `extension` (methods + conformances), functions |
+  | Dart / Flutter | `.dart`, `pubspec.yaml` | `package:` / relative imports, classes (extends / with / implements), mixins, extensions, functions |
+  | Lua | `.lua`, `*.rockspec` | require, `function M.f` / `Class:method` (OOP tables, `class()` / `:extend()` / `:subclass()`), `... end` blocks |
+  | Julia | `.jl`, `Project.toml` | include / using, modules, structs `<:` base, abstract types, functions (long and short form) |
+  | Elixir | `.ex .exs`, `mix.exs` | alias / import / use, `defmodule` / `defprotocol` / `defimpl`, `def` / `defp`, `Module.fn()` calls |
+  | Haskell | `.hs`, `*.cabal` | imports (modules), data / newtype / class / instance, top-level functions, calls without parentheses |
+  | Objective-C | `.m .mm .h`, `*.podspec` | `#import`, `@interface` / `@protocol` / `@implementation`, methods, message sends `[obj msg]` |
+  | Shell | `.sh .bash .zsh` | `source` / `.`, functions, commands calling the functions |
+  | C / C++ (Meson) | `meson.build` | `executable()` / `library()`, their sources (lists and `files()`), `dependency()` |
 
   Common to all: test files (`tests/`, `__tests__/`, `*_test.*`, `*.test.*`, `*Test.java`...) and test cases
   (GoogleTest, pytest, Jest / Vitest, Go, Rust, JUnit, xUnit / NUnit, PHPUnit, RSpec / Minitest), the classes /

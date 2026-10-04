@@ -716,12 +716,12 @@ function extractGraph(files, opts) {
         links.push({source, target, kind});
     }
     function isTest(path) { // test files of every ecosystem
-        return /(^|\/)(tests?|__tests__|spec|specs)\//.test(path) || /(^|\/)(test_[^/]+\.py|[^/]+_test\.(py|go|rb)|[^/]+\.(test|spec)\.[jt]sx?|[^/]+(Test|Tests|Spec)\.(java|kt|cs|php|scala)|[^/]+_spec\.rb)$/.test(path);
+        return /(^|\/)(tests?|Tests|__tests__|spec|specs)\//.test(path) || /(^|\/)(test_[^/]+\.py|[^/]+_test\.(py|go|rb|exs|dart|lua|zig)|[^/]+\.(test|spec)\.[jt]sx?|[^/]+(Test|Tests|Spec)\.(java|kt|cs|php|scala|swift|hs|m)|[^/]+_spec\.(rb|lua)|[^/]+\.bats)$/.test(path);
     }
     function groupOf(path) {
         if (!CODE.test(path)) { // other languages: the last folder that is not a generic one (src, lib, main, java, com...)
             if (isTest(path)) return "tests";
-            const dirs = path.split("/").slice(0, -1).filter(d => !/^(src|lib|libs|app|main|java|kotlin|scala|internal|pkg|source|sources|include|js|ts|com|org|io|net|public|static|assets|resources)$/.test(d));
+            const dirs = path.split("/").slice(0, -1).filter(d => !/^(src|lib|libs|app|main|java|kotlin|scala|internal|pkg|source|sources|Sources|include|js|ts|com|org|io|net|public|static|assets|resources|lua)$/.test(d));
             return dirs.length ? dirs[dirs.length - 1] : "root";
         }
         const p = path.split("/");
@@ -979,7 +979,9 @@ function extractGraph(files, opts) {
     // ---------- Other languages: Python, JS / TS, Java / Kotlin, C#, Go, Rust, PHP, Ruby, HTML / CSS ---------- //
     // Light regex parsers (no AST): files, imports, classes + bases, functions, methods, bodies (-> calls)
     const LANGS = [["py", /\.pyi?$/], ["js", /\.(m?js|cjs|jsx|ts|tsx|mts|cts|vue|svelte)$/], ["java", /\.(java|kt|kts|scala|groovy)$/],
-        ["cs", /\.cs$/], ["go", /\.go$/], ["rs", /\.rs$/], ["php", /\.php$/], ["rb", /\.rb$/]];
+        ["cs", /\.cs$/], ["go", /\.go$/], ["rs", /\.rs$/], ["php", /\.php$/], ["rb", /\.rb$/], ["zig", /\.zig$/], ["swift", /\.swift$/],
+        ["dart", /\.dart$/], ["lua", /\.lua$/], ["jl", /\.jl$/], ["ex", /\.exs?$/], ["hs", /\.l?hs$/], ["objc", /\.mm?$/], ["sh", /\.(sh|bash|zsh)$/]];
+    const SLASH = new Set(["js", "java", "cs", "go", "rs", "php", "zig", "swift", "dart", "objc"]), HASH = new Set(["py", "rb", "php", "jl", "ex", "sh"]);
     const langOf = (p) => (LANGS.find(l => l[1].test(p)) || [null])[0];
     const PAGE = /\.html?$/, STYLE = /\.(css|scss|sass|less)$/;
     const PY_STD = new Set(("abc argparse array ast asyncio base64 bisect builtins calendar collections concurrent configparser contextlib copy csv ctypes dataclasses datetime decimal difflib email enum errno fnmatch fractions functools gc getpass glob gzip hashlib heapq hmac html http importlib inspect io ipaddress itertools json logging math mimetypes multiprocessing numbers operator os pathlib pickle platform pprint queue random re secrets select shlex shutil signal socket sqlite3 ssl stat statistics string struct subprocess sys tempfile textwrap threading time timeit tkinter traceback types typing unittest urllib uuid venv warnings weakref xml zipfile zlib __future__ typing_extensions").split(" "));
@@ -987,15 +989,24 @@ function extractGraph(files, opts) {
     const RB_STD = new Set(("json set yaml date time fileutils pathname securerandom digest open3 optparse logger erb uri net/http socket tempfile stringio benchmark forwardable singleton ostruct").split(" "));
     function stripOther(text, lang) { // comments and string contents removed, the line breaks kept
         let out = "", i = 0;
-        const n = text.length, hash = lang === "py" || lang === "rb" || lang === "php", slash = lang !== "py" && lang !== "rb";
+        const n = text.length, hash = HASH.has(lang), slash = SLASH.has(lang);
         while (i < n) {
             const c = text[i], d = text[i + 1];
             if (slash && c === "/" && d === "/") { while (i < n && text[i] !== "\n") i++; continue; }
             if (slash && c === "/" && d === "*") { const e = text.indexOf("*/", i + 2), end = e < 0 ? n : e + 2; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
-            if (hash && c === "#" && !(lang === "php" && d === "[")) { while (i < n && text[i] !== "\n") i++; continue; }
+            if (lang === "jl" && c === "#" && d === "=") { const e = text.indexOf("=#", i + 2), end = e < 0 ? n : e + 2; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
+            if (hash && c === "#" && !(lang === "php" && d === "[") && !(lang === "sh" && i && !/\s/.test(text[i - 1]))) { while (i < n && text[i] !== "\n") i++; continue; }
+            if ((lang === "lua" || lang === "hs") && c === "-" && d === "-") { // -- comment, --[[ long ]] comment (Lua)
+                const lb = lang === "lua" && /^--\[=*\[/.exec(text.slice(i, i + 12));
+                const end = lb ? (text.indexOf("]" + lb[0].slice(3, -1) + "]", i) + lb[0].length - 2) : text.indexOf("\n", i);
+                const stop = end < i ? n : end;
+                out += text.slice(i, stop).replace(/[^\n]/g, " "); i = stop; continue;
+            }
+            if (lang === "hs" && c === "{" && d === "-") { const e = text.indexOf("-}", i + 2), end = e < 0 ? n : e + 2; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
+            if (lang === "lua" && c === "[" && /^\[=*\[/.test(text.slice(i, i + 8))) { const q = /^\[=*\[/.exec(text.slice(i, i + 8))[0], e = text.indexOf(q.replace(/\[/g, "]"), i + q.length), end = e < 0 ? n : e + q.length; out += '""' + text.slice(i, end).replace(/[^\n]/g, ""); i = end; continue; }
             if (lang === "rb" && c === "=" && text.startsWith("=begin", i) && (i === 0 || text[i - 1] === "\n")) { const e = text.indexOf("\n=end", i), end = e < 0 ? n : e + 5; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
-            if (lang === "py" && (text.startsWith('"""', i) || text.startsWith("'''", i))) { const q = text.slice(i, i + 3), e = text.indexOf(q, i + 3), end = e < 0 ? n : e + 3; out += '""' + text.slice(i, end).replace(/[^\n]/g, ""); i = end; continue; }
-            if (c === '"' || c === "`" || (c === "'" && !(lang === "rs" && !/^'(\\.|[^\\'])'/.test(text.slice(i, i + 4))))) {
+            if ((lang === "py" || lang === "ex" || lang === "jl" || lang === "swift" || lang === "dart") && (text.startsWith('"""', i) || text.startsWith("'''", i))) { const q = text.slice(i, i + 3), e = text.indexOf(q, i + 3), end = e < 0 ? n : e + 3; out += '""' + text.slice(i, end).replace(/[^\n]/g, ""); i = end; continue; }
+            if (c === '"' || (c === "`" && lang !== "sh") || (c === "'" && !(/^(rs|hs|jl)$/.test(lang) && !/^'(\\.|[^\\'])'/.test(text.slice(i, i + 4))))) {
                 let j = i + 1;
                 while (j < n && text[j] !== c && (c === "`" || text[j] !== "\n")) { if (text[j] === "\\") j++; j++; }
                 out += c + text.slice(i + 1, Math.min(j, n)).replace(/[^\n]/g, "") + c; i = j + 1; continue;
@@ -1025,6 +1036,18 @@ function extractGraph(files, opts) {
         if (m && /^(java|cs|php)$/.test(langOf(f.path))) { const k = m[1].replace(/\\/g, "."); if (!nsFiles.has(k)) nsFiles.set(k, []); nsFiles.get(k).push(f.path); }
     }
     const capped = (list) => list.slice(0, 6);
+    const SWIFT_STD = new Set("Foundation UIKit AppKit SwiftUI Combine XCTest Darwin Dispatch os CoreData CoreGraphics CoreFoundation Cocoa ObjectiveC Glibc Swift MapKit AVFoundation WebKit Security Network".split(" "));
+    const JL_STD = new Set("Base Core Main LinearAlgebra Statistics Random Printf Test Dates Distributed Logging Markdown Pkg REPL SparseArrays Serialization Sockets Unicode InteractiveUtils Libdl Mmap SHA UUIDs DelimitedFiles".split(" "));
+    const EX_STD = new Set("Kernel Enum String Map List Keyword Logger GenServer Supervisor Agent Task Process Application Code IO File Path System Regex Integer Float Atom Tuple Stream Range Access Protocol Module Macro Inspect ExUnit Mix Registry DynamicSupervisor URI Base Bitwise Calendar Date DateTime NaiveDateTime Time".split(" "));
+    const HS_STD = new Set("Prelude Data Control System GHC Text Foreign Numeric Debug Unsafe Type".split(" "));
+    const dartPkg = () => { const y = byPath.get("pubspec.yaml"); return y ? (/^name:\s*(\S+)/m.exec(y.text) || [])[1] : null; };
+    const modFiles = new Map(); // Julia / Elixir / Haskell: module name -> file
+    for (const f of others) {
+        const l = langOf(f.path), re = l === "jl" ? /^\s*module\s+(\w+)/gm : l === "ex" ? /^\s*defmodule\s+([\w.]+)/gm : l === "hs" ? /^module\s+([\w.]+)/gm : null;
+        if (!re) continue;
+        let m;
+        while ((m = re.exec(f.text))) if (!modFiles.has(m[1])) modFiles.set(m[1], f.path);
+    }
     function imports(f, lang) { // -> [target file] or external ids
         const t = f.text, dir = dirname(f.path), res = [];
         const add = (p) => { if (p && p !== f.path) res.push("file:" + p); };
@@ -1102,6 +1125,32 @@ function extractGraph(files, opts) {
             one(/^\s*require_relative\s+["']([^"']+)["']/gm, (m) => add(tryFiles([normalize(dir + "/" + m[1]) + ".rb", normalize(dir + "/" + m[1])])));
             one(/^\s*require\s+["']([^"']+)["']/gm, (m) => { const p = tryFiles(["lib/" + m[1] + ".rb", m[1] + ".rb"]) || paths.find(x => x.endsWith("/" + m[1] + ".rb")); if (p) add(p); else if (!RB_STD.has(m[1])) res.push(ext(m[1].split("/")[0])); });
         }
+        else if (lang === "zig") {
+            one(/@import\s*\(\s*"([^"]+)"\s*\)/g, (m) => { if (m[1].endsWith(".zig")) add(tryFiles([normalize(dir + "/" + m[1]), normalize(m[1])])); else if (!/^(std|builtin|root)$/.test(m[1])) res.push(ext(m[1])); });
+        } else if (lang === "swift") {
+            one(/^\s*(?:@testable\s+)?import\s+(?:class\s+|struct\s+|enum\s+|func\s+)?(\w+)/gm, (m) => { if (!SWIFT_STD.has(m[1]) && !paths.some(p => p.includes("/" + m[1] + "/") && p.endsWith(".swift"))) res.push(ext(m[1])); });
+        } else if (lang === "dart") {
+            const own = dartPkg();
+            one(/^\s*(?:import|export|part)\s+["']([^"']+)["']/gm, (m) => {
+                const s = m[1];
+                if (s.startsWith("dart:")) return;
+                if (s.startsWith("package:")) { const [pk, ...rest] = s.slice(8).split("/"); if (pk === own) add(tryFiles(["lib/" + rest.join("/")])); else res.push(ext(pk)); return; }
+                add(tryFiles([normalize(dir + "/" + s)]));
+            });
+        } else if (lang === "lua") {
+            one(/\brequire\s*\(?\s*["']([\w.\/-]+)["']/g, (m) => { const r = m[1].replace(/\./g, "/"); const p = tryFiles([r + ".lua", r + "/init.lua", "src/" + r + ".lua", "lua/" + r + ".lua", "lua/" + r + "/init.lua"]) || paths.find(x => x.endsWith("/" + r + ".lua")); if (p) add(p); else res.push(ext(m[1].split(".")[0])); });
+        } else if (lang === "jl") {
+            one(/\binclude\s*\(\s*"([^"]+)"\s*\)/g, (m) => add(tryFiles([normalize(dir + "/" + m[1])])));
+            one(/^\s*(?:using|import)\s+([\w., :]+)/gm, (m) => { for (const x of m[1].split(":")[0].split(",")) { const name = x.trim().split(".")[0]; if (!name || name === "." || JL_STD.has(name)) continue; const p = modFiles.get(name); if (p) add(p); else res.push(ext(name)); } });
+        } else if (lang === "ex") {
+            one(/^\s*(?:alias|import|use|require)\s+([A-Z][\w.]*)/gm, (m) => { const p = modFiles.get(m[1]); if (p) add(p); else if (!EX_STD.has(m[1].split(".")[0])) res.push(ext(m[1].split(".")[0])); });
+        } else if (lang === "hs") {
+            one(/^import\s+(?:qualified\s+)?([A-Z][\w.]*)/gm, (m) => { const p = modFiles.get(m[1]) || paths.find(x => /\.l?hs$/.test(x) && x.replace(/\.l?hs$/, "").endsWith("/" + m[1].replace(/\./g, "/"))); if (p) add(p); else if (!HS_STD.has(m[1].split(".")[0])) res.push(ext(m[1].split(".")[0])); });
+        } else if (lang === "objc") {
+            one(/^[ \t]*#[ \t]*(?:import|include)[ \t]*([<"])([^>"]+)[>"]/gm, (m) => { const p = resolveInclude(f.path, m[2], m[1] === '"'); if (p) add(p); else if (m[1] === "<" && m[2].includes("/") && !/^(Foundation|UIKit|AppKit|CoreFoundation|CoreGraphics|QuartzCore|Security|SystemConfiguration|MobileCoreServices|CoreServices|XCTest|objc)\//.test(m[2])) res.push(ext(m[2].split("/")[0])); });
+        } else if (lang === "sh") {
+            one(/^\s*(?:source|\.)\s+["']?([^\s"';|&]+)/gm, (m) => { const name = m[1].split("/").pop(); add(tryFiles([normalize(dir + "/" + m[1])]) || paths.find(x => x.endsWith("/" + name) || x === name)); });
+        }
         return res.filter(Boolean);
     }
     for (const f of others) for (const target of imports(f, langOf(f.path))) link("file:" + f.path, target, "includes");
@@ -1109,16 +1158,17 @@ function extractGraph(files, opts) {
     // Declarations of the brace languages: the "head" before each { says what the block is
     const KEYWORDS = new Set("if for while switch catch return new else do try finally synchronized using lock foreach when match loop unsafe with yield await typeof sizeof function fn func fun def get set constructor init".split(" "));
     function classHead(h, lang) {
-        const m = /(?:^|[\s;])(?:(?:abstract|sealed|data|open|final|static|public|private|protected|internal|export|default|partial|inner|enum|annotation|readonly|declare|pub(?:\([\w ]+\))?)\s+)*(class|interface|trait|struct|enum|record|object|protocol)\s+([A-Za-z_$][\w$]*)([\s\S]*)$/.exec(h);
+        const m = /(?:^|[\s;])(?:(?:abstract|sealed|data|open|final|static|public|private|protected|internal|export|default|partial|inner|enum|annotation|readonly|declare|pub(?:\([\w ]+\))?)\s+)*(class|interface|trait|struct|enum|record|object|protocol|mixin|actor)\s+([A-Za-z_$][\w$]*)([\s\S]*)$/.exec(h);
         if (!m) {
             const g = lang === "go" && /\btype\s+([A-Z_a-z]\w*)\s*(?:\[[^\]]*\])?\s+(struct|interface)\s*$/.exec(h);
-            return g ? {name: g[1], kw: g[2], bases: []} : null;
+            const z = lang === "zig" && /\bconst\s+([A-Za-z_]\w*)\s*=\s*(?:extern\s+|packed\s+)?(struct|enum|union|opaque)\b[^=]*$/.exec(h);
+            return g ? {name: g[1], kw: g[2], bases: []} : z ? {name: z[1], kw: z[2] === "union" ? "struct" : z[2], bases: []} : null;
         }
         let rest = m[3].replace(/<[^<>]*(?:<[^<>]*>[^<>]*)*>/g, "").replace(/^\s*\([^)]*\)/, "").replace(/\bwhere\b[\s\S]*$/, "");
         const bases = [];
         const grab = (re) => { const x = re.exec(rest); if (x) x[1].split(",").forEach(b => { b = b.replace(/\([^)]*\)/g, "").replace(/\b(public|private|protected|virtual|readonly)\b/g, "").trim().split(/[.:\\]/).pop(); if (/^[A-Za-z_$][\w$]*$/.test(b)) bases.push(b); }); };
-        grab(/\bextends\s+([\w$.,\s\\]+?)(?=\s+implements\b|\s*$|\s*\{)/); grab(/\bimplements\s+([\w$.,\s\\]+)/); grab(/^\s*:\s*([\w$.,\s()]+)/); grab(/^\s*\(([\w$.,\s]+)\)\s*$/);
-        return {name: m[2], kw: m[1], bases, abstract: /\babstract\b/.test(h)};
+        grab(/\bextends\s+([\w$.,\s\\]+?)(?=\s+(?:implements|with)\b|\s*$|\s*\{)/); grab(/\bwith\s+([\w$.,\s]+?)(?=\s+implements\b|\s*$)/); grab(/\bon\s+([\w$.,\s]+?)\s*$/); grab(/\bimplements\s+([\w$.,\s\\]+)/); grab(/^\s*:\s*([\w$.,\s()]+)/); grab(/^\s*\(([\w$.,\s]+)\)\s*$/);
+        return {name: m[2], kw: m[1] === "mixin" ? "abstract" : m[1] === "actor" ? "class" : m[1], bases, abstract: /\babstract\b/.test(h)};
     }
     function funcHead(h, lang) {
         let m;
@@ -1132,7 +1182,110 @@ function extractGraph(files, opts) {
         let m;
         if ((m = /\b(?:namespace|module|mod)\s+([\w.\\:]+)\s*$/.exec(h))) return {ns: m[1].replace(/\\/g, ".")};
         if (lang === "rs" && (m = /\bimpl(?:<[^>]*>)?\s+(?:([\w:]+)(?:<[^>]*>)?\s+for\s+)?([\w:]+)(?:<[^>]*>)?\s*(?:where[\s\S]*)?$/.exec(h))) return {impl: m[2].split("::").pop(), trait: m[1] ? m[1].split("::").pop() : null};
+        if ((lang === "swift" || lang === "dart") && (m = /\bextension\s+(?:\w+\s+on\s+)?([\w.]+)(?:<[^>]*>)?(?:\s*:\s*([\w., ]+))?(?:\s+where[\s\S]*)?$/.exec(h))) return {impl: m[1].split(".").pop(), traits: (m[2] || "").split(",").map(x => x.trim()).filter(Boolean)};
         return null;
+    }
+    const lateImpls = []; // [type name, base name]: Elixir defimpl / Haskell instance, resolved once all the types are known
+    function endBlocks(f, lang, code, x) { // blocks closed by "end": Lua (function / if / for / while / do / repeat ... until), Julia, Elixir (do ... end, fn ... end)
+        const lines = code.split("\n"), stack = [];
+        const TOK = lang === "lua" ? /\b(function|if|for|while|do|repeat|end|until)\b/g : lang === "jl" ? /\b(function|struct|module|baremodule|if|for|while|let|begin|do|try|macro|quote|end)\b/g : /\bdo\b(?!:)|\bfn\b|\bend\b/g;
+        const close = (li) => {
+            const s = stack.pop();
+            if (s && s.owner) bodies.push({owner: s.owner, cls: s.cls, body: lines.slice(s.line + 1, li).join("\n"), selfs: ["self"]});
+        };
+        const clsOfStack = () => { for (let k = stack.length - 1; k >= 0; k--) if (stack[k].clsId) return stack[k].clsId; return null; };
+        for (let li = 0; li < lines.length; li++) {
+            let l = lines[li], m, def = null;
+            if (lang === "jl") { for (let k = 0; k < 4; k++) l = l.replace(/\[[^\[\]]*\]/g, "[]").replace(/\([^()]*\bfor\b[^()]*\)/g, "()"); }
+            const cls = clsOfStack();
+            if (lang === "lua") {
+                if ((m = /^\s*(?:local\s+)?function\s+([\w.:]+)\s*\(/.exec(l)) || (m = /^\s*(?:local\s+)?([\w.:]+)\s*=\s*function\s*\(/.exec(l))) {
+                    const parts = m[1].split(/[.:]/), name = parts.pop(), owner = parts.pop();
+                    if (owner && /^[A-Z]/.test(owner)) { const ids = classByName.get(owner); const c = ids ? ids[0] : x.addClass({name: owner, kw: "class", bases: []}); def = {owner: name === "new" || name === "init" ? c : x.addMethod(c, name), cls: c}; }
+                    else def = {owner: x.addFn(name)};
+                } else if ((m = /^\s*(?:local\s+)?([A-Z]\w*)\s*=\s*(?:\{\s*\}|setmetatable\s*\(|class\s*\(|(?:\w+\.)?(?:extend|subclass)\s*\()/.exec(l))) {
+                    if (!classByName.has(m[1])) { const base = /(?:class\s*\(\s*["']?\w*["']?\s*,\s*|(\w+)[:.](?:extend|subclass)\s*\()(\w+)?/.exec(l); x.addClass({name: m[1], kw: "class", bases: base && (base[1] || base[2]) && /^[A-Z]/.test(base[1] || base[2]) ? [base[1] || base[2]] : []}); }
+                }
+            } else if (lang === "jl") {
+                if ((m = /^\s*(?:mutable\s+)?struct\s+(\w+)(?:\{[^}]*\})?(?:\s*<:\s*(\w+))?/.exec(l))) def = {clsId: x.addClass({name: m[1], kw: "struct", bases: m[2] ? [m[2]] : []})};
+                else if ((m = /^\s*(abstract|primitive)\s+type\s+(\w+)(?:\{[^}]*\})?(?:\s*<:\s*(\w+))?/.exec(l))) { x.addClass({name: m[2], kw: "interface", bases: m[3] ? [m[3]] : []}); continue; }
+                else if ((m = /^\s*function\s+(?:[\w.]+\.)?([\w!]+)\s*[({]/.exec(l))) def = {owner: x.addFn(m[1])};
+                else if (!stack.some(s => s.owner) && (m = /^([\w!]+)\s*\([^=]*\)\s*=[^=]/.exec(l))) { const id = x.addFn(m[1]); bodies.push({owner: id, body: l.slice(l.indexOf("=") + 1)}); }
+            } else if (lang === "ex") {
+                if ((m = /^\s*(defmodule|defprotocol)\s+([\w.]+)\s+do\b/.exec(l))) def = {clsId: x.addClass({name: m[2].split(".").pop(), kw: m[1] === "defprotocol" ? "interface" : "class", bases: []})};
+                else if ((m = /^\s*defimpl\s+([\w.]+)\s*,\s*for:\s*([\w.]+)/.exec(l))) { lateImpls.push([m[2].split(".").pop(), m[1].split(".").pop()]); def = {}; }
+                else if ((m = /^\s*(?:def|defp|defmacro|defmacrop)\s+([\w?!]+)/.exec(l))) {
+                    const owner = cls ? x.addMethod(cls, m[1]) : x.addFn(m[1]);
+                    if (/,\s*do:/.test(l)) { bodies.push({owner, cls, body: l.slice(l.indexOf("do:") + 3)}); continue; }
+                    def = {owner, cls};
+                }
+            }
+            let first = true, pendingDo = false;
+            const toks = (lang === "jl" && /^\s*(abstract|primitive)\s+type\b/.test(l)) ? [] : (l.match(TOK) || []);
+            for (const tk of toks) {
+                if (tk === "end" || tk === "until") { close(li); continue; }
+                if (lang === "lua" && tk === "do" && pendingDo) { pendingDo = false; continue; }
+                if (lang === "lua" && (tk === "for" || tk === "while")) pendingDo = true;
+                stack.push(Object.assign({line: li}, first && def ? def : {}));
+                first = false;
+            }
+        }
+        while (stack.length) close(lines.length);
+    }
+    function haskell(f, code, x) { // module, data / newtype (struct), class (interface), instance (base), top-level functions and their bodies
+        const lines = code.split("\n");
+        let cur = null, start = 0, buf = [];
+        const flush = (li) => { if (cur) bodies.push({owner: cur, body: buf.join("\n"), bare: true}); cur = null; buf = []; };
+        for (let li = 0; li < lines.length; li++) {
+            const l = lines[li];
+            let m;
+            if (/^\s/.test(l) || !l.trim()) { if (cur) buf.push(l); continue; }
+            if ((m = /^(?:data|newtype)\s+(?:[\w\s]*=>\s*)?([A-Z]\w*)/.exec(l))) { flush(li); x.addClass({name: m[1], kw: "struct", bases: []}); continue; }
+            if ((m = /^class\s+(?:\([^)]*\)\s*=>\s*|[\w\s]+=>\s*)?([A-Z]\w*)/.exec(l))) { flush(li); x.addClass({name: m[1], kw: "interface", bases: []}); continue; }
+            if ((m = /^instance\s+(?:\([^)]*\)\s*=>\s*|[\w\s]+=>\s*)?([A-Z]\w*)\s+\(?([A-Z]\w*)/.exec(l))) { flush(li); lateImpls.push([m[2], m[1]]); continue; }
+            if ((m = /^([a-z_][\w']*)\s*::/.exec(l))) { flush(li); x.addFn(m[1]); continue; }
+            if ((m = /^([a-z_][\w']*)\b[^=]*?=(?!=)/.exec(l)) && !/^(import|module|type|infix[lr]?|deriving|where|let|in)\b/.test(l)) {
+                flush(li);
+                cur = nodes.has("fn:" + f.path.replace(/\.\w+$/, "") + "::" + m[1]) ? "fn:" + f.path.replace(/\.\w+$/, "") + "::" + m[1] : x.addFn(m[1]);
+                buf = [l.slice(l.indexOf("=") + 1)];
+                continue;
+            }
+            flush(li);
+        }
+        flush(lines.length);
+    }
+    function shell(f, code, x) { // functions name() { ... } / function name { ... }, their bodies (commands = calls)
+        const lines = code.split("\n");
+        let cur = null, depth = 0, buf = [];
+        for (const l of lines) {
+            const s = l.replace(/\$\{[^}]*\}/g, "").replace(/\$\([^)]*\)/g, "");
+            const m = !cur && (/^\s*(?:function\s+)?([\w:.-]+)\s*\(\s*\)\s*\{?/.exec(s) || /^\s*function\s+([\w:.-]+)\s*\{?/.exec(s));
+            if (m) { cur = x.addFn(m[1]); depth = 0; buf = []; }
+            if (cur) {
+                depth += (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+                buf.push(s);
+                if (depth <= 0 && /\}/.test(s)) { bodies.push({owner: cur, body: buf.join("\n"), bare: true}); cur = null; }
+            }
+        }
+    }
+    function objc(f, code, x) { // @interface / @protocol / @implementation, methods, message sends
+        let m, cls = null;
+        const re = /@(interface|protocol|implementation)\s+(\w+)(?:\s*:\s*(\w+))?(?:\s*\([^)]*\))?(?:\s*<([^>]+)>)?|^[ \t]*[-+]\s*\([^)]*\)\s*(\w+)[^{;]*\{|@end/gm;
+        while ((m = re.exec(code))) {
+            if (m[0] === "@end") { cls = null; continue; }
+            if (m[1]) {
+                const ids = classByName.get(m[2]);
+                cls = ids ? ids[0] : x.addClass({name: m[2], kw: m[1] === "protocol" ? "interface" : "class", bases: [m[3], ...(m[4] || "").split(",")].map(b => (b || "").trim()).filter(b => b && b !== "NSObject")});
+                continue;
+            }
+            if (m[5] && cls) {
+                let depth = 1, i = re.lastIndex;
+                for (; i < code.length && depth; i++) { if (code[i] === "{") depth++; else if (code[i] === "}") depth--; }
+                const owner = /^(init|dealloc)/.test(m[5]) ? cls : x.addMethod(cls, m[5]);
+                bodies.push({owner, cls, body: code.slice(re.lastIndex, i).replace(/\[\s*(\w+)\s+(\w+)/g, " $1.$2("), selfs: ["self"]}); // [obj msg] -> obj.msg(
+                re.lastIndex = i;
+            }
+        }
     }
     function headOf(raw) { // the statement before a "{": its last line + the lines it continues (newline-terminated languages)
         const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
@@ -1206,6 +1359,10 @@ function extractGraph(files, opts) {
             if (lang === "py") closeBodies(-1, lines.length);
             continue;
         }
+        if (lang === "lua" || lang === "jl" || lang === "ex") { endBlocks(f, lang, code, {addFn, addClass, addMethod, group, fileId}); continue; }
+        if (lang === "hs") { haskell(f, code, {addFn, addClass, fileId}); continue; }
+        if (lang === "sh") { shell(f, code, {addFn}); continue; }
+        if (lang === "objc") { objc(f, code, {addClass, addMethod}); continue; }
         // brace languages
         const stack = [];
         let head = "", skip = 0, body = null;
@@ -1227,6 +1384,7 @@ function extractGraph(files, opts) {
                         const target = classByName.get(x.impl);
                         const id = target ? target[0] : null;
                         if (id && x.trait) pendingBases.push([id, x.trait]);
+                        if (id && x.traits) for (const tr of x.traits) pendingBases.push([id, tr]);
                         stack.push({cls: id, implName: x.impl, close: true});
                     } else stack.push({ns: x.ns, close: true});
                     continue;
@@ -1251,6 +1409,12 @@ function extractGraph(files, opts) {
             head += c;
             if (head.length > 600) head = head.slice(-400);
         }
+    }
+    for (const [type, base] of lateImpls) { const ids = classByName.get(type); if (ids) for (const id of ids) pendingBases.push([id, base]); }
+    // Objective-C classes declared in the headers (.h read as C / C++)
+    for (const f of files) if (/\.h$/.test(f.path) && /@(interface|protocol)\b/.test(f.text)) {
+        const fileId = "file:" + f.path, group = groupOf(f.path);
+        objc(f, f.text, {addClass: (c) => { const id = "cls:" + f.path.replace(/\.\w+$/, "") + "::" + c.name; node(id, c.kw === "interface" ? "interface" : "class", c.name, {group, path: f.path}); addClassName(c.name, id); link(fileId, id, "defines"); for (const b of c.bases) pendingBases.push([id, b]); return id; }, addMethod: () => null});
     }
     // Go receivers / Rust impl blocks of a type declared in another file
     for (const b of bodies) if (b.late) {
@@ -1325,6 +1489,7 @@ function extractGraph(files, opts) {
                 else if (classByName.has(name)) cands = classByName.get(name); // construction
             } else if (op === "::") cands = (fnByName.get(name) || []).filter(id => id.endsWith(qual + "::" + name));
             else if (selfs.includes(qual) && cls && nodes.has(cls + "::" + name)) cands = [cls + "::" + name]; // this.method() / self.method()
+            else if (classByName.has(qual) && classByName.get(qual).some(c => nodes.has(c + "::" + name))) cands = classByName.get(qual).map(c => c + "::" + name).filter(id => nodes.has(id)); // Class.static() / Module.fn()
             else if (typed(qual)) cands = typed(qual).map(c => c + "::" + name).filter(id => nodes.has(id)); // typed object
             else { // object.method() / ptr->method() of an unknown type: unique name, else another class of the same group
                 const all = methodByName.get(name) || [];
@@ -1335,13 +1500,16 @@ function extractGraph(files, opts) {
             if (!inTests) cands = cands.filter(id => !isTest(nodes.get(id).path || "")); // the sources never call the tests
             if (cands.length <= 3) cands.forEach(x => targets.add(x));
         }
+        if (b.bare) { // languages calling without parentheses: every word that is a function of the project
+            for (const w of new Set(b.body.match(/[A-Za-z_][\w'.-]*/g) || [])) { const c = fnByName.get(w); if (c && c.length <= 2) c.forEach(x => targets.add(x)); }
+        }
         for (const o of owners) for (const x of targets) link(o, x, "calls");
     }
 
     // Tests: test cases + tested classes
     const classNames = [...classByName.keys()].filter(n => n.length > 2);
     for (const f of files) {
-        if (!isTest(f.path) || !(CODE.test(f.path) || langOf(f.path))) continue;
+        if (!(isTest(f.path) || /\.zig$/.test(f.path)) || !(CODE.test(f.path) || langOf(f.path))) continue;
         const fileId = "file:" + f.path;
         const lang = CODE.test(f.path) ? "c" : langOf(f.path);
         const RE = {
@@ -1353,7 +1521,16 @@ function extractGraph(files, opts) {
             java: [/@(?:Test|ParameterizedTest)\b[\s\S]{0,200}?\b(?:void|fun)\s+`?([\w ]+?)`?\s*\(/g, m => m[1]],
             cs: [/\[(?:Fact|Theory|Test|TestMethod|TestCase)\b[^\]]*\][\s\S]{0,200}?\s(\w+)\s*\(/g, m => m[1]],
             php: [/function\s+(test\w*)\s*\(/g, m => m[1]],
-            rb: [/\b(?:it|test|scenario|specify)\s*\(?\s*["'](.+?)["']/g, m => m[1]]
+            rb: [/\b(?:it|test|scenario|specify)\s*\(?\s*["'](.+?)["']/g, m => m[1]],
+            zig: [/^\s*test\s+"([^"]+)"\s*\{/gm, m => m[1]],
+            swift: [/\bfunc\s+(test\w*)\s*\(|@Test(?:\s*\(\s*"([^"]+)")?[\s\S]{0,120}?\bfunc\s+(\w+)/g, m => m[1] || m[2] || m[3]],
+            dart: [/\b(?:test|testWidgets)\s*\(\s*(["'])(.+?)\1/g, m => m[2]],
+            lua: [/\bit\s*\(\s*(["'])(.+?)\1/g, m => m[2]],
+            jl: [/@testset\s+"(.+?)"/g, m => m[1]],
+            ex: [/^\s*test\s+"(.+?)"/gm, m => m[1]],
+            hs: [/\bit\s+"(.+?)"/g, m => m[1]],
+            objc: [/-\s*\(void\)\s*(test\w*)/g, m => m[1]],
+            sh: [/@test\s+["'](.+?)["']/g, m => m[1]]
         }[lang];
         let m;
         if (RE) while ((m = RE[0].exec(f.text))) {
@@ -1465,7 +1642,8 @@ function extractGraph(files, opts) {
     };
     const tomlKeys = (block) => (block.match(/^\s*([\w.-]+)\s*=/gm) || []).map(x => x.replace(/\s*=$/, "").trim());
     const reqName = (s) => s.trim().replace(/^["']|["']$/g, "").split(/[\s<>=!~;\[@]/)[0];
-    for (const f of files) {
+    const late = /^(Gemfile|requirements[\w.-]*\.txt|setup\.py)$/; // generic manifests after the ones that name the package
+    for (const f of [...files].sort((a, b) => late.test(a.path.split("/").pop()) - late.test(b.path.split("/").pop()))) {
         const dir = dirname(f.path), base = f.path.split("/").pop(), t = f.text, dname = dir.split("/").pop() || null;
         try {
             if (base === "package.json") {
@@ -1508,8 +1686,47 @@ function extractGraph(files, opts) {
             } else if (base === "composer.json") {
                 const j = JSON.parse(t);
                 pkg(dir, (j.name || dname || "app").split("/").pop(), j.bin ? "executable" : "library", Object.keys(j.require || {}).map(k => k.split("/").pop()));
-            } else if (base === "Gemfile" || /\.gemspec$/.test(base)) {
-                const name = (/\.name\s*=\s*["']([^"']+)/.exec(t) || [])[1] || (base === "Gemfile" ? dname || "app" : base.replace(/\.gemspec$/, ""));
+            } else if (base === "build.zig.zon") {
+                const name = (/\.name\s*=\s*(?:\.@?"?|")([\w-]+)/.exec(t) || [])[1] || dname || "app";
+                const dep = (/\.dependencies\s*=\s*\.\{([\s\S]*?)\n\s*\},?\s*\n\s*\.(?!\w+\s*=\s*\.\{)/.exec(t) || /\.dependencies\s*=\s*\.\{([\s\S]*)/.exec(t) || [])[1] || "";
+                pkg(dir, name, byPath.has((dir ? dir + "/" : "") + "src/main.zig") ? "executable" : "library", [...dep.matchAll(/^\s*\.(@?"?[\w-]+"?)\s*=\s*\.\{/gm)].map(m => m[1].replace(/[@"]/g, "")));
+            } else if (base === "Package.swift") {
+                const name = (/\bname\s*:\s*"([^"]+)"/.exec(t) || [])[1] || dname || "app";
+                const deps = [...t.matchAll(/\.package\s*\(\s*(?:name\s*:\s*"([^"]+)"[^)]*|url\s*:\s*"[^"]*\/([\w.-]+?)(?:\.git)?")/g)].map(m => m[1] || m[2]);
+                pkg(dir, name, /\.executableTarget|\.executable\s*\(/.test(t) ? "executable" : "library", deps);
+            } else if (base === "pubspec.yaml") {
+                const name = (/^name:\s*(\S+)/m.exec(t) || [])[1] || dname || "app";
+                const block = (/^dependencies:\s*\n((?:[ \t]+.*\n?|\s*\n)*)/m.exec(t) || [])[1] || "";
+                pkg(dir, name, byPath.has((dir ? dir + "/" : "") + "lib/main.dart") || /^executables:/m.test(t) ? "executable" : "library", [...block.matchAll(/^[ \t]{2}(\w+):/gm)].map(m => m[1]).filter(d => !/^(flutter|sdk)$/.test(d)));
+            } else if (/\.rockspec$/.test(base)) {
+                const name = (/\bpackage\s*=\s*["']([^"']+)/.exec(t) || [])[1] || dname || "app";
+                const arr = (/\bdependencies\s*=\s*\{([\s\S]*?)\}/.exec(t) || [])[1] || "";
+                pkg(dir, name, "library", (arr.match(/["'][^"']+["']/g) || []).map(s => s.slice(1).split(/[\s<>=~]/)[0]).filter(d => d !== "lua"));
+            } else if (base === "mix.exs") {
+                const name = (/\bapp:\s*:(\w+)/.exec(t) || [])[1] || dname || "app";
+                pkg(dir, name, /\bmod:\s*\{/.test(t) || /escript/.test(t) ? "executable" : "library", [...t.matchAll(/\{\s*:(\w+)\s*,/g)].map(m => m[1]));
+            } else if (/\.cabal$/.test(base)) {
+                const name = (/^name:\s*(\S+)/mi.exec(t) || [])[1] || base.replace(/\.cabal$/, "");
+                const deps = [...t.matchAll(/build-depends:\s*([\s\S]*?)(?=\n\s*[\w-]+:|\n\S|$)/gi)].flatMap(m => m[1].split(",").map(d => d.trim().split(/[\s<>=^]/)[0])).filter(d => d && d !== "base" && d !== name);
+                pkg(dir, name, /^executable\s/mi.test(t) ? "executable" : "library", [...new Set(deps)]);
+            } else if (base === "Project.toml" && /\.jl$/.test(paths.find(p => p.startsWith(dir ? dir + "/" : "")) || ".jl") ) {
+                const name = (/^\s*name\s*=\s*"([^"]+)"/m.exec(t) || [])[1] || dname || "app";
+                pkg(dir, name, "library", tomlKeys(tomlTable(t, "deps")));
+            } else if (base === "meson.build") { // C / C++ with Meson: executables / libraries, their sources, dependency('x')
+                const name = (/\bproject\s*\(\s*'([^']+)'/.exec(t) || [])[1];
+                if (name && !dir) pkg(dir, name, "library", []);
+                const vars = {};
+                for (const m of t.matchAll(/^\s*(\w+)\s*=\s*(?:files\s*\()?\[?([^\n\]]*(?:\n[^\n\]]*)*?)\]?\)?\s*$/gm)) vars[m[1]] = (m[2].match(/'([^']+\.(?:c|cc|cpp|cxx|m|mm))'/g) || []).map(s => s.slice(1, -1));
+                for (const m of t.matchAll(/\b(executable|library|shared_library|static_library|both_libraries)\s*\(\s*'([^']+)'([\s\S]*?)\)\s*\n/g)) {
+                    const id = "target:" + m[2];
+                    node(id, m[1] === "executable" ? "executable" : "library", m[2], {group: "build"});
+                    const srcs = (m[3].match(/'([^']+\.(?:c|cc|cpp|cxx|m|mm))'/g) || []).map(s => s.slice(1, -1)).concat(...(m[3].match(/\b\w+\b/g) || []).map(v => vars[v] || []));
+                    for (const s of srcs) { const pth = normalize((dir ? dir + "/" : "") + s); if (byPath.has(pth)) link("file:" + pth, id, "compiled-into"); }
+                    for (const d of m[3].matchAll(/\bdependency\s*\(\s*'([^']+)'/g)) { const x = ext(d[1]); if (x) link(id, x, "links"); }
+                }
+                for (const d of t.matchAll(/(\w+)\s*=\s*dependency\s*\(\s*'([^']+)'/g)) for (const m of t.matchAll(new RegExp("\\b(?:executable|library|shared_library|static_library)\\s*\\(\\s*'([^']+)'[^)]*\\b" + d[1] + "\\b", "g"))) { const x = ext(d[2]); if (x) link("target:" + m[1], x, "links"); }
+            } else if (base === "Gemfile" || /\.(gemspec|podspec)$/.test(base)) {
+                const name = (/\.name\s*=\s*["']([^"']+)/.exec(t) || [])[1] || (base === "Gemfile" ? dname || "app" : base.replace(/\.(gemspec|podspec)$/, ""));
                 const deps = [...t.matchAll(/^\s*(?:gem|\w+\.add(?:_runtime)?_dependency)\s*\(?\s*["']([^"']+)["']/gm)].map(m => m[1]);
                 const own = pkgs.find(p => p.dir === dir);
                 if (own) for (const d of deps) link(own.id, ext(d), "links"); else pkg(dir, name, base === "Gemfile" ? "executable" : "library", deps);
@@ -1547,10 +1764,10 @@ function extractGraph(files, opts) {
 }
 // Files read by the extractor (build_graph.mjs and the update of the page use the same filter)
 extractGraph.wanted = function (p) {
-    if (/(^|\/)(build|_deps|third_party|vendor|external|\.git|docs|node_modules|dist|out|target|venv|\.venv|env|__pycache__|\.next|\.nuxt|\.svelte-kit|\.output|coverage|site-packages|bin|obj|\.idea|\.vscode|\.gradle|\.mypy_cache|\.pytest_cache|\.tox|Pods|DerivedData)\//.test(p)) return false;
+    if (/(^|\/)(build|_deps|third_party|vendor|external|\.git|docs|node_modules|dist|out|target|venv|\.venv|env|__pycache__|\.next|\.nuxt|\.svelte-kit|\.output|coverage|site-packages|bin|obj|\.idea|\.vscode|\.gradle|\.mypy_cache|\.pytest_cache|\.tox|Pods|DerivedData|\.build|\.dart_tool|_build|deps|\.stack-work|dist-newstyle|zig-cache|\.zig-cache|zig-out|Carthage|\.pub-cache)\//.test(p)) return false;
     if (/\.min\.(js|css)$|\.bundle\.js$|\.d\.ts\.map$/.test(p)) return false;
-    return /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c|pyi?|m?js|cjs|jsx|ts|tsx|mts|cts|vue|svelte|java|kt|kts|scala|groovy|cs|go|rs|php|rb|html?|css|scss|sass|less)$/.test(p) ||
-        /(^|\/)(CMakeLists\.txt|package\.json|pyproject\.toml|setup\.py|requirements[\w.-]*\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|composer\.json|Gemfile|[^/]+\.gemspec|[^/]+\.csproj)$/.test(p);
+    return /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c|pyi?|m?js|cjs|jsx|ts|tsx|mts|cts|vue|svelte|java|kt|kts|scala|groovy|cs|go|rs|php|rb|html?|css|scss|sass|less|zig|swift|dart|lua|jl|exs?|l?hs|mm?|sh|bash|zsh)$/.test(p) ||
+        /(^|\/)(CMakeLists\.txt|package\.json|pyproject\.toml|setup\.py|requirements[\w.-]*\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|composer\.json|Gemfile|[^/]+\.gemspec|[^/]+\.podspec|[^/]+\.csproj|build\.zig\.zon|Package\.swift|pubspec\.yaml|[^/]+\.rockspec|mix\.exs|[^/]+\.cabal|Project\.toml|meson\.build)$/.test(p);
 };
 // </extractor>
 
