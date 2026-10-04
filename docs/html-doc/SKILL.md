@@ -191,14 +191,39 @@ node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/gr
 Only when the project is a git repository (`git rev-parse --is-inside-work-tree`): ask (AskUserQuestion, French)
 **"Publier la documentation sur la branche `gh-pages` ?"** - `Oui, commit + push` · `Oui, commit local seulement` ·
 `Non (garder docs/ seulement)`. If yes:
-- work in a temporary worktree of `gh-pages` (`git worktree add <tmp> gh-pages`, or `--orphan gh-pages` when it
-  doesn't exist), copy the pages of `docs/` at its root (or in a sub-folder when the root is used: ask), **never
-  delete the other files of the branch** (packages mirror, `.repo`, workflows of libutils/context-forge live there),
-  commit with `git-conventions` (`docs(pages): update the documentation (<short sha of main>)`), push only with
-  the "commit + push" answer, then remove the worktree.
+- **The Pages URL must open the documentation directly**: `https://<owner>.github.io/<repo>/` serves the `index.html`
+  at the root of `gh-pages`; pages left only in a sub-folder are never reached by default (404 or the mirror
+  listing). Look at the root of the branch first (`git ls-tree --name-only gh-pages`), then ask (AskUserQuestion,
+  French) **"Où placer la documentation sur `gh-pages` ?"**:
+  - `Dans docs/ + index à la racine qui redirige (Recommandé)`: pages in `docs/`, plus a root `index.html`
+    redirecting to `docs/` (URL of the doc: `.../<repo>/docs/`, the root link works too);
+  - `À la racine`: pages copied at the root of the branch (URL `.../<repo>/`); not possible when another root
+    `index.html` / `technical.html` / `graph.html` exists that isn't the doc: say so and propose the first choice;
+  - `Toujours dans docs/ (sans redirection)`: pages in `docs/` only, the root link does not lead to them (give
+    the `.../<repo>/docs/` URL and add it to the README).
+  Remember the answer for the project: next publications reuse the same layout without asking again (the layout
+  already on the branch tells it: `docs/` + redirect, root pages, or `docs/` alone).
+- Root redirect (`index.html`, only when the root has no other `index.html`; an existing one that isn't a redirect
+  is never overwritten: ask):
+  ```html
+  <!DOCTYPE html>
+  <html lang="en"><head><meta charset="utf-8"><title>{{PROJECT}} documentation</title>
+  <meta http-equiv="refresh" content="0; url=docs/">
+  <link rel="canonical" href="docs/">
+  <script>location.replace("docs/" + location.search + location.hash);</script>
+  </head><body><a href="docs/">{{PROJECT}} documentation</a></body></html>
+  ```
+- Add an empty `.nojekyll` at the root of the branch when missing (files served as they are).
+- Work in a temporary worktree of `gh-pages` (`git worktree add <tmp> gh-pages`, or `--orphan gh-pages` when it
+  doesn't exist), copy the pages of `docs/` to the chosen place, **never delete the other files of the branch**
+  (packages mirror, `.repo`, workflows of libutils/context-forge live there), commit with `git-conventions`
+  (`docs(pages): update the documentation (<short sha of main>)`), push only with the "commit + push" answer, then
+  remove the worktree.
 - GitHub Pages not enabled yet (`gh api repos/<o>/<r>/pages` -> 404): propose
-  `gh api -X POST repos/<o>/<r>/pages -f "source[branch]=gh-pages" -f "source[path]=/"` and give the URL
-  `https://<owner>.github.io/<repo>/`.
+  `gh api -X POST repos/<o>/<r>/pages -f "source[branch]=gh-pages" -f "source[path]=/"` (always the root of the
+  branch, the layout above decides where the doc sits). Give the URL that opens the doc
+  (`https://<owner>.github.io/<repo>/`, or `.../<repo>/docs/` without redirect) and check it once deployed
+  (`gh api repos/<o>/<r>/pages/builds/latest`, then a `HEAD` request on the URL).
 
 ## 5. Graph explorer (any public repository)
 `scripts/build_explorer.mjs --out graph.html` builds the graph page without embedded project: at the first visit it
