@@ -641,7 +641,8 @@ window.DOC_FR = {
   "Unsupported link: a GitHub (owner/repo, github.com/...) or GitLab (gitlab.com/..., a self-hosted GitLab) repository.": "Lien non pris en charge : un dépôt GitHub (owner/repo, github.com/...) ou GitLab (gitlab.com/..., un GitLab auto-hébergé).",
   "Choose a repository to explore.": "Choisis un dépôt à explorer.",
   "GitLab API rate limit reached": "Limite de l'API GitLab atteinte",
-  "The link is remembered by this browser until Ctrl + Shift + R (forgets it and reloads the page).": "Le lien est mémorisé par ce navigateur jusqu'à Ctrl + Maj + R (l'oublie et recharge la page)."
+  "The link is remembered by this browser until Ctrl + Shift + R (forgets it and reloads the page).": "Le lien est mémorisé par ce navigateur jusqu'à Ctrl + Maj + R (l'oublie et recharge la page).",
+  "API limit reached, pause…": "Limite de l'API atteinte, pause…"
 };
 </script>
 <script>
@@ -1844,6 +1845,8 @@ extractGraph.wanted = function (p) {
         inherits: ["#8e6cf0", "inherits"], implements: ["#2fa36b", "implements"], "compiled-into": ["#f07a3a", "compiled into"],
         links: ["#e5484d", "links"], tests: ["#d9822b", "tests"], calls: ["#3fb8a9", "calls"]
     };
+    const KIND_INDEX = {}; // relation kind -> small integer (keys of the batches)
+    Object.keys(LINKS).forEach((k, i) => { KIND_INDEX[k] = i; });
     const PRESETS = {
         overview: [["header", "source", "page", "class", "struct", "interface", "abstract", "enum", "function", "executable", "library", "external"], ["includes", "inherits", "defines", "compiled-into", "links"]],
         files: [["header", "source", "test-file", "page", "style", "external"], ["includes"]],
@@ -1862,7 +1865,7 @@ extractGraph.wanted = function (p) {
         kinds: new Set(PRESETS.overview[0]), linkKinds: new Set(PRESETS.overview[1]), groups: new Set(), knownGroups: new Set(),
         mode: "2d", colorBy: "kind", cluster: false, labels: true, particles: false, isolate: false, search: "",
         visible: [], vlinks: [], neighbors: new Map(), selected: null, hover: null,
-        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: VIEW.yaw, pitch: VIEW.pitch, dist: 600}, style3d: "real", flowSel: new Set(), lock: null, flowView: "exec", flowRoot: null, flamePath: [], flow: null, flowHit: null, cams: {}, w: 0, h: 0, dpr: 1, colors: {}
+        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: VIEW.yaw, pitch: VIEW.pitch, dist: 600}, style3d: "real", layoutV: 0, flowSel: new Set(), lock: null, flowView: "exec", flowRoot: null, flamePath: [], flow: null, flowHit: null, cams: {}, w: 0, h: 0, dpr: 1, colors: {}
     };
 
     window.graphState = state;
@@ -1998,46 +2001,59 @@ extractGraph.wanted = function (p) {
     // ---------- Simulation ---------- //
     // Barnes-Hut repulsion: an octree (quadtree in 2D) of the nodes, a far cell acts as one body at its center of mass.
     // Same force as the exact loop (strength / d², cut at 500, collision of the close pairs), approximated for the far cells.
+    // Flat typed arrays (no object per cell): fast enough for ~10 000 nodes.
+    const BH = {cap: 0};
+    function bhAlloc(n) {
+        if (BH.cap >= n) return;
+        BH.cap = n;
+        for (const k of ["cx", "cy", "cz", "h", "m", "mx", "my", "mz"]) BH[k] = new Float64Array(n);
+        BH.body = new Int32Array(n); BH.kids = new Int32Array(n * 8); BH.stack = new Int32Array(n);
+    }
     function repulseTree(P, R, strength, d3) {
+        const N = P.length, K = d3 ? 8 : 4;
+        bhAlloc(N * 10 + 64);
+        const {cx, cy, cz, h, m, mx, my, mz, body, kids, stack} = BH, cap = BH.cap - 9;
         let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
-        for (const p of P) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); if (d3) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } }
+        for (const p of P) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; if (d3) { if (p.z < z0) z0 = p.z; if (p.z > z1) z1 = p.z; } }
         if (!d3) { z0 = 0; z1 = 0; }
-        const half = Math.max(x1 - x0, y1 - y0, z1 - z0, 1) / 2 + 1;
-        const cell = (cx, cy, cz, h) => ({cx, cy, cz, h, m: 0, mx: 0, my: 0, mz: 0, body: -1, kids: null});
-        const root = cell((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, half);
-        const child = (c, p) => (p.x > c.cx ? 1 : 0) + (p.y > c.cy ? 2 : 0) + (d3 && p.z > c.cz ? 4 : 0);
+        let used = 0;
+        const cell = (x, y, z, hh) => { const c = used++; cx[c] = x; cy[c] = y; cz[c] = z; h[c] = hh; m[c] = 0; mx[c] = 0; my[c] = 0; mz[c] = 0; body[c] = -1; kids.fill(-1, c * 8, c * 8 + 8); kids[c * 8] = -2; return c; }; // kids[c*8] = -2: leaf
+        const root = cell((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, Math.max(x1 - x0, y1 - y0, z1 - z0, 1) / 2 + 1);
+        const childOf = (c, p) => {
+            const k = (p.x > cx[c] ? 1 : 0) + (p.y > cy[c] ? 2 : 0) + (d3 && p.z > cz[c] ? 4 : 0);
+            let ch = kids[c * 8 + k];
+            if (ch < 0) { const hh = h[c] / 2; ch = cell(cx[c] + (k & 1 ? hh : -hh), cy[c] + (k & 2 ? hh : -hh), cz[c] + (k & 4 ? hh : -hh), hh); kids[c * 8 + k] = ch; }
+            return ch;
+        };
         const insert = (c, i, depth) => {
             const p = P[i];
-            c.m++; c.mx += p.x; c.my += p.y; c.mz += d3 ? p.z : 0;
-            if (!c.kids && c.body < 0 && c.m === 1) { c.body = i; return; }
-            if (depth > 40) return; // same position: kept in the mass only
-            if (!c.kids) {
-                c.kids = new Array(d3 ? 8 : 4).fill(null);
-                const old = c.body; c.body = -1;
-                if (old >= 0) put(c, old, depth);
+            m[c]++; mx[c] += p.x; my[c] += p.y; mz[c] += d3 ? p.z : 0;
+            if (kids[c * 8] === -2) { // leaf
+                if (body[c] < 0 && m[c] === 1) { body[c] = i; return; }
+                if (depth > 40 || used >= cap) return; // same position / no room: kept in the mass only
+                const old = body[c]; body[c] = -1; kids[c * 8] = -1; // becomes an inner cell
+                if (old >= 0) insert(childOf(c, P[old]), old, depth + 1);
             }
-            put(c, i, depth);
+            insert(childOf(c, p), i, depth + 1);
         };
-        const put = (c, i, depth) => {
-            const k = child(c, P[i]), h = c.h / 2;
-            if (!c.kids[k]) c.kids[k] = cell(c.cx + (k & 1 ? h : -h), c.cy + (k & 2 ? h : -h), c.cz + (k & 4 ? h : -h), h);
-            insert(c.kids[k], i, depth + 1);
-        };
-        for (let i = 0; i < P.length; i++) insert(root, i, 0);
-        const THETA2 = 0.81, stack = [];
-        for (let i = 0; i < P.length; i++) {
+        for (let i = 0; i < N; i++) insert(root, i, 0);
+        const THETA2 = N > 3000 ? 1.44 : 0.81; // coarser on the very big graphs
+        for (let i = 0; i < N; i++) {
             const p = P[i];
-            stack.length = 0; stack.push(root);
-            while (stack.length) {
-                const c = stack.pop();
-                if (!c.m || (c.body === i && !c.kids)) continue;
-                const mx = c.mx / c.m, my = c.my / c.m, mz = c.mz / c.m;
-                let dx = p.x - mx, dy = p.y - my, dz = d3 ? p.z - mz : 0, d2 = dx * dx + dy * dy + dz * dz;
-                const size = c.h * 2;
-                if (c.kids && size * size >= THETA2 * d2) { for (const k of c.kids) if (k) stack.push(k); continue; }
-                if (d2 > 250000 + size * size) continue; // beyond the cut of the exact loop
-                if (!c.kids && c.body >= 0) { // a single node: exact force + collision
-                    const j = c.body;
+            let sp = 0; stack[sp++] = root;
+            while (sp) {
+                const c = stack[--sp];
+                if (!m[c]) continue;
+                const leaf = kids[c * 8] === -2;
+                if (leaf && body[c] === i) continue;
+                const ox = Math.max(0, Math.abs(p.x - cx[c]) - h[c]), oy = Math.max(0, Math.abs(p.y - cy[c]) - h[c]), oz = d3 ? Math.max(0, Math.abs(p.z - cz[c]) - h[c]) : 0;
+                if (ox * ox + oy * oy + oz * oz > 250000) continue; // the whole cell is beyond the cut (500)
+                const gx = mx[c] / m[c], gy = my[c] / m[c], gz = mz[c] / m[c];
+                let dx = p.x - gx, dy = p.y - gy, dz = d3 ? p.z - gz : 0, d2 = dx * dx + dy * dy + dz * dz;
+                const size = h[c] * 2;
+                if (!leaf && size * size >= THETA2 * d2) { for (let k = 0; k < K; k++) { const ch = kids[c * 8 + k]; if (ch >= 0) stack[sp++] = ch; } continue; }
+                if (leaf && body[c] >= 0 && m[c] === 1) { // a single node: exact force + collision
+                    const j = body[c];
                     if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
                     if (d2 < 25) d2 = 25;
                     let f = strength / d2;
@@ -2047,14 +2063,14 @@ extractGraph.wanted = function (p) {
                     continue;
                 }
                 if (d2 < 25) d2 = 25;
-                const f = strength * c.m / d2; // far cell: one body of mass m
+                const f = strength * m[c] / d2; // far cell: one body of mass m
                 p.vx += dx * f; p.vy += dy * f; if (d3) p.vz += dz * f;
             }
         }
     }
     function tick() {
         const nodes = state.visible, n = nodes.length;
-        if (!n || state.paused || state.alpha < 0.004 || state.mode === "flow") return false;
+        if (!n || state.paused || state.alpha < 0.004 || state.mode === "flow" || bigSim()) return false; // big graphs: in the worker
         const a = state.alpha, d3 = state.mode === "3d";
         const P = nodes.map(x => state.pos.get(x.id));
         const strength = LAYOUT.repulsion * a, R = nodes.map(radiusOf);
@@ -2075,15 +2091,20 @@ extractGraph.wanted = function (p) {
                 if (d3) { p.vz += dz * f; q.vz -= dz * f; }
             }
         }
-        for (const l of state.vlinks) {
-            const p = state.pos.get(l.source), q = state.pos.get(l.target);
-            const ns = state.byId.get(l.source), nt = state.byId.get(l.target);
-            const len = l.kind === "member" || l.kind === "defines" ? LAYOUT.linkShort : LAYOUT.link;
+        if (!state.springs || state.springs.src !== state.vlinks) { // relations prepared once per filter: positions, length, strength, bias
+            state.springs = state.vlinks.map(l => {
+                const ns = state.byId.get(l.source), nt = state.byId.get(l.target);
+                return {p: state.pos.get(l.source), q: state.pos.get(l.target), len: l.kind === "member" || l.kind === "defines" ? LAYOUT.linkShort : LAYOUT.link,
+                    w: 0.7 / Math.max(1, Math.min(ns.degree, nt.degree)), bias: (ns.degree || 1) / ((ns.degree || 1) + (nt.degree || 1))};
+            });
+            state.springs.src = state.vlinks;
+        }
+        for (const sp of state.springs) {
+            const p = sp.p, q = sp.q;
             const dx = q.x - p.x, dy = q.y - p.y, dz = d3 ? q.z - p.z : 0;
             const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
             // d3-like: strength 1 / min(degree), the node with the lowest degree moves the most
-            const k = (d - len) / d * a * 0.7 / Math.max(1, Math.min(ns.degree, nt.degree));
-            const bias = (ns.degree || 1) / ((ns.degree || 1) + (nt.degree || 1));
+            const k = (d - sp.len) / d * a * sp.w, bias = sp.bias;
             q.vx -= dx * k * bias; q.vy -= dy * k * bias; p.vx += dx * k * (1 - bias); p.vy += dy * k * (1 - bias);
             if (d3) { q.vz -= dz * k * bias; p.vz += dz * k * (1 - bias); }
         }
@@ -2103,7 +2124,8 @@ extractGraph.wanted = function (p) {
             p.x += p.vx - cx * 0.02; p.y += p.vy - cy * 0.02;
             p.z = d3 ? p.z + p.vz - cz * 0.02 : p.z * 0.9;
         }
-        state.alpha *= 0.985;
+        state.alpha *= n > 3000 ? 0.97 : 0.985; // the very big graphs settle faster
+        state.layoutV++;
         return true;
     }
 
@@ -2200,12 +2222,12 @@ extractGraph.wanted = function (p) {
         try { return f(); } finally { c.yaw = y; c.pitch = p; }
     }
     function snapSprites() { // the sprites are drawn for the camera angle snapped to ~1.5°: rebuilt only when it changes
-        const Q = 0.026, qy = Math.round(state.cam.yaw / Q), qp = Math.round(state.cam.pitch / Q), key = qy + "," + qp + "," + state.dpr;
+        const Q = 0.026, qy = Math.round(state.cam.yaw / Q), qp = Math.round(state.cam.pitch / Q), key = qy + "," + qp + "," + state.dpr + "," + state.colors.bg; // + the theme (fog colour)
         if (SPRITES.key !== key) { SPRITES.key = key; SPRITES.map.clear(); SPRITES.real.clear(); SPRITES.yaw = qy * Q; SPRITES.pitch = qp * Q; }
     }
-    function realSprite(color, r) { // realistic node: the shaded sphere (scene light) drawn once per colour / size / angle
+    function realSprite(color, r, fog) { // realistic node: the shaded sphere (scene light) drawn once per colour / size / angle (/ fog)
         snapSprites();
-        const R = [8, 16, 32, 64, 128, 256].find(x => x >= r) || 256, id = color + "|" + R;
+        const R = [8, 16, 32, 64, 128, 256].find(x => x >= r) || 256, id = color + "|" + R + "|" + (fog || 0);
         let cv = SPRITES.real.get(id);
         if (cv) return cv;
         cv = document.createElement("canvas");
@@ -2218,6 +2240,7 @@ extractGraph.wanted = function (p) {
         hl.addColorStop(0, "rgba(255,255,255," + (0.25 + 0.5 * front).toFixed(2) + ")"); hl.addColorStop(0.25, "rgba(255,255,255,.1)");
         hl.addColorStop(0.55, "rgba(0,0,0,0)"); hl.addColorStop(1, "rgba(0,0,0,.55)");
         g.fillStyle = hl; g.fill();
+        if (fog) { g.globalAlpha = fog / 10; g.fillStyle = state.colors.bg; g.fill(); } // fog baked (big graphs)
         cv.R = R;
         SPRITES.real.set(id, cv);
         return cv;
@@ -2259,11 +2282,15 @@ extractGraph.wanted = function (p) {
     function drawFloor(C) {
         const nodes = state.visible;
         if (!nodes.length) return;
-        let y1 = -Infinity, mx = 0, mz = 0;
-        for (const n of nodes) { const p = state.pos.get(n.id); y1 = Math.max(y1, p.y); mx += p.x; mz += p.z; }
-        mx /= nodes.length; mz /= nodes.length;
-        const ds = nodes.map(n => { const p = state.pos.get(n.id); return Math.hypot(p.x - mx, p.z - mz); }).sort((a, b) => a - b);
-        const r = ds[Math.floor(ds.length * 0.9)] || 1; // ignore the far isolated nodes
+        bounds(); // (validates the cache of the layout)
+        if (!BCACHE.f) {
+            let y1 = -Infinity, mx = 0, mz = 0;
+            for (const n of nodes) { const p = state.pos.get(n.id); y1 = Math.max(y1, p.y); mx += p.x; mz += p.z; }
+            mx /= nodes.length; mz /= nodes.length;
+            const ds = nodes.map(n => { const p = state.pos.get(n.id); return Math.hypot(p.x - mx, p.z - mz); }).sort((a, b) => a - b);
+            BCACHE.f = {y1, mx, mz, r: ds[Math.floor(ds.length * 0.9)] || 1}; // r: ignores the far isolated nodes
+        }
+        const {y1, r} = BCACHE.f;
         const floor = y1 + 40, step = Math.max(20, Math.round(r / 4 / 10) * 10), ext = Math.ceil(r * 1.4 / step) * step;
         // Centered on the camera target (snapped to the grid): the floor follows a move, like an endless plane
         const gx = Math.round(state.cam.x / step) * step, gz = Math.round(state.cam.z / step) * step;
@@ -2286,13 +2313,18 @@ extractGraph.wanted = function (p) {
     // ---------- Limits of the space ---------- //
     // 3D: a box around the nodes (margin M, the floor is its bottom) that the camera can't leave; its walls fade in
     // near the camera. 2D: the center of the view stays near the graph and the zoom out keeps it readable.
+    const BCACHE = {v: -1, vis: null, b: null, f: null}; // bounds / floor of the layout, recomputed only when the positions change
     function bounds() {
         const nodes = state.visible;
         if (!nodes.length) return null;
+        if (BCACHE.v === state.layoutV && BCACHE.vis === nodes && BCACHE.b) return BCACHE.b;
         const lo = {x: Infinity, y: Infinity, z: Infinity}, hi = {x: -Infinity, y: -Infinity, z: -Infinity};
         for (const n of nodes) { const p = state.pos.get(n.id); for (const a of ["x", "y", "z"]) { lo[a] = Math.min(lo[a], p[a]); hi[a] = Math.max(hi[a], p[a]); } }
         const size = Math.max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, 100), M = Math.max(300, size * 1.3); // the fitted camera is inside
-        return {lo: {x: lo.x - M, y: lo.y - M, z: lo.z - M}, hi: {x: hi.x + M, y: hi.y + 40 - 6, z: hi.z + M}, M, raw: {lo, hi}}; // bottom: just above the floor
+        BCACHE.b = {lo: {x: lo.x - M, y: lo.y - M, z: lo.z - M}, hi: {x: hi.x + M, y: hi.y + 40 - 6, z: hi.z + M}, M, raw: {lo, hi}}; // bottom: just above the floor
+        if (BCACHE.v !== state.layoutV || BCACHE.vis !== nodes) BCACHE.f = null;
+        BCACHE.v = state.layoutV; BCACHE.vis = nodes;
+        return BCACHE.b;
     }
     function camPos() { const c = state.cam, b = unrotateDir(0, 0, -c.dist); return {x: c.x + b.x, y: c.y + b.y, z: c.z + b.z}; }
     function clampCam() { // keep the camera (3D) / the view center and zoom (2D) inside the limits; true when moved
@@ -2390,7 +2422,17 @@ extractGraph.wanted = function (p) {
         ctx.clearRect(0, 0, state.w, state.h);
         if (state.mode === "flow") { drawFlow(C); return; }
         const proj = new Map();
-        for (const n of state.visible) proj.set(n.id, project(state.pos.get(n.id)));
+        const d3p = state.mode === "3d";
+        // Big graphs (> 2000 nodes) while the view or the layout moves: light drawing (square nodes, no arrow heads, few
+        // names); the full drawing comes back as soon as the view is still (state.lod is read by frame())
+        const lod = state.visible.length > 2000 && (performance.now() - (state.moveT || 0) < 160 || (state.alpha >= 0.05 && !state.paused)); // the end of the layout (small moves) is drawn in full
+        state.lod = lod;
+        for (const n of state.visible) { // projection + drawn radius, once per node and per frame
+            const q = project(state.pos.get(n.id));
+            q.r = Math.max(1.5, radiusOf(n) * (d3p ? q.s : NODE_2D * Math.sqrt(q.s)));
+            q.n = n;
+            proj.set(n.id, q);
+        }
         const d3 = state.mode === "3d";
         let z0 = Infinity, z1 = -Infinity;
         const real = d3 && state.style3d !== "tech"; // technical style: flat nodes, arrows, no light / fog / floor
@@ -2407,7 +2449,7 @@ extractGraph.wanted = function (p) {
         const lhMatch = (id) => { const n = state.byId.get(id); return lh.type === "kind" ? n.kind === lh.key : lh.type === "group" ? n.group === lh.key : lhNodes.has(id); };
         const dim = (id) => (near && id !== focus && !near.has(id)) || (state.match && !state.match.has(id)) || (lh && !focus && !lhMatch(id));
         ctx.lineWidth = 1;
-        const drawnR = (n, q) => Math.max(1.5, radiusOf(n) * (d3 ? q.s : NODE_2D * Math.sqrt(q.s))); // radius as drawn below
+        const drawnR = (n, q) => q.r !== undefined ? q.r : Math.max(1.5, radiusOf(n) * (d3 ? q.s : NODE_2D * Math.sqrt(q.s))); // radius as drawn below
         const ring = (id) => id === state.selected || id === state.hover ? 1.5 : 0.5; // accent ring of the focused node
         const ends = (l) => { // screen ends of a relation, outside the nodes (on their border); null when nothing to draw
             let a = proj.get(l.source), b = proj.get(l.target), ca = false, cb = false;
@@ -2416,18 +2458,18 @@ extractGraph.wanted = function (p) {
                 if (a.behind) { a = clipNear(a, b); ca = true; } else { b = clipNear(b, a); cb = true; }
             }
             const len = Math.hypot(b.x - a.x, b.y - a.y);
-            const ra = ca ? 0 : drawnR(state.byId.get(l.source), a) + ring(l.source), rb = cb ? 0 : drawnR(state.byId.get(l.target), b) + ring(l.target);
+            const ra = ca ? 0 : a.r + ring(l.source), rb = cb ? 0 : b.r + ring(l.target);
             if (len <= ra + rb) return null; // the nodes overlap
             const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
             return {a, b, ux, uy, cb, len: len - ra - rb, x0: a.x + ux * ra, y0: a.y + uy * ra, x1: b.x - ux * rb, y1: b.y - uy * rb};
         };
-        for (const l of state.vlinks) {
-            const e = ends(l);
-            if (!e) continue;
+        // Big graphs (> 2500 relations): the plain relations are batched by colour / opacity / width (one path per batch),
+        // the highlighted ones drawn after, on top; the smaller graphs keep the exact drawing, one relation at a time
+        const bigL = state.vlinks.length > 2500, batches = new Map(), later = [];
+        let lodLinks = 0; // relations drawn while the view moves (big graphs)
+        let heads = 0; // arrow heads of the batches: a big fill of tiny triangles is the slowest part of the canvas
+        const drawOne = (l, e, hot, lit, fog) => {
             const a = e.a, b = e.b;
-            const hot = focus && (l.source === focus || l.target === focus);
-            const lit = lh && !focus && (lh.type === "link" ? l.kind === lh.key : lhMatch(l.source) && lhMatch(l.target));
-            const fog = 1 - 0.75 * depth((a.z + b.z) / 2);
             ctx.globalAlpha = (hot || lit ? 0.95 : (focus || state.match || lh ? 0.07 : real ? 0.4 : d3 ? 0.45 : 0.35)) * (hot ? 1 : fog);
             ctx.strokeStyle = hot ? C.accent : LINKS[l.kind][0];
             ctx.lineWidth = (hot ? 1.6 : lit ? 2 : 1) * (real ? Math.min(2.2, Math.max(0.5, (a.s + b.s) / 2)) : 1);
@@ -2448,7 +2490,39 @@ extractGraph.wanted = function (p) {
                     ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(lx, ly); ctx.lineTo(rx, ry); ctx.fill();
                 }
             }
+        };
+        for (const l of state.vlinks) {
+            const e = ends(l);
+            if (!e) continue;
+            if (Math.max(e.x0, e.x1) < 0 || Math.min(e.x0, e.x1) > state.w || Math.max(e.y0, e.y1) < 0 || Math.min(e.y0, e.y1) > state.h) continue; // off screen
+            if (bigL && e.len < 3 && !(focus && (l.source === focus || l.target === focus))) continue; // big graphs: a relation of < 3 px is hidden by its nodes
+            if (lod && !(focus && (l.source === focus || l.target === focus)) && (e.len < 8 || ++lodLinks > 8000)) continue; // moving: a part of the relations
+            const hot = focus && (l.source === focus || l.target === focus);
+            const lit = lh && !focus && (lh.type === "link" ? l.kind === lh.key : lhMatch(l.source) && lhMatch(l.target));
+            const fog = 1 - 0.75 * depth((e.a.z + e.b.z) / 2);
+            if (!bigL) { drawOne(l, e, hot, lit, fog); continue; }
+            if (hot || lit) { later.push([l, e, hot, lit, fog]); continue; }
+            const aq = Math.round((focus || state.match || lh ? 0.07 : real ? 0.4 : d3 ? 0.45 : 0.35) * fog * 20); // opacity in 1/20
+            const key = (KIND_INDEX[l.kind] || 0) * 32 + aq; // numeric key: no string per relation and per frame
+            let bt = batches.get(key);
+            if (!bt) batches.set(key, bt = {color: LINKS[l.kind][0], alpha: aq / 20, width: 1, segs: [], heads: []}); // hairline: fast path of the canvas
+            const arrow = !lod && (state.mode === "2d" && state.cam.k > 1.6 || d3) && !e.cb && e.len > 30 && heads < 2000; // readable heads only
+            if (arrow) heads++;
+            const al = !d3 ? 7 : Math.max(4.5, Math.min(10, 6.5 * e.b.s)), back = arrow ? Math.min(e.len, al * 0.9) : 0;
+            bt.segs.push(e.x0, e.y0, e.x1 - e.ux * back, e.y1 - e.uy * back);
+            if (arrow) { const ang = Math.atan2(e.uy, e.ux); bt.heads.push(e.x1, e.y1, e.x1 - Math.cos(ang - 0.38) * al, e.y1 - Math.sin(ang - 0.38) * al, e.x1 - Math.cos(ang + 0.38) * al, e.y1 - Math.sin(ang + 0.38) * al); }
         }
+        for (const bt of batches.values()) {
+            ctx.globalAlpha = bt.alpha; ctx.strokeStyle = bt.color; ctx.fillStyle = bt.color; ctx.lineWidth = bt.width;
+            ctx.beginPath();
+            for (let i = 0; i < bt.segs.length; i += 4) { ctx.moveTo(bt.segs[i], bt.segs[i + 1]); ctx.lineTo(bt.segs[i + 2], bt.segs[i + 3]); }
+            ctx.stroke();
+            if (!bt.heads.length) continue;
+            ctx.beginPath();
+            for (let i = 0; i < bt.heads.length; i += 6) { ctx.moveTo(bt.heads[i], bt.heads[i + 1]); ctx.lineTo(bt.heads[i + 2], bt.heads[i + 3]); ctx.lineTo(bt.heads[i + 4], bt.heads[i + 5]); } // fill closes them
+            ctx.fill();
+        }
+        for (const x of later) drawOne(...x);
         if (state.particles && state.vlinks.length) { // moving dots: source -> target (direction of the relation)
             const time = performance.now() / 1000;
             for (const l of state.vlinks) {
@@ -2467,10 +2541,38 @@ extractGraph.wanted = function (p) {
             }
             ctx.globalAlpha = 1;
         }
-        const order = state.mode === "3d" ? [...state.visible].sort((a, b) => proj.get(b.id).z - proj.get(a.id).z) : state.visible;
+        const order = state.mode === "3d" ? [...proj.values()].sort((a, b) => b.z - a.z).map(q => q.n) : state.visible; // far first
         ctx.font = "11px system-ui, sans-serif";
         ctx.textAlign = "center";
+        // Big graphs (> 2000 nodes): the tiny nodes (< 3.2 px) as one path per colour, drawn first (they are the far ones)
+        const bigN = order.length > 2000, tiny = new Set();
+        if (bigN) {
+            const byColor = new Map();
+            for (const n of order) {
+                const p = proj.get(n.id);
+                if (d3 && p.behind) continue;
+                const r = drawnR(n, p);
+                const faded = dim(n.id);
+                if ((r >= 3.2 && !lod) || n.id === state.selected || n.id === state.hover || (state.match && state.match.has(n.id)) || (faded && !lod)) continue;
+                tiny.add(n.id);
+                if (p.x + r < 0 || p.y + r < 0 || p.x - r > state.w || p.y - r > state.h) continue;
+                const c = (faded ? "~" : "") + colorOf(n); // the faded ones (selection) in their own batches
+                if (!byColor.has(c)) byColor.set(c, []);
+                byColor.get(c).push(p.x, p.y, r);
+            }
+            for (const [key, list] of byColor) {
+                const c = key.replace(/^~/, "");
+                ctx.globalAlpha = key[0] === "~" ? 0.12 : real ? 0.7 : 0.9;
+                ctx.fillStyle = c; ctx.beginPath();
+                if (lod) for (let i = 0; i < list.length; i += 3) { const r = list[i + 2] * 0.9; ctx.rect(list[i] - r, list[i + 1] - r, 2 * r, 2 * r); } // squares: the fastest
+                else for (let i = 0; i < list.length; i += 3) { ctx.moveTo(list[i] + list[i + 2], list[i + 1]); ctx.arc(list[i], list[i + 1], list[i + 2], 0, Math.PI * 2); }
+                ctx.fill();
+            }
+        }
+        let labels = 0;
+        const labelMax = bigN ? (lod ? 0 : 150) : Infinity; // names: budget per frame in big graphs (the focus, its neighbours and the search always)
         for (const n of order) {
+            if (tiny.has(n.id)) continue;
             const p = proj.get(n.id);
             if (d3 && p.behind) continue; // passed behind the camera
             const r = drawnR(n, p);
@@ -2483,14 +2585,15 @@ extractGraph.wanted = function (p) {
                 drawPolySphere(p.x, p.y, r, colorOf(n), mesh);
                 ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); // path for the selection ring below
             } else if (real && r > 1.6) { // shaded sphere: cached sprite (the light is fixed in the scene, its side turns with the camera)
-                const cv = realSprite(colorOf(n), r), k = r / cv.R, mm = (cv.R + 2) * k;
+                const fogLv = bigN ? Math.round(depth(p.z) * 0.62 * 10) : 0; // big graphs: the fog is in the sprite (one draw per node)
+                const cv = realSprite(colorOf(n), r, fogLv), k = r / cv.R, mm = (cv.R + 2) * k;
                 ctx.drawImage(cv, p.x - mm, p.y - mm, 2 * mm, 2 * mm);
                 ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); // path of the fog and the selection ring
             } else {
                 ctx.fillStyle = colorOf(n);
                 ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
             }
-            if (real) { // fog towards the background with the depth
+            if (real && !(bigN && r > 1.6)) { // fog towards the background with the depth
                 const t = depth(p.z);
                 if (t > 0.02) { ctx.globalAlpha = base * 0.62 * t; ctx.fillStyle = C.bg; ctx.fill(); ctx.globalAlpha = base; }
             }
@@ -2499,8 +2602,10 @@ extractGraph.wanted = function (p) {
             } else if (n.pure || n.external) {
                 ctx.lineWidth = 1.2; ctx.strokeStyle = C.bg; ctx.stroke();
             }
-            const showLabel = n.id === focus || (near && near.has(n.id)) || (state.match && state.match.has(n.id)) ||
-                (state.labels && !faded && (state.mode === "2d" ? state.cam.k * (1 + Math.sqrt(n.degree) / 3) > 1.25 : p.s > 1.25 || n.degree > 12));
+            const must = n.id === focus || (near && near.has(n.id)) || (state.match && state.match.has(n.id));
+            const showLabel = must || (labels < labelMax && state.labels && !faded && (bigN ? r > 5 : true) &&
+                (state.mode === "2d" ? state.cam.k * (1 + Math.sqrt(n.degree) / 3) > 1.25 : p.s > 1.25 || n.degree > 12));
+            if (showLabel && !must) labels++;
             if (showLabel && !faded) {
                 ctx.globalAlpha = 1;
                 ctx.fillStyle = C.text;
@@ -2543,7 +2648,7 @@ extractGraph.wanted = function (p) {
     function rehover() { // the view moved under a still mouse: update the hovered node and its card
         const c = state.cam, sig = [c.x, c.y, c.z, c.k, c.dist, c.yaw, c.pitch, state.mode].join();
         if (sig === camSig) return;
-        camSig = sig;
+        camSig = sig; state.moveT = performance.now(); // the view moves: light drawing of the big graphs
         if (!mouse || drag) return;
         const n = onGizmo(mouse.x, mouse.y) ? null : pick(mouse.x, mouse.y), id = n ? n.id : null;
         if (id !== state.hover) { state.hover = id; state.dirty = true; canvas.classList.toggle("pointer", !!n); }
@@ -2557,12 +2662,154 @@ extractGraph.wanted = function (p) {
         if (moved) { c.x = q.x; c.y = q.y; if (state.mode === "3d") c.z = q.z; }
         return moved;
     }
+    // ---------- Simulation of the big graphs (> 3000 nodes) in a Web Worker: the page stays fluid while it settles ----------
+    // Same forces as tick() (Barnes-Hut repulsion, relations, groups, damping), on typed arrays; the positions come back
+    // after each step. Small graphs keep tick() on the page (no difference of layout).
+    function simWorker() { // runs inside the worker (no access to the page)
+        let S = null, timer = 0;
+        onmessage = (e) => {
+            const m = e.data;
+            if (m.type === "init") { S = m; S.vx = new Float64Array(S.n); S.vy = new Float64Array(S.n); S.vz = new Float64Array(S.n); S.fixed = new Uint8Array(S.n); run(); return; }
+            if (!S) return;
+            if (m.type === "alpha") S.alpha = Math.max(S.alpha, m.alpha);
+            else if (m.type === "fix") { S.fixed[m.i] = 1; S.x[m.i] = m.x; S.y[m.i] = m.y; S.z[m.i] = m.z; S.alpha = Math.max(S.alpha, 0.25); }
+            else if (m.type === "unfix") S.fixed[m.i] = 0;
+            else if (m.type === "pause") S.paused = m.on;
+            run();
+        };
+        const run = () => { if (!timer) timer = setTimeout(step, 0); };
+        let cap = 0, CX, CY, CZ, H, M, MX, MY, MZ, BODY, KIDS, STACK;
+        function step() {
+            timer = 0;
+            if (!S || S.paused || S.alpha < 0.004) return;
+            tick();
+            postMessage({type: "pos", gen: S.gen, alpha: S.alpha, x: Float32Array.from(S.x), y: Float32Array.from(S.y), z: Float32Array.from(S.z)});
+            run();
+        }
+        function tick() {
+            const {n, x, y, z, vx, vy, vz, r, d3, gap} = S, a = S.alpha, strength = S.repulsion * a, K = d3 ? 8 : 4;
+            if (cap < n * 10 + 64) { cap = n * 10 + 64; CX = new Float64Array(cap); CY = new Float64Array(cap); CZ = new Float64Array(cap); H = new Float64Array(cap); M = new Float64Array(cap); MX = new Float64Array(cap); MY = new Float64Array(cap); MZ = new Float64Array(cap); BODY = new Int32Array(cap); KIDS = new Int32Array(cap * 8); STACK = new Int32Array(cap); }
+            let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+            for (let i = 0; i < n; i++) { if (x[i] < x0) x0 = x[i]; if (x[i] > x1) x1 = x[i]; if (y[i] < y0) y0 = y[i]; if (y[i] > y1) y1 = y[i]; if (z[i] < z0) z0 = z[i]; if (z[i] > z1) z1 = z[i]; }
+            if (!d3) { z0 = 0; z1 = 0; }
+            let used = 0;
+            const cell = (cx, cy, cz, h) => { const c = used++; CX[c] = cx; CY[c] = cy; CZ[c] = cz; H[c] = h; M[c] = 0; MX[c] = 0; MY[c] = 0; MZ[c] = 0; BODY[c] = -1; KIDS.fill(-1, c * 8, c * 8 + 8); KIDS[c * 8] = -2; return c; };
+            const root = cell((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, Math.max(x1 - x0, y1 - y0, z1 - z0, 1) / 2 + 1);
+            const child = (c, i) => {
+                const k = (x[i] > CX[c] ? 1 : 0) + (y[i] > CY[c] ? 2 : 0) + (d3 && z[i] > CZ[c] ? 4 : 0);
+                let ch = KIDS[c * 8 + k];
+                if (ch < 0) { const h = H[c] / 2; ch = cell(CX[c] + (k & 1 ? h : -h), CY[c] + (k & 2 ? h : -h), CZ[c] + (k & 4 ? h : -h), h); KIDS[c * 8 + k] = ch; }
+                return ch;
+            };
+            const insert = (c, i, depth) => {
+                M[c]++; MX[c] += x[i]; MY[c] += y[i]; MZ[c] += d3 ? z[i] : 0;
+                if (KIDS[c * 8] === -2) {
+                    if (BODY[c] < 0 && M[c] === 1) { BODY[c] = i; return; }
+                    if (depth > 40 || used >= cap - 9) return;
+                    const old = BODY[c]; BODY[c] = -1; KIDS[c * 8] = -1;
+                    if (old >= 0) insert(child(c, old), old, depth + 1);
+                }
+                insert(child(c, i), i, depth + 1);
+            };
+            for (let i = 0; i < n; i++) insert(root, i, 0);
+            const T2 = n > 3000 ? 1.44 : 0.81;
+            for (let i = 0; i < n; i++) {
+                let sp = 0; STACK[sp++] = root;
+                while (sp) {
+                    const c = STACK[--sp];
+                    if (!M[c]) continue;
+                    const leaf = KIDS[c * 8] === -2;
+                    if (leaf && BODY[c] === i) continue;
+                    const ox = Math.max(0, Math.abs(x[i] - CX[c]) - H[c]), oy = Math.max(0, Math.abs(y[i] - CY[c]) - H[c]), oz = d3 ? Math.max(0, Math.abs(z[i] - CZ[c]) - H[c]) : 0;
+                    if (ox * ox + oy * oy + oz * oz > 250000) continue;
+                    let dx = x[i] - MX[c] / M[c], dy = y[i] - MY[c] / M[c], dz = d3 ? z[i] - MZ[c] / M[c] : 0, d2 = dx * dx + dy * dy + dz * dz;
+                    const size = H[c] * 2;
+                    if (!leaf && size * size >= T2 * d2) { for (let k = 0; k < K; k++) { const ch = KIDS[c * 8 + k]; if (ch >= 0) STACK[sp++] = ch; } continue; }
+                    if (leaf && BODY[c] >= 0 && M[c] === 1) {
+                        const j = BODY[c];
+                        if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+                        if (d2 < 25) d2 = 25;
+                        let f = strength / d2;
+                        const min = r[i] + r[j] + gap;
+                        if (d2 < min * min) f += 0.5 * (min - Math.sqrt(d2)) / Math.sqrt(d2);
+                        vx[i] += dx * f; vy[i] += dy * f; if (d3) vz[i] += dz * f;
+                        continue;
+                    }
+                    if (d2 < 25) d2 = 25;
+                    const f = strength * M[c] / d2;
+                    vx[i] += dx * f; vy[i] += dy * f; if (d3) vz[i] += dz * f;
+                }
+            }
+            const {si, ti, len, w, bias} = S;
+            for (let k = 0; k < si.length; k++) {
+                const p = si[k], q = ti[k], dx = x[q] - x[p], dy = y[q] - y[p], dz = d3 ? z[q] - z[p] : 0;
+                const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1, kk = (d - len[k]) / d * a * w[k], b = bias[k];
+                vx[q] -= dx * kk * b; vy[q] -= dy * kk * b; vx[p] += dx * kk * (1 - b); vy[p] += dy * kk * (1 - b);
+                if (d3) { vz[q] -= dz * kk * b; vz[p] += dz * kk * (1 - b); }
+            }
+            if (S.groups) { // cluster the nodes of a group
+                const G = S.ngroups, gx = new Float64Array(G), gy = new Float64Array(G), gz = new Float64Array(G), gn = new Float64Array(G);
+                for (let i = 0; i < n; i++) { const g = S.groups[i]; gx[g] += x[i]; gy[g] += y[i]; gz[g] += z[i]; gn[g]++; }
+                for (let i = 0; i < n; i++) { const g = S.groups[i]; vx[i] += (gx[g] / gn[g] - x[i]) * 0.06 * a; vy[i] += (gy[g] / gn[g] - y[i]) * 0.06 * a; if (d3) vz[i] += (gz[g] / gn[g] - z[i]) * 0.06 * a; }
+            }
+            let cx = 0, cy = 0, cz = 0;
+            for (let i = 0; i < n; i++) { cx += x[i]; cy += y[i]; cz += z[i]; }
+            cx /= n; cy /= n; cz /= n;
+            for (let i = 0; i < n; i++) {
+                if (S.fixed[i]) { vx[i] = vy[i] = vz[i] = 0; continue; }
+                vx[i] *= 0.6; vy[i] *= 0.6; vz[i] *= 0.6;
+                const sp = Math.hypot(vx[i], vy[i], vz[i]);
+                if (sp > 40) { vx[i] *= 40 / sp; vy[i] *= 40 / sp; vz[i] *= 40 / sp; }
+                x[i] += vx[i] - cx * 0.02; y[i] += vy[i] - cy * 0.02;
+                z[i] = d3 ? z[i] + vz[i] - cz * 0.02 : z[i] * 0.9;
+            }
+            S.alpha *= n > 3000 ? 0.97 : 0.985;
+        }
+    }
+    const SIM = {worker: null, sig: null, gen: 0, latest: null, sent: 0, paused: false, fixed: -1, fit: false, cam: ""};
+    const bigSim = () => state.visible.length > 3000 && state.mode !== "flow" && typeof Worker !== "undefined" && SIM.worker !== false;
+    function simSync() { // called each frame: (re)start the worker, send the changes, apply the positions it computed
+        if (!bigSim()) { if (SIM.worker) { SIM.worker.terminate(); SIM.worker = null; SIM.sig = null; } return false; }
+        if (!SIM.worker) {
+            try {
+                SIM.worker = new Worker(URL.createObjectURL(new Blob(["(" + simWorker.toString() + ")()"], {type: "text/javascript"})));
+                SIM.worker.onmessage = (e) => { if (e.data.gen === SIM.gen) SIM.latest = e.data; };
+            } catch (err) { SIM.worker = false; return false; } // no worker (strict file:// policy): tick() on the page
+        }
+        const sig = [state.visible, state.vlinks, state.mode, state.cluster];
+        if (!SIM.sig || sig.some((v, i) => v !== SIM.sig[i])) {
+            SIM.sig = sig; SIM.gen++; SIM.latest = null;
+            const nodes = state.visible, n = nodes.length, index = new Map(nodes.map((x, i) => [x.id, i]));
+            const x = new Float64Array(n), y = new Float64Array(n), z = new Float64Array(n), r = new Float64Array(n);
+            nodes.forEach((nd, i) => { const p = state.pos.get(nd.id); x[i] = p.x; y[i] = p.y; z[i] = p.z; r[i] = radiusOf(nd); });
+            const L = state.vlinks, si = new Int32Array(L.length), ti = new Int32Array(L.length), len = new Float64Array(L.length), w = new Float64Array(L.length), bias = new Float64Array(L.length);
+            L.forEach((l, k) => { const ns = state.byId.get(l.source), nt = state.byId.get(l.target); si[k] = index.get(l.source); ti[k] = index.get(l.target); len[k] = l.kind === "member" || l.kind === "defines" ? LAYOUT.linkShort : LAYOUT.link; w[k] = 0.7 / Math.max(1, Math.min(ns.degree, nt.degree)); bias[k] = (ns.degree || 1) / ((ns.degree || 1) + (nt.degree || 1)); });
+            let groups = null, ngroups = 0;
+            if (state.cluster) { const gi = new Map(); groups = new Int32Array(n); nodes.forEach((nd, i) => { if (!gi.has(nd.group)) gi.set(nd.group, gi.size); groups[i] = gi.get(nd.group); }); ngroups = gi.size; }
+            SIM.worker.postMessage({type: "init", gen: SIM.gen, n, x, y, z, r, si, ti, len, w, bias, groups, ngroups, d3: state.mode === "3d", alpha: state.alpha, repulsion: LAYOUT.repulsion, gap: LAYOUT.gap, paused: state.paused});
+            SIM.sent = state.alpha; SIM.paused = state.paused; SIM.fit = true; SIM.cam = JSON.stringify(state.cam);
+        }
+        if (state.alpha > SIM.sent + 1e-6) { SIM.worker.postMessage({type: "alpha", alpha: state.alpha}); SIM.sent = state.alpha; }
+        if (state.paused !== SIM.paused) { SIM.worker.postMessage({type: "pause", on: state.paused}); SIM.paused = state.paused; }
+        const dragged = drag && drag.node ? state.visible.indexOf(drag.node) : -1;
+        if (dragged >= 0) { const p = state.pos.get(drag.node.id); SIM.worker.postMessage({type: "fix", i: dragged, x: p.x, y: p.y, z: p.z}); SIM.fixed = dragged; }
+        else if (SIM.fixed >= 0) { SIM.worker.postMessage({type: "unfix", i: SIM.fixed}); SIM.fixed = -1; }
+        const m = SIM.latest;
+        if (!m) return false;
+        SIM.latest = null;
+        state.visible.forEach((nd, i) => { if (i === dragged) return; const p = state.pos.get(nd.id); p.x = m.x[i]; p.y = m.y[i]; p.z = m.z[i]; });
+        state.alpha = m.alpha; SIM.sent = m.alpha; state.layoutV++;
+        if (SIM.fit && m.alpha < 0.15) { SIM.fit = false; if (JSON.stringify(state.cam) === SIM.cam) { fit(); } } // first layout: fitted if the camera didn't move
+        return true;
+    }
     function frame() {
         let moved = keyMove();
+        if (simSync()) moved = true;
         if (follow()) moved = true;
         if (clampCam()) moved = true;
         rehover();
         for (let i = 0; i < (state.visible.length > 900 ? 1 : 2); i++) moved = tick() || moved;
+        if (state.lod && performance.now() - (state.moveT || 0) >= 160 && !(state.alpha >= 0.05 && !state.paused)) moved = true; // still again: full drawing
         if (moved || state.dirty || state.particles) { draw(); state.dirty = false; }
         requestAnimationFrame(frame);
     }
@@ -2622,7 +2869,7 @@ extractGraph.wanted = function (p) {
             const p = state.pos.get(drag.node.id);
             if (state.mode === "2d") { p.x += dx / c.k; p.y += dy / c.k; }
             else { const s = project(p).s, w = unrotateDir(dx / s, dy / s, 0); p.x += w.x; p.y += w.y; p.z += w.z; } // in the plane of the screen
-            p.fixed = true;
+            p.fixed = true; state.layoutV++;
             state.alpha = Math.max(state.alpha, 0.25);
         } else if (state.mode !== "3d") {
             c.x -= dx / c.k; c.y -= dy / c.k;
@@ -2836,16 +3083,39 @@ extractGraph.wanted = function (p) {
                 const h = (await getJSON(HOSTS.gitlab.api(c) + "/repository/commits/" + encodeURIComponent(branch), "gitlab")).json;
                 return {sha: h.id, date: h.committed_date};
             },
-            async tree(c, sha) {
-                const out = [];
-                for (let page = 1; page <= 60; page++) {
-                    const r = await getJSON(HOSTS.gitlab.api(c) + "/repository/tree?recursive=true&per_page=100&ref=" + sha + "&page=" + page, "gitlab");
-                    out.push(...r.json.filter(x => x.type === "blob").map(x => x.path));
-                    if (!r.headers.get("x-next-page")) break;
-                }
+            async tree(c, sha) { // pages of 100 entries: the first one gives the count, the others are asked in parallel
+                const page = (n) => getJSON(HOSTS.gitlab.api(c) + "/repository/tree?recursive=true&per_page=100&ref=" + sha + "&page=" + n, "gitlab");
+                const first = await page(1), out = first.json.filter(x => x.type === "blob").map(x => x.path);
+                let total = +first.headers.get("x-total-pages") || 0;
+                if (!total) { for (let n = 2, r = first; r.headers.get("x-next-page") && n <= 80; n++) { r = await page(n); out.push(...r.json.filter(x => x.type === "blob").map(x => x.path)); } return out; }
+                const rest = [];
+                for (let n = 2; n <= Math.min(total, 80); n++) rest.push(n);
+                const worker = async () => { while (rest.length) { const r = await page(rest.shift()); out.push(...r.json.filter(x => x.type === "blob").map(x => x.path)); } };
+                await Promise.all(Array.from({length: 6}, worker));
                 return out;
             },
             raw: (c, sha, path) => HOSTS.gitlab.api(c) + "/repository/files/" + encodeURIComponent(path) + "/raw?ref=" + sha,
+            async files(c, sha, paths, progress) { // contents by batches of 90 files through GraphQL (CORS allowed, ~12 requests for 1000 files)
+                const url = (c.api || "https://gitlab.com") + "/api/graphql", out = [], queue = [];
+                for (let i = 0; i < paths.length; i += 90) queue.push(paths.slice(i, i + 90)); // max complexity 200 (2 per path)
+                const q = "query($p: ID!, $r: String!, $f: [String!]!) { project(fullPath: $p) { repository { blobs(ref: $r, paths: $f) { nodes { path rawTextBlob } } } } }";
+                let done = 0;
+                const worker = async () => {
+                    while (queue.length) {
+                        const batch = queue.shift();
+                        let j = null;
+                        for (let k = 0; k < 4 && !j; k++) {
+                            const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query: q, variables: {p: c.repo, r: sha, f: batch}})}).catch(() => null);
+                            if (r && r.ok) j = await r.json(); else await new Promise(res => setTimeout(res, 3000 * (k + 1))); // limit / network: pause and retry
+                        }
+                        if (!j || j.errors || !j.data || !j.data.project) throw new Error("GraphQL");
+                        for (const b of j.data.project.repository.blobs.nodes) if (typeof b.rawTextBlob === "string" && b.rawTextBlob.length < 600000) out.push({path: b.path, text: b.rawTextBlob});
+                        done += batch.length; progress(done, paths.length);
+                    }
+                };
+                await Promise.all(Array.from({length: 4}, worker));
+                return out;
+            },
             web: (c) => (c.api || "https://gitlab.com") + "/" + c.repo
         }
     };
@@ -2864,19 +3134,31 @@ extractGraph.wanted = function (p) {
             }
             const cached = load("graph");
             if (cached && cached.meta && cached.meta.sha === sha) { setData(cached, cached.meta); setStatus(() => tr("Updated:") + " " + describe(cached.meta) + ".", "ok"); return; }
-            const wanted = (await host.tree(CONFIG, sha)).filter(p => extractGraph.wanted(p)).slice(0, 2500);
-            const files = [];
+            let files = null;
+            const all = (await host.tree(CONFIG, sha)).filter(p => extractGraph.wanted(p)).slice(0, 2500);
+            if (host.files) { // GitLab: batches through GraphQL
+                try { files = await host.files(CONFIG, sha, all, (d, n) => setStatus(tr("Downloading the sources:") + " " + d + " / " + n + "…", "busy")); }
+                catch (err) { files = null; } // GraphQL refused: one request per file
+            }
+            const wanted = files ? [] : all;
+            files = files || [];
             let done = 0;
             const queue = wanted.slice();
             const worker = async () => {
                 while (queue.length) {
                     const path = queue.shift();
-                    const r = await fetch(host.raw(CONFIG, sha, path));
+                    const get = () => fetch(host.raw(CONFIG, sha, path)).catch(() => ({status: 429, ok: false, headers: new Headers()})); // no CORS on a 429: network error
+                    let r = await get();
+                    for (let k = 0; r.status === 429 && k < 4; k++) { // limit of the API: pause, then the same file again
+                        setStatus(tr("API limit reached, pause…"), "busy");
+                        await new Promise(res => setTimeout(res, 1000 * Math.min(60, +r.headers.get("retry-after") || 15)));
+                        r = await get();
+                    }
                     if (r.ok) files.push({path, text: await r.text()});
                     if (++done % 10 === 0 || done === wanted.length) setStatus(tr("Downloading the sources:") + " " + done + " / " + wanted.length + "…", "busy");
                 }
             };
-            await Promise.all(Array.from({length: 8}, worker));
+            await Promise.all(Array.from({length: host.files ? 8 : 32}, worker)); // GitHub raw files (CDN): 32 at a time; the GitLab API: 8
             setStatus(() => tr("Building the graph…"), "busy");
             const graph = extractGraph(files);
             graph.meta = {sha, date, source: "live", files: files.length};

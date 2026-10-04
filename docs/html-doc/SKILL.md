@@ -209,6 +209,12 @@ graph with the same extractor. The link stays editable in the panel (Open / Upda
 with the graph of each repository until **Ctrl + Shift + R** (forgets them and reloads the page, which asks again). It is published on the
 `gh-pages` branch of the skills repository (`graph.html` + `index.html` redirecting to it):
 https://tsukini22.github.io/skills/ - regenerate it after a change of the template.
-- Big graphs (thousands of nodes): Barnes-Hut repulsion above 300 nodes (the exact loop below, same look), cached
-  sphere sprites in both 3D styles (rebuilt per ~1.5° of camera angle), relations drawn one by one (keeps the
-  overlapping opacity of the current look).
+- Big graphs (thousands of nodes): Barnes-Hut repulsion above 300 nodes (typed arrays; the exact loop below, same
+  look), the simulation in a Web Worker above 3000 nodes (the page stays fluid while it settles), cached sphere
+  sprites (rebuilt per ~1.5° of camera angle, fog baked in), and above 2000 nodes / 2500 relations: relations batched
+  as hairlines (off-screen and < 3 px skipped, readable arrow heads only), tiny nodes batched per colour, 150 names
+  at most; while the view or the layout moves, a light drawing (square nodes, part of the relations, no heads /
+  names) and the full drawing as soon as it is still. Smaller graphs keep the exact drawing.
+- Fetch of the sources: GitHub raw files 32 at a time; GitLab file list pages in parallel and the contents by batches
+  of 90 files through GraphQL (~12 requests for 1000 files; the archive endpoint refuses cross-origin pages), the
+  limits of the APIs waited and retried.
