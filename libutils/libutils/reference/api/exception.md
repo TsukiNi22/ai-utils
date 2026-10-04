@@ -1,6 +1,6 @@
 # libutils `exception`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/exception/AException.hpp`
 
@@ -118,7 +118,7 @@ Namespace: `utils::exception`
 class CustomException: public utils::exception::AException {
     explicit CustomException(utils::exception::Type type, utils::exception::ExternalCode code, std::string info = "[None]", std::source_location loc = std::source_location::current());
     explicit CustomException(utils::exception::Type type = utils::exception::Type::None, utils::exception::InternalCode code = utils::exception::InternalCode::Undefined, std::string info = "[None]", std::source_location loc = std::source_location::current());
-    CustomException(utils::exception::Type type = utils::exception::Type::None, std::string info = "[None]", std::source_location loc = std::source_location::current());
+    CustomException(utils::exception::Type type, std::string info, std::source_location loc = std::source_location::current());
     ~CustomException() = default;
 };
 ```
@@ -135,8 +135,8 @@ Namespace: `utils::exception`
 
 // namespace utils::exception
 class FatalException: public utils::exception::AException {
-    void display(void) const noexcept;
-    void display(const utils::exception::IException& e) const noexcept;
+    _noreturn void display(void) const noexcept;
+    _noreturn void display(const utils::exception::IException& e) const noexcept;
     explicit FatalException(utils::exception::ExternalCode code, std::source_location loc = std::source_location::current()) noexcept;
     explicit FatalException(utils::exception::ExternalCode code, std::string info, std::source_location loc = std::source_location::current()) noexcept;
     FatalException(utils::exception::Type type, utils::exception::ExternalCode code, std::string info = "[None]", std::source_location loc = std::source_location::current()) noexcept;

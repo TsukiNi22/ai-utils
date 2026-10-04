@@ -2,17 +2,17 @@
 
 | Field | Value |
 |---|---|
-| Version (`CMakeLists.txt`) | `v2.14.0` |
-| Last CHANGELOG entry | `v2.14.0` |
-| git describe | `v2.13.6-pre-26-g7506acd` |
-| Commit | `7506acdedc3b9e7a4002c0f123c0a3da41a4ac31` |
-| Commit date | 2026-10-01 |
-| Commit subject | test(unit-tests): add unit tests for every module and fix the verbose state leak |
+| Version (`CMakeLists.txt`) | `v3.0.0` |
+| Last CHANGELOG entry | `v3.0.0` |
+| git describe | `v3.0.0` |
+| Commit | `3b53ede2ee63f1f90f841c335b3153a72d9ca016` |
+| Commit date | 2026-10-05 |
+| Commit subject | !fix: fix the major bugs, the UB and the dependencies for v3.0.0 (see CHANGLOG for more details) |
 | Repository | `git@github.com:TsukiNi22/libutils.git` |
-| Generated on | 2026-10-03 |
+| Generated on | 2026-10-05 |
 
 New since this commit:
 ```bash
-git -C <libutils> log --oneline 7506acd..HEAD -- include src CHANGELOG.md   # or ..origin/main
-git -C <libutils> diff --stat 7506acd HEAD -- include
+git -C <libutils> log --oneline 3b53ede..HEAD -- include src CHANGELOG.md   # or ..origin/main
+git -C <libutils> diff --stat 3b53ede HEAD -- include
 ```

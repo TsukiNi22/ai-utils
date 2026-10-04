@@ -1,6 +1,6 @@
 # libutils `attribute`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/attribute/Attribute.hpp`
 
@@ -26,6 +26,7 @@ Different attribute used for optimisation & other thing Version for c++14 and ab
 ```cpp
 #define _nodiscard __attribute__((warn_unused_result)) // Warn for unused return
 #define _noinline __attribute__((noinline)) // Cancel any auto inline from the compiler
+#define _noreturn [[noreturn]] // Signal a function that never return
 #define _unused __attribute__((unused)) // Signal an unused variable
 #define _hidden __attribute__((visibility("hidden"))) // Change the visibility on a shared lib
 #define _ctor __attribute__((constructor)) // Execute before the main
@@ -59,6 +60,7 @@ Different attribute used for optimisation & other thing Version for c++17 and ab
 ```cpp
 #define _nodiscard [[nodiscard]] // Warn for unused return
 #define _noinline [[noinline]] // Cancel any auto inline from the compiler
+#define _noreturn [[noreturn]] // Signal a function that never return
 #define _unused [[maybe_unused]] // Signal an unused variable
 #define _hidden [[gnu::visibility("hidden")]] // Change the visibility on a shared lib
 #define _ctor [[gnu::constructor]] // Execute before the main
@@ -92,6 +94,7 @@ Different attribute used for optimisation & other thing Version for c++20 and ab
 ```cpp
 #define _nodiscard [[nodiscard]] // Warn for unused return
 #define _noinline [[noinline]] // Cancel any auto inline from the compiler
+#define _noreturn [[noreturn]] // Signal a function that never return
 #define _unused [[maybe_unused]] // Signal an unused variable
 #define _hidden [[gnu::visibility("hidden")]] // Change the visibility on a shared lib
 #define _ctor [[gnu::constructor]] // Execute before the main
@@ -125,6 +128,7 @@ Different attribute used for optimisation & other thing Fallback if the version 
 ```cpp
 #define _nodiscard
 #define _noinline
+#define _noreturn
 #define _unused
 #define _hidden
 #define _ctor

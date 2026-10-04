@@ -1,6 +1,6 @@
 # libutils `concepts`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/concepts/GlobalConcepts.hpp`
 
@@ -13,7 +13,7 @@ Namespace: `utils::concepts`
 template<typename T, typename U> concept Convertible = requires(T a, U b);
 template<typename T> concept Swappable = requires(T a, T b);
 template<typename T> concept Streamable = requires(std::ostream& os, T a);
-template <class T, class U> concept convertible_to = std::is_convertible_v<T, U> && requires { static_cast<U>(std::declval<T>()); };
+template<typename T, typename U> concept ConvertibleTo = std::is_convertible_v<T, U> && requires { static_cast<U>(std::declval<T>()); };
 ```
 
 ## `utils/concepts/OperationConcepts.hpp`

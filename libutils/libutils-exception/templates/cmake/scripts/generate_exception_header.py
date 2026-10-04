@@ -104,10 +104,10 @@ for i, (code, [message, info, restriction]) in enumerate(data_list):
 
 # Build the restriction comment
 restriction_lines = [
-    "// 0b0000 = no restriction\t(allow all)",
+    f"// 0b{0:0{len(VALUES.EXCEPTION_TYPE)}b} = {'no restriction':<16}(allow all)",
 ]
 for name in VALUES.EXCEPTION_TYPE:
-    restriction_lines.append(f"// {VALUES.EXCEPTION_TYPE[name]:#0{len(VALUES.EXCEPTION_TYPE) + 2}b} = {name}\t\t\t(allow {name})")
+    restriction_lines.append(f"// {VALUES.EXCEPTION_TYPE[name]:#0{len(VALUES.EXCEPTION_TYPE) + 2}b} = {name:<16}(allow {name})")
 restriction_str_comment = "\n".join(restriction_lines)
 
 # Create the file
@@ -141,7 +141,7 @@ File Description:
 
 namespace {NAMES.EXCEPTION_SCOPE} {{ // namespace start
 //----------------------------------------------------------------//
-/* TYPEDEF */
+/* ENUM */
 
 /* Definition of the different exception code */
 enum class {NAMES.CODE_SECTION}: std::size_t {{

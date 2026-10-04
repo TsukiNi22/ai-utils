@@ -1,6 +1,6 @@
 # libutils `cli`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/cli/Cli.hpp`
 
@@ -55,13 +55,13 @@ class Cli: private utils::security::observer::Observer<"Cli"> {
     void resetParserHook(void);
     void resetGetCHook(void);
     void setPromptHook(const std::function<void(const utils::cli::Cli&, std::uint8_t)>& hook); // Called to print the prompt
-    void setParserHook(const std::function<ParsedData(const std::string&, bool, bool, bool)>& hook); // Called to parse the input
-    void setGetCHook(const std::function<bool(char&)>& hook); // Called to print the prompt
+    void setParserHook(const std::function<utils::cli::ParsedData(const std::string&, bool, bool, bool)>& hook); // Called to parse the input
+    void setGetCHook(const std::function<bool(char&)>& hook); // Called to get a char of the input
     std::uint8_t getCode(void) const;
     std::uint32_t getFlags(void) const;
     char getInputDelimitor(void) const;
-    std::vector<std::string> getHistory() const;
-    Cli(const bool sig = false); // Enable/Disbale catch of ctrl-c & ctrl-z signal
+    std::vector<std::string> getHistory(void) const;
+    Cli(const bool sig = false); // Enable/Disable catch of ctrl-c & ctrl-z signal
     ~Cli();
 };
 ```
@@ -70,16 +70,16 @@ class Cli: private utils::security::observer::Observer<"Cli"> {
 
 Definition of the flags used to customize the cli
 
-Namespace: `utils::cli`, `utils::cli::Flags`
+Namespace: `utils::cli`, `utils::cli::flags`
 
 ```cpp
 // namespace utils::cli
 enum Flag {DEBUG, NOECHO, CATCH, EMPTY_INPUT, TRIM, PARSED, PROMPT, LOGIC, ARROW, HISTORY, PERSISTENT, HINT, AUTO_COMPLETION, MANUAL, THREAD, DETACHED, NO_TTY}
-// namespace utils::cli::Flags
+// namespace utils::cli::flags
 constexpr std::uint32_t ALL = DEBUG | CATCH | NOECHO | TRIM | EMPTY_INPUT | PARSED | PROMPT | LOGIC | ARROW | HISTORY | HINT | AUTO_COMPLETION | MANUAL | THREAD | DETACHED;
 constexpr std::uint32_t DEFAULT = CATCH | EMPTY_INPUT | TRIM | PROMPT | ARROW;
 constexpr std::uint32_t DUMB = 0;
-constexpr std::uint32_t TERM1 = CATCH | EMPTY_INPUT | TRIM | PARSED | PROMPT | EMPTY_INPUT | LOGIC | ARROW | HISTORY;
+constexpr std::uint32_t TERM1 = CATCH | EMPTY_INPUT | TRIM | PARSED | PROMPT | LOGIC | ARROW | HISTORY;
 constexpr std::uint32_t TERM2 = TERM1 | HINT | AUTO_COMPLETION;
 constexpr std::uint32_t TERM3 = TERM2 | THREAD;
 constexpr std::uint32_t LOG = TERM3 | DETACHED | NO_TTY;

@@ -1,6 +1,6 @@
 # libutils `arguments`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/arguments/ArgParser.hpp`
 
@@ -99,13 +99,16 @@ Declaration of the Setting class used in Settings
 Namespace: `utils::arguments`
 
 ```cpp
-// global
-static std::string demangle(const char* mangled_name);
 // namespace utils::arguments
+std::string demangle(const char* mangledName);
 class Setting: private utils::security::observer::Observer<"Setting"> {
+    template<typename T> const T& get(void) const;
+    template<typename T> T& get(void); // edit in place
+    template<typename T> bool is(void) const;
+    template<typename T> void assign(T&& setting); // reuse the node (no Observer relink)
     Setting& operator=(Setting&& other) = default;
     template<typename T> operator T(void) const;
-    template<typename T> Setting(T setting);
+    template<typename T> requires (!std::same_as<std::remove_cvref_t<T>, utils::arguments::Setting>) Setting(T&& setting);
     Setting(Setting&& other) = default;
     ~Setting() = default;
 };
@@ -119,19 +122,29 @@ Namespace: `utils::arguments`
 
 ```cpp
 // namespace utils::arguments
+struct SettingsHash {
+    using is_transparent = void;
+    std::size_t operator()(std::string_view key) const noexcept;
+};
 class Settings: private utils::security::observer::Observer<"Settings"> {
-    const utils::arguments::Setting& at(const std::string& id) const;
-    template<bool force = false> utils::arguments::CastType auto_cast(const std::string& id, const std::string& setting);
+    const utils::arguments::Setting& at(std::string_view id) const;
+    utils::arguments::Setting& at(std::string_view id);
+    template<bool force = false> utils::arguments::CastType autoCast(const std::string& id, const std::string& setting);
     template<utils::arguments::CastType type, bool force = false> void cast(const std::string& id, const std::string& setting);
-    template<typename T> void add(const std::string& id, const T& setting);
-    template<bool force = true, typename T> void set(const std::string& id, const T& setting);
-    template<bool failsafe = false> void remove(const std::string& id);
+    template<typename T> void add(const std::string& id, T&& setting);
+    template<typename T> void add(std::string&& id, T&& setting);
+    template<bool force = true, typename T> void set(const std::string& id, T&& setting);
+    template<bool force = true, typename T> void set(std::string&& id, T&& setting);
+    template<bool failsafe = false> void remove(std::string_view id);
     void clear(void);
-    const utils::arguments::Setting& get(const std::string& id) const;
-    bool contains(const std::string& id) const;
+    template<typename T> const T& get(std::string_view id) const;
+    template<typename T> T& get(std::string_view id);
+    const utils::arguments::Setting& get(std::string_view id) const;
+    bool contains(std::string_view id) const;
+    template<bool force = false> [deprecated ~v4.0.0] utils::arguments::CastType auto_cast(const std::string& id, const std::string& setting);
     Settings& operator=(Settings&& other) = default;
-    const utils::arguments::Setting& operator[](const std::string& id);
-    const utils::arguments::Setting& operator[](const std::string& id) const;
+    utils::arguments::Setting& operator[](std::string_view id);
+    const utils::arguments::Setting& operator[](std::string_view id) const;
     Settings() = default;
     Settings(Settings&& other) = default;
     ~Settings() = default;

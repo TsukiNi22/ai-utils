@@ -1,6 +1,6 @@
 # libutils API index
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Details of a section: `api/<section>.md`.
 
@@ -8,11 +8,11 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
-| `utils/algorithms/c2dmp-hsm/algorithm/foptimized.hpp` | `utils::algorithms::c2dmp` | `c2dmp_foptimized`, `make_lookup_table`, `normalize` | Algorithm used to determine the distance between 2 word  n = a.size() m = a.size() k = sizeof(UINT) → can be 1, 2, 4 or 8  Time: bast → O(m + n) moy  → O(m + n) wort → O(m + n)  Memory: best → O(1) → const (637) moy  → O(1) → const (271 * k + 366) wort → O(1) → const (2534) |
-| `utils/algorithms/c2dmp-hsm/algorithm/fsimplified.hpp` | `utils::algorithms::c2dmp` | `c2dmp_fsimplified`, `make_lookup_table`, `normalize` | Algorithm used to determine the distance between 2 word  n = a.size() m = a.size() k = sizeof(UINT) → can be 1, 2, 4 or 8  Time: bast → O(m + n) moy  → O(m + n) wort → O(m + n)  Memory: best → O(1) → const (637) moy  → O(1) → const (271 * k + 366) wort → O(1) → const (2534) |
-| `utils/algorithms/c2dmp-hsm/algorithm/optimized.hpp` | `utils::algorithms::c2dmp` | `c2dmp_optimized`, `make_lookup_table`, `normalize` | Algorithm used to determine the distance between 2 word  n = a.size() m = a.size() k = sizeof(UINT) → can be 1, 2, 4 or 8  Time: bast → O(m + min(n, m)) moy  → O(m + min(n, m)) wort → O(m + min(n, m))  Memory: best → O(1) → const (637) moy  → O(1) → const (271 * k + 366) wort → O(1) → const (2534) |
-| `utils/algorithms/c2dmp-hsm/algorithm/simplified.hpp` | `utils::algorithms::c2dmp` | `c2dmp_simplified`, `make_lookup_table`, `normalize` | Algorithm used to determine the distance between 2 word  n = a.size() m = a.size() k = sizeof(UINT) → can be 1, 2, 4 or 8  Time: bast → O(m + min(n, m)) moy  → O(m + min(n, m)) wort → O(m + min(n, m))  Memory: best → O(1) → const (637) moy  → O(1) → const (271 * k + 366) wort → O(1) → const (2534) |
-| `utils/algorithms/c2dmp-hsm/c2dmp-hsm.hpp` | `utils::algorithms::c2dmp` | `c2dmp` | Header for include all the different algorithm |
+| `utils/algorithms/c2dmp-hsm/algorithm/foptimized.hpp` | `utils::algorithms::c2dmp` | `c2dmp_foptimized`, `makeLookupTable_`, `normalize_` | Algorithm used to determine the distance between 2 words  n = a.size() m = b.size() k = sizeof(UIntT) → can be 1, 2, 4 or 8  Time: best  → O(m + n) moy   → O(m + n) worst → O(m + n)  Memory: best  → O(1) → const (637) moy   → O(1) → const (271 * k + 366) worst → O(1) → const (2534) |
+| `utils/algorithms/c2dmp-hsm/algorithm/fsimplified.hpp` | `utils::algorithms::c2dmp` | `c2dmp_fsimplified`, `makeLookupTable_`, `normalize_` | Algorithm used to determine the distance between 2 words  n = a.size() m = b.size() k = sizeof(UIntT) → can be 1, 2, 4 or 8  Time: best  → O(m + n) moy   → O(m + n) worst → O(m + n)  Memory: best  → O(1) → const (637) moy   → O(1) → const (271 * k + 366) worst → O(1) → const (2534) |
+| `utils/algorithms/c2dmp-hsm/algorithm/optimized.hpp` | `utils::algorithms::c2dmp` | `c2dmp_optimized`, `makeLookupTable_`, `normalize_` | Algorithm used to determine the distance between 2 words  n = a.size() m = b.size() k = sizeof(UIntT) → can be 1, 2, 4 or 8  Time: best  → O(m + min(n, m)) moy   → O(m + min(n, m)) worst → O(m + min(n, m))  Memory: best  → O(1) → const (637) moy   → O(1) → const (271 * k + 366) worst → O(1) → const (2534) |
+| `utils/algorithms/c2dmp-hsm/algorithm/simplified.hpp` | `utils::algorithms::c2dmp` | `c2dmp_simplified`, `makeLookupTable_`, `normalize_` | Algorithm used to determine the distance between 2 words  n = a.size() m = b.size() k = sizeof(UIntT) → can be 1, 2, 4 or 8  Time: best  → O(m + min(n, m)) moy   → O(m + min(n, m)) worst → O(m + min(n, m))  Memory: best  → O(1) → const (637) moy   → O(1) → const (271 * k + 366) worst → O(1) → const (2534) |
+| `utils/algorithms/c2dmp-hsm/c2dmp-hsm.hpp` | `utils::algorithms::c2dmp` | `c2dmp` | Header including all the different algorithms |
 | `utils/algorithms/sos/algorithm/embed_optimized.hpp` | `utils::algorithms::sos::algorithm` | `sos_embed_optimized` | Optimized embed version of the s.o.s algorithm |
 | `utils/algorithms/sos/algorithm/extract_optimized.hpp` | `utils::algorithms::sos::algorithm` | `sos_extract_optimized` | Optimized extract version of the s.o.s algorithm |
 | `utils/algorithms/sos/sos.hpp` | `utils::algorithms::sos` | `sos_embed`, `sos_extract` | Header for include all the different algorithm |
@@ -20,8 +20,8 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/algorithms/sos/sosType.hpp` | `utils::algorithms::sos` | - | Default type used by the s.o.s algorithm |
 | `utils/algorithms/sos/tools/convert.hpp` | `utils::algorithms::sos::tools` | `bytes_to`, `to_bytes` | Include of the convertion tools |
 | `utils/algorithms/sos/tools/hash.hpp` | `utils::algorithms::sos::tools` | `DirectSeedSequence`, `hash`, `make_generator` | Include of the hash generation tools |
-| `utils/algorithms/sos/tools/noise.hpp` | `utils::algorithms::sos::tools` | `noise` | Include of the noise generation tools |
-| `utils/algorithms/sos/tools/threshold.hpp` | `utils::algorithms::sos::tools` | `getThresholdIndex`, `removeThreshold` | Include of the threshold tools |
+| `utils/algorithms/sos/tools/noise.hpp` | `utils::algorithms::sos::tools` | `clamp_to_byte`, `noise` | Include of the noise generation tools |
+| `utils/algorithms/sos/tools/threshold.hpp` | `utils::algorithms::sos::tools` | `get_threshold_index`, `remove_threshold` | Include of the threshold tools |
 
 ## arguments
 
@@ -30,7 +30,7 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/arguments/ArgParser.hpp` | `utils::arguments` | `ArgParser`, `defaultBoolParsingHook`, `defaultDirectoryParsingHook`, `defaultDoubleParsingHook`, `defaultFileParsingHook`, `defaultHelpHook`, `defaultInt32ParsingHook`, `defaultSizetParsingHook`, `defaultTrueParsingHook` ... | Declaration of the ArgParser class for arguments handling |
 | `utils/arguments/ArgParserType.hpp` | `utils::arguments` | `ParsedUsageFull`, `ParsedUsage`, `Usage`, `Option`, `Flag` | Declaration of the ArgParser type for void & non void function |
 | `utils/arguments/Setting.hpp` | `utils::arguments` | `Setting`, `demangle` | Declaration of the Setting class used in Settings |
-| `utils/arguments/Settings.hpp` | `utils::arguments` | `Settings` | Declaration of the Settings class used for settings handling |
+| `utils/arguments/Settings.hpp` | `utils::arguments` | `SettingsHash`, `Settings` | Declaration of the Settings class used for settings handling |
 | `utils/arguments/SettingsDefine.hpp` | `utils::arguments` | `CastType` | Enum & Include handling used in settings handling |
 
 ## attribute
@@ -48,13 +48,13 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
 | `utils/cli/Cli.hpp` | `utils::cli` | `Cli`, `defaultGetCHook`, `defaultParserHook`, `defaultPromptHook` | Cli class used for a customizable command line interface |
-| `utils/cli/Flags.hpp` | `utils::cli`, `utils::cli::Flags` | `Flag` | Definition of the flags used to customize the cli |
+| `utils/cli/Flags.hpp` | `utils::cli`, `utils::cli::flags` | `Flag` | Definition of the flags used to customize the cli |
 
 ## concepts
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
-| `utils/concepts/GlobalConcepts.hpp` | `utils::concepts` | `Convertible`, `Streamable`, `Swappable`, `convertible_to` | Definition of the different global concepts |
+| `utils/concepts/GlobalConcepts.hpp` | `utils::concepts` | `Convertible`, `ConvertibleTo`, `Streamable`, `Swappable` | Definition of the different global concepts |
 | `utils/concepts/OperationConcepts.hpp` | `utils::concepts` | `AddAssignable`, `AddAssignableWith`, `Addable`, `AddableWith`, `BitwiseAndable`, `BitwiseAndableWith`, `BitwiseOrable`, `BitwiseOrableWith` ... | Definition of the different operation concepts |
 
 ## encapsulation
@@ -65,7 +65,7 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/encapsulation/Pipe.hpp` | `utils::encapsulation` | `Pipe` | Basic encapsulation for pipe |
 | `utils/encapsulation/Poll.hpp` | `utils::encapsulation` | `Poll` | Encapsulation of the epoll |
 | `utils/encapsulation/Process.hpp` | `utils::encapsulation` | `Status`, `Process` | Process encapsulation class |
-| `utils/encapsulation/SharedMemory.hpp` | `std`, `utils::encapsulation`, `utils::encapsulation::shm` | `ShmMetadata`, `Id`, `Target`, `ShmRequestMetadata`, `Slot`, `ReadFilter`, `LayoutPolicy`, `hash`, `SharedMemory`, `align_ceil` | Encapsulation for shared memory |
+| `utils/encapsulation/SharedMemory.hpp` | `std`, `utils::encapsulation`, `utils::encapsulation::shm` | `ShmMetadata`, `Id`, `Target`, `ShmRequestMetadata`, `Slot`, `ReadFilter`, `LayoutPolicy`, `hash`, `SharedMemory`, `align_ceil`, `align_up`, `interleaved_stride` | Encapsulation for shared memory |
 | `utils/encapsulation/SharedObject.hpp` | `utils::encapsulation` | `SharedObject` | Definition of the encapsulation for shared object (.so) |
 
 ## exception
@@ -89,11 +89,12 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/manip/iomanip/Char.hpp` | `utils::iomanip` | `Char` | Definition of some special char |
 | `utils/manip/iomanip/Color.hpp` | `utils::iomanip` | `Color`, `BackColor` | Definition of color used in ANSI escape sequences |
 | `utils/manip/iomanip/Style.hpp` | `utils::iomanip` | `Style`, `ResetStyle` | Define of the different style used in ANSI |
+| `utils/manip/smanip/FixedString.hpp` | `utils::smanip` | `FixedString`, `FixedString` | Fixed string used in template definition |
 | `utils/manip/smanip/codec/Base64Codec.hpp` | `utils::smanip::codec` | `Base64Codec` | Definition of the base 64 codec |
 | `utils/manip/smanip/codec/Codec.hpp` | `-` | - | Include for all the different codec |
 | `utils/manip/smanip/codec/ICodec.hpp` | `utils::smanip::codec` | `ICodec` | Declaration of the interface used for different codec (base64, ...) |
-| `utils/manip/smanip/fixed_string.hpp` | `utils::smanip` | `fixed_string`, `fixed_string` | Fixed string used in template definition |
-| `utils/manip/smanip/format.hpp` | `utils::iomanip`, `utils::smanip` | `format` | Definition of the utils::iomanip::format & explication |
+| `utils/manip/smanip/fixed_string.hpp` | `-` | - | Old name of the FixedString (kept for backward compatibility) |
+| `utils/manip/smanip/format.hpp` | `utils::smanip` | `format` | Definition of the utils::smanip::format & explication |
 | `utils/manip/smanip/parser/AParser.hpp` | `utils::smanip::parser` | `AParser` | Declaration of the abstract used for different parser (2etp, ...) |
 | `utils/manip/smanip/parser/EETPParser.hpp` | `utils::smanip::parser` | `EETPContent`, `EETPParser` | Declaration of the parser used for the 2etp protocol |
 | `utils/manip/smanip/parser/IParser.hpp` | `utils::smanip::parser` | `IParser` | Declaration of the interface used for different parser (2etp, ...) |
@@ -106,7 +107,7 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/math/MathType.hpp` | `utils::math` | `CFrame` | Type definition used in math computing |
 | `utils/math/geometry/Angle.hpp` | `utils::math::geometry` | `to_look` | Prototype for angle computing |
 | `utils/math/geometry/Point.hpp` | `utils::math::geometry` | `rotate_point_2D`, `rotate_point_3D` | Prototype for point computing |
-| `utils/math/trigo/Convertion.hpp` | `utils::math::trigo` | `deg_to_rad`, `rad_to_deg` | Prototype for point computing |
+| `utils/math/trigo/Convertion.hpp` | `utils::math::trigo` | `deg_to_rad`, `rad_to_deg` | Angle unit conversion (deg <-> rad) |
 
 ## network
 
@@ -116,10 +117,10 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/network/NetworkDefine.hpp` | `utils::network` | `Status` | Different definition of values for socket definition |
 | `utils/network/NetworkType.hpp` | `utils::network` | `Address` |  |
 | `utils/network/Server.hpp` | `utils::network` | `Server` | Definition of the server class for custom network |
-| `utils/network/socket/ASocket.hpp` | `utils::network::socket` | `ASocket`, `is_ip`, `resolve_address`, `resolve_hostname` | Abstract for socket handling |
-| `utils/network/socket/ISocket.hpp` | `utils::network::socket` | `ISocket` | Interface for socket handling |
+| `utils/network/socket/ASocket.hpp` | `utils::network`, `utils::network::socket` | `ASocket`, `is_ip`, `resolve_address`, `resolve_hostname` | Abstract for socket handling |
+| `utils/network/socket/ISocket.hpp` | `utils::network`, `utils::network::socket` | `ISocket` | Interface for socket handling |
 | `utils/network/socket/Socket.hpp` | `-` | - | Include for all the different sockets |
-| `utils/network/socket/TCPSocket.hpp` | `utils::network::socket` | `TCPSocket` | Socket that handle tcp communication |
+| `utils/network/socket/TCPSocket.hpp` | `utils::network`, `utils::network::socket` | `TCPSocket` | Socket that handle tcp communication |
 
 ## pool
 
@@ -138,7 +139,7 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
 | `utils/security/encryption/AESKey.hpp` | `utils::security::encryption` | `KeyAES`, `AESKey` | Declaration of the key used for the AES |
-| `utils/security/encryption/AKey.hpp` | `utils::security::encryption` | `AKey`, `keyToString`, `stringToKey` | Declaration of the abstract used for different key (RSA, AES, ...) |
+| `utils/security/encryption/AKey.hpp` | `utils::security::encryption` | `AKey`, `keyToString`, `key_to_string`, `stringToKey`, `string_to_key` | Declaration of the abstract used for different key (RSA, AES, ...) |
 | `utils/security/encryption/CommonRSAKey.hpp` | `utils::security::encryption` | `CommonRSAKey` | Declaration of the key used for the common RSA |
 | `utils/security/encryption/IKey.hpp` | `utils::security::encryption` | `IKey` | Declaration of the interface used for different key (RSA, AES, ...) |
 | `utils/security/encryption/Key.hpp` | `-` | - | Include for all the different key |
@@ -147,7 +148,7 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/security/observer/AObserver.hpp` | `utils::security::observer` | `AObserver` | Abstract version of the different observers |
 | `utils/security/observer/INotifier.hpp` | `utils::security::observer` | `INotifier` | Interface of the different notifiers |
 | `utils/security/observer/IObserver.hpp` | `utils::security::observer` | `IObserver` | Interface of the different observers |
-| `utils/security/observer/Instances.hpp` | `utils::security::observer::instances` | - | Different static instance used by the observer |
+| `utils/security/observer/Instances.hpp` | `utils::security::observer::instances` | `id_handler`, `notifiers` | Different static instance used by the observer |
 | `utils/security/observer/MemoryLeakNotifier.hpp` | `utils::security::observer` | `MemoryLeakNotifier` | Notifier for meamory leak |
 | `utils/security/observer/Observer.hpp` | `utils::security::observer` | `Observer` | Observer used for the different warning |
 | `utils/security/observer/UnsafeObserver.hpp` | `utils::security::observer` | `UnsafeObserver` | UnsafeObserver used for the different warning |
@@ -189,4 +190,4 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
-| `utils/verbose/Verbose.hpp` | `utils::verbose` | `Verbose` | Marco & Define used for verbose usage |
+| `utils/verbose/Verbose.hpp` | `utils::verbose` | `Verbose`, `locked` | Marco & Define used for verbose usage |

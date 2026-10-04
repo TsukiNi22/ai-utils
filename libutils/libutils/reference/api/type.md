@@ -1,6 +1,6 @@
 # libutils `type`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/type/Freezable.hpp`
 
@@ -15,7 +15,7 @@ class Freezable: private utils::security::observer::Observer<"Freezable"> {
     void requireUnfrozen(void) const;
     Freezable& operator=(const Freezable& other);
     Freezable& operator=(Freezable&& other);
-    Freezable(const bool frozen);
+    Freezable(const bool frozen = false);
     Freezable(const Freezable& other);
     Freezable(Freezable&& other);
     ~Freezable() = default;
@@ -84,8 +84,8 @@ Namespace: `utils::type`
 // namespace utils::type
 template< typename T, typename Hash, typename Equal > class BidirectionalLookupTable<T, T, Hash, Hash, Equal, Equal>: public utils::type::Freezable, private utils::security::observer::Observer<"BidirectionalLookupTable"> {
     void clear(void);
-    void removeElement(const T& element) noexcept;
-    void removeElements(const std::vector<T>& elements) noexcept;
+    void removeElement(const T& element); // throw if frozen
+    void removeElements(const std::vector<T>& elements);
     void addElement(const T& left, const T& right);
     template<bool force = false> void setElement(const T& left, const T& right);
     BidirectionalLookupTable& operator=(BidirectionalLookupTable&& other) = default;
@@ -125,26 +125,26 @@ template<typename T> class Matrix: private utils::security::observer::Observer<"
     std::size_t row(void) const;
     T& operator()(const std::size_t x, const std::size_t y);
     const T& operator()(const std::size_t x, const std::size_t y) const;
-    template<typename U> Matrix<std::common_type_t<T, U>> operator+(const Matrix<U>& m) const requires utils::concepts::AddableWith<T, U>;
-    template<typename U> Matrix<std::common_type_t<T, U>> operator-(const Matrix<U>& m) const requires utils::concepts::SubtractableWith<T, U>;
-    template<typename U> Matrix<std::common_type_t<T, U>> operator*(const Matrix<U>& m) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U>;
-    template<typename U> Matrix<std::common_type_t<T, U>> operator/(const Matrix<U>& m) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U> && (!std::is_integral_v<std::common_type_t<T, U>>); // this * m^-1
-    template<typename U> Matrix<std::common_type_t<T, U>> operator*(const U& v) const requires utils::concepts::MultipliableWith<T, U>;
-    template<typename U> Matrix<std::common_type_t<T, U>> operator/(const U& v) const requires utils::concepts::DivisibleWith<T, U>;
+    template<typename U> utils::type::Matrix<std::common_type_t<T, U>> operator+(const utils::type::Matrix<U>& m) const requires utils::concepts::AddableWith<T, U>;
+    template<typename U> utils::type::Matrix<std::common_type_t<T, U>> operator-(const utils::type::Matrix<U>& m) const requires utils::concepts::SubtractableWith<T, U>;
+    template<typename U> utils::type::Matrix<std::common_type_t<T, U>> operator*(const utils::type::Matrix<U>& m) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U>;
+    template<typename U> utils::type::Matrix<std::common_type_t<T, U>> operator/(const utils::type::Matrix<U>& m) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U> && (!std::is_integral_v<std::common_type_t<T, U>>); // this * m^-1
+    template<typename U> utils::type::Matrix<std::common_type_t<T, U>> operator*(const U& v) const requires utils::concepts::MultipliableWith<T, U>;
+    template<typename U> utils::type::Matrix<std::common_type_t<T, U>> operator/(const U& v) const requires utils::concepts::DivisibleWith<T, U>;
     Matrix& operator=(const Matrix& other) = default;
     Matrix& operator=(Matrix&& other);
-    template<typename U> Matrix& operator+=(const Matrix<U>& m) requires utils::concepts::AddAssignableWith<T, U>;
-    template<typename U> Matrix& operator-=(const Matrix<U>& m) requires utils::concepts::SubtractAssignableWith<T, U>;
-    template<typename U> Matrix& operator*=(const Matrix<U>& m) requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddAssignable<T>;
-    template<typename U> Matrix& operator/=(const Matrix<U>& m) requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddAssignable<T> && (!std::is_integral_v<std::common_type_t<T, U>>); // this * m^-1
+    template<typename U> Matrix& operator+=(const utils::type::Matrix<U>& m) requires utils::concepts::AddAssignableWith<T, U>;
+    template<typename U> Matrix& operator-=(const utils::type::Matrix<U>& m) requires utils::concepts::SubtractAssignableWith<T, U>;
+    template<typename U> Matrix& operator*=(const utils::type::Matrix<U>& m) requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddAssignable<T>;
+    template<typename U> Matrix& operator/=(const utils::type::Matrix<U>& m) requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddAssignable<T> && (!std::is_integral_v<std::common_type_t<T, U>>); // this * m^-1
     template<typename U> Matrix& operator*=(const U& v) requires utils::concepts::MultiplyAssignableWith<T, U>;
     template<typename U> Matrix& operator/=(const U& v) requires utils::concepts::DivideAssignableWith<T, U>;
-    template<typename U> bool operator==(const Matrix<U>& m) const requires utils::concepts::EqualityComparableWith<T, U>;
-    template<typename U> bool operator!=(const Matrix<U>& m) const requires utils::concepts::EqualityComparableWith<T, U>;
+    template<typename U> bool operator==(const utils::type::Matrix<U>& m) const requires utils::concepts::EqualityComparableWith<T, U>;
+    template<typename U> bool operator!=(const utils::type::Matrix<U>& m) const requires utils::concepts::EqualityComparableWith<T, U>;
     Matrix operator-(void) const requires utils::concepts::Negatable<T>;
     explicit Matrix(const std::size_t n);
     Matrix(const std::size_t x, const std::size_t y);
-    template<typename U> Matrix(const Matrix<U>& m) requires std::constructible_from<T, U>;
+    template<typename U> Matrix(const utils::type::Matrix<U>& m) requires std::constructible_from<T, U>;
     Matrix(const Matrix& other) = default;
     Matrix(Matrix&& other);
     ~Matrix() = default;
@@ -182,26 +182,26 @@ template<typename T> class OMatrix {
     std::size_t row(void) const;
     T& operator()(const std::size_t x, const std::size_t y); // no bound check
     const T& operator()(const std::size_t x, const std::size_t y) const; // no bound check
-    template<typename U> OMatrix operator+(const OMatrix<U>& m) const;
-    template<typename U> OMatrix operator-(const OMatrix<U>& m) const;
-    template<typename U> OMatrix operator*(const OMatrix<U>& m) const;
-    template<typename U> OMatrix operator/(const OMatrix<U>& m) const; // this * m^-1
+    template<typename U> OMatrix operator+(const utils::type::OMatrix<U>& m) const;
+    template<typename U> OMatrix operator-(const utils::type::OMatrix<U>& m) const;
+    template<typename U> OMatrix operator*(const utils::type::OMatrix<U>& m) const;
+    template<typename U> OMatrix operator/(const utils::type::OMatrix<U>& m) const; // this * m^-1
     template<typename U> OMatrix operator*(const U& v) const;
     template<typename U> OMatrix operator/(const U& v) const;
     OMatrix& operator=(const OMatrix& other) = default;
     OMatrix& operator=(OMatrix&& other) noexcept;
-    template<typename U> OMatrix& operator+=(const OMatrix<U>& m);
-    template<typename U> OMatrix& operator-=(const OMatrix<U>& m);
-    template<typename U> OMatrix& operator*=(const OMatrix<U>& m);
-    template<typename U> OMatrix& operator/=(const OMatrix<U>& m);
+    template<typename U> OMatrix& operator+=(const utils::type::OMatrix<U>& m);
+    template<typename U> OMatrix& operator-=(const utils::type::OMatrix<U>& m);
+    template<typename U> OMatrix& operator*=(const utils::type::OMatrix<U>& m);
+    template<typename U> OMatrix& operator/=(const utils::type::OMatrix<U>& m);
     template<typename U> OMatrix& operator*=(const U& v);
     template<typename U> OMatrix& operator/=(const U& v);
-    template<typename U> bool operator==(const OMatrix<U>& m) const;
-    template<typename U> bool operator!=(const OMatrix<U>& m) const;
+    template<typename U> bool operator==(const utils::type::OMatrix<U>& m) const;
+    template<typename U> bool operator!=(const utils::type::OMatrix<U>& m) const;
     OMatrix operator-(void) const;
     explicit OMatrix(const std::size_t n);
     OMatrix(const std::size_t x, const std::size_t y);
-    template<typename U> OMatrix(const OMatrix<U>& m);
+    template<typename U> OMatrix(const utils::type::OMatrix<U>& m);
     OMatrix(const OMatrix& other) = default;
     OMatrix(OMatrix&& other) noexcept;
     ~OMatrix() = default;
@@ -298,13 +298,13 @@ template<typename T> class OVector2 {
     template<typename U> OVector2(OVector2<U>&& v);
     ~OVector2() = default;
 };
-template<typename T, typename U> utils::type::OVector2<T> operator+(const T& lhs, const utils::type::OVector2<U>& rhs);
-template<typename T, typename U> utils::type::OVector2<T> operator-(const T& lhs, const utils::type::OVector2<U>& rhs);
-template<typename T, typename U> utils::type::OVector2<T> operator*(const T& lhs, const utils::type::OVector2<U>& rhs);
-template<typename T, typename U> utils::type::OVector2<T> operator/(const T& lhs, const utils::type::OVector2<U>& rhs);
-template<typename T, typename U> utils::type::OVector2<T> operator&(const T& lhs, const utils::type::OVector2<U>& rhs);
-template<typename T, typename U> utils::type::OVector2<T> operator|(const T& lhs, const utils::type::OVector2<U>& rhs);
-template<typename T, typename U> utils::type::OVector2<T> operator^(const T& lhs, const utils::type::OVector2<U>& rhs);
+template<typename T, typename U> utils::type::OVector2<U> operator+(const T& lhs, const utils::type::OVector2<U>& rhs);
+template<typename T, typename U> utils::type::OVector2<U> operator-(const T& lhs, const utils::type::OVector2<U>& rhs);
+template<typename T, typename U> utils::type::OVector2<U> operator*(const T& lhs, const utils::type::OVector2<U>& rhs);
+template<typename T, typename U> utils::type::OVector2<U> operator/(const T& lhs, const utils::type::OVector2<U>& rhs);
+template<typename T, typename U> utils::type::OVector2<U> operator&(const T& lhs, const utils::type::OVector2<U>& rhs);
+template<typename T, typename U> utils::type::OVector2<U> operator|(const T& lhs, const utils::type::OVector2<U>& rhs);
+template<typename T, typename U> utils::type::OVector2<U> operator^(const T& lhs, const utils::type::OVector2<U>& rhs);
 template<typename T, typename U> bool operator==(const T& lhs, const utils::type::OVector2<U>& rhs);
 template<typename T, typename U> bool operator!=(const T& lhs, const utils::type::OVector2<U>& rhs);
 template<typename T, typename U> bool operator<(const T& lhs, const utils::type::OVector2<U>& rhs);
@@ -352,6 +352,9 @@ template<typename T> class OVector3 {
     OVector3 operator++(int);
     OVector3& operator--(void);
     OVector3 operator--(int);
+    template<typename U> OVector3 operator&(const OVector3<U>& v) const;
+    template<typename U> OVector3 operator|(const OVector3<U>& v) const;
+    template<typename U> OVector3 operator^(const OVector3<U>& v) const;
     template<typename U> OVector3& operator=(const OVector3<U>& v);
     template<typename U> OVector3& operator=(OVector3<U>&& v);
     template<typename U> OVector3& operator+=(const U& v);
@@ -381,13 +384,13 @@ template<typename T> class OVector3 {
     template<typename U> OVector3(OVector3<U>&& v);
     ~OVector3() = default;
 };
-template<typename T, typename U> utils::type::OVector3<T> operator+(const T& lhs, const utils::type::OVector3<U>& rhs);
-template<typename T, typename U> utils::type::OVector3<T> operator-(const T& lhs, const utils::type::OVector3<U>& rhs);
-template<typename T, typename U> utils::type::OVector3<T> operator*(const T& lhs, const utils::type::OVector3<U>& rhs);
-template<typename T, typename U> utils::type::OVector3<T> operator/(const T& lhs, const utils::type::OVector3<U>& rhs);
-template<typename T, typename U> utils::type::OVector3<T> operator&(const T& lhs, const utils::type::OVector3<U>& rhs);
-template<typename T, typename U> utils::type::OVector3<T> operator|(const T& lhs, const utils::type::OVector3<U>& rhs);
-template<typename T, typename U> utils::type::OVector3<T> operator^(const T& lhs, const utils::type::OVector3<U>& rhs);
+template<typename T, typename U> utils::type::OVector3<U> operator+(const T& lhs, const utils::type::OVector3<U>& rhs);
+template<typename T, typename U> utils::type::OVector3<U> operator-(const T& lhs, const utils::type::OVector3<U>& rhs);
+template<typename T, typename U> utils::type::OVector3<U> operator*(const T& lhs, const utils::type::OVector3<U>& rhs);
+template<typename T, typename U> utils::type::OVector3<U> operator/(const T& lhs, const utils::type::OVector3<U>& rhs);
+template<typename T, typename U> utils::type::OVector3<U> operator&(const T& lhs, const utils::type::OVector3<U>& rhs);
+template<typename T, typename U> utils::type::OVector3<U> operator|(const T& lhs, const utils::type::OVector3<U>& rhs);
+template<typename T, typename U> utils::type::OVector3<U> operator^(const T& lhs, const utils::type::OVector3<U>& rhs);
 template<typename T, typename U> bool operator==(const T& lhs, const utils::type::OVector3<U>& rhs);
 template<typename T, typename U> bool operator!=(const T& lhs, const utils::type::OVector3<U>& rhs);
 template<typename T, typename U> bool operator<(const T& lhs, const utils::type::OVector3<U>& rhs);
@@ -418,29 +421,29 @@ template<typename T> class Vector2: public utils::type::IVector<T> {
     Vector2 min(const Vector2& min) const requires utils::concepts::Comparable<T>;
     Vector2 max(const Vector2& max) const requires utils::concepts::Comparable<T>;
     Vector2 clamp(const Vector2& min, const Vector2& max) const requires utils::concepts::Comparable<T>;
-    template<typename U> T dot(const Vector2<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U>;
-    template<typename U> T cross(const Vector2<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::SubtractableWith<T, U>;
+    template<typename U> std::common_type_t<T, U> dot(const Vector2<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U>;
+    template<typename U> std::common_type_t<T, U> cross(const Vector2<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::SubtractableWith<T, U>;
     T length(void) const requires utils::concepts::Multipliable<T>;
     T lengthSquared(void) const requires utils::concepts::Multipliable<T> && utils::concepts::Addable<T>;
     Vector2 sign(void) const requires utils::concepts::ComparableWith<T, int>;
     Vector2 normalize(void) const requires utils::concepts::Divisible<T>;
     T& operator[](std::size_t index);
     const T& operator[](std::size_t index) const;
-    template<typename U> auto operator+(const U& v) const requires utils::concepts::AddableWith<T, U>;
-    template<typename U> auto operator+(const Vector2<U>& v) const requires utils::concepts::AddableWith<T, U>;
-    template<typename U> auto operator-(const U& v) const requires utils::concepts::SubtractableWith<T, U>;
-    template<typename U> auto operator-(const Vector2<U>& v) const requires utils::concepts::SubtractableWith<T, U>;
-    template<typename U> auto operator*(const U& v) const requires utils::concepts::MultipliableWith<T, U>;
-    template<typename U> auto operator*(const Vector2<U>& v) const requires utils::concepts::MultipliableWith<T, U>;
-    template<typename U> auto operator/(const U& v) const requires utils::concepts::DivisibleWith<T, U>;
-    template<typename U> auto operator/(const Vector2<U>& v) const requires utils::concepts::DivisibleWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator+(const U& v) const requires utils::concepts::AddableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator+(const Vector2<U>& v) const requires utils::concepts::AddableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator-(const U& v) const requires utils::concepts::SubtractableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator-(const Vector2<U>& v) const requires utils::concepts::SubtractableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator*(const U& v) const requires utils::concepts::MultipliableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator*(const Vector2<U>& v) const requires utils::concepts::MultipliableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator/(const U& v) const requires utils::concepts::DivisibleWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator/(const Vector2<U>& v) const requires utils::concepts::DivisibleWith<T, U>;
     Vector2& operator++(void) requires utils::concepts::Incrementable<T>;
     Vector2 operator++(int) requires utils::concepts::Incrementable<T>;
     Vector2& operator--(void) requires utils::concepts::Decrementable<T>;
     Vector2 operator--(int) requires utils::concepts::Decrementable<T>;
-    template<typename U> auto operator&(const Vector2<U>& v) const requires utils::concepts::BitwiseAndableWith<T, U>;
-    template<typename U> auto operator|(const Vector2<U>& v) const requires utils::concepts::BitwiseOrableWith<T, U>;
-    template<typename U> auto operator^(const Vector2<U>& v) const requires utils::concepts::BitwiseXorableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator&(const Vector2<U>& v) const requires utils::concepts::BitwiseAndableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator|(const Vector2<U>& v) const requires utils::concepts::BitwiseOrableWith<T, U>;
+    template<typename U> utils::type::Vector2<std::common_type_t<T, U>> operator^(const Vector2<U>& v) const requires utils::concepts::BitwiseXorableWith<T, U>;
     template<typename U> Vector2& operator=(const Vector2<U>& v) requires std::assignable_from<T&, U>;
     template<typename U> Vector2& operator=(Vector2<U>&& v) requires std::assignable_from<T&, U>;
     template<typename U> Vector2& operator+=(const U& v) requires utils::concepts::AddAssignableWith<T, U>;
@@ -470,13 +473,13 @@ template<typename T> class Vector2: public utils::type::IVector<T> {
     template<typename U> Vector2(Vector2<U>&& v) requires std::constructible_from<T, U&&>;
     ~Vector2() = default;
 };
-template<typename T, typename U> auto operator+(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::AddableWith<T, U>;
-template<typename T, typename U> auto operator-(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::SubtractableWith<T, U>;
-template<typename T, typename U> auto operator*(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::MultipliableWith<T, U>;
-template<typename T, typename U> auto operator/(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::DivisibleWith<T, U>;
-template<typename T, typename U> auto operator&(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::BitwiseAndableWith<T, U>;
-template<typename T, typename U> auto operator|(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::BitwiseOrableWith<T, U>;
-template<typename T, typename U> auto operator^(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::BitwiseXorableWith<T, U>;
+template<typename T, typename U> utils::type::Vector2<std::common_type_t<T, U>> operator+(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::AddableWith<T, U>;
+template<typename T, typename U> utils::type::Vector2<std::common_type_t<T, U>> operator-(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::SubtractableWith<T, U>;
+template<typename T, typename U> utils::type::Vector2<std::common_type_t<T, U>> operator*(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::MultipliableWith<T, U>;
+template<typename T, typename U> utils::type::Vector2<std::common_type_t<T, U>> operator/(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::DivisibleWith<T, U>;
+template<typename T, typename U> utils::type::Vector2<std::common_type_t<T, U>> operator&(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::BitwiseAndableWith<T, U>;
+template<typename T, typename U> utils::type::Vector2<std::common_type_t<T, U>> operator|(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::BitwiseOrableWith<T, U>;
+template<typename T, typename U> utils::type::Vector2<std::common_type_t<T, U>> operator^(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::BitwiseXorableWith<T, U>;
 template<typename T, typename U> bool operator==(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::EqualityComparableWith<T, U>;
 template<typename T, typename U> bool operator!=(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::EqualityComparableWith<T, U>;
 template<typename T, typename U> bool operator<(const T& lhs, const utils::type::Vector2<U>& rhs) requires utils::concepts::ComparableWith<T, U>;
@@ -504,26 +507,29 @@ template<typename T> class Vector3: public utils::type::IVector<T> {
     Vector3 min(const Vector3& min) const requires utils::concepts::Comparable<T>;
     Vector3 max(const Vector3& max) const requires utils::concepts::Comparable<T>;
     Vector3 clamp(const Vector3& min, const Vector3& max) const requires utils::concepts::Comparable<T>;
-    template<typename U> T dot(const Vector3<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U>;
-    template<typename U> Vector3 cross(const Vector3<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::SubtractableWith<T, U>;
+    template<typename U> std::common_type_t<T, U> dot(const Vector3<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::AddableWith<T, U>;
+    template<typename U> Vector3<std::common_type_t<T, U>> cross(const Vector3<U>& v) const requires utils::concepts::MultipliableWith<T, U> && utils::concepts::SubtractableWith<T, U>;
     T length(void) const requires utils::concepts::Multipliable<T>;
     T lengthSquared(void) const requires utils::concepts::Multipliable<T> && utils::concepts::Addable<T>;
     Vector3 sign(void) const requires utils::concepts::ComparableWith<T, int>;
     Vector3 normalize(void) const requires utils::concepts::Divisible<T>;
     T& operator[](std::size_t index);
     const T& operator[](std::size_t index) const;
-    template<typename U> auto operator+(const U& v) const requires utils::concepts::AddableWith<T, U>;
-    template<typename U> auto operator+(const Vector3<U>& v) const requires utils::concepts::AddableWith<T, U>;
-    template<typename U> auto operator-(const U& v) const requires utils::concepts::SubtractableWith<T, U>;
-    template<typename U> auto operator-(const Vector3<U>& v) const requires utils::concepts::SubtractableWith<T, U>;
-    template<typename U> auto operator*(const U& v) const requires utils::concepts::MultipliableWith<T, U>;
-    template<typename U> auto operator*(const Vector3<U>& v) const requires utils::concepts::MultipliableWith<T, U>;
-    template<typename U> auto operator/(const U& v) const requires utils::concepts::DivisibleWith<T, U>;
-    template<typename U> auto operator/(const Vector3<U>& v) const requires utils::concepts::DivisibleWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator+(const U& v) const requires utils::concepts::AddableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator+(const Vector3<U>& v) const requires utils::concepts::AddableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator-(const U& v) const requires utils::concepts::SubtractableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator-(const Vector3<U>& v) const requires utils::concepts::SubtractableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator*(const U& v) const requires utils::concepts::MultipliableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator*(const Vector3<U>& v) const requires utils::concepts::MultipliableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator/(const U& v) const requires utils::concepts::DivisibleWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator/(const Vector3<U>& v) const requires utils::concepts::DivisibleWith<T, U>;
     Vector3& operator++(void) requires utils::concepts::Incrementable<T>;
     Vector3 operator++(int) requires utils::concepts::Incrementable<T>;
     Vector3& operator--(void) requires utils::concepts::Decrementable<T>;
     Vector3 operator--(int) requires utils::concepts::Decrementable<T>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator&(const Vector3<U>& v) const requires utils::concepts::BitwiseAndableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator|(const Vector3<U>& v) const requires utils::concepts::BitwiseOrableWith<T, U>;
+    template<typename U> utils::type::Vector3<std::common_type_t<T, U>> operator^(const Vector3<U>& v) const requires utils::concepts::BitwiseXorableWith<T, U>;
     template<typename U> Vector3& operator=(const Vector3<U>& v) requires std::assignable_from<T&, U>;
     template<typename U> Vector3& operator=(Vector3<U>&& v) requires std::assignable_from<T&, U>;
     template<typename U> Vector3& operator+=(const U& v) requires utils::concepts::AddAssignableWith<T, U>;
@@ -553,13 +559,13 @@ template<typename T> class Vector3: public utils::type::IVector<T> {
     template<typename U> Vector3(Vector3<U>&& v) requires std::constructible_from<T, U&&>;
     ~Vector3() = default;
 };
-template<typename T, typename U> auto operator+(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::AddableWith<T, U>;
-template<typename T, typename U> auto operator-(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::SubtractableWith<T, U>;
-template<typename T, typename U> auto operator*(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::MultipliableWith<T, U>;
-template<typename T, typename U> auto operator/(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::DivisibleWith<T, U>;
-template<typename T, typename U> auto operator&(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::BitwiseAndableWith<T, U>;
-template<typename T, typename U> auto operator|(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::BitwiseOrableWith<T, U>;
-template<typename T, typename U> auto operator^(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::BitwiseXorableWith<T, U>;
+template<typename T, typename U> utils::type::Vector3<std::common_type_t<T, U>> operator+(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::AddableWith<T, U>;
+template<typename T, typename U> utils::type::Vector3<std::common_type_t<T, U>> operator-(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::SubtractableWith<T, U>;
+template<typename T, typename U> utils::type::Vector3<std::common_type_t<T, U>> operator*(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::MultipliableWith<T, U>;
+template<typename T, typename U> utils::type::Vector3<std::common_type_t<T, U>> operator/(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::DivisibleWith<T, U>;
+template<typename T, typename U> utils::type::Vector3<std::common_type_t<T, U>> operator&(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::BitwiseAndableWith<T, U>;
+template<typename T, typename U> utils::type::Vector3<std::common_type_t<T, U>> operator|(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::BitwiseOrableWith<T, U>;
+template<typename T, typename U> utils::type::Vector3<std::common_type_t<T, U>> operator^(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::BitwiseXorableWith<T, U>;
 template<typename T, typename U> bool operator==(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::EqualityComparableWith<T, U>;
 template<typename T, typename U> bool operator!=(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::EqualityComparableWith<T, U>;
 template<typename T, typename U> bool operator<(const T& lhs, const utils::type::Vector3<U>& rhs) requires utils::concepts::ComparableWith<T, U>;

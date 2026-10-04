@@ -20,7 +20,7 @@ bash SKILL_DIR/scripts/libutils.sh install --source [<git ref>] # build from the
   (clone, `cmake --build build --target install_release` = Debug + Asan + Optimized into `/usr/local`).
 - Mirror: runs the official `TsukiNi22/libutils/main/setup.sh` (`/etc/yum.repos.d/libutils.repo` or
   `/etc/apt/sources.list.d/libutils.list` + the GPG key) only when it isn't configured yet.
-- Channel: **`-pre` by default** (last version, ex: `libutils-pre` 2.14.0 while the stable `libutils` is 2.13.2),
+- Channel: **`-pre` by default** (last version, ex: `libutils-pre` 2.14.0 while the stable `libutils` is 2.13.2; check with `status`),
   `--stable` for the stable one. The two channels conflict: switching removes the other one first.
 - Packages: `libutils[-pre]` (= headers + CMake config + optimized `libutils.a`), variants `libutils-db[-pre]`
   (debug, `libutils_debug.a`) and `libutils-as[-pre]` (asan, `libutils_asan.a`); a project built in `Debug`/`Asan`

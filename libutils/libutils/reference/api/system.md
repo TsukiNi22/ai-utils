@@ -1,6 +1,6 @@
 # libutils `system`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/system/IdHandler.hpp`
 
@@ -19,7 +19,8 @@ template<typename T> class IdHandler {
     T allocate(const bool safe_mode = true);
     void free(T& id, const bool safe_mode = true);
     void free(const T& id, const bool safe_mode = true);
-    void free(const bool safe_mode = true);
+    void free(void); // free every id
+    void clear(const bool safe_mode = true); // free every id
     IdHandler() = default;
     ~IdHandler() = default;
 };
@@ -34,18 +35,16 @@ Namespace: `utils::system`
 ```cpp
 // namespace utils::system
 template<typename T> class LoadBalancer: private utils::security::observer::Observer<"LoadBalancer"> {
-    std::future<T&> getWorker(void); // return an worker that can do the work (async)
-    void kill(void); // kill all workers
-    void kill(std::size_t n = 1); // kill n workers
+    std::future<T&> getWorker(void); // (async)
+    template<bool mode_forced = false> void kill(void); // kill all the not working workers
+    template<bool mode_forced = false> void kill(std::size_t n); // kill n workers (the not working ones first)
     void spawn(std::size_t n = 1); // spawn n new workers
     void setLimit(std::size_t limit);
     void setLifespan(std::chrono::milliseconds lifespan);
     std::size_t getLimit(void) const;
     std::chrono::milliseconds getLifespan(void) const;
-    LoadBalancer& operator=(LoadBalancer&& other) = default;
-    LoadBalancer();
+    std::size_t size(void) const;
     LoadBalancer(std::size_t limit = 1, std::chrono::milliseconds lifespan = std::chrono::milliseconds{0});
-    LoadBalancer(LoadBalancer&& other) = default;
     ~LoadBalancer() = default;
 };
 ```

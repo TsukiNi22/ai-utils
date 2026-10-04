@@ -1,6 +1,6 @@
 # libutils `root`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/utils.hpp`
 
@@ -18,7 +18,7 @@ Main include for every part of the utils lib
 #define FATALEXCEPTION_USAGE_WARNING
 #define EETPPARSER_USAGE_WARNING
 #define NO_DEPRECATED_WARNING // _deprecated(...)
-#define BACKWARD_COMPATIBILITY_WARNING // Things that still here but soon will potentialy be removed (only keep for backward compatibility)
+#define NO_BACKWARD_COMPATIBILITY_WARNING // Things that still here but soon will potentialy be removed (only keep for backward compatibility)
 #define NO_LINKER_WARNING // Linker requirement
 #define NO_USAGE_WARNING // Things that should be used carfully
 #define NO_BASE64CODEC_LINKER_WARNING

@@ -1,6 +1,6 @@
 # libutils `manip`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/manip/iomanip/ANSI.hpp`
 
@@ -10,8 +10,8 @@ Namespace: `utils::iomanip`
 
 ```cpp
 // namespace utils::iomanip
-std::string setStyle(std::initializer_list<utils::iomanip::Style> styles);
-std::string resetStyle(std::initializer_list<utils::iomanip::ResetStyle> styles);
+std::string set_style(std::initializer_list<utils::iomanip::Style> styles);
+std::string reset_style(std::initializer_list<utils::iomanip::ResetStyle> styles);
 constexpr std::string esc(void);
 constexpr std::string csi(const std::string& code);
 constexpr std::string file_hyperlink(const std::string& display, const std::string& path);
@@ -30,7 +30,7 @@ constexpr std::string framed_encircled_reset(void);
 constexpr std::string overlined_reset(void);
 constexpr std::string underline_color_reset(void);
 constexpr std::string exposant_indice_reset(void);
-constexpr std::string resetStyle(utils::iomanip::ResetStyle style);
+constexpr std::string reset_style(utils::iomanip::ResetStyle style);
 constexpr std::string strong(void);
 constexpr std::string dark(void);
 constexpr std::string italic(void);
@@ -46,7 +46,7 @@ constexpr std::string encircled(void); // Rarely supported
 constexpr std::string overlined(void);
 constexpr std::string exposant(void); // Rarely supported
 constexpr std::string indice(void); // Rarely supported
-constexpr std::string setStyle(utils::iomanip::Style style);
+constexpr std::string set_style(utils::iomanip::Style style);
 constexpr std::string color(utils::iomanip::Color c);
 constexpr std::string color(utils::iomanip::BackColor c);
 constexpr std::string color_id(std::uint8_t id);
@@ -105,9 +105,16 @@ struct AdvancedMouseEvent {
     std::size_t y = 0;
     bool pressed = false;
 };
-std::pair<int, int> readCursorPosition(void);
-utils::iomanip::MouseEvent readMouseEvent(void);
-utils::iomanip::AdvancedMouseEvent readAdvancedMouseEvent(void);
+std::pair<int, int> read_cursor_position(void);
+utils::iomanip::MouseEvent read_mouse_event(void);
+utils::iomanip::AdvancedMouseEvent read_advanced_mouse_event(void);
+[deprecated ~v4.0.0] std::string setStyle(std::initializer_list<utils::iomanip::Style> styles);
+[deprecated ~v4.0.0] std::string setStyle(utils::iomanip::Style style);
+[deprecated ~v4.0.0] std::string resetStyle(std::initializer_list<utils::iomanip::ResetStyle> styles);
+[deprecated ~v4.0.0] std::string resetStyle(utils::iomanip::ResetStyle style);
+[deprecated ~v4.0.0] std::pair<int, int> readCursorPosition(void);
+[deprecated ~v4.0.0] utils::iomanip::MouseEvent readMouseEvent(void);
+[deprecated ~v4.0.0] utils::iomanip::AdvancedMouseEvent readAdvancedMouseEvent(void);
 ```
 
 ## `utils/manip/iomanip/Char.hpp`
@@ -141,8 +148,24 @@ Namespace: `utils::iomanip`
 
 ```cpp
 // namespace utils::iomanip
-enum class Style: std::uint8_t {Strong, Dark, Italic, Underlined, FlashingFast, FlashingSlow, Reversed, Hide, Bar, Monospace, Framed, Encircled, Overlined, Exposant, Indice}
+enum class Style: std::uint8_t {Strong, Dark, Italic, Underlined, FlashingSlow, FlashingFast, Reversed, Hide, Bar, Monospace, Framed, Encircled, Overlined, Exposant, Indice}
 enum class ResetStyle: std::uint8_t {All, Strong, Dark, Italic, Underlined, FlashingFast, FlashingSlow, Reversed, Hide, Bar, FramedEncircled, Overlined, UnderlineColor, ExposantIndice}
+```
+
+## `utils/manip/smanip/FixedString.hpp`
+
+Fixed string used in template definition
+
+Namespace: `utils::smanip`
+
+```cpp
+// namespace utils::smanip
+template<std::size_t N> struct FixedString {
+    constexpr std::string_view view(void) const noexcept;
+    constexpr std::size_t size(void) const noexcept;
+    consteval FixedString(const char (&str)[N]);
+};
+template<std::size_t N> FixedString(const char (&)[N]) -> FixedString<N>;
 ```
 
 ## `utils/manip/smanip/codec/Base64Codec.hpp`
@@ -191,31 +214,17 @@ class ICodec: private utils::security::observer::Observer<"ICodec"> {
 
 ## `utils/manip/smanip/fixed_string.hpp`
 
-Fixed string used in template definition
+Old name of the FixedString (kept for backward compatibility)
+
+## `utils/manip/smanip/format.hpp`
+
+Definition of the utils::smanip::format & explication
 
 Namespace: `utils::smanip`
 
 ```cpp
 // namespace utils::smanip
-template<std::size_t N> struct fixed_string {
-    consteval fixed_string(const char (&str)[N]);
-    constexpr std::string_view view(void) const noexcept;
-    constexpr std::size_t size(void) const noexcept;
-};
-template<std::size_t N> fixed_string(const char (&)[N]) -> fixed_string<N>;
-```
-
-## `utils/manip/smanip/format.hpp`
-
-Definition of the utils::iomanip::format & explication
-
-Namespace: `utils::iomanip`, `utils::smanip`
-
-```cpp
-// namespace utils::smanip
 std::string format(const std::string& s);
-// namespace utils::iomanip
-[deprecated ~v3.0.0] std::string format(const std::string& s);
 ```
 
 ## `utils/manip/smanip/parser/AParser.hpp`
@@ -247,6 +256,10 @@ Declaration of the parser used for the 2etp protocol
 Namespace: `utils::smanip::parser`
 
 ```cpp
+#define EETP_AES_KEY_SIZE 32 // bytes (AES-256)
+#define EETP_AES_IV_SIZE 12 // bytes (GCM nonce)
+#define EETP_AES_TAG_SIZE 16 // bytes (GCM tag)
+
 // namespace utils::smanip::parser
 struct EETPContent {
     std::string type;

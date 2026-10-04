@@ -1,6 +1,6 @@
 # libutils `math`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/math/MathType.hpp`
 
@@ -55,7 +55,7 @@ utils::math::Coord rotate_point_3D(const utils::math::Coord& origin, const utils
 
 ## `utils/math/trigo/Convertion.hpp`
 
-Prototype for point computing
+Angle unit conversion (deg <-> rad)
 
 Namespace: `utils::math::trigo`
 

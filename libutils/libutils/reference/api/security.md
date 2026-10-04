@@ -1,6 +1,6 @@
 # libutils `security`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/security/encryption/AESKey.hpp`
 
@@ -9,6 +9,10 @@ Declaration of the key used for the AES
 Namespace: `utils::security::encryption`
 
 ```cpp
+#define AES_KEY_SIZE 32 // 256 bits
+#define AES_MIN_IV_SIZE 12 // 96 bits (GCM nonce)
+#define AES_TAG_SIZE 16 // 128 bits
+
 // namespace utils::security::encryption
 struct KeyAES {
     std::string AES;
@@ -33,8 +37,8 @@ Namespace: `utils::security::encryption`
 
 ```cpp
 // namespace utils::security::encryption
-static std::string keyToString(const std::vector<std::uint8_t>& data);
-static std::vector<std::uint8_t> stringToKey(const std::string& s);
+std::string key_to_string(const std::vector<std::uint8_t>& data);
+std::vector<std::uint8_t> string_to_key(const std::string& s);
 template<typename T> class AKey: public utils::security::encryption::IKey<T> {
     std::string generateRandomBytes(std::uint16_t size) const;
     void generate(void);
@@ -54,6 +58,8 @@ template<typename T> class AKey: public utils::security::encryption::IKey<T> {
     AKey(AKey&& other) = default;
     virtual ~AKey() = default;
 };
+[deprecated ~v4.0.0] std::string keyToString(const std::vector<std::uint8_t>& data);
+[deprecated ~v4.0.0] std::vector<std::uint8_t> stringToKey(const std::string& s);
 ```
 
 ## `utils/security/encryption/CommonRSAKey.hpp`
@@ -118,6 +124,8 @@ Declaration of the key used for the RSA
 Namespace: `utils::security::encryption`
 
 ```cpp
+#define RSA_OAEP_PADDING_SIZE 42 // 2 * hash size + 2
+
 // namespace utils::security::encryption
 struct KeyPair {
     std::string priv;
@@ -166,7 +174,7 @@ Namespace: `utils::security::observer`
 
 ```cpp
 // namespace utils::security::observer
-template<utils::smanip::fixed_string __instance__ = "[unknown]", bool __safe_mode__ = true> class AObserver: public utils::security::observer::IObserver {
+template<utils::smanip::FixedString instance = "[unknown]", bool safe_mode = true> class AObserver: public utils::security::observer::IObserver {
     AObserver& operator=(const AObserver& other);
     AObserver& operator=(AObserver&& other);
     AObserver();
@@ -220,8 +228,8 @@ Namespace: `utils::security::observer::instances`
 
 ```cpp
 // namespace utils::security::observer::instances
-extern utils::system::IdHandler<std::uint64_t> IdHandler;
-extern std::array<std::unique_ptr<utils::security::observer::INotifier>, 1> Notifiers;
+utils::system::IdHandler<std::uint64_t>& id_handler(void);
+std::array<std::unique_ptr<utils::security::observer::INotifier>, 1>& notifiers(void);
 ```
 
 ## `utils/security/observer/MemoryLeakNotifier.hpp`
@@ -247,7 +255,7 @@ Namespace: `utils::security::observer`
 
 ```cpp
 // namespace utils::security::observer
-template<utils::smanip::fixed_string __instance__> class Observer: public utils::security::observer::AObserver<__instance__, true> {
+template<utils::smanip::FixedString instance> class Observer: public utils::security::observer::AObserver<instance, true> {
     Observer& operator=(const Observer& other) = default;
     Observer& operator=(Observer&& other) = default;
     Observer() = default;
@@ -265,7 +273,7 @@ Namespace: `utils::security::observer`
 
 ```cpp
 // namespace utils::security::observer
-template<utils::smanip::fixed_string __instance__> class UnsafeObserver: public utils::security::observer::AObserver<__instance__, false> {
+template<utils::smanip::FixedString instance> class UnsafeObserver: public utils::security::observer::AObserver<instance, false> {
     UnsafeObserver& operator=(const UnsafeObserver& other) = default;
     UnsafeObserver& operator=(UnsafeObserver&& other) = default;
     UnsafeObserver() = default;

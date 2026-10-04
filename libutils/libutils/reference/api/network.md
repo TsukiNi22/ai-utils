@@ -1,6 +1,6 @@
 # libutils `network`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/network/Client.hpp`
 
@@ -20,7 +20,7 @@ class Client: private utils::security::observer::Observer<"Client"> {
     template<bool buffered = false> void send(const utils::network::Payload& payload);
     utils::network::Status getStatus(void) const;
     Client() = default;
-    Client(const std::shared_ptr<utils::network::socket::ISocket>& socket, const utils::network::Address& address = {});
+    Client(const std::shared_ptr<utils::network::ISocket>& socket, const utils::network::Address& address = {});
     ~Client();
 };
 ```
@@ -50,12 +50,12 @@ Namespace: `utils::network`
 ```cpp
 // namespace utils::network
 using Ip = std::pair<std::string, std::string>; // <ipv4 (hostname by default), hostname>
+using Payload = std::string; // Not parsed (raw from the socket)
+using Payloads = std::vector<utils::network::Payload>;
 struct Address {
     utils::network::Ip ip = {DEFAULT_IP, ""}; // Ignored on server side
     std::uint16_t port = DEFAULT_PORT;
 };
-using Payload = std::string; // Not parsed (raw from the socket)
-using Payloads = std::vector<utils::network::Payload>;
 ```
 
 ## `utils/network/Server.hpp`
@@ -74,12 +74,12 @@ class Server: private utils::security::observer::Observer<"Server"> {
     void flush(void); // send all the stack
     void flush(const int fd); // send all the stack of the specified client
     template<bool buffered = false> void send(const int fd, const utils::network::Payload& payload);
+    const utils::network::Payloads& listen(const int fd);
     std::vector<int> getFds(void) const;
     const std::unordered_map<int, utils::network::Payloads>& listen(void);
-    const utils::network::Payloads& listen(const int fd);
     utils::network::Status getStatus(void) const;
     Server() = default;
-    Server(const std::shared_ptr<utils::network::socket::ISocket>& socket, const utils::network::Address& address = {});
+    Server(const std::shared_ptr<utils::network::ISocket>& socket, const utils::network::Address& address = {});
     ~Server();
 };
 ```
@@ -88,14 +88,14 @@ class Server: private utils::security::observer::Observer<"Server"> {
 
 Abstract for socket handling
 
-Namespace: `utils::network::socket`
+Namespace: `utils::network`, `utils::network::socket`
 
 ```cpp
-// namespace utils::network::socket
+// namespace utils::network
 bool is_ip(const std::string& s);
 std::string resolve_hostname(const std::string& hostname);
 void resolve_address(utils::network::Address& address);
-class ASocket: public utils::network::socket::ISocket {
+class ASocket: public utils::network::ISocket {
     int accept(void); // accept a new connection (only server mode), fd is used as an id in server
     void close(void) noexcept; // reallow the use of connect/listen
     void reset(void); // reset fd and buffers (DOES NOT CLOSE FD!!!)
@@ -103,6 +103,8 @@ class ASocket: public utils::network::socket::ISocket {
     std::string recv(int fd = -1); // (default) read by chunck of 4096, store the payload overflow into a buffer
     std::vector<std::string> recvAll(int fd = -1); // read by chunck of 4096, return all valid payloads, store the overflow into a buffer
     void flush(int fd = -1); // send the internal buffer
+    std::size_t receive(int fd = -1); // read once (after a poll event) into the internal buffer, never wait for a full payload
+    void discard(int fd = -1); // forget the internal buffers of a fd (closed connection), -1 = every fd
     void send(const std::string& s, int fd = -1); // (default) send it now
     void sendBuffered(const std::string& s, int fd = -1); // store in a buffer
     void setPayloadSeparator(char c = '\n'); // default: '\n'
@@ -119,16 +121,21 @@ class ASocket: public utils::network::socket::ISocket {
     ASocket() = default;
     ~ASocket() noexcept;
 };
+// namespace utils::network::socket
+[deprecated ~v4.0.0] bool is_ip(const std::string& s);
+[deprecated ~v4.0.0] std::string resolve_hostname(const std::string& hostname);
+[deprecated ~v4.0.0] void resolve_address(utils::network::Address& address);
+using ASocket [deprecated ~v4.0.0] = utils::network::ASocket;
 ```
 
 ## `utils/network/socket/ISocket.hpp`
 
 Interface for socket handling
 
-Namespace: `utils::network::socket`
+Namespace: `utils::network`, `utils::network::socket`
 
 ```cpp
-// namespace utils::network::socket
+// namespace utils::network
 class ISocket: private utils::security::observer::Observer<"ISocket"> {
     virtual void setPayloadSeparator(char c) = 0; // default: '\n'
     virtual void setPayloadSeparator(std::string s) = 0;
@@ -150,11 +157,15 @@ class ISocket: private utils::security::observer::Observer<"ISocket"> {
     virtual std::string recv(int fd = -1) = 0; // (default) read by chunck of 4096, store the payload overflow into a buffer
     virtual std::vector<std::string> recvAll(int fd = -1) = 0; // read by chunck of 4096, return all valid payloads from the buffer, store the overflow into a buffer
     virtual void flush(int fd = -1) = 0; // send the internal buffer
+    virtual std::size_t receive(int fd = -1) = 0; // read once (after a poll event) into the internal buffer, never wait for a full payload
+    virtual void discard(int fd = -1) = 0; // forget the internal buffers of a fd (closed connection), -1 = every fd
     virtual void send(const std::string& s, int fd = -1) = 0; // (default) send it now
     virtual void sendBuffered(const std::string& s, int fd = -1) = 0; // store in a buffer
     ISocket() = default;
     virtual ~ISocket() = default;
 };
+// namespace utils::network::socket
+using ISocket [deprecated ~v4.0.0] = utils::network::ISocket;
 ```
 
 ## `utils/network/socket/Socket.hpp`
@@ -165,11 +176,11 @@ Include for all the different sockets
 
 Socket that handle tcp communication
 
-Namespace: `utils::network::socket`
+Namespace: `utils::network`, `utils::network::socket`
 
 ```cpp
-// namespace utils::network::socket
-class TCPSocket: public utils::network::socket::ASocket {
+// namespace utils::network
+class TCPSocket: public utils::network::ASocket {
     void connect(const utils::network::Address& address); // build a connection as a client
     void listen(const utils::network::Address& address); // build a connection as a server
     bool hasAcceptOverload(void) const;
@@ -181,4 +192,6 @@ class TCPSocket: public utils::network::socket::ASocket {
     TCPSocket() = default;
     ~TCPSocket() = default;
 };
+// namespace utils::network::socket
+using TCPSocket [deprecated ~v4.0.0] = utils::network::TCPSocket;
 ```

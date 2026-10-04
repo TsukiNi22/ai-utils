@@ -1,6 +1,6 @@
 # libutils `pool`
 
-Generated from libutils `v2.14.0` (commit `7506acd`, 2026-10-01) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/pool/Cluster.hpp`
 
@@ -13,9 +13,9 @@ Namespace: `utils::pool`
 template<typename T> class Cluster: private utils::security::observer::Observer<"Cluster"> {
     std::size_t size(void) const;
     void apply(std::function<void(T&)> fn);
-    template <typename... Args> void spawn(Args&&... args); // spawn one
-    template <typename... Args> void spawn(std::size_t n, Args&&... args); // spawn n
-    void kill(); // kill all
+    template<typename... Args> requires std::constructible_from<T, Args&&...> void spawn(Args&&... args);
+    template<typename... Args> void spawn(std::size_t n, Args&&... args); // spawn n
+    void kill(void); // kill all
     void kill(std::size_t n); // kill n last
     Cluster& operator=(Cluster&& other) = default;
     Cluster() = default;
@@ -40,7 +40,7 @@ template<typename T> struct MiddlewareType {
     using type = std::function<void(T)>;
 };
 template<> struct MiddlewareType<void> {
-    using type = std::function<void()>;
+    using type = std::function<void(void)>;
 };
 ```
 
@@ -55,10 +55,10 @@ Namespace: `utils::pool`
 template<typename T, typename U> class Middlewares: private utils::security::observer::Observer<"Middlewares"> {
     std::vector<utils::pool::Middleware<T>> before;
     std::vector<utils::pool::Middleware<U>> after;
-    void clear();
-    void addBefore(utils::pool::Middleware<T>& toAdd);
+    void clear(void);
+    void addBefore(const utils::pool::Middleware<T>& toAdd);
     void addBefore(const std::vector<utils::pool::Middleware<T>>& toAdds);
-    void addAfter(utils::pool::Middleware<U>& toAdd);
+    void addAfter(const utils::pool::Middleware<U>& toAdd);
     void addAfter(const std::vector<utils::pool::Middleware<U>>& toAdds);
     void callBefore(T arg) const;
     void callAfter(U arg) const;
@@ -82,13 +82,13 @@ Namespace: `utils::pool`
 template<typename T> class Middlewares<T, void>: private utils::security::observer::Observer<"Middlewares"> {
     std::vector<utils::pool::Middleware<T>> before;
     std::vector<utils::pool::Middleware<void>> after;
-    void clear();
-    void addBefore(utils::pool::Middleware<T>& toAdd);
+    void clear(void);
+    void addBefore(const utils::pool::Middleware<T>& toAdd);
     void addBefore(const std::vector<utils::pool::Middleware<T>>& toAdds);
-    void addAfter(utils::pool::Middleware<void>& toAdd);
+    void addAfter(const utils::pool::Middleware<void>& toAdd);
     void addAfter(const std::vector<utils::pool::Middleware<void>>& toAdds);
     void callBefore(T arg) const;
-    void callAfter() const;
+    void callAfter(void) const;
     Middlewares& operator=(const Middlewares& other);
     Middlewares& operator=(Middlewares&& other);
     Middlewares() = default;
@@ -109,12 +109,12 @@ Namespace: `utils::pool`
 template<typename U> class Middlewares<void, U>: private utils::security::observer::Observer<"Middlewares"> {
     std::vector<utils::pool::Middleware<void>> before;
     std::vector<utils::pool::Middleware<U>> after;
-    void clear();
-    void addBefore(utils::pool::Middleware<void>& toAdd);
+    void clear(void);
+    void addBefore(const utils::pool::Middleware<void>& toAdd);
     void addBefore(const std::vector<utils::pool::Middleware<void>>& toAdds);
-    void addAfter(utils::pool::Middleware<U>& toAdd);
+    void addAfter(const utils::pool::Middleware<U>& toAdd);
     void addAfter(const std::vector<utils::pool::Middleware<U>>& toAdds);
-    void callBefore() const;
+    void callBefore(void) const;
     void callAfter(U arg) const;
     Middlewares& operator=(const Middlewares& other);
     Middlewares& operator=(Middlewares&& other);
@@ -136,13 +136,13 @@ Namespace: `utils::pool`
 template<> class Middlewares<void, void>: private utils::security::observer::Observer<"Middlewares"> {
     std::vector<utils::pool::Middleware<void>> before;
     std::vector<utils::pool::Middleware<void>> after;
-    void clear();
-    void addBefore(utils::pool::Middleware<void>& toAdd);
+    void clear(void);
+    void addBefore(const utils::pool::Middleware<void>& toAdd);
     void addBefore(const std::vector<utils::pool::Middleware<void>>& toAdds);
-    void addAfter(utils::pool::Middleware<void>& toAdd);
+    void addAfter(const utils::pool::Middleware<void>& toAdd);
     void addAfter(const std::vector<utils::pool::Middleware<void>>& toAdds);
-    void callBefore() const;
-    void callAfter() const;
+    void callBefore(void) const;
+    void callAfter(void) const;
     Middlewares& operator=(const Middlewares& other);
     Middlewares& operator=(Middlewares&& other);
     Middlewares() = default;
