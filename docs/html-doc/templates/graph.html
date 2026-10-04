@@ -139,7 +139,7 @@ body { overflow: hidden; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
 .seg button { border: 0; background: var(--surface); color: var(--muted); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
 .seg button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-input[type="search"], select {
+input[type="search"], input[type="text"], select {
   width: 100%; padding: 7px 10px; border-radius: 7px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 13.5px;
 }
@@ -180,6 +180,17 @@ select { width: auto; }
 .flowbar[hidden], .flowbar select[hidden] { display: none; }
 .flowbar .seg { box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
 .flowbar select { max-width: 260px; }
+.repo-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+.repo-bar[hidden] { display: none; }
+.repo-bar input { flex: 1; min-width: 0; }
+.repo-card input { width: 100%; margin: 6px 0 8px; }
+.repo-err { color: var(--warn, #d9822b); font-size: 13px; margin-bottom: 6px; }
+.repo-err[hidden] { display: none; }
+.repo-ex { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.repo-ex button { border: 1px solid var(--border); background: var(--code-bg); color: var(--text); border-radius: 6px; padding: 2px 8px; font: inherit; cursor: pointer; }
+.repo-ex button:hover { border-color: var(--accent); color: var(--accent); }
+.repo-actions { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+.brand .ver:empty { display: none; }
 .controls-btn {
   position: absolute; left: 14px; bottom: 14px; width: 34px; height: 34px; border-radius: 50%;
   border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 700 15px system-ui, sans-serif;
@@ -385,6 +396,10 @@ html, body { overscroll-behavior: none; }
     <h1 data-i18n>Project graph</h1>
     <p class="muted small" data-i18n>Files, classes, functions, tests, build targets (CMake, packages) and external dependencies of <code class="repo-name">{{PROJECT}}</code>, extracted from the sources. Click a node to inspect it, drag to move, scroll to zoom.</p>
 
+    <form class="repo-bar" id="repoBar" hidden>
+      <input id="repoInput" type="text" spellcheck="false" autocomplete="off" aria-label="Repository" data-i18n-aria-label placeholder="github.com/owner/repo" data-help="repo">
+      <button class="btn" type="submit" data-i18n>Open</button>
+    </form>
     <div class="status" id="status">Loading…</div>
     <div class="row">
       <button class="btn primary" id="update" type="button" data-help="update">
@@ -474,6 +489,18 @@ html, body { overscroll-behavior: none; }
   </div>
 </div>
 <div class="tip" id="tip" role="tooltip" hidden></div>
+<div class="helpcard-back" id="repoBack" hidden>
+  <form class="helpcard repo-card" id="repoForm" role="dialog" aria-modal="true" aria-labelledby="repoTitle">
+    <div class="kind" data-i18n>Graph explorer</div>
+    <h3 id="repoTitle" data-i18n>Which repository?</h3>
+    <p data-i18n>A public GitHub or GitLab repository: its sources are read by your browser to draw the graph of its files, classes, functions, calls, tests and packages.</p>
+    <input id="repoAsk" type="text" spellcheck="false" autocomplete="off" placeholder="github.com/owner/repo · gitlab.com/group/project">
+    <div class="repo-err" id="repoErr" hidden></div>
+    <div class="repo-ex"><span data-i18n>Examples:</span> <button type="button" data-ex="TsukiNi22/context-forge">TsukiNi22/context-forge</button> <button type="button" data-ex="psf/requests">psf/requests</button> <button type="button" data-ex="spf13/cobra">spf13/cobra</button> <button type="button" data-ex="https://gitlab.com/gitlab-org/cli">gitlab.com/gitlab-org/cli</button></div>
+    <div class="repo-actions"><button class="btn primary" type="submit" data-i18n>Open</button></div>
+    <p class="muted small" data-i18n>The link is remembered by this browser until Ctrl + Shift + F3.</p>
+  </form>
+</div>
 <div class="helpcard-back" id="helpBack" hidden>
   <div class="helpcard" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
     <button class="close" type="button" id="helpClose" aria-label="Close" data-i18n-aria-label>×</button>
@@ -602,7 +629,17 @@ window.DOC_FR = {
   "Arrows go from the dependent to the dependency: <em>file → included / imported file</em>, <em>class → base class</em>, <em>source → build target / package</em>, <em>target → linked library</em>, <em>test → tested class</em>. The size of a node grows with its number of relations.": "Les flèches vont du dépendant vers la dépendance : <em>fichier → fichier inclus / importé</em>, <em>classe → classe de base</em>, <em>source → cible de build / paquet</em>, <em>cible → bibliothèque liée</em>, <em>test → classe testée</em>. La taille d'un nœud augmente avec son nombre de relations.",
   "includes / imports": "inclut / importe",
   "Page": "Page",
-  "Stylesheet": "Feuille de style"
+  "Stylesheet": "Feuille de style",
+  "Open": "Ouvrir",
+  "Repository": "Dépôt",
+  "Graph explorer": "Explorateur de graphe",
+  "Which repository?": "Quel dépôt ?",
+  "A public GitHub or GitLab repository: its sources are read by your browser to draw the graph of its files, classes, functions, calls, tests and packages.": "Un dépôt GitHub ou GitLab public : ses sources sont lues par ton navigateur pour dessiner le graphe de ses fichiers, classes, fonctions, appels, tests et paquets.",
+  "Examples:": "Exemples :",
+  "The link is remembered by this browser until Ctrl + Shift + F3.": "Le lien est mémorisé par ce navigateur jusqu'à Ctrl + Maj + F3.",
+  "Unsupported link: a GitHub (owner/repo, github.com/...) or GitLab (gitlab.com/..., a self-hosted GitLab) repository.": "Lien non pris en charge : un dépôt GitHub (owner/repo, github.com/...) ou GitLab (gitlab.com/..., un GitLab auto-hébergé).",
+  "Choose a repository to explore.": "Choisis un dépôt à explorer.",
+  "GitLab API rate limit reached": "Limite de l'API GitLab atteinte"
 };
 </script>
 <script>
@@ -1777,7 +1814,7 @@ extractGraph.wanted = function (p) {
     const CONFIG = JSON.parse($("graph-config").textContent);
     const tr = (s) => window.docI18n ? window.docI18n.tr(s) : s;
     let SNAPSHOT = JSON.parse($("graph-snapshot").textContent);
-    const KEY = (CONFIG.storageKey || "doc") + "-graph";
+    let KEY = (CONFIG.storageKey || "doc") + "-graph"; // explorer: one key per repository
     const KINDS = {
         header: ["#5b8def", "Header"], source: ["#2fa36b", "Source"], "test-file": ["#d9822b", "Test file"],
         class: ["#8e6cf0", "Class"], struct: ["#a77bd9", "Struct"], interface: ["#e05a9b", "Interface"],
@@ -1868,7 +1905,7 @@ extractGraph.wanted = function (p) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").hidden = !!vis.length || state.mode === "flow"; // the controls are in the "?" card
+        $("hint").hidden = !!vis.length || state.mode === "flow" || !state.data.nodes.length; // the controls are in the "?" card; nothing loaded yet: no hint
         $("hint").textContent = tr("No node: enable some categories / groups");
     }
 
@@ -2484,7 +2521,7 @@ extractGraph.wanted = function (p) {
             const s = 700 / c.dist, w = unrotateDir(-dx / s, -dy / s, 0);
             c.x += w.x; c.y += w.y; c.z += w.z;
         } else {
-            c.yaw += dx * 0.008; c.pitch = Math.max(-1.5, Math.min(1.5, c.pitch + dy * 0.008));
+            c.yaw += dx * 0.006; c.pitch = Math.max(-1.5, Math.min(1.5, c.pitch + dy * 0.006)); // orbit
         }
         state.dirty = true;
     });
@@ -2565,14 +2602,16 @@ extractGraph.wanted = function (p) {
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("wheel", (e) => {
         e.preventDefault();
-        const c = state.cam, f = Math.exp(-e.deltaY * 0.0015), r = canvas.getBoundingClientRect();
+        // Touchpad: many small pixel deltas (a mouse wheel sends big steps): damped, and capped for both
+        const pad = e.deltaMode === 0 && Math.abs(e.deltaY) < 50, dy = Math.max(-120, Math.min(120, e.deltaY)) * (pad ? 0.35 : 1);
+        const c = state.cam, f = Math.exp(-dy * 0.0015), r = canvas.getBoundingClientRect();
         // Anchor of the zoom: the selected node, else the mouse (the point under it stays under it, zoom in and out)
         let ax = e.clientX - r.left, ay = e.clientY - r.top;
         const sel = state.selected && state.pos.get(state.selected);
         if (sel && state.mode !== "flow") { const q = project(sel); if (!(state.mode === "3d" && q.behind)) { ax = q.x; ay = q.y; } }
         const mx = ax - state.w / 2, my = ay - state.h / 2;
         if (state.mode === "3d") { // the scroll moves the camera forward / backward along the ray under the anchor (no limit)
-            const step = -e.deltaY * c.dist * 0.0009, l = Math.hypot(mx / 700, my / 700, 1); // > 0: forward, same step back
+            const step = -dy * c.dist * 0.0009, l = Math.hypot(mx / 700, my / 700, 1); // > 0: forward, same step back
             const w = unrotateDir(mx / 700 / l * step, my / 700 / l * step, step / l);
             c.x += w.x; c.y += w.y; c.z += w.z; // camera and target move together: free flight
         } else {
@@ -2629,19 +2668,51 @@ extractGraph.wanted = function (p) {
         const s = $("status"); s.className = "status" + (cls ? " " + cls : ""); s.innerHTML = typeof html === "function" ? html() : html;
     }
     function describe(meta) { return "commit <code>" + short(meta.sha) + "</code> " + tr("of") + " " + day(meta.date) + (meta.source === "live" ? tr(" (fetched from the repository)") : tr(" (embedded)")); }
-    async function gh(path) {
-        const r = await fetch("https://api.github.com" + path, {headers: {Accept: "application/vnd.github+json"}});
-        if (!r.ok) throw new Error(r.status === 403 || r.status === 429 ? "GitHub API rate limit reached" : r.status === 404 ? "repository not found or private" : "HTTP " + r.status);
-        return r.json();
+    // Sources of the repository: GitHub or GitLab (gitlab.com or a self-hosted one), public, read from the browser
+    async function getJSON(url, host) {
+        const r = await fetch(url, {headers: host === "github" ? {Accept: "application/vnd.github+json"} : {}});
+        if (!r.ok) throw new Error(r.status === 403 || r.status === 429 ? (host === "gitlab" ? "GitLab" : "GitHub") + " API rate limit reached" : r.status === 404 ? "repository not found or private" : "HTTP " + r.status);
+        return {json: await r.json(), headers: r.headers};
     }
+    const HOSTS = {
+        github: {
+            async head(c) {
+                const branch = c.branch || (c.explorer ? (await getJSON("https://api.github.com/repos/" + c.repo, "github")).json.default_branch : "main");
+                const h = (await getJSON("https://api.github.com/repos/" + c.repo + "/commits/" + encodeURIComponent(branch), "github")).json;
+                return {sha: h.sha, date: h.commit && h.commit.committer && h.commit.committer.date};
+            },
+            async tree(c, sha) { return (await getJSON("https://api.github.com/repos/" + c.repo + "/git/trees/" + sha + "?recursive=1", "github")).json.tree.filter(x => x.type === "blob" && x.size < 600000).map(x => x.path); },
+            raw: (c, sha, path) => "https://raw.githubusercontent.com/" + c.repo + "/" + sha + "/" + path.split("/").map(encodeURIComponent).join("/"),
+            web: (c) => "https://github.com/" + c.repo
+        },
+        gitlab: {
+            api: (c) => (c.api || "https://gitlab.com") + "/api/v4/projects/" + encodeURIComponent(c.repo),
+            async head(c) {
+                const branch = c.branch || (await getJSON(HOSTS.gitlab.api(c), "gitlab")).json.default_branch || "main";
+                const h = (await getJSON(HOSTS.gitlab.api(c) + "/repository/commits/" + encodeURIComponent(branch), "gitlab")).json;
+                return {sha: h.id, date: h.committed_date};
+            },
+            async tree(c, sha) {
+                const out = [];
+                for (let page = 1; page <= 60; page++) {
+                    const r = await getJSON(HOSTS.gitlab.api(c) + "/repository/tree?recursive=true&per_page=100&ref=" + sha + "&page=" + page, "gitlab");
+                    out.push(...r.json.filter(x => x.type === "blob").map(x => x.path));
+                    if (!r.headers.get("x-next-page")) break;
+                }
+                return out;
+            },
+            raw: (c, sha, path) => HOSTS.gitlab.api(c) + "/repository/files/" + encodeURIComponent(path) + "/raw?ref=" + sha,
+            web: (c) => (c.api || "https://gitlab.com") + "/" + c.repo
+        }
+    };
     async function update(manual) {
         const btn = $("update");
         if (!CONFIG.repo || CONFIG.repo.includes("{{")) { setStatus(() => tr("Graph") + " " + describe(state.meta) + ". " + tr("No repository configured for the update."), "warn"); return; }
         btn.disabled = true; btn.classList.add("spin");
         try {
             setStatus(() => tr("Checking the repository") + " <code>" + esc(CONFIG.repo) + "</code>…", "busy");
-            const head = await gh("/repos/" + CONFIG.repo + "/commits/" + encodeURIComponent(CONFIG.branch || "main"));
-            const sha = head.sha, date = head.commit && head.commit.committer && head.commit.committer.date;
+            const host = HOSTS[CONFIG.host || "github"];
+            const {sha, date} = await host.head(CONFIG);
             if (sha === state.meta.sha) { setStatus(() => tr("Up to date:") + " " + describe(state.meta) + ".", "ok"); return; }
             if (date && state.meta.date && new Date(date) < new Date(state.meta.date)) {
                 setStatus(() => tr("The graph shown") + " (" + describe(state.meta) + ") " + tr("is newer than the repository") + " (<code>" + short(sha) + "</code> " + tr("of") + " " + day(date) + "): " + tr("local commits not pushed?"), "ok");
@@ -2649,16 +2720,14 @@ extractGraph.wanted = function (p) {
             }
             const cached = load("graph");
             if (cached && cached.meta && cached.meta.sha === sha) { setData(cached, cached.meta); setStatus(() => tr("Updated:") + " " + describe(cached.meta) + ".", "ok"); return; }
-            const tree = await gh("/repos/" + CONFIG.repo + "/git/trees/" + sha + "?recursive=1");
-            const wanted = tree.tree.filter(t => t.type === "blob" && t.size < 600000 &&
-                extractGraph.wanted(t.path)).map(t => t.path).slice(0, 2500);
+            const wanted = (await host.tree(CONFIG, sha)).filter(p => extractGraph.wanted(p)).slice(0, 2500);
             const files = [];
             let done = 0;
             const queue = wanted.slice();
             const worker = async () => {
                 while (queue.length) {
                     const path = queue.shift();
-                    const r = await fetch("https://raw.githubusercontent.com/" + CONFIG.repo + "/" + sha + "/" + path.split("/").map(encodeURIComponent).join("/"));
+                    const r = await fetch(host.raw(CONFIG, sha, path));
                     if (r.ok) files.push({path, text: await r.text()});
                     if (++done % 10 === 0 || done === wanted.length) setStatus(tr("Downloading the sources:") + " " + done + " / " + wanted.length + "…", "busy");
                 }
@@ -3052,6 +3121,7 @@ extractGraph.wanted = function (p) {
         "flow:exec": ["Execution", "Calls from an entry point, level by level.", "Starts from main() (or the entry point of the list) and follows the calls: each level is one call deeper, the methods of the same class are grouped in a dashed box, a dashed arrow goes back to an earlier level (loop or recursion). Double click a box to start from it.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         "flow:inherit": ["Inheritance", "Tree of the classes of the sources.", "The bases on top, the derived classes below, a hollow triangle on the base (UML). Only the classes of the sources (not the test helpers).", "iface"],
         "flow:flame": ["Flame graph", "Call tree, the width of a frame = size of its subtree.", "The entry point at the bottom, each row is one call deeper. Static: the width is the number of calls below, not a measured time. Double click a frame to zoom into it, the rows below to go back.", ["calls", ["server()", "method"], ["formatCFG()", "method"]]],
+        repo: ["Repository", "The repository shown: GitHub or GitLab link, Enter / Open to load it.", "owner/repo, https://github.com/owner/repo(/tree/branch), https://gitlab.com/group/project(/-/tree/branch) or a self-hosted GitLab. The sources are read by the browser (GitHub: 60 API requests per hour without account, 3 per load). The link is remembered until Ctrl + Shift + F3; ?repo=owner/name in the address opens a repository directly.", "overview"],
         flowRoot: ["Entry point", "Where the execution flow / flame graph starts.", "main() first, then the functions and methods nobody calls (the biggest first).", ["calls", ["main()", "function"], ["init()", "method"]]],
         "link:calls": ["calls", "A function / method calls another one.", "Arrow from the caller to the called function, method or class (construction). Read in the bodies of the functions, resolved by name and by the type of the objects.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Group", "Module folder (include/<project>/<module>, src/..., tests/<module>).", "Every node belongs to the module of its file. Disabling a group hides everything coming from it; \"Color by group\" and \"Cluster by group\" make the split visible.", "groups"],
@@ -3107,6 +3177,7 @@ extractGraph.wanted = function (p) {
         "flow:exec": ["Exécution", "Appels depuis un point d'entrée, niveau par niveau.", "Part de main() (ou du point d'entrée de la liste) et suit les appels : chaque niveau est un appel plus profond, les méthodes d'une même classe sont regroupées dans un cadre pointillé, une flèche pointillée revient à un niveau précédent (boucle ou récursion). Double clic sur une boîte pour partir d'elle.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         "flow:inherit": ["Héritage", "Arbre des classes des sources.", "Les bases en haut, les classes dérivées en dessous, un triangle creux sur la base (UML). Uniquement les classes des sources (pas les aides des tests).", "iface"],
         "flow:flame": ["Flame graph", "Arbre d'appels, la largeur d'un bloc = taille de son sous-arbre.", "Le point d'entrée en bas, chaque ligne est un appel plus profond. Statique : la largeur est le nombre d'appels en dessous, pas un temps mesuré. Double clic sur un bloc pour zoomer, sur les lignes du dessous pour revenir.", ["calls", ["server()", "method"], ["formatCFG()", "method"]]],
+        repo: ["Dépôt", "Le dépôt affiché : lien GitHub ou GitLab, Entrée / Ouvrir pour le charger.", "owner/repo, https://github.com/owner/repo(/tree/branche), https://gitlab.com/groupe/projet(/-/tree/branche) ou un GitLab auto-hébergé. Les sources sont lues par le navigateur (GitHub : 60 requêtes d'API par heure sans compte, 3 par chargement). Le lien est mémorisé jusqu'à Ctrl + Maj + F3 ; ?repo=owner/nom dans l'adresse ouvre directement un dépôt.", "overview"],
         flowRoot: ["Point d'entrée", "Là où commencent le flux d'exécution / le flame graph.", "main() d'abord, puis les fonctions et méthodes que personne n'appelle (les plus grosses d'abord).", ["calls", ["main()", "function"], ["init()", "method"]]],
         "link:calls": ["appelle", "Une fonction / méthode en appelle une autre.", "Flèche de l'appelant vers la fonction, la méthode ou la classe (construction) appelée. Lue dans le corps des fonctions, résolue par le nom et par le type des objets.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Groupe", "Dossier de module (include/<projet>/<module>, src/..., tests/<module>).", "Chaque nœud appartient au module de son fichier. Désactiver un groupe masque tout ce qui en vient ; « Couleur par groupe » et « Rapprocher par groupe » rendent le découpage visible.", "groups"],
@@ -3197,6 +3268,7 @@ extractGraph.wanted = function (p) {
             [ICON.mouse("none", "hover"), L("Hover a node", "Survol d'un nœud"), L("Card with its kind, its name and its path.", "Carte avec sa catégorie, son nom et son chemin.")],
             [ICON.keys(["F"]), "F", L("Centers the camera on the selected node.", "Centre la caméra sur le nœud sélectionné.")],
             [ICON.keys(["R"]), "R", L("Back to the start view (position, zoom and angle).", "Retour à la vue de départ (position, zoom et angle).")],
+            ...(CONFIG.explorer ? [[ICON.keys(["Ctrl", "⇧", "F3"]), "Ctrl + Shift + F3", L("Forgets the repository (and the graphs kept by this browser) and asks for another one.", "Oublie le dépôt (et les graphes gardés par ce navigateur) et en demande un autre.")]] : []),
             [ICON.mouse("left", "dbl"), L("Double click a control", "Double clic sur un contrôle"), L("Help card of a button, a category, a group or a relation of the panel.", "Fiche d'aide d'un bouton, d'une catégorie, d'un groupe ou d'une relation du panneau.")]
         ];
         if (state.mode === "3d") return [L("Controls · 3D view", "Contrôles · vue 3D"), [
@@ -3275,10 +3347,75 @@ extractGraph.wanted = function (p) {
     });
     $("pause").textContent = state.paused ? tr("Resume") : tr("Freeze");
 
+    // ---------- Explorer (any repository given by the user, e.g. the gh-pages of the skills repository) ---------- //
+    const EXPLORER = "graph-explorer:repo";
+    function parseRepo(s) { // owner/repo, GitHub / GitLab URLs (with /tree/<branch>)
+        s = (s || "").trim().replace(/\.git$/, "").replace(/\/+$/, "");
+        let m;
+        if ((m = /^([\w.-]+)\/([\w.-]+)$/.exec(s))) return {host: "github", repo: m[1] + "/" + m[2], branch: ""};
+        let u;
+        try { u = new URL(/^https?:\/\//.test(s) ? s : "https://" + s); } catch (e) { return null; }
+        const parts = u.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+        if (u.hostname === "github.com" && parts.length >= 2) return {host: "github", repo: parts[0] + "/" + parts[1], branch: parts[2] === "tree" ? parts.slice(3).join("/") : ""};
+        if (/gitlab/.test(u.hostname) && parts.length >= 2) {
+            const i = parts.indexOf("-"), p = i > 0 ? parts.slice(0, i) : parts;
+            return {host: "gitlab", api: u.origin, repo: p.join("/"), branch: i > 0 && parts[i + 1] === "tree" ? parts.slice(i + 2).join("/") : ""};
+        }
+        return null;
+    }
+    function askRepo(error) {
+        $("repoErr").hidden = !error; $("repoErr").textContent = error ? tr(error) : "";
+        $("repoAsk").value = $("repoInput").value;
+        $("repoBack").hidden = false; $("repoAsk").focus();
+    }
+    function openRepo(spec) {
+        const r = parseRepo(spec);
+        if (!r) { askRepo("Unsupported link: a GitHub (owner/repo, github.com/...) or GitLab (gitlab.com/..., a self-hosted GitLab) repository."); return; }
+        Object.assign(CONFIG, r, {explorer: true});
+        KEY = "graph-explorer:" + r.host + ":" + (r.api || "") + r.repo + (r.branch ? "@" + r.branch : "");
+        try { localStorage.setItem(EXPLORER, spec.trim()); } catch (e) { /* storage unavailable */ }
+        $("repoInput").value = spec.trim(); $("repoBack").hidden = true;
+        const name = r.repo.split("/").pop();
+        document.querySelectorAll(".repo-name").forEach(e => { e.textContent = name; });
+        document.querySelectorAll("a.repo-link").forEach(a => { a.href = HOSTS[r.host].web(CONFIG); });
+        document.title = name + " · " + tr("Graph explorer");
+        Object.assign(state, {pos: new Map(), selected: null, hover: null, flowRoot: null, flamePath: [], groups: new Set(), knownGroups: new Set(), cams: {}, meta: {}});
+        $("details").hidden = true;
+        const cached = load("graph");
+        setData(cached || {nodes: [], links: []}, cached ? cached.meta : {});
+        for (let i = 0; i < 120; i++) tick();
+        fit(); state.dirty = true;
+        update(true).then(() => { for (let i = 0; i < 150; i++) tick(); fit(); state.dirty = true; }); // fitted once the layout has settled
+    }
+    if (CONFIG.explorer) {
+        $("repoBar").hidden = false;
+        $("repoBar").addEventListener("submit", (e) => { e.preventDefault(); openRepo($("repoInput").value); });
+        $("repoForm").addEventListener("submit", (e) => { e.preventDefault(); openRepo($("repoAsk").value); });
+        $("repoBack").addEventListener("click", (e) => { if (e.target === $("repoBack") && CONFIG.repo) $("repoBack").hidden = true; });
+        document.querySelectorAll("[data-ex]").forEach(b => b.addEventListener("click", () => { $("repoAsk").value = b.dataset.ex; openRepo(b.dataset.ex); }));
+        document.addEventListener("keydown", (e) => { // Ctrl + Shift + F3: forget the repository (and the graphs kept by this browser)
+            if (!(e.ctrlKey && e.shiftKey && e.key === "F3")) return;
+            e.preventDefault();
+            try { for (const k of Object.keys(localStorage)) if (k.startsWith("graph-explorer:")) localStorage.removeItem(k); } catch (err) { /* storage unavailable */ }
+            $("repoInput").value = ""; CONFIG.repo = "";
+            askRepo("");
+        });
+    }
+
     // ---------- Start ---------- //
     readColors();
     resize();
     window.addEventListener("resize", () => { resize(); });
+    if (CONFIG.explorer) {
+        state.meta = {};
+        setData({nodes: [], links: []}, {});
+        requestAnimationFrame(frame);
+        let saved = null;
+        try { saved = localStorage.getItem(EXPLORER); } catch (e) { /* storage unavailable */ }
+        const q = new URLSearchParams(location.search).get("repo"); // ?repo=owner/name also works (shareable link)
+        if (q || saved) openRepo(q || saved); else { setStatus(() => tr("Choose a repository to explore."), ""); askRepo(""); }
+        return;
+    }
     const cached = load("graph");
     const start = cached && cached.meta && SNAPSHOT.meta && cached.meta.date && (!SNAPSHOT.meta.date || cached.meta.date > SNAPSHOT.meta.date) ? cached : SNAPSHOT;
     setData(start, start.meta);

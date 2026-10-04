@@ -197,3 +197,13 @@ Only when the project is a git repository (`git rev-parse --is-inside-work-tree`
 - GitHub Pages not enabled yet (`gh api repos/<o>/<r>/pages` -> 404): propose
   `gh api -X POST repos/<o>/<r>/pages -f "source[branch]=gh-pages" -f "source[path]=/"` and give the URL
   `https://<owner>.github.io/<repo>/`.
+
+## 5. Graph explorer (any public repository)
+`scripts/build_explorer.mjs --out graph.html` builds the graph page without embedded project: at the first visit it
+asks for a public **GitHub or GitLab** repository (`owner/repo`, `github.com/...(/tree/<branch>)`,
+`gitlab.com/...(/-/tree/<branch>)`, a self-hosted GitLab, or `?repo=` in the address), reads its sources from the
+browser (GitHub: 3 API requests per load, raw files from `raw.githubusercontent.com`; GitLab: API v4) and builds the
+graph with the same extractor. The link stays editable in the panel (Open / Update), is remembered by the browser
+with the graph of each repository until **Ctrl + Shift + F3** (forgets them and asks again). It is published on the
+`gh-pages` branch of the skills repository (`graph.html` + `index.html` redirecting to it):
+https://tsukini22.github.io/skills/ - regenerate it after a change of the template.

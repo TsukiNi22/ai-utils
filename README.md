@@ -20,6 +20,16 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps` (and the future legal skills) |
 | [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-quality`, `audit-deps`, tests coverage) and the report format, runs them and writes a summary report in `audit/` |
 
+
+## Graph explorer
+
+**https://tsukini22.github.io/skills/** (branch [`gh-pages`](https://github.com/TsukiNi22/skills/tree/gh-pages)) - the
+project graph of [`html-doc`](docs/html-doc/SKILL.md) for **any public GitHub or GitLab repository**: give its link
+(`owner/repo`, a GitHub / GitLab URL, a branch with `/tree/<branch>`) and the page reads its sources in the browser to
+draw its files, classes, functions, calls, tests and packages in 2D / 3D, plus the execution flow, inheritance tree and
+flame graph diagrams. C / C++, Python, JS / TS / web, Java / Kotlin, C#, Go, Rust, Zig, Swift, Dart, PHP, Ruby, Lua,
+Julia, Elixir, Haskell, Objective-C and shell are read. The link stays editable (and `?repo=owner/name` opens one
+directly); it is remembered by the browser until **Ctrl + Shift + F3**.
 ## Skills
 
 | Skill | Description |
