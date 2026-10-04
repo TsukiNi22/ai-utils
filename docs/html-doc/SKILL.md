@@ -129,6 +129,8 @@ relations, drawn as boxes with the 2D camera:
 - **Inheritance**: the class tree of the sources (bases on top, UML hollow triangles), wide levels wrap;
 - **Flame graph**: the static call tree (width = size of the subtree, not a measured time), double click a frame
   to zoom into it, the ancestor rows below to go back.
+  In this mode the filters of the panel (views, categories, groups, relations, graph options) are greyed; "Color by"
+  and the search stay active (matching boxes outlined, Enter centers the first one or starts the diagram from it).
 Every control has a **tooltip** (short description after 0.45 s of hover) and a **help card on double click** (longer
 description + an animated SVG example), defined in the `HELP` / `EX` tables of the page: when a category, relation or
 option is added, add its entry there too.
