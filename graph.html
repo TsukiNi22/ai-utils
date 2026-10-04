@@ -190,6 +190,7 @@ select { width: auto; }
 .repo-ex { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .repo-ex button { border: 1px solid var(--border); background: var(--code-bg); color: var(--text); border-radius: 6px; padding: 2px 8px; font: inherit; cursor: pointer; }
 .repo-ex button:hover { border-color: var(--accent); color: var(--accent); }
+.repo-ex button small { margin-left: 6px; color: var(--muted); font-size: 11px; }
 .repo-actions { display: flex; justify-content: flex-end; margin: 14px 0 14px; }
 .repo-actions .btn { padding: 8px 20px; }
 .brand .ver:empty { display: none; }
@@ -492,7 +493,7 @@ html, body { overscroll-behavior: none; }
     <p data-i18n>A public GitHub or GitLab repository: its sources are read by your browser to draw the graph of its files, classes, functions, calls, tests and packages.</p>
     <input id="repoAsk" type="text" spellcheck="false" autocomplete="off" placeholder="github.com/owner/repo · gitlab.com/group/project">
     <div class="repo-err" id="repoErr" hidden></div>
-    <div class="repo-ex"><span data-i18n>Examples:</span> <button type="button" data-ex="TsukiNi22/context-forge">TsukiNi22/context-forge</button> <button type="button" data-ex="psf/requests">psf/requests</button> <button type="button" data-ex="spf13/cobra">spf13/cobra</button> <button type="button" data-ex="https://gitlab.com/gitlab-org/cli">gitlab.com/gitlab-org/cli</button></div>
+    <div class="repo-ex"><span data-i18n>Examples:</span> <button type="button" data-ex="TsukiNi22/context-forge">TsukiNi22/context-forge<small>C++</small></button> <button type="button" data-ex="TsukiNi22/libutils">TsukiNi22/libutils<small>C++</small></button> <button type="button" data-ex="llvm/llvm-project">llvm/llvm-project<small>C++</small></button> <button type="button" data-ex="curl/curl">curl/curl<small>C</small></button> <button type="button" data-ex="BurntSushi/ripgrep">BurntSushi/ripgrep<small>Rust</small></button> <button type="button" data-ex="psf/requests">psf/requests<small>Python</small></button> <button type="button" data-ex="expressjs/express">expressjs/express<small>JS</small></button> <button type="button" data-ex="spring-projects/spring-petclinic">spring-projects/spring-petclinic<small>Java</small></button> <button type="button" data-ex="spf13/cobra">spf13/cobra<small>Go</small></button> <button type="button" data-ex="https://gitlab.com/gitlab-org/cli">gitlab.com/gitlab-org/cli<small>Go · GitLab</small></button></div>
     <div class="repo-actions"><button class="btn primary" type="submit" data-i18n>Open</button></div>
     <p class="muted small" data-i18n>The link is remembered by this browser until Ctrl + Shift + R (forgets it and reloads the page).</p>
   </form>
@@ -636,7 +637,8 @@ window.DOC_FR = {
   "Choose a repository to explore.": "Choisis un dépôt à explorer.",
   "GitLab API rate limit reached": "Limite de l'API GitLab atteinte",
   "The link is remembered by this browser until Ctrl + Shift + R (forgets it and reloads the page).": "Le lien est mémorisé par ce navigateur jusqu'à Ctrl + Maj + R (l'oublie et recharge la page).",
-  "API limit reached, pause…": "Limite de l'API atteinte, pause…"
+  "API limit reached, pause…": "Limite de l'API atteinte, pause…",
+  "(first 2500 source files of": "(les 2500 premiers fichiers source sur"
 };
 </script>
 <script>
@@ -3129,7 +3131,8 @@ extractGraph.wanted = function (p) {
             const cached = load("graph");
             if (cached && cached.meta && cached.meta.sha === sha) { setData(cached, cached.meta); setStatus(() => tr("Updated:") + " " + describe(cached.meta) + ".", "ok"); return; }
             let files = null;
-            const all = (await host.tree(CONFIG, sha)).filter(p => extractGraph.wanted(p)).slice(0, 2500);
+            const wantedAll = (await host.tree(CONFIG, sha)).filter(p => extractGraph.wanted(p)), all = wantedAll.slice(0, 2500);
+            const capped = wantedAll.length > all.length ? " " + tr("(first 2500 source files of") + " " + wantedAll.length + ")" : ""; // very big repositories
             if (host.files) { // GitLab: batches through GraphQL
                 try { files = await host.files(CONFIG, sha, all, (d, n) => setStatus(tr("Downloading the sources:") + " " + d + " / " + n + "…", "busy")); }
                 catch (err) { files = null; } // GraphQL refused: one request per file
@@ -3155,10 +3158,10 @@ extractGraph.wanted = function (p) {
             await Promise.all(Array.from({length: host.files ? 8 : 32}, worker)); // GitHub raw files (CDN): 32 at a time; the GitLab API: 8
             setStatus(() => tr("Building the graph…"), "busy");
             const graph = extractGraph(files);
-            graph.meta = {sha, date, source: "live", files: files.length};
+            graph.meta = {sha, date, source: "live", files: files.length, capped};
             setData(graph, graph.meta);
             store("graph", graph);
-            setStatus(() => tr("Updated:") + " " + describe(graph.meta) + " · " + graph.nodes.length + " " + tr("nodes") + ".", "ok");
+            setStatus(() => tr("Updated:") + " " + describe(graph.meta) + " · " + graph.nodes.length + " " + tr("nodes") + (graph.meta.capped || "") + ".", "ok");
         } catch (e) {
             setStatus(() => tr("Update impossible") + " (" + esc(tr(String(e.message || e))) + "). " + tr("Graph shown:") + " " + describe(state.meta) + ".", "warn");
         } finally {
