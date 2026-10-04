@@ -32,8 +32,8 @@ class {{CLASS}} {
 
     public:
         // ------------ Function ---------- //
-        _hot _nodiscard T compute(const bool safe_mode = true) {return this->compute_(safe_mode);};
-        _cold _nodiscard T value(void) const {return this->_value;};
+        _hot _nodiscard inline T compute(const bool safe_mode = true) {return this->compute_(safe_mode);};
+        _cold _nodiscard inline T value(void) const {return this->_value;};
 
         // ------------ Operator ---------- //
         {{CLASS}}& operator=(const {{CLASS}}& other) = delete;

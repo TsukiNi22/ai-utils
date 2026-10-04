@@ -20,7 +20,7 @@ class A{{NAME}}: public {{NAMESPACE}}::I{{NAME}} {
         std::string _name = "[None]";
 
         // ---------- Pre-Function -------- //
-        void internal(void) final; // shared implementation (in the .cpp)
+        void internalTask_(void) final; // shared implementation (in the .cpp)
 
     public:
         // ------------ Function ---------- //

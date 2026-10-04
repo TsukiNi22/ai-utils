@@ -26,6 +26,7 @@ Class blocks (exact strings, aligned like this):
         // ---------- Constructor --------- //
         // ----------- Destructor --------- //
 ```
+A section separator or class block is only written when something is linked to it: never leave one empty.
 
 Group labels, lower case, `/* ... */`, on their own line above the group:
 `/* type */`, `/* setup */`, `/* setter */`, `/* getter */`, `/* raw */`, `/* parsing */`, `/* tools */`,

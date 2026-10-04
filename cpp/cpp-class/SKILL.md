@@ -82,6 +82,14 @@ Same logic for errors: libutils exceptions only in `internal`/`libutils` mode.
    and keep the include comments aligned.
 3. In `std` mode, convert every macro (`_hot` -> `[[gnu::hot]]`, ...) and drop the Attribute include.
 4. Bodies: always empty (`/* Nothing */` + minimal return), never logic, see the rule at the top.
+5. Remove every section with nothing linked to it (class blocks `// --- X --- //`, file sections
+   `/* DEFINE */`, `/* PROTOTYPE */`..., empty visibilities and `/* group */` labels): the template
+   blocks are not mandatory, only the ones holding a declaration are kept.
+6. Short functions (getters, setters, accessors, `name_` forwarders, one-liners) go in the
+   `Function` block of the `.hpp` with `inline` after the attributes, not in the .cpp, when it can
+   help the compiler inline them (not on `virtual` methods). Rules in `reference/layout.md`.
+7. Private / protected / internal functions are named `<name>(<Name>)*_` (camelCase + trailing `_`:
+   `allocate_`, `computeHash_`), public methods plain camelCase (`cpp-style` naming table).
 
 ## 5. Register the sources in CMake
 For each new `.cpp`:
@@ -99,5 +107,7 @@ source list found: add it by hand in the right `add_executable`/`add_library`/`t
   of the empty bodies are expected, never silence them in the code).
 - Re-read the files against `reference/layout.md` and `cpp-style` (braces, `(void)`, `this->`,
   `;` after one-liners, aligned include comments, section separators, guard name, namespace comments)
-  and check that **no body contains logic**.
+  and check that **no body contains logic**, that **no section separator is left empty** and that
+  the short non-virtual functions are `inline` in the header, and that every
+  non-public function ends with `_`.
 - Report the created files, the attribute mode used and the CMake change.

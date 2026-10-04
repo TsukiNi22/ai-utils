@@ -19,7 +19,7 @@ class {{CLASS}} {
         std::string _name = "[None]"; // short description of the member
 
         // ---------- Pre-Function -------- //
-        void internal(void); // implemented in the .cpp
+        void internalTask_(void); // implemented in the .cpp
 
     public:
         // ---------- Pre-Function -------- //
@@ -27,10 +27,10 @@ class {{CLASS}} {
 
         // ------------ Function ---------- //
         /* setter */
-        _cold void setName(const std::string& name) {this->_name = name;};
+        _cold inline void setName(const std::string& name) {this->_name = name;};
 
         /* getter */
-        _cold _nodiscard const std::string& getName(void) const {return this->_name;};
+        _cold _nodiscard inline const std::string& getName(void) const {return this->_name;};
 
         // ------------ Operator ---------- //
         {{CLASS}}& operator=(const {{CLASS}}& other) = delete;

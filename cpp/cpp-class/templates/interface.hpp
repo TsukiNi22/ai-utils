@@ -16,7 +16,7 @@ namespace {{NAMESPACE}} { // namespace start
 class I{{NAME}} {
     protected:
         // ---------- Pre-Function -------- //
-        virtual void internal(void) = 0; // short description
+        virtual void internalTask_(void) = 0; // short description
 
     public:
         // ---------- Pre-Function -------- //

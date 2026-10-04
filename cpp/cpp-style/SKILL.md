@@ -15,7 +15,7 @@ File/class layout (header, sections, blocks): the `cpp-class` skill. Comments: t
 | class / struct / enum / alias | PascalCase | `IdHandler`, `ParsedUsage`, `ParsedUsages` |
 | interface / abstract | `I` / `A` prefix | `ISocket`, `ASocket` -> `TCPSocket` |
 | method | camelCase, verb first | `setPayloadSeparator`, `getFd`, `hasRecvOverload`, `resetUsages` |
-| private impl behind a wrapper | trailing `_` | `allocate_`, `free_`, `cancel_` |
+| private / protected / internal function (wrapper impl included) | `<name>(<Name>)*_`: camelCase + trailing `_` | `allocate_`, `cancel_`, `computeHash_`, `readChunkHeader_` |
 | free tool function | snake_case | `is_ip`, `resolve_hostname`, `rotate_point_3D` |
 | hook / callback function | camelCase | `defaultHelpHook`, `defaultInt32ParsingHook` |
 | member | `_camelCase` | `_usedIds`, `_helpHook`, `_fd` |

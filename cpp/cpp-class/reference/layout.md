@@ -67,7 +67,7 @@ Default description (when there is nothing meaningful to say, typically in a .cp
 
 namespace a::b { // namespace start
 //----------------------------------------------------------------//
-/* PROTOTYPE */          (forward declarations, free functions)
+/* PROTOTYPE */          (only if needed: forward declarations, free functions)
 
 //----------------------------------------------------------------//
 /* ENUM */ /* STRUCT */ /* CLASS */
@@ -131,7 +131,7 @@ Before creating files, decide the namespace of each one with these rules, show t
 
 ## Class layout
 Visibility order: `private` (or `protected`) **first**, then `public`.
-Inside each visibility, in this order (omit the empty blocks, except Operator/Constructor/Destructor):
+Inside each visibility, in this order (a block with nothing linked to it is removed, see below):
 ```
         // ---------- Pre-Function -------- //   declarations only (defined in the .cpp)
         // ------------ Function ---------- //   defined inline in the header (templates, one-liners)
@@ -139,10 +139,28 @@ Inside each visibility, in this order (omit the empty blocks, except Operator/Co
         // ---------- Constructor --------- //
         // ----------- Destructor --------- //
 ```
+- **No empty section**: a separator (class block `// --- X --- //` or file section `/* DEFINE */`,
+  `/* PROTOTYPE */`, `/* ENUM */`...) is only written when at least one declaration is linked to it.
+  No Pre-Function in `private` -> no `// ---------- Pre-Function -------- //` there; same for
+  Function, Operator, Constructor, Destructor (all of them, no exception), a visibility left empty
+  is removed too, and an empty `/* group */` label as well. Never leave a separator followed by
+  nothing or directly by the next separator.
+- **Short functions are inlined in the header**: getters, setters, one-member accessors, wrappers
+  forwarding to their `name_` implementation and other one-line functions are defined in the
+  `// ------------ Function ---------- //` block of the `.hpp` with the `inline` keyword after the
+  attributes (`_cold _nodiscard inline T id(void) const {return this->_id;};`, see `Scheduler.hpp`,
+  `IdHandler.hpp`), never declared in Pre-Function and defined in the .cpp: the compiler can then
+  inline them at the call site. Only when it can help: a `virtual` method (`override`/`final`) is
+  still defined in the header when short but without `inline` (pointless on a virtual call), and a
+  function with real logic, heavy includes or a hot path that is not trivial stays in the .cpp.
 - Members first (before the blocks), with their default value at the declaration,
   grouped under `/* group */` comments when there are many.
 - Sub-groups inside a block: `/* setup */`, `/* setter */`, `/* getter */`, `/* raw */`, `/* parsing */`...
-- A private implementation behind a public wrapper gets a trailing `_` (`allocate_`).
+- Every private, protected or internal function (not part of the public API) is named `<name>(<Name>)*_`:
+  camelCase with a trailing `_` (`allocate_`, `computeHash_`, `readChunkHeader_`), the implementation
+  behind a public wrapper included (`cancel()` -> `cancel_()`). Public methods keep plain camelCase, free
+  tool functions keep snake_case. Constructors, destructors, operators and the `override`/`final` of a
+  public interface method keep their name.
 - Default rule of five (unless the class needs otherwise):
   ```
   // ------------ Operator ---------- //
