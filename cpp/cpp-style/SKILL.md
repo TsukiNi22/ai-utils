@@ -126,7 +126,19 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
   `catch (const std::exception& e) {throw utils::exception::ErrorException(InternalCode::ArgParserHook, e.what());}`.
 
 ## Attributes
-libutils macros when the project uses libutils (`cpp-class/scripts/detect_libutils.sh`), otherwise the standard ones:
+Every attribute / alignment / hint goes through the libutils macros when the project uses libutils
+(`cpp-class/scripts/detect_libutils.sh`), alignment included:
+`_alignas(std::hardware_destructive_interference_size) std::atomic<std::size_t> _head = 0;`, never a bare
+`alignas(...)` (`<utils/utils.hpp>` also guarantees `std::hardware_*_interference_size`, fallback 64).
+
+Lookup order before writing any attribute:
+1. the libutils default macros (table below, `libutils/reference/api/attribute.md`);
+2. not there: the attribute files really used, hard imported in the project or installed on the system
+   (`bash cpp-class/scripts/list_attributes.sh <project_root>`, `cpp-class` = that skill folder, lists every `#define _x`), a
+   newer libutils may have it;
+3. still not there (or no libutils): the standard form, `[[...]]` (`[[gnu::...]]`), `alignas(...)`, or
+   `__attribute__((...))` / `__builtin_*` when no standard spelling exists.
+
 
 | libutils | standard |
 |---|---|
@@ -139,6 +151,14 @@ libutils macros when the project uses libutils (`cpp-class/scripts/detect_libuti
 | `_deprecated(info)` | `[[deprecated(info)]]` |
 | `_noaddress` / `_packed` | `[[no_unique_address]]` / `[[gnu::packed]]` |
 | `_assume(expr)` | `[[assume(expr)]]` |
+| `_alignas(n)` | `alignas(n)` (`n` often `std::hardware_destructive_interference_size`) |
+| `_hidden` | `[[gnu::visibility("hidden")]]` |
+| `_ctor` / `_dtor` | `[[gnu::constructor]]` / `[[gnu::destructor]]` |
+| `_likely_c(c)` / `_unlikely_c(c)` / `_expect(c, v)` | `__builtin_expect(!!(c), 1)` / `(!!(c), 0)` / `(c, v)` |
+| `_alloc_size(i)` / `_alloc_size_mul(i, j)` | `[[gnu::alloc_size(i)]]` / `[[gnu::alloc_size(i, j)]]` |
+| `_read_only(p, s)` / `_write_only(p, s)` | `[[gnu::access(read_only, p, s)]]` / `[[gnu::access(write_only, p, s)]]` |
+| `_nonnull(p)` | `[[gnu::nonnull(p)]]` |
+| `_legacy` / `_migration(x, y, z)` | `[[deprecated("...")]]` |
 
 - Placement: before the return type (`_cold _nodiscard int getFd(void) const`), `_likely`/`_unlikely`
   after the condition (`if (id == 0) _unlikely {`, `} else _likely {`), `_unused` before the parameter type.

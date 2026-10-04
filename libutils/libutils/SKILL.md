@@ -65,7 +65,11 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
   (`ArgParser`, `Settings`, default hooks `default*ParsingHook`).
 - Verbose: `set_verbose(Debug)` (`None`, `Basic`, `Advanced`, `Debug`), then `onBasicVerbose(info)`,
   `onDebugVerbose(info)`, `onVerbose(level, info)`; `*C(output, info)` for another stream, `*Fn(code)` to run code.
-- Attribute macros (`_hot`, `_cold`, `_nodiscard`, `_unused`, `_likely`...): given by `<utils/utils.hpp>`.
+- Attribute macros (`_hot`, `_cold`, `_nodiscard`, `_unused`, `_likely`, `_alignas(n)`, `_nonnull(p)`...): given by
+  `<utils/utils.hpp>`, always preferred to the raw form (`_alignas(std::hardware_destructive_interference_size)`,
+  never `alignas(...)`); `std::hardware_*_interference_size` is guaranteed (fallback 64). Lookup order when an
+  attribute is needed: the reference `api/attribute.md`, then the attribute files of the project / system
+  (`cpp-class/scripts/list_attributes.sh <project>`), then only the standard `[[...]]` form (`cpp-style`).
 - Most classes are non-copyable (`= delete`) and inherit `utils::security::observer::Observer<"Name">`
   (instance tracking for the memory-leak notifier, nothing to do on the user side).
 

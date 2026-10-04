@@ -68,6 +68,9 @@ bash SKILL_DIR/scripts/detect_libutils.sh <project_root>
   "libutils includes" in `reference/layout.md`).
 - `std` -> standard `[[...]]` attributes (mapping table in `cpp-style`), no Attribute include.
 Same logic for errors: libutils exceptions only in `internal`/`libutils` mode.
+Any attribute (alignment `_alignas(std::hardware_destructive_interference_size)` included) follows the lookup
+order of `cpp-style` "Attributes": libutils default macros, then the ones really available in the project /
+system (`bash SKILL_DIR/scripts/list_attributes.sh <project_root>`), then only the standard `[[...]]` form.
 
 ## 4. Generate each file
 1. Header (skip if "Aucun header"):
