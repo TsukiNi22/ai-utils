@@ -112,14 +112,23 @@ limits: in 3D the camera stays in a box around the nodes (the floor is its botto
 grid when the camera gets close; in 2D the view center stays near the graph and the zoom out is limited; the hover
 card follows the view when it moves under a still mouse; hovering a node shows a card (kind in the node colour with the
 file extension, name, path); slightly transparent nodes in 3D, a near plane (nodes the camera passes are
-clipped like behind a WebGL camera, the camera can fly through the graph); hint in the context-forge wording
-("drag to orbit · scroll to zoom · ...", all lowercase), search, presets (overview, files & includes, classes & inheritance,
+clipped like behind a WebGL camera, the camera can fly through the graph); no hint text: a **"?" button** (bottom left, key ? or H) opens a card listing the
+controls of the current mode, each with a small drawing of the gesture (mouse / wheel / keys) and its description, search, presets (overview, files & includes, classes & inheritance,
 classes & methods, tests, build, all), toggles per **category** (header, source, test file, class, struct,
 interface, abstract, enum, function, method, test, test helper, executable, library, external), per **group**
 (module folder) and per **relation** (includes, defines, member, inherits, implements, compiled-into, links,
-tests), colour by category or group, cluster by group, labels, isolate the selection, details panel with
+tests, **calls**: read in the bodies of the functions / methods, resolved by name, by the type of the local variables
+and of the class fields, `make_unique<T>`; the GoogleTest macros are not functions; `main()` is a node marked entry), colour by category or group, cluster by group, labels, isolate the selection, details panel with
 clickable in/out relations, and an **"Animate the direction of the relations"** option (off by default) moving dots along every
 relation from the source to the target.
+**Diagram mode** (third button after 2D / 3D, bar at the top left of the graph): readable diagrams built from the
+relations, drawn as boxes with the 2D camera:
+- **Execution**: the calls from an entry point (list: `main()` first, then the uncalled functions, the biggest
+  first), one level per call depth, the methods of a class grouped in a dashed box, dashed arrows back to an earlier
+  level; double click a box to start from it;
+- **Inheritance**: the class tree of the sources (bases on top, UML hollow triangles), wide levels wrap;
+- **Flame graph**: the static call tree (width = size of the subtree, not a measured time), double click a frame
+  to zoom into it, the ancestor rows below to go back.
 Every control has a **tooltip** (short description after 0.45 s of hover) and a **help card on double click** (longer
 description + an animated SVG example), defined in the `HELP` / `EX` tables of the page: when a category, relation or
 option is added, add its entry there too.

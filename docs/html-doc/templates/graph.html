@@ -176,6 +176,22 @@ select { width: auto; }
   padding: 5px 12px; font-size: 12px; color: var(--muted); pointer-events: none; text-align: center;
   width: max-content; max-width: min(760px, calc(100% - 360px)); /* room for the axes (left) and the 3D style (right) */
 }
+.flowbar { position: absolute; left: 14px; top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: calc(100% - 28px); }
+.flowbar[hidden], .flowbar select[hidden] { display: none; }
+.flowbar .seg { box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
+.flowbar select { max-width: 260px; }
+.controls-btn {
+  position: absolute; left: 14px; bottom: 14px; width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 700 15px system-ui, sans-serif;
+  cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, .12);
+}
+.controls-btn:hover { border-color: var(--accent); color: var(--accent); }
+.helpcard.wide { width: min(620px, 100%); }
+.ctl-list { display: grid; gap: 6px; margin-top: 6px; }
+.ctl { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--code-bg); }
+.ctl svg { width: 64px; height: 44px; margin: 0; background: none; border: 0; }
+.ctl b { display: block; font-size: 13.5px; }
+.ctl span { color: var(--muted); font-size: 13px; }
 .style3d { position: absolute; right: 14px; bottom: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
 .style3d[hidden] { display: none; }
 @media (max-width: 760px) { .hint { bottom: 60px; max-width: calc(100% - 32px); } }
@@ -379,6 +395,7 @@ html, body { overscroll-behavior: none; }
         <div class="seg" role="group" aria-label="Rendu">
           <button id="mode2d" class="active" type="button" data-help="mode2d">2D</button>
           <button id="mode3d" type="button" data-help="mode3d">3D</button>
+          <button id="modeFlow" type="button" data-help="modeFlow" data-i18n>Diagram</button>
         </div>
         <button class="btn" id="fit" type="button" data-help="fit" data-i18n>Fit</button>
         <button class="btn" id="pause" type="button" data-help="pause">Freeze</button>
@@ -438,6 +455,15 @@ html, body { overscroll-behavior: none; }
     <button class="btn panel-toggle" id="panelToggle" type="button" aria-label="Show the controls" data-i18n-aria-label><span data-i18n>☰ Controls</span></button>
     <div class="details" id="details" hidden></div>
     <div class="hint" id="hint">Loading the graph…</div>
+    <button class="controls-btn" id="controlsBtn" type="button" title="Controls (? or H)" aria-label="Controls" data-i18n-title data-i18n-aria-label>?</button>
+    <div class="flowbar" id="flowBar" hidden>
+      <div class="seg" id="flowViews" role="group" aria-label="Diagram" data-i18n-aria-label>
+        <button type="button" class="active" data-flow="exec" data-help="flow:exec" data-i18n>Execution</button>
+        <button type="button" data-flow="inherit" data-help="flow:inherit" data-i18n>Inheritance</button>
+        <button type="button" data-flow="flame" data-help="flow:flame" data-i18n>Flame graph</button>
+      </div>
+      <select id="flowRoot" aria-label="Entry point" data-i18n-aria-label data-help="flowRoot"></select>
+    </div>
     <div class="seg style3d" id="style3d" role="group" aria-label="3D style" data-i18n-aria-label hidden>
       <button type="button" class="active" data-style="real" data-help="style3d" data-i18n>Realistic</button>
       <button type="button" data-style="tech" data-help="style3d" data-i18n>Technical</button>
@@ -561,8 +587,17 @@ window.DOC_FR = {
   "Architecture": "Architecture",
   "Realistic": "Réaliste",
   "3D style": "Style 3D",
-  "drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes: angle, double click or R: whole view": "glisser pour orbiter · clic droit + glisser ou flèches pour déplacer · {MOVE} ou molette pour avancer · {UPDOWN} pour la hauteur · glisser un nœud pour le déplacer · F pour centrer la sélection · clic sur les axes : angle, double clic ou R : toute la vue",
-  "drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection · R to reset the view": "glisser, flèches ou {MOVE} pour déplacer · {UPDOWN} pour zoomer · molette pour zoomer · glisser un nœud pour le déplacer · cliquer un nœud pour les détails · F pour centrer la sélection · R pour réinitialiser la vue"
+  "calls": "appelle",
+  "Diagram": "Schéma",
+  "Execution": "Exécution",
+  "Inheritance": "Héritage",
+  "Flame graph": "Flame graph",
+  "Entry point": "Point d'entrée",
+  "No call found in the sources (the calls are read in the bodies of the C / C++ functions).": "Aucun appel trouvé dans les sources (les appels sont lus dans le corps des fonctions C / C++).",
+  "No inheritance between the classes of the project.": "Aucun héritage entre les classes du projet.",
+  "Help": "Aide",
+  "Controls": "Contrôles",
+  "Controls (? or H)": "Contrôles (? ou H)"
 };
 </script>
 <script>
@@ -661,6 +696,8 @@ function extractGraph(files, opts) {
     const classByName = new Map(); // simple name -> [ids]
     const pendingImpl = []; // [fileId, className]
     const pendingBases = []; // [classId, baseName]
+    const bodies = []; // function / method bodies: {owner, cls, name, body} -> "calls" relations
+    const fields = new Map(); // class id -> Map(field name -> type name): resolves obj.method() on the members
 
     function node(id, kind, label, extra) {
         if (!nodes.has(id)) nodes.set(id, Object.assign({id, kind, label}, extra || {}));
@@ -795,6 +832,7 @@ function extractGraph(files, opts) {
         const stack = []; // {type, name, id, access}
         let head = "";
         let skip = 0; // depth inside a function / enum / initializer body
+        let body = null; // {start, owner...}: body of the function being skipped
         const nsName = () => stack.filter(s => s.type === "namespace" && s.name).map(s => s.name).join("::");
         const inClass = () => stack.length && stack[stack.length - 1].type === "class" ? stack[stack.length - 1] : null;
         const atNamespace = () => stack.every(s => s.type === "namespace");
@@ -813,33 +851,43 @@ function extractGraph(files, opts) {
             const full = funcName(h);
             if (!full) return;
             const name = full.split("::").pop();
+            if (/^(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|INSTANTIATE_TEST_SUITE_P|TYPED_TEST_SUITE)$/.test(name)) return; // GoogleTest macros, not functions
             const cls = inClass();
             if (cls) {
-                if (name === cls.name || name === "~" + cls.name || name.startsWith("operator")) return;
+                if (name === cls.name || name === "~" + cls.name) return {owner: cls.id, cls: cls.id}; // constructor: calls of the class
+                if (name.startsWith("operator")) return;
                 const id = cls.id + "::" + name;
                 const n = node(id, "method", name + "()", {group, path: f.path, access: cls.access, overloads: 0});
                 n.overloads++;
                 if (/=\s*0\s*$/.test(h)) { n.pure = true; cls.pure = true; }
                 link(cls.id, id, "member");
-                return;
+                return {owner: id, cls: cls.id};
             }
             if (!atNamespace()) return;
             const parts = full.split("::");
             if (parts.length >= 2 && isDefinition) { // ns::Class::method definition in a source
                 const owner = parts[parts.length - 2];
-                if (owner && owner[0] === owner[0].toUpperCase()) { pendingImpl.push([fileId, owner, name]); return; }
+                if (owner && owner[0] === owner[0].toUpperCase()) { pendingImpl.push([fileId, owner, name]); return {className: owner, name}; }
             }
-            if (name === "main") { node(fileId, "source"); return; }
+            if (name === "main") { // entry point of the program
+                node("fn:main@" + f.path, "function", "main()", {group, path: f.path, entry: true});
+                link(fileId, "fn:main@" + f.path, "defines");
+                return {owner: "fn:main@" + f.path};
+            }
             const ns = nsName() || (parts.length > 1 ? parts.slice(0, -1).join("::") : "");
             const id = "fn:" + (ns ? ns + "::" : "") + name;
             node(id, "function", name + "()", {group, path: f.path, ns});
             link(fileId, id, "defines");
+            return {owner: id};
         }
         for (let i = 0; i < code.length; i++) {
             const c = code[i];
             if (skip) {
                 if (c === "{") skip++;
-                else if (c === "}") { skip--; if (!skip) head = ""; }
+                else if (c === "}") {
+                    skip--;
+                    if (!skip) { head = ""; if (body) { bodies.push(Object.assign(body, {body: code.slice(body.start, i)})); body = null; } }
+                }
                 continue;
             }
             if (c === "{") {
@@ -891,7 +939,10 @@ function extractGraph(files, opts) {
                     skip = 1;
                     continue;
                 }
-                if (t.includes(")") && !/=\s*$/.test(t)) onFunction(t.replace(/\)\s*:(?!:).*$/s, ")").replace(/\s*(const|noexcept|override|final|->[^{]*)\s*$/g, ""), true);
+                if (t.includes(")") && !/=\s*$/.test(t)) {
+                    const o = onFunction(t.replace(/\)\s*:(?!:).*$/s, ")").replace(/\s*(const|noexcept|override|final|->[^{]*)\s*$/g, ""), true);
+                    if (o) body = Object.assign(o, {start: i + 1, group});
+                }
                 skip = 1;
                 continue;
             }
@@ -904,6 +955,8 @@ function extractGraph(files, opts) {
             if (c === ";") {
                 const h = takeAccess(head.replace(/\s+/g, " "));
                 head = "";
+                const fc = inClass(), fm = fc && !h.includes("(") && /^(?:(?:static|mutable|const|inline|constexpr)\s+)*(?:[\w]+::)*([A-Za-z_]\w*)\s*(?:<[^;]*>)?\s*[&*]*\s+([A-Za-z_]\w*)\s*(?:=.*|\{.*\})?$/.exec(h);
+                if (fm) { if (!fields.has(fc.id)) fields.set(fc.id, new Map()); fields.get(fc.id).set(fm[2], fm[1]); } // member field
                 if (h.includes("(") && (inClass() || atNamespace())) onFunction(stripTemplate(h), false);
                 continue;
             }
@@ -921,6 +974,59 @@ function extractGraph(files, opts) {
     for (const [fileId, owner] of pendingImpl) {
         const ids = classByName.get(owner);
         if (ids) for (const id of ids) link(fileId, id, "implements");
+    }
+
+    // Calls: the bodies of the functions / methods, resolved by name on the functions, methods and classes of the project
+    const fnByName = new Map(), methodByName = new Map();
+    const add = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+    for (const n of nodes.values()) {
+        if (n.kind === "function" && !n.entry) add(fnByName, n.label.replace(/\(\)$/, ""), n.id);
+        if (n.kind === "method") add(methodByName, n.label.replace(/\(\)$/, ""), n.id);
+    }
+    const clsOf = (methodId) => methodId.slice(0, methodId.lastIndexOf("::"));
+    for (const b of bodies) {
+        let owners = b.owner ? [b.owner] : [], cls = b.cls || null;
+        if (b.className) { // Class::method defined in a source
+            const ids = classByName.get(b.className) || [];
+            owners = ids.map(c => b.name === b.className || b.name === "~" + b.className ? c : c + "::" + b.name).filter(id => nodes.has(id));
+            cls = ids[0] || null;
+        }
+        if (!owners.length) continue;
+        const group = nodes.get(owners[0]).group, inTests = /^tests?\//.test(nodes.get(owners[0]).path || "");
+        const targets = new Set();
+        // types of the local variables (Type name; Type name(...); Type *name = ...) and of the fields of the class
+        const vars = new Map(cls && fields.get(cls) ? fields.get(cls) : []);
+        const vre = /\b(?:[\w]+::)*([A-Z]\w*)\s*(?:<[^<>;(){}]*>)?\s*[&*]*\s+([A-Za-z_]\w*)\s*[;({=]/g;
+        let v;
+        while ((v = vre.exec(b.body))) if (classByName.has(v[1])) vars.set(v[2], v[1]);
+        const typed = (q) => { const ty = q && vars.get(q); return ty && classByName.has(ty) ? classByName.get(ty) : null; };
+        const re = /(?:\b([A-Za-z_]\w*)\s*(::|\.|->)\s*)?\b(~?[A-Za-z_]\w*)\s*(?:<([^<>;(){}]*)>)?\s*\(/g;
+        let m;
+        while ((m = re.exec(b.body))) {
+            const [, qual, op, name, targs] = m;
+            if (SKIPNAMES.has(name) || qual === "std" || ATTR.test(name)) continue;
+            if (/^make_(unique|shared)$/.test(name) && targs) { // std::make_unique<Class>(...)
+                const c = classByName.get(targs.trim().split("::").pop());
+                if (c) c.forEach(x => targets.add(x));
+                continue;
+            }
+            let cands = [];
+            if (op === "::" && classByName.has(qual)) cands = classByName.get(qual).map(c => c + "::" + name).filter(id => nodes.has(id));
+            else if (!op) {
+                if (cls && nodes.has(cls + "::" + name)) cands = [cls + "::" + name]; // this->method()
+                else if (fnByName.has(name)) cands = fnByName.get(name);
+                else if (classByName.has(name)) cands = classByName.get(name); // construction
+            } else if (op === "::") cands = (fnByName.get(name) || []).filter(id => id.endsWith(qual + "::" + name));
+            else if (typed(qual)) cands = typed(qual).map(c => c + "::" + name).filter(id => nodes.has(id)); // typed object
+            else { // object.method() / ptr->method() of an unknown type: unique name, else another class of the same group
+                const all = methodByName.get(name) || [];
+                cands = all.length === 1 ? all : all.filter(id => nodes.get(id).group === group && clsOf(id) !== cls);
+                if (cands.length > 2) cands = [];
+            }
+            if (!inTests) cands = cands.filter(id => !/^tests?\//.test(nodes.get(id).path || "")); // the sources never call the tests
+            if (cands.length <= 3) cands.forEach(x => targets.add(x));
+        }
+        for (const o of owners) for (const x of targets) link(o, x, "calls");
     }
 
     // Tests: test cases + tested classes
@@ -1047,7 +1153,7 @@ function extractGraph(files, opts) {
     const LINKS = {
         includes: ["#8a909b", "includes"], defines: ["#9aa5b8", "defines"], member: ["#a3acbd", "member"],
         inherits: ["#8e6cf0", "inherits"], implements: ["#2fa36b", "implements"], "compiled-into": ["#f07a3a", "compiled into"],
-        links: ["#e5484d", "links"], tests: ["#d9822b", "tests"]
+        links: ["#e5484d", "links"], tests: ["#d9822b", "tests"], calls: ["#3fb8a9", "calls"]
     };
     const PRESETS = {
         overview: [["header", "source", "class", "struct", "interface", "abstract", "enum", "function", "executable", "library", "external"], ["includes", "inherits", "defines", "compiled-into", "links"]],
@@ -1067,7 +1173,7 @@ function extractGraph(files, opts) {
         kinds: new Set(PRESETS.overview[0]), linkKinds: new Set(PRESETS.overview[1]), groups: new Set(), knownGroups: new Set(),
         mode: "2d", colorBy: "kind", cluster: false, labels: true, particles: false, isolate: false, search: "",
         visible: [], vlinks: [], neighbors: new Map(), selected: null, hover: null,
-        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: VIEW.yaw, pitch: VIEW.pitch, dist: 600}, style3d: "real", w: 0, h: 0, dpr: 1, colors: {}
+        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: VIEW.yaw, pitch: VIEW.pitch, dist: 600}, style3d: "real", flowView: "exec", flowRoot: null, flamePath: [], flow: null, flowHit: null, cams: {}, w: 0, h: 0, dpr: 1, colors: {}
     };
 
     window.graphState = state;
@@ -1093,6 +1199,7 @@ function extractGraph(files, opts) {
         if (state.selected && !state.byId.has(state.selected)) state.selected = null;
         buildLegends();
         refilter(true);
+        if (state.mode === "flow") buildFlow();
     }
     // Letters of the movement keys on the user's keyboard (AZERTY: ZQSD + A / E, QWERTY: WASD + Q / E)
     const KEYS = {move: "WASD", updown: "Q / E"};
@@ -1101,7 +1208,6 @@ function extractGraph(files, opts) {
         if (k("KeyW")) { KEYS.move = k("KeyW") + k("KeyA") + k("KeyS") + k("KeyD"); KEYS.updown = k("KeyQ") + " / " + k("KeyE"); refilter(false); }
     }).catch(() => { /* not available */ });
     else if (/^fr/.test(navigator.language || "")) { KEYS.move = "ZQSD"; KEYS.updown = "A / E"; }
-    function keyHint(s) { return s.replace("{MOVE}", KEYS.move).replace("{UPDOWN}", KEYS.updown); }
     function refilter(reheat) {
         const q = state.search.trim().toLowerCase();
         let vis = state.data.nodes.filter(n => state.kinds.has(n.kind) && state.groups.has(n.group));
@@ -1127,7 +1233,8 @@ function extractGraph(files, opts) {
         $("groupCount").textContent = state.groups.size + " / " + state.knownGroups.size;
         updateChips();
         if (reheat) state.alpha = Math.max(state.alpha, reheat === "soft" ? 0.25 : 0.6);
-        $("hint").textContent = vis.length ? keyHint(state.mode === "3d" ? tr("drag to orbit · right-drag or arrows to pan · {MOVE} or scroll to move · {UPDOWN} for the height · drag a node to move it · F to center the selection · click the axes: angle, double click or R: whole view") : tr("drag, arrows or {MOVE} to pan · {UPDOWN} to zoom · scroll to zoom · drag a node to move it · click a node for details · F to center the selection · R to reset the view")) : tr("No node: enable some categories / groups");
+        $("hint").hidden = !!vis.length || state.mode === "flow"; // the controls are in the "?" card
+        $("hint").textContent = tr("No node: enable some categories / groups");
     }
 
     // ---------- Legends / chips ---------- //
@@ -1202,7 +1309,7 @@ function extractGraph(files, opts) {
     // ---------- Simulation ---------- //
     function tick() {
         const nodes = state.visible, n = nodes.length;
-        if (!n || state.paused || state.alpha < 0.004) return false;
+        if (!n || state.paused || state.alpha < 0.004 || state.mode === "flow") return false;
         const a = state.alpha, d3 = state.mode === "3d";
         const P = nodes.map(x => state.pos.get(x.id));
         const strength = LAYOUT.repulsion * a, R = nodes.map(radiusOf);
@@ -1262,7 +1369,7 @@ function extractGraph(files, opts) {
     }
     function project(p) {
         const c = state.cam;
-        if (state.mode === "2d") return {x: state.w / 2 + (p.x - c.x) * c.k, y: state.h / 2 + (p.y - c.y) * c.k, s: c.k, z: 0};
+        if (state.mode !== "3d") return {x: state.w / 2 + (p.x - c.x) * c.k, y: state.h / 2 + (p.y - c.y) * c.k, s: c.k, z: 0};
         const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
         const x1 = (p.x - c.x) * cy - (p.z - c.z) * sy, z1 = (p.x - c.x) * sy + (p.z - c.z) * cy;
         const y2 = (p.y - c.y) * cp - z1 * sp, z2 = (p.y - c.y) * sp + z1 * cp;
@@ -1270,6 +1377,7 @@ function extractGraph(files, opts) {
         return {x: state.w / 2 + x1 * s, y: state.h / 2 + y2 * s, s, z: z2, vx: x1, vy: y2, d, behind: d < NEAR};
     }
     function fit() {
+        if (state.mode === "flow") { if (state.flow) fitFlow(); return; }
         const nodes = state.visible;
         if (!nodes.length) return;
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, r = 0;
@@ -1420,7 +1528,18 @@ function extractGraph(files, opts) {
     }
     function camPos() { const c = state.cam, b = unrotateDir(0, 0, -c.dist); return {x: c.x + b.x, y: c.y + b.y, z: c.z + b.z}; }
     function clampCam() { // keep the camera (3D) / the view center and zoom (2D) inside the limits; true when moved
-        const B = bounds(), c = state.cam;
+        const c = state.cam;
+        if (state.mode === "flow") { // the center stays near the diagram
+            if (!state.flow) return false;
+            const r = state.flow.bbox, mx = state.w / 2 / c.k * 0.4, my = state.h / 2 / c.k * 0.4;
+            const kMin = 0.3 * Math.min(state.w / Math.max(80, r.x1 - r.x0), state.h / Math.max(80, r.y1 - r.y0), 1);
+            let moved = false;
+            if (c.k < kMin) { c.k = kMin; moved = true; }
+            const x = Math.min(r.x1 + mx, Math.max(r.x0 - mx, c.x)), y = Math.min(r.y1 + my, Math.max(r.y0 - my, c.y));
+            if (x !== c.x || y !== c.y) { c.x = x; c.y = y; moved = true; }
+            return moved;
+        }
+        const B = bounds();
         if (!B || drag && drag.node) return false;
         let moved = false;
         if (state.mode === "3d") {
@@ -1501,6 +1620,7 @@ function extractGraph(files, opts) {
         const C = state.colors;
         ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
         ctx.clearRect(0, 0, state.w, state.h);
+        if (state.mode === "flow") { drawFlow(C); return; }
         const proj = new Map();
         for (const n of state.visible) proj.set(n.id, project(state.pos.get(n.id)));
         const d3 = state.mode === "3d";
@@ -1544,7 +1664,7 @@ function extractGraph(files, opts) {
             ctx.strokeStyle = hot ? C.accent : LINKS[l.kind][0];
             ctx.lineWidth = (hot ? 1.6 : lit ? 2 : 1) * (real ? Math.min(2.2, Math.max(0.5, (a.s + b.s) / 2)) : 1);
             const arrow = (hot || (state.mode === "2d" && state.cam.k > 1.6) || d3) && !e.cb;
-            const al = !d3 ? 7 : real ? Math.max(3, Math.min(6, 4 * b.s)) : Math.max(4.5, Math.min(10, 6.5 * b.s)) * (hot ? 1.15 : 1);
+            const al = !d3 ? 7 : Math.max(4.5, Math.min(10, 6.5 * b.s)) * (hot ? 1.15 : 1); // same size in the realistic and technical 3D styles
             const back = arrow ? Math.min(e.len, al * 0.9) : 0; // the line stops at the base of the arrow
             ctx.beginPath(); ctx.moveTo(e.x0, e.y0); ctx.lineTo(e.x1 - e.ux * back, e.y1 - e.uy * back); ctx.stroke();
             if (arrow) { // arrow head, its tip on the border of the target
@@ -1639,7 +1759,7 @@ function extractGraph(files, opts) {
         if (keysHeld.has("KeyE")) up += sp; if (keysHeld.has("KeyQ")) up -= sp;
         if (!dx && !dy && !fw && !side && !up) return false;
         const c = state.cam;
-        if (state.mode === "2d") {
+        if (state.mode !== "3d") {
             c.x += (dx + side) / c.k; c.y += (dy - fw) / c.k;
             if (up) c.k = Math.max(0.05, Math.min(12, c.k * Math.exp(up * 0.004))); // no height in 2D: E / A zoom in / out
         } else {
@@ -1680,6 +1800,7 @@ function extractGraph(files, opts) {
 
     // ---------- Interaction ---------- //
     function pick(mx, my) {
+        if (state.mode === "flow") return flowPick(mx, my);
         let best = null, bd = Infinity;
         for (const n of state.visible) {
             const p = project(state.pos.get(n.id));
@@ -1695,7 +1816,7 @@ function extractGraph(files, opts) {
         const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
         if (onGizmo(mx, my)) { resetAngle(); return; }
         const n = pick(mx, my);
-        drag = {x: mx, y: my, sx: mx, sy: my, node: n && !(e.shiftKey || e.button === 2) ? n : null, clicked: n, pan: e.shiftKey || e.button === 2};
+        drag = {x: mx, y: my, sx: mx, sy: my, node: n && !(e.shiftKey || e.button === 2) && state.mode !== "flow" ? n : null, clicked: n, pan: e.shiftKey || e.button === 2};
         canvas.setPointerCapture(e.pointerId);
         canvas.classList.add("dragging");
     });
@@ -1722,7 +1843,7 @@ function extractGraph(files, opts) {
             else { const s = project(p).s, w = unrotateDir(dx / s, dy / s, 0); p.x += w.x; p.y += w.y; p.z += w.z; } // in the plane of the screen
             p.fixed = true;
             state.alpha = Math.max(state.alpha, 0.25);
-        } else if (state.mode === "2d") {
+        } else if (state.mode !== "3d") {
             c.x -= dx / c.k; c.y -= dy / c.k;
         } else if (drag.pan) { // move the target (and the rotation center) in the plane of the screen
             const s = 700 / c.dist, w = unrotateDir(-dx / s, -dy / s, 0);
@@ -1779,6 +1900,7 @@ function extractGraph(files, opts) {
         animateCam(to, 450);
     }
     function centerOn(id) { // animated move of the camera target to a node (the angle and the zoom are kept)
+        if (state.mode === "flow") { const b = state.flow && state.flow.byId.get(id); if (b) animateCam({x: b.x + b.w / 2, y: b.y + b.h / 2}); return; }
         const q = state.pos.get(id);
         if (q) animateCam(state.mode === "3d" ? {x: q.x, y: q.y, z: q.z} : {x: q.x, y: q.y});
     }
@@ -1812,7 +1934,7 @@ function extractGraph(files, opts) {
         // Anchor of the zoom: the selected node, else the mouse (the point under it stays under it, zoom in and out)
         let ax = e.clientX - r.left, ay = e.clientY - r.top;
         const sel = state.selected && state.pos.get(state.selected);
-        if (sel) { const q = project(sel); if (!(state.mode === "3d" && q.behind)) { ax = q.x; ay = q.y; } }
+        if (sel && state.mode !== "flow") { const q = project(sel); if (!(state.mode === "3d" && q.behind)) { ax = q.x; ay = q.y; } }
         const mx = ax - state.w / 2, my = ay - state.h / 2;
         if (state.mode === "3d") { // the scroll moves the camera forward / backward along the ray under the anchor (no limit)
             const step = -e.deltaY * c.dist * 0.0009, l = Math.hypot(mx / 700, my / 700, 1); // > 0: forward, same step back
@@ -1922,6 +2044,209 @@ function extractGraph(files, opts) {
     }
 
     // ---------- Controls ---------- //
+    // ---------- Diagram mode: execution flow, inheritance tree, flame graph ---------- //
+    // Built from the relations of the graph (calls / inherits), drawn as boxes on a 2D plane (same camera as the 2D view)
+    function callsOut() {
+        const out = new Map();
+        for (const l of state.data.links) if (l.kind === "calls") { if (!out.has(l.source)) out.set(l.source, []); if (!out.get(l.source).includes(l.target)) out.get(l.source).push(l.target); }
+        return out;
+    }
+    function reach(out, id, limit = 400) { const seen = new Set([id]), q = [id]; while (q.length && seen.size < limit) for (const x of out.get(q.shift()) || []) if (!seen.has(x)) { seen.add(x); q.push(x); } return seen.size - 1; }
+    function flowRoots() { // entry points: main() first, then the callers nobody calls, the biggest first
+        const out = callsOut(), called = new Set([...out.values()].flat());
+        const list = state.data.nodes.filter(n => out.has(n.id) && (n.entry || !called.has(n.id)));
+        return list.map(n => ({n, size: reach(out, n.id)})).sort((a, b) => (b.n.entry ? 1 : 0) - (a.n.entry ? 1 : 0) || b.size - a.size).map(x => x.n);
+    }
+    function flowSub(n) { // second line of a box: class of a method, namespace / file of a function, kind otherwise
+        if (n.kind === "method") { const c = state.byId.get(n.id.slice(0, n.id.lastIndexOf("::"))); return c ? c.label : ""; }
+        if (n.kind === "function") return n.ns || (n.path || "").split("/").pop();
+        return tr((KINDS[n.kind] || ["", n.kind])[1]);
+    }
+    function measure(text, font) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.font = font; const w = ctx.measureText(text).width; ctx.restore(); return w; }
+    const FONT = {t: "600 12px system-ui, sans-serif", s: "11px system-ui, sans-serif"};
+    function makeBox(n, extra) {
+        const label = n.label, sub = flowSub(n);
+        return Object.assign({id: n.id, n, label, sub, w: Math.max(measure(label, FONT.t), sub ? measure(sub, FONT.s) : 0) + 22, h: sub ? 40 : 28}, extra || {});
+    }
+    function layered(layers, parentsOf, groupKey) { // order the layers (barycenter of the parents, boxes of a group side by side), then place them
+        const pos = new Map();
+        layers.forEach(L => L.forEach((b, i) => pos.set(b.id, i)));
+        for (let pass = 0; pass < 4; pass++) for (let d = 1; d < layers.length; d++) {
+            const bary = (b) => { const ps = parentsOf(b.id).filter(p => pos.has(p)); return ps.length ? ps.reduce((s, p) => s + pos.get(p), 0) / ps.length : pos.get(b.id); };
+            const gb = new Map(); // barycenter of each group in the layer
+            for (const b of layers[d]) { const k = groupKey(b); const g = gb.get(k) || [0, 0]; g[0] += bary(b); g[1]++; gb.set(k, g); }
+            layers[d].sort((a, b) => { const ga = gb.get(groupKey(a)), gb2 = gb.get(groupKey(b)); return ga[0] / ga[1] - gb2[0] / gb2[1] || bary(a) - bary(b); });
+            layers[d].forEach((b, i) => pos.set(b.id, i));
+        }
+        const GAP = 26, ROW = 96, MAXW = 1500; // a layer wider than MAXW wraps on several rows
+        let y = 0;
+        layers.forEach((L, d) => {
+            const rows = [[]];
+            let w = 0;
+            for (const b of L) { if (w + b.w > MAXW && rows[rows.length - 1].length) { rows.push([]); w = 0; } rows[rows.length - 1].push(b); w += b.w + GAP; }
+            rows.forEach((R, ri) => {
+                const width = R.reduce((s, b) => s + b.w, 0) + GAP * Math.max(0, R.length - 1);
+                let x = -width / 2;
+                for (const b of R) { b.x = x; b.y = y + ri * (b.h + 18); b.depth = d; x += b.w + GAP; }
+            });
+            y += ROW + (rows.length - 1) * 58;
+        });
+    }
+    function bboxOf(boxes) {
+        const r = {x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity};
+        for (const b of boxes) { r.x0 = Math.min(r.x0, b.x); r.y0 = Math.min(r.y0, b.y); r.x1 = Math.max(r.x1, b.x + b.w); r.y1 = Math.max(r.y1, b.y + b.h); }
+        return boxes.length ? r : {x0: -100, y0: -100, x1: 100, y1: 100};
+    }
+    function buildFlow() {
+        const view = state.flowView, out = callsOut();
+        const roots = flowRoots();
+        // entry point selector (execution / flame)
+        const sel = $("flowRoot");
+        if (!state.flowRoot || !state.byId.has(state.flowRoot) || !out.has(state.flowRoot)) state.flowRoot = roots[0] ? roots[0].id : null;
+        sel.textContent = "";
+        const opts = roots.slice(0, 60);
+        if (state.flowRoot && !opts.some(n => n.id === state.flowRoot)) opts.unshift(state.byId.get(state.flowRoot));
+        for (const n of opts) { const o = document.createElement("option"); o.value = n.id; const s = flowSub(n); o.textContent = n.label + (n.kind === "method" && s ? " · " + s : ""); sel.appendChild(o); }
+        sel.value = state.flowRoot || "";
+        sel.hidden = view === "inherit" || !opts.length;
+        let boxes = [], edges = [], groups = [], empty = "";
+        if (view === "exec") {
+            if (!state.flowRoot) empty = "No call found in the sources (the calls are read in the bodies of the C / C++ functions).";
+            else {
+                const depth = new Map([[state.flowRoot, 0]]), q = [state.flowRoot];
+                while (q.length && depth.size < 160) { const id = q.shift(); if (depth.get(id) >= 9) continue; for (const x of out.get(id) || []) if (!depth.has(x)) { depth.set(x, depth.get(id) + 1); q.push(x); } }
+                const layers = [];
+                for (const [id, d] of depth) { (layers[d] = layers[d] || []).push(makeBox(state.byId.get(id))); }
+                const parents = new Map();
+                for (const [a, list] of out) if (depth.has(a)) for (const b of list) if (depth.has(b)) { edges.push({a, b}); if (!parents.has(b)) parents.set(b, []); parents.get(b).push(a); }
+                layered(layers, id => parents.get(id) || [], b => b.n.kind === "method" ? b.sub : b.id);
+                boxes = layers.flat();
+                for (const L of layers) { // dashed containers around the methods of the same class in a layer
+                    let i = 0;
+                    while (i < L.length) { let j = i; while (j + 1 < L.length && L[j + 1].n.kind === "method" && L[i].n.kind === "method" && L[j + 1].sub === L[i].sub) j++; if (j > i) groups.push({label: L[i].sub, boxes: L.slice(i, j + 1)}); i = j + 1; }
+                }
+            }
+        } else if (view === "inherit") {
+            const bases = new Map(), set = new Set();
+            const src = (id) => !/^tests?\//.test((state.byId.get(id) || {}).path || ""); // the classes of the sources (not the test helpers)
+            for (const l of state.data.links) if (l.kind === "inherits" && src(l.source)) { set.add(l.source); set.add(l.target); if (!bases.has(l.source)) bases.set(l.source, []); bases.get(l.source).push(l.target); }
+            if (!set.size) empty = "No inheritance between the classes of the project.";
+            const depth = new Map(), visiting = new Set();
+            const dep = (id) => { if (depth.has(id)) return depth.get(id); if (visiting.has(id)) return 0; visiting.add(id); const d = Math.max(-1, ...(bases.get(id) || []).map(dep)) + 1; visiting.delete(id); depth.set(id, d); return d; };
+            const layers = [];
+            for (const id of set) { const d = dep(id); (layers[d] = layers[d] || []).push(makeBox(state.byId.get(id))); }
+            for (let d = 0; d < layers.length; d++) layers[d] = layers[d] || [];
+            for (const [a, list] of bases) for (const b of list) edges.push({a, b, inherit: true});
+            layered(layers, id => bases.get(id) || [], b => b.id);
+            boxes = layers.flat();
+        } else { // flame graph: call tree from the entry point, width = size of the subtree (static: no run time)
+            const rootId = state.flamePath.length ? state.flamePath[state.flamePath.length - 1] : state.flowRoot;
+            if (!rootId) empty = "No call found in the sources (the calls are read in the bodies of the C / C++ functions).";
+            else {
+                let count = 0;
+                const build = (id, path, d) => { count++; const f = {id, kids: []}; if (d < 18 && count < 4000) for (const x of out.get(id) || []) if (!path.has(x)) { path.add(x); f.kids.push(build(x, path, d + 1)); path.delete(x); } f.size = 1 + f.kids.reduce((s, k) => s + k.size, 0); return f; };
+                const tree = build(rootId, new Set([rootId]), 0), W = Math.max(900, Math.min(4000, tree.size * 28)), H = 24;
+                const anc = state.flamePath.slice(0, -1); // zoomed in: the ancestors as full rows below (click to go back)
+                anc.forEach((id, i) => boxes.push({id, n: state.byId.get(id), label: state.byId.get(id).label, sub: "", x: 0, y: (anc.length - i) * H, w: W, h: H - 2, anc: i}));
+                const place = (f, x, d) => {
+                    const w = W * f.size / tree.size, n = state.byId.get(f.id);
+                    boxes.push({id: f.id, n, label: n.label, sub: flowSub(n), x, y: -d * H, w: Math.max(1, w - 1), h: H - 2, flame: true, size: f.size, depth: d});
+                    let cx = x;
+                    for (const k of f.kids) { place(k, cx, d + 1); cx += W * k.size / tree.size; }
+                };
+                place(tree, 0, 0);
+            }
+        }
+        state.flow = {boxes, edges, groups, empty, bbox: bboxOf(boxes), byId: new Map(boxes.filter(b => !b.anc && b.anc !== 0).map(b => [b.id, b]))};
+    }
+    function fitFlow() {
+        const r = state.flow.bbox, c = state.cam;
+        c.x = (r.x0 + r.x1) / 2; c.y = (r.y0 + r.y1) / 2;
+        c.k = Math.min(1.4, 0.9 * Math.min(state.w / Math.max(80, r.x1 - r.x0), state.h / Math.max(80, r.y1 - r.y0)));
+    }
+    function flowPick(mx, my) {
+        if (!state.flow) return null;
+        const c = state.cam, x = (mx - state.w / 2) / c.k + c.x, y = (my - state.h / 2) / c.k + c.y;
+        for (let i = state.flow.boxes.length - 1; i >= 0; i--) { const b = state.flow.boxes[i]; if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { state.flowHit = b; return b.n; } }
+        state.flowHit = null;
+        return null;
+    }
+    function roundRect(x, y, w, h, r) { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, Math.min(r, h / 2, w / 2)); else ctx.rect(x, y, w, h); }
+    function drawFlow(C) {
+        const F = state.flow, c = state.cam, k = c.k;
+        if (!F) return;
+        const S = (x, y) => [state.w / 2 + (x - c.x) * k, state.h / 2 + (y - c.y) * k];
+        if (F.empty) { ctx.fillStyle = C.muted; ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(tr(F.empty), state.w / 2, state.h / 2); return; }
+        const focus = state.hover || state.selected;
+        // containers (classes) of the execution flow
+        ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
+        for (const g of F.groups) {
+            const r = bboxOf(g.boxes), [x, y] = S(r.x0 - 10, r.y0 - 18);
+            ctx.strokeStyle = C.muted; ctx.globalAlpha = 0.5; roundRect(x, y, (r.x1 - r.x0 + 20) * k, (r.y1 - r.y0 + 28) * k, 8 * k); ctx.stroke();
+            if (k > 0.45) { ctx.globalAlpha = 0.8; ctx.fillStyle = C.muted; ctx.font = Math.round(10.5 * k) + "px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.fillText(g.label, x + 8 * k, y + 12 * k); }
+        }
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+        // relations
+        for (const e of F.edges) {
+            const a = F.byId.get(e.a), b = F.byId.get(e.b);
+            if (!a || !b) continue;
+            const hot = focus && (e.a === focus || e.b === focus);
+            ctx.strokeStyle = hot ? C.accent : e.inherit ? LINKS.inherits[0] : LINKS.calls[0];
+            ctx.globalAlpha = hot ? 1 : focus ? 0.25 : 0.7; ctx.lineWidth = hot ? 2 : 1.3;
+            let p0, p1, c0, c1;
+            if (e.inherit) { p0 = S(a.x + a.w / 2, a.y); p1 = S(b.x + b.w / 2, b.y + b.h); const m = (p0[1] + p1[1]) / 2; c0 = [p0[0], m]; c1 = [p1[0], m]; }
+            else if (b.depth > a.depth) { p0 = S(a.x + a.w / 2, a.y + a.h); p1 = S(b.x + b.w / 2, b.y); const m = (p0[1] + p1[1]) / 2; c0 = [p0[0], m]; c1 = [p1[0], m]; }
+            else { p0 = S(a.x + a.w, a.y + a.h / 2); p1 = S(b.x + b.w, b.y + b.h / 2); const o = (60 + 20 * Math.abs(a.depth - b.depth)) * k; c0 = [p0[0] + o, p0[1]]; c1 = [p1[0] + o, p1[1]]; ctx.setLineDash([5, 4]); } // back / same level call
+            ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.bezierCurveTo(c0[0], c0[1], c1[0], c1[1], p1[0], p1[1]); ctx.stroke(); ctx.setLineDash([]);
+            const ang = Math.atan2(p1[1] - c1[1], p1[0] - c1[0]), al = Math.max(5, 8 * Math.min(1.2, k));
+            ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p1[0] - Math.cos(ang - 0.42) * al, p1[1] - Math.sin(ang - 0.42) * al); ctx.lineTo(p1[0] - Math.cos(ang + 0.42) * al, p1[1] - Math.sin(ang + 0.42) * al); ctx.closePath();
+            if (e.inherit) { ctx.fillStyle = C.surface; ctx.fill(); ctx.stroke(); } else { ctx.fillStyle = ctx.strokeStyle; ctx.fill(); } // UML: hollow triangle for the inheritance
+        }
+        ctx.globalAlpha = 1;
+        // boxes
+        for (const b of F.boxes) {
+            const [x, y] = S(b.x, b.y), w = b.w * k, h = b.h * k;
+            if (x > state.w || y > state.h || x + w < 0 || y + h < 0) continue;
+            const col = colorOf(b.n), on = b.id === state.selected || b.id === state.hover, dim = focus && !on && !(b.flame || b.anc !== undefined) && !F.edges.some(e => (e.a === focus && e.b === b.id) || (e.b === focus && e.a === b.id));
+            ctx.globalAlpha = dim ? 0.35 : 1;
+            roundRect(x, y, w, h, (b.flame || b.anc !== undefined ? 3 : 8) * k);
+            ctx.fillStyle = C.surface; ctx.fill();
+            ctx.globalAlpha *= b.flame ? 0.55 : b.anc !== undefined ? 0.25 : 0.2; ctx.fillStyle = col; ctx.fill();
+            ctx.globalAlpha = dim ? 0.35 : 1; ctx.lineWidth = on ? 2 : 1; ctx.strokeStyle = on ? C.accent : col; ctx.stroke();
+            const fs = 12 * k;
+            if (fs < 6 || w < 18) continue;
+            ctx.save(); ctx.beginPath(); ctx.rect(x + 3, y, w - 6, h); ctx.clip();
+            ctx.fillStyle = C.text; ctx.textAlign = b.flame || b.anc !== undefined ? "left" : "center";
+            const tx = b.flame || b.anc !== undefined ? x + 6 * k : x + w / 2;
+            ctx.font = "600 " + fs.toFixed(1) + "px system-ui, sans-serif";
+            if (b.sub && !b.flame) { ctx.fillText(b.label, tx, y + h / 2 - 2 * k); ctx.fillStyle = C.muted; ctx.font = (11 * k).toFixed(1) + "px system-ui, sans-serif"; ctx.fillText(b.sub, tx, y + h / 2 + 12 * k); }
+            else ctx.fillText(b.label + (b.flame && b.sub && w > measure(b.label + " · " + b.sub, FONT.t) * k + 12 ? " · " + b.sub : ""), tx, y + h / 2 + 4 * k);
+            ctx.restore();
+        }
+        ctx.globalAlpha = 1;
+    }
+    function setFlowView(v) {
+        state.flowView = v; state.flamePath = [];
+        for (const b of $("flowViews").children) b.classList.toggle("active", b.dataset.flow === v);
+        store("flowView", v);
+        buildFlow(); fitFlow(); state.dirty = true;
+    }
+    for (const b of $("flowViews").children) b.addEventListener("click", () => setFlowView(b.dataset.flow));
+    $("flowRoot").addEventListener("change", (e) => { state.flowRoot = e.target.value; state.flamePath = []; buildFlow(); fitFlow(); state.dirty = true; });
+    canvas.addEventListener("dblclick", (e) => { // double click on a box: start the execution / flame graph from it (flame: zoom into the frame)
+        if (state.mode !== "flow") return;
+        const r = canvas.getBoundingClientRect(), n = flowPick(e.clientX - r.left, e.clientY - r.top), hit = state.flowHit;
+        if (!n || state.flowView === "inherit") return;
+        if (state.flowView === "flame") {
+            if (hit && hit.anc !== undefined) state.flamePath = state.flamePath.slice(0, hit.anc + 1);
+            else if (hit && hit.depth > 0) { // zoom: path from the current root to this frame
+                state.flamePath = state.flamePath.length ? state.flamePath : [state.flowRoot];
+                state.flamePath.push(n.id);
+            } else if (state.flamePath.length) state.flamePath.pop();
+        } else if (callsOut().has(n.id)) { state.flowRoot = n.id; }
+        else return;
+        buildFlow(); fitFlow(); state.dirty = true;
+    });
     function setStyle3d(s) {
         state.style3d = s === "tech" ? "tech" : "real";
         for (const b of $("style3d").children) b.classList.toggle("active", b.dataset.style === state.style3d);
@@ -1930,15 +2255,23 @@ function extractGraph(files, opts) {
     for (const b of $("style3d").children) b.addEventListener("click", () => setStyle3d(b.dataset.style));
     if (load("style3d")) setStyle3d(load("style3d"));
     function setMode(m) {
+        const old = state.mode;
+        state.cams[old] = {...state.cam};
         state.mode = m;
         $("style3d").hidden = m !== "3d";
-        $("mode2d").classList.toggle("active", m === "2d"); $("mode3d").classList.toggle("active", m === "3d");
+        $("flowBar").hidden = m !== "flow";
+        $("controlsBtn").style.left = m === "3d" ? "96px" : "14px"; // right of the axes in 3D
+        $("mode2d").classList.toggle("active", m === "2d"); $("mode3d").classList.toggle("active", m === "3d"); $("modeFlow").classList.toggle("active", m === "flow");
+        if (m === "flow") { buildFlow(); if (state.cams.flow) Object.assign(state.cam, state.cams.flow); else fitFlow(); refilter(false); state.dirty = true; return; }
+        if (old === "flow" && state.cams[m]) { Object.assign(state.cam, state.cams[m]); refilter(false); state.dirty = true; return; }
         if (m === "3d") for (const n of state.visible) { const p = state.pos.get(n.id); if (Math.abs(p.z) < 1) p.z = (Math.random() - 0.5) * 80; }
         state.alpha = Math.max(state.alpha, 0.7);
         fit(); refilter(false); state.dirty = true;
     }
     $("mode2d").addEventListener("click", () => setMode("2d"));
     $("mode3d").addEventListener("click", () => setMode("3d"));
+    $("modeFlow").addEventListener("click", () => setMode("flow"));
+    if (load("flowView")) { state.flowView = load("flowView"); for (const b of $("flowViews").children) b.classList.toggle("active", b.dataset.flow === state.flowView); }
     $("fit").addEventListener("click", () => { fit(); state.dirty = true; });
     $("pause").addEventListener("click", () => { state.paused = !state.paused; $("pause").textContent = state.paused ? tr("Resume") : tr("Freeze"); if (!state.paused) state.alpha = Math.max(state.alpha, 0.3); });
     $("search").addEventListener("input", (e) => { state.search = e.target.value; refilter(false); state.dirty = true; });
@@ -2059,6 +2392,12 @@ function extractGraph(files, opts) {
         "link:compiled-into": ["compiled into", "A source is part of a CMake target.", "Arrow from the source to the executable or library compiling it (SRC list).", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
         "link:links": ["links", "A CMake target links a library.", "Arrow from the target to the library (target_link_libraries).", ["links", ["app", "executable"], ["utils", "external"]]],
         "link:tests": ["tests", "A test file uses a class.", "Arrow from the test file to the class it references: a class without an incoming \"tests\" arrow is not covered.", ["tests", ["tests/Server.cpp", "test-file"], ["Server", "class"]]],
+        modeFlow: ["Diagrams", "Execution flow, inheritance tree or flame graph of the project.", "Readable diagrams built from the relations of the graph: the execution flow from an entry point (who calls what, the methods of a class grouped), the inheritance tree of the classes, and a flame graph of the call tree. The calls are read in the bodies of the C / C++ functions (static: no run time).", ["calls", ["main()", "function"], ["run()", "method"]]],
+        "flow:exec": ["Execution", "Calls from an entry point, level by level.", "Starts from main() (or the entry point of the list) and follows the calls: each level is one call deeper, the methods of the same class are grouped in a dashed box, a dashed arrow goes back to an earlier level (loop or recursion). Double click a box to start from it.", ["calls", ["run()", "method"], ["exec()", "method"]]],
+        "flow:inherit": ["Inheritance", "Tree of the classes of the sources.", "The bases on top, the derived classes below, a hollow triangle on the base (UML). Only the classes of the sources (not the test helpers).", "iface"],
+        "flow:flame": ["Flame graph", "Call tree, the width of a frame = size of its subtree.", "The entry point at the bottom, each row is one call deeper. Static: the width is the number of calls below, not a measured time. Double click a frame to zoom into it, the rows below to go back.", ["calls", ["server()", "method"], ["formatCFG()", "method"]]],
+        flowRoot: ["Entry point", "Where the execution flow / flame graph starts.", "main() first, then the functions and methods nobody calls (the biggest first).", ["calls", ["main()", "function"], ["init()", "method"]]],
+        "link:calls": ["calls", "A function / method calls another one.", "Arrow from the caller to the called function, method or class (construction). Read in the bodies of the functions, resolved by name and by the type of the objects.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Group", "Module folder (include/<project>/<module>, src/..., tests/<module>).", "Every node belongs to the module of its file. Disabling a group hides everything coming from it; \"Color by group\" and \"Cluster by group\" make the split visible.", "groups"],
         "group:external": ["External group", "Everything coming from outside the project.", "Linked or included libraries and base classes belonging to a library.", "ext"],
         "group:build": ["Build group", "The CMake targets.", "Executables and libraries declared in the CMakeLists.txt.", "exe"]
@@ -2106,6 +2445,12 @@ function extractGraph(files, opts) {
         "link:compiled-into": ["compilé dans", "Une source fait partie d'une cible CMake.", "Flèche de la source vers l'exécutable ou la bibliothèque qui la compile (liste SRC).", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
         "link:links": ["lié à", "Une cible CMake lie une bibliothèque.", "Flèche de la cible vers la bibliothèque (target_link_libraries).", ["links", ["app", "executable"], ["utils", "external"]]],
         "link:tests": ["teste", "Un fichier de test utilise une classe.", "Flèche du fichier de test vers la classe qu'il référence : une classe sans flèche entrante « teste » n'est pas couverte.", ["tests", ["tests/Server.cpp", "test-file"], ["Server", "class"]]],
+        modeFlow: ["Schémas", "Flux d'exécution, arbre d'héritage ou flame graph du projet.", "Schémas lisibles construits à partir des relations du graphe : le flux d'exécution depuis un point d'entrée (qui appelle quoi, les méthodes d'une classe regroupées), l'arbre d'héritage des classes et un flame graph de l'arbre d'appels. Les appels sont lus dans le corps des fonctions C / C++ (statique : pas de temps d'exécution).", ["calls", ["main()", "function"], ["run()", "method"]]],
+        "flow:exec": ["Exécution", "Appels depuis un point d'entrée, niveau par niveau.", "Part de main() (ou du point d'entrée de la liste) et suit les appels : chaque niveau est un appel plus profond, les méthodes d'une même classe sont regroupées dans un cadre pointillé, une flèche pointillée revient à un niveau précédent (boucle ou récursion). Double clic sur une boîte pour partir d'elle.", ["calls", ["run()", "method"], ["exec()", "method"]]],
+        "flow:inherit": ["Héritage", "Arbre des classes des sources.", "Les bases en haut, les classes dérivées en dessous, un triangle creux sur la base (UML). Uniquement les classes des sources (pas les aides des tests).", "iface"],
+        "flow:flame": ["Flame graph", "Arbre d'appels, la largeur d'un bloc = taille de son sous-arbre.", "Le point d'entrée en bas, chaque ligne est un appel plus profond. Statique : la largeur est le nombre d'appels en dessous, pas un temps mesuré. Double clic sur un bloc pour zoomer, sur les lignes du dessous pour revenir.", ["calls", ["server()", "method"], ["formatCFG()", "method"]]],
+        flowRoot: ["Point d'entrée", "Là où commencent le flux d'exécution / le flame graph.", "main() d'abord, puis les fonctions et méthodes que personne n'appelle (les plus grosses d'abord).", ["calls", ["main()", "function"], ["init()", "method"]]],
+        "link:calls": ["appelle", "Une fonction / méthode en appelle une autre.", "Flèche de l'appelant vers la fonction, la méthode ou la classe (construction) appelée. Lue dans le corps des fonctions, résolue par le nom et par le type des objets.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Groupe", "Dossier de module (include/<projet>/<module>, src/..., tests/<module>).", "Chaque nœud appartient au module de son fichier. Désactiver un groupe masque tout ce qui en vient ; « Couleur par groupe » et « Rapprocher par groupe » rendent le découpage visible.", "groups"],
         "group:external": ["Groupe externe", "Tout ce qui vient de l'extérieur du projet.", "Bibliothèques liées ou incluses et classes de base appartenant à une bibliothèque.", "ext"],
         "group:build": ["Groupe build", "Les cibles CMake.", "Exécutables et bibliothèques déclarés dans les CMakeLists.txt.", "exe"]
@@ -2137,6 +2482,8 @@ function extractGraph(files, opts) {
         const h = helpTable()[key];
         if (!h) return;
         clearTimeout(tipTimer); tip.hidden = true;
+        $("helpBack").querySelector(".helpcard").classList.remove("wide");
+        $("helpBack").querySelector(".kind").textContent = tr("Help · double click");
         $("helpTitle").textContent = h[0];
         $("helpBody").innerHTML = "<p><strong>" + esc(h[1]) + "</strong></p><p>" + esc(h[2]) + "</p>";
         const ex = h[3];
@@ -2148,6 +2495,92 @@ function extractGraph(files, opts) {
     document.addEventListener("dblclick", (e) => {
         const el = e.target.closest ? e.target.closest("[data-help]") : null;
         if (el) { e.preventDefault(); try { window.getSelection().removeAllRanges(); } catch (err) { /* no selection API */ } openHelp(el.dataset.help); }
+    });
+    // ---------- Controls card (button "?" / key ? or H) ---------- //
+    // One row per control of the current mode: a small drawing of the gesture, its name and what it does
+    const ICON = {
+        mouse(btn, motion) { // btn: left / right / wheel / none; motion: drag / scroll / click / dbl / hover
+            const hl = "var(--accent)", base = "var(--muted)";
+            let s = '<svg viewBox="0 0 64 44" aria-hidden="true"><rect x="22" y="4" width="20" height="32" rx="10" fill="none" stroke="' + base + '" stroke-width="1.5"/>' +
+                '<line x1="32" y1="4" x2="32" y2="16" stroke="' + base + '" stroke-width="1.2"/>';
+            if (btn === "left") s += '<path d="M22 14 a10 10 0 0 1 10 -10 v12 h-10z" fill="' + hl + '" opacity=".75"/>';
+            if (btn === "right") s += '<path d="M42 14 a10 10 0 0 0 -10 -10 v12 h10z" fill="' + hl + '" opacity=".75"/>';
+            if (btn === "wheel" || motion === "scroll") s += '<rect x="30" y="8" width="4" height="7" rx="2" fill="' + hl + '"/>';
+            if (motion === "drag") s += '<path d="M48 30 q8 -8 0 -16" fill="none" stroke="' + hl + '" stroke-width="1.6"><animate attributeName="opacity" values="1;.3;1" dur="1.6s" repeatCount="indefinite"/></path><path d="M44 14 l4 0 l0 4" fill="none" stroke="' + hl + '" stroke-width="1.6"/><path d="M16 14 q-8 8 0 16" fill="none" stroke="' + hl + '" stroke-width="1.6"/><path d="M20 30 l-4 0 l0 -4" fill="none" stroke="' + hl + '" stroke-width="1.6"/>';
+            if (motion === "scroll") s += '<path d="M50 12 l4 -5 l4 5 M50 30 l4 5 l4 -5" fill="none" stroke="' + hl + '" stroke-width="1.6"/>';
+            if (motion === "dbl") s += '<text x="48" y="16" fill="' + hl + '" font-size="10" font-weight="700" font-family="system-ui">×2</text>';
+            if (motion === "hover") s += '<path d="M50 20 l0 14 l4 -4 l3 6 l2 -1 l-3 -6 l5 0 z" fill="' + hl + '"/>';
+            return s + "</svg>";
+        },
+        keys(list) { // key caps on one or two rows
+            const rows = Array.isArray(list[0]) ? list : [list], w = (k) => Math.max(14, 7 * k.length + 7);
+            let s = '<svg viewBox="0 0 64 44" aria-hidden="true">';
+            rows.forEach((r, ri) => {
+                const total = r.reduce((a, k) => a + w(k) + 2, -2);
+                let x = 32 - total / 2;
+                const y = rows.length === 1 ? 13 : 3 + ri * 20;
+                for (const k of r) { s += '<rect x="' + x + '" y="' + y + '" width="' + w(k) + '" height="17" rx="3.5" fill="var(--code-bg)" stroke="var(--border)"/><text x="' + (x + w(k) / 2) + '" y="' + (y + 12) + '" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600" font-family="system-ui">' + esc(k) + "</text>"; x += w(k) + 2; }
+            });
+            return s + "</svg>";
+        },
+        axes() { return '<svg viewBox="0 0 64 44" aria-hidden="true"><circle cx="32" cy="22" r="18" fill="var(--surface)" stroke="var(--border)"/><line x1="32" y1="22" x2="46" y2="22" stroke="#e5534b" stroke-width="2"/><line x1="32" y1="22" x2="32" y2="8" stroke="#3fb950" stroke-width="2"/><line x1="32" y1="22" x2="24" y2="28" stroke="#539bf5" stroke-width="2"/></svg>'; }
+    };
+    function controls() {
+        const fr = window.docI18n && window.docI18n.lang() === "fr", L = (en, f) => fr ? f : en;
+        const mv = KEYS.move.split(""), ud = KEYS.updown.split(" / ");
+        const common = [
+            [ICON.mouse("left", "click"), L("Click a node", "Clic sur un nœud"), L("Selects it: details panel on the right, its relations highlighted. Click the background to unselect.", "Le sélectionne : panneau de détails à droite, ses relations en surbrillance. Clic sur le fond pour désélectionner.")],
+            [ICON.mouse("none", "hover"), L("Hover a node", "Survol d'un nœud"), L("Card with its kind, its name and its path.", "Carte avec sa catégorie, son nom et son chemin.")],
+            [ICON.keys(["F"]), "F", L("Centers the camera on the selected node.", "Centre la caméra sur le nœud sélectionné.")],
+            [ICON.keys(["R"]), "R", L("Back to the start view (position, zoom and angle).", "Retour à la vue de départ (position, zoom et angle).")],
+            [ICON.mouse("left", "dbl"), L("Double click a control", "Double clic sur un contrôle"), L("Help card of a button, a category, a group or a relation of the panel.", "Fiche d'aide d'un bouton, d'une catégorie, d'un groupe ou d'une relation du panneau.")]
+        ];
+        if (state.mode === "3d") return [L("Controls · 3D view", "Contrôles · vue 3D"), [
+            [ICON.mouse("left", "drag"), L("Drag the background", "Glisser le fond"), L("Orbits around the center of the view.", "Tourne autour du centre de la vue.")],
+            [ICON.mouse("right", "drag"), L("Right drag (or Shift + drag)", "Clic droit + glisser (ou Maj + glisser)"), L("Moves the view in the plane of the screen; the center of rotation follows.", "Déplace la vue dans le plan de l'écran ; le centre de rotation suit.")],
+            [ICON.mouse("left", "drag"), L("Drag a node", "Glisser un nœud"), L("Moves the node in the plane of the screen.", "Déplace le nœud dans le plan de l'écran.")],
+            [ICON.mouse("wheel", "scroll"), L("Scroll", "Molette"), L("Moves forward / backward towards the mouse (or the selected node), through the graph, no limit.", "Avance / recule vers la souris (ou le nœud sélectionné), à travers le graphe, sans limite.")],
+            [ICON.keys([[mv[0]], [mv[1], mv[2], mv[3]]]), mv.join(""), L("Moves forward, left, backward, right along the floor (Shift: faster).", "Avance, gauche, recule, droite le long du sol (Maj : plus vite).")],
+            [ICON.keys([ud[0], ud[1]]), ud.join(" / "), L("Goes down / up.", "Descend / monte.")],
+            [ICON.keys([["↑"], ["←", "↓", "→"]]), L("Arrows", "Flèches"), L("Move the view in the plane of the screen.", "Déplacent la vue dans le plan de l'écran.")],
+            [ICON.axes(), L("Axes (bottom left)", "Axes (en bas à gauche)"), L("Click: back to the default angle. Double click: whole start view.", "Clic : retour à l'angle par défaut. Double clic : toute la vue de départ.")],
+            ...common,
+            [ICON.mouse("none", "hover"), L("Walls", "Murs"), L("The camera stays in a box around the graph: its walls appear when you get close.", "La caméra reste dans une boîte autour du graphe : ses murs apparaissent quand on s'en approche.")]
+        ]];
+        if (state.mode === "flow") return [L("Controls · diagrams", "Contrôles · schémas"), [
+            [ICON.mouse("left", "drag"), L("Drag the background", "Glisser le fond"), L("Moves the view.", "Déplace la vue.")],
+            [ICON.mouse("wheel", "scroll"), L("Scroll", "Molette"), L("Zooms in / out towards the mouse.", "Zoome / dézoome vers la souris.")],
+            [ICON.mouse("left", "click"), L("Click a box", "Clic sur une boîte"), L("Selects it: details panel, its calls / bases highlighted.", "La sélectionne : panneau de détails, ses appels / bases en surbrillance.")],
+            [ICON.mouse("left", "dbl"), L("Double click a box", "Double clic sur une boîte"), L("Execution: starts the flow from it. Flame graph: zooms into the frame; double click the rows below to go back.", "Exécution : démarre le flux depuis elle. Flame graph : zoome sur le bloc ; double clic sur les lignes du dessous pour revenir.")],
+            [ICON.keys([["↑"], ["←", "↓", "→"]]), L("Arrows / ", "Flèches / ") + mv.join(""), L("Move the view (Shift: faster).", "Déplacent la vue (Maj : plus vite).")],
+            [ICON.keys([ud[0], ud[1]]), ud.join(" / "), L("Zoom out / in.", "Dézoome / zoome.")],
+            [ICON.keys(["F"]), "F", L("Centers the view on the selected box.", "Centre la vue sur la boîte sélectionnée.")],
+            [ICON.keys(["R"]), "R", L("Fits the whole diagram in the view.", "Cadre tout le schéma.")],
+            [ICON.mouse("left", "click"), L("Views (top left)", "Vues (en haut à gauche)"), L("Execution: calls from an entry point. Inheritance: tree of the classes. Flame graph: call tree, width = size of the subtree. The list chooses the entry point.", "Exécution : appels depuis un point d'entrée. Héritage : arbre des classes. Flame graph : arbre d'appels, largeur = taille du sous-arbre. La liste choisit le point d'entrée.")]
+        ]];
+        return [L("Controls · 2D view", "Contrôles · vue 2D"), [
+            [ICON.mouse("left", "drag"), L("Drag the background", "Glisser le fond"), L("Moves the view.", "Déplace la vue.")],
+            [ICON.mouse("left", "drag"), L("Drag a node", "Glisser un nœud"), L("Moves the node; its relations pull the others.", "Déplace le nœud ; ses relations entraînent les autres.")],
+            [ICON.mouse("wheel", "scroll"), L("Scroll", "Molette"), L("Zooms in / out towards the mouse (or the selected node).", "Zoome / dézoome vers la souris (ou le nœud sélectionné).")],
+            [ICON.keys([["↑"], ["←", "↓", "→"]]), L("Arrows / ", "Flèches / ") + mv.join(""), L("Move the view (Shift: faster).", "Déplacent la vue (Maj : plus vite).")],
+            [ICON.keys([ud[0], ud[1]]), ud.join(" / "), L("Zoom out / in.", "Dézoome / zoome.")],
+            ...common
+        ]];
+    }
+    function openControls() {
+        const [title, rows] = controls();
+        clearTimeout(tipTimer); tip.hidden = true;
+        $("helpBack").querySelector(".helpcard").classList.add("wide");
+        $("helpBack").querySelector(".kind").textContent = tr("Help");
+        $("helpTitle").textContent = title;
+        $("helpBody").innerHTML = '<div class="ctl-list">' + rows.map(r => '<div class="ctl">' + r[0] + '<div><b>' + esc(r[1]) + "</b><span>" + esc(r[2]) + "</span></div></div>").join("") + "</div>";
+        $("helpSvg").innerHTML = "";
+        $("helpBack").hidden = false;
+        $("helpClose").focus();
+    }
+    $("controlsBtn").addEventListener("click", openControls);
+    document.addEventListener("keydown", (e) => {
+        if ((e.key === "?" || e.key === "h" || e.key === "H") && !typing() && !e.ctrlKey && !e.metaKey && !e.altKey && $("helpBack").hidden) { e.preventDefault(); openControls(); }
     });
     $("helpClose").addEventListener("click", closeHelp);
     $("helpBack").addEventListener("click", (e) => { if (e.target === $("helpBack")) closeHelp(); });
@@ -2170,6 +2603,7 @@ function extractGraph(files, opts) {
     // ---------- Language ---------- //
     if (window.docI18n) window.docI18n.onChange(() => {
         buildLegends(); refilter(false);
+        if (state.mode === "flow") buildFlow(); // the kinds on the boxes are translated
         $("pause").textContent = state.paused ? tr("Resume") : tr("Freeze");
         if (lastStatus) setStatus(lastStatus[0], lastStatus[1]);
         if (state.selected) select(state.selected);
