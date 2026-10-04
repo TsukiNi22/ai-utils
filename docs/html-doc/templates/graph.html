@@ -2585,10 +2585,15 @@ extractGraph.wanted = function (p) {
         Object.assign(c, save);
         animateCam(to, 450);
     }
-    function centerOn(id) { // animated move of the camera target to a node (the angle and the zoom are kept)
-        if (state.mode === "flow") { const b = state.flow && state.flow.byId.get(id); if (b) animateCam({x: b.x + b.w / 2, y: b.y + b.h / 2}); return; }
+    function centerOn(id) { // animated move + zoom of the camera onto a node, framed with its direct neighbours
+        if (state.mode === "flow") { const b = state.flow && state.flow.byId.get(id); if (b) animateCam({x: b.x + b.w / 2, y: b.y + b.h / 2, k: Math.max(state.cam.k, 1.2)}); return; }
         const q = state.pos.get(id);
-        if (q) animateCam(state.mode === "3d" ? {x: q.x, y: q.y, z: q.z} : {x: q.x, y: q.y});
+        if (!q) return;
+        // radius of the close neighbourhood: 60 % of the visible neighbours (a far one doesn't cancel the zoom)
+        const ds = [...(state.neighbors.get(id) || [])].map(nb => state.pos.get(nb)).filter(Boolean).map(p => Math.hypot(p.x - q.x, p.y - q.y, state.mode === "3d" ? p.z - q.z : 0)).sort((a, b) => a - b);
+        const r = Math.min(Math.max(ds.length ? ds[Math.floor((ds.length - 1) * 0.6)] : 40, 35), 200);
+        if (state.mode === "3d") animateCam({x: q.x, y: q.y, z: q.z, dist: Math.max(90, r * 2.3)}, 450);
+        else animateCam({x: q.x, y: q.y, k: Math.min(6, Math.max(1.2, 0.36 * Math.min(state.w, state.h) / r))}, 450);
     }
     const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
     document.addEventListener("keydown", (e) => {
