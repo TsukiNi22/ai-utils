@@ -106,7 +106,7 @@ source list found: add it by hand in the right `add_executable`/`add_library`/`t
   (`g++` as fallback). Fix every error/warning caused by the generated code (the unused parameters
   of the empty bodies are expected, never silence them in the code).
 - Re-read the files against `reference/layout.md` and `cpp-style` (braces, `(void)`, `this->`,
-  `;` after one-liners, aligned include comments, section separators, guard name, namespace comments)
+  `;` after one-liners, one-liner bodies aligned tight (longest signature + 1 space), aligned include comments, section separators, guard name, namespace comments)
   and check that **no body contains logic**, that **no section separator is left empty** and that
   the short non-virtual functions are `inline` in the header, and that every
   non-public function ends with `_`.

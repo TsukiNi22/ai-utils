@@ -54,6 +54,14 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
   _hot _nodiscard bool hasAcceptOverload(void) const override {return false;};
   _hot _nodiscard bool hasRecvOverload(void) const override   {return false;};
   ```
+- One-liner functions of a group are aligned **tight**: the `{` of every body sits on the column right
+  after the longest signature of the group + **one space**, never a wider fixed column:
+  ```cpp
+  _cold _nodiscard bool hasWindow(void) const              {return this->_window != nullptr;};
+  _cold _nodiscard rtype::engine::IWindow& getWindow(void) {return *this->_window;};
+  _cold _nodiscard rtype::engine::Layout& getRoot(void)    {return this->_root;};
+  ```
+  Include comments keep their own alignment (see `cpp-comments`), this rule is only for functions.
 - One empty line between functions and between logical blocks; never two.
 
 ## Statements
