@@ -33,7 +33,8 @@ is needed when the audience of the tool is not obvious.
 - **The pages are independent**: each declares its kind (`<html data-page="guide|technical|graph">`). After creating
   or removing a page, run `python3 SKILL_DIR/scripts/sync_nav.py docs`: it rebuilds the tabs of every page from the
   pages present (Guide, Technical, Graph), marks the current one and **hides the tabs when there is a single page**
-  (`build_graph.mjs` runs it by itself). Online, a `HEAD` check also hides the tab of a missing page.
+  (`build_graph.mjs` runs it by itself). At load, each page also checks the other tabs (online: `HEAD` request; `file://`: the page loaded as a hidden
+  script) and removes the tab of a missing page, and the whole bar when a single page remains.
   File names: guide = `index.html`; technical = `index.html` when there is no guide, else `technical.html`;
   graph = `graph.html`. Generate the technical page and the graph by default (both linked to each other).
 - **Language switch EN | FR** (pill at the top right, before the theme switch), **English by default**, the choice
@@ -129,8 +130,8 @@ relations, drawn as boxes with the 2D camera:
 - **Inheritance**: the class tree of the sources (bases on top, UML hollow triangles), wide levels wrap;
 - **Flame graph**: the static call tree (width = size of the subtree, not a measured time), double click a frame
   to zoom into it, the ancestor rows below to go back.
-  In this mode the filters of the panel (views, categories, groups, relations, graph options) are greyed; "Color by"
-  and the search stay active (matching boxes outlined, Enter centers the first one or starts the diagram from it).
+  In this mode the filters of the panel (views, categories, groups, relations, graph options, "Color by": the boxes
+  use the category colours) are greyed; the search stays active (matching boxes outlined, Enter centers the first one or starts the diagram from it).
 Every control has a **tooltip** (short description after 0.45 s of hover) and a **help card on double click** (longer
 description + an animated SVG example), defined in the `HELP` / `EX` tables of the page: when a category, relation or
 option is added, add its entry there too.

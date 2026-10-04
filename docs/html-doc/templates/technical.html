@@ -531,17 +531,29 @@ window.DOC_FR = {
   document.querySelectorAll('main section[id]').forEach(function (s) { observer.observe(s); });
 })();
 
-// Hide the tabs of the pages that don't exist (online only, sync_nav.py handles the files)
+// Hide the tabs of the pages that don't exist, and the whole bar when a single page remains
+// (online: HEAD request; file://: the page is loaded as a hidden script, a missing file fails to load)
 (function () {
-  if (!/^https?:$/.test(location.protocol)) return;
   var nav = document.querySelector('nav.tabs');
   if (!nav) return;
+  function done(a, ok) {
+    if (!ok) a.remove();
+    if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
+  }
   nav.querySelectorAll('a:not(.current)').forEach(function (a) {
-    fetch(a.href, { method: 'HEAD' }).then(function (r) {
-      if (!r.ok) a.remove();
-      if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
-    }).catch(function () {});
+    if (/^https?:$/.test(location.protocol)) {
+      fetch(a.href, { method: 'HEAD' }).then(function (r) { done(a, r.ok); }).catch(function () {});
+      return;
+    }
+    var s = document.createElement('script');
+    var mute = function (e) { if (e.filename === s.src) { e.preventDefault(); e.stopImmediatePropagation(); } }; // an HTML page is not JS
+    window.addEventListener('error', mute, true);
+    s.src = a.href;
+    s.onload = function () { window.removeEventListener('error', mute, true); s.remove(); done(a, true); };
+    s.onerror = function () { window.removeEventListener('error', mute, true); s.remove(); done(a, false); };
+    document.head.appendChild(s);
   });
+  if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
 })();
 
 // Sidebar (mobile), copy buttons, heading anchors, content tabs

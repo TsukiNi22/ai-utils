@@ -436,7 +436,7 @@ html, body { overscroll-behavior: none; }
 
     <div class="ps">
       <h4 data-i18n>Options</h4>
-      <label class="opt" data-help="colorBy"><span data-i18n>Color by</span>
+      <label class="opt graph-only" data-help="colorBy"><span data-i18n>Color by</span>
         <select id="colorBy"><option value="kind" data-i18n>category</option><option value="group" data-i18n>group</option></select>
       </label>
       <label class="opt graph-only" data-help="cluster"><input type="checkbox" id="cluster"> <span data-i18n>Cluster the nodes of a group</span></label>
@@ -2212,7 +2212,7 @@ function extractGraph(files, opts) {
         for (const b of F.boxes) {
             const [x, y] = S(b.x, b.y), w = b.w * k, h = b.h * k;
             if (x > state.w || y > state.h || x + w < 0 || y + h < 0) continue;
-            const col = colorOf(b.n), on = b.id === state.selected || b.id === state.hover || (hit && hit.has(b)), dim = (hit && !hit.has(b)) || focus && !on && !(b.flame || b.anc !== undefined) && !F.edges.some(e => (e.a === focus && e.b === b.id) || (e.b === focus && e.a === b.id));
+            const col = (KINDS[b.n.kind] || KINDS.external)[0], on = b.id === state.selected || b.id === state.hover || (hit && hit.has(b)), dim = (hit && !hit.has(b)) || focus && !on && !(b.flame || b.anc !== undefined) && !F.edges.some(e => (e.a === focus && e.b === b.id) || (e.b === focus && e.a === b.id));
             ctx.globalAlpha = dim ? 0.35 : 1;
             roundRect(x, y, w, h, (b.flame || b.anc !== undefined ? 3 : 8) * k);
             ctx.fillStyle = C.surface; ctx.fill();
@@ -2654,17 +2654,29 @@ function extractGraph(files, opts) {
     update(false);
 })();
 
-// Hide the tabs of the pages that don't exist (online only, sync_nav.py handles the files)
+// Hide the tabs of the pages that don't exist, and the whole bar when a single page remains
+// (online: HEAD request; file://: the page is loaded as a hidden script, a missing file fails to load)
 (function () {
-  if (!/^https?:$/.test(location.protocol)) return;
   var nav = document.querySelector('nav.tabs');
   if (!nav) return;
+  function done(a, ok) {
+    if (!ok) a.remove();
+    if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
+  }
   nav.querySelectorAll('a:not(.current)').forEach(function (a) {
-    fetch(a.href, { method: 'HEAD' }).then(function (r) {
-      if (!r.ok) a.remove();
-      if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
-    }).catch(function () {});
+    if (/^https?:$/.test(location.protocol)) {
+      fetch(a.href, { method: 'HEAD' }).then(function (r) { done(a, r.ok); }).catch(function () {});
+      return;
+    }
+    var s = document.createElement('script');
+    var mute = function (e) { if (e.filename === s.src) { e.preventDefault(); e.stopImmediatePropagation(); } }; // an HTML page is not JS
+    window.addEventListener('error', mute, true);
+    s.src = a.href;
+    s.onload = function () { window.removeEventListener('error', mute, true); s.remove(); done(a, true); };
+    s.onerror = function () { window.removeEventListener('error', mute, true); s.remove(); done(a, false); };
+    document.head.appendChild(s);
   });
+  if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
 })();
 </script>
 </body>
