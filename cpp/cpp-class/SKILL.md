@@ -63,7 +63,9 @@ Ask it once per request, even when many files are generated.
 bash SKILL_DIR/scripts/detect_libutils.sh <project_root>
 ```
 - `internal` -> libutils macros, Attribute include **relative** in headers.
-- `libutils` -> libutils macros, `#include "utils/attribute/Attribute.hpp"`.
+- `libutils` -> libutils macros, everything from libutils through `#include <utils/utils.hpp>` (never a
+  libutils header one by one, except the ones `utils.hpp` does not give like the observers; see
+  "libutils includes" in `reference/layout.md`).
 - `std` -> standard `[[...]]` attributes (mapping table in `cpp-style`), no Attribute include.
 Same logic for errors: libutils exceptions only in `internal`/`libutils` mode.
 
@@ -75,8 +77,9 @@ Same logic for errors: libutils exceptions only in `internal`/`libutils` mode.
    `.hpp`: a real one-line description. `.cpp`: omit `--desc` (default sentence) unless asked.
 2. Start from the matching template, replace the placeholders:
    `{{HEADER}}` header output, `{{GUARD}}` upper-cased name without separators,
-   `{{NAMESPACE}}`, `{{CLASS}}`/`{{NAME}}`, `{{ATTRIBUTE_INCLUDE}}` (relative path from the header),
-   `{{ATTRIBUTE_INCLUDE_ROOT}}` / `{{HPP_INCLUDE_ROOT}}` (path from `include/`), `{{KIND}}` (group label of the implementations in a family header).
+   `{{NAMESPACE}}`, `{{CLASS}}`/`{{NAME}}`, `{{UTILS_INCLUDE}}` (with its delimiters: `<utils/utils.hpp>` in
+   `libutils` mode, `"../attribute/Attribute.hpp"` relative in `internal` mode), `{{UTILS_INCLUDE_ROOT}}` (.cpp:
+   `<utils/utils.hpp>`, or `"utils/attribute/Attribute.hpp"` in `internal` mode), `{{HPP_INCLUDE_ROOT}}` (path from `include/`), `{{KIND}}` (group label of the implementations in a family header).
    The template members/methods are placeholders: replace them by the real API asked by the user
    (keep the block order and comments style), remove the include lines that become unused,
    and keep the include comments aligned.

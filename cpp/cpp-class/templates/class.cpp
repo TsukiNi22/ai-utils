@@ -1,7 +1,7 @@
 {{HEADER}}
 
-#include "{{ATTRIBUTE_INCLUDE_ROOT}}"
 #include "{{HPP_INCLUDE_ROOT}}"
+#include {{UTILS_INCLUDE_ROOT}}
 #include <string>
 
 _hot void {{NAMESPACE}}::{{CLASS}}::run(void)

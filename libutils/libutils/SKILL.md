@@ -43,8 +43,10 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 ```
 - Packages (`dnf`/`apt`, see the README `setup.sh`): `libutils` (= `libutils-dev` + `libutils-op`),
   `-db` debug, `-as` asan, `-pre` pre-release; from the sources: `cmake -S . -B build && sudo cmake --build build --target install`.
-- Include everything: `#include <utils/utils.hpp>` (what the projects do), or one header:
-  `#include "utils/network/Server.hpp"`.
+- Include: **always** the root `#include <utils/utils.hpp>` (preferred; `<utils.hpp>`, `"utils/utils.hpp"`,
+  `"utils.hpp"` accepted), never a libutils header one by one (`"utils/network/Server.hpp"`,
+  `"utils/attribute/Attribute.hpp"`...). Only a header `utils.hpp` does not give is included directly: the
+  observers (`<utils/security/observer/Observer.hpp>`...).
 - Partial include of `utils.hpp`: define the sections before including it (`#define _Network`,
   `_Exception`, `_Cli`, `_Arguments`, `_System`, `_CustomType`, `_Vector`, `_Matrix`, `_Security`...;
   groups `_Handling`, `_Tools`; nothing defined = everything).
@@ -63,7 +65,7 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
   (`ArgParser`, `Settings`, default hooks `default*ParsingHook`).
 - Verbose: `set_verbose(Debug)` (`None`, `Basic`, `Advanced`, `Debug`), then `onBasicVerbose(info)`,
   `onDebugVerbose(info)`, `onVerbose(level, info)`; `*C(output, info)` for another stream, `*Fn(code)` to run code.
-- Attribute macros (`_hot`, `_cold`, `_nodiscard`, `_unused`, `_likely`...): `utils/attribute/Attribute.hpp`.
+- Attribute macros (`_hot`, `_cold`, `_nodiscard`, `_unused`, `_likely`...): given by `<utils/utils.hpp>`.
 - Most classes are non-copyable (`= delete`) and inherit `utils::security::observer::Observer<"Name">`
   (instance tracking for the memory-leak notifier, nothing to do on the user side).
 

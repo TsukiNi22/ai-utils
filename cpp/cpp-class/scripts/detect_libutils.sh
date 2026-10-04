@@ -5,7 +5,7 @@
 #
 # Output (first line):
 #   internal  -> the project IS libutils: use the macros (_hot, _nodiscard...) with relative includes
-#   libutils  -> libutils is linked in the CMake or installed: use the macros + "utils/attribute/Attribute.hpp"
+#   libutils  -> libutils is linked in the CMake or installed: use the macros + <utils/utils.hpp>
 #   std       -> no libutils: use the standard attributes ([[gnu::hot]], [[nodiscard]]...)
 # Output (second line): the reason of the choice
 

@@ -7,7 +7,7 @@
     /* INCLUDE */
 
     /* type */
-    #include "{{ATTRIBUTE_INCLUDE}}"   // _cold, _hot, _nodiscard
+    #include {{UTILS_INCLUDE}}         // _cold, _hot, _nodiscard
     #include <string>                       // std::string
 
 namespace {{NAMESPACE}} { // namespace start

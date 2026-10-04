@@ -7,7 +7,7 @@
     /* INCLUDE */
 
     /* type */
-    #include "{{ATTRIBUTE_INCLUDE}}"   // _cold, _hot, _nodiscard
+    #include {{UTILS_INCLUDE}}         // _cold, _hot, _nodiscard
     #include "I{{NAME}}.hpp"                // {{NAMESPACE}}::I{{NAME}}
     #include <string>                       // std::string
 

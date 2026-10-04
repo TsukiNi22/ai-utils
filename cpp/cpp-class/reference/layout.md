@@ -192,7 +192,7 @@ Inside each visibility, in this order (a block with nothing linked to it is remo
 ```
 <header>
 
-#include "utils/attribute/Attribute.hpp"
+#include <utils/utils.hpp>
 #include "module/Name.hpp"
 #include <string>
 
@@ -207,7 +207,8 @@ _hot void ns::Name::method(void)
     /* Nothing */
 }
 ```
-- Includes: project ones first with the path **from `include/`**, then the STL, no comments.
+- Includes: project ones first with the path **from `include/`**, then `<utils/utils.hpp>` (libutils
+  projects), then the STL, no comments.
 - No `namespace x {}` block: every definition is fully qualified.
 - Same order as the declarations in the header.
 
@@ -215,5 +216,15 @@ _hot void ns::Name::method(void)
 `scripts/detect_libutils.sh <project>` decides:
 - `internal` (inside libutils): macros + `#include "../attribute/Attribute.hpp"` (relative) in headers,
   `"utils/attribute/Attribute.hpp"` in .cpp.
-- `libutils`: macros + `#include "utils/attribute/Attribute.hpp"` (comment aligned like the others).
+- `libutils`: macros + `#include <utils/utils.hpp>` (comment aligned like the others), see below.
 - `std`: standard attributes (mapping table in `cpp-style`), no Attribute include.
+
+## libutils includes (every project using libutils, not libutils itself)
+Every libutils header is reached through the root include, never one by one:
+`#include <utils/utils.hpp>` (preferred; `<utils.hpp>`, `"utils/utils.hpp"` or `"utils.hpp"` also accepted
+when the project already uses that form). Never `"utils/attribute/Attribute.hpp"`,
+`<utils/network/Server.hpp>`... directly, in a .hpp as in a .cpp. Only exception: a header that
+`utils.hpp` does not give, like the observers (`<utils/security/observer/Observer.hpp>`...), is
+included directly. The trailing comment of the root include lists what is used
+(`#include <utils/utils.hpp>   // _cold, _nodiscard, utils::system::Scheduler`), aligned with the others.
+Inside libutils itself (`internal` mode) the includes stay relative (`"../attribute/Attribute.hpp"`).

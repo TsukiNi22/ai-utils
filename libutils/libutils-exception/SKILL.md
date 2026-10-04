@@ -10,7 +10,7 @@ Based on the libutils sources (`include/utils/exception/`, `src/utils/exception/
 Existing codes: `../libutils/reference/exception-codes.md` (the `libutils` skill).
 
 ## 1. Classes
-All in `utils::exception`, included by `<utils/utils.hpp>` (or `"utils/exception/basic/ErrorException.hpp"`...).
+All in `utils::exception`, always included by `<utils/utils.hpp>` (never the exception headers one by one).
 
 | Class | Type set | Use |
 |---|---|---|
