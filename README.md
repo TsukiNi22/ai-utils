@@ -111,6 +111,12 @@ By default the skills are **symlinked**: an update (or a local edit) is used rig
 no need to reinstall. `remove` only deletes skills that come from this repository
 (use `--force` otherwise).
 
+## claude.ai
+
+The same skills in the claude.ai chat (web, desktop, mobile): `python3 claude-ai/build.py` builds one archive per
+skill to upload in **Customize > Skills**, and [`claude-ai/preferences.md`](claude-ai/preferences.md) is the
+`CLAUDE.md` adapted to the chat, to paste in the personal preferences. Details: [`claude-ai/README.md`](claude-ai/README.md).
+
 ## Global context (`context` branch)
 The global / default context of Claude Code (`CLAUDE.md`, `RTK.md`, session hooks, rtk, `sudo-askpass`) is not a
 skill: it lives on the [`context`](https://github.com/TsukiNi22/skills/tree/context) branch with its own installer.
