@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Development router
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 **Request given with `/dev`:** $ARGUMENTS
 
 Single entry point: the user only invokes `/dev` (with or without a request) and Claude decides which skills
@@ -24,7 +26,7 @@ README/CHANGELOG, new libutils version...), without changing anything.
 
 ## 3. Route
 The category routers (`cpp`, `git`, `doc`, `style`, `legal`, `audit`) are manual-only: don't call them with the Skill tool.
-**Read** their decision table when the case is not obvious (`~/.claude/skills/<router>/SKILL.md`), then load the
+**Read** their decision table when the case is not obvious (`<router>/SKILL.md`), then load the
 **specific skills** with the Skill tool:
 
 | Need | Load (Skill tool) | Detailed table |

@@ -5,6 +5,8 @@ description: Write or edit CMakeLists.txt in Tsukini's style (from libutils, con
 
 # Tsukini CMake style
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Templates (copy, then replace `<name>` = target/package name, `<NAME>` = upper-case option prefix,
 `<x.y.z>` = version, `<summary>` = package description, `<utils-version>` = minimal libutils version):
 
@@ -64,7 +66,7 @@ Sections, each introduced by the 3-line banner (`# ` + 25 `=`), one empty line b
 - **Sources are listed explicitly** in `set(SRC ...)`, grouped by comments: `# Group` or `## Group`,
   `## Group (sub-part: x)` for a sub-folder, one empty line between groups. Never `file(GLOB ...)` for the
   sources (only for configs, with `CONFIGURE_DEPENDS`); the `get_unregistered_files` target lists the
-  `.cpp` missing from `SRC`. To add a file: `python3 ~/.claude/skills/cpp-class/scripts/cmake_add.py CMakeLists.txt src/<path>/X.cpp`.
+  `.cpp` missing from `SRC`. To add a file: `python3 <cpp-class>/scripts/cmake_add.py CMakeLists.txt src/<path>/X.cpp`.
 - Build types: `Debug` (`-g -ggdb3`), `Asan` (`-fsanitize=address -fno-omit-frame-pointer -g -ggdb3` + link option),
   `Optimized` (`-O3 -ffast-math -funroll-loops -pipe -DNDEBUG`, `-march=native` only for a binary not distributed,
   `-fno-plt` for a library), all through generator expressions `$<$<CONFIG:Debug>:...>`. No `Release` type:
@@ -87,5 +89,5 @@ Sections, each introduced by the 3-line banner (`# ` + 25 `=`), one empty line b
   channel `-pre` unless `<NAME>_STABLE_RELEASE`, the stable package obsoletes/replaces the `-pre` one and both
   conflict, release number `1` for stable / `${PACKAGE_RELEASE}` (CI run number) / `0`.
 - New target / output written in the sources (executable at the root, plugin dir, generated file): update the
-  `.gitignore` with `python3 ~/.claude/skills/cpp-project/scripts/update_gitignore.py <root>`.
+  `.gitignore` with `python3 <cpp-project>/scripts/update_gitignore.py <root>`.
 - Root `Makefile` wrapper (`all`, `clean`, `fclean`, `re`) calling CMake with `BUILD_DIR := build`.

@@ -1,0 +1,117 @@
+{
+  "name": "tsukini-skills",
+  "owner": {
+    "name": "TsukiNi22",
+    "url": "https://github.com/TsukiNi22"
+  },
+  "description": "Skills of TsukiNi22 for Claude Code (C++ / libutils, docs, git, style, tests, audits, legal) and their routers",
+  "plugins": [
+    {
+      "name": "cpp-skills",
+      "description": "C++: project setup, classes / architecture, style, comments, CMake",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./cpp/"
+      ]
+    },
+    {
+      "name": "libutils-skills",
+      "description": "libutils: API reference, exceptions, install / update, setup in a project",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./libutils/"
+      ]
+    },
+    {
+      "name": "doc-skills",
+      "description": "Documentation: README, uniform HTML docs with the project graph, PDF reports",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./docs/"
+      ]
+    },
+    {
+      "name": "git-skills",
+      "description": "Git conventions: commits, branches, pull requests, changelog",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./git/"
+      ]
+    },
+    {
+      "name": "style-skills",
+      "description": "Code style and comments for the other languages",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./style/"
+      ]
+    },
+    {
+      "name": "test-skills",
+      "description": "Unit tests: GoogleTest (C++) and the other frameworks",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./tests/"
+      ]
+    },
+    {
+      "name": "audit-skills",
+      "description": "Audits: bugs / UB, quality, dependencies (licenses, vulnerabilities)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./audit/"
+      ]
+    },
+    {
+      "name": "legal-skills",
+      "description": "License of a project",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./legal/"
+      ]
+    },
+    {
+      "name": "audit",
+      "description": "Router /audit: Router running the audits of the current project",
+      "source": "./routers/audit"
+    },
+    {
+      "name": "cpp",
+      "description": "Router /cpp: Router for every C++ task of the user",
+      "source": "./routers/cpp"
+    },
+    {
+      "name": "dev",
+      "description": "Router /dev: Global development router",
+      "source": "./routers/dev"
+    },
+    {
+      "name": "doc",
+      "description": "Router /doc: Router for documentation tasks of the user",
+      "source": "./routers/doc"
+    },
+    {
+      "name": "git",
+      "description": "Router /git: Router for git / GitHub tasks of the user",
+      "source": "./routers/git"
+    },
+    {
+      "name": "legal",
+      "description": "Router /legal: Router for legal matters of the user's projects",
+      "source": "./routers/legal"
+    },
+    {
+      "name": "style",
+      "description": "Router /style: Router for the user's coding style in every language",
+      "source": "./routers/style"
+    }
+  ]
+}

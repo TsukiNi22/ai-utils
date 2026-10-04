@@ -111,6 +111,33 @@ By default the skills are **symlinked**: an update (or a local edit) is used rig
 no need to reinstall. `remove` only deletes skills that come from this repository
 (use `--force` otherwise).
 
+## Plugin marketplace (Claude Code)
+
+The repository is also a Claude Code plugin marketplace ([`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)),
+handy on another machine or in a Claude Code on the web session (no `setup.sh` needed):
+
+```text
+/plugin marketplace add TsukiNi22/skills
+/plugin install cpp-skills@tsukini-skills
+/plugin install dev@tsukini-skills
+```
+
+| Plugin | Skills |
+|---|---|
+| `cpp-skills` | cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style |
+| `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
+| `doc-skills` | readme-style, html-doc, pdf-report |
+| `git-skills` | git-conventions |
+| `style-skills` | code-style, comments |
+| `test-skills` | tests, cpp-tests |
+| `audit-skills` | audit-bugs, audit-quality, audit-deps |
+| `legal-skills` | license |
+| `dev`, `cpp`, `doc`, `git`, `style`, `legal`, `audit` | the routers (`/dev`, `/cpp`...) |
+
+The skills of a plugin are named `<plugin>:<skill>` (e.g. `cpp-skills:cpp-class`); each plugin carries the whole
+repository, so a skill finds the scripts of the others. In a cloud session the marketplace has to be added again in
+each session; `/plugin marketplace update tsukini-skills` gets the new versions.
+
 ## claude.ai
 
 The same skills in the claude.ai chat (web, desktop, mobile): `python3 claude-ai/build.py` builds one archive per

@@ -4,9 +4,11 @@ Build the skills of this repository for claude.ai (Customize > Skills > Add > Up
 
 Usage: python3 claude-ai/build.py [--out dist/claude-ai] [skill ...]
 
-One <skill>.zip per skill, the skill folder at the top of the archive (claude.ai format). The paths
-~/.claude/skills/<other>/ (scripts of another skill, Claude Code layout) become ../<other>/ (skills side by side).
-The routers (manual /commands of Claude Code: disable-model-invocation) go to <out>/routers/.
+One <skill>.zip per skill, the skill folder at the top of the archive (claude.ai format):
+- the frontmatter keeps only the keys claude.ai accepts (name, description, license, compatibility, metadata,
+  allowed-tools): disable-model-invocation of the routers is removed;
+- `<other>/` (folder of another skill) is explained as ../<other>/ (skills side by side);
+- the routers (manual /commands of Claude Code) go to <out>/routers/.
 """
 
 import argparse
@@ -17,6 +19,17 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SKIP = {"__pycache__", ".DS_Store"}
+KEYS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+NOTE = re.compile(r"^`<name>` \(a skill\) = the folder of that skill:.*$", re.M)
+
+
+def for_claude_ai(text: str) -> str:
+    """SKILL.md for claude.ai: accepted frontmatter keys only, other skills side by side."""
+    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    if m:
+        keep = [l for l in m.group(1).split("\n") if l.split(":")[0].strip() in KEYS or l.startswith((" ", "\t"))]
+        text = "---\n" + "\n".join(keep) + "\n---\n" + text[m.end():]
+    return NOTE.sub("`<name>` (a skill) = the folder of that skill, next to this one: `../<name>`.", text)
 
 
 def skills():
@@ -37,6 +50,8 @@ def build(skill: Path, out: Path) -> Path:
             if f.suffix in {".md", ".txt", ".py", ".sh", ".mjs", ".js", ".json", ".html", ".css", ".cmake", ".yml", ".yaml", ""} or f.name == "CMakeLists.txt":
                 try:
                     data = f.read_text().replace("~/.claude/skills/", "../")
+                    if f.name == "SKILL.md" and f.parent == skill:
+                        data = for_claude_ai(data)
                     z.writestr(str(arc), data)
                     continue
                 except UnicodeDecodeError:

@@ -5,6 +5,8 @@ description: Audit the cleanliness and conventions of a project (the user's codi
 
 # Cleanliness / convention audit -> PDF report
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Report only: **never modify the project** during the audit (fixes only if asked afterwards).
 `SKILL_DIR` = directory of this file.
 
@@ -28,8 +30,8 @@ The script is heuristic: check a sample of each category before reporting it, dr
 
 ## 2b. Dependencies (licenses + vulnerabilities, transitive)
 ```bash
-python3 ~/.claude/skills/audit-deps/scripts/deps.py <root> --transitive --json /tmp/deps.json --md /tmp/deps.md
-python3 ~/.claude/skills/audit-deps/scripts/vulns.py <root> --json /tmp/vulns.json --md /tmp/vulns.md
+python3 <audit-deps>/scripts/deps.py <root> --transitive --json /tmp/deps.json --md /tmp/deps.md
+python3 <audit-deps>/scripts/vulns.py <root> --json /tmp/vulns.json --md /tmp/vulns.md
 ```
 Licenses to credit / restrictive / unknown (see `audit-deps`), known vulnerabilities and compromised versions
 (OSV, dnf advisories, GitHub advisories), **recent** ones (< 90 days) first; for each one check whether the project
@@ -60,5 +62,5 @@ Write the Markdown from `pdf-report/templates/report.md`, sections:
 5. **Priorities**: the top 10, numbered `1. **Action.** gain, effort, files`.
 6. **Appendix**: full lists per category (from the JSON), module sizes table.
 7. **Sources**: the skills / rules / tools used.
-Then `python3 ~/.claude/skills/pdf-report/scripts/md2pdf.py <report.md> --footer "<Project> — quality audit" --format <answer>`,
+Then `python3 <pdf-report>/scripts/md2pdf.py <report.md> --footer "<Project> — quality audit" --format <answer>`,
 check the rendering (pdftoppm on 2 pages) and give both paths + page count.

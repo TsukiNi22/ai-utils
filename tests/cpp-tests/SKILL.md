@@ -5,6 +5,8 @@ description: Set up and write the unit tests of a C++ project the way libutils d
 
 # C++ unit tests (GoogleTest, libutils way)
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Reference: `~/personal_delivery/cpp/libutils/tests/` (whole library) and `~/personal_delivery/cpp/context-forge/tests/`
 (application: parent sources reused, mocks, plugin path). `SKILL_DIR` = directory of this file.
 Code style of the tests: `cpp-style` + `cpp-comments`, file header with `cpp-class/scripts/header.py`.
@@ -20,7 +22,7 @@ Code style of the tests: `cpp-style` + `cpp-comments`, file header with `cpp-cla
   - runtime paths needed by the tests (plugins, data): `target_compile_definitions(${TARGET} PRIVATE TESTS_X_DIR="${CMAKE_SOURCE_DIR}/x")`
     and `#error` in the test if it is missing.
 - Root CMake: `option(BUILD_TESTS "Build unit tests" OFF)` + `if(BUILD_TESTS) enable_testing() add_subdirectory(tests) endif()`.
-- `.gitignore`: `python3 ~/.claude/skills/cpp-project/scripts/update_gitignore.py .` (adds `/unit_tests`).
+- `.gitignore`: `python3 <cpp-project>/scripts/update_gitignore.py .` (adds `/unit_tests`).
 - CI: `cpp-project/templates/workflows/unit-tests.yml` (Debug + `BUILD_TESTS=ON`, checks `./unit_tests`, `ctest --output-on-failure --timeout 30`).
 - Helpers shared by the tests in `tests/tools/` (namespace `tests::tools`): `templates/tools/TempDir.hpp`
   (temporary directory + `ScopedEnv` for environment variables), `templates/tools/StepSynchronizer.hpp` (order the

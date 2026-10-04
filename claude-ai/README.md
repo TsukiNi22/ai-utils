@@ -8,6 +8,7 @@ Claude Code reads the skills from `~/.claude/skills` (installed by `setup.sh`) a
 | skill uploaded on claude.ai | yes | yes (synced) | no |
 | `.claude/skills` committed in a project | no | yes | yes |
 | `CLAUDE.md` | no (use the preferences below) | yes | if committed in the project |
+| plugin of the marketplace (`/plugin marketplace add TsukiNi22/skills`) | no | yes | yes, added in the session |
 
 ## 1. Skills
 
@@ -22,7 +23,8 @@ Then on claude.ai: **Customize > Skills > Add > Upload**, one archive at a time 
 each archive, as expected). Re-run the script and upload again after a change of a skill.
 
 - The routers (`dev`, `cpp`, `doc`, `audit`...) are manual `/commands` of Claude Code: upload them only if you want
-  to call them by name in the chat.
+  them in the chat, where they become normal skills (claude.ai refuses `disable-model-invocation`: the script keeps
+  only the frontmatter keys it accepts).
 - The paths `~/.claude/skills/<other>/` of a skill become `../<other>/` (the skills side by side); the scripts that
   need your PC (git of a local repository, cmake, sudo...) only work in Claude Code.
 

@@ -5,6 +5,8 @@ description: Audit a project for bugs in a loop - undefined behaviour, memory er
 
 # Bug & UB audit
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 `SKILL_DIR` = the directory of this file. Main target: C/C++20 projects of the user (clang++, CMake, libutils),
 the checklist also covers other languages.
 
@@ -39,7 +41,7 @@ project frames. Exit 0 = clean, 1 = reports, 2 = build failure. `--keep` to read
 
 ### Dependencies (security)
 ```bash
-python3 ~/.claude/skills/audit-deps/scripts/vulns.py <project> --json /tmp/vulns.json --md /tmp/vulns.md
+python3 <audit-deps>/scripts/vulns.py <project> --json /tmp/vulns.json --md /tmp/vulns.md
 ```
 Known vulnerabilities and compromised versions of the direct **and transitive** dependencies (OSV, dnf security
 advisories, GitHub advisories of the upstreams), recent ones (< 90 days) first. For each one: is the vulnerable

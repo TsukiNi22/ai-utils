@@ -5,11 +5,13 @@ description: Set up libutils in the current C++ project - find_package(utils <in
 
 # libutils in the current project
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 `SKILL_DIR` = the directory of this file.
 
 ## 1. Is libutils installed?
 ```bash
-bash ~/.claude/skills/libutils-install/scripts/libutils.sh status
+bash <libutils-install>/scripts/libutils.sh status
 ```
 Not installed (or older than needed) -> **libutils-install** skill (`libutils.sh install`, last version through
 `libutils-pre`; root needed: give the user the command to run with `! `), then come back.

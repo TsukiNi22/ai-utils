@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # C++ router
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 **Request given with `/cpp`:** $ARGUMENTS
 
 Do not answer from this file: decide which skills apply, **load them with the Skill tool** (never the other routers: they are manual-only), then do the task
@@ -14,7 +16,7 @@ if there is none, inspect the project and propose what can be done).
 
 ## 1. Look at the context (quickly, in parallel)
 - `CMakeLists.txt`, `include/`, `src/`, `tests/`, `cmake/config/exceptions/` present? Empty folder = new project.
-- libutils used? `bash ~/.claude/skills/cpp-class/scripts/detect_libutils.sh <root>` (`internal` / `libutils` / `std`),
+- libutils used? `bash <cpp-class>/scripts/detect_libutils.sh <root>` (`internal` / `libutils` / `std`),
   `grep -rl "utils::" src include`.
 - Files the request is about (open them before deciding).
 
