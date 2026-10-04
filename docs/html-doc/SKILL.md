@@ -1,6 +1,6 @@
 ---
 name: html-doc
-description: Uniform HTML documentation of the user's projects (docs/ folder, GitHub Pages) - up to 3 static self-contained pages sharing one style based on the R-Type architecture doc - an optional user guide for non-technical users, the technical documentation (sticky summary, numbered cards, tables, callouts, SVG diagrams) and an interactive 2D/3D project graph (files, classes, functions, tests, CMake targets, externals; filters by category/group/relation; update button fetching the GitHub repository) - with a light/dark sun/moon toggle. Use whenever creating, updating or restyling an HTML doc, unless the user explicitly asks for another style.
+description: Uniform HTML documentation of the user's projects (docs/ folder, GitHub Pages) - up to 3 static self-contained pages sharing one style based on the R-Type architecture doc - an optional user guide for non-technical users, the technical documentation (sticky summary, numbered cards, tables, callouts, SVG diagrams) and an interactive 2D/3D project graph of any common stack (C / C++, Python, JS / TS / web, Java / Kotlin, C#, Go, Rust, PHP, Ruby: files, classes, functions, calls, tests, build targets / packages, externals; filters by category/group/relation; update button fetching the GitHub repository) - with a light/dark sun/moon toggle. Use whenever creating, updating or restyling an HTML doc, unless the user explicitly asks for another style.
 ---
 
 # Uniform HTML documentation
@@ -12,7 +12,7 @@ no framework, works offline and from `file://`), in `docs/`:
 |---|---|---|---|
 | Guide (user documentation) | `index.html` | **only if** the tool is meant to be used by non-technical users | `templates/user.html` |
 | Technical documentation | `technical.html` (`index.html` when there is no guide) | always | `templates/technical.html` |
-| Project graph | `graph.html` | always (C/C++ project) | `templates/graph.html` + `scripts/build_graph.mjs` |
+| Project graph | `graph.html` | always (any supported language) | `templates/graph.html` + `scripts/build_graph.mjs` |
 
 Keep the CSS of the templates **as is** (style of `r-type/docs/architecture.html`), unless the user
 explicitly asks for another style. Only the content changes. Ask (AskUserQuestion) whether the guide page
@@ -150,9 +150,29 @@ node SKILL_DIR/scripts/build_graph.mjs --repo <project> [--out <project>/docs/gr
   GitHub API for the last commit of the branch: if it is newer, it downloads the sources
   (`raw.githubusercontent.com`) and rebuilds the graph in the browser (cached in `localStorage`). Offline, API
   limit (60 requests/h), private repository or local commits not pushed: the snapshot is kept and the status says why.
-- The extractor targets C/C++ projects in the user's style (`include/`, `src/`, `tests/`, `CMakeLists.txt` with
-  `add_subdirectory`, `foreach`, `set(SRC ...)`). For another language, adapt `extractGraph()` in the template
-  (files -> nodes/links) and keep the rest.
+- The extractor (regex parsers, no AST) reads:
+
+  | Stack | Files | What is extracted |
+  |---|---|---|
+  | C / C++ | `.hpp .h .cpp .c...`, `CMakeLists.txt` | includes, namespaces, classes + bases, methods, functions, bodies, CMake targets (`add_subdirectory`, `foreach`, `set(SRC ...)`), linked libraries |
+  | Python | `.py`, `pyproject.toml`, `setup.py`, `requirements*.txt` | imports (relative / package / `src/`), classes + bases (ABC / Protocol), methods, functions, `if __name__ == "__main__"` |
+  | JS / TS / web | `.js .ts .jsx .tsx .vue .svelte`, `.html`, `.css .scss`, `package.json` | import / require / dynamic import (`@/` alias), classes / interfaces (extends / implements), functions / arrow functions, methods; pages (script / link / a) and stylesheets (@import, partials) |
+  | Java / Kotlin | `.java .kt .scala`, `pom.xml`, `build.gradle` | imports (packages), classes / interfaces / records / objects, methods, `main` |
+  | C# | `.cs`, `*.csproj` | `using` (namespaces of the project), classes / interfaces / records, methods, `Main` |
+  | Go | `.go`, `go.mod` | imports (packages of the module), structs / interfaces, functions, methods (receivers, even in another file) |
+  | Rust | `.rs`, `Cargo.toml` | `mod` / `use crate::`, structs / enums / traits, `impl` (trait for type = base), functions, methods |
+  | PHP | `.php`, `composer.json` | `use` (PSR-4 paths), require / include, classes / interfaces / traits, methods |
+  | Ruby | `.rb`, `Gemfile`, `*.gemspec` | require / require_relative, classes (`<` base), modules, methods (`def ... end`) |
+
+  Common to all: test files (`tests/`, `__tests__/`, `*_test.*`, `*.test.*`, `*Test.java`...) and test cases
+  (GoogleTest, pytest, Jest / Vitest, Go, Rust, JUnit, xUnit / NUnit, PHPUnit, RSpec / Minitest), the classes /
+  functions of the tests as test helpers, the **calls** (by name, `this` / `self` / receiver, the type of the local
+  variables and fields, constructions), one **package** per manifest folder (its files compiled into it, its
+  dependencies as externals, an import of a package of the repository points to it, a package with an entry point
+  is an executable), the externals deduplicated by name, the groups from the folders (generic ones skipped: `src`,
+  `lib`, `main`, `java`, `com`...). Ignored folders: `node_modules`, `dist`, `build`, `target`, `venv`, `vendor`,
+  `__pycache__`, `.next`, `coverage`, `bin`, `obj`, `docs`... (`extractGraph.wanted()`, shared by the script and the
+  update of the page). Another language: add its regexes in `extractGraph()` of the template and keep the rest.
 - Check after generation: open it (or screenshot it) and look at the node/link counts printed by the script.
 
 ## 4. Publication (GitHub Pages)

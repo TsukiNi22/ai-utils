@@ -36,21 +36,19 @@ if (!github) {
     } catch { /* no remote */ }
 }
 let version = opt("version", "");
-if (!version) {
-    try {
-        const m = /project\([^)]*VERSION\s+([0-9.]+)/.exec(git("show", sha + ":CMakeLists.txt"));
-        if (m) version = "v" + m[1];
-    } catch { /* no CMakeLists.txt */ }
+for (const [file, re] of [["CMakeLists.txt", /project\([^)]*VERSION\s+([0-9.]+)/], ["package.json", /"version"\s*:\s*"([^"]+)"/],
+    ["pyproject.toml", /^\s*version\s*=\s*["']([^"']+)/m], ["Cargo.toml", /^\s*version\s*=\s*["']([^"']+)/m],
+    ["pom.xml", /<\/parent>[\s\S]*?<version>([^<]+)<\/version>|^\s*<version>([^<]+)<\/version>/m], ["build.gradle", /^\s*version\s*=?\s*["']([^"']+)/m],
+    ["composer.json", /"version"\s*:\s*"([^"]+)"/], ["setup.py", /\bversion\s*=\s*["']([^"']+)/]]) {
+    if (version) break;
+    try { const m = re.exec(execFileSync("git", ["-C", repo, "show", sha + ":" + file], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]})); if (m && (m[1] || m[2])) version = "v" + (m[1] || m[2]).replace(/^v/, ""); } catch { /* no such file */ }
 }
+if (!version) try { version = execFileSync("git", ["-C", repo, "describe", "--tags", "--abbrev=0", sha], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim(); } catch { /* no tag */ }
 const project = opt("project", github ? github.split("/")[1] : repo.split("/").pop());
 const branch = opt("branch", "main");
 const key = opt("key", project.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
 
-// Sources at the commit (same filter as the page)
-const paths = git("ls-tree", "-r", "--name-only", sha).split("\n").filter(p =>
-    (/(^|\/)CMakeLists\.txt$/.test(p) || /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c)$/.test(p)) &&
-    !/(^|\/)(build|_deps|third_party|vendor|external|\.git|docs|node_modules)\//.test(p)).slice(0, 2500);
-const files = paths.map(path => ({path, text: git("show", sha + ":" + path)}));
+
 
 // Template & extractor: an existing page keeps its HTML/CSS, but always gets the script of the skill
 const skillPage = readFileSync(opt("template", join(SKILL_DIR, "templates", "graph.html")), "utf8");
@@ -64,6 +62,10 @@ if (existsSync(out) && argv.includes("--keep-html")) {
 const s = html.indexOf("// <extractor>"), e = html.indexOf("// </extractor>");
 if (s < 0 || e < 0) throw new Error("extractor markers not found in the page");
 const extractGraph = new Function(html.slice(s, e) + "; return extractGraph;")();
+
+// Sources at the commit (same filter as the page: extractGraph.wanted)
+const paths = git("ls-tree", "-r", "-l", sha).split("\n").map(l => /^\S+ blob \S+\s+(\d+)\t(.+)$/.exec(l)).filter(m => m && +m[1] < 600000 && extractGraph.wanted(m[2])).map(m => m[2]).slice(0, 2500);
+const files = paths.map(path => ({path, text: git("show", sha + ":" + path)}));
 const graph = extractGraph(files);
 graph.meta = {sha, date, source: "snapshot", files: files.length, generated: new Date().toISOString()};
 

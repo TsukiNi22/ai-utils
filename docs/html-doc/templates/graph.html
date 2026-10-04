@@ -383,7 +383,7 @@ html, body { overscroll-behavior: none; }
   <aside class="panel" id="panel" aria-label="Graph controls" data-i18n-aria-label>
     <div class="page-eyebrow" data-i18n>Architecture</div>
     <h1 data-i18n>Project graph</h1>
-    <p class="muted small" data-i18n>Files, classes, functions, tests, CMake targets and external dependencies of <code class="repo-name">{{PROJECT}}</code>, extracted from the sources. Click a node to inspect it, drag to move, scroll to zoom.</p>
+    <p class="muted small" data-i18n>Files, classes, functions, tests, build targets (CMake, packages) and external dependencies of <code class="repo-name">{{PROJECT}}</code>, extracted from the sources. Click a node to inspect it, drag to move, scroll to zoom.</p>
 
     <div class="status" id="status">Loading…</div>
     <div class="row">
@@ -447,7 +447,7 @@ html, body { overscroll-behavior: none; }
 
     <div class="ps help">
       <h4 data-i18n>Reading</h4>
-      <p data-i18n>Arrows go from the dependent to the dependency: <em>file → included header</em>, <em>class → base class</em>, <em>source → CMake target</em>, <em>target → linked library</em>, <em>test → tested class</em>. The size of a node grows with its number of relations.</p>
+      <p data-i18n>Arrows go from the dependent to the dependency: <em>file → included / imported file</em>, <em>class → base class</em>, <em>source → build target / package</em>, <em>target → linked library</em>, <em>test → tested class</em>. The size of a node grows with its number of relations.</p>
       <p data-i18n>The embedded graph comes from the commit shown above; "Update" (run once at load) fetches the last version of the GitHub repository and rebuilds it in the browser. Hover a control for a short help, double click it for a detailed one.</p>
     </div>
   </aside>
@@ -498,8 +498,6 @@ window.DOC_FR = {
   "Language": "Langue",
   "Pages": "Pages",
   "Project graph": "Graphe du projet",
-  "Files, classes, functions, tests, CMake targets and external dependencies of <code class=\"repo-name\">{{PROJECT}}</code>, extracted from the sources. Click a node to inspect it, drag to move, scroll to zoom.": "Fichiers, classes, fonctions, tests, cibles CMake et dépendances externes de <code class=\"repo-name\">{{PROJECT}}</code>, extraits des sources. Cliquer sur un nœud pour l'inspecter, glisser pour déplacer, molette pour zoomer.",
-  "Arrows go from the dependent to the dependency: <em>file → included header</em>, <em>class → base class</em>, <em>source → CMake target</em>, <em>target → linked library</em>, <em>test → tested class</em>. The size of a node grows with its number of relations.": "Les flèches vont du dépendant vers la dépendance : <em>fichier → header inclus</em>, <em>classe → classe de base</em>, <em>source → cible CMake</em>, <em>cible → bibliothèque liée</em>, <em>test → classe testée</em>. La taille d'un nœud augmente avec son nombre de relations.",
   "The embedded graph comes from the commit shown above; \"Update\" (run once at load) fetches the last version of the GitHub repository and rebuilds it in the browser. Hover a control for a short help, double click it for a detailed one.": "Le graphe embarqué vient du commit indiqué ci-dessus ; « Mettre à jour » (lancé une fois au chargement) récupère la dernière version du dépôt GitHub et le reconstruit dans le navigateur. Survoler un contrôle affiche une aide courte, un double-clic une aide détaillée.",
   "Update": "Mettre à jour",
   "Fit": "Ajuster",
@@ -549,7 +547,6 @@ window.DOC_FR = {
   "Executable": "Exécutable",
   "Library": "Bibliothèque",
   "External": "Externe",
-  "includes": "inclut",
   "defines": "définit",
   "member": "membre",
   "inherits": "hérite de",
@@ -600,7 +597,12 @@ window.DOC_FR = {
   "No inheritance between the classes of the project.": "Aucun héritage entre les classes du projet.",
   "Help": "Aide",
   "Controls": "Contrôles",
-  "Controls (? or H)": "Contrôles (? ou H)"
+  "Controls (? or H)": "Contrôles (? ou H)",
+  "Files, classes, functions, tests, build targets (CMake, packages) and external dependencies of <code class=\"repo-name\">{{PROJECT}}</code>, extracted from the sources. Click a node to inspect it, drag to move, scroll to zoom.": "Fichiers, classes, fonctions, tests, cibles de build (CMake, paquets) et dépendances externes de <code class=\"repo-name\">{{PROJECT}}</code>, extraits des sources. Cliquer sur un nœud pour l'inspecter, glisser pour déplacer, molette pour zoomer.",
+  "Arrows go from the dependent to the dependency: <em>file → included / imported file</em>, <em>class → base class</em>, <em>source → build target / package</em>, <em>target → linked library</em>, <em>test → tested class</em>. The size of a node grows with its number of relations.": "Les flèches vont du dépendant vers la dépendance : <em>fichier → fichier inclus / importé</em>, <em>classe → classe de base</em>, <em>source → cible de build / paquet</em>, <em>cible → bibliothèque liée</em>, <em>test → classe testée</em>. La taille d'un nœud augmente avec son nombre de relations.",
+  "includes / imports": "inclut / importe",
+  "Page": "Page",
+  "Stylesheet": "Feuille de style"
 };
 </script>
 <script>
@@ -713,7 +715,15 @@ function extractGraph(files, opts) {
         linkKeys.add(key);
         links.push({source, target, kind});
     }
+    function isTest(path) { // test files of every ecosystem
+        return /(^|\/)(tests?|__tests__|spec|specs)\//.test(path) || /(^|\/)(test_[^/]+\.py|[^/]+_test\.(py|go|rb)|[^/]+\.(test|spec)\.[jt]sx?|[^/]+(Test|Tests|Spec)\.(java|kt|cs|php|scala)|[^/]+_spec\.rb)$/.test(path);
+    }
     function groupOf(path) {
+        if (!CODE.test(path)) { // other languages: the last folder that is not a generic one (src, lib, main, java, com...)
+            if (isTest(path)) return "tests";
+            const dirs = path.split("/").slice(0, -1).filter(d => !/^(src|lib|libs|app|main|java|kotlin|scala|internal|pkg|source|sources|include|js|ts|com|org|io|net|public|static|assets|resources)$/.test(d));
+            return dirs.length ? dirs[dirs.length - 1] : "root";
+        }
         const p = path.split("/");
         if (p[0] === "tests" || p[0] === "test") return p.length >= 3 ? p[1] : "tests";
         if (p[0] === "include" || p[0] === "src" || p[0] === "lib" || p[0] === "source") {
@@ -798,7 +808,7 @@ function extractGraph(files, opts) {
     // Files & includes
     for (const f of files) {
         if (!CODE.test(f.path)) continue;
-        const kind = /^(tests?)\//.test(f.path) ? "test-file" : HEADER.test(f.path) ? "header" : "source";
+        const kind = isTest(f.path) ? "test-file" : HEADER.test(f.path) ? "header" : "source";
         node("file:" + f.path, kind, f.path.split("/").pop(), {path: f.path, group: groupOf(f.path), loc: f.text.split("\n").length});
     }
     const paths = files.map(f => f.path);
@@ -966,6 +976,292 @@ function extractGraph(files, opts) {
             head += c;
         }
     }
+    // ---------- Other languages: Python, JS / TS, Java / Kotlin, C#, Go, Rust, PHP, Ruby, HTML / CSS ---------- //
+    // Light regex parsers (no AST): files, imports, classes + bases, functions, methods, bodies (-> calls)
+    const LANGS = [["py", /\.pyi?$/], ["js", /\.(m?js|cjs|jsx|ts|tsx|mts|cts|vue|svelte)$/], ["java", /\.(java|kt|kts|scala|groovy)$/],
+        ["cs", /\.cs$/], ["go", /\.go$/], ["rs", /\.rs$/], ["php", /\.php$/], ["rb", /\.rb$/]];
+    const langOf = (p) => (LANGS.find(l => l[1].test(p)) || [null])[0];
+    const PAGE = /\.html?$/, STYLE = /\.(css|scss|sass|less)$/;
+    const PY_STD = new Set(("abc argparse array ast asyncio base64 bisect builtins calendar collections concurrent configparser contextlib copy csv ctypes dataclasses datetime decimal difflib email enum errno fnmatch fractions functools gc getpass glob gzip hashlib heapq hmac html http importlib inspect io ipaddress itertools json logging math mimetypes multiprocessing numbers operator os pathlib pickle platform pprint queue random re secrets select shlex shutil signal socket sqlite3 ssl stat statistics string struct subprocess sys tempfile textwrap threading time timeit tkinter traceback types typing unittest urllib uuid venv warnings weakref xml zipfile zlib __future__ typing_extensions").split(" "));
+    const NODE_STD = new Set(("assert buffer child_process cluster crypto dgram dns events fs http http2 https net os path perf_hooks process querystring readline stream string_decoder timers tls tty url util v8 vm worker_threads zlib module").split(" "));
+    const RB_STD = new Set(("json set yaml date time fileutils pathname securerandom digest open3 optparse logger erb uri net/http socket tempfile stringio benchmark forwardable singleton ostruct").split(" "));
+    function stripOther(text, lang) { // comments and string contents removed, the line breaks kept
+        let out = "", i = 0;
+        const n = text.length, hash = lang === "py" || lang === "rb" || lang === "php", slash = lang !== "py" && lang !== "rb";
+        while (i < n) {
+            const c = text[i], d = text[i + 1];
+            if (slash && c === "/" && d === "/") { while (i < n && text[i] !== "\n") i++; continue; }
+            if (slash && c === "/" && d === "*") { const e = text.indexOf("*/", i + 2), end = e < 0 ? n : e + 2; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
+            if (hash && c === "#" && !(lang === "php" && d === "[")) { while (i < n && text[i] !== "\n") i++; continue; }
+            if (lang === "rb" && c === "=" && text.startsWith("=begin", i) && (i === 0 || text[i - 1] === "\n")) { const e = text.indexOf("\n=end", i), end = e < 0 ? n : e + 5; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
+            if (lang === "py" && (text.startsWith('"""', i) || text.startsWith("'''", i))) { const q = text.slice(i, i + 3), e = text.indexOf(q, i + 3), end = e < 0 ? n : e + 3; out += '""' + text.slice(i, end).replace(/[^\n]/g, ""); i = end; continue; }
+            if (c === '"' || c === "`" || (c === "'" && !(lang === "rs" && !/^'(\\.|[^\\'])'/.test(text.slice(i, i + 4))))) {
+                let j = i + 1;
+                while (j < n && text[j] !== c && (c === "`" || text[j] !== "\n")) { if (text[j] === "\\") j++; j++; }
+                out += c + text.slice(i + 1, Math.min(j, n)).replace(/[^\n]/g, "") + c; i = j + 1; continue;
+            }
+            out += c; i++;
+        }
+        return lang === "php" ? out.replace(/\$this\b/g, "this").replace(/\$(\w)/g, "$1") : out;
+    }
+    const others = files.filter(f => langOf(f.path) || PAGE.test(f.path) || STYLE.test(f.path));
+    for (const f of others) {
+        const lang = langOf(f.path), kind = isTest(f.path) && lang ? "test-file" : PAGE.test(f.path) ? "page" : STYLE.test(f.path) ? "style" : /\.d\.ts$/.test(f.path) ? "header" : "source";
+        node("file:" + f.path, kind, f.path.split("/").pop(), {path: f.path, group: groupOf(f.path), loc: f.text.split("\n").length, lang: lang || (PAGE.test(f.path) ? "html" : "css")});
+    }
+    const filesIn = (dir, test) => paths.filter(p => dirname(p) === dir && (!test || test(p)));
+    function tryFiles(cands) { for (const c of cands) if (byPath.has(c)) return c; return null; }
+    function ext(name) { // external dependency node (shared with the manifests); null for a name that is not one
+        if (!name || !/^[@\w][\w.\-\/@]*$/.test(name)) return null;
+        const id = "ext:" + name.toLowerCase();
+        node(id, "external", name, {group: "external"});
+        return id;
+    }
+    // Go: module path of go.mod; Java / C#: the files of a package / namespace
+    const goMod = byPath.has("go.mod") ? (/^module\s+(\S+)/m.exec(byPath.get("go.mod").text) || [])[1] : null;
+    const nsFiles = new Map(); // namespace / package -> [files]
+    for (const f of others) {
+        const m = /^\s*(?:package|namespace)\s+([\w.\\]+)\s*[;{]?/m.exec(f.text);
+        if (m && /^(java|cs|php)$/.test(langOf(f.path))) { const k = m[1].replace(/\\/g, "."); if (!nsFiles.has(k)) nsFiles.set(k, []); nsFiles.get(k).push(f.path); }
+    }
+    const capped = (list) => list.slice(0, 6);
+    function imports(f, lang) { // -> [target file] or external ids
+        const t = f.text, dir = dirname(f.path), res = [];
+        const add = (p) => { if (p && p !== f.path) res.push("file:" + p); };
+        const one = (re, fn) => { let m; re.lastIndex = 0; while ((m = re.exec(t))) fn(m); };
+        if (lang === "py") {
+            const mod = (name, dots) => {
+                const base = dots ? normalize(dir + "/" + "../".repeat(Math.max(0, dots - 1))) : "";
+                const rel = name.replace(/\./g, "/"), pre = base ? base + "/" : "";
+                return tryFiles([pre + rel + ".py", pre + rel + "/__init__.py", "src/" + rel + ".py", "src/" + rel + "/__init__.py"]);
+            };
+            one(/^[ \t]*from[ \t]+(\.*)([\w.]*)[ \t]+import[ \t]+\(?([\w ,*\n]+)/gm, (m) => {
+                const dots = m[1].length, p = mod(m[2], dots);
+                if (p) add(p);
+                if (!m[2] || (dots && !p)) for (const x of m[3].split(",")) { const q = mod((m[2] ? m[2] + "." : "") + x.trim().split(/\s/)[0], dots); if (q) add(q); }
+                if (!p && !dots && m[2]) { const top = m[2].split(".")[0]; if (!PY_STD.has(top) && !tryFiles([top + ".py", top + "/__init__.py", "src/" + top + "/__init__.py"])) res.push(ext(top)); }
+            });
+            one(/^[ \t]*import[ \t]+([\w., ]+)/gm, (m) => { for (const x of m[1].split(",")) { const name = x.trim().split(/\s/)[0], p = mod(name, 0); if (p) add(p); else { const top = name.split(".")[0]; if (top && !PY_STD.has(top)) res.push(ext(top)); } } });
+        } else if (lang === "js" || PAGE.test(f.path) || STYLE.test(f.path)) {
+            const specs = [];
+            if (!STYLE.test(f.path)) one(/(?:\bimport\s+(?:[\w*{}\s,$]+?\s+from\s+)?|\bexport\s+[\w*{}\s,$]+?\s+from\s+|\brequire\s*\(\s*|\bimport\s*\(\s*)["'`]([^"'`]+)["'`]/g, m => specs.push(m[1]));
+            if (PAGE.test(f.path)) one(/<(?:script|img|iframe)[^>]*\bsrc=["']([^"']+)["']|<link[^>]*\bhref=["']([^"']+\.(?:css|scss))["']|<a[^>]*\bhref=["']([^"'#?]+\.html?)["']/gi, m => specs.push("./" + (m[1] || m[2] || m[3]).replace(/^\.\//, "")));
+            if (STYLE.test(f.path)) one(/@(?:import|use|forward)\s+(?:url\()?["']([^"']+)["']/g, m => specs.push(m[1].startsWith(".") ? m[1] : "./" + m[1]));
+            for (const s of specs) {
+                if (/^(https?:)?\/\//.test(s) || s.startsWith("data:")) continue;
+                if (s.startsWith(".") || s.startsWith("/") || /^[@~]\//.test(s)) {
+                    const base = s.startsWith("/") ? s.slice(1) : /^[@~]\//.test(s) ? "src/" + s.slice(2) : normalize(dir + "/" + s);
+                    const exts = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".css", ".scss", ".d.ts"];
+                    const partial = dirname(base) + (dirname(base) ? "/_" : "_") + base.split("/").pop(); // SCSS partial _x.scss
+                    add(tryFiles(exts.map(e => base + e).concat(["/index.ts", "/index.tsx", "/index.js", "/index.jsx"].map(e => base + e), [".scss", ".sass", ""].map(e => partial + e))));
+                    continue;
+                }
+                const name = s.startsWith("@") ? s.split("/").slice(0, 2).join("/") : s.split("/")[0];
+                if (!NODE_STD.has(name.replace(/^node:/, "")) && !name.startsWith("node:") && !/^[@~]$/.test(name)) res.push(ext(name));
+            }
+        } else if (lang === "java") {
+            one(/^\s*import\s+(?:static\s+)?([\w.]+?)(?:\.\*)?\s*;?\s*$/gm, (m) => {
+                const parts = m[1].split(".");
+                const p = paths.find(x => /\.(java|kt|scala|groovy)$/.test(x) && x.replace(/\.\w+$/, "").endsWith(parts.join("/")));
+                if (p) { add(p); return; }
+                const pk = nsFiles.get(m[1]) || nsFiles.get(parts.slice(0, -1).join("."));
+                if (pk) { capped(pk).forEach(add); return; }
+                if (/^(java|javax|kotlin|scala|groovy|jdk|sun)$/.test(parts[0])) return;
+                res.push(ext(/^(com|org|io|net|de|fr|me|dev|edu)$/.test(parts[0]) && parts[1] ? parts[1] : parts[0]));
+            });
+        } else if (lang === "cs") {
+            one(/^\s*using\s+(?:static\s+)?(?:\w+\s*=\s*)?([\w.]+)\s*;/gm, (m) => {
+                if (nsFiles.has(m[1])) { capped(nsFiles.get(m[1])).forEach(add); return; }
+                if (!/^(System|Microsoft\.CSharp)\b/.test(m[1])) res.push(ext(m[1].split(".").slice(0, 2).join(".")));
+            });
+        } else if (lang === "go") {
+            const block = /\bimport\s*\(([^)]*)\)|\bimport\s+(?:\w+\s+)?"([^"]+)"/g;
+            let m;
+            while ((m = block.exec(t))) for (const imp of m[2] ? [m[2]] : (m[1].match(/"[^"]+"/g) || []).map(x => x.slice(1, -1))) {
+                if (goMod && imp.startsWith(goMod)) { capped(filesIn(imp.slice(goMod.length + 1), p => p.endsWith(".go") && !p.endsWith("_test.go"))).forEach(add); continue; }
+                if (!imp.split("/")[0].includes(".")) continue; // standard library
+                res.push(ext(imp.split("/").slice(-1)[0].replace(/^v\d+$/, imp.split("/").slice(-2)[0])));
+            }
+        } else if (lang === "rs") {
+            const root = f.path.includes("src/") ? f.path.slice(0, f.path.indexOf("src/") + 4) : "";
+            one(/^\s*(?:pub\s+)?mod\s+(\w+)\s*;/gm, (m) => add(tryFiles([dir + "/" + m[1] + ".rs", dir + "/" + m[1] + "/mod.rs", normalize(f.path.replace(/\.rs$/, "") + "/" + m[1] + ".rs")])));
+            one(/^\s*(?:pub\s+)?use\s+([\w:]+)/gm, (m) => {
+                const parts = m[1].split("::");
+                if (parts[0] === "crate") { for (let k = parts.length; k > 1; k--) { const p = tryFiles([root + parts.slice(1, k).join("/") + ".rs", root + parts.slice(1, k).join("/") + "/mod.rs"]); if (p) { add(p); break; } } return; }
+                if (!/^(std|core|alloc|self|super)$/.test(parts[0])) res.push(ext(parts[0].replace(/_/g, "-")));
+            });
+        } else if (lang === "php") {
+            one(/^\s*use\s+(?:function\s+|const\s+)?([\w\\]+)/gm, (m) => {
+                const parts = m[1].replace(/^\\/, "").split("\\"), tail = parts.slice(1).join("/");
+                if (parts.length < 2) return; // global class of PHP (Closure, Exception...)
+                const p = paths.find(x => x.endsWith(".php") && (x.endsWith("/" + parts.join("/") + ".php") || (tail && x.endsWith("/" + tail + ".php"))));
+                if (p) add(p); else res.push(ext(parts[0]));
+            });
+            one(/\b(?:require|include)(?:_once)?\s*\(?\s*(?:__DIR__\s*\.\s*)?["']([^"']+\.php)["']/g, (m) => add(tryFiles([normalize(dir + "/" + m[1]), normalize(m[1])])));
+        } else if (lang === "rb") {
+            one(/^\s*require_relative\s+["']([^"']+)["']/gm, (m) => add(tryFiles([normalize(dir + "/" + m[1]) + ".rb", normalize(dir + "/" + m[1])])));
+            one(/^\s*require\s+["']([^"']+)["']/gm, (m) => { const p = tryFiles(["lib/" + m[1] + ".rb", m[1] + ".rb"]) || paths.find(x => x.endsWith("/" + m[1] + ".rb")); if (p) add(p); else if (!RB_STD.has(m[1])) res.push(ext(m[1].split("/")[0])); });
+        }
+        return res.filter(Boolean);
+    }
+    for (const f of others) for (const target of imports(f, langOf(f.path))) link("file:" + f.path, target, "includes");
+
+    // Declarations of the brace languages: the "head" before each { says what the block is
+    const KEYWORDS = new Set("if for while switch catch return new else do try finally synchronized using lock foreach when match loop unsafe with yield await typeof sizeof function fn func fun def get set constructor init".split(" "));
+    function classHead(h, lang) {
+        const m = /(?:^|[\s;])(?:(?:abstract|sealed|data|open|final|static|public|private|protected|internal|export|default|partial|inner|enum|annotation|readonly|declare|pub(?:\([\w ]+\))?)\s+)*(class|interface|trait|struct|enum|record|object|protocol)\s+([A-Za-z_$][\w$]*)([\s\S]*)$/.exec(h);
+        if (!m) {
+            const g = lang === "go" && /\btype\s+([A-Z_a-z]\w*)\s*(?:\[[^\]]*\])?\s+(struct|interface)\s*$/.exec(h);
+            return g ? {name: g[1], kw: g[2], bases: []} : null;
+        }
+        let rest = m[3].replace(/<[^<>]*(?:<[^<>]*>[^<>]*)*>/g, "").replace(/^\s*\([^)]*\)/, "").replace(/\bwhere\b[\s\S]*$/, "");
+        const bases = [];
+        const grab = (re) => { const x = re.exec(rest); if (x) x[1].split(",").forEach(b => { b = b.replace(/\([^)]*\)/g, "").replace(/\b(public|private|protected|virtual|readonly)\b/g, "").trim().split(/[.:\\]/).pop(); if (/^[A-Za-z_$][\w$]*$/.test(b)) bases.push(b); }); };
+        grab(/\bextends\s+([\w$.,\s\\]+?)(?=\s+implements\b|\s*$|\s*\{)/); grab(/\bimplements\s+([\w$.,\s\\]+)/); grab(/^\s*:\s*([\w$.,\s()]+)/); grab(/^\s*\(([\w$.,\s]+)\)\s*$/);
+        return {name: m[2], kw: m[1], bases, abstract: /\babstract\b/.test(h)};
+    }
+    function funcHead(h, lang) {
+        let m;
+        if (lang === "go" && (m = /\bfunc\s*\(\s*(\w+)?\s*\*?\s*([A-Za-z_]\w*)(?:\[[^\]]*\])?\s*\)\s*([A-Za-z_]\w*)\s*\(/.exec(h))) return {name: m[3], recv: m[2], self: m[1]};
+        if ((m = /\b(?:fn|func|fun|function|def)\s*\*?\s+(?:<[^>]*>\s*)?([A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*\(/.exec(h))) return {name: m[1]};
+        if ((m = /(?:^|[\s,;(])([A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*(?:async\s*)?(?:function\b[^(]*\(|(?:<[^>]*>)?\([^()]*\)\s*(?::[^=]*)?=>|[A-Za-z_$][\w$]*\s*=>)/.exec(h))) return {name: m[1]};
+        if ((m = /([A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*\((?:[^()]|\([^()]*\))*\)\s*(?:(?::|->)\s*[^{;]*|throws\s+[^{]*|where\s+[^{]*|const|override|async|noexcept)*\s*$/.exec(h)) && !KEYWORDS.has(m[1]) && !/\b(new|return|=)\s*$/.test(h.slice(0, m.index))) return {name: m[1]};
+        return null;
+    }
+    function scopeHead(h, lang) {
+        let m;
+        if ((m = /\b(?:namespace|module|mod)\s+([\w.\\:]+)\s*$/.exec(h))) return {ns: m[1].replace(/\\/g, ".")};
+        if (lang === "rs" && (m = /\bimpl(?:<[^>]*>)?\s+(?:([\w:]+)(?:<[^>]*>)?\s+for\s+)?([\w:]+)(?:<[^>]*>)?\s*(?:where[\s\S]*)?$/.exec(h))) return {impl: m[2].split("::").pop(), trait: m[1] ? m[1].split("::").pop() : null};
+        return null;
+    }
+    function headOf(raw) { // the statement before a "{": its last line + the lines it continues (newline-terminated languages)
+        const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+        if (!lines.length) return "";
+        let k = lines.length - 1;
+        while (k > 0 && (/[,(&|+\-*\/=:<>?]$/.test(lines[k - 1]) || /^([).:?,]|extends\b|implements\b|where\b|throws\b|->|=>)/.test(lines[k]))) k--;
+        return lines.slice(k).join(" ");
+    }
+    for (const f of others) {
+        const lang = langOf(f.path);
+        if (!lang) continue;
+        const src = /\.(vue|svelte)$/.test(f.path) ? f.text.replace(/<script\b[^>]*>([\s\S]*?)<\/script>|[^<]+|</g, (m0, s) => s !== undefined ? s : m0.replace(/[^\n]/g, "")) : f.text;
+        const code = stripOther(src, lang), fileId = "file:" + f.path, group = groupOf(f.path);
+        const pkg = (/^\s*(?:package|namespace)\s+([\w.\\]+)/m.exec(code) || [])[1];
+        const nsBase = pkg ? pkg.replace(/\\/g, ".") : f.path.replace(/\.\w+$/, "");
+        const addFn = (name, start, extra) => {
+            const id = "fn:" + nsBase + "::" + name;
+            node(id, "function", name + "()", Object.assign({group, path: f.path, ns: pkg || ""}, extra || {}));
+            link(fileId, id, "defines");
+            return id;
+        };
+        const addClass = (c, parentId) => {
+            const id = (parentId || "cls:" + nsBase) + "::" + c.name;
+            let kind = c.kw === "interface" || c.kw === "trait" || c.kw === "protocol" ? "interface" : c.kw === "enum" ? "enum" : c.kw === "struct" || c.kw === "record" ? "struct" : c.abstract ? "abstract" : "class";
+            if (kind === "class" && c.bases.some(b => /^(ABC|Protocol)$/.test(b))) kind = /Protocol/.test(c.bases.join()) ? "interface" : "abstract";
+            node(id, kind, c.name, {group, path: f.path, ns: pkg || ""});
+            addClassName(c.name, id);
+            link(parentId || fileId, id, parentId ? "member" : "defines");
+            for (const b of c.bases) if (!/^(object|Object|ABC|Protocol|Generic|Enum|Exception|Error)$/.test(b)) pendingBases.push([id, b]);
+            return id;
+        };
+        const addMethod = (clsId, name) => {
+            const id = clsId + "::" + name;
+            const n = node(id, "method", name + "()", {group, path: f.path, overloads: 0});
+            n.overloads++;
+            link(clsId, id, "member");
+            return id;
+        };
+        if (lang === "py" || lang === "rb") { // indentation (Python) / keyword ... end (Ruby)
+            const lines = code.split("\n"), stack = []; // {indent, type, id, end}
+            const indentOf = (l) => l.length - l.trimStart().length;
+            const closeBodies = (upto, li) => { while (stack.length && (lang === "py" ? stack[stack.length - 1].indent >= upto : false)) finish(stack.pop(), li); };
+            const finish = (s, li) => { if (s.type === "def" && s.owner) bodies.push({owner: s.owner, cls: s.cls, body: lines.slice(s.line + 1, li).join("\n"), selfs: ["self", "cls", "this"]}); };
+            for (let li = 0; li < lines.length; li++) {
+                const l = lines[li], tr = l.trim();
+                if (!tr) continue;
+                const ind = indentOf(l);
+                if (lang === "py") closeBodies(ind, li);
+                else if (/^end\b/.test(tr)) { const s = stack.pop(); if (s) finish(s, li); continue; }
+                const cls = [...stack].reverse().find(s => s.type === "class");
+                const inDef = stack.some(s => s.type === "def");
+                let m;
+                if ((m = lang === "py" ? /^class\s+(\w+)\s*(?:\(([^)]*)\))?\s*:/.exec(tr) : /^class\s+(?:<<\s*self|([A-Z]\w*(?:::\w+)*)\s*(?:<\s*([\w:]+))?)/.exec(tr))) {
+                    if (!m[1]) { stack.push({indent: ind, type: "block", line: li}); continue; }
+                    const name = m[1].split("::").pop(), bases = (m[2] || "").split(",").map(b => b.replace(/\[.*$/, "").replace(/=.*$/, "").trim().split(/[.:]/).pop()).filter(b => /^\w+$/.test(b));
+                    stack.push({indent: ind, type: "class", id: inDef ? null : addClass({name, kw: "class", bases}, cls && cls.id), line: li});
+                } else if (lang === "py" && !ind && /^if\s+__name__\s*==\s*(""|'')\s*:/.test(tr)) { // script entry point
+                    const id = "fn:main@" + f.path;
+                    node(id, "function", "main()", {group, path: f.path, entry: true});
+                    link(fileId, id, "defines");
+                    stack.push({indent: ind, type: "def", owner: id, line: li});
+                } else if ((m = lang === "py" ? /^(?:async\s+)?def\s+(\w+)\s*\(/.exec(tr) : /^def\s+(?:self\.)?([\w?!=]+)/.exec(tr))) {
+                    let owner = null;
+                    if (!inDef) owner = cls && cls.id ? (m[1] === "__init__" || m[1] === "initialize" ? cls.id : addMethod(cls.id, m[1])) : addFn(m[1]);
+                    stack.push({indent: ind, type: "def", owner, cls: cls && cls.id, line: li});
+                    if (lang === "rb" && /^def\s.*=\s*\S/.test(tr) && !/\bdo\b/.test(tr)) finish(stack.pop(), li + 1); // endless method
+                } else if (lang === "rb" && (/^(module|if|unless|while|until|case|begin|for)\b/.test(tr) || /\bdo(\s*\|[^|]*\|)?\s*$/.test(tr))) {
+                    stack.push({indent: ind, type: "block", line: li});
+                }
+            }
+            if (lang === "py") closeBodies(-1, lines.length);
+            continue;
+        }
+        // brace languages
+        const stack = [];
+        let head = "", skip = 0, body = null;
+        const curClass = () => { for (let k = stack.length - 1; k >= 0; k--) if (stack[k].cls) return stack[k].cls; return null; };
+        for (let i = 0; i < code.length; i++) {
+            const c = code[i];
+            if (skip) {
+                if (c === "{") skip++;
+                else if (c === "}" && !--skip) { head = ""; if (body) { bodies.push(Object.assign(body, {body: code.slice(body.start, i)})); body = null; } }
+                continue;
+            }
+            if (c === "{") {
+                const h = headOf(head).replace(/\s+/g, " ").replace(/@\w+(?:\([^)]*\))?\s*/g, "").replace(/\[[\w(), ."=]+\]\s*/g, "").trim();
+                head = "";
+                let x;
+                if ((x = classHead(h, lang))) { stack.push({cls: addClass(x, curClass()), close: true}); continue; }
+                if ((x = scopeHead(h, lang))) {
+                    if (x.impl) { // Rust impl block: the methods belong to the type
+                        const target = classByName.get(x.impl);
+                        const id = target ? target[0] : null;
+                        if (id && x.trait) pendingBases.push([id, x.trait]);
+                        stack.push({cls: id, implName: x.impl, close: true});
+                    } else stack.push({ns: x.ns, close: true});
+                    continue;
+                }
+                if ((x = funcHead(h, lang)) && !/=\s*$/.test(h)) {
+                    const cls = curClass(), impl = [...stack].reverse().find(s => s.implName);
+                    let owner = null, ownerCls = cls;
+                    if (x.recv) { const ids = classByName.get(x.recv); ownerCls = ids ? ids[0] : null; owner = ownerCls ? addMethod(ownerCls, x.name) : null; }
+                    else if (cls) owner = /^(constructor|__construct|init)$/.test(x.name) || (classHead("class " + x.name, lang) && nodes.get(cls).label === x.name) ? cls : addMethod(cls, x.name);
+                    else if (impl && !impl.cls) owner = null; // impl of a type declared in another file: resolved below
+                    else owner = addFn(x.name);
+                    body = {owner, cls: ownerCls, start: i + 1, selfs: ["this", "self", x.self].filter(Boolean)};
+                    if (!owner) Object.assign(body, {late: {type: x.recv || impl.implName, name: x.name, addMethod, addFn}});
+                    skip = 1;
+                    continue;
+                }
+                stack.push({close: true}); // other block (object literal, if, ...): its content is read
+                continue;
+            }
+            if (c === "}") { stack.pop(); head = ""; continue; }
+            if (c === ";") { head = ""; continue; }
+            head += c;
+            if (head.length > 600) head = head.slice(-400);
+        }
+    }
+    // Go receivers / Rust impl blocks of a type declared in another file
+    for (const b of bodies) if (b.late) {
+        const ids = classByName.get(b.late.type);
+        b.cls = ids ? ids[0] : null;
+        b.owner = b.cls ? b.late.addMethod(b.cls, b.late.name) : b.late.addFn(b.late.name);
+        delete b.late;
+    }
+    // entry points of the other languages: main() / Main()
+    for (const n of nodes.values()) if ((n.kind === "function" || n.kind === "method") && /^(main|Main)\(\)$/.test(n.label)) n.entry = true;
+
     for (const [cls, base] of pendingBases) {
         const ids = classByName.get(base);
         if (ids) for (const id of ids) link(cls, id, "inherits");
@@ -987,6 +1283,11 @@ function extractGraph(files, opts) {
         if (n.kind === "method") add(methodByName, n.label.replace(/\(\)$/, ""), n.id);
     }
     const clsOf = (methodId) => methodId.slice(0, methodId.lastIndexOf("::"));
+    for (const b of bodies) if (b.cls) {
+        const fre = /\b(?:self|this)\s*(?:\.|->)\s*(\w+)\s*=\s*(?:new\s+)?([A-Z]\w*)\s*[({]/g;
+        let m;
+        while ((m = fre.exec(b.body))) if (classByName.has(m[2])) { if (!fields.has(b.cls)) fields.set(b.cls, new Map()); fields.get(b.cls).set(m[1], m[2]); }
+    }
     for (const b of bodies) {
         let owners = b.owner ? [b.owner] : [], cls = b.cls || null;
         if (b.className) { // Class::method defined in a source
@@ -995,13 +1296,16 @@ function extractGraph(files, opts) {
             cls = ids[0] || null;
         }
         if (!owners.length) continue;
-        const group = nodes.get(owners[0]).group, inTests = /^tests?\//.test(nodes.get(owners[0]).path || "");
+        const group = nodes.get(owners[0]).group, inTests = isTest(nodes.get(owners[0]).path || "");
+        const selfs = b.selfs || ["this"];
         const targets = new Set();
         // types of the local variables (Type name; Type name(...); Type *name = ...) and of the fields of the class
         const vars = new Map(cls && fields.get(cls) ? fields.get(cls) : []);
         const vre = /\b(?:[\w]+::)*([A-Z]\w*)\s*(?:<[^<>;(){}]*>)?\s*[&*]*\s+([A-Za-z_]\w*)\s*[;({=]/g;
         let v;
         while ((v = vre.exec(b.body))) if (classByName.has(v[1])) vars.set(v[2], v[1]);
+        const are = /\b([A-Za-z_$][\w$]*)\s*(?::\s*[\w<>\[\], ]+)?\s*(?::=|=)\s*(?:new\s+|&)?([A-Z][\w$]*)\s*(?:<[^<>;]*>)?\s*[({]/g; // x = Type(...) / new Type / &Type{}
+        while ((v = are.exec(b.body))) if (classByName.has(v[2])) vars.set(v[1], v[2]);
         const typed = (q) => { const ty = q && vars.get(q); return ty && classByName.has(ty) ? classByName.get(ty) : null; };
         const re = /(?:\b([A-Za-z_]\w*)\s*(::|\.|->)\s*)?\b(~?[A-Za-z_]\w*)\s*(?:<([^<>;(){}]*)>)?\s*\(/g;
         let m;
@@ -1020,13 +1324,15 @@ function extractGraph(files, opts) {
                 else if (fnByName.has(name)) cands = fnByName.get(name);
                 else if (classByName.has(name)) cands = classByName.get(name); // construction
             } else if (op === "::") cands = (fnByName.get(name) || []).filter(id => id.endsWith(qual + "::" + name));
+            else if (selfs.includes(qual) && cls && nodes.has(cls + "::" + name)) cands = [cls + "::" + name]; // this.method() / self.method()
             else if (typed(qual)) cands = typed(qual).map(c => c + "::" + name).filter(id => nodes.has(id)); // typed object
             else { // object.method() / ptr->method() of an unknown type: unique name, else another class of the same group
                 const all = methodByName.get(name) || [];
                 cands = all.length === 1 ? all : all.filter(id => nodes.get(id).group === group && clsOf(id) !== cls);
                 if (cands.length > 2) cands = [];
+                if (!all.length && fnByName.has(name) && fnByName.get(name).length <= 2) cands = fnByName.get(name); // module.function()
             }
-            if (!inTests) cands = cands.filter(id => !/^tests?\//.test(nodes.get(id).path || "")); // the sources never call the tests
+            if (!inTests) cands = cands.filter(id => !isTest(nodes.get(id).path || "")); // the sources never call the tests
             if (cands.length <= 3) cands.forEach(x => targets.add(x));
         }
         for (const o of owners) for (const x of targets) link(o, x, "calls");
@@ -1035,13 +1341,25 @@ function extractGraph(files, opts) {
     // Tests: test cases + tested classes
     const classNames = [...classByName.keys()].filter(n => n.length > 2);
     for (const f of files) {
-        if (!/^(tests?)\//.test(f.path) || !CODE.test(f.path)) continue;
+        if (!isTest(f.path) || !(CODE.test(f.path) || langOf(f.path))) continue;
         const fileId = "file:" + f.path;
-        const re = /\b(TEST|TEST_F|TEST_P|TYPED_TEST)\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g;
+        const lang = CODE.test(f.path) ? "c" : langOf(f.path);
+        const RE = {
+            c: [/\b(?:TEST|TEST_F|TEST_P|TYPED_TEST)\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g, m => m[1] + "." + m[2]],
+            py: [/^[ \t]*(?:async\s+)?def\s+(test\w*)\s*\(/gm, m => m[1]],
+            js: [/\b(?:it|test)(?:\.(?:only|skip|each\([^)]*\)))?\s*\(\s*(["'`])(.+?)\1/g, m => m[2]],
+            go: [/^func\s+(Test\w+|Benchmark\w+)\s*\(/gm, m => m[1]],
+            rs: [/#\[(?:tokio::)?test\][\s\S]{0,80}?\bfn\s+(\w+)/g, m => m[1]],
+            java: [/@(?:Test|ParameterizedTest)\b[\s\S]{0,200}?\b(?:void|fun)\s+`?([\w ]+?)`?\s*\(/g, m => m[1]],
+            cs: [/\[(?:Fact|Theory|Test|TestMethod|TestCase)\b[^\]]*\][\s\S]{0,200}?\s(\w+)\s*\(/g, m => m[1]],
+            php: [/function\s+(test\w*)\s*\(/g, m => m[1]],
+            rb: [/\b(?:it|test|scenario|specify)\s*\(?\s*["'](.+?)["']/g, m => m[1]]
+        }[lang];
         let m;
-        while ((m = re.exec(f.text))) {
-            const id = "test:" + f.path + ":" + m[2] + "." + m[3];
-            node(id, "test", m[2] + "." + m[3], {group: groupOf(f.path), path: f.path});
+        if (RE) while ((m = RE[0].exec(f.text))) {
+            const label = RE[1](m).slice(0, 70);
+            const id = "test:" + f.path + ":" + label;
+            node(id, "test", label, {group: groupOf(f.path), path: f.path});
             link(fileId, id, "defines");
         }
         const words = new Set(f.text.match(/[A-Za-z_]\w*/g) || []);
@@ -1126,9 +1444,99 @@ function extractGraph(files, opts) {
         exec(cmds);
     }
     runCMake("", vars, 0);
+    // Packages of the other ecosystems: one target per manifest (its dependencies as externals, the files of its folder
+    // compiled into it): package.json, pyproject.toml / setup.py / requirements.txt, go.mod, Cargo.toml, pom.xml,
+    // build.gradle, *.csproj, composer.json, Gemfile / *.gemspec
+    const pkgs = []; // {dir, id}
+    function pkg(dir, name, type, deps) {
+        const same = pkgs.find(p => p.dir === dir); // pyproject + setup.py, Gemfile + gemspec...: one package per folder
+        if (same) { for (const d of deps || []) { const x = ext(d); if (x && d.toLowerCase() !== nodes.get(same.id).label.toLowerCase()) link(same.id, x, "links"); } return same.id; }
+        const id = "target:" + name;
+        node(id, type || "library", name, {group: "build"});
+        if (!pkgs.some(p => p.id === id)) pkgs.push({dir, id});
+        for (const d of deps || []) if (d && !/^(python|php|ext-.*|node)$/i.test(d)) { const x = nodes.has("target:" + d) ? "target:" + d : ext(d); if (x) link(id, x, "links"); }
+        return id;
+    }
+    const tomlTable = (t, name) => { // lines of a [table] of a TOML file
+        const out = [];
+        let on = false;
+        for (const l of t.split("\n")) { const h = /^\s*\[\[?([^\]]+)\]\]?\s*(#.*)?$/.exec(l); if (h) { on = h[1].trim() === name; continue; } if (on) out.push(l); }
+        return out.join("\n");
+    };
+    const tomlKeys = (block) => (block.match(/^\s*([\w.-]+)\s*=/gm) || []).map(x => x.replace(/\s*=$/, "").trim());
+    const reqName = (s) => s.trim().replace(/^["']|["']$/g, "").split(/[\s<>=!~;\[@]/)[0];
+    for (const f of files) {
+        const dir = dirname(f.path), base = f.path.split("/").pop(), t = f.text, dname = dir.split("/").pop() || null;
+        try {
+            if (base === "package.json") {
+                const j = JSON.parse(t);
+                pkg(dir, j.name || dname || "app", j.bin ? "executable" : "library", Object.keys(Object.assign({}, j.dependencies, j.peerDependencies)));
+            } else if (base === "pyproject.toml") {
+                const proj = tomlTable(t, "project"), poetry = tomlTable(t, "tool.poetry");
+                const name = (/^\s*name\s*=\s*["']([^"']+)/m.exec(proj || poetry) || [])[1] || dname || "app";
+                const arr = (/^\s*dependencies\s*=\s*\[([\s\S]*?)\]/m.exec(proj) || [])[1] || "";
+                const deps = (arr.match(/["'][^"']+["']/g) || []).map(reqName).concat(tomlKeys(tomlTable(t, "tool.poetry.dependencies")));
+                pkg(dir, name, tomlTable(t, "project.scripts") || tomlTable(t, "tool.poetry.scripts") ? "executable" : "library", deps);
+            } else if (base === "setup.py") {
+                const name = (/\bname\s*=\s*["']([^"']+)/.exec(t) || [])[1] || dname || "app";
+                const arr = (/install_requires\s*=\s*\[([\s\S]*?)\]/.exec(t) || [])[1] || "";
+                pkg(dir, name, /entry_points|scripts\s*=/.test(t) ? "executable" : "library", (arr.match(/["'][^"']+["']/g) || []).map(reqName));
+            } else if (/^requirements[\w.-]*\.txt$/.test(base) && !/dev|test|doc/.test(base)) {
+                const own = pkgs.find(p => p.dir === dir);
+                const deps = t.split("\n").map(l => l.replace(/#.*/, "").trim()).filter(l => l && !l.startsWith("-")).map(reqName);
+                if (own) for (const d of deps) link(own.id, ext(d), "links"); else pkg(dir, dname || "app", "executable", deps);
+            } else if (base === "go.mod") {
+                const mod = (/^module\s+(\S+)/m.exec(t) || [])[1] || dname || "app";
+                const req = ((/^require\s*\(([\s\S]*?)\)/m.exec(t) || [])[1] || "") + "\n" + (t.match(/^require\s+[^(\s]\S*\s+\S+/gm) || []).join("\n").replace(/^require\s+/gm, "");
+                const deps = req.split("\n").map(l => l.trim().split(/\s+/)[0]).filter(x => x && !x.startsWith("//") && /\//.test(x) && !/\/\/\s*indirect/.test(x)).map(x => { const s = x.split("/"); return /^v\d+$/.test(s[s.length - 1]) ? s[s.length - 2] : s[s.length - 1]; });
+                pkg(dir, mod.split("/").pop(), "library", deps);
+            } else if (base === "Cargo.toml") {
+                const name = (/^\s*name\s*=\s*["']([^"']+)/m.exec(tomlTable(t, "package")) || [])[1];
+                if (name) pkg(dir, name, byPath.has((dir ? dir + "/" : "") + "src/main.rs") || /\[\[bin\]\]/.test(t) ? "executable" : "library", tomlKeys(tomlTable(t, "dependencies")));
+            } else if (base === "pom.xml") {
+                const body = t.replace(/<parent>[\s\S]*?<\/parent>/, "").replace(/<dependencyManagement>[\s\S]*?<\/dependencyManagement>/, "").replace(/<build>[\s\S]*?<\/build>/, "");
+                const name = (/<artifactId>([^<]+)<\/artifactId>/.exec(body) || [])[1] || dname || "app";
+                const deps = [...body.matchAll(/<dependency>[\s\S]*?<artifactId>([^<]+)<\/artifactId>[\s\S]*?<\/dependency>/g)].map(m => m[1]);
+                pkg(dir, name, "library", deps);
+            } else if (/^build\.gradle(\.kts)?$/.test(base)) {
+                const settings = byPath.get((dir ? dir + "/" : "") + "settings.gradle") || byPath.get((dir ? dir + "/" : "") + "settings.gradle.kts");
+                const name = (settings && (/rootProject\.name\s*=\s*["']([^"']+)/.exec(settings.text) || [])[1]) || dname || "app";
+                const deps = [...t.matchAll(/\b(?:implementation|api|compile|runtimeOnly|compileOnly|kapt|ksp)\s*\(?\s*["']([^:"']+):([^:"']+)/g)].map(m => m[2]);
+                pkg(dir, name, /application\b|mainClass/.test(t) ? "executable" : "library", deps);
+            } else if (/\.csproj$/.test(base)) {
+                pkg(dir, base.replace(/\.csproj$/, ""), /<OutputType>\s*(Win)?Exe/i.test(t) ? "executable" : "library", [...t.matchAll(/<PackageReference\s+Include="([^"]+)"/g)].map(m => m[1]));
+            } else if (base === "composer.json") {
+                const j = JSON.parse(t);
+                pkg(dir, (j.name || dname || "app").split("/").pop(), j.bin ? "executable" : "library", Object.keys(j.require || {}).map(k => k.split("/").pop()));
+            } else if (base === "Gemfile" || /\.gemspec$/.test(base)) {
+                const name = (/\.name\s*=\s*["']([^"']+)/.exec(t) || [])[1] || (base === "Gemfile" ? dname || "app" : base.replace(/\.gemspec$/, ""));
+                const deps = [...t.matchAll(/^\s*(?:gem|\w+\.add(?:_runtime)?_dependency)\s*\(?\s*["']([^"']+)["']/gm)].map(m => m[1]);
+                const own = pkgs.find(p => p.dir === dir);
+                if (own) for (const d of deps) link(own.id, ext(d), "links"); else pkg(dir, name, base === "Gemfile" ? "executable" : "library", deps);
+            }
+        } catch (e) { /* malformed manifest: skipped */ }
+    }
+    // files of the other languages -> the package of the closest folder; a package with an entry point is an executable
+    for (const f of others) {
+        if (!nodes.has("file:" + f.path)) continue;
+        let best = null;
+        for (const p of pkgs) if ((!p.dir || f.path.startsWith(p.dir + "/")) && (!best || p.dir.length > best.dir.length)) best = p;
+        if (best) link("file:" + f.path, best.id, "compiled-into");
+    }
+    for (const p of pkgs) { // an import of a package of the repository (examples, workspaces) points to that package
+        const e = "ext:" + nodes.get(p.id).label.toLowerCase();
+        if (!nodes.has(e)) continue;
+        for (const l of links) if (l.target === e) l.target = p.id;
+        nodes.delete(e);
+    }
+    for (const p of pkgs) {
+        const n = nodes.get(p.id);
+        if (n.kind === "library" && links.some(l => l.kind === "compiled-into" && l.target === p.id && [...nodes.values()].some(x => x.entry && x.path === nodes.get(l.source).path))) n.kind = "executable";
+    }
+
 
     // Classes / functions / methods written in the tests are test helpers (fixtures, mocks)
-    for (const n of nodes.values()) if (n.path && /^(tests?)\//.test(n.path) && !["test-file", "test"].includes(n.kind)) n.kind = "test-helper";
+    for (const n of nodes.values()) if (n.path && isTest(n.path) && !["test-file", "test", "page", "style"].includes(n.kind)) n.kind = "test-helper";
 
     // Degrees
     const deg = new Map();
@@ -1137,6 +1545,13 @@ function extractGraph(files, opts) {
     for (const n of out) { n.degree = deg.get(n.id) || 0; if (!n.group) n.group = "root"; }
     return {nodes: out, links: links.filter(l => nodes.has(l.source) && nodes.has(l.target))};
 }
+// Files read by the extractor (build_graph.mjs and the update of the page use the same filter)
+extractGraph.wanted = function (p) {
+    if (/(^|\/)(build|_deps|third_party|vendor|external|\.git|docs|node_modules|dist|out|target|venv|\.venv|env|__pycache__|\.next|\.nuxt|\.svelte-kit|\.output|coverage|site-packages|bin|obj|\.idea|\.vscode|\.gradle|\.mypy_cache|\.pytest_cache|\.tox|Pods|DerivedData)\//.test(p)) return false;
+    if (/\.min\.(js|css)$|\.bundle\.js$|\.d\.ts\.map$/.test(p)) return false;
+    return /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c|pyi?|m?js|cjs|jsx|ts|tsx|mts|cts|vue|svelte|java|kt|kts|scala|groovy|cs|go|rs|php|rb|html?|css|scss|sass|less)$/.test(p) ||
+        /(^|\/)(CMakeLists\.txt|package\.json|pyproject\.toml|setup\.py|requirements[\w.-]*\.txt|go\.mod|Cargo\.toml|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|composer\.json|Gemfile|[^/]+\.gemspec|[^/]+\.csproj)$/.test(p);
+};
 // </extractor>
 
 (function () {
@@ -1151,16 +1566,16 @@ function extractGraph(files, opts) {
         class: ["#8e6cf0", "Class"], struct: ["#a77bd9", "Struct"], interface: ["#e05a9b", "Interface"],
         abstract: ["#c44fd1", "Abstract"], enum: ["#c9a227", "Enum"], function: ["#20a4b8", "Function"],
         method: ["#7f8ea3", "Method"], test: ["#e0a458", "Test"], "test-helper": ["#b98a5e", "Test helper"], executable: ["#e5484d", "Executable"],
-        library: ["#f07a3a", "Library"], external: ["#98a2b3", "External"]
+        library: ["#f07a3a", "Library"], external: ["#98a2b3", "External"], page: ["#d65f8c", "Page"], style: ["#5fb3d6", "Stylesheet"]
     };
     const LINKS = {
-        includes: ["#8a909b", "includes"], defines: ["#9aa5b8", "defines"], member: ["#a3acbd", "member"],
+        includes: ["#8a909b", "includes / imports"], defines: ["#9aa5b8", "defines"], member: ["#a3acbd", "member"],
         inherits: ["#8e6cf0", "inherits"], implements: ["#2fa36b", "implements"], "compiled-into": ["#f07a3a", "compiled into"],
         links: ["#e5484d", "links"], tests: ["#d9822b", "tests"], calls: ["#3fb8a9", "calls"]
     };
     const PRESETS = {
-        overview: [["header", "source", "class", "struct", "interface", "abstract", "enum", "function", "executable", "library", "external"], ["includes", "inherits", "defines", "compiled-into", "links"]],
-        files: [["header", "source", "test-file", "external"], ["includes"]],
+        overview: [["header", "source", "page", "class", "struct", "interface", "abstract", "enum", "function", "executable", "library", "external"], ["includes", "inherits", "defines", "compiled-into", "links"]],
+        files: [["header", "source", "test-file", "page", "style", "external"], ["includes"]],
         classes: [["class", "struct", "interface", "abstract"], ["inherits"]],
         members: [["class", "struct", "interface", "abstract", "enum", "method"], ["inherits", "member"]],
         tests: [["test-file", "test", "test-helper", "class", "struct", "interface", "abstract"], ["tests", "defines", "inherits"]],
@@ -2019,8 +2434,7 @@ function extractGraph(files, opts) {
             if (cached && cached.meta && cached.meta.sha === sha) { setData(cached, cached.meta); setStatus(() => tr("Updated:") + " " + describe(cached.meta) + ".", "ok"); return; }
             const tree = await gh("/repos/" + CONFIG.repo + "/git/trees/" + sha + "?recursive=1");
             const wanted = tree.tree.filter(t => t.type === "blob" && t.size < 600000 &&
-                (/(^|\/)CMakeLists\.txt$/.test(t.path) || /\.(hpp|hh|hxx|h|tpp|inl|ipp|cpp|cc|cxx|c)$/.test(t.path)) &&
-                !/(^|\/)(build|_deps|third_party|vendor|external|\.git|docs|node_modules)\//.test(t.path)).map(t => t.path).slice(0, 2500);
+                extractGraph.wanted(t.path)).map(t => t.path).slice(0, 2500);
             const files = [];
             let done = 0;
             const queue = wanted.slice();
@@ -2058,7 +2472,8 @@ function extractGraph(files, opts) {
     function flowRoots() { // entry points: main() first, then the callers nobody calls, the biggest first
         const out = callsOut(), called = new Set([...out.values()].flat());
         const list = state.data.nodes.filter(n => out.has(n.id) && (n.entry || !called.has(n.id)));
-        return list.map(n => ({n, size: reach(out, n.id)})).sort((a, b) => (b.n.entry ? 1 : 0) - (a.n.entry ? 1 : 0) || b.size - a.size).map(x => x.n);
+        const rank = (n) => (n.kind === "test-helper" || n.kind === "test" ? 2 : 0) + (n.entry ? 0 : 1); // real main() first, the tests last
+        return list.map(n => ({n, size: reach(out, n.id)})).sort((a, b) => rank(a.n) - rank(b.n) || b.size - a.size).map(x => x.n);
     }
     function flowSub(n) { // second line of a box: class of a method, namespace / file of a function, kind otherwise
         if (n.kind === "method") { const c = state.byId.get(n.id.slice(0, n.id.lastIndexOf("::"))); return c ? c.label : ""; }
@@ -2389,10 +2804,10 @@ function extractGraph(files, opts) {
         "preset:classes": ["Classes & inheritance", "The types and their inheritance.", "Interfaces (I...), abstract classes (A...), classes and structs, linked by \"inherits\": the hierarchy of the project.", "iface"],
         "preset:members": ["Classes & methods", "The types with their methods.", "Adds the methods linked to their class by \"member\". Can be dense on a big project: combine it with the search or the isolation.", "method"],
         "preset:tests": ["Tests", "Test files, test cases and tested classes.", "Shows what each test file covers (\"tests\") and its test cases: a class without an incoming \"tests\" arrow is not tested.", "testFile"],
-        "preset:build": ["Build", "Sources, CMake targets and linked libraries.", "Which sources are compiled into which executable / library, and what each target links.", "exe"],
+        "preset:build": ["Build", "Sources, build targets / packages and their dependencies.", "Which sources are compiled into which executable / library, and what each target links.", "exe"],
         "preset:all": ["All", "Every category and relation.", "The whole graph, methods and tests included. On a big project, use the filters afterwards.", "overview"],
         "kind:header": ["Header", "Header file (.hpp, .h...).", "Declares the classes, functions and types. It is included by the sources and the other headers, and defines types.", "header"],
-        "kind:source": ["Source", "Source file (.cpp, .c...).", "Implements the functions and methods. It includes headers and is compiled into a CMake target.", "source"],
+        "kind:source": ["Source", "Source file (.cpp, .py, .ts, .java, .go, .rs...).", "Implements the functions, classes and methods. It includes / imports other files and is part of a build target (CMake target or package).", "source"],
         "kind:test-file": ["Test file", "File of the tests/ folder.", "Contains test cases and references the classes it tests.", "testFile"],
         "kind:class": ["Class", "C++ class (declared with class).", "Defined by a header, it has methods (member) and can inherit other classes.", "cls"],
         "kind:struct": ["Struct", "Data structure (struct).", "Usually a plain data type defined in a types header (XType.hpp).", "enumT"],
@@ -2403,16 +2818,18 @@ function extractGraph(files, opts) {
         "kind:method": ["Method", "Method of a class.", "Linked to its class by \"member\". Overloaded methods appear once (number of overloads in the details).", "method"],
         "kind:test": ["Test", "Test case (TEST, TEST_F, TEST_P).", "Defined by a test file.", "test"],
         "kind:test-helper": ["Test helper", "Class or function written for the tests (fixture, mock).", "E.g. a mock implementing an interface to test the code using it.", "helper"],
-        "kind:executable": ["Executable", "CMake add_executable target.", "The sources compiled into it point to it; it points to the libraries it links.", "exe"],
-        "kind:library": ["Library", "CMake add_library target (.a / .so).", "Sources are compiled into it; it can link other libraries.", "lib"],
+        "kind:executable": ["Executable", "Program: CMake add_executable, or a package with an entry point (main, bin, scripts).", "The sources compiled into it point to it; it points to the libraries it links.", "exe"],
+        "kind:library": ["Library", "Library: CMake add_library, or a package (package.json, pyproject, Cargo, go.mod, pom...).", "Sources are compiled into it; it can link other libraries.", "lib"],
+        "kind:page": ["Page", "HTML page (.html).", "Points to the scripts, stylesheets and pages it loads or links (script src, link href, a href).", "header"],
+        "kind:style": ["Stylesheet", "Stylesheet (.css, .scss, .sass, .less).", "Imported by the pages and the components; points to the stylesheets it @imports.", "header"],
         "kind:external": ["External", "Dependency outside the project (system library, base class of a library).", "Comes from an #include <...> or a target_link_libraries: utils, gtest, openssl...", "ext"],
-        "link:includes": ["includes", "A file #includes another one.", "Arrow from the including file to the included file (or the external library).", ["includes", ["Server.cpp", "source"], ["Server.hpp", "header"]]],
+        "link:includes": ["includes / imports", "A file includes / imports another one.", "Arrow from the file to the file it #includes / imports (import, require, use, using, script / link of a page, @import of a stylesheet), or to the external package.", ["includes", ["Server.cpp", "source"], ["Server.hpp", "header"]]],
         "link:defines": ["defines", "A file declares a type, a function or a test.", "Arrow from the file to what it defines.", ["defines", ["Server.hpp", "header"], ["Server", "class"]]],
         "link:member": ["member", "A method (or an inner enum) belongs to a class.", "Arrow from the class to its method.", ["member", ["Server", "class"], ["listen()", "method"]]],
         "link:inherits": ["inherits", "A class derives from another one.", "Arrow from the derived class to the base class.", ["inherits", ["TCPSocket", "class"], ["ASocket", "abstract"]]],
         "link:implements": ["implements", "A source defines the methods of a class.", "Arrow from the .cpp to the class whose definitions it contains (Server::listen...).", ["implements", ["Server.cpp", "source"], ["Server", "class"]]],
-        "link:compiled-into": ["compiled into", "A source is part of a CMake target.", "Arrow from the source to the executable or library compiling it (SRC list).", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
-        "link:links": ["links", "A CMake target links a library.", "Arrow from the target to the library (target_link_libraries).", ["links", ["app", "executable"], ["utils", "external"]]],
+        "link:compiled-into": ["compiled into", "A source is part of a build target.", "Arrow from the source to the executable / library compiling it (CMake SRC list) or to the package of its folder.", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
+        "link:links": ["links", "A target links a library / a package depends on another one.", "Arrow from the target to the library (target_link_libraries) or from the package to its dependency (manifest).", ["links", ["app", "executable"], ["utils", "external"]]],
         "link:tests": ["tests", "A test file uses a class.", "Arrow from the test file to the class it references: a class without an incoming \"tests\" arrow is not covered.", ["tests", ["tests/Server.cpp", "test-file"], ["Server", "class"]]],
         modeFlow: ["Diagrams", "Execution flow, inheritance tree or flame graph of the project.", "Readable diagrams built from the relations of the graph: the execution flow from an entry point (who calls what, the methods of a class grouped), the inheritance tree of the classes, and a flame graph of the call tree. The calls are read in the bodies of the C / C++ functions (static: no run time).", ["calls", ["main()", "function"], ["run()", "method"]]],
         "flow:exec": ["Execution", "Calls from an entry point, level by level.", "Starts from main() (or the entry point of the list) and follows the calls: each level is one call deeper, the methods of the same class are grouped in a dashed box, a dashed arrow goes back to an earlier level (loop or recursion). Double click a box to start from it.", ["calls", ["run()", "method"], ["exec()", "method"]]],
@@ -2422,7 +2839,7 @@ function extractGraph(files, opts) {
         "link:calls": ["calls", "A function / method calls another one.", "Arrow from the caller to the called function, method or class (construction). Read in the bodies of the functions, resolved by name and by the type of the objects.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Group", "Module folder (include/<project>/<module>, src/..., tests/<module>).", "Every node belongs to the module of its file. Disabling a group hides everything coming from it; \"Color by group\" and \"Cluster by group\" make the split visible.", "groups"],
         "group:external": ["External group", "Everything coming from outside the project.", "Linked or included libraries and base classes belonging to a library.", "ext"],
-        "group:build": ["Build group", "The CMake targets.", "Executables and libraries declared in the CMakeLists.txt.", "exe"]
+        "group:build": ["Build group", "The build targets and the packages.", "Executables and libraries of the CMakeLists.txt and the packages of the manifests (package.json, pyproject.toml, Cargo.toml, go.mod...).", "exe"]
     };
     const HELP_FR = {
         update: ["Mettre à jour", "Récupère la dernière version du dépôt GitHub et reconstruit le graphe.", "Interroge l'API GitHub pour le dernier commit de la branche. S'il est plus récent que le graphe affiché, les sources sont téléchargées et le graphe est reconstruit dans le navigateur (gardé en cache). Lancé une fois automatiquement au chargement. Hors ligne, dépôt privé ou limite d'API : le graphe embarqué reste affiché et le statut dit pourquoi.", "overview"],
@@ -2442,10 +2859,10 @@ function extractGraph(files, opts) {
         "preset:classes": ["Classes & héritage", "Les types et leurs relations d'héritage.", "Interfaces (I...), classes abstraites (A...), classes et structs, reliées par « hérite de » : la hiérarchie du projet.", "iface"],
         "preset:members": ["Classes & méthodes", "Les types avec leurs méthodes.", "Ajoute les méthodes reliées à leur classe par « membre ». Peut être dense sur un gros projet : combiner avec la recherche ou l'isolement.", "method"],
         "preset:tests": ["Tests", "Fichiers de test, cas de test et classes testées.", "Montre ce que chaque fichier de test couvre (« teste ») et ses cas de test : une classe sans flèche « teste » n'est pas testée.", "testFile"],
-        "preset:build": ["Build", "Sources, cibles CMake et bibliothèques liées.", "Quelles sources sont compilées dans quel exécutable / bibliothèque, et ce que chaque cible lie.", "exe"],
+        "preset:build": ["Build", "Sources, cibles de build / paquets et leurs dépendances.", "Quelles sources sont compilées dans quel exécutable / bibliothèque, et ce que chaque cible lie.", "exe"],
         "preset:all": ["Tout", "Toutes les catégories et relations.", "Tout le graphe, méthodes et tests compris. Sur un gros projet, utiliser les filtres ensuite.", "overview"],
         "kind:header": ["Header", "Fichier d'en-tête (.hpp, .h...).", "Déclare les classes, fonctions et types. Il est inclus par les sources et les autres headers, et définit des types.", "header"],
-        "kind:source": ["Source", "Fichier source (.cpp, .c...).", "Implémente les fonctions et méthodes. Il inclut des headers et est compilé dans une cible CMake.", "source"],
+        "kind:source": ["Source", "Fichier source (.cpp, .py, .ts, .java, .go, .rs...).", "Implémente les fonctions, classes et méthodes. Il inclut / importe d'autres fichiers et fait partie d'une cible de build (cible CMake ou paquet).", "source"],
         "kind:test-file": ["Fichier de test", "Fichier du dossier tests/.", "Contient des cas de test et référence les classes qu'il teste.", "testFile"],
         "kind:class": ["Classe", "Classe C++ (déclarée avec class).", "Définie par un header, elle a des méthodes (membre) et peut hériter d'autres classes.", "cls"],
         "kind:struct": ["Struct", "Structure de données (struct).", "Souvent un type de données simple défini dans un header de types (XType.hpp).", "enumT"],
@@ -2456,16 +2873,18 @@ function extractGraph(files, opts) {
         "kind:method": ["Méthode", "Méthode d'une classe.", "Reliée à sa classe par « membre ». Les méthodes surchargées n'apparaissent qu'une fois (nombre de surcharges dans les détails).", "method"],
         "kind:test": ["Test", "Cas de test (TEST, TEST_F, TEST_P).", "Défini par un fichier de test.", "test"],
         "kind:test-helper": ["Aide de test", "Classe ou fonction écrite pour les tests (fixture, mock).", "Ex. un mock qui implémente une interface pour tester le code qui l'utilise.", "helper"],
-        "kind:executable": ["Exécutable", "Cible CMake add_executable.", "Les sources qui y sont compilées pointent vers elle ; elle pointe vers les bibliothèques qu'elle lie.", "exe"],
-        "kind:library": ["Bibliothèque", "Cible CMake add_library (.a / .so).", "Les sources y sont compilées ; elle peut lier d'autres bibliothèques.", "lib"],
+        "kind:executable": ["Exécutable", "Programme : CMake add_executable, ou un paquet avec un point d'entrée (main, bin, scripts).", "Les sources qui y sont compilées pointent vers elle ; elle pointe vers les bibliothèques qu'elle lie.", "exe"],
+        "kind:library": ["Bibliothèque", "Bibliothèque : CMake add_library, ou un paquet (package.json, pyproject, Cargo, go.mod, pom...).", "Les sources y sont compilées ; elle peut lier d'autres bibliothèques.", "lib"],
+        "kind:page": ["Page", "Page HTML (.html).", "Pointe vers les scripts, feuilles de style et pages qu'elle charge ou lie (script src, link href, a href).", "header"],
+        "kind:style": ["Feuille de style", "Feuille de style (.css, .scss, .sass, .less).", "Importée par les pages et les composants ; pointe vers les feuilles qu'elle @importe.", "header"],
         "kind:external": ["Externe", "Dépendance hors du projet (bibliothèque système, classe de base d'une lib).", "Apparaît par un #include <...> ou un target_link_libraries : utils, gtest, openssl...", "ext"],
-        "link:includes": ["inclut", "Un fichier fait #include d'un autre.", "Flèche du fichier qui inclut vers le fichier inclus (ou la bibliothèque externe).", ["includes", ["Server.cpp", "source"], ["Server.hpp", "header"]]],
+        "link:includes": ["inclut / importe", "Un fichier en inclut / importe un autre.", "Flèche du fichier vers le fichier qu'il inclut / importe (import, require, use, using, script / link d'une page, @import d'une feuille de style), ou vers le paquet externe.", ["includes", ["Server.cpp", "source"], ["Server.hpp", "header"]]],
         "link:defines": ["définit", "Un fichier déclare un type, une fonction ou un test.", "Flèche du fichier vers ce qu'il définit.", ["defines", ["Server.hpp", "header"], ["Server", "class"]]],
         "link:member": ["membre", "Une méthode (ou un enum interne) appartient à une classe.", "Flèche de la classe vers sa méthode.", ["member", ["Server", "class"], ["listen()", "method"]]],
         "link:inherits": ["hérite de", "Une classe dérive d'une autre.", "Flèche de la classe dérivée vers la classe de base.", ["inherits", ["TCPSocket", "class"], ["ASocket", "abstract"]]],
         "link:implements": ["implémente", "Une source définit les méthodes d'une classe.", "Flèche du .cpp vers la classe dont il contient les définitions (Server::listen...).", ["implements", ["Server.cpp", "source"], ["Server", "class"]]],
-        "link:compiled-into": ["compilé dans", "Une source fait partie d'une cible CMake.", "Flèche de la source vers l'exécutable ou la bibliothèque qui la compile (liste SRC).", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
-        "link:links": ["lié à", "Une cible CMake lie une bibliothèque.", "Flèche de la cible vers la bibliothèque (target_link_libraries).", ["links", ["app", "executable"], ["utils", "external"]]],
+        "link:compiled-into": ["compilé dans", "Une source fait partie d'une cible de build.", "Flèche de la source vers l'exécutable / la bibliothèque qui la compile (liste SRC de CMake) ou vers le paquet de son dossier.", ["compiled-into", ["main.cpp", "source"], ["app", "executable"]]],
+        "link:links": ["lié à", "Une cible lie une bibliothèque / un paquet dépend d'un autre.", "Flèche de la cible vers la bibliothèque (target_link_libraries) ou du paquet vers sa dépendance (manifeste).", ["links", ["app", "executable"], ["utils", "external"]]],
         "link:tests": ["teste", "Un fichier de test utilise une classe.", "Flèche du fichier de test vers la classe qu'il référence : une classe sans flèche entrante « teste » n'est pas couverte.", ["tests", ["tests/Server.cpp", "test-file"], ["Server", "class"]]],
         modeFlow: ["Schémas", "Flux d'exécution, arbre d'héritage ou flame graph du projet.", "Schémas lisibles construits à partir des relations du graphe : le flux d'exécution depuis un point d'entrée (qui appelle quoi, les méthodes d'une classe regroupées), l'arbre d'héritage des classes et un flame graph de l'arbre d'appels. Les appels sont lus dans le corps des fonctions C / C++ (statique : pas de temps d'exécution).", ["calls", ["main()", "function"], ["run()", "method"]]],
         "flow:exec": ["Exécution", "Appels depuis un point d'entrée, niveau par niveau.", "Part de main() (ou du point d'entrée de la liste) et suit les appels : chaque niveau est un appel plus profond, les méthodes d'une même classe sont regroupées dans un cadre pointillé, une flèche pointillée revient à un niveau précédent (boucle ou récursion). Double clic sur une boîte pour partir d'elle.", ["calls", ["run()", "method"], ["exec()", "method"]]],
@@ -2475,7 +2894,7 @@ function extractGraph(files, opts) {
         "link:calls": ["appelle", "Une fonction / méthode en appelle une autre.", "Flèche de l'appelant vers la fonction, la méthode ou la classe (construction) appelée. Lue dans le corps des fonctions, résolue par le nom et par le type des objets.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Groupe", "Dossier de module (include/<projet>/<module>, src/..., tests/<module>).", "Chaque nœud appartient au module de son fichier. Désactiver un groupe masque tout ce qui en vient ; « Couleur par groupe » et « Rapprocher par groupe » rendent le découpage visible.", "groups"],
         "group:external": ["Groupe externe", "Tout ce qui vient de l'extérieur du projet.", "Bibliothèques liées ou incluses et classes de base appartenant à une bibliothèque.", "ext"],
-        "group:build": ["Groupe build", "Les cibles CMake.", "Exécutables et bibliothèques déclarés dans les CMakeLists.txt.", "exe"]
+        "group:build": ["Groupe build", "Les cibles de build et les paquets.", "Exécutables et bibliothèques des CMakeLists.txt et paquets des manifestes (package.json, pyproject.toml, Cargo.toml, go.mod...).", "exe"]
     };
     const tip = $("tip");
     let tipTimer = null, tipEl = null, tipBlocked = null; // tipBlocked: control clicked (open list): no tooltip until it loses the focus
