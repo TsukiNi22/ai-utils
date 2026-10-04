@@ -5,7 +5,7 @@
 #include <iostream>
 #include <cstdlib>
 
-[[gnu::cold]] [[nodiscard]] int main(int argc, const char* argv[])
+[[gnu::cold]] int main(int argc, char* argv[])
 {
     // Init core class ...
     {{NAMESPACE}}::{{CLASS}} core;

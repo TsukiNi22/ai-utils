@@ -25,13 +25,15 @@ from os import geteuid
 
 # Try to install dependencies (failsafe)
 try:
-    # Avoid pip install when running as root
-    if geteuid() != 0:
+    # Avoid pip install when running as root or without any requirement
+    with open(FILES.REQUIREMENTS, "r", encoding="utf-8") as f:
+        has_requirements = any(line.strip() and not line.strip().startswith("#") for line in f)
+    if has_requirements and geteuid() != 0:
         from sys import executable
         from subprocess import check_call
         check_call([executable, "-m", "ensurepip", "--upgrade"])
         check_call([executable, "-m", "pip", "install", "-r", FILES.REQUIREMENTS])
-    else:
+    elif has_requirements:
         stdout.write("Running as root: skipping Python dependency installation\n")
 except Exception: pass
 
@@ -65,6 +67,13 @@ for json_file in Path(FILES.CONFIG_EXCEPTION).rglob("*.json"):
     with json_file.open("r", encoding="utf-8") as f:
         json_content = json.load(f)
         for error in json_content.get("errors", []):
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", error["code"]) or error["code"] == "Undefined":
+                stderr.write(f"Invalid error code in '{json_file}': '{error['code']}' (C++ identifier, 'Undefined' is reserved)\n")
+                stderr.write(f"Auto generated header '{FILES.GENERATED_EXCEPTION_HEADER}': FAIL\n")
+                exit(RETURN.KO)
+            for t in error.get("restrictions", []):
+                if t not in VALUES.EXCEPTION_TYPE:
+                    stderr.write(f"Unknown restriction '{t}' for the error code '{error['code']}' (ignored)\n")
             if data.__contains__(error["code"]):
                 stderr.write(f"Duplicated error code encoutered in data extraction '{error['code']}'\n")
                 stderr.write(f"Auto generated header '{FILES.GENERATED_EXCEPTION_HEADER}': FAIL\n")
@@ -81,10 +90,10 @@ for i, (code, [message, info, restriction]) in enumerate(data_list):
     # code
     code_str += f"    {code} = {uint64_hash(code + NAMES.CODE_SECTION)}ull,"
     # message
-    escaped_message = message.replace('"', r'\"')
+    escaped_message = message.replace('\\', r'\\').replace('"', r'\"').replace('\n', r'\n')
     message_str += f'    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::{code}, "{escaped_message}"}},'
     # info
-    escaped_info = info.replace('"', r'\"')
+    escaped_info = info.replace('\\', r'\\').replace('"', r'\"').replace('\n', r'\n')
     info = ("nullptr" if escaped_info == "[None]" else f'"{escaped_info}"')
     info_str += f'    {{{NAMES.EXCEPTION_SCOPE}::{NAMES.CODE_SECTION}::{code}, {info}}},'
     # restriction

@@ -30,7 +30,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: /github/home/.cache/ccache
-          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp', '**/*.hpp', 'cmake/libs/*.a', 'CMakeLists.txt') }}
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp', '**/*.hpp', 'cmake/config/exceptions/*.json', 'CMakeLists.txt') }}
           restore-keys: |
             ccache-${{ runner.os }}-
 
@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           for executable in $(echo $EXECUTABLES | tr ',' ' ' | xargs); do
             if [ ! -f "./$executable" ]; then
-              echo "::error title=Missing executable, file=$executable::Executable '$executable' not found"
+              echo "::error title=Missing executable,file=$executable::Executable '$executable' not found"
               exit 1
             fi
             if [ ! -x "$executable" ]; then

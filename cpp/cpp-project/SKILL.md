@@ -7,14 +7,20 @@ description: Set up a new C++20 project in Tsukini's way from the cpp_project_te
 
 The base is always **`cpp_project_template`** (local clone `~/personal_delivery/cpp/cpp_project_template`,
 otherwise `https://github.com/TsukiNi22/cpp_project_template.git`): executable `template`, core class `Core`
-(`init(argc, argv)` with an `ArgParser` + `--verbose`, `run()`), `main.cpp`, libutils, exception JSON + generator,
-`Makefile`, `Doxyfile`, `.gitignore`, CI `build.yml`. Then adapt it with the other skills:
+(`init(argc, argv)` with an `ArgParser` + `--verbose`, `run()`), `main.cpp` (catches the libutils and the standard
+exceptions), libutils `>= 3.0.0`, exception JSON + generator (checks the codes are C++ identifiers, `Undefined`
+reserved), `Makefile`, `Doxyfile`, `.gitignore` (`/<name>`, `/build`, `compile_commands.json`, `/.cache`), CI
+`build.yml`. Skill synced with the template at `aa33b8b` (2026-10-05, libutils v3): when its `HEAD` is newer
+(`git -C <clone> log --oneline aa33b8b..origin/main`), check what changed against the steps below and the copies
+in the other skills (workflows, exception scripts, `main.cpp`, CMake templates) before relying on them. Then adapt it with the other skills:
 `cmake-style` (CMake), `cpp-class` (files, header question, main), `libutils-exception` (codes),
 `readme-style`, `git-conventions` (CHANGELOG, commits, branches), `html-doc` (docs). Load each one when its step comes.
 `SKILL_DIR` = the directory of this file.
 
 ## 1. Ask (one AskUserQuestion call, French)
-Name (lower case, `-` allowed) and core class (PascalCase) are usually in the request: ask in plain text if missing.
+Name (lower case, `_` preferred: the template's own `setup.sh` only accepts C++ identifiers; `-` is accepted by
+`new_project.sh`, which then uses the name without `-` as namespace) and core class (PascalCase) are usually in the
+request: ask in plain text if missing.
 1. **Type de projet**: `Binaire` · `Binaire + paquets RPM/DEB` · `Bibliothèque (.a / .so, installable)` · `Header-only`.
    For a library, ask after: static `.a` (default) or shared `.so`, and with or without packages.
 2. **CI/CD**: `Build simple (Recommandé)` (build check on push) · `Complète` (dispatch, unit tests, packages,
@@ -35,7 +41,7 @@ header dates to today, writes a minimal README, fills the `.gitignore` block (st
 ## 3. Adapt by type (rules and templates of `cmake-style`)
 | Type | CMake | Sources |
 |---|---|---|
-| Binaire | keep the template CMake (already in style); set `find_package(utils <version>)` to the version used (`/usr/include/utils/version.hpp`) | keep `main.cpp`, `<Core>-init.cpp`, `<Core>.cpp` |
+| Binaire | keep the template CMake (already in style); `find_package(utils 3.0.0)` minimum (the template needs v3: sections + `_Attribute`, new names), higher if the project uses something newer (`/usr/include/utils/version.hpp`); an installed libutils older than 3.0.0 -> `libutils-install` | keep `main.cpp`, `<Core>-init.cpp`, `<Core>.cpp` |
 | Binaire + paquets | `cmake-style/templates/app/CMakeLists.txt` (Options, CPack, install), keep the `SRC` list of the template | same + root `setup.sh` from `templates/install.sh` |
 | Bibliothèque `.a` / `.so` | `cmake-style/templates/lib/CMakeLists.txt` + `cmake/package/<name>Config.cmake.in` (`SHARED` + `OUTPUT_NAME` for `.so`) | remove `main.cpp` and `<Core>-init.cpp` (`ArgParser` is for executables); public headers in `include/<name>/` |
 | Header-only | lib template with `src/nothing.cpp` + the `message(WARNING ...)` (`cmake-style`) | headers only |

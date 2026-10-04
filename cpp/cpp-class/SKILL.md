@@ -34,8 +34,9 @@ The files of `examples/` (real libutils code) are the ground truth for the layou
 - Entry point (new project, or when asked for a `main`): `src/<root>/main.cpp` from `templates/main.cpp`
   (the same in context-forge, virtual-os, cpp_project_template): it only creates the core class, calls
   `init(argc, argv)` then `run()`, catches `utils::exception::IException` (`Exit` code -> `OK`, otherwise print
-  `formated()` and return `KO`) and returns `core.exit()` (`return OK;` when the core class has no `exit`).
-  This wiring is the only body written by the skill. Create the core class with it if it doesn't exist:
+  `formated()` and return `KO`) then `std::exception` (print `what()`, return `KO`), and returns `core.exit()` (`return OK;` when the core class has no `exit`).
+  Signature `_cold int main(int argc, char* argv[])` (never `_nodiscard`, never `const char*` argv: not a
+  standard `main` form). This wiring is the only body written by the skill. Create the core class with it if it doesn't exist:
   `void init(int argc, const char *const argv[]);`, `void run(void);`, `int exit(void) const;` as
   Pre-Functions with empty bodies. Register `main.cpp` first in `SRC`, under `# Entry`
   (`cmake_add.py ... --group Entry`). `std` mode: `templates/main-std.cpp` (`std::exception`, `EXIT_FAILURE`).

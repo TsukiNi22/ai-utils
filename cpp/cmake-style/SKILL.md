@@ -25,15 +25,17 @@ Full real examples: `~/personal_delivery/cpp/libutils/CMakeLists.txt` (library +
 ```cmake
 cmake_minimum_required(VERSION 3.20)
 set(TARGET <name>)
+set(CMAKE_CXX_COMPILER clang++)
 project(${TARGET} VERSION <x.y.z> LANGUAGES CXX)
 
 # =========================
 # Options
 # =========================
 ```
-Sections, each introduced by the 3-line banner (`# ` + 25 `=`), one empty line before the next banner:
+`set(CMAKE_CXX_COMPILER clang++)` goes **before `project()`**: the compiler is detected by `project()`, set after
+it is ignored (or re-runs the configuration). Sections, each introduced by the 3-line banner (`# ` + 25 `=`), one empty line before the next banner:
 1. `Options` - `option(<NAME>_STABLE_RELEASE "Channel as stable release" OFF)`, `option(BUILD_TESTS "Build unit tests" OFF)`, project specific `<NAME>_*`.
-2. `Compilateur & Standard` (exact title) - C++20 required, no extensions, `clang++`, PIC, output dir for executables, global definitions.
+2. `Compilateur & Standard` (exact title) - C++20 required, no extensions, PIC, output dir for executables, global definitions.
 3. `Requirement` - `find_package(...)` with a trailing comment saying why, `pkg_check_modules(... IMPORTED_TARGET ...)`, then the ccache block.
 4. `Warnings` - `add_compile_options(-W -Wall -Wextra -Wpedantic -Wunused-parameter -Wshadow -Wuninitialized)` one flag per line.
 5. `Sources` - explicit `set(SRC ...)` then `add_executable` / `add_library` right after the list.

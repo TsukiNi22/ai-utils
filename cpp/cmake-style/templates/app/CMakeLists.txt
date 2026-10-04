@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET <name>)
+set(CMAKE_CXX_COMPILER clang++)
 project(${TARGET} VERSION <x.y.z> LANGUAGES CXX)
 
 # =========================
@@ -14,7 +15,6 @@ option(BUILD_TESTS "Build unit tests" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_COMPILER clang++)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}) # TARGET destination
 set(CMAKE_POSITION_INDEPENDENT_CODE ON) # Moderne compilation -fPIE
 add_compile_definitions(BACKWARD_COMPATIBILITY_WARNING) # To check internal usage for potential depreacted function
