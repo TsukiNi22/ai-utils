@@ -16,7 +16,7 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`/cpp`](routers/cpp/SKILL.md) | `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `cpp-tests`, `audit-bugs`, `audit-quality`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup` |
 | [`/git`](routers/git/SKILL.md) | `git-conventions` |
 | [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `pdf-report`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
-| [`/style`](routers/style/SKILL.md) | `cpp-style`, `code-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
+| [`/style`](routers/style/SKILL.md) | `cpp-style`, `coding-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
 | [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps` (and the future legal skills) |
 | [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-quality`, `audit-deps`, tests coverage) and the report format, runs them and writes a summary report in `audit/` |
 
@@ -36,7 +36,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 |---|---|
 | [`cpp-class`](cpp/cpp-class/SKILL.md) | Sets up a C++20 architecture / new `.hpp` & `.cpp` files (interface `I*`, abstract `A*`, class, template, `Type`/`Define`, family headers, `main.cpp` entry point) with the namespaces, the Xartania header and **empty bodies only** (never the logic), picks libutils attributes or standard `[[...]]` ones and registers the sources in the `CMakeLists.txt`. Requires `cpp-style` & `cpp-comments`. |
 | [`cpp-style`](cpp/cpp-style/SKILL.md) | My C++ coding style: naming, indentation, braces, spacing, loops, switch, lambdas, const correctness, attributes. |
-| [`code-style`](style/code-style/SKILL.md) | My coding style for every language other than C++ (Python, shell, Lua, JS/TS, C, Rust/Go, YAML/JSON), derived from `cpp-style` and my real scripts. |
+| [`coding-style`](style/coding-style/SKILL.md) | My coding style for every language other than C++ (Python, shell, Lua, JS/TS, C, Rust/Go, YAML/JSON), derived from `cpp-style` and my real scripts. |
 | [`cpp-comments`](cpp/cpp-comments/SKILL.md) | How I comment C++ code: section separators, `/* group */` labels, aligned trailing comments, no Doxygen. |
 | [`git-conventions`](git/git-conventions/SKILL.md) | Commit messages `type(scope): message`, CI keywords, tags, GitHub releases, CHANGELOG, branches (`main` alone when solo; `main`/`dev`/`sub/`/`feat/`/`fix/` in a team) and PRs (CHANGELOG-style body, `gh` assignee/labels), no AI attribution. |
 | [`readme-style`](docs/readme-style/SKILL.md) | README / Markdown docs structure: Table of Contents, Dependencies, Packages, Quick Setup, Usage, GitHub callouts, tables. |
@@ -128,7 +128,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
 | `doc-skills` | readme-style, html-doc, pdf-report |
 | `git-skills` | git-conventions |
-| `style-skills` | code-style, comments |
+| `style-skills` | coding-style, comments |
 | `test-skills` | tests, cpp-tests |
 | `audit-skills` | audit-bugs, audit-quality, audit-deps |
 | `legal-skills` | license |
@@ -168,7 +168,7 @@ routers/   dev, cpp, git, doc, style, legal, audit   (manual /commands that load
 cpp/       cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style
 libutils/  libutils, libutils-exception, libutils-install, libutils-setup
 tests/     tests, cpp-tests
-style/     code-style, comments
+style/     coding-style, comments
 docs/      readme-style, html-doc, pdf-report
 git/       git-conventions
 audit/     audit-bugs, audit-quality, audit-deps

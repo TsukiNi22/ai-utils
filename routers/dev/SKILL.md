@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, git, doc, style and legal routers: cpp-project, cpp-class, cpp-style, code-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc, pdf-report, license, audit-deps) before doing the task.
+description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, git, doc, style and legal routers: cpp-project, cpp-class, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc, pdf-report, license, audit-deps) before doing the task.
 disable-model-invocation: true
 ---
 
@@ -44,8 +44,8 @@ The category routers (`cpp`, `git`, `doc`, `style`, `legal`, `audit`) are manual
 | a deliverable as PDF (report, study, benchmark) | `pdf-report` | `doc` |
 | license (choose, add, replace, compatibility) | `license` | `legal` |
 | dependencies: licenses to credit / restrictive / paid, vulnerabilities | `audit-deps` | `legal` |
-| style only (format / review like the user) | `cpp-style`, `cpp-comments`, `code-style` (other languages), `cmake-style`, `comments` by file type | `style` |
-| code in another language than C++ (Python, shell, Lua, JS/TS, C...) | `code-style` + `comments` | `style` |
+| style only (format / review like the user) | `cpp-style`, `cpp-comments`, `coding-style` (other languages), `cmake-style`, `comments` by file type | `style` |
+| code in another language than C++ (Python, shell, Lua, JS/TS, C...) | `coding-style` + `comments` | `style` |
 | README, wiki, Markdown docs | `readme-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |
 | commit, branch, PR, tag, release, CHANGELOG | `git-conventions` | `git` |

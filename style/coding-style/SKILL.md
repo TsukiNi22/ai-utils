@@ -1,5 +1,5 @@
 ---
-name: code-style
+name: coding-style
 description: Tsukini's coding style for every language other than C++ (derived from cpp-style and from his real Python, shell, Lua, YAML and CMake code) - naming, 4-space indentation, layout in sections, error handling, explicit types, English. Python, shell/bash, Lua, JavaScript/TypeScript, Rust, Go, Java/C#, C, YAML/JSON and a fallback for any language. Use whenever writing, editing, refactoring or reviewing non-C++ code for the user (C++: cpp-style; CMake: cmake-style; comments: comments).
 ---
 

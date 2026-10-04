@@ -1,1 +1,1 @@
-cpp-style cpp-comments code-style comments cmake-style audit-quality
+cpp-style cpp-comments coding-style comments cmake-style audit-quality
