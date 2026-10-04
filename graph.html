@@ -180,7 +180,8 @@ select { width: auto; }
 .flowbar[hidden], .flowbar select[hidden] { display: none; }
 .flowbar .seg { box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
 .flowbar select { max-width: 260px; }
-.repo-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+.repo-bar { display: flex; gap: 8px; margin-bottom: 12px; align-items: stretch; }
+.repo-bar .btn { padding: 0 14px; flex: none; }
 .repo-bar[hidden] { display: none; }
 .repo-bar input { flex: 1; min-width: 0; }
 .repo-card input { width: 100%; margin: 6px 0 8px; }
@@ -189,7 +190,8 @@ select { width: auto; }
 .repo-ex { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .repo-ex button { border: 1px solid var(--border); background: var(--code-bg); color: var(--text); border-radius: 6px; padding: 2px 8px; font: inherit; cursor: pointer; }
 .repo-ex button:hover { border-color: var(--accent); color: var(--accent); }
-.repo-actions { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+.repo-actions { display: flex; justify-content: flex-end; margin: 14px 0 14px; }
+.repo-actions .btn { padding: 8px 20px; }
 .brand .ver:empty { display: none; }
 .controls-btn {
   position: absolute; left: 14px; bottom: 14px; width: 34px; height: 34px; border-radius: 50%;
@@ -492,7 +494,7 @@ html, body { overscroll-behavior: none; }
     <div class="repo-err" id="repoErr" hidden></div>
     <div class="repo-ex"><span data-i18n>Examples:</span> <button type="button" data-ex="TsukiNi22/context-forge">TsukiNi22/context-forge</button> <button type="button" data-ex="psf/requests">psf/requests</button> <button type="button" data-ex="spf13/cobra">spf13/cobra</button> <button type="button" data-ex="https://gitlab.com/gitlab-org/cli">gitlab.com/gitlab-org/cli</button></div>
     <div class="repo-actions"><button class="btn primary" type="submit" data-i18n>Open</button></div>
-    <p class="muted small" data-i18n>The link is remembered by this browser until Ctrl + Shift + F3.</p>
+    <p class="muted small" data-i18n>The link is remembered by this browser until Ctrl + Shift + R (forgets it and reloads the page).</p>
   </form>
 </div>
 <div class="helpcard-back" id="helpBack" hidden>
@@ -630,10 +632,10 @@ window.DOC_FR = {
   "Which repository?": "Quel dépôt ?",
   "A public GitHub or GitLab repository: its sources are read by your browser to draw the graph of its files, classes, functions, calls, tests and packages.": "Un dépôt GitHub ou GitLab public : ses sources sont lues par ton navigateur pour dessiner le graphe de ses fichiers, classes, fonctions, appels, tests et paquets.",
   "Examples:": "Exemples :",
-  "The link is remembered by this browser until Ctrl + Shift + F3.": "Le lien est mémorisé par ce navigateur jusqu'à Ctrl + Maj + F3.",
   "Unsupported link: a GitHub (owner/repo, github.com/...) or GitLab (gitlab.com/..., a self-hosted GitLab) repository.": "Lien non pris en charge : un dépôt GitHub (owner/repo, github.com/...) ou GitLab (gitlab.com/..., un GitLab auto-hébergé).",
   "Choose a repository to explore.": "Choisis un dépôt à explorer.",
-  "GitLab API rate limit reached": "Limite de l'API GitLab atteinte"
+  "GitLab API rate limit reached": "Limite de l'API GitLab atteinte",
+  "The link is remembered by this browser until Ctrl + Shift + R (forgets it and reloads the page).": "Le lien est mémorisé par ce navigateur jusqu'à Ctrl + Maj + R (l'oublie et recharge la page)."
 };
 </script>
 <script>
@@ -1791,9 +1793,10 @@ function extractGraph(files, opts) {
         for (const l of links) if (l.target === e) l.target = p.id;
         nodes.delete(e);
     }
+    const entryPaths = new Set([...nodes.values()].filter(x => x.entry).map(x => x.path));
     for (const p of pkgs) {
         const n = nodes.get(p.id);
-        if (n.kind === "library" && links.some(l => l.kind === "compiled-into" && l.target === p.id && [...nodes.values()].some(x => x.entry && x.path === nodes.get(l.source).path))) n.kind = "executable";
+        if (n.kind === "library" && links.some(l => l.kind === "compiled-into" && l.target === p.id && entryPaths.has(nodes.get(l.source).path))) n.kind = "executable";
     }
 
 
@@ -1853,7 +1856,7 @@ extractGraph.wanted = function (p) {
         kinds: new Set(PRESETS.overview[0]), linkKinds: new Set(PRESETS.overview[1]), groups: new Set(), knownGroups: new Set(),
         mode: "2d", colorBy: "kind", cluster: false, labels: true, particles: false, isolate: false, search: "",
         visible: [], vlinks: [], neighbors: new Map(), selected: null, hover: null,
-        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: VIEW.yaw, pitch: VIEW.pitch, dist: 600}, style3d: "real", flowView: "exec", flowRoot: null, flamePath: [], flow: null, flowHit: null, cams: {}, w: 0, h: 0, dpr: 1, colors: {}
+        alpha: 1, paused: false, cam: {x: 0, y: 0, z: 0, k: 1, yaw: VIEW.yaw, pitch: VIEW.pitch, dist: 600}, style3d: "real", flowSel: new Set(), lock: null, flowView: "exec", flowRoot: null, flamePath: [], flow: null, flowHit: null, cams: {}, w: 0, h: 0, dpr: 1, colors: {}
     };
 
     window.graphState = state;
@@ -1987,13 +1990,70 @@ extractGraph.wanted = function (p) {
     }
 
     // ---------- Simulation ---------- //
+    // Barnes-Hut repulsion: an octree (quadtree in 2D) of the nodes, a far cell acts as one body at its center of mass.
+    // Same force as the exact loop (strength / d², cut at 500, collision of the close pairs), approximated for the far cells.
+    function repulseTree(P, R, strength, d3) {
+        let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+        for (const p of P) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); if (d3) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } }
+        if (!d3) { z0 = 0; z1 = 0; }
+        const half = Math.max(x1 - x0, y1 - y0, z1 - z0, 1) / 2 + 1;
+        const cell = (cx, cy, cz, h) => ({cx, cy, cz, h, m: 0, mx: 0, my: 0, mz: 0, body: -1, kids: null});
+        const root = cell((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, half);
+        const child = (c, p) => (p.x > c.cx ? 1 : 0) + (p.y > c.cy ? 2 : 0) + (d3 && p.z > c.cz ? 4 : 0);
+        const insert = (c, i, depth) => {
+            const p = P[i];
+            c.m++; c.mx += p.x; c.my += p.y; c.mz += d3 ? p.z : 0;
+            if (!c.kids && c.body < 0 && c.m === 1) { c.body = i; return; }
+            if (depth > 40) return; // same position: kept in the mass only
+            if (!c.kids) {
+                c.kids = new Array(d3 ? 8 : 4).fill(null);
+                const old = c.body; c.body = -1;
+                if (old >= 0) put(c, old, depth);
+            }
+            put(c, i, depth);
+        };
+        const put = (c, i, depth) => {
+            const k = child(c, P[i]), h = c.h / 2;
+            if (!c.kids[k]) c.kids[k] = cell(c.cx + (k & 1 ? h : -h), c.cy + (k & 2 ? h : -h), c.cz + (k & 4 ? h : -h), h);
+            insert(c.kids[k], i, depth + 1);
+        };
+        for (let i = 0; i < P.length; i++) insert(root, i, 0);
+        const THETA2 = 0.81, stack = [];
+        for (let i = 0; i < P.length; i++) {
+            const p = P[i];
+            stack.length = 0; stack.push(root);
+            while (stack.length) {
+                const c = stack.pop();
+                if (!c.m || (c.body === i && !c.kids)) continue;
+                const mx = c.mx / c.m, my = c.my / c.m, mz = c.mz / c.m;
+                let dx = p.x - mx, dy = p.y - my, dz = d3 ? p.z - mz : 0, d2 = dx * dx + dy * dy + dz * dz;
+                const size = c.h * 2;
+                if (c.kids && size * size >= THETA2 * d2) { for (const k of c.kids) if (k) stack.push(k); continue; }
+                if (d2 > 250000 + size * size) continue; // beyond the cut of the exact loop
+                if (!c.kids && c.body >= 0) { // a single node: exact force + collision
+                    const j = c.body;
+                    if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+                    if (d2 < 25) d2 = 25;
+                    let f = strength / d2;
+                    const min = R[i] + R[j] + LAYOUT.gap;
+                    if (d2 < min * min) f += 0.5 * (min - Math.sqrt(d2)) / Math.sqrt(d2);
+                    p.vx += dx * f; p.vy += dy * f; if (d3) p.vz += dz * f;
+                    continue;
+                }
+                if (d2 < 25) d2 = 25;
+                const f = strength * c.m / d2; // far cell: one body of mass m
+                p.vx += dx * f; p.vy += dy * f; if (d3) p.vz += dz * f;
+            }
+        }
+    }
     function tick() {
         const nodes = state.visible, n = nodes.length;
         if (!n || state.paused || state.alpha < 0.004 || state.mode === "flow") return false;
         const a = state.alpha, d3 = state.mode === "3d";
         const P = nodes.map(x => state.pos.get(x.id));
         const strength = LAYOUT.repulsion * a, R = nodes.map(radiusOf);
-        for (let i = 0; i < n; i++) {
+        if (n > 300) repulseTree(P, R, strength, d3); // big graphs: Barnes-Hut (n log n) instead of every pair
+        else for (let i = 0; i < n; i++) {
             const p = P[i];
             for (let j = i + 1; j < n; j++) {
                 const q = P[j];
@@ -2127,16 +2187,38 @@ extractGraph.wanted = function (p) {
     }
     // The sphere looks the same for every node of a colour (only the angle of the camera changes it): one sprite per
     // colour and size bucket, redrawn when the angle changes, then scaled to each node (fast with many nodes)
-    const SPRITES = {key: "", map: new Map()};
+    const SPRITES = {key: "", map: new Map(), real: new Map()};
     function withSnapped(f) { // run f with the camera at the snapped angle of the sprites
         const c = state.cam, y = c.yaw, p = c.pitch;
         c.yaw = SPRITES.yaw; c.pitch = SPRITES.pitch;
         try { return f(); } finally { c.yaw = y; c.pitch = p; }
     }
+    function snapSprites() { // the sprites are drawn for the camera angle snapped to ~1.5°: rebuilt only when it changes
+        const Q = 0.026, qy = Math.round(state.cam.yaw / Q), qp = Math.round(state.cam.pitch / Q), key = qy + "," + qp + "," + state.dpr;
+        if (SPRITES.key !== key) { SPRITES.key = key; SPRITES.map.clear(); SPRITES.real.clear(); SPRITES.yaw = qy * Q; SPRITES.pitch = qp * Q; }
+    }
+    function realSprite(color, r) { // realistic node: the shaded sphere (scene light) drawn once per colour / size / angle
+        snapSprites();
+        const R = [8, 16, 32, 64, 128, 256].find(x => x >= r) || 256, id = color + "|" + R;
+        let cv = SPRITES.real.get(id);
+        if (cv) return cv;
+        cv = document.createElement("canvas");
+        const m = R + 2, size = Math.ceil(2 * m * state.dpr), g = cv.getContext("2d");
+        cv.width = cv.height = size; g.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+        const light = withSnapped(() => rotateDir(...LIGHT));
+        g.beginPath(); g.arc(m, m, R, 0, Math.PI * 2); g.fillStyle = color; g.fill();
+        const hx = m + light.x * R * 0.55, hy = m + light.y * R * 0.55, front = Math.max(0, -light.z);
+        const hl = g.createRadialGradient(hx, hy, R * 0.05, hx, hy, R * 1.75);
+        hl.addColorStop(0, "rgba(255,255,255," + (0.25 + 0.5 * front).toFixed(2) + ")"); hl.addColorStop(0.25, "rgba(255,255,255,.1)");
+        hl.addColorStop(0.55, "rgba(0,0,0,0)"); hl.addColorStop(1, "rgba(0,0,0,.55)");
+        g.fillStyle = hl; g.fill();
+        cv.R = R;
+        SPRITES.real.set(id, cv);
+        return cv;
+    }
     function sphereSprite(color, r, mesh) {
         // angle snapped to ~1.5°: the sprites are rebuilt only every few frames while rotating (invisible difference)
-        const Q = 0.026, qy = Math.round(state.cam.yaw / Q), qp = Math.round(state.cam.pitch / Q), key = qy + "," + qp + "," + state.dpr;
-        if (SPRITES.key !== key) { SPRITES.key = key; SPRITES.map.clear(); SPRITES.yaw = qy * Q; SPRITES.pitch = qp * Q; }
+        snapSprites();
         const R = [16, 32, 64, 128, 256].find(x => x >= r) || 256, id = color + "|" + R;
         let cv = SPRITES.map.get(id);
         if (cv) return cv;
@@ -2394,17 +2476,15 @@ extractGraph.wanted = function (p) {
             if (d3 && !real && r > 2.5) {
                 drawPolySphere(p.x, p.y, r, colorOf(n), mesh);
                 ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); // path for the selection ring below
+            } else if (real && r > 1.6) { // shaded sphere: cached sprite (the light is fixed in the scene, its side turns with the camera)
+                const cv = realSprite(colorOf(n), r), k = r / cv.R, mm = (cv.R + 2) * k;
+                ctx.drawImage(cv, p.x - mm, p.y - mm, 2 * mm, 2 * mm);
+                ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); // path of the fog and the selection ring
             } else {
                 ctx.fillStyle = colorOf(n);
                 ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
             }
-            if (real) { // shaded sphere (light from the top left) + fog towards the background with the depth
-                // the light is fixed in the scene: its side of the sphere turns with the camera
-                const hx = p.x + light.x * r * 0.55, hy = p.y + light.y * r * 0.55, front = Math.max(0, -light.z);
-                const hl = ctx.createRadialGradient(hx, hy, r * 0.05, hx, hy, r * 1.75);
-                hl.addColorStop(0, "rgba(255,255,255," + (0.25 + 0.5 * front).toFixed(2) + ")"); hl.addColorStop(0.25, "rgba(255,255,255,.1)");
-                hl.addColorStop(0.55, "rgba(0,0,0,0)"); hl.addColorStop(1, "rgba(0,0,0,.55)");
-                ctx.fillStyle = hl; ctx.fill();
+            if (real) { // fog towards the background with the depth
                 const t = depth(p.z);
                 if (t > 0.02) { ctx.globalAlpha = base * 0.62 * t; ctx.fillStyle = C.bg; ctx.fill(); ctx.globalAlpha = base; }
             }
@@ -2438,6 +2518,7 @@ extractGraph.wanted = function (p) {
         if (keysHeld.has("KeyD")) side += sp; if (keysHeld.has("KeyA")) side -= sp;
         if (keysHeld.has("KeyE")) up += sp; if (keysHeld.has("KeyQ")) up -= sp;
         if (!dx && !dy && !fw && !side && !up) return false;
+        if (dx || dy || fw || side || (up && state.mode === "3d")) state.lock = null; // a move ends the focus of F (zoom keys keep it)
         const c = state.cam;
         if (state.mode !== "3d") {
             c.x += (dx + side) / c.k; c.y += (dy - fw) / c.k;
@@ -2462,8 +2543,17 @@ extractGraph.wanted = function (p) {
         if (id !== state.hover) { state.hover = id; state.dirty = true; canvas.classList.toggle("pointer", !!n); }
         nodeTip(n, mouse.x, mouse.y);
     }
+    function follow() { // focus of F: the camera follows the node while the layout moves
+        if (!state.lock || state.animating || state.mode === "flow") return false;
+        const q = state.pos.get(state.lock), c = state.cam;
+        if (!q) { state.lock = null; return false; }
+        const moved = Math.abs(c.x - q.x) + Math.abs(c.y - q.y) + (state.mode === "3d" ? Math.abs(c.z - q.z) : 0) > 0.01;
+        if (moved) { c.x = q.x; c.y = q.y; if (state.mode === "3d") c.z = q.z; }
+        return moved;
+    }
     function frame() {
         let moved = keyMove();
+        if (follow()) moved = true;
         if (clampCam()) moved = true;
         rehover();
         for (let i = 0; i < (state.visible.length > 900 ? 1 : 2); i++) moved = tick() || moved;
@@ -2497,6 +2587,8 @@ extractGraph.wanted = function (p) {
         if (onGizmo(mx, my)) { resetAngle(); return; }
         const n = pick(mx, my);
         drag = {x: mx, y: my, sx: mx, sy: my, node: n && !(e.shiftKey || e.button === 2) && state.mode !== "flow" ? n : null, clicked: n, pan: e.shiftKey || e.button === 2};
+        if (state.mode === "flow") flowDragStart(drag, mx, my, e);
+        else if (state.mode === "3d" && !drag.node && !drag.pan && !state.lock) repivot(); // orbit around what is in front of the camera
         canvas.setPointerCapture(e.pointerId);
         canvas.classList.add("dragging");
     });
@@ -2517,6 +2609,9 @@ extractGraph.wanted = function (p) {
         const dx = mx - drag.x, dy = my - drag.y;
         drag.x = mx; drag.y = my;
         const c = state.cam;
+        if (drag.boxes) { for (const b of drag.boxes) { b.x += dx / c.k; b.y += dy / c.k; } state.dirty = true; return; } // diagram: move boxes
+        if (drag.band) { drag.band.x1 = mx; drag.band.y1 = my; state.dirty = true; return; } // diagram: selection area
+        if (!drag.node && Math.hypot(mx - drag.sx, my - drag.sy) > 3 && (drag.pan || state.mode !== "3d")) state.lock = null; // a move of the camera ends the focus of F
         if (drag.node) {
             const p = state.pos.get(drag.node.id);
             if (state.mode === "2d") { p.x += dx / c.k; p.y += dy / c.k; }
@@ -2552,11 +2647,23 @@ extractGraph.wanted = function (p) {
     function endDrag(e) {
         if (!drag) return;
         if (drag.node) state.pos.get(drag.node.id).fixed = false;
-        if (Math.hypot(drag.x - drag.sx, drag.y - drag.sy) < 4) select(drag.clicked ? drag.clicked.id : null);
+        const still = Math.hypot(drag.x - drag.sx, drag.y - drag.sy) < 4;
+        if (state.mode === "flow") flowDragEnd(drag, still, e);
+        else if (still) select(drag.clicked ? drag.clicked.id : null);
         drag = null;
         canvas.classList.remove("dragging");
     }
     function onGizmo(mx, my) { return state.mode === "3d" && Math.hypot(mx - GIZMO.x, my - (state.h - GIZMO.x)) <= GIZMO.r; }
+    function repivot() { // the rotation center moves to the depth of what is in front of the camera (closer than the far target)
+        const c = state.cam, cx = state.w / 2, cy = state.h / 2, rad = Math.min(state.w, state.h) * 0.3, ds = [];
+        for (const n of state.visible) { const q = project(state.pos.get(n.id)); if (!q.behind && Math.hypot(q.x - cx, q.y - cy) < rad) ds.push(q.d); }
+        if (!ds.length) return;
+        ds.sort((a, b) => a - b);
+        const d = Math.max(60, Math.min(ds[Math.floor((ds.length - 1) * 0.2)], c.dist * 0.75)); // the nearest central nodes, at least 25 % closer
+        if (d >= c.dist) return;
+        const p = camPos(), f = unrotateDir(0, 0, 1); // same view: only the pivot moves along the axis of the camera
+        c.x = p.x + f.x * d; c.y = p.y + f.y * d; c.z = p.z + f.z * d; c.dist = d;
+    }
     let camAnim = 0; // id of the running camera animation (a new one stops the previous one)
     function animateCam(to, ms = 350) { // eased move of the camera to the given fields (x, y, z, k, dist, yaw, pitch)
         const c = state.cam, from = {}, id = ++camAnim, t0 = performance.now();
@@ -2567,19 +2674,22 @@ extractGraph.wanted = function (p) {
             const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
             for (const f in to) c[f] = from[f] + (to[f] - from[f]) * e;
             state.dirty = true;
+            state.animating = k < 1;
             if (k < 1) requestAnimationFrame(step); else if ("yaw" in to) c.yaw = VIEW.yaw + Math.round((c.yaw - VIEW.yaw) / (2 * Math.PI)) * 2 * Math.PI;
         };
         requestAnimationFrame(step);
     }
     function resetAngle() { animateCam({yaw: VIEW.yaw, pitch: VIEW.pitch}); } // the position and the zoom are kept
     function resetView() { // position, zoom and angle of the start (what Fit computes, at the default angle)
+        state.lock = null;
         const c = state.cam, save = {...c};
         c.yaw = VIEW.yaw; c.pitch = VIEW.pitch; fit();
         const to = {x: c.x, y: c.y, z: c.z, k: c.k, dist: c.dist, yaw: VIEW.yaw, pitch: VIEW.pitch};
         Object.assign(c, save);
         animateCam(to, 450);
     }
-    function centerOn(id) { // animated move + zoom of the camera onto a node, framed with its direct neighbours
+    function centerOn(id) { // animated move + zoom of the camera onto a node, framed with its direct neighbours; the focus stays on it
+        state.lock = id; // (zoom / dezoom keep it, the other moves of the camera end it)
         if (state.mode === "flow") { const b = state.flow && state.flow.byId.get(id); if (b) animateCam({x: b.x + b.w / 2, y: b.y + b.h / 2, k: Math.max(state.cam.k, 1.2)}); return; }
         const q = state.pos.get(id);
         if (!q) return;
@@ -2589,18 +2699,28 @@ extractGraph.wanted = function (p) {
         if (state.mode === "3d") animateCam({x: q.x, y: q.y, z: q.z, dist: Math.max(90, r * 2.3)}, 450);
         else animateCam({x: q.x, y: q.y, k: Math.min(6, Math.max(1.2, 0.36 * Math.min(state.w, state.h) / r))}, 450);
     }
-    const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
+    const typing = () => { // a field that takes the letters (not a checkbox / button keeping the focus after a click)
+        const el = document.activeElement;
+        return !!el && (el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable || (el.tagName === "INPUT" && !/^(checkbox|radio|button|submit|range|color)$/.test(el.type)));
+    };
+    function moveCode(e) { // physical key (KeyW...), or from the character when the browser gives no code
+        if (/^Key[WASDQE]$/.test(e.code)) return e.code;
+        if (e.code && e.code !== "Unidentified") return null;
+        const ch = (e.key || "").toUpperCase(), mv = KEYS.move, ud = KEYS.updown.split(" / ");
+        const i = mv.indexOf(ch);
+        return i >= 0 ? ["KeyW", "KeyA", "KeyS", "KeyD"][i] : ch === ud[0] ? "KeyQ" : ch === ud[1] ? "KeyE" : null;
+    }
     document.addEventListener("keydown", (e) => {
         const free = !typing() && !e.ctrlKey && !e.metaKey && !e.altKey && $("helpBack").hidden;
         if (free && /^Arrow/.test(e.key)) { keysHeld.add(e.key); if (e.shiftKey) keysHeld.add("Shift"); e.preventDefault(); }
-        else if (free && /^Key[WASDQE]$/.test(e.code)) { keysHeld.add(e.code); if (e.shiftKey) keysHeld.add("Shift"); e.preventDefault(); }
+        else if (free && moveCode(e)) { keysHeld.add(moveCode(e)); if (e.shiftKey) keysHeld.add("Shift"); e.preventDefault(); }
         else if (e.key === "Shift") keysHeld.add("Shift");
     });
-    document.addEventListener("keyup", (e) => { keysHeld.delete(e.key); keysHeld.delete(e.code); if (e.key === "Shift") keysHeld.delete("Shift"); });
+    document.addEventListener("keyup", (e) => { keysHeld.delete(e.key); keysHeld.delete(e.code); const c = moveCode(e); if (c) keysHeld.delete(c); if (e.key === "Shift") keysHeld.delete("Shift"); });
     window.addEventListener("blur", () => keysHeld.clear());
     document.addEventListener("keydown", (e) => {
         if (e.key !== "f" && e.key !== "F") return;
-        if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+        if (e.ctrlKey || e.metaKey || e.altKey || typing()) return;
         if (state.selected) { e.preventDefault(); centerOn(state.selected); }
     });
     document.addEventListener("keydown", (e) => { // R: back to the start view (position, zoom, angle)
@@ -2620,8 +2740,13 @@ extractGraph.wanted = function (p) {
         const c = state.cam, f = Math.exp(-dy * 0.0015), r = canvas.getBoundingClientRect();
         // Anchor of the zoom: the selected node, else the mouse (the point under it stays under it, zoom in and out)
         let ax = e.clientX - r.left, ay = e.clientY - r.top;
-        const sel = state.selected && state.pos.get(state.selected);
-        if (sel && state.mode !== "flow") { const q = project(sel); if (!(state.mode === "3d" && q.behind)) { ax = q.x; ay = q.y; } }
+        if (state.lock && state.mode === "3d" && state.pos.get(state.lock)) { // focus of F: zoom towards / from the node, it stays the center
+            c.dist = Math.max(20, Math.min(20000, c.dist / f)); state.dirty = true; return;
+        }
+        const lockedBox = state.lock && state.mode === "flow" && state.flow && state.flow.byId.get(state.lock);
+        const sel = state.selected && state.pos.get(state.lock || state.selected);
+        if (lockedBox) { const q = state.cam; ax = state.w / 2 + (lockedBox.x + lockedBox.w / 2 - q.x) * q.k; ay = state.h / 2 + (lockedBox.y + lockedBox.h / 2 - q.y) * q.k; }
+        if (sel && state.mode !== "flow" && !lockedBox) { const q = project(sel); if (!(state.mode === "3d" && q.behind)) { ax = q.x; ay = q.y; } }
         const mx = ax - state.w / 2, my = ay - state.h / 2;
         if (state.mode === "3d") { // the scroll moves the camera forward / backward along the ray under the anchor (no limit)
             const step = -dy * c.dist * 0.0009, l = Math.hypot(mx / 700, my / 700, 1); // > 0: forward, same step back
@@ -2874,6 +2999,7 @@ extractGraph.wanted = function (p) {
                 place(tree, 0, 0);
             }
         }
+        state.flowSel = new Set();
         state.flow = {boxes, edges, groups, empty, bbox: bboxOf(boxes), byId: new Map(boxes.filter(b => !b.anc && b.anc !== 0).map(b => [b.id, b]))};
     }
     function fitFlow() {
@@ -2926,7 +3052,7 @@ extractGraph.wanted = function (p) {
         for (const b of F.boxes) {
             const [x, y] = S(b.x, b.y), w = b.w * k, h = b.h * k;
             if (x > state.w || y > state.h || x + w < 0 || y + h < 0) continue;
-            const col = (KINDS[b.n.kind] || KINDS.external)[0], on = b.id === state.selected || b.id === state.hover || (hit && hit.has(b)), dim = (hit && !hit.has(b)) || focus && !on && !(b.flame || b.anc !== undefined) && !F.edges.some(e => (e.a === focus && e.b === b.id) || (e.b === focus && e.a === b.id));
+            const col = (KINDS[b.n.kind] || KINDS.external)[0], on = b.id === state.selected || b.id === state.hover || state.flowSel.has(b.id) || (hit && hit.has(b)), dim = (hit && !hit.has(b)) || focus && !on && !(b.flame || b.anc !== undefined) && !F.edges.some(e => (e.a === focus && e.b === b.id) || (e.b === focus && e.a === b.id));
             ctx.globalAlpha = dim ? 0.35 : 1;
             roundRect(x, y, w, h, (b.flame || b.anc !== undefined ? 3 : 8) * k);
             ctx.fillStyle = C.surface; ctx.fill();
@@ -2943,6 +3069,49 @@ extractGraph.wanted = function (p) {
             ctx.restore();
         }
         ctx.globalAlpha = 1;
+        if (drag && drag.band) { // selection area
+            const b = drag.band;
+            ctx.setLineDash([4, 3]); ctx.strokeStyle = C.accent; ctx.fillStyle = C.accent; ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.08; ctx.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+            ctx.globalAlpha = 0.9; ctx.strokeRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+            ctx.setLineDash([]); ctx.globalAlpha = 1;
+        }
+    }
+    // Moving the boxes of a diagram: a box, the boxes of a dashed group (class), several selected boxes (Ctrl / Shift +
+    // click, or Shift / Ctrl + drag on the background for an area); not in the flame graph (its frames are the layout)
+    function flowDragStart(drag, mx, my, e) {
+        const F = state.flow;
+        if (!F || state.flowView === "flame") return;
+        const c = state.cam, wx = (mx - state.w / 2) / c.k + c.x, wy = (my - state.h / 2) / c.k + c.y;
+        const multi = e.ctrlKey || e.metaKey || e.shiftKey, hit = drag.clicked ? state.flowHit : null;
+        if (hit && hit.anc === undefined) {
+            drag.hitBox = hit; drag.multi = multi;
+            drag.boxes = state.flowSel.has(hit.id) && state.flowSel.size > 1 ? F.boxes.filter(b => state.flowSel.has(b.id)) : [hit];
+            return;
+        }
+        for (const g of F.groups) { // the dashed frame of a group (around its boxes, its label on top)
+            const r = bboxOf(g.boxes);
+            if (wx >= r.x0 - 10 && wx <= r.x1 + 10 && wy >= r.y0 - 18 && wy <= r.y1 + 10) { drag.group = g; drag.boxes = g.boxes; return; }
+        }
+        if (multi) drag.band = {x0: mx, y0: my, x1: mx, y1: my, add: e.ctrlKey || e.metaKey};
+    }
+    function flowDragEnd(drag, still) {
+        const F = state.flow, c = state.cam;
+        if (!F) return;
+        if (drag.band) { // boxes inside the area
+            const b = drag.band, W = (x) => (x - state.w / 2) / c.k + c.x, H = (y) => (y - state.h / 2) / c.k + c.y;
+            const x0 = W(Math.min(b.x0, b.x1)), x1 = W(Math.max(b.x0, b.x1)), y0 = H(Math.min(b.y0, b.y1)), y1 = H(Math.max(b.y0, b.y1));
+            if (!b.add) state.flowSel.clear();
+            for (const bx of F.boxes) if (bx.anc === undefined && bx.x + bx.w >= x0 && bx.x <= x1 && bx.y + bx.h >= y0 && bx.y <= y1) state.flowSel.add(bx.id);
+        } else if (drag.boxes && !still) F.bbox = bboxOf(F.boxes);
+        else if (still && drag.hitBox) {
+            const id = drag.hitBox.id;
+            if (drag.multi) { if (state.flowSel.has(id)) state.flowSel.delete(id); else state.flowSel.add(id); }
+            else state.flowSel = new Set([id]);
+            select(id);
+        } else if (still && drag.group) state.flowSel = new Set(drag.group.boxes.map(b => b.id));
+        else if (still) { state.flowSel.clear(); select(drag.clicked ? drag.clicked.id : null); }
+        state.dirty = true;
     }
     function setFlowView(v) {
         state.flowView = v; state.flamePath = [];
@@ -2975,7 +3144,7 @@ extractGraph.wanted = function (p) {
     if (load("style3d")) setStyle3d(load("style3d"));
     function setMode(m) {
         const old = state.mode;
-        state.cams[old] = {...state.cam};
+        state.cams[old] = {...state.cam}; state.lock = null;
         state.mode = m;
         $("style3d").hidden = m !== "3d";
         $("flowBar").hidden = m !== "flow";
@@ -3134,7 +3303,7 @@ extractGraph.wanted = function (p) {
         "flow:exec": ["Execution", "Calls from an entry point, level by level.", "Starts from main() (or the entry point of the list) and follows the calls: each level is one call deeper, the methods of the same class are grouped in a dashed box, a dashed arrow goes back to an earlier level (loop or recursion). Double click a box to start from it.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         "flow:inherit": ["Inheritance", "Tree of the classes of the sources.", "The bases on top, the derived classes below, a hollow triangle on the base (UML). Only the classes of the sources (not the test helpers).", "iface"],
         "flow:flame": ["Flame graph", "Call tree, the width of a frame = size of its subtree.", "The entry point at the bottom, each row is one call deeper. Static: the width is the number of calls below, not a measured time. Double click a frame to zoom into it, the rows below to go back.", ["calls", ["server()", "method"], ["formatCFG()", "method"]]],
-        repo: ["Repository", "The repository shown: GitHub or GitLab link, Enter / Open to load it.", "owner/repo, https://github.com/owner/repo(/tree/branch), https://gitlab.com/group/project(/-/tree/branch) or a self-hosted GitLab. The sources are read by the browser (GitHub: 60 API requests per hour without account, 3 per load). The link is remembered until Ctrl + Shift + F3; ?repo=owner/name in the address opens a repository directly.", "overview"],
+        repo: ["Repository", "The repository shown: GitHub or GitLab link, Enter / Open to load it.", "owner/repo, https://github.com/owner/repo(/tree/branch), https://gitlab.com/group/project(/-/tree/branch) or a self-hosted GitLab. The sources are read by the browser (GitHub: 60 API requests per hour without account, 3 per load). The link is remembered until Ctrl + Shift + R (forgets it and reloads the page); ?repo=owner/name in the address opens a repository directly.", "overview"],
         flowRoot: ["Entry point", "Where the execution flow / flame graph starts.", "main() first, then the functions and methods nobody calls (the biggest first).", ["calls", ["main()", "function"], ["init()", "method"]]],
         "link:calls": ["calls", "A function / method calls another one.", "Arrow from the caller to the called function, method or class (construction). Read in the bodies of the functions, resolved by name and by the type of the objects.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Group", "Module folder (include/<project>/<module>, src/..., tests/<module>).", "Every node belongs to the module of its file. Disabling a group hides everything coming from it; \"Color by group\" and \"Cluster by group\" make the split visible.", "groups"],
@@ -3190,7 +3359,7 @@ extractGraph.wanted = function (p) {
         "flow:exec": ["Exécution", "Appels depuis un point d'entrée, niveau par niveau.", "Part de main() (ou du point d'entrée de la liste) et suit les appels : chaque niveau est un appel plus profond, les méthodes d'une même classe sont regroupées dans un cadre pointillé, une flèche pointillée revient à un niveau précédent (boucle ou récursion). Double clic sur une boîte pour partir d'elle.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         "flow:inherit": ["Héritage", "Arbre des classes des sources.", "Les bases en haut, les classes dérivées en dessous, un triangle creux sur la base (UML). Uniquement les classes des sources (pas les aides des tests).", "iface"],
         "flow:flame": ["Flame graph", "Arbre d'appels, la largeur d'un bloc = taille de son sous-arbre.", "Le point d'entrée en bas, chaque ligne est un appel plus profond. Statique : la largeur est le nombre d'appels en dessous, pas un temps mesuré. Double clic sur un bloc pour zoomer, sur les lignes du dessous pour revenir.", ["calls", ["server()", "method"], ["formatCFG()", "method"]]],
-        repo: ["Dépôt", "Le dépôt affiché : lien GitHub ou GitLab, Entrée / Ouvrir pour le charger.", "owner/repo, https://github.com/owner/repo(/tree/branche), https://gitlab.com/groupe/projet(/-/tree/branche) ou un GitLab auto-hébergé. Les sources sont lues par le navigateur (GitHub : 60 requêtes d'API par heure sans compte, 3 par chargement). Le lien est mémorisé jusqu'à Ctrl + Maj + F3 ; ?repo=owner/nom dans l'adresse ouvre directement un dépôt.", "overview"],
+        repo: ["Dépôt", "Le dépôt affiché : lien GitHub ou GitLab, Entrée / Ouvrir pour le charger.", "owner/repo, https://github.com/owner/repo(/tree/branche), https://gitlab.com/groupe/projet(/-/tree/branche) ou un GitLab auto-hébergé. Les sources sont lues par le navigateur (GitHub : 60 requêtes d'API par heure sans compte, 3 par chargement). Le lien est mémorisé jusqu'à Ctrl + Maj + R (l'oublie et recharge la page) ; ?repo=owner/nom dans l'adresse ouvre directement un dépôt.", "overview"],
         flowRoot: ["Point d'entrée", "Là où commencent le flux d'exécution / le flame graph.", "main() d'abord, puis les fonctions et méthodes que personne n'appelle (les plus grosses d'abord).", ["calls", ["main()", "function"], ["init()", "method"]]],
         "link:calls": ["appelle", "Une fonction / méthode en appelle une autre.", "Flèche de l'appelant vers la fonction, la méthode ou la classe (construction) appelée. Lue dans le corps des fonctions, résolue par le nom et par le type des objets.", ["calls", ["run()", "method"], ["exec()", "method"]]],
         group: ["Groupe", "Dossier de module (include/<projet>/<module>, src/..., tests/<module>).", "Chaque nœud appartient au module de son fichier. Désactiver un groupe masque tout ce qui en vient ; « Couleur par groupe » et « Rapprocher par groupe » rendent le découpage visible.", "groups"],
@@ -3279,9 +3448,9 @@ extractGraph.wanted = function (p) {
         const common = [
             [ICON.mouse("left", "click"), L("Click a node", "Clic sur un nœud"), L("Selects it: details panel on the right, its relations highlighted. Click the background to unselect.", "Le sélectionne : panneau de détails à droite, ses relations en surbrillance. Clic sur le fond pour désélectionner.")],
             [ICON.mouse("none", "hover"), L("Hover a node", "Survol d'un nœud"), L("Card with its kind, its name and its path.", "Carte avec sa catégorie, son nom et son chemin.")],
-            [ICON.keys(["F"]), "F", L("Centers the camera on the selected node.", "Centre la caméra sur le nœud sélectionné.")],
+            [ICON.keys(["F"]), "F", L("Centers and zooms on the selected node; the zoom then stays on it until another move of the camera.", "Centre et zoome sur le nœud sélectionné ; le zoom reste ensuite sur lui jusqu'à un autre mouvement de la caméra.")],
             [ICON.keys(["R"]), "R", L("Back to the start view (position, zoom and angle).", "Retour à la vue de départ (position, zoom et angle).")],
-            ...(CONFIG.explorer ? [[ICON.keys(["Ctrl", "⇧", "F3"]), "Ctrl + Shift + F3", L("Forgets the repository (and the graphs kept by this browser) and asks for another one.", "Oublie le dépôt (et les graphes gardés par ce navigateur) et en demande un autre.")]] : []),
+            ...(CONFIG.explorer ? [[ICON.keys(["Ctrl", "⇧", "R"]), "Ctrl + Shift + R", L("Forgets the repository (and the graphs kept by this browser) and reloads the page, which asks for another one.", "Oublie le dépôt (et les graphes gardés par ce navigateur) et recharge la page, qui en demande un autre.")]] : []),
             [ICON.mouse("left", "dbl"), L("Double click a control", "Double clic sur un contrôle"), L("Help card of a button, a category, a group or a relation of the panel.", "Fiche d'aide d'un bouton, d'une catégorie, d'un groupe ou d'une relation du panneau.")]
         ];
         if (state.mode === "3d") return [L("Controls · 3D view", "Contrôles · vue 3D"), [
@@ -3300,6 +3469,8 @@ extractGraph.wanted = function (p) {
             [ICON.mouse("left", "drag"), L("Drag the background", "Glisser le fond"), L("Moves the view.", "Déplace la vue.")],
             [ICON.mouse("wheel", "scroll"), L("Scroll", "Molette"), L("Zooms in / out towards the mouse.", "Zoome / dézoome vers la souris.")],
             [ICON.mouse("left", "click"), L("Click a box", "Clic sur une boîte"), L("Selects it: details panel, its calls / bases highlighted.", "La sélectionne : panneau de détails, ses appels / bases en surbrillance.")],
+            [ICON.mouse("left", "drag"), L("Drag a box / a dashed group", "Glisser une boîte / un groupe pointillé"), L("Moves the box, or all the methods of the class (execution, inheritance).", "Déplace la boîte, ou toutes les méthodes de la classe (exécution, héritage).")],
+            [ICON.keys(["Ctrl", "Shift"]), L("Ctrl / Shift + click, Shift + drag", "Ctrl / Maj + clic, Maj + glisser"), L("Selects several boxes (one by one, or an area of the background), then drag one of them to move them together.", "Sélectionne plusieurs boîtes (une à une, ou une zone du fond), puis glisser l'une d'elles les déplace ensemble.")],
             [ICON.mouse("left", "dbl"), L("Double click a box", "Double clic sur une boîte"), L("Execution: starts the flow from it. Flame graph: zooms into the frame; double click the rows below to go back.", "Exécution : démarre le flux depuis elle. Flame graph : zoome sur le bloc ; double clic sur les lignes du dessous pour revenir.")],
             [ICON.keys([["↑"], ["←", "↓", "→"]]), L("Arrows / ", "Flèches / ") + mv.join(""), L("Move the view (Shift: faster).", "Déplacent la vue (Maj : plus vite).")],
             [ICON.keys([ud[0], ud[1]]), ud.join(" / "), L("Zoom out / in.", "Dézoome / zoome.")],
@@ -3406,12 +3577,11 @@ extractGraph.wanted = function (p) {
         $("repoForm").addEventListener("submit", (e) => { e.preventDefault(); openRepo($("repoAsk").value); });
         $("repoBack").addEventListener("click", (e) => { if (e.target === $("repoBack") && CONFIG.repo) $("repoBack").hidden = true; });
         document.querySelectorAll("[data-ex]").forEach(b => b.addEventListener("click", () => { $("repoAsk").value = b.dataset.ex; openRepo(b.dataset.ex); }));
-        document.addEventListener("keydown", (e) => { // Ctrl + Shift + F3: forget the repository (and the graphs kept by this browser)
-            if (!(e.ctrlKey && e.shiftKey && e.key === "F3")) return;
+        document.addEventListener("keydown", (e) => { // Ctrl + Shift + R: forget the repository (and its graphs), then reload the page
+            if (!((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "R" || e.key === "r"))) return;
             e.preventDefault();
             try { for (const k of Object.keys(localStorage)) if (k.startsWith("graph-explorer:")) localStorage.removeItem(k); } catch (err) { /* storage unavailable */ }
-            $("repoInput").value = ""; CONFIG.repo = "";
-            askRepo("");
+            location.replace(location.pathname); // without ?repo=
         });
     }
 
