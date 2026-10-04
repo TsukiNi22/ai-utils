@@ -83,6 +83,7 @@ namespace a::b { // namespace start
   `ArgParserType.hpp` -> `ARGPARSERTYPE_H`). `#define` is indented by 4 spaces.
 - Includes inside a header:
   - project files first, with a **relative** path (`"../../attribute/Attribute.hpp"`, `"ISocket.hpp"`),
+    then the libutils block (`#define _Section` lines + `<utils/utils.hpp>`, see "libutils includes"),
     then the STL;
   - roughly sorted from the longest line to the shortest (staircase);
   - each one has a trailing comment, **aligned** on the same column, listing what is used
@@ -192,8 +193,9 @@ Inside each visibility, in this order (a block with nothing linked to it is remo
 ```
 <header>
 
-#include <utils/utils.hpp>
 #include "module/Name.hpp"
+#define _Attribute
+#include <utils/utils.hpp>
 #include <string>
 
 ns::Name::Name(const std::string& name)
@@ -207,8 +209,8 @@ _hot void ns::Name::method(void)
     /* Nothing */
 }
 ```
-- Includes: project ones first with the path **from `include/`**, then `<utils/utils.hpp>` (libutils
-  projects), then the STL, no comments.
+- Includes: project ones first with the path **from `include/`**, then the `#define _Section` lines +
+  `<utils/utils.hpp>` (libutils projects, sections of what the .cpp itself uses), then the STL, no comments.
 - No `namespace x {}` block: every definition is fully qualified.
 - Same order as the declarations in the header.
 
@@ -228,3 +230,41 @@ when the project already uses that form). Never `"utils/attribute/Attribute.hpp"
 included directly. The trailing comment of the root include lists what is used
 (`#include <utils/utils.hpp>   // _cold, _nodiscard, utils::system::Scheduler`), aligned with the others.
 Inside libutils itself (`internal` mode) the includes stay relative (`"../attribute/Attribute.hpp"`).
+
+**Sections (mandatory)**: every file (.hpp and .cpp) defines the sections it uses right before the root
+include, one `#define` per line (indented like the includes in a header):
+```cpp
+    #include "../EngineType.hpp"    // rtype::engine::Id
+    #define _Attribute
+    #define _System
+    #include <utils/utils.hpp>      // _cold, _nodiscard, utils::system::IdHandler
+    #include <memory>               // std::unique_ptr
+```
+Why: `utils.hpp` has no global include guard, it only includes the sections defined before it (everything
+when none is) and these `#define` stay set for the rest of the translation unit. A file that includes it
+bare after another one defined `_Exception` only gets the exceptions (ex: `main.cpp` with `_Exception` +
+`_Attribute`, then a header needing `utils::network::Server` -> not declared). Redefining the same section
+in several files is harmless.
+
+| Used | Section |
+|---|---|
+| attribute macros (`_hot`, `_nodiscard`, `_alignas`, `_ctor`...) | `_Attribute` |
+| `utils::exception::*`, `OK`/`KO` | `_Exception` |
+| `onBasicVerbose`, `set_verbose`... | `_Verbose` |
+| `utils::arguments::ArgParser`, `Settings` | `_Arguments` |
+| `utils::cli::*` | `_Cli` |
+| `utils::network::Server` / `Client` / `Address` / `Payload` | `_Network` (also gives `_Socket`) |
+| `utils::network::ISocket` / `ASocket` / `TCPSocket` alone (were in `utils::network::socket` before v3.0.0) | `_Socket` |
+| `utils::system::IdHandler` / `Scheduler` / `LoadBalancer` | `_System` |
+| `utils::math::*` (`Coord2D`, `rotate_point_*`...) | `_Math` |
+| `utils::iomanip::*` (`Char`, `Color`, ANSI) | `_IOManip` |
+| `utils::smanip::*` (`format`, codecs, `IParser` / `AParser`) | `_SManip` |
+| `utils::type::*` | `_CustomType` (`_Vector`, `_BLT`) |
+| `utils::encapsulation::*` | `_Encapsulation` |
+| `utils::pool::*` | `_Pool` |
+| `utils::security::encryption::*` | `_Encryption` |
+| concepts / algorithms | `_Concepts` / `_C2DMP`, `_SOS` |
+
+Groups: `_Handling` (exception, verbose, pool, cli, arguments, network), `_Tools` (math, concepts,
+encapsulation, system, custom types, manip, algorithms, security). Exact list: `utils/utils.hpp` of the
+installed version.

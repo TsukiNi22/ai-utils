@@ -7,6 +7,7 @@
     /* INCLUDE */
 
     /* type */
+    {{UTILS_SECTIONS}}
     #include {{UTILS_INCLUDE}}         // _cold, _hot, _nodiscard
     #include <string>                       // std::string
 

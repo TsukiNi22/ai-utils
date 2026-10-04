@@ -7,6 +7,7 @@
     /* INCLUDE */
 
     /* type */
+    {{UTILS_SECTIONS}}
     #include {{UTILS_INCLUDE}}         // _cold, _hot, _nodiscard
     #include <type_traits>                  // std::is_integral_v
     #include <mutex>                        // std::mutex

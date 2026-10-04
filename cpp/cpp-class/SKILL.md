@@ -80,7 +80,9 @@ system (`bash SKILL_DIR/scripts/list_attributes.sh <project_root>`), then only t
    `.hpp`: a real one-line description. `.cpp`: omit `--desc` (default sentence) unless asked.
 2. Start from the matching template, replace the placeholders:
    `{{HEADER}}` header output, `{{GUARD}}` upper-cased name without separators,
-   `{{NAMESPACE}}`, `{{CLASS}}`/`{{NAME}}`, `{{UTILS_INCLUDE}}` (with its delimiters: `<utils/utils.hpp>` in
+   `{{NAMESPACE}}`, `{{CLASS}}`/`{{NAME}}`, `{{UTILS_SECTIONS}}` (`libutils` mode: one `#define _Section`
+   line per libutils section used by the file, indented like the includes in a header, table in
+   `reference/layout.md` "libutils includes"; removed in `internal` / `std` mode), `{{UTILS_INCLUDE}}` (with its delimiters: `<utils/utils.hpp>` in
    `libutils` mode, `"../attribute/Attribute.hpp"` relative in `internal` mode), `{{UTILS_INCLUDE_ROOT}}` (.cpp:
    `<utils/utils.hpp>`, or `"utils/attribute/Attribute.hpp"` in `internal` mode), `{{HPP_INCLUDE_ROOT}}` (path from `include/`), `{{KIND}}` (group label of the implementations in a family header).
    The template members/methods are placeholders: replace them by the real API asked by the user

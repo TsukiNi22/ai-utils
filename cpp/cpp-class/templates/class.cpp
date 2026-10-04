@@ -1,6 +1,7 @@
 {{HEADER}}
 
 #include "{{HPP_INCLUDE_ROOT}}"
+{{UTILS_SECTIONS}}
 #include {{UTILS_INCLUDE_ROOT}}
 #include <string>
 
