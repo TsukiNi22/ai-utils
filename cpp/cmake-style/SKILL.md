@@ -13,7 +13,7 @@ Templates (copy, then replace `<name>` = target/package name, `<NAME>` = upper-c
 | Project kind | Files |
 |---|---|
 | executable (context-forge) | `templates/app/CMakeLists.txt` |
-| installable library (libutils) | `templates/lib/CMakeLists.txt` + `templates/lib/<name>Config.cmake.in` -> `cmake/package/` |
+| installable library (libutils) | `templates/lib/CMakeLists.txt` + `templates/lib/NAMEConfig.cmake.in` -> `cmake/package/<name>Config.cmake.in` |
 | header-only library (c2dmp-hsm) | `templates/lib/CMakeLists.txt` with the `src/nothing.cpp` trick (see below) |
 | unit tests (GTest) | `templates/tests/CMakeLists.txt` -> `tests/CMakeLists.txt` |
 | helpers | `templates/Makefile` (root), `templates/check_files.sh` -> `cmake/scripts/` |

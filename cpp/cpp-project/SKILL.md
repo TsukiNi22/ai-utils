@@ -64,7 +64,7 @@ in `.gitignore`.
   `Install dependencies` step when there are none (libutils and GTest are in the containers).
 - Requirements to tell the user: repository variable `RUNNER` (`gh variable set RUNNER --body <runner>`), containers
   `ghcr.io/tsukini22/ci`, `unit-tests`, `package`; for the packages: secrets `GPG_PRIVATE_KEY` (base64),
-  `GPG_KEY_ID`, `GPG_PASSPHRASE`, and a `gh-pages` branch with `templates/gh-pages/{{NAME}}.repo`,
+  `GPG_KEY_ID`, `GPG_PASSPHRASE`, and a `gh-pages` branch with `templates/gh-pages/NAME.repo` (copied as `<name>.repo`),
   the public key `RPM-GPG-KEY-tsukini` (same as libutils' gh-pages) and `templates/gh-pages/sync-packages.yml`
   in its `.github/workflows/`. Never create secrets or push branches without an explicit request.
 - Release flow (`git-conventions`): `[build]` in a commit = pre-release packages, tag `vX.Y.Z` = stable,

@@ -1,6 +1,6 @@
 ---
 name: libutils-setup
-description: Set up libutils in the current C++ project - find_package(utils <installed version>), utils::utils on every target, and optionally the custom exception codes (JSON config, generator scripts, CMake generation block, include/exception, .gitignore) - in the user's CMake layout, installing libutils first when it is missing. Use whenever the user wants to add/use libutils in an existing project, link it in the CMake, or set up custom libutils exceptions in a repository.
+description: Set up libutils in the current C++ project - find_package(utils X.Y.Z) with the installed version, utils::utils on every target, and optionally the custom exception codes (JSON config, generator scripts, CMake generation block, include/exception, .gitignore) - in the user's CMake layout, installing libutils first when it is missing. Use whenever the user wants to add/use libutils in an existing project, link it in the CMake, or set up custom libutils exceptions in a repository.
 ---
 
 # libutils in the current project

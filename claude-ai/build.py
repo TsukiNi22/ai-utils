@@ -28,6 +28,7 @@ def for_claude_ai(text: str) -> str:
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     if m:
         keep = [l for l in m.group(1).split("\n") if l.split(":")[0].strip() in KEYS or l.startswith((" ", "\t"))]
+        keep = [re.sub(r"<([^<>]*)>", r"\1", l) if l.startswith("description:") else l for l in keep] # claude.ai: no tag in the description
         text = "---\n" + "\n".join(keep) + "\n---\n" + text[m.end():]
     return NOTE.sub("`<name>` (a skill) = the folder of that skill, next to this one: `../<name>`.", text)
 
@@ -47,6 +48,8 @@ def build(skill: Path, out: Path) -> Path:
             if f.is_dir() or SKIP & set(f.parts):
                 continue
             arc = Path(skill.name) / f.relative_to(skill)
+            if re.search(r"[^A-Za-z0-9._/+-]", str(arc)): # claude.ai refuses <, {, spaces... in the paths
+                sys.exit(f"invalid character in {arc}: rename the file")
             if f.suffix in {".md", ".txt", ".py", ".sh", ".mjs", ".js", ".json", ".html", ".css", ".cmake", ".yml", ".yaml", ""} or f.name == "CMakeLists.txt":
                 try:
                     data = f.read_text().replace("~/.claude/skills/", "../")
