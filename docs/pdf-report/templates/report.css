@@ -84,6 +84,9 @@ th {
     padding: 3.5pt 4pt;
     border: 1px solid var(--navy);
 }
+/* Inline elements on the navy head: light text (code on a translucent white chip, not white on white) */
+th code { background: rgba(255, 255, 255, 0.18); color: #ffffff; }
+th strong, th a { color: #ffffff; }
 td { padding: 3.5pt 4pt; border: 1px solid var(--border); vertical-align: top; }
 tbody tr:nth-child(even) td { background: var(--zebra); }
 td strong { color: var(--text); }
