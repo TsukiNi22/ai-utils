@@ -1,0 +1,88 @@
+/* ---------- Explanation pages (explain-doc), on top of html-style ---------- */
+.layout { grid-template-columns: 220px minmax(0, 1fr); }
+/* Level switch (Simple | Technical): same pill as the language switch */
+.level-switch { display: inline-flex; align-items: center; gap: 2px; height: 34px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--code-bg); }
+.level-switch button { height: 26px; border: 0; background: none; color: var(--text); cursor: pointer; font: 600 12px system-ui, sans-serif; letter-spacing: .03em; padding: 0 10px; border-radius: 999px; transition: background .2s, color .2s; }
+.level-switch button.on { background: var(--accent); color: var(--surface); }
+.level-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Only the content of the active level is shown (no data-level = both levels) */
+:root[data-level="simple"] [data-level="technical"], :root[data-level="technical"] [data-level="simple"] { display: none !important; }
+.level-badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); vertical-align: middle; }
+/* One-sentence summary */
+.tldr { font-size: 18px; line-height: 1.5; padding: 16px 20px; border-radius: 10px; background: var(--accent-soft); border-left: 3px solid var(--accent); margin: 0 0 24px; }
+.tldr strong { color: var(--accent); }
+/* Stepper: animated diagram, one state per step */
+.stepper svg [data-show] { transition: opacity .3s; }
+.stepper svg .off { opacity: 0; }
+.stepper svg .hl { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.4; }
+.stepper svg .hl-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 2.4; }
+.stepper svg text.hl, .stepper svg text.hl-warn { stroke: none; }
+.stepper svg text.hl { fill: var(--accent); }
+.stepper svg text.hl-warn { fill: var(--warn); }
+.stepper .controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.stepper .controls button { height: 32px; min-width: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; font: 500 13px system-ui, sans-serif; }
+.stepper .controls button:hover { border-color: var(--accent); color: var(--accent); }
+.stepper .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stepper .controls .count { color: var(--muted); font-size: 13px; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.stepper .progress { flex: 1; min-width: 80px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.stepper .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.stepper .captions { list-style: none; padding: 0; margin: 10px 0 0; }
+.stepper .captions > li { display: none; padding: 10px 14px; border-radius: 6px; background: var(--code-bg); }
+.stepper .captions > li.on { display: block; }
+/* Formula: MathML block + its variables */
+.formula { display: flex; align-items: center; gap: 16px; margin: 16px 0; padding: 14px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow-x: auto; }
+.formula math { flex: 1; font-size: 1.25em; }
+.formula .num { color: var(--muted); font-size: 13px; }
+table.where td:first-child { white-space: nowrap; width: 1%; }
+/* Playground: inputs -> computed outputs / drawing */
+.playground { margin: 16px 0; padding: 18px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.playground .inputs { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: end; margin-bottom: 14px; }
+.playground label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.playground input[type="range"] { width: min(320px, 70vw); accent-color: var(--accent); }
+.playground input[type="text"], .playground input[type="number"] { font: 15px ui-monospace, Menlo, Consolas, monospace; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.playground input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.playground button { height: 32px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--surface); cursor: pointer; font: 600 13px system-ui, sans-serif; }
+.playground button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.playground .outputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.playground .out { padding: 10px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+.playground .out span { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.playground .out b { font: 600 22px ui-monospace, Menlo, Consolas, monospace; color: var(--text); font-variant-numeric: tabular-nums; }
+.playground output { font-variant-numeric: tabular-nums; color: var(--text); }
+/* Charts drawn in SVG by the page scripts */
+svg .axis { stroke: var(--muted); stroke-width: 1; }
+svg .grid { stroke: var(--border); stroke-width: 1; }
+svg .curve { fill: none; stroke: var(--accent); stroke-width: 2.2; }
+svg .curve-2 { fill: none; stroke: var(--warn); stroke-width: 2.2; stroke-dasharray: 6 4; }
+svg .dot { fill: var(--accent); }
+svg .dot-2 { fill: var(--warn); }
+svg .mark { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; }
+/* Glossary terms: definition on hover / focus */
+dfn[data-def] { font-style: normal; border-bottom: 1px dashed var(--accent); cursor: help; position: relative; }
+dfn[data-def]:hover::after, dfn[data-def]:focus::after {
+  content: attr(data-def); position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: max-content; max-width: min(320px, 80vw);
+  padding: 8px 10px; border-radius: 6px; background: var(--text); color: var(--bg); font: 400 13px/1.45 system-ui, sans-serif;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .2); white-space: normal;
+}
+dfn[data-def]:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Check yourself */
+details.quiz { margin: 10px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+details.quiz summary { padding: 10px 14px; cursor: pointer; font-weight: 600; }
+details.quiz summary::marker { color: var(--accent); }
+details.quiz[open] summary { border-bottom: 1px solid var(--border); }
+details.quiz > :not(summary) { padding: 0 14px; }
+/* Compare cards (two approaches side by side) */
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 14px 0; }
+.compare > div { padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.compare h4 { margin: 0 0 6px; font-size: 15px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .stepper .view { overflow-x: auto; }
+  .stepper .view svg { min-width: 560px; } /* readable labels: scroll instead of shrinking */
+  .level-switch button { padding: 0 8px; }
+}
+@media (max-width: 480px) {
+  .brand > span { display: none; } /* room for the level and theme switches */
+}
+@media (prefers-reduced-motion: reduce) {
+  .stepper svg [data-show], .stepper .progress i { transition: none; }
+}

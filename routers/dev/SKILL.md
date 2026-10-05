@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, git, doc, style and legal routers: cpp-project, cpp-class, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc, pdf-report, license, audit-deps) before doing the task.
+description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, git, doc, style and legal routers: cpp-project, cpp-class, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc, html-style, explain-doc, report, license, audit-deps) before doing the task.
 disable-model-invocation: true
 ---
 
@@ -41,20 +41,22 @@ The category routers (`cpp`, `git`, `doc`, `style`, `legal`, `audit`) are manual
 | bugs / UB / crashes / sanitizers audit | `audit-bugs` | `cpp` |
 | cleanliness / conventions audit with a PDF report | `audit-quality` | `style` |
 | comments of any language, file headers | `comments` (+ `cpp-comments`) | `doc` |
-| a deliverable as PDF (report, study, benchmark) | `pdf-report` | `doc` |
+| a deliverable as PDF (report, study, benchmark) | `report` | `doc` |
 | license (choose, add, replace, compatibility) | `license` | `legal` |
 | dependencies: licenses to credit / restrictive / paid, vulnerabilities | `audit-deps` | `legal` |
 | style only (format / review like the user) | `cpp-style`, `cpp-comments`, `coding-style` (other languages), `cmake-style`, `comments` by file type | `style` |
 | code in another language than C++ (Python, shell, Lua, JS/TS, C...) | `coding-style` + `comments` | `style` |
 | README, wiki, Markdown docs | `readme-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |
+| explanation page (how something works), simple + technical | `explain-doc` | `doc` |
+| any other HTML page, palette / color / font | `html-style` | `doc` |
 | commit, branch, PR, tag, release, CHANGELOG | `git-conventions` | `git` |
 | several needs (ex: "add the feature, document it and prepare the commit") | every matching skill, in the order of the work: code -> docs -> git | - |
 | no skill matches (other language/tool) | none: say it, follow the conventions of the project | - |
 
 ## 4. Work
 - Every audit, review, analysis or summary delivered to the user (including the "no request" state of the project)
-  goes through `pdf-report` (format asked once: Markdown + PDF recommended / PDF / Markdown), English by
+  goes through `report` (format asked once: Markdown + PDF recommended / PDF / Markdown), English by
   default, in `audit/` at the repository root unless asked; the chat only gives the verdict and the paths.
 - Follow the loaded skills strictly; they override generic habits.
 - Never commit/push/tag/release/open a PR without an explicit request (`git-conventions`).

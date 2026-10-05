@@ -1,0 +1,291 @@
+<aside class="sidebar" id="sidebar" aria-label="Contents">
+  <p>Contents</p>
+  <a href="#idea">1. The idea</a>
+  <a href="#how">2. How it works</a>
+  <a href="#math"><span data-level="simple">3. How fast?</span><span data-level="technical">3. Cost model</span></a>
+  <a href="#try">4. Try it</a>
+  <a href="#example">5. Worked example</a>
+  <a href="#pitfalls"><span data-level="simple">6. Common mistakes</span><span data-level="technical">6. Pitfalls</span></a>
+  <a href="#check">7. Check yourself</a>
+  <a href="#glossary">8. Glossary &amp; sources</a>
+</aside>
+
+<main>
+<header>
+  <div class="page-eyebrow">Explanation <span class="level-badge" data-level="simple">Simple</span><span class="level-badge" data-level="technical">Technical</span></div>
+  <h1>{{TITLE}}</h1>
+  <p class="lead">{{SUBTITLE}}</p>
+</header>
+
+<p class="tldr" data-level="simple"><strong>In one sentence:</strong> a hash table turns each name into a shelf number, so finding something means going straight to its shelf instead of searching every shelf.</p>
+<p class="tldr" data-level="technical"><strong>In one sentence:</strong> a hash table maps a key to an array index with a hash function, giving <em>O(1)</em> expected insert / lookup as long as the load factor stays bounded.</p>
+
+<!-- 1 -->
+<section id="idea">
+  <h2>1. The idea</h2>
+  <div data-level="simple">
+    <p>Think of a coat check with 8 numbered hooks. Instead of hanging your coat anywhere (and searching every hook
+      when you come back), the attendant <strong>computes a hook number from your name</strong>. When you come back,
+      they compute the same number and go straight to that hook.</p>
+    <p>The rule that turns a name into a number is called a <dfn data-def="A rule that always turns the same input into the same number, here a hook number between 0 and 7.">hash function</dfn>.
+      If two names give the same number, the second coat goes on the next free hook.</p>
+  </div>
+  <div data-level="technical">
+    <p>A hash table stores <code>(key, value)</code> pairs in an array of <var>m</var> slots. A
+      <dfn data-def="Deterministic function h: K → {0, …, m−1}; a good one spreads the keys uniformly.">hash function</dfn>
+      <code>h(k)</code> gives the home slot of a key. Two keys with the same home slot
+      <dfn data-def="Two distinct keys k1 ≠ k2 with h(k1) = h(k2). Unavoidable as soon as |K| > m (pigeonhole).">collide</dfn>;
+      this page uses <strong>open addressing with linear probing</strong>: on a collision, try <code>h(k)+1</code>,
+      <code>h(k)+2</code>, … (mod <var>m</var>) until a free slot.</p>
+    <div class="compare">
+      <div><h4>Array scan</h4><p>Lookup compares with every element: <em>O(n)</em>.</p></div>
+      <div><h4>Balanced tree</h4><p>Ordered keys, lookup <em>O(log n)</em>.</p></div>
+      <div><h4>Hash table</h4><p>No order, lookup <em>O(1)</em> expected, <em>O(n)</em> worst case.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="how">
+  <h2>2. How it works</h2>
+  <p data-level="simple">Press <strong>Play</strong> (or the arrows) to watch three coats being hung, then one being found.</p>
+  <p data-level="technical">Inserting <code>"cat"</code>, <code>"dog"</code>, <code>"act"</code> with
+    <code>h(k) = (Σ char codes) mod 8</code>, then looking <code>"act"</code> up. Arrow keys work when the figure has the focus.</p>
+  <figure class="stepper" data-steps="6">
+    <svg viewBox="0 0 760 230" role="img" aria-label="Animated insertion of three keys in an 8 slot hash table with a collision resolved by linear probing">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow-accent" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <!-- computation line of each step -->
+      <text class="lbl" x="380" y="36" text-anchor="middle" data-show="0">An empty table: 8 slots, numbered 0 to 7</text>
+      <text class="lbl" x="380" y="36" text-anchor="middle" data-show="1">"cat" → 99 + 97 + 116 = 312 → 312 mod 8 = 0</text>
+      <text class="lbl" x="380" y="36" text-anchor="middle" data-show="2">"dog" → 100 + 111 + 103 = 314 → 314 mod 8 = 2</text>
+      <text class="lbl" x="380" y="36" text-anchor="middle" data-show="3">"act" → 97 + 99 + 116 = 312 → 312 mod 8 = 0: slot 0 is taken</text>
+      <text class="lbl" x="380" y="36" text-anchor="middle" data-show="4">Linear probing: try the next slot, 1 is free</text>
+      <text class="lbl" x="380" y="36" text-anchor="middle" data-show="5">Find "act": slot 0 holds "cat", slot 1 holds "act": 2 probes</text>
+      <!-- slots -->
+      <rect class="box" x="40" y="140" width="75" height="50" rx="6" data-warn="3" data-hl="1,5"/>
+      <rect class="box" x="125" y="140" width="75" height="50" rx="6" data-hl="4,5"/>
+      <rect class="box" x="210" y="140" width="75" height="50" rx="6" data-hl="2"/>
+      <rect class="box" x="295" y="140" width="75" height="50" rx="6"/>
+      <rect class="box" x="380" y="140" width="75" height="50" rx="6"/>
+      <rect class="box" x="465" y="140" width="75" height="50" rx="6"/>
+      <rect class="box" x="550" y="140" width="75" height="50" rx="6"/>
+      <rect class="box" x="635" y="140" width="75" height="50" rx="6"/>
+      <g class="small" text-anchor="middle">
+        <text x="77" y="210">0</text><text x="162" y="210">1</text><text x="247" y="210">2</text><text x="332" y="210">3</text>
+        <text x="417" y="210">4</text><text x="502" y="210">5</text><text x="587" y="210">6</text><text x="672" y="210">7</text>
+      </g>
+      <!-- stored keys -->
+      <text class="lbl" x="77" y="170" text-anchor="middle" data-show="1-">cat</text>
+      <text class="lbl" x="247" y="170" text-anchor="middle" data-show="2-">dog</text>
+      <text class="lbl" x="162" y="170" text-anchor="middle" data-show="4-">act</text>
+      <!-- arrows from the computation to the home slot -->
+      <path class="edge-accent" d="M380 50 C 300 90, 120 90, 79 134" marker-end="url(#arr)" data-show="1,3,5"/>
+      <path class="edge-accent" d="M380 50 C 330 90, 260 95, 249 134" marker-end="url(#arr)" data-show="2"/>
+      <path class="edge-accent dash" d="M92 140 C 105 115, 140 115, 155 136" marker-end="url(#arr)" data-show="4,5"/>
+    </svg>
+    <ol class="captions">
+      <li><span data-level="simple">8 empty hooks.</span><span data-level="technical">Empty table, <var>m</var> = 8, load factor α = 0.</span></li>
+      <li><span data-level="simple">"cat" gives hook 0: the coat goes there.</span><span data-level="technical"><code>h("cat") = 0</code>, slot 0 free: stored in 1 probe.</span></li>
+      <li><span data-level="simple">"dog" gives hook 2.</span><span data-level="technical"><code>h("dog") = 2</code>, stored in 1 probe.</span></li>
+      <li><span data-level="simple">"act" has the same letters as "cat", so it gives the same hook 0: it is taken.</span><span data-level="technical">Collision: anagrams have the same character sum, so this hash maps them to the same slot.</span></li>
+      <li><span data-level="simple">The attendant uses the next free hook, 1.</span><span data-level="technical">Linear probing stores <code>"act"</code> in slot 1 (2 probes). α = 3/8.</span></li>
+      <li><span data-level="simple">To find "act": look at hook 0 (not it), then hook 1 (found).</span><span data-level="technical">Lookup follows the same probe sequence and stops on a match (or on an empty slot = absent).</span></li>
+    </ol>
+  </figure>
+</section>
+
+<!-- 3 -->
+<section id="math">
+  <h2><span data-level="simple">3. How fast?</span><span data-level="technical">3. Cost model</span></h2>
+  <div data-level="simple">
+    <p>The fuller the hooks, the more often the computed hook is taken and the further you walk. On average:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Hooks used</th><th>Looks to find a coat</th><th>Looks to see a coat isn't there</th></tr></thead>
+      <tbody>
+        <tr><td>half (50%)</td><td>1.5</td><td>2.5</td></tr>
+        <tr><td>most (75%)</td><td>2.5</td><td>8.5</td></tr>
+        <tr><td>almost all (90%)</td><td>5.5</td><td>50.5</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout">That's why real hash tables get bigger (more hooks) before they are too full.</div>
+  </div>
+  <div data-level="technical">
+    <p>With <var>n</var> keys in <var>m</var> slots, the <dfn data-def="α = n / m, the fraction of occupied slots (0 ≤ α < 1 with open addressing).">load factor</dfn>
+      is α = <var>n</var>/<var>m</var>. Under the uniform hashing assumption, Knuth's analysis of linear probing gives the
+      expected number of probes:</p>
+    <div class="formula">
+      <math display="block"><mrow><msub><mi>C</mi><mtext>hit</mtext></msub><mo>≈</mo><mfrac><mn>1</mn><mn>2</mn></mfrac><mrow><mo>(</mo><mn>1</mn><mo>+</mo><mfrac><mn>1</mn><mrow><mn>1</mn><mo>−</mo><mi>α</mi></mrow></mfrac><mo>)</mo></mrow></mrow></math>
+      <span class="num">(1)</span>
+    </div>
+    <div class="formula">
+      <math display="block"><mrow><msub><mi>C</mi><mtext>miss</mtext></msub><mo>≈</mo><mfrac><mn>1</mn><mn>2</mn></mfrac><mrow><mo>(</mo><mn>1</mn><mo>+</mo><mfrac><mn>1</mn><msup><mrow><mo>(</mo><mn>1</mn><mo>−</mo><mi>α</mi><mo>)</mo></mrow><mn>2</mn></msup></mfrac><mo>)</mo></mrow></mrow></math>
+      <span class="num">(2)</span>
+    </div>
+    <div class="table-wrap"><table class="where">
+      <thead><tr><th>Symbol</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><var>C</var><sub>hit</sub></td><td>expected probes of a successful lookup (the key is present)</td></tr>
+        <tr><td><var>C</var><sub>miss</sub></td><td>expected probes of an unsuccessful lookup or an insertion (ends on an empty slot)</td></tr>
+        <tr><td>α</td><td>load factor <var>n</var>/<var>m</var></td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout warn">The <code>(1 − α)²</code> term makes misses explode near α = 1 (50.5 probes at α = 0.9):
+      implementations resize (usually ×2, rehashing every key) above α ≈ 0.7.</div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="try">
+  <h2>4. Try it</h2>
+  <p data-level="simple">Move the slider to fill the table: the program really fills 1000 hooks at random and counts the looks, next to the prediction.</p>
+  <p data-level="technical">The simulation fills <var>m</var> = 1000 slots with uniform random hashes (linear probing, 5 runs averaged) and
+    measures the mean probes; the curves are formulas (1) and (2).</p>
+  <div class="playground" data-play="load">
+    <div class="inputs">
+      <label>Load factor α = <output data-out="alpha"></output><input type="range" data-in="alpha" min="0.05" max="0.95" step="0.05" value="0.5"></label>
+    </div>
+    <div class="outputs">
+      <div class="out"><span>Hit, predicted</span><b data-out="hitF"></b></div>
+      <div class="out"><span>Hit, measured</span><b data-out="hitS"></b></div>
+      <div class="out"><span>Miss, predicted</span><b data-out="missF"></b></div>
+      <div class="out"><span>Miss, measured</span><b data-out="missS"></b></div>
+    </div>
+    <figure>
+      <svg id="loadChart" viewBox="0 0 760 260" role="img" aria-label="Expected probes as a function of the load factor"></svg>
+      <figcaption>Figure 2: probes per lookup against α (solid: hit, dashed: miss, dots: measured; the y axis stops at 12).</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="example">
+  <h2>5. Worked example</h2>
+  <p data-level="simple">Type any word: you get its hook number with the simple rule (add the letters) and with a better rule.</p>
+  <p data-level="technical">Character-sum hash vs polynomial hash <code>h = (31·h + c) mod m</code>, <var>m</var> = 8. Anagrams collide with the first, rarely with the second.</p>
+  <div class="playground" data-play="hash">
+    <div class="inputs">
+      <label>Key <input type="text" data-in="key" value="cat" maxlength="40" spellcheck="false"></label>
+      <label>Compare with <input type="text" data-in="other" value="act" maxlength="40" spellcheck="false"></label>
+    </div>
+    <div class="outputs">
+      <div class="out"><span>Sum hash</span><b data-out="sum"></b></div>
+      <div class="out"><span>Polynomial hash</span><b data-out="poly"></b></div>
+      <div class="out"><span>Same slot?</span><b data-out="same"></b></div>
+    </div>
+  </div>
+<pre data-title="Polynomial hash" data-level="technical"><code>std::size_t hash(std::string_view key, std::size_t m)
+{
+    std::size_t h = 0;
+
+    for (unsigned char c : key)
+        h = (31 * h + c) % m;
+    return h;
+}</code></pre>
+</section>
+
+<!-- 6 -->
+<section id="pitfalls">
+  <h2><span data-level="simple">6. Common mistakes</span><span data-level="technical">6. Pitfalls</span></h2>
+  <ul data-level="simple">
+    <li><strong>"It's always instant."</strong> Only while the table isn't too full (see section 3).</li>
+    <li><strong>"Any rule to make numbers is fine."</strong> Adding letters gives "cat" and "act" the same hook.</li>
+    <li><strong>"I can just take a coat away."</strong> Emptying a hook can break the search for coats placed after it: tables leave a "was used" marker.</li>
+  </ul>
+  <ul data-level="technical">
+    <li><strong>Primary clustering:</strong> linear probing builds runs of occupied slots that grow faster than the load factor; quadratic probing or double hashing reduce it.</li>
+    <li><strong>Weak hash:</strong> structure in the keys (anagrams, multiples of <var>m</var>) maps to the same slots; with untrusted keys, a seeded hash (SipHash) prevents collision attacks.</li>
+    <li><strong>Deletion:</strong> clearing a slot cuts the probe chains of later keys: use a tombstone, or backward-shift deletion.</li>
+    <li><strong>Resize cost:</strong> a resize is <em>O(n)</em>; geometric growth keeps insertion <em>O(1)</em> amortized.</li>
+  </ul>
+</section>
+
+<!-- 7 -->
+<section id="check">
+  <h2>7. Check yourself</h2>
+  <details class="quiz"><summary><span data-level="simple">Why does the table get bigger before it is full?</span><span data-level="technical">Why resize at α ≈ 0.7 instead of α = 1?</span></summary>
+    <p><span data-level="simple">Because when almost every hook is taken, finding a free one (or proving a coat isn't there) takes many looks.</span><span data-level="technical">By (2), a miss costs 8.5 probes at α = 0.75 and 50.5 at α = 0.9: the cost grows like 1/(1 − α)².</span></p>
+  </details>
+  <details class="quiz"><summary><span data-level="simple">Where does "act" go if hooks 0 and 1 are both taken?</span><span data-level="technical">Probe sequence of a key whose home slot is 7 in a table of 8?</span></summary>
+    <p><span data-level="simple">On hook 2, the next one, if it is free (otherwise 3, then 4…).</span><span data-level="technical">7, 0, 1, 2, … : the index wraps around (mod 8).</span></p>
+  </details>
+</section>
+
+<!-- 8 -->
+<section id="glossary">
+  <h2>8. Glossary &amp; sources</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Hash function</td><td>Turns a key into a slot number, always the same for the same key.</td></tr>
+      <tr><td>Collision</td><td>Two different keys with the same slot number.</td></tr>
+      <tr><td>Load factor (α)</td><td>Fraction of the slots in use.</td></tr>
+      <tr><td>Probe</td><td>One look at one slot.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small" data-level="technical">Sources: D. E. Knuth, <em>The Art of Computer Programming</em>, vol. 3, §6.4 (analysis of linear probing); Cormen et al., <em>Introduction to Algorithms</em>, ch. 11.</p>
+</section>
+</main>
+
+<script>
+// Page script: runs once explain.js (inlined at the end of the page) is loaded
+document.addEventListener('DOMContentLoaded', function () {
+// Formulas (1) and (2), and the simulation measuring them
+function predicted(a) { return { hit: 0.5 * (1 + 1 / (1 - a)), miss: 0.5 * (1 + 1 / ((1 - a) * (1 - a))) }; }
+function simulate(a, m, runs) {
+  var hit = 0, miss = 0;
+  for (var r = 0; r < runs; r++) {
+    var used = new Uint8Array(m), n = Math.round(a * m), total = 0;
+    for (var i = 0; i < n; i++) {
+      var s = Math.floor(Math.random() * m), p = 1;
+      while (used[s]) { s = (s + 1) % m; p++; }
+      used[s] = 1; total += p;
+    }
+    hit += total / n;
+    var t = 0;
+    for (var start = 0; start < m; start++) { var q = 1, j = start; while (used[j]) { j = (j + 1) % m; q++; } t += q; }
+    miss += t / m;
+  }
+  return { hit: hit / runs, miss: miss / runs };
+}
+var chart = document.getElementById('loadChart'), measured = {};
+function drawChart(alpha) {
+  var W = 760, H = 260, L = 50, R = 20, T = 15, B = 35, YMAX = 12;
+  var x = function (a) { return L + (W - L - R) * a; }, y = function (v) { return T + (H - T - B) * (1 - Math.min(v, YMAX) / YMAX); };
+  var s = '';
+  for (var v = 0; v <= YMAX; v += 2) s += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="small" x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v + '</text>';
+  for (var a = 0; a <= 1.0001; a += 0.1) s += '<text class="small" x="' + x(a) + '" y="' + (H - 12) + '" text-anchor="middle">' + a.toFixed(1) + '</text>';
+  s += '<line class="axis" x1="' + L + '" x2="' + L + '" y1="' + T + '" y2="' + (H - B) + '"/><line class="axis" x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '"/>';
+  ['hit', 'miss'].forEach(function (k) {
+    var pts = [];
+    for (var a = 0; a <= 0.951; a += 0.005) { pts.push(x(a).toFixed(1) + ',' + y(predicted(a)[k]).toFixed(1)); if (predicted(a)[k] > YMAX) break; }
+    s += '<polyline class="' + (k === 'hit' ? 'curve' : 'curve-2') + '" points="' + pts.join(' ') + '"/>';
+  });
+  Object.keys(measured).forEach(function (a) {
+    var m = measured[a];
+    if (m.hit <= YMAX) s += '<circle class="dot" cx="' + x(+a) + '" cy="' + y(m.hit) + '" r="3.5"/>';
+    if (m.miss <= YMAX) s += '<circle class="dot-2" cx="' + x(+a) + '" cy="' + y(m.miss) + '" r="3.5"/>';
+  });
+  s += '<line class="mark" x1="' + x(alpha) + '" x2="' + x(alpha) + '" y1="' + T + '" y2="' + (H - B) + '"/>';
+  s += '<text class="small" x="' + (L + 6) + '" y="' + (T + 12) + '">probes</text><text class="small" x="' + (W - R) + '" y="' + (H - B - 6) + '" text-anchor="end">α</text>';
+  chart.innerHTML = s;
+}
+explain.play('load', function (v) {
+  var a = Math.round(v.alpha * 100) / 100, f = predicted(a);
+  if (!measured[a]) measured[a] = simulate(a, 1000, 5);
+  drawChart(a);
+  return { alpha: a.toFixed(2), hitF: explain.fmt(f.hit, 2), missF: explain.fmt(f.miss, 2), hitS: explain.fmt(measured[a].hit, 2), missS: explain.fmt(measured[a].miss, 2) };
+});
+function sumHash(k, m) { var h = 0; for (var i = 0; i < k.length; i++) h += k.charCodeAt(i); return h % m; }
+function polyHash(k, m) { var h = 0; for (var i = 0; i < k.length; i++) h = (31 * h + k.charCodeAt(i)) % m; return h; }
+explain.play('hash', function (v) {
+  var a = v.key, b = v.other;
+  return {
+    sum: sumHash(a, 8) + ' / ' + sumHash(b, 8),
+    poly: polyHash(a, 8) + ' / ' + polyHash(b, 8),
+    same: (sumHash(a, 8) === sumHash(b, 8) ? 'sum: yes' : 'sum: no') + ', ' + (polyHash(a, 8) === polyHash(b, 8) ? 'poly: yes' : 'poly: no')
+  };
+});
+});
+</script>

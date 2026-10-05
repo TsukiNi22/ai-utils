@@ -1,6 +1,6 @@
 ---
 name: doc
-description: Router for documentation tasks of the user - README and Markdown docs, wiki pages, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), code comments - loads readme-style, html-doc, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
+description: Router for documentation tasks of the user - README and Markdown docs, wiki pages, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), explanation pages (simple + technical), HTML style, reports, code comments - loads readme-style, html-doc, explain-doc, html-style, report, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
 disable-model-invocation: true
 ---
 
@@ -21,13 +21,15 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 |---|---|
 | README, wiki page, Markdown guide | `readme-style` |
 | HTML documentation, `docs/` site, GitHub Pages, project graph | `html-doc` (+ `readme-style` for the README link) |
+| explain how something works (concept, algorithm, protocol, math) with diagrams / animations / interactive examples, simple + technical | `explain-doc` (+ `html-style`) |
+| any other HTML page, a palette / color / font / theme to define | `html-style` |
 | CHANGELOG, release notes, PR description | `git-conventions` |
 | comments / documentation inside the code (any language), file headers | `comments` (+ `cpp-comments` for C++) |
-| a result / report / study delivered as PDF | `pdf-report` |
+| a result / report / study delivered as PDF | `report` |
 | doc of a libutils based project | also `libutils` (exact APIs) |
 | full documentation pass | `readme-style` + `html-doc` + `git-conventions` (CHANGELOG) |
 
 ## Always
-- An audit / summary of the docs is delivered through `pdf-report` (format asked once, English, `audit/` at the repository root).
+- An audit / summary of the docs is delivered through `report` (format asked once, English, `audit/` at the repository root).
 - Check every name/command/API against the code before writing it; mark planned vs implemented.
 - Start the answer with one line listing the loaded skills.

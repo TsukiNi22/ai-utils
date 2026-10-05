@@ -15,7 +15,7 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`/dev`](routers/dev/SKILL.md) | everything below, depending on the context (global development entry point) |
 | [`/cpp`](routers/cpp/SKILL.md) | `cpp-project`, `cpp-class`, `cpp-style`, `cpp-comments`, `cmake-style`, `cpp-tests`, `audit-bugs`, `audit-quality`, `libutils`, `libutils-exception`, `libutils-install`, `libutils-setup` |
 | [`/git`](routers/git/SKILL.md) | `git-conventions` |
-| [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `pdf-report`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
+| [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `html-style`, `explain-doc`, `report`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
 | [`/style`](routers/style/SKILL.md) | `cpp-style`, `coding-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
 | [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps` (and the future legal skills) |
 | [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-quality`, `audit-deps`, tests coverage) and the report format, runs them and writes a summary report in `audit/` |
@@ -41,6 +41,8 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`git-conventions`](git/git-conventions/SKILL.md) | Commit messages `type(scope): message`, CI keywords, tags, GitHub releases, CHANGELOG, branches (`main` alone when solo; `main`/`dev`/`sub/`/`feat/`/`fix/` in a team) and PRs (CHANGELOG-style body, `gh` assignee/labels), no AI attribution. |
 | [`readme-style`](docs/readme-style/SKILL.md) | README / Markdown docs structure: Table of Contents, Dependencies, Packages, Quick Setup, Usage, GitHub callouts, tables. |
 | [`html-doc`](docs/html-doc/SKILL.md) | One uniform style for the HTML documentation: an optional user guide, the technical documentation and an interactive 2D/3D project graph of any common stack (C / C++, Python, JS / TS / web, Java, C#, Go, Rust, PHP, Ruby) with execution / inheritance / flame diagrams (filters by category/group/relation, rebuilt from the GitHub repository with an update button), all static self-contained pages with a sun/moon theme button. |
+| [`html-style`](docs/html-style/SKILL.md) | My visual style for any HTML page (from `html-doc`): light / dark color tokens, system fonts and type scale, layout, components, SVG diagram classes, sun/moon and EN/FR switches, rules (self-contained, WCAG contrast); `scripts/new_page.py` builds a self-contained page, `scripts/check_style.py` checks a page or a palette (tokens, contrast, unreadable inherited colors, external resources). |
+| [`explain-doc`](docs/explain-doc/SKILL.md) | Explanation pages (how something works) in two levels switched in place, **Simple** (analogies, plain words, numbers) and **Technical** (terms, formulas, complexity, edge cases, code, sources), with SVG diagrams, step-by-step animations, MathML formulas, interactive playgrounds / simulations checking the formulas, quizzes and a glossary. Built on `html-style`. |
 | [`cpp-project`](cpp/cpp-project/SKILL.md) | Sets up a new C++ project from [cpp_project_template](https://github.com/TsukiNi22/cpp_project_template): renaming, binary / packaged binary / `.a` / `.so` / header-only, libutils or not, exceptions, GTest, CI/CD workflows (build check or full packages + gh-pages mirror), install script, README/CHANGELOG/docs, using the other skills. |
 | [`cmake-style`](cpp/cmake-style/SKILL.md) | `CMakeLists.txt` in my style: section order, explicit sources, Debug/Asan/Optimized modes, release targets, GTest tests, install + `find_package` config, CPack RPM/DEB stable/pre channels, with app/lib/tests templates. |
 | [`cpp-tests`](tests/cpp-tests/SKILL.md) | C++ unit tests like libutils: GoogleTest setup (CMake, CI, `unit_tests`), one test file per module, isolation of the blocking cases, known bugs kept as failing tests, `scripts/untested.py` to list what is never tested. |
@@ -48,7 +50,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`comments`](style/comments/SKILL.md) | My comment style for every language (C, C++, CMake, Makefile, shell, Python, Lua, YAML, Markdown) and which file header goes where. |
 | [`audit-bugs`](audit/audit-bugs/SKILL.md) | Bug / UB audit loop (sanitizers, tests, static tools, code review, verification of each finding), single agent or subagents on request, fixes only after confirmation. |
 | [`audit-quality`](audit/audit-quality/SKILL.md) | Cleanliness / conventions audit of a project (`scripts/collect.py` metrics + review against the style skills) delivered as a PDF report. |
-| [`pdf-report`](docs/pdf-report/SKILL.md) | Reports in my style as Markdown and/or PDF (format asked: both recommended), English by default (Markdown -> WeasyPrint, A4, Noto, navy title rule, tables and callouts) with `scripts/md2pdf.py`. |
+| [`report`](docs/report/SKILL.md) | Reports in my style as Markdown and/or PDF (format asked: both recommended), English by default (Markdown -> WeasyPrint, A4, Noto, navy title rule, tables and callouts) with `scripts/md2pdf.py`. |
 | [`license`](legal/license/SKILL.md) | Finds the license matching the needs (comparison matrix), negotiates the close ones, fetches the official text, replaces the current LICENSE only after confirmation, checks dependencies compatibility. |
 | [`audit-deps`](audit/audit-deps/SKILL.md) | Dependencies (direct + transitive): licenses to credit, copyleft / non-commercial / paid / unknown ones, THIRD_PARTY_NOTICES generation, and known vulnerabilities / compromised versions (OSV, dnf, GitHub advisories), as a PDF report. |
 | [`libutils`](libutils/libutils/SKILL.md) | Reference of my library [libutils](https://github.com/TsukiNi22/libutils): every section, header and public API generated from a recorded version/commit (`reference/VERSION.md`), integration and conventions, plus `scripts/update.sh` to see what changed since that commit and regenerate. |
@@ -126,7 +128,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 |---|---|
 | `cpp-skills` | cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style |
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
-| `doc-skills` | readme-style, html-doc, pdf-report |
+| `doc-skills` | readme-style, html-doc, html-style, explain-doc, report |
 | `git-skills` | git-conventions |
 | `style-skills` | coding-style, comments |
 | `test-skills` | tests, cpp-tests |
@@ -169,7 +171,7 @@ cpp/       cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style
 libutils/  libutils, libutils-exception, libutils-install, libutils-setup
 tests/     tests, cpp-tests
 style/     coding-style, comments
-docs/      readme-style, html-doc, pdf-report
+docs/      readme-style, html-doc, html-style, explain-doc, report
 git/       git-conventions
 audit/     audit-bugs, audit-quality, audit-deps
 legal/     license

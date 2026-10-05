@@ -26,7 +26,7 @@
     },
     {
       "name": "doc-skills",
-      "description": "Documentation: README, uniform HTML docs with the project graph, PDF reports",
+      "description": "Documentation: README, uniform HTML docs with the project graph, HTML style, explanation pages (simple + technical), Markdown / PDF reports",
       "source": "./",
       "strict": false,
       "skills": [
