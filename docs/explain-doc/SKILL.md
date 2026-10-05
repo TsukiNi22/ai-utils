@@ -36,11 +36,11 @@ playground, quiz, glossary): keep its structure and components, replace its cont
   link, EN / FR switch) found on the others; the level switch stays on the explanations. A page that gets the
   EN / FR switch must be bilingual (`data-lang="en"` / `data-lang="fr"` content, as `html-doc`): the script warns
   when it has no French. The UI of the explanations (Play, levels, steps) is translated by `explain.js`.
-- **Same top bar on every page**: the brand stays the documentation one (doc logo, project name, version badge;
-  the name alone when there is no version), never a logo / name of the topic (no padlock for AES): `sync_nav.py`
-  copies the brand of the `html-doc` pages on the explanations; `set_logo.py <folder>` (html-style) puts the
-  project's real logo when the repository has one, the documentation logo otherwise. Without `html-doc`: `--set VERSION=vX.Y.Z` or
-  nothing (badge hidden).
+- **Same top bar on every page**: the brand of the site (its logo, project name, version badge; the name alone when
+  there is no version), never a logo / name per explanation: `sync_nav.py` copies the brand of the `html-doc`
+  pages on the explanations. A new site without a chosen logo: ask the user (repository / custom / documentation
+  logo, see "Logo of the brand" in `html-style`) and apply it with `set_logo.py`. Without `html-doc`:
+  `--set VERSION=vX.Y.Z` or nothing (badge hidden).
 - Same project as an `html-doc` site: same `PROJECT`, logo and `STORAGE_KEY` (`--set STORAGE_KEY=<doc key>`) so the
   theme / language choices are shared.
 - Keep the `html-style` layout: never redefine `.layout` (wide screens center an 880px column; a wider column

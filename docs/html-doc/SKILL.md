@@ -24,9 +24,9 @@ is needed when the audience of the tool is not obvious.
 - Top bar: mobile menu button (guide / technical), **logo** + project name + **version badge** (`{{VERSION}}`), page
   tabs (`<nav class="tabs">`, hidden on mobile where the menu replaces them), then the grouped actions
   `.top-actions`: GitHub icon (`{{REPO_URL}}`) | divider | language switch, theme switch (same height).
-- Logo: the real logo of the project when the repository has one, else the default documentation logo; never a
-  pictogram invented from the topic (no padlock for a crypto project). `python3 ../html-style/scripts/set_logo.py
-  docs` sets it on every page of the folder.
+- Logo: chosen by the user, **always asked** for a new site (repository logo when there is one, custom logo made for
+  the project, or the documentation logo), then applied to every page with `set_logo.py`: see "Logo of the brand"
+  in `html-style`.
 - **Repository data fetched**: `<html data-repo="{{GITHUB_REPO}}">` (`owner/repo`); at load the page asks the GitHub
   API (cached 1 h) for the repository name, latest release (or tag), license and URL and replaces the written values
   in `.repo-name` (brand, footer, page title), `.repo-version`, `.repo-license`, `a.repo-link`. Offline / private /

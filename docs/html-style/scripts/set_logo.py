@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Set the logo of the brand (top bar) of every page of a folder: the real logo of the project when it has one,
-otherwise the default documentation logo. Never a pictogram invented from the topic.
+Set the logo of the brand (top bar) of every page of a folder, once the user chose it: the logo of the
+repository, the default documentation logo, or a custom logo made for the project (an SVG file given with --file).
 
 Usage:
-    set_logo.py <docs dir> [--repo <project root>] [--file <logo.svg|png|jpg|ico>] [--default] [--dry-run]
+    set_logo.py <docs dir> [--list] [--repo <project root>] [--file <logo.svg|png|jpg|ico>] [--default] [--dry-run]
 
-- --file: this image.
+- --list: only list the logos found in the repository (to offer them to the user), nothing written.
+- --file: this image (a logo of the repository, or a custom one).
 - --repo (default: the parent of the docs dir): search the project logo (logo*.svg / png, icon*, *-logo.*,
   .github/*logo*, assets/ / images/ / resources/...), SVG first; third-party folders are skipped.
 - --default: the default documentation logo (also used when no logo is found).
@@ -90,8 +91,14 @@ def main() -> int:
     ap.add_argument("--file")
     ap.add_argument("--default", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--list", action="store_true", help="list the logos of the repository, write nothing")
     a = ap.parse_args()
     docs = Path(a.docs)
+
+    if a.list:
+        found = find_logo(Path(a.repo) if a.repo else docs.resolve().parent, docs)
+        print("\n".join(str(p) for p in found) if found else "no logo in the repository")
+        return 0
 
     source = "default documentation logo"
     logo = default_logo()
