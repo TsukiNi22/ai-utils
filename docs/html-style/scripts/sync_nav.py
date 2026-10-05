@@ -14,6 +14,8 @@ For every page:
   hidden for a single page;
 - the previous / next links (<nav class="pager">, when the page has one);
 - the brand (logo, project name, version) copied from the html-doc page on every page, its link -> first page;
+- the shared features of the top bar (GitHub link, EN / FR switch) on every page (a page without French
+  content is reported);
 - the storage key of the explanation pages = the one of the html-doc pages (choices saved once for the site);
   links between the pages also carry ?lang= / ?theme= / ?level= (base.js), for file:// where pages share nothing.
 Pages are independent: removing one and re-running this script removes it everywhere.
@@ -26,6 +28,7 @@ import re
 import sys
 
 ORDER = [("guide", "Guide"), ("technical", "Technical"), ("graph", "Graph")]
+FEATURES = [("repo", r'<a class="icon-btn repo-link"[^>]*>.*?</a>'), ("lang", r'<div class="lang-switch".*?</div>')]
 
 
 def nav_title(text: str, path: str) -> str:
@@ -80,6 +83,17 @@ def main() -> int:
             brand = m.group(0)
             break
 
+    # Features of the top bar shared by the site (GitHub link, EN / FR switch): taken from the html-doc pages, else
+    # from any page, and added to the pages missing them; page specific ones (level switch) stay on their pages
+    shared = {}
+    for fn in [fixed[k] for k in ("technical", "guide", "graph") if k in fixed] + [e[2] for e in present]:
+        text = open(os.path.join(d, fn), encoding="utf-8").read()
+        for key, rx in FEATURES:
+            m = re.search(rx, text, re.S)
+            if key not in shared and m and "{{" not in m.group(0):
+                shared[key] = m.group(0)
+    warnings = []
+
     for i, (kind, _, name) in enumerate(present):
         path = os.path.join(d, name)
         t = open(path, encoding="utf-8").read()
@@ -99,6 +113,14 @@ def main() -> int:
             pager += f'\n  <a class="next" href="{next_[2]}"><span data-i18n>Next</span><b data-i18n>{html.escape(next_[1])}</b></a>'
         t = re.sub(r'<nav class="pager"[^>]*>.*?</nav>', f'<nav class="pager" aria-label="Pages">{pager + chr(10) if pager else ""}</nav>',
                    t, count=1, flags=re.S)
+        add = ""
+        for key, rx in FEATURES:
+            if key in shared and not re.search(rx, t, re.S):
+                add += "\n  " + shared[key] + ("\n  <span class=\"divider\" aria-hidden=\"true\"></span>" if key == "repo" else "")
+        if add:
+            t = t.replace('<div class="top-actions">', '<div class="top-actions">' + add, 1)
+        if "lang" in shared and not re.search(r'<[a-z][a-z0-9]*\b[^>]*\sdata-lang="fr"', t):  # a tag, not the CSS selector
+            warnings.append(f"{name}: EN / FR switch but no French content (data-lang=\"fr\"): write the French version")
         if brand:
             t = re.sub(r'<a class="brand"[^>]*>.*?</a>', lambda m: brand, t, count=1, flags=re.S)
         t = re.sub(r'(<a class="brand" href=")[^"]*(")', rf"\g<1>{present[0][2]}\2", t, count=1)
@@ -106,6 +128,8 @@ def main() -> int:
             t = re.sub(r'(<html[^>]*\bdata-storage-key=")[^"]*(")', rf"\g<1>{site_key}\2", t, count=1)
         open(path, "w", encoding="utf-8").write(t)
     print(", ".join(f"{label} -> {fn}" for _, label, fn in present))
+    for w in warnings:
+        print("warning: " + w)
     return 0
 
 

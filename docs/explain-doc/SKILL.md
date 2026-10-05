@@ -11,7 +11,8 @@ reports (`report`).
 
 ## 1. Ask (one AskUserQuestion call, French), unless already given
 1. **Public visé par défaut** (level shown at the first visit): `Simple (Recommandé)` · `Technique`.
-2. **Langue** : `Anglais (Recommandé)` · `Français` · `Bilingue EN / FR` (`--lang-switch`, `html-style`).
+2. **Langue** : `Anglais (Recommandé)` · `Français` · `Bilingue EN / FR` (`--lang-switch`, `html-style`). Not asked
+   when the folder already holds `html-doc` pages: the page follows the site (bilingual EN / FR like them).
 3. **Emplacement** : `docs/explain/<sujet>.html (Recommandé)` (in a repository) · `Dossier courant` · other.
 Both levels are always written; the switch (and `?level=simple|technical` in the address) picks the one shown.
 
@@ -31,6 +32,10 @@ playground, quiz, glossary): keep its structure and components, replace its cont
   `data-nav-order` then file name), and rewrites the tabs of the `html-doc` pages too. Run it after every new /
   removed page, whichever skill made it (`html-doc` runs it as well). An older explanation page without
   `data-page` is detected by its level switch and gets the attributes.
+- **Same features on every page**: `sync_nav.py` adds to every page the shared controls of the top bar (GitHub
+  link, EN / FR switch) found on the others; the level switch stays on the explanations. A page that gets the
+  EN / FR switch must be bilingual (`data-lang="en"` / `data-lang="fr"` content, as `html-doc`): the script warns
+  when it has no French. The UI of the explanations (Play, levels, steps) is translated by `explain.js`.
 - **Same top bar on every page**: the brand stays the documentation one (doc logo, project name, version badge;
   the name alone when there is no version), never a logo / name of the topic (no padlock for AES): `sync_nav.py`
   copies the brand of the `html-doc` pages on the explanations. Without `html-doc`: `--set VERSION=vX.Y.Z` or

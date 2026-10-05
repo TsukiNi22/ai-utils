@@ -50,6 +50,13 @@
     });
     return best;
   }
+  // French of the UI of the explanation pages (merged into the dictionary of the page)
+  var FR = { "Level": "Niveau", "Simple": "Simple", "Technical": "Technique", "Explanation": "Explication", "Play": "Lecture",
+    "Pause": "Pause", "First step": "Première étape", "Previous step (←)": "Étape précédente (←)", "Next step (→)": "Étape suivante (→)",
+    "Previous step": "Étape précédente", "Next step": "Étape suivante", "Contents": "Sommaire" };
+  window.DOC_FR = window.DOC_FR || {};
+  Object.keys(FR).forEach(function (k) { if (!(k in window.DOC_FR)) window.DOC_FR[k] = FR[k]; });
+  var tr = function (s) { return window.docI18n ? window.docI18n.tr(s) : s; };
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var FADE = 160; // ms of each half of a fade (out, then in)
   // Icons of the controls: same 16x16 grid, filled with currentColor
@@ -102,10 +109,10 @@
     var captions = fig.querySelectorAll('.captions > li');
     var controls = document.createElement('div');
     controls.className = 'controls';
-    controls.innerHTML = '<button type="button" data-a="first" aria-label="First step" title="First step">' + ICON.first + '</button>' +
-      '<button type="button" data-a="prev" aria-label="Previous step" title="Previous step (←)">' + ICON.prev + '</button>' +
-      '<button type="button" class="play" data-a="play" aria-label="Play">' + ICON.play + '<span>Play</span></button>' +
-      '<button type="button" data-a="next" aria-label="Next step" title="Next step (→)">' + ICON.next + '</button>' +
+    controls.innerHTML = '<button type="button" data-a="first" aria-label="First step" title="First step" data-i18n-aria-label data-i18n-title>' + ICON.first + '</button>' +
+      '<button type="button" data-a="prev" aria-label="Previous step" title="Previous step (←)" data-i18n-aria-label data-i18n-title>' + ICON.prev + '</button>' +
+      '<button type="button" class="play" data-a="play" aria-label="Play">' + ICON.play + '<span>' + tr('Play') + '</span></button>' +
+      '<button type="button" data-a="next" aria-label="Next step" title="Next step (→)" data-i18n-aria-label data-i18n-title>' + ICON.next + '</button>' +
       '<span class="progress"><i></i></span><span class="count"></span>';
     var svg = fig.querySelector('svg');
     var view = document.createElement('div');
@@ -136,7 +143,9 @@
       controls.querySelector('.count').textContent = (step + 1) + ' / ' + total;
       controls.querySelector('.progress i').style.width = (100 * step / Math.max(1, total - 1)) + '%';
     }
-    function stop() { clearInterval(timer); timer = null; play.innerHTML = ICON.play + '<span>Play</span>'; play.setAttribute('aria-label', 'Play'); }
+    function playLabel() { var k = timer ? 'Pause' : 'Play'; play.innerHTML = (timer ? ICON.pause : ICON.play) + '<span>' + tr(k) + '</span>'; play.setAttribute('aria-label', tr(k)); }
+    if (window.docI18n) window.docI18n.onChange(playLabel);
+    function stop() { clearInterval(timer); timer = null; playLabel(); }
     // One step at a time animates; a jump (first step, restart) is applied at once
     function go(s) { var next = Math.max(0, Math.min(total - 1, s)); var near = Math.abs(next - step) === 1; step = next; render(near); }
     controls.addEventListener('click', function (e) {
@@ -150,8 +159,8 @@
       else if (timer) stop();
       else {
         if (step === total - 1) go(0);
-        play.innerHTML = ICON.pause + '<span>Pause</span>'; play.setAttribute('aria-label', 'Pause');
         timer = setInterval(function () { if (step >= total - 1) stop(); else go(step + 1); }, reduced ? Math.max(delay, 4500) : delay);
+        playLabel();
       }
     });
     fig.tabIndex = 0;
@@ -159,8 +168,13 @@
       if (e.key === 'ArrowRight') { stop(); go(step + 1); e.preventDefault(); }
       if (e.key === 'ArrowLeft') { stop(); go(step - 1); e.preventDefault(); }
     });
+    // First state drawn without transitions (no flash of every step at load)
+    fig.classList.add('init');
     render(false);
+    requestAnimationFrame(function () { requestAnimationFrame(function () { fig.classList.remove('init'); }); });
   });
+
+  if (window.docI18n && window.docI18n.apply) window.docI18n.apply(); // labels of the controls created above
 
   // ---------- Playgrounds: <div class="playground" data-play="name"> ----------
   // Inputs [data-in="x"] (range / number / text / checkbox / select), outputs [data-out="y"]; the page registers

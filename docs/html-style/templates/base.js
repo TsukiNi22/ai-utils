@@ -40,7 +40,7 @@
   var askedLang = new URLSearchParams(location.search).get('lang');
   if (askedLang === 'en' || askedLang === 'fr') { saved = askedLang; try { localStorage.setItem(key, askedLang); } catch (e) { /* storage unavailable */ } }
   root.lang = saved === 'fr' ? 'fr' : (root.lang || 'en');
-  window.docI18n = { tr: tr, set: set, onChange: function (f) { listeners.push(f); }, lang: function () { return root.lang; } };
+  window.docI18n = { tr: tr, set: set, apply: apply, onChange: function (f) { listeners.push(f); }, lang: function () { return root.lang; } };
   document.querySelectorAll('[data-set-lang]').forEach(function (b) {
     b.addEventListener('click', function () { set(b.dataset.setLang); });
   });

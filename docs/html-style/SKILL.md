@@ -19,7 +19,8 @@ python3 SKILL_DIR/scripts/new_page.py <body.html> -o <out.html> [--css extra.css
 inlines `style.css` + `base.js` (+ the extra files, after them) into `templates/page.html`: the result is **one
 self-contained file** that works offline and from `file://`. `--attr NAME=VALUE` adds attributes to `<html>`
 (`data-page`, `data-nav-title`, `data-default-level`). Several pages in one folder: `scripts/sync_nav.py <folder>`
-fills the top tabs / previous-next cards of every page (`html-doc` and `explain-doc` pages together). Without a sidebar, add
+fills the top tabs / previous-next cards of every page (`html-doc` and `explain-doc` pages together) and gives
+them the same brand and shared top bar controls (GitHub link, EN / FR switch), reporting a page without French. Without a sidebar, add
 `.layout { grid-template-columns: minmax(0, 1fr); max-width: 880px; }` in the extra CSS.
 
 ## 2. Tokens (never a raw color in a component: always `var(--x)`)

@@ -20,6 +20,7 @@
 .stepper svg text.hl, .stepper svg text.hl-warn { stroke: none; }
 .stepper svg text.hl, .stepper svg text.changed { fill: var(--accent); font-weight: 700; }
 .stepper svg text.hl-warn { fill: var(--warn); }
+.stepper.init *, .stepper.init *::before, .stepper.init *::after { transition: none !important; }
 /* The head follows the scroll only when the figure is taller than the screen (class set by explain.js) */
 .stepper.tall .step-head { position: sticky; top: 64px; }
 .stepper .step-head { z-index: 5; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
