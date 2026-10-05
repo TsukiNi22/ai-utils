@@ -89,6 +89,8 @@ playground, quiz, glossary): keep its structure and components, replace its cont
   - no element leaves the drawing or crosses it: a wrap-around (rotation, modulo, ring) fades out and back in at
     its new place (automatic with `data-at` beyond 2 element sizes); nothing is clipped by an `overflow` box;
   - one state = the drawing + its caption on screen together (no caption hidden below the fold).
+  - the controls + caption bar stays in place when the figure fits the screen; it follows the scroll (sticky)
+    only for a figure taller than the window (`explain.js` decides, also after a resize / level change).
 - Arrows with `data-from` / `data-to` (ids on the shapes, `:top` / `:bottom`... sides, `data-bend`), as in the
   template: computed from the shapes, they always touch them; `check_style.py` rejects a typed arrow that
   misses its shape.

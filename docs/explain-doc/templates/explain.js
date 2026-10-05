@@ -119,6 +119,13 @@
     if (list) { list.setAttribute('aria-live', 'polite'); head.appendChild(list); }
     view.insertAdjacentElement('beforebegin', head);
     var play = controls.querySelector('[data-a="play"]');
+    // Sticky head only for a figure taller than the visible area (under the 56px top bar): a figure that fits
+    // the screen keeps its controls in place
+    function fit() { fig.classList.toggle('tall', fig.getBoundingClientRect().height > window.innerHeight - 72); }
+    fit();
+    window.addEventListener('resize', fit);
+    if (window.docI18n) window.docI18n.onChange(fit);
+    levelListeners.push(function () { setTimeout(fit, 0); });
     function render(animate) {
       svg.querySelectorAll('[data-show]').forEach(function (el) { el.classList.toggle('off', !inRange(el.dataset.show, step)); });
       svg.querySelectorAll('[data-hl]').forEach(function (el) { el.classList.toggle('hl', inRange(el.dataset.hl, step)); });
