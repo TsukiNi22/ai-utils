@@ -13,7 +13,7 @@ Report only: **never modify the project** during the audit (fixes only if asked 
 ## 1. Ask (one AskUserQuestion call, French) - only what the request doesn't say
 - Scope: whole project / a module / the changes since a ref.
 - Compiler warnings pass (`--build`, slower: separate build dir in /tmp).
-- Output: ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only); location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-quality.{md,pdf}`); language English unless asked.
+- Output: ask the output format of `report` (`Markdown + PDF` recommended, PDF only, Markdown only); location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-quality.{md,pdf}`); language English unless asked.
 Never start subagents (forks) by yourself: propose them only for very big projects and wait for the user's yes.
 
 ## 2. Objective metrics
@@ -51,8 +51,8 @@ Per category: number of findings, severity (**high**: breaks the build/CI/conven
 recurrent deviation, **low**: cosmetic), a 0-10 score, the fix (and if it can be automated: `sed`, script,
 clang-format...). Then a **top 10** of the actions with the best gain / effort ratio.
 
-## 5. Report (pdf-report skill)
-Write the Markdown from `pdf-report/templates/report.md`, sections:
+## 5. Report (report skill)
+Write the Markdown from `report/templates/report.md`, sections:
 1. **Summary**: table `| Category | Findings | Severity | Score /10 |` + global score + 3-line verdict.
 2. **Method**: scope, commit (`git rev-parse --short HEAD`), date, tools and skills used, limits (heuristics).
 3. **Findings by category**: one `###` per category, a short explanation of the rule (with the skill it comes
@@ -62,5 +62,5 @@ Write the Markdown from `pdf-report/templates/report.md`, sections:
 5. **Priorities**: the top 10, numbered `1. **Action.** gain, effort, files`.
 6. **Appendix**: full lists per category (from the JSON), module sizes table.
 7. **Sources**: the skills / rules / tools used.
-Then `python3 <pdf-report>/scripts/md2pdf.py <report.md> --footer "<Project> — quality audit" --format <answer>`,
+Then `python3 <report>/scripts/md2pdf.py <report.md> --footer "<Project> — quality audit" --format <answer>`,
 check the rendering (pdftoppm on 2 pages) and give both paths + page count.

@@ -1,6 +1,6 @@
 ---
-name: pdf-report
-description: Deliver a result (report, audit, review, study, benchmark, summary) as Markdown and/or PDF in the user's report style (measured on the Convertly docs - WeasyPrint, A4, Noto Sans 9 pt, navy #1a3d7c title with a navy rule under it, navy table heads, light blue callout with navy bar, zebra tables, mono code on grey, footer "title - page / pages"), English by default, converted with scripts/md2pdf.py. Use whenever the user asks for a PDF, a report/benchmark/audit/study, or another skill needs a report output.
+name: report
+description: Deliver a result (report, audit, review, study, benchmark, summary) as Markdown and/or PDF in the user's report style (measured on the Convertly docs - WeasyPrint, A4, Noto Sans 9 pt, navy (1a3d7c) title with a navy rule under it, navy table heads, light blue callout with navy bar, zebra tables, mono code on grey, footer "title - page / pages"), English by default, converted with scripts/md2pdf.py. Use whenever the user asks for a PDF, a report/benchmark/audit/study, or another skill needs a report output.
 ---
 
 # Reports in the user's style (Markdown + PDF)

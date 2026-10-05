@@ -35,7 +35,7 @@ if there is none, inspect the project and propose what can be done).
 | add libutils to the current project (CMake, custom exceptions setup) | `libutils-setup` |
 | unit tests: setup, write tests for a module / the whole project, coverage | `cpp-tests` |
 | bugs, UB, crashes, memory errors, sanitizers, correctness review | `audit-bugs` |
-| cleanliness / conventions audit, report of the project quality | `audit-quality` (PDF through `pdf-report`) |
+| cleanliness / conventions audit, report of the project quality | `audit-quality` (PDF through `report`) |
 | new `.cpp` added | also `cmake-style` (registration in `SRC`, `cpp-class/scripts/cmake_add.py`) |
 | commit / docs asked at the end | `git-conventions` / `readme-style`, `html-doc` |
 

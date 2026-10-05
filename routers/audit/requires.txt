@@ -1,1 +1,1 @@
-audit-bugs audit-quality audit-deps cpp-tests tests pdf-report
+audit-bugs audit-quality audit-deps cpp-tests tests report

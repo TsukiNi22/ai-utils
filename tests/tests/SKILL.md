@@ -55,4 +55,4 @@ Don't install anything system-wide without confirmation (package managers: give 
 ## 5. Run & report
 Run the whole suite (and the new tests alone), report: tests added per module, passed / failing (= bugs found, with
 the reason), what remains untested, how to run them (`<command>`), CI added or not.
-Deliver the report through the `pdf-report` skill (ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only)), in English, in `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-tests.*`), not only in the chat.
+Deliver the report through the `report` skill (ask the output format of `report` (`Markdown + PDF` recommended, PDF only, Markdown only)), in English, in `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-tests.*`), not only in the chat.

@@ -84,5 +84,5 @@ finds nothing new or at the chosen budget. Never claim a bug without evidence.
 - Findings ranked by severity: `file:line`, category, title, evidence, reproduction, proposed fix (or applied fix +
   test), status (confirmed / fixed / false positive with the reason).
 - Summary table: per category x severity, iterations done, tools run (and the ones missing), false positives dropped.
-- Always delivered through the `pdf-report` skill: ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only), location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-bugs.{md,pdf}`),
+- Always delivered through the `report` skill: ask the output format of `report` (`Markdown + PDF` recommended, PDF only, Markdown only), location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-bugs.{md,pdf}`),
   in English unless asked; the chat only gives the verdict (counts per severity) and the paths.

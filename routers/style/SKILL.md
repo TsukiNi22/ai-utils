@@ -25,7 +25,7 @@ Load the skills with the Skill tool (never the other routers: they are manual-on
 | whole project review with a report | `audit-quality` (PDF) |
 
 ## Review mode
-The review is delivered through `pdf-report` (format asked once, English, `audit/` at the repository root) (`audit-quality` for a whole project).
+The review is delivered through `report` (format asked once, English, `audit/` at the repository root) (`audit-quality` for a whole project).
 List the deviations per file with the rule they break (skill + rule), most important first, then propose the
 fixes; only apply them if asked. Never change the logic while restyling.
 Start the answer with one line listing the loaded skills.

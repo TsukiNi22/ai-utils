@@ -62,7 +62,7 @@ For each finding: affected version, fixed version, the project usage (is the vul
 action (update the package, bump the requirement, pin/replace). Debian/Ubuntu: also `debsecan` if installed.
 
 ## 5. Report
-Through the `pdf-report` skill: ask the output format of `pdf-report` (`Markdown + PDF` recommended, PDF only, Markdown only), location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-dependencies.{md,pdf}`), English unless
+Through the `report` skill: ask the output format of `report` (`Markdown + PDF` recommended, PDF only, Markdown only), location `audit/` at the root of the repository (or of the current folder outside a repository), never `docs/` unless asked (`audit/<YYYY-MM-DD>-dependencies.{md,pdf}`), English unless
 asked. Sections: **Summary** (counts per category, blocking points first), **Method** (commit, tools, date, limits),
 **Licenses** (table per dependency: version, license, category, scope, obligation), **Obligations** (what to credit and
 where), **Blocking / to clarify**, **Vulnerabilities** (table by severity, recent first, fixed version, action),

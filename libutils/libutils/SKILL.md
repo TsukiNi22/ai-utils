@@ -1,6 +1,6 @@
 ---
 name: libutils
-description: Reference of Tsukini's C++20 library libutils (namespace utils::, github TsukiNi22/libutils) - every section, header, class and public method with the version and commit hash it was generated from, how to link/include it, exceptions/error codes, verbose, and how to find what changed since. Use whenever code uses or could use libutils (utils::..., #include "utils/...", find_package(utils)), when the user asks which libutils class/function does something, how to use one, or what is new in libutils, instead of searching the library sources.
+description: Reference of Tsukini's C++20 library libutils (namespace utils::, github TsukiNi22/libutils) - every section, header, class and public method with the version and commit hash it was generated from, how to link/include it, exceptions/error codes, verbose, and how to find what changed since. Use whenever code uses or could use libutils (utils::..., include "utils/...", find_package(utils)), when the user asks which libutils class/function does something, how to use one, or what is new in libutils, instead of searching the library sources.
 ---
 
 # libutils reference

@@ -31,10 +31,10 @@ scope, mode, iterations, fixes) are asked by that audit when it starts, in one c
 1. `audit-deps` first when selected: its JSON (`/tmp/deps.json`, `/tmp/vulns.json`) is reused by `audit-quality`
    and `audit-bugs` instead of running the scripts again.
 2. `audit-quality`, 3. tests coverage, 4. `audit-bugs` (the longest, it may fix things only after confirmation).
-Each audit writes its own report `audit/<YYYY-MM-DD>-<audit>.{md,pdf}` (English unless asked, `pdf-report` style).
+Each audit writes its own report `audit/<YYYY-MM-DD>-<audit>.{md,pdf}` (English unless asked, `report` style).
 An audit that fails or can't run (no build system, missing tool) is reported as such, the others continue.
 
 ## 4. Summary report
-`audit/<YYYY-MM-DD>-summary.{md,pdf}` through `pdf-report`: **Summary** table `| Audit | Verdict | High | Medium |
+`audit/<YYYY-MM-DD>-summary.{md,pdf}` through `report`: **Summary** table `| Audit | Verdict | High | Medium |
 Low | Report |` (link to each report), the **top 10 actions** across all the audits (deduplicated, highest gain
 first), what was not run and why, the commit audited. In the chat: the verdict per audit and the paths only.
