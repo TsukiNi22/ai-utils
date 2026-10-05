@@ -48,7 +48,8 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
   code 4px, pills 999px. Card padding 28px 32px (20px 16px mobile), 24px between cards.
 - Layout `.layout`: sidebar 250px + content, max 1180px; from 1340px the content column (880px) is centered and
   the sidebar sits on its left. Breakpoints 860px (sidebar off-canvas, menu button, tabs hidden) and 480px.
-- Top bar 56px sticky: `.brand` (inline SVG logo in `currentColor` = accent, name, `.ver` badge), `nav.tabs`,
+- Top bar 56px sticky: `.brand` (inline SVG logo in `currentColor` = accent, name, `.ver` badge hidden when empty;
+  the same on every page of a site, copied by `sync_nav.py`), `nav.tabs`,
   `.spacer`, `.top-actions` (icon buttons | divider | EN/FR pill, theme switch).
 
 ## 4. Components (classes of `style.css`)

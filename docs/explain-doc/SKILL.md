@@ -31,6 +31,10 @@ playground, quiz, glossary): keep its structure and components, replace its cont
   `data-nav-order` then file name), and rewrites the tabs of the `html-doc` pages too. Run it after every new /
   removed page, whichever skill made it (`html-doc` runs it as well). An older explanation page without
   `data-page` is detected by its level switch and gets the attributes.
+- **Same top bar on every page**: the brand stays the documentation one (doc logo, project name, version badge;
+  the name alone when there is no version), never a logo / name of the topic (no padlock for AES): `sync_nav.py`
+  copies the brand of the `html-doc` pages on the explanations. Without `html-doc`: `--set VERSION=vX.Y.Z` or
+  nothing (badge hidden).
 - Same project as an `html-doc` site: same `PROJECT`, logo and `STORAGE_KEY` (`--set STORAGE_KEY=<doc key>`) so the
   theme / language choices are shared.
 - Keep the `html-style` layout: never redefine `.layout` (wide screens center an 880px column; a wider column

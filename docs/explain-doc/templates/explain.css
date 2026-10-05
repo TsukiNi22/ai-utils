@@ -87,7 +87,7 @@ details.quiz > :not(summary) { padding: 0 14px; }
   .level-switch button { padding: 0 8px; }
 }
 @media (max-width: 480px) {
-  .brand > span { display: none; } /* room for the level and theme switches */
+  .brand .repo-name { display: none; } /* room for the level and theme switches */
 }
 @media (prefers-reduced-motion: reduce) {
   .stepper svg *, .stepper .progress i, .stepper .captions > li { transition: none !important; }

@@ -13,7 +13,7 @@ For every page:
 - the top tabs (<nav class="tabs">): Guide, Technical, Graph, then the explanations; the current one marked,
   hidden for a single page;
 - the previous / next links (<nav class="pager">, when the page has one);
-- the brand link -> first page;
+- the brand (logo, project name, version) copied from the html-doc page on every page, its link -> first page;
 - the storage key of the explanation pages = the one of the html-doc pages (choices saved once for the site);
   links between the pages also carry ?lang= / ?theme= / ?level= (base.js), for file:// where pages share nothing.
 Pages are independent: removing one and re-running this script removes it everywhere.
@@ -71,6 +71,15 @@ def main() -> int:
         print(f"no page with data-page / level switch in {d}")
         return 0
 
+    # One brand for the site (documentation logo + project name + version): the one of the html-doc pages
+    # (technical, guide, graph), else the one of the first page; every page gets the same
+    brand = None
+    for fn in [fixed[k] for k in ("technical", "guide", "graph") if k in fixed] + [e[2] for e in present]:
+        m = re.search(r'<a class="brand"[^>]*>.*?</a>', open(os.path.join(d, fn), encoding="utf-8").read(), re.S)
+        if m and "{{" not in m.group(0):
+            brand = m.group(0)
+            break
+
     for i, (kind, _, name) in enumerate(present):
         path = os.path.join(d, name)
         t = open(path, encoding="utf-8").read()
@@ -90,6 +99,8 @@ def main() -> int:
             pager += f'\n  <a class="next" href="{next_[2]}"><span data-i18n>Next</span><b data-i18n>{html.escape(next_[1])}</b></a>'
         t = re.sub(r'<nav class="pager"[^>]*>.*?</nav>', f'<nav class="pager" aria-label="Pages">{pager + chr(10) if pager else ""}</nav>',
                    t, count=1, flags=re.S)
+        if brand:
+            t = re.sub(r'<a class="brand"[^>]*>.*?</a>', lambda m: brand, t, count=1, flags=re.S)
         t = re.sub(r'(<a class="brand" href=")[^"]*(")', rf"\g<1>{present[0][2]}\2", t, count=1)
         if site_key and kind == "explain":  # html-doc pages keep theirs (also used by the graph config)
             t = re.sub(r'(<html[^>]*\bdata-storage-key=")[^"]*(")', rf"\g<1>{site_key}\2", t, count=1)

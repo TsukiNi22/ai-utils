@@ -13,7 +13,7 @@ Usage:
 - --lang-switch: adds the EN | FR pill (bilingual page, [data-lang] / [data-i18n] content).
 - --attr: attributes added to <html> (data-page=explain data-nav-title=AES data-default-level=technical).
 - --set: placeholders (PROJECT, TITLE, STORAGE_KEY, FOOTER...); STORAGE_KEY defaults to the output file name,
-  FOOTER to an empty string. A placeholder left unfilled is reported (exit 1).
+  FOOTER and VERSION (badge next to the name, hidden when empty) to an empty string. A placeholder left unfilled is reported (exit 1).
 """
 
 import argparse
@@ -50,7 +50,7 @@ def main():
     out = Path(a.out)
     if out.exists() and not a.force:
         sys.exit(f"Error: {out} exists (--force to overwrite)")
-    values = {"STORAGE_KEY": out.stem, "FOOTER": ""}
+    values = {"STORAGE_KEY": out.stem, "FOOTER": "", "VERSION": ""}
     for kv in a.set:
         if "=" not in kv:
             sys.exit(f"Error: --set expects KEY=VALUE, got '{kv}'")
