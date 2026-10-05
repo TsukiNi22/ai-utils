@@ -1,5 +1,4 @@
-/* ---------- Explanation pages (explain-doc), on top of html-style ---------- */
-.layout { grid-template-columns: 220px minmax(0, 1fr); }
+/* ---------- Explanation pages (explain-doc), on top of html-style (its layout is kept as is) ---------- */
 /* Level switch (Simple | Technical): same pill as the language switch */
 .level-switch { display: inline-flex; align-items: center; gap: 2px; height: 34px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--code-bg); }
 .level-switch button { height: 26px; border: 0; background: none; color: var(--text); cursor: pointer; font: 600 12px system-ui, sans-serif; letter-spacing: .03em; padding: 0 10px; border-radius: 999px; transition: background .2s, color .2s; }
@@ -20,7 +19,9 @@
 .stepper svg text.hl { fill: var(--accent); }
 .stepper svg text.hl-warn { fill: var(--warn); }
 .stepper .controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.stepper .controls button { height: 32px; min-width: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; font: 500 13px system-ui, sans-serif; }
+.stepper .controls button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; min-width: 32px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; font: 500 13px/1 system-ui, sans-serif; }
+.stepper .controls button svg { width: 14px; height: 14px; flex: none; fill: currentColor; }
+.stepper .controls button.play { min-width: 76px; padding: 0 12px; }
 .stepper .controls button:hover { border-color: var(--accent); color: var(--accent); }
 .stepper .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .stepper .controls .count { color: var(--muted); font-size: 13px; margin-left: 4px; font-variant-numeric: tabular-nums; }
@@ -75,7 +76,6 @@ details.quiz > :not(summary) { padding: 0 14px; }
 .compare > div { padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .compare h4 { margin: 0 0 6px; font-size: 15px; }
 @media (max-width: 860px) {
-  .layout { grid-template-columns: 1fr; }
   .stepper .view { overflow-x: auto; }
   .stepper .view svg { min-width: 560px; } /* readable labels: scroll instead of shrinking */
   .level-switch button { padding: 0 8px; }

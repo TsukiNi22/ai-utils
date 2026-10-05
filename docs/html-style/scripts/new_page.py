@@ -5,17 +5,19 @@ templates/base.js inlined, the given body, extra CSS / JS (inlined after the bas
 
 Usage:
     new_page.py <body.html> -o <out.html> [--css extra.css ...] [--js extra.js ...] [--actions actions.html]
-                [--lang-switch] [--set KEY=VALUE ...] [--force]
+                [--lang-switch] [--attr NAME=VALUE ...] [--set KEY=VALUE ...] [--force]
 
 - <body.html>: content of the page layout (an optional <aside class="sidebar" id="sidebar"> + <main>), may hold
   {{KEY}} placeholders too.
 - --actions: HTML put in the top right actions, before the theme switch (other switches, links).
 - --lang-switch: adds the EN | FR pill (bilingual page, [data-lang] / [data-i18n] content).
+- --attr: attributes added to <html> (data-page=explain data-nav-title=AES data-default-level=technical).
 - --set: placeholders (PROJECT, TITLE, STORAGE_KEY, FOOTER...); STORAGE_KEY defaults to the output file name,
   FOOTER to an empty string. A placeholder left unfilled is reported (exit 1).
 """
 
 import argparse
+import html
 import re
 import sys
 from pathlib import Path
@@ -40,6 +42,7 @@ def main():
     ap.add_argument("--js", nargs="*", default=[])
     ap.add_argument("--actions", default="")
     ap.add_argument("--lang-switch", action="store_true")
+    ap.add_argument("--attr", nargs="*", default=[], metavar="NAME=VALUE")
     ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
     ap.add_argument("--force", action="store_true", help="overwrite an existing output")
     a = ap.parse_args()
@@ -60,6 +63,11 @@ def main():
     page = page.replace("/*@SCRIPT@*/", read([SKILL / "templates" / "base.js", *a.js]).rstrip())
     page = page.replace("<!--@ACTIONS@-->", actions)
     page = page.replace("<!--@BODY@-->", Path(a.body).read_text(encoding="utf-8").strip())
+    for kv in a.attr:
+        if "=" not in kv:
+            sys.exit(f"Error: --attr expects NAME=VALUE, got '{kv}'")
+        n, v = kv.split("=", 1)
+        page = page.replace("<html ", f'<html {n}="{html.escape(v)}" ', 1)
     page = re.sub(r"\{\{([A-Z_]+)\}\}", lambda m: values.get(m.group(1), m.group(0)), page)
 
     out.parent.mkdir(parents=True, exist_ok=True)

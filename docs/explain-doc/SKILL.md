@@ -19,11 +19,22 @@ Both levels are always written; the switch (and `?level=simple|technical` in the
 ```bash
 python3 ../html-style/scripts/new_page.py SKILL_DIR/templates/explain.body.html -o <out>.html \
     --css SKILL_DIR/templates/explain.css --js SKILL_DIR/templates/explain.js \
-    --actions SKILL_DIR/templates/actions.html --set PROJECT="..." TITLE="..." SUBTITLE="..." FOOTER="..."
+    --actions SKILL_DIR/templates/actions.html --attr data-page=explain data-nav-title="<tab name>" \
+    --set PROJECT="..." TITLE="..." SUBTITLE="..." FOOTER="..."
+python3 ../html-style/scripts/sync_nav.py <folder of the page>
 ```
 `explain.body.html` is a complete working example (hash table: stepper, formulas, simulation playground, hash
 playground, quiz, glossary): keep its structure and components, replace its content. Default level:
-`data-default-level="technical"` on `<html>` when the user chose Technique (simple otherwise).
+`--attr data-default-level=technical` when the user chose Technique (simple otherwise).
+- **Linked with the other pages**: `sync_nav.py` puts in the top tabs (and previous / next cards) every page of the
+  folder: the `html-doc` pages (Guide, Technical, Graph) first, then the explanations (`data-nav-title`, order by
+  `data-nav-order` then file name), and rewrites the tabs of the `html-doc` pages too. Run it after every new /
+  removed page, whichever skill made it (`html-doc` runs it as well). An older explanation page without
+  `data-page` is detected by its level switch and gets the attributes.
+- Same project as an `html-doc` site: same `PROJECT`, logo and `STORAGE_KEY` (`--set STORAGE_KEY=<doc key>`) so the
+  theme / language choices are shared.
+- Keep the `html-style` layout: never redefine `.layout` (wide screens center an 880px column; a wider column
+  scales the diagrams up). Figures are never drawn above their `viewBox` width (`base.js`).
 
 ## 3. Structure (adapt titles, keep the order; 6-9 sections, each a `<section id>` card)
 | # | Section | Simple | Technical |

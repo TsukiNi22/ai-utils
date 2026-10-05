@@ -65,6 +65,12 @@
   });
 })();
 
+// Figures: an SVG is never drawn larger than its viewBox (its text would grow with the screen)
+document.querySelectorAll('figure svg[viewBox]').forEach(function (svg) {
+  var w = +svg.getAttribute('viewBox').split(/[\s,]+/)[2];
+  if (w && !svg.style.maxWidth) { svg.style.maxWidth = w + 'px'; svg.style.marginInline = 'auto'; }
+});
+
 // Sidebar (mobile) + visible section, copy buttons, heading anchors, content tabs
 (function () {
   var tr = function (s) { return window.docI18n ? window.docI18n.tr(s) : s; };

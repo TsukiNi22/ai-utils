@@ -35,16 +35,25 @@
     });
   }
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Icons of the controls: same 16x16 grid, filled with currentColor
+  var svg16 = function (d) { return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="' + d + '"/></svg>'; };
+  var ICON = {
+    first: svg16('M3 3h2v10H3zM13 3v10L6 8z'),
+    prev: svg16('M11.5 3v10L4.5 8z'),
+    play: svg16('M4.5 3v10l8-5z'),
+    pause: svg16('M4 3h3v10H4zM9 3h3v10H9z'),
+    next: svg16('M4.5 3v10l7-5z')
+  };
   document.querySelectorAll('.stepper').forEach(function (fig) {
     var total = +fig.dataset.steps || 1, step = 0, timer = null;
     var delay = +fig.dataset.delay || 2400;
     var captions = fig.querySelectorAll('.captions > li');
     var controls = document.createElement('div');
     controls.className = 'controls';
-    controls.innerHTML = '<button type="button" data-a="first" aria-label="First step">&#x23EE;</button>' +
-      '<button type="button" data-a="prev" aria-label="Previous step">&#x25C0;</button>' +
-      '<button type="button" data-a="play" aria-label="Play">&#x25B6; Play</button>' +
-      '<button type="button" data-a="next" aria-label="Next step">&#x25B6;&#x25B6;</button>' +
+    controls.innerHTML = '<button type="button" data-a="first" aria-label="First step" title="First step">' + ICON.first + '</button>' +
+      '<button type="button" data-a="prev" aria-label="Previous step" title="Previous step (←)">' + ICON.prev + '</button>' +
+      '<button type="button" class="play" data-a="play" aria-label="Play">' + ICON.play + '<span>Play</span></button>' +
+      '<button type="button" data-a="next" aria-label="Next step" title="Next step (→)">' + ICON.next + '</button>' +
       '<span class="progress"><i></i></span><span class="count"></span>';
     var svg = fig.querySelector('svg');
     var view = document.createElement('div');
@@ -61,7 +70,7 @@
       controls.querySelector('.count').textContent = (step + 1) + ' / ' + total;
       controls.querySelector('.progress i').style.width = (100 * step / Math.max(1, total - 1)) + '%';
     }
-    function stop() { clearInterval(timer); timer = null; play.innerHTML = '&#x25B6; Play'; play.setAttribute('aria-label', 'Play'); }
+    function stop() { clearInterval(timer); timer = null; play.innerHTML = ICON.play + '<span>Play</span>'; play.setAttribute('aria-label', 'Play'); }
     function go(s) { step = Math.max(0, Math.min(total - 1, s)); render(); }
     controls.addEventListener('click', function (e) {
       var b = e.target.closest('button');
@@ -74,7 +83,7 @@
       else if (timer) stop();
       else {
         if (step === total - 1) go(0);
-        play.innerHTML = '&#x23F8; Pause'; play.setAttribute('aria-label', 'Pause');
+        play.innerHTML = ICON.pause + '<span>Pause</span>'; play.setAttribute('aria-label', 'Pause');
         timer = setInterval(function () { if (step >= total - 1) stop(); else go(step + 1); }, reduced ? Math.max(delay, 4000) : delay);
       }
     });

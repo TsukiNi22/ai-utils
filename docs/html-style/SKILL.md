@@ -17,7 +17,9 @@ python3 SKILL_DIR/scripts/new_page.py <body.html> -o <out.html> [--css extra.css
 `<body.html>` = what goes inside `.layout`: an optional `<aside class="sidebar" id="sidebar">` (contents list) and
 `<main>` (`<header>` with `.page-eyebrow`, `h1`, `p.lead`, then one `<section id>` card per topic). The script
 inlines `style.css` + `base.js` (+ the extra files, after them) into `templates/page.html`: the result is **one
-self-contained file** that works offline and from `file://`. Without a sidebar, add
+self-contained file** that works offline and from `file://`. `--attr NAME=VALUE` adds attributes to `<html>`
+(`data-page`, `data-nav-title`, `data-default-level`). Several pages in one folder: `scripts/sync_nav.py <folder>`
+fills the top tabs / previous-next cards of every page (`html-doc` and `explain-doc` pages together). Without a sidebar, add
 `.layout { grid-template-columns: minmax(0, 1fr); max-width: 880px; }` in the extra CSS.
 
 ## 2. Tokens (never a raw color in a component: always `var(--x)`)
@@ -62,6 +64,8 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 | previous / next | `<nav class="pager"><a href="..."><span>Previous</span>Title</a><a class="next">` |
 | diagram | `<figure><svg viewBox="0 0 760 H" role="img" aria-label="...">` + `<figcaption>Figure N: ...` |
 | icon button | `<a class="icon-btn" aria-label="...">` + 16-18px inline SVG in `currentColor` |
+- A figure is never drawn above its `viewBox` width (`base.js` caps it: on a wide screen the labels would grow);
+  draw it at the size it is read (`viewBox="0 0 760 H"`, labels 11.5-13px).
 - SVG classes: `box`, `box-alt` (accent border), `group` (dashed frame), `lbl`, `small`, `title`, `edge`,
   `edge-accent`, `dash`, `arrow`, `arrow-accent` (markers once in `<defs>`). They follow the theme by themselves.
 - Bilingual page: `--lang-switch`, content as `<span data-lang="en">..</span><span data-lang="fr">..</span>`, UI

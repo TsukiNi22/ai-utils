@@ -32,8 +32,9 @@ is needed when the audience of the tool is not obvious.
 - No scroll beyond the page (`overscroll-behavior: none`); on wide screens the content column is centered on the
   page, the contents list sits on its left.
 - **The pages are independent**: each declares its kind (`<html data-page="guide|technical|graph">`). After creating
-  or removing a page, run `python3 SKILL_DIR/scripts/sync_nav.py docs`: it rebuilds the tabs of every page from the
-  pages present (Guide, Technical, Graph), marks the current one and **hides the tabs when there is a single page**
+  or removing a page, run `python3 SKILL_DIR/scripts/sync_nav.py docs` (shared with `explain-doc`, in `html-style`): it
+  rebuilds the tabs of every page from the pages present (Guide, Technical, Graph, then the explanation pages of
+  `explain-doc` in the same folder, which get the same tabs: both sides are linked whichever is generated last), marks the current one and **hides the tabs when there is a single page**
   (`build_graph.mjs` runs it by itself). At load, each page also checks the other tabs (online: `HEAD` request; `file://`: the page loaded as a hidden
   script) and removes the tab of a missing page, and the whole bar when a single page remains.
   File names: guide = `index.html`; technical = `index.html` when there is no guide, else `technical.html`;
