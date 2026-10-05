@@ -21,11 +21,12 @@ is needed when the audience of the tool is not obvious.
 
 ## Common to the 3 pages
 - Style: the R-Type doc colors (CSS variables, never changed) merged with the layout of the context-forge site.
-- Top bar: mobile menu button (guide / technical), **logo** = the real logo of the project when the repository has one, else the default documentation
-  logo, never a pictogram invented from the topic (no padlock for a crypto project): `python3
-  ../html-style/scripts/set_logo.py docs` sets it on every page + name + **version badge** (`{{VERSION}}`), page
+- Top bar: mobile menu button (guide / technical), **logo** + project name + **version badge** (`{{VERSION}}`), page
   tabs (`<nav class="tabs">`, hidden on mobile where the menu replaces them), then the grouped actions
   `.top-actions`: GitHub icon (`{{REPO_URL}}`) | divider | language switch, theme switch (same height).
+- Logo: the real logo of the project when the repository has one, else the default documentation logo; never a
+  pictogram invented from the topic (no padlock for a crypto project). `python3 ../html-style/scripts/set_logo.py
+  docs` sets it on every page of the folder.
 - **Repository data fetched**: `<html data-repo="{{GITHUB_REPO}}">` (`owner/repo`); at load the page asks the GitHub
   API (cached 1 h) for the repository name, latest release (or tag), license and URL and replaces the written values
   in `.repo-name` (brand, footer, page title), `.repo-version`, `.repo-license`, `a.repo-link`. Offline / private /
