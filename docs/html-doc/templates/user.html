@@ -249,6 +249,7 @@ details.faq > :not(summary) { margin: 8px 0 0 18px; }
 .menu-btn { display: none; }
 /* ---------- Sidebar tree (pages > sections of the current page) ---------- */
 .sidebar { position: sticky; top: 80px; align-self: start; max-height: calc(100vh - 100px); overflow-y: auto; font-size: 14px; }
+@media (max-width: 860px) { .sidebar { position: fixed; top: 56px; max-height: none; } } /* off-canvas menu: out of the flow */
 .sidebar p { margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
 .sidebar a { display: block; padding: 5px 10px; color: var(--muted); text-decoration: none; border-left: 2px solid var(--border); }
 .sidebar a:hover, .sidebar a.active { color: var(--accent); border-left-color: var(--accent); }

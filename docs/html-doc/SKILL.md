@@ -14,8 +14,9 @@ no framework, works offline and from `file://`), in `docs/`:
 | Technical documentation | `technical.html` (`index.html` when there is no guide) | always | `templates/technical.html` |
 | Project graph | `graph.html` | always (any supported language) | `templates/graph.html` + `scripts/build_graph.mjs` |
 
-Keep the CSS of the templates **as is** (style of `r-type/docs/architecture.html`), unless the user
-explicitly asks for another style. Only the content changes. Ask (AskUserQuestion) whether the guide page
+Keep the CSS of the templates **as is** (style of `r-type/docs/architecture.html`, defined in the `html-style` skill:
+tokens, components, rules, `check_style.py`), unless the user explicitly asks for another style; a change of the
+style is made in `html-style/templates/style.css` and in the `<style>` of these templates. Only the content changes. Ask (AskUserQuestion) whether the guide page
 is needed when the audience of the tool is not obvious.
 
 ## Common to the 3 pages
