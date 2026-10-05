@@ -62,7 +62,7 @@ playground, quiz, glossary): keep its structure and components, replace its cont
 ## 5. Components (`explain.css` / `explain.js`, on top of the `html-style` ones)
 | Need | Markup |
 |---|---|
-| animation of a process | `<figure class="stepper" data-steps="N"><svg>` + `<ol class="captions"><li>` per step; in the SVG `data-show="2"`, `"2-"`, `"1-3"`, `"1,3"`; `data-hl` / `data-warn="3,5"` highlight (accent / warn); controls, progress, ←/→ keys added by the script |
+| animation of a process | `<figure class="stepper" data-steps="N"><svg>` + `<ol class="captions"><li>` per step (shown **above** the drawing with the controls, cross-faded); in the SVG `data-show="2"`, `"2-"`, `"1-3"`, `"1,3"` (fade in / out), `data-hl` / `data-warn="3,5"` (highlight), `data-at="0:0,0;3:85,0"` (moves: slide, or fade out / in for a long or wrap-around move; `data-fade` / `data-slide` to force), `data-text="0:19;2:d4"` (value per step: cross-fade + pulse on change) |
 | formula | `<div class="formula"><math display="block">…</math><span class="num">(1)</span></div>` + `table.where` of the symbols (MathML is native in every current browser: no KaTeX / MathJax CDN) |
 | interactive example | `<div class="playground" data-play="name">` with `[data-in="x"]` inputs and `[data-out="y"]` outputs; script `explain.play('name', function (v, el) { return { y: ... }; })` (run at load and on input) |
 | chart | inline `<svg>` drawn by the playground script with the classes `axis`, `grid`, `curve`, `curve-2`, `dot`, `dot-2`, `mark` |
@@ -74,7 +74,19 @@ playground, quiz, glossary): keep its structure and components, replace its cont
 - Page scripts go in a `<script>` at the end of the body, inside `document.addEventListener('DOMContentLoaded', ...)`
   (`explain.js` is inlined after the body).
 - Animations: SVG + CSS transitions driven by the stepper (no autoplay, no infinite loop); the stepper slows down
-  under `prefers-reduced-motion`. A continuous animation (particles, flow) only with a pause button.
+  under `prefers-reduced-motion` (no movement). A continuous animation (particles, flow) only with a pause button.
+- **Readable steps** (the reader must see what happened between two states):
+  - **one change per step**: a transformation touching everything (a full round, a whole matrix) is split into
+    sub-steps (row by row, column by column) or shown on one highlighted element first, then on all;
+  - every caption starts with the step name in bold, then **what changed**, with one concrete value
+    (`<b>ShiftRows.</b> Row 1 slides one cell left: <code>bf</code> leaves column 0 and comes back in column 3.`);
+  - the elements that change are marked at that step (`data-hl`, or `data-text` which pulses on change); moving
+    elements use `data-at` so the eye follows them: never a cut where things are just different;
+  - no element leaves the drawing or crosses it: a wrap-around (rotation, modulo, ring) fades out and back in at
+    its new place (automatic with `data-at` beyond 2 element sizes); nothing is clipped by an `overflow` box;
+  - one state = the drawing + its caption on screen together (no caption hidden below the fold).
+- Size: `viewBox="0 0 760 H"` with H <= ~360, cells / boxes 36-48px, labels 12-14px (the stepper caps the drawing
+  at 400px high); bigger drawings are split into several figures.
 
 ## 6. Accuracy
 - Every number of the page is computed, never written from memory: the playground formulas are the same functions

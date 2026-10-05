@@ -10,15 +10,18 @@
 /* One-sentence summary */
 .tldr { font-size: 18px; line-height: 1.5; padding: 16px 20px; border-radius: 10px; background: var(--accent-soft); border-left: 3px solid var(--accent); margin: 0 0 24px; }
 .tldr strong { color: var(--accent); }
-/* Stepper: animated diagram, one state per step */
-.stepper svg [data-show] { transition: opacity .3s; }
-.stepper svg .off { opacity: 0; }
+/* Stepper: animated diagram, one state per step; controls + caption above the drawing */
+.stepper .view svg { max-height: min(400px, 58vh); margin-inline: auto; }
+.stepper svg [data-show], .stepper svg [data-text], .stepper svg [data-at] { transition: opacity .16s ease, transform .45s ease, fill .3s; }
+.stepper svg .off, .stepper svg .fading { opacity: 0; }
+.stepper svg rect, .stepper svg circle, .stepper svg path { transition: fill .25s, stroke .25s; }
 .stepper svg .hl { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.4; }
 .stepper svg .hl-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 2.4; }
 .stepper svg text.hl, .stepper svg text.hl-warn { stroke: none; }
-.stepper svg text.hl { fill: var(--accent); }
+.stepper svg text.hl, .stepper svg text.changed { fill: var(--accent); font-weight: 700; }
 .stepper svg text.hl-warn { fill: var(--warn); }
-.stepper .controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.stepper .step-head { position: sticky; top: 64px; z-index: 5; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.stepper .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .stepper .controls button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; min-width: 32px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; font: 500 13px/1 system-ui, sans-serif; }
 .stepper .controls button svg { width: 14px; height: 14px; flex: none; fill: currentColor; }
 .stepper .controls button.play { min-width: 76px; padding: 0 12px; }
@@ -27,9 +30,11 @@
 .stepper .controls .count { color: var(--muted); font-size: 13px; margin-left: 4px; font-variant-numeric: tabular-nums; }
 .stepper .progress { flex: 1; min-width: 80px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
 .stepper .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-.stepper .captions { list-style: none; padding: 0; margin: 10px 0 0; }
-.stepper .captions > li { display: none; padding: 10px 14px; border-radius: 6px; background: var(--code-bg); }
-.stepper .captions > li.on { display: block; }
+/* Captions stacked in one cell: cross-fade, the height of the longest one (the drawing doesn't jump) */
+.stepper .captions { display: grid; list-style: none; padding: 0; margin: 10px 0 0; }
+.stepper .captions > li { grid-area: 1 / 1; opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s .2s; font-size: 15px; line-height: 1.5; }
+.stepper .captions > li.on { opacity: 1; visibility: visible; transition: opacity .2s ease .1s, visibility 0s; }
+.stepper .captions > li b:first-child { color: var(--accent); }
 /* Formula: MathML block + its variables */
 .formula { display: flex; align-items: center; gap: 16px; margin: 16px 0; padding: 14px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow-x: auto; }
 .formula math { flex: 1; font-size: 1.25em; }
@@ -77,6 +82,7 @@ details.quiz > :not(summary) { padding: 0 14px; }
 .compare h4 { margin: 0 0 6px; font-size: 15px; }
 @media (max-width: 860px) {
   .stepper .view { overflow-x: auto; }
+  .stepper .step-head { top: 56px; }
   .stepper .view svg { min-width: 560px; } /* readable labels: scroll instead of shrinking */
   .level-switch button { padding: 0 8px; }
 }
@@ -84,5 +90,5 @@ details.quiz > :not(summary) { padding: 0 14px; }
   .brand > span { display: none; } /* room for the level and theme switches */
 }
 @media (prefers-reduced-motion: reduce) {
-  .stepper svg [data-show], .stepper .progress i { transition: none; }
+  .stepper svg *, .stepper .progress i, .stepper .captions > li { transition: none !important; }
 }

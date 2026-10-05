@@ -79,19 +79,22 @@
       <!-- stored keys -->
       <text class="lbl" x="77" y="170" text-anchor="middle" data-show="1-">cat</text>
       <text class="lbl" x="247" y="170" text-anchor="middle" data-show="2-">dog</text>
-      <text class="lbl" x="162" y="170" text-anchor="middle" data-show="4-">act</text>
+      <!-- "act" arrives on its home slot 0 (taken), then slides to slot 1: data-at offsets from where it is drawn -->
+      <text class="lbl" x="77" y="118" text-anchor="middle" data-show="3-" data-at="3:0,0;4:85,52">act</text>
+      <!-- load factor: the value cross-fades and pulses when it changes -->
+      <text class="small" x="720" y="84" text-anchor="end" data-text="0:α = 0/8;1:α = 1/8;2:α = 2/8;4:α = 3/8">α = 0/8</text>
       <!-- arrows from the computation to the home slot -->
       <path class="edge-accent" d="M380 50 C 300 90, 120 90, 79 134" marker-end="url(#arr)" data-show="1,3,5"/>
       <path class="edge-accent" d="M380 50 C 330 90, 260 95, 249 134" marker-end="url(#arr)" data-show="2"/>
       <path class="edge-accent dash" d="M92 140 C 105 115, 140 115, 155 136" marker-end="url(#arr)" data-show="4,5"/>
     </svg>
     <ol class="captions">
-      <li><span data-level="simple">8 empty hooks.</span><span data-level="technical">Empty table, <var>m</var> = 8, load factor α = 0.</span></li>
-      <li><span data-level="simple">"cat" gives hook 0: the coat goes there.</span><span data-level="technical"><code>h("cat") = 0</code>, slot 0 free: stored in 1 probe.</span></li>
-      <li><span data-level="simple">"dog" gives hook 2.</span><span data-level="technical"><code>h("dog") = 2</code>, stored in 1 probe.</span></li>
-      <li><span data-level="simple">"act" has the same letters as "cat", so it gives the same hook 0: it is taken.</span><span data-level="technical">Collision: anagrams have the same character sum, so this hash maps them to the same slot.</span></li>
-      <li><span data-level="simple">The attendant uses the next free hook, 1.</span><span data-level="technical">Linear probing stores <code>"act"</code> in slot 1 (2 probes). α = 3/8.</span></li>
-      <li><span data-level="simple">To find "act": look at hook 0 (not it), then hook 1 (found).</span><span data-level="technical">Lookup follows the same probe sequence and stops on a match (or on an empty slot = absent).</span></li>
+      <li><b>Start.</b> <span data-level="simple">8 empty hooks, numbered 0 to 7.</span><span data-level="technical">Empty table, <var>m</var> = 8, load factor α = 0.</span></li>
+      <li><b>Insert "cat".</b> <span data-level="simple">Its letters add up to 312, and 312 shared among 8 hooks leaves 0: the coat goes on hook 0.</span><span data-level="technical"><code>h("cat") = 312 mod 8 = 0</code>, slot 0 free: stored in 1 probe, α = 1/8.</span></li>
+      <li><b>Insert "dog".</b> <span data-level="simple">Its letters add up to 314, which leaves 2: hook 2.</span><span data-level="technical"><code>h("dog") = 314 mod 8 = 2</code>, stored in 1 probe, α = 2/8.</span></li>
+      <li><b>Collision.</b> <span data-level="simple">"act" has the same letters as "cat", so it also gives hook 0, and hook 0 is taken (orange).</span><span data-level="technical">Anagrams have the same character sum: <code>h("act") = 0</code>, slot 0 already holds <code>"cat"</code>.</span></li>
+      <li><b>Next free slot.</b> <span data-level="simple">The coat moves one hook to the right, to hook 1, which is free.</span><span data-level="technical">Linear probing tries <code>0 + 1 = 1</code>: free, <code>"act"</code> stored in 2 probes, α = 3/8.</span></li>
+      <li><b>Lookup "act".</b> <span data-level="simple">To find it: hook 0 (not it), then hook 1 (found), so 2 looks.</span><span data-level="technical">Lookup follows the same probe sequence (0, then 1) and stops on a match; an empty slot would mean "absent".</span></li>
     </ol>
   </figure>
 </section>

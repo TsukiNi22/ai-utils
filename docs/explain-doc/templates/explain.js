@@ -24,8 +24,14 @@
   });
 
   // ---------- Steppers: <figure class="stepper" data-steps="N"> ----------
-  // In the SVG: data-show="2" (only step 2), "2-" (from 2), "1-3" (1 to 3); data-hl / data-warn="3,5" add the
-  // class hl / hl-warn at those steps. Captions: <ol class="captions"><li> per step (first = step 0).
+  // In the SVG:
+  // - data-show="2" (only step 2), "2-" (from 2), "1-3", "1,3": visible at those steps (short fade in / out);
+  // - data-hl / data-warn="3,5": class hl / hl-warn (accent / warn highlight) at those steps;
+  // - data-at="0:0,0;3:85,0": offset (x,y in SVG units) from the drawn position, the last entry <= step applies.
+  //   A short move slides; a long one (> 2 times the element size, a wrap-around) fades out and back in at the new
+  //   place instead of crossing the drawing; data-fade forces the fade, data-slide forces the slide;
+  // - data-text="0:19;2:d4": text per step (same rule), a change cross-fades then pulses (class changed).
+  // Captions: <ol class="captions"><li> per step (first = step 0), shown above the drawing with the controls.
   function inRange(spec, step) {
     return spec.split(',').some(function (part) {
       var m = part.trim().match(/^(\d+)(-)?(\d+)?$/);
@@ -34,7 +40,18 @@
       return step >= a && step <= b;
     });
   }
+  function valueAt(spec, step) {
+    var best = null, at = -1;
+    spec.split(';').forEach(function (part) {
+      var i = part.indexOf(':');
+      if (i < 0) return;
+      var k = +part.slice(0, i).trim();
+      if (k <= step && k > at) { at = k; best = part.slice(i + 1); }
+    });
+    return best;
+  }
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var FADE = 160; // ms of each half of a fade (out, then in)
   // Icons of the controls: same 16x16 grid, filled with currentColor
   var svg16 = function (d) { return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="' + d + '"/></svg>'; };
   var ICON = {
@@ -44,9 +61,44 @@
     pause: svg16('M4 3h3v10H4zM9 3h3v10H9z'),
     next: svg16('M4.5 3v10l7-5z')
   };
+  function moveTo(el, spec, animate) {
+    var p = (spec || '0,0').split(',').map(Number), dx = p[0] || 0, dy = p[1] || 0;
+    var old = el._at || [0, 0];
+    el._at = [dx, dy];
+    var t = 'translate(' + dx + 'px, ' + dy + 'px)';
+    if (old[0] === dx && old[1] === dy) { el.style.transform = t; return; }
+    var box = { width: 1, height: 1 };
+    try { box = el.getBBox(); } catch (e) { /* not rendered */ }
+    var far = Math.abs(dx - old[0]) > 2 * Math.max(box.width, 1) || Math.abs(dy - old[1]) > 2 * Math.max(box.height, 1);
+    var fade = el.hasAttribute('data-fade') || (far && !el.hasAttribute('data-slide'));
+    if (!animate || reduced) { el.style.transition = 'none'; el.style.transform = t; return; }
+    if (!fade) { el.style.transition = ''; el.style.transform = t; return; }
+    el.classList.add('fading');
+    clearTimeout(el._fadeTimer);
+    el._fadeTimer = setTimeout(function () {
+      el.style.transition = 'none';
+      el.style.transform = t;
+      el.getBoundingClientRect(); // apply the jump before fading back in
+      el.style.transition = '';
+      el.classList.remove('fading');
+    }, FADE);
+  }
+  function textTo(el, value, animate) {
+    if (value === null || el.textContent === value) return;
+    if (!animate || reduced) { el.textContent = value; return; }
+    el.classList.add('fading');
+    clearTimeout(el._textTimer);
+    el._textTimer = setTimeout(function () {
+      el.textContent = value;
+      el.classList.remove('fading');
+      el.classList.add('changed');
+      setTimeout(function () { el.classList.remove('changed'); }, 900);
+    }, FADE);
+  }
   document.querySelectorAll('.stepper').forEach(function (fig) {
     var total = +fig.dataset.steps || 1, step = 0, timer = null;
-    var delay = +fig.dataset.delay || 2400;
+    var delay = +fig.dataset.delay || 3200;
+    var list = fig.querySelector('.captions');
     var captions = fig.querySelectorAll('.captions > li');
     var controls = document.createElement('div');
     controls.className = 'controls';
@@ -60,18 +112,26 @@
     view.className = 'view';
     svg.replaceWith(view);
     view.appendChild(svg);
-    view.insertAdjacentElement('afterend', controls);
+    // Controls + explanation above the drawing: what happens is read while the drawing changes
+    var head = document.createElement('div');
+    head.className = 'step-head';
+    head.appendChild(controls);
+    if (list) { list.setAttribute('aria-live', 'polite'); head.appendChild(list); }
+    view.insertAdjacentElement('beforebegin', head);
     var play = controls.querySelector('[data-a="play"]');
-    function render() {
+    function render(animate) {
       svg.querySelectorAll('[data-show]').forEach(function (el) { el.classList.toggle('off', !inRange(el.dataset.show, step)); });
       svg.querySelectorAll('[data-hl]').forEach(function (el) { el.classList.toggle('hl', inRange(el.dataset.hl, step)); });
       svg.querySelectorAll('[data-warn]').forEach(function (el) { el.classList.toggle('hl-warn', inRange(el.dataset.warn, step)); });
-      captions.forEach(function (li, i) { li.classList.toggle('on', i === step); });
+      svg.querySelectorAll('[data-at]').forEach(function (el) { moveTo(el, valueAt(el.dataset.at, step), animate); });
+      svg.querySelectorAll('[data-text]').forEach(function (el) { textTo(el, valueAt(el.dataset.text, step), animate); });
+      captions.forEach(function (li, i) { li.classList.toggle('on', i === step); li.setAttribute('aria-hidden', i === step ? 'false' : 'true'); });
       controls.querySelector('.count').textContent = (step + 1) + ' / ' + total;
       controls.querySelector('.progress i').style.width = (100 * step / Math.max(1, total - 1)) + '%';
     }
     function stop() { clearInterval(timer); timer = null; play.innerHTML = ICON.play + '<span>Play</span>'; play.setAttribute('aria-label', 'Play'); }
-    function go(s) { step = Math.max(0, Math.min(total - 1, s)); render(); }
+    // One step at a time animates; a jump (first step, restart) is applied at once
+    function go(s) { var next = Math.max(0, Math.min(total - 1, s)); var near = Math.abs(next - step) === 1; step = next; render(near); }
     controls.addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b) return;
@@ -84,7 +144,7 @@
       else {
         if (step === total - 1) go(0);
         play.innerHTML = ICON.pause + '<span>Pause</span>'; play.setAttribute('aria-label', 'Pause');
-        timer = setInterval(function () { if (step >= total - 1) stop(); else go(step + 1); }, reduced ? Math.max(delay, 4000) : delay);
+        timer = setInterval(function () { if (step >= total - 1) stop(); else go(step + 1); }, reduced ? Math.max(delay, 4500) : delay);
       }
     });
     fig.tabIndex = 0;
@@ -92,7 +152,7 @@
       if (e.key === 'ArrowRight') { stop(); go(step + 1); e.preventDefault(); }
       if (e.key === 'ArrowLeft') { stop(); go(step - 1); e.preventDefault(); }
     });
-    render();
+    render(false);
   });
 
   // ---------- Playgrounds: <div class="playground" data-play="name"> ----------
