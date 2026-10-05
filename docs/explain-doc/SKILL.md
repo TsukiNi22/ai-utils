@@ -38,7 +38,8 @@ playground, quiz, glossary): keep its structure and components, replace its cont
   when it has no French. The UI of the explanations (Play, levels, steps) is translated by `explain.js`.
 - **Same top bar on every page**: the brand stays the documentation one (doc logo, project name, version badge;
   the name alone when there is no version), never a logo / name of the topic (no padlock for AES): `sync_nav.py`
-  copies the brand of the `html-doc` pages on the explanations. Without `html-doc`: `--set VERSION=vX.Y.Z` or
+  copies the brand of the `html-doc` pages on the explanations; `set_logo.py <folder>` (html-style) puts the
+  project's real logo when the repository has one, the documentation logo otherwise. Without `html-doc`: `--set VERSION=vX.Y.Z` or
   nothing (badge hidden).
 - Same project as an `html-doc` site: same `PROJECT`, logo and `STORAGE_KEY` (`--set STORAGE_KEY=<doc key>`) so the
   theme / language choices are shared.
