@@ -13,7 +13,9 @@ For every page:
 - the top tabs (<nav class="tabs">): Guide, Technical, Graph, then the explanations; the current one marked,
   hidden for a single page;
 - the previous / next links (<nav class="pager">, when the page has one);
-- the brand link -> first page.
+- the brand link -> first page;
+- the storage key of the explanation pages = the one of the html-doc pages (choices saved once for the site);
+  links between the pages also carry ?lang= / ?theme= / ?level= (base.js), for file:// where pages share nothing.
 Pages are independent: removing one and re-running this script removes it everywhere.
 """
 
@@ -55,6 +57,14 @@ def main() -> int:
             explain.append((int(order.group(1)) if order else 999, os.path.basename(f), title))
         elif kind not in fixed:
             fixed[kind] = os.path.basename(f)
+    # One storage key for the whole site (theme / language / level saved once for every page): the key of the
+    # html-doc pages, else the one of the first page
+    keys = {}
+    for fn in list(fixed.values()) + [e[1] for e in explain]:
+        k = re.search(r'<html[^>]*\bdata-storage-key="([^"]*)"', open(os.path.join(d, fn), encoding="utf-8").read(3000))
+        if k and '{{' not in k.group(1):
+            keys.setdefault(fn, k.group(1))
+    site_key = next((keys[fn] for fn in fixed.values() if fn in keys), next(iter(keys.values()), None))
     present = [(k, label, fixed[k]) for k, label in ORDER if k in fixed]
     present += [("explain", title, fn) for _, fn, title in sorted(explain)]
     if not present:
@@ -81,6 +91,8 @@ def main() -> int:
         t = re.sub(r'<nav class="pager"[^>]*>.*?</nav>', f'<nav class="pager" aria-label="Pages">{pager + chr(10) if pager else ""}</nav>',
                    t, count=1, flags=re.S)
         t = re.sub(r'(<a class="brand" href=")[^"]*(")', rf"\g<1>{present[0][2]}\2", t, count=1)
+        if site_key and kind == "explain":  # html-doc pages keep theirs (also used by the graph config)
+            t = re.sub(r'(<html[^>]*\bdata-storage-key=")[^"]*(")', rf"\g<1>{site_key}\2", t, count=1)
         open(path, "w", encoding="utf-8").write(t)
     print(", ".join(f"{label} -> {fn}" for _, label, fn in present))
     return 0

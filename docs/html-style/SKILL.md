@@ -66,8 +66,21 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 | icon button | `<a class="icon-btn" aria-label="...">` + 16-18px inline SVG in `currentColor` |
 - A figure is never drawn above its `viewBox` width (`base.js` caps it: on a wide screen the labels would grow);
   draw it at the size it is read (`viewBox="0 0 760 H"`, labels 11.5-13px).
+- **Arrows are computed, not typed**: `<path class="edge" data-from="a" data-to="b" marker-end="url(#arr)"/>`
+  (`a` / `b` = id of a `rect` / `circle` / `ellipse`, or of a `<g>` holding one); `data-from="a:right"` picks a
+  side (`top`, `bottom`, `left`, `right`), `data-bend="-0.2"` curves it (negative = above a left-to-right arrow),
+  `data-gap` leaves space; a label `<text data-label-for="<path id>" data-offset="-8">` is put on its middle.
+  `base.js` writes the `d` from the shapes, so an arrow always starts and ends on them. A hand-written arrow
+  must start and end on a shape border (`check_style.py` reports the others; `data-free` for an arrow pointing
+  to nothing on purpose).
+- Text: inside the drawing (`viewBox`), either fully inside a box or fully outside (never across its border),
+  `text-anchor="middle"` for centered labels.
 - SVG classes: `box`, `box-alt` (accent border), `group` (dashed frame), `lbl`, `small`, `title`, `edge`,
   `edge-accent`, `dash`, `arrow`, `arrow-accent` (markers once in `<defs>`). They follow the theme by themselves.
+- Choices shared by the site: the theme, language and level are saved under `<data-storage-key>-theme|lang|level`
+  (one key for the site, set by `sync_nav.py`) **and** carried by the links between the pages (`?lang=fr&theme=dark
+  &level=technical`, read on arrival): a choice made on one page applies to all of them, also from `file://`
+  where each page has its own storage.
 - Bilingual page: `--lang-switch`, content as `<span data-lang="en">..</span><span data-lang="fr">..</span>`, UI
   strings with `data-i18n` translated by `window.DOC_FR` (`html-doc` explains it in full). English only by default.
 - A new component: built from the tokens, the same radius / spacing, a hover with `--accent` border or
@@ -94,7 +107,8 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 3. Write it as a `:root` override in the page extra CSS (or in `templates/style.css` when the default itself
    changes, then the same values in the `<style>` of the `html-doc` templates).
 4. `python3 SKILL_DIR/scripts/check_style.py <page.html|css> [--compare SKILL_DIR/templates/style.css]`: 0 error
-   (tokens of both themes, contrast, inherited colors, self-contained); `--compare` lists what differs from the
+   (tokens of both themes, contrast, inherited colors, self-contained, diagrams: arrows touching their shapes,
+   text inside the drawing and not across a box border); `--compare` lists what differs from the
    default.
 
 ## 7. Check before delivering

@@ -85,6 +85,9 @@ playground, quiz, glossary): keep its structure and components, replace its cont
   - no element leaves the drawing or crosses it: a wrap-around (rotation, modulo, ring) fades out and back in at
     its new place (automatic with `data-at` beyond 2 element sizes); nothing is clipped by an `overflow` box;
   - one state = the drawing + its caption on screen together (no caption hidden below the fold).
+- Arrows with `data-from` / `data-to` (ids on the shapes, `:top` / `:bottom`... sides, `data-bend`), as in the
+  template: computed from the shapes, they always touch them; `check_style.py` rejects a typed arrow that
+  misses its shape.
 - Size: `viewBox="0 0 760 H"` with H <= ~360, cells / boxes 36-48px, labels 12-14px (the stepper caps the drawing
   at 400px high); bigger drawings are split into several figures.
 

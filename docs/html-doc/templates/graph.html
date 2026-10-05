@@ -681,6 +681,9 @@ window.DOC_FR = {
   }
   var saved = null;
   try { saved = localStorage.getItem(key); } catch (e) { /* storage unavailable */ }
+  // Choice carried by a link of the site (?lang=): pages opened from file:// don't share their storage
+  var askedLang = new URLSearchParams(location.search).get('lang');
+  if (askedLang === 'en' || askedLang === 'fr') { saved = askedLang; try { localStorage.setItem(key, askedLang); } catch (e) { /* storage unavailable */ } }
   root.lang = saved === 'fr' ? 'fr' : 'en';
   window.docI18n = { tr: tr, set: set, onChange: function (f) { listeners.push(f); }, lang: function () { return root.lang; } };
   document.querySelectorAll('[data-set-lang]').forEach(function (b) {
@@ -3800,6 +3803,8 @@ extractGraph.wanted = function (p) {
     // ---------- Theme ---------- //
     const root = document.documentElement, themeKey = (CONFIG.storageKey || "doc") + "-theme";
     try { const saved = localStorage.getItem(themeKey); if (saved) root.setAttribute("data-theme", saved); } catch (e) { /* storage unavailable */ }
+    const askedTheme = new URLSearchParams(location.search).get("theme"); // carried by a link of the site
+    if (askedTheme === "dark" || askedTheme === "light") { root.setAttribute("data-theme", askedTheme); try { localStorage.setItem(themeKey, askedTheme); } catch (e) { /* storage unavailable */ } }
     const isDark = () => root.getAttribute("data-theme") === "dark" || (!root.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
     $("themeToggle").setAttribute("aria-checked", isDark() ? "true" : "false");
     $("themeToggle").addEventListener("click", () => {
@@ -3924,6 +3929,26 @@ extractGraph.wanted = function (p) {
     document.head.appendChild(s);
   });
   if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
+})();
+</script>
+<script>
+// Links between the pages of the site carry the language, theme and level (?lang=fr&theme=dark&level=technical):
+// the choice applies to every page, also from file:// where each page has its own storage
+(function () {
+  var root = document.documentElement;
+  function carry(e) {
+    var a = e.target.closest && e.target.closest('a[href]');
+    if (!a || a.target === '_blank') return;
+    var href = a.getAttribute('href');
+    if (!/^[^:?#\/]+\.html(#.*)?$/.test(href) && !/^\.\/[^:?#\/]+\.html(#.*)?$/.test(href)) return; // pages of the same folder only
+    var u = new URL(a.href);
+    u.searchParams.set('lang', root.lang || 'en');
+    if (root.getAttribute('data-theme')) u.searchParams.set('theme', root.getAttribute('data-theme'));
+    if (root.getAttribute('data-level')) u.searchParams.set('level', root.getAttribute('data-level'));
+    a.href = u.href;
+  }
+  document.addEventListener('click', carry, true);
+  document.addEventListener('auxclick', carry, true);
 })();
 </script>
 </body>

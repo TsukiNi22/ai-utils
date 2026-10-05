@@ -56,7 +56,8 @@
       <defs>
         <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow-accent" d="M0 0L10 5L0 10z"/></marker>
       </defs>
-      <!-- computation line of each step -->
+      <!-- computation line of each step, in a box the arrows start from -->
+      <rect id="calc" class="box" x="90" y="14" width="580" height="34" rx="8"/>
       <text class="lbl" x="380" y="36" text-anchor="middle" data-show="0">An empty table: 8 slots, numbered 0 to 7</text>
       <text class="lbl" x="380" y="36" text-anchor="middle" data-show="1">"cat" → 99 + 97 + 116 = 312 → 312 mod 8 = 0</text>
       <text class="lbl" x="380" y="36" text-anchor="middle" data-show="2">"dog" → 100 + 111 + 103 = 314 → 314 mod 8 = 2</text>
@@ -64,14 +65,14 @@
       <text class="lbl" x="380" y="36" text-anchor="middle" data-show="4">Linear probing: try the next slot, 1 is free</text>
       <text class="lbl" x="380" y="36" text-anchor="middle" data-show="5">Find "act": slot 0 holds "cat", slot 1 holds "act": 2 probes</text>
       <!-- slots -->
-      <rect class="box" x="40" y="140" width="75" height="50" rx="6" data-warn="3" data-hl="1,5"/>
-      <rect class="box" x="125" y="140" width="75" height="50" rx="6" data-hl="4,5"/>
-      <rect class="box" x="210" y="140" width="75" height="50" rx="6" data-hl="2"/>
-      <rect class="box" x="295" y="140" width="75" height="50" rx="6"/>
-      <rect class="box" x="380" y="140" width="75" height="50" rx="6"/>
-      <rect class="box" x="465" y="140" width="75" height="50" rx="6"/>
-      <rect class="box" x="550" y="140" width="75" height="50" rx="6"/>
-      <rect class="box" x="635" y="140" width="75" height="50" rx="6"/>
+      <rect id="slot0" class="box" x="40" y="140" width="75" height="50" rx="6" data-warn="3" data-hl="1,5"/>
+      <rect id="slot1" class="box" x="125" y="140" width="75" height="50" rx="6" data-hl="4,5"/>
+      <rect id="slot2" class="box" x="210" y="140" width="75" height="50" rx="6" data-hl="2"/>
+      <rect id="slot3" class="box" x="295" y="140" width="75" height="50" rx="6"/>
+      <rect id="slot4" class="box" x="380" y="140" width="75" height="50" rx="6"/>
+      <rect id="slot5" class="box" x="465" y="140" width="75" height="50" rx="6"/>
+      <rect id="slot6" class="box" x="550" y="140" width="75" height="50" rx="6"/>
+      <rect id="slot7" class="box" x="635" y="140" width="75" height="50" rx="6"/>
       <g class="small" text-anchor="middle">
         <text x="77" y="210">0</text><text x="162" y="210">1</text><text x="247" y="210">2</text><text x="332" y="210">3</text>
         <text x="417" y="210">4</text><text x="502" y="210">5</text><text x="587" y="210">6</text><text x="672" y="210">7</text>
@@ -83,10 +84,10 @@
       <text class="lbl" x="77" y="118" text-anchor="middle" data-show="3-" data-at="3:0,0;4:85,52">act</text>
       <!-- load factor: the value cross-fades and pulses when it changes -->
       <text class="small" x="720" y="84" text-anchor="end" data-text="0:α = 0/8;1:α = 1/8;2:α = 2/8;4:α = 3/8">α = 0/8</text>
-      <!-- arrows from the computation to the home slot -->
-      <path class="edge-accent" d="M380 50 C 300 90, 120 90, 79 134" marker-end="url(#arr)" data-show="1,3,5"/>
-      <path class="edge-accent" d="M380 50 C 330 90, 260 95, 249 134" marker-end="url(#arr)" data-show="2"/>
-      <path class="edge-accent dash" d="M92 140 C 105 115, 140 115, 155 136" marker-end="url(#arr)" data-show="4,5"/>
+      <!-- arrows computed from the shapes they join (base.js): they always touch them -->
+      <path class="edge-accent" data-from="calc:bottom" data-to="slot0:top" data-bend="-0.12" marker-end="url(#arr)" data-show="1,3,5"/>
+      <path class="edge-accent" data-from="calc:bottom" data-to="slot2:top" data-bend="-0.08" marker-end="url(#arr)" data-show="2"/>
+      <path class="edge-accent dash" data-from="slot0:top" data-to="slot1:top" data-bend="-0.45" marker-end="url(#arr)" data-show="4,5"/>
     </svg>
     <ol class="captions">
       <li><b>Start.</b> <span data-level="simple">8 empty hooks, numbered 0 to 7.</span><span data-level="technical">Empty table, <var>m</var> = 8, load factor α = 0.</span></li>

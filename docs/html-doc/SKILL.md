@@ -40,7 +40,9 @@ is needed when the audience of the tool is not obvious.
   File names: guide = `index.html`; technical = `index.html` when there is no guide, else `technical.html`;
   graph = `graph.html`. Generate the technical page and the graph by default (both linked to each other).
 - **Language switch EN | FR** (pill at the top right, before the theme switch), **English by default**, the choice
-  is saved under `{{STORAGE_KEY}}-lang` and shared by the pages:
+  is saved under `{{STORAGE_KEY}}-lang` and shared by the pages (also the theme, and the level of the `explain-doc`
+  pages): the links between the pages carry it (`?lang=fr&theme=dark`), so it applies to every page even from
+  `file://` where each page has its own storage:
   - the content is written in **both languages**: every text node of the page (summary links, titles, paragraphs,
     table cells, captions, `{{TITLE}}` / `{{SUBTITLE}}`) as a pair `<span data-lang="en">...</span><span
     data-lang="fr">...</span>` (or a block `<div data-lang="en">` + `<div data-lang="fr">` for long parts); only the
@@ -90,6 +92,8 @@ For people who just want to **use** the tool: no jargon, no internal detail, tas
   | titled code block (file name, command role) | `<pre data-title="Install"><code>...</code></pre>` |
   | alternatives (OS, package manager, language) | content tabs `<div class="ctabs" data-tabs="g"><button data-tab="a">` + `<div class="ctab-panel" data-tabs="g" data-tab="a">` |
   | architecture, flow, tree, loop | inline `<svg>` in `<figure>` + `<figcaption>Figure N: ...` |
+- SVG arrows: computed with `data-from` / `data-to` (see `html-style`), never typed coordinates; run
+  `python3 ../html-style/scripts/check_style.py docs/*.html` (0 error: arrows on their shapes, text inside).
 - SVG: `viewBox="0 0 760 H"`, `role="img"` + `aria-label`, only the template classes (`box`, `box-alt`, `group`,
   `lbl`, `small`, `title`, `edge`, `edge-accent`, `dash`, `arrow`, `arrow-accent`), markers once in `<defs>`.
   Draw the real mechanism, not decoration. Link to the graph page for the full dependency view.
