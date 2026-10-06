@@ -34,6 +34,15 @@
       ]
     },
     {
+      "name": "ai-skills",
+      "description": "AI context: token-minimal texts and outputs, --rtk modes of programs",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./ai/"
+      ]
+    },
+    {
       "name": "git-skills",
       "description": "Git conventions (commits, branches, pull requests, changelog) and the CI/CD workflows",
       "source": "./",
