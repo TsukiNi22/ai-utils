@@ -224,9 +224,11 @@ _hot void xstyle::SourceFile::maskHash_(void)
     const bool python = this->_language == xstyle::Language::Python;
     const bool shell = this->_language == xstyle::Language::Shell;
     const bool multiLine = shell || this->_language == xstyle::Language::CMake;
+    static const std::regex heredocStart(R"(<<-?\s*['"]?(\w+)['"]?)");
     bool inString = false;
     bool triple = false;
     char quote = '"';
+    std::string heredoc; // delimiter of the shell here-document in progress
 
     for (std::size_t i = 0; i < this->_lines.size(); ++i) {
         const std::string& line = this->_lines[i];
@@ -234,6 +236,13 @@ _hot void xstyle::SourceFile::maskHash_(void)
         std::string& comment = this->_comments[i];
         const std::size_t n = line.size();
         this->_info[i].inComment = false;
+
+        // Here-document body: data, not code (up to the delimiter alone on its line)
+        if (!heredoc.empty()) {
+            if (xstyle::trim(line) == heredoc) heredoc.clear();
+            else code = std::string(n, ' ');
+            continue;
+        }
 
         std::size_t j = 0;
         while (j < n) {
@@ -272,6 +281,8 @@ _hot void xstyle::SourceFile::maskHash_(void)
 
         // Only the shell / cmake strings and the python triple quotes continue on the next line
         if (inString && !triple && !multiLine) inString = false;
+        std::smatch match;
+        if (shell && !inString && std::regex_search(code, match, heredocStart)) heredoc = match[1].str();
     }
 }
 

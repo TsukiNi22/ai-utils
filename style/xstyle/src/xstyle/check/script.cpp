@@ -97,7 +97,7 @@ _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::I
 _hot void xstyle::check::shell(const xstyle::SourceFile& file, xstyle::check::Issues& issues)
 {
     static const std::regex strict(R"(\bset\s+-[a-z]*e[a-z]*u?[a-z]*o\s+pipefail|\bset\s+-euo\s+pipefail|\bset\s+-o\s+pipefail)");
-    static const std::regex singleTest(R"((?:^|[\s;&|(!])\[\s)");
+    static const std::regex singleTest(R"((?:^|[\s;&|(!])\[\s|(?:^|[;&|!]\s*|\b(?:if|while|until|then|do)\s+)test\s+-?\w)");
     const std::vector<std::string>& lines = file.getLines();
     const std::vector<std::string>& code = file.getCode();
     if (lines.empty()) return;
@@ -117,7 +117,8 @@ _hot void xstyle::check::shell(const xstyle::SourceFile& file, xstyle::check::Is
     if (!bash) return;
     for (std::size_t i = 1; i < code.size(); ++i) {
         std::smatch match;
-        if (std::regex_search(code[i], match, singleTest) && code[i].find("[[") == std::string::npos)
-            issues.push_back(xstyle::check::make_issue(file, i, static_cast<std::size_t>(match.position(0)), "SH-TEST", "[ ] test in a bash script", "[[ ... ]]"));
+        if (std::regex_search(code[i], match, singleTest))
+            issues.push_back(xstyle::check::make_issue(file, i, static_cast<std::size_t>(match.position(0) + (code[i][static_cast<std::size_t>(match.position(0))] == '[' || code[i][static_cast<std::size_t>(match.position(0))] == 't' ? 0 : 1)),
+                "SH-TEST", "[ ] / test in a bash script", "[[ ... ]] (and (( a > b )) for the numbers)"));
     }
 }
