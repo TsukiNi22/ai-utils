@@ -8,7 +8,7 @@ description: Tsukini's Python style (from his real scripts - libutils cmake/scri
 Measured on the user's own scripts (libutils `cmake/scripts/const.py`, `generate_exception_header.py`, 2026) and on
 MAGIC (2025, older form: `""" Import """` banners, plain classes for the constants, `print` errors): **the 2026 form
 wins**, the older one is only kept when editing a file already written that way (the local style of a file wins).
-Common rules of every language: `coding-style`; comments: `comments`. Everything in **English**.
+Common rules of every language: `coding-style`; comments: `python-comments`; new files / classes: `python-class`. Everything in **English**.
 Checked by `xstyle` (`PY-*` + the generic rules): run `xstyle <files>` after writing, `xstyle --fix` for the fixable ones.
 
 ## File layout

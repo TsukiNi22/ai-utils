@@ -2,3 +2,4 @@ python-style
 readme-style
 git-conventions
 ci-cd
+python-class
