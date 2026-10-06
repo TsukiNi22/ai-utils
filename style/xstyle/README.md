@@ -66,6 +66,7 @@ xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
 - **Paths**: files or directories given as bare arguments; with no path the current directory is scanned
   recursively. Hidden folders, `build*`, `cmake-build-*`, `third_party`, `extern`, `vendor`, `node_modules`... and the
   `generated_*` files are skipped, `-e build,*.gen.hpp` excludes more (folder name, path prefix or glob).
+- **Auto-fix or not**: every issue says `[auto-fix]` (fixed by `--fix`) or `[manual]` (hint only) right after its code, the Markdown report has an `Auto-fix` column, the JSON a `fixable` field.
 - **Fix**: the fixes are applied in passes (a fix can reveal another issue: `[[nodiscard]]` -> `_nodiscard` ->
   `#define _Attribute` missing -> added), only the fixable rules (`yes` in the table) are touched, the logic never.
   Review the result with `git diff`.

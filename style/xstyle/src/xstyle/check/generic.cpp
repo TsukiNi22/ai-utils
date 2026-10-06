@@ -28,7 +28,14 @@ _hot xstyle::Issue xstyle::check::make_issue(const xstyle::SourceFile& file, con
     issue.file = file.getDisplay();
     issue.path = file.getPath();
     issue.line = line == NO_INDEX ? 0 : line + 1;
-    issue.column = line == NO_INDEX ? 0 : column + 1;
+    issue.column = 0;
+    if (line != NO_INDEX && line < file.getLines().size()) {
+        // Column in characters (UTF-8), what the editors expect
+        const std::string& text = file.getLines()[line];
+        for (std::size_t i = 0; i < column && i < text.size(); ++i)
+            if ((static_cast<unsigned char>(text[i]) & 0xC0) != 0x80) ++issue.column;
+        issue.column += 1 + (column > text.size() ? column - text.size() : 0);
+    }
     issue.code = std::string(code);
     issue.severity = rule ? rule->severity : xstyle::Severity::Minor;
     issue.message = message;

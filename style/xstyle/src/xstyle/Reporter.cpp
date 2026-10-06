@@ -59,6 +59,17 @@ _cold static std::string pad_(const std::string& s, const std::size_t width, con
     return right ? std::string(width - s.size(), ' ') + s : s + std::string(width - s.size(), ' ');
 }
 
+_cold static std::string truncate_(const std::string& s, const std::size_t max)
+{
+    // Cut on a UTF-8 character boundary (never in the middle of a multi-byte character)
+    std::size_t characters = 0;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if ((static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) continue;
+        if (++characters > max) return s.substr(0, i) + "...";
+    }
+    return s;
+}
+
 /* setup */
 _cold void xstyle::Reporter::addFile(const xstyle::SourceFile& file)
 {
@@ -110,10 +121,11 @@ _cold std::string xstyle::Reporter::issues_(const bool tty) const
     for (const xstyle::Issue& issue: this->_issues) {
         if (issue.file != file && !file.empty()) out << "\n";
         file = issue.file;
-        out << this->location_(issue, tty) << " " << this->severity_(issue.severity, tty) << " " << this->paint_(issue.code, utils::iomanip::Color::Cyan, tty)
+        const std::string fixable = issue.fix ? this->paint_("[auto-fix]", utils::iomanip::Color::Green, tty) : this->paint_("[manual]", utils::iomanip::Color::BrightBlack, tty);
+        out << this->location_(issue, tty) << " " << this->severity_(issue.severity, tty) << " " << this->paint_(issue.code, utils::iomanip::Color::Cyan, tty) << " " << fixable
             << " " << issue.message << "\n";
         if (issue.line > 0) {
-            std::string source = issue.source.size() > 160 ? issue.source.substr(0, 157) + "..." : issue.source;
+            const std::string source = truncate_(issue.source, 157);
             out << this->paint_(pad_(std::to_string(issue.line), 7, true) + " | ", utils::iomanip::Color::BrightBlack, tty) << source << "\n";
         }
         if (issue.suggestion.empty()) continue;
@@ -248,15 +260,15 @@ _cold std::string xstyle::Reporter::markdown_(void) const
     for (const xstyle::Issue& issue: this->_issues) {
         if (issue.file != file) {
             file = issue.file;
-            out << "\n## `" << file << "`\n\n| Line | Severity | Code | Issue | Fix / hint |\n|---|---|---|---|---|\n";
+            out << "\n## `" << file << "`\n\n| Line | Severity | Code | Auto-fix | Issue | Fix / hint |\n|---|---|---|---|---|---|\n";
         }
         std::string suggestion = issue.suggestion;
         std::replace(suggestion.begin(), suggestion.end(), '\n', ' ');
         std::error_code error;
         const std::filesystem::path base = std::filesystem::absolute(*this->_options.report, error).parent_path();
         const std::string link = std::filesystem::proximate(issue.path, base, error).generic_string();
-        out << "| [" << issue.line << "](" << link << "#L" << issue.line << ") | " << xstyle::severity_name(issue.severity) << " | `" << issue.code << "` | "
-            << markdown_escape_(issue.message) << " | " << (issue.fix ? "auto: " : "") << (suggestion.empty() ? "" : "`" + markdown_escape_(suggestion) + "`") << " |\n";
+        out << "| [" << issue.line << "](" << link << "#L" << issue.line << ") | " << xstyle::severity_name(issue.severity) << " | `" << issue.code << "` | " << (issue.fix ? "yes" : "-") << " | "
+            << markdown_escape_(issue.message) << " | " << (suggestion.empty() ? "" : "`" + markdown_escape_(suggestion) + "`") << " |\n";
     }
     return out.str();
 }
