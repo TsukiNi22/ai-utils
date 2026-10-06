@@ -1,1 +1,8 @@
-audit-bugs audit-quality audit-deps cpp-tests tests report
+audit-bugs
+audit-quality
+audit-deps
+cpp-tests
+tests
+report
+benchmark
+coverage

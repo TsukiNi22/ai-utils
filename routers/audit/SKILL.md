@@ -21,7 +21,9 @@ audit that offers parallel agents asks the user first (its own rule).
    - `Bugs / UB` -> `audit-bugs` (sanitizers, tests, review; slow on big projects)
    - `Propreté / conventions` -> `audit-quality`
    - `Dépendances` -> `audit-deps` (licenses to credit / restrictive, known vulnerabilities, transitive)
-   - `Couverture des tests` -> `cpp-tests` (C++, `scripts/untested.py` + test run) or `tests` (other languages)
+   - `Couverture des tests` -> `coverage` (C++, measured with llvm-cov, asks before writing tests) or `tests` (other
+     languages)
+   - `Performance` -> `benchmark` (profiling of a scenario it asks; not checked by default)
 2. **Format du rendu**: `Markdown + PDF (Recommandé)` · `PDF seulement` · `Markdown seulement` (passed to every audit,
    they don't ask again).
 If the request already names the audits / format, skip what is known. Audit specific questions (ex: `audit-bugs`
@@ -30,7 +32,8 @@ scope, mode, iterations, fixes) are asked by that audit when it starts, in one c
 ## 3. Run (in this order, sequentially)
 1. `audit-deps` first when selected: its JSON (`/tmp/deps.json`, `/tmp/vulns.json`) is reused by `audit-quality`
    and `audit-bugs` instead of running the scripts again.
-2. `audit-quality`, 3. tests coverage, 4. `audit-bugs` (the longest, it may fix things only after confirmation).
+2. `audit-quality`, 3. tests coverage, 4. `benchmark`, 5. `audit-bugs` (the longest, it may fix things only after
+confirmation).
 Each audit writes its own report `audit/<YYYY-MM-DD>-<audit>.{md,pdf}` (English unless asked, `report` style).
 An audit that fails or can't run (no build system, missing tool) is reported as such, the others continue.
 

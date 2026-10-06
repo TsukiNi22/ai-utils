@@ -15,7 +15,8 @@ Load the skills with the Skill tool (never the other routers: they are manual-on
 | Files | Skills |
 |---|---|
 | `.cpp`, `.hpp`, `.tpp`, `.inl` (and `.h` of a C++ project) | `cpp-style` + `cpp-comments` |
-| any other language: `.py`, `.sh`, `.lua`, `.js`/`.ts`, `.rs`, `.go`, `.c`/`.h` (C), `.yml`, `.json`... | `coding-style` + `comments` |
+| `.py` | `python-style` + `comments` |
+| any other language: `.sh`, `.lua`, `.js`/`.ts`, `.rs`, `.go`, `.c`/`.h` (C), `.yml`, `.json`... | `coding-style` + `comments` |
 | comments of any file (C, CMake, Makefile, shell, Python, Lua, YAML...) | `comments` |
 | new C++ files / classes | `cpp-class` (layout, header, sections) + the two above |
 | `CMakeLists.txt`, `*.cmake`, `*.cmake.in` | `cmake-style` |

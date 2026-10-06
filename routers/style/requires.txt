@@ -1,1 +1,7 @@
-cpp-style cpp-comments coding-style comments cmake-style audit-quality
+cpp-style
+cpp-comments
+coding-style
+comments
+cmake-style
+audit-quality
+python-style

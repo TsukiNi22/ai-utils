@@ -35,7 +35,7 @@
     },
     {
       "name": "git-skills",
-      "description": "Git conventions: commits, branches, pull requests, changelog",
+      "description": "Git conventions (commits, branches, pull requests, changelog) and the CI/CD workflows",
       "source": "./",
       "strict": false,
       "skills": [
@@ -52,8 +52,17 @@
       ]
     },
     {
+      "name": "python-skills",
+      "description": "Python: the user's style and the project setup (script, MAGIC application, installable package)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./python/"
+      ]
+    },
+    {
       "name": "test-skills",
-      "description": "Unit tests: GoogleTest (C++) and the other frameworks",
+      "description": "Unit tests: GoogleTest (C++), the other frameworks, coverage",
       "source": "./",
       "strict": false,
       "skills": [
@@ -62,7 +71,7 @@
     },
     {
       "name": "audit-skills",
-      "description": "Audits: bugs / UB, quality, dependencies (licenses, vulnerabilities)",
+      "description": "Audits: bugs / UB, quality, dependencies (licenses, vulnerabilities), benchmark / profiling",
       "source": "./",
       "strict": false,
       "skills": [

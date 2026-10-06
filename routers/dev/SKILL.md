@@ -37,6 +37,9 @@ The category routers (`cpp`, `git`, `doc`, `style`, `legal`, `audit`) are manual
 | libutils APIs / exceptions | `libutils`, `libutils-exception` | `cpp` |
 | install / update libutils on the computer, add it to the project | `libutils-install`, `libutils-setup` | `cpp` |
 | unit tests (C++: GoogleTest like libutils) | `cpp-tests` (C++) or `tests` (any language, asks the framework) | `cpp` |
+| test coverage: measure, what is not tested, fill it | `coverage` (C++, cpp-tests projects) | `audit` |
+| performance: benchmark, profiling, what is slow, optimize | `benchmark` | `audit` |
+| CI / CD, GitHub workflows, actions, Docker images of the CI | `ci-workflows` | `git` |
 | several / all audits of the project at once | follow the `audit` router (checklist of audits + format) | `audit` |
 | bugs / UB / crashes / sanitizers audit | `audit-bugs` | `cpp` |
 | cleanliness / conventions audit with a PDF report | `audit-quality` | `style` |
@@ -45,7 +48,9 @@ The category routers (`cpp`, `git`, `doc`, `style`, `legal`, `audit`) are manual
 | license (choose, add, replace, compatibility) | `license` | `legal` |
 | dependencies: licenses to credit / restrictive / paid, vulnerabilities | `audit-deps` | `legal` |
 | style only (format / review like the user) | `cpp-style`, `cpp-comments`, `coding-style` (other languages), `cmake-style`, `comments` by file type | `style` |
-| code in another language than C++ (Python, shell, Lua, JS/TS, C...) | `coding-style` + `comments` | `style` |
+| Python code | `python-style` (+ `comments`) | `style` |
+| new Python project / package / tool | `python-project` | - |
+| code in another language than C++ (shell, Lua, JS/TS, Rust, C...) | `coding-style` + `comments` | `style` |
 | README, wiki, Markdown docs | `readme-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |
 | explanation page (how something works), simple + technical | `explain-doc` | `doc` |

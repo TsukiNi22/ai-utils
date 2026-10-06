@@ -1,0 +1,3 @@
+python-style
+readme-style
+git-conventions
