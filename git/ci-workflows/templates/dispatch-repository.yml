@@ -1,0 +1,26 @@
+name: Dispatch - {{TARGET_NAME}} (CD)
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  notify-{{TARGET_NAME}}:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/tsukini22/git:latest # curl / wget only: smallest image
+
+    steps:
+      - name: Trigger {{TARGET_REPOSITORY}} (repository_dispatch {{EVENT_TYPE}})
+        run: |
+          set -euo pipefail
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.GIT_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/{{TARGET_REPOSITORY}}/dispatches" \
+            -d '{"event_type": "{{EVENT_TYPE}}", "client_payload": {"repository": "${{ github.repository }}", "ref": "${{ github.ref_name }}", "sha": "${{ github.sha }}"}}'
+          echo "✓ {{TARGET_REPOSITORY}} notified ({{EVENT_TYPE}})"

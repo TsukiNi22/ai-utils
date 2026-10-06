@@ -1,0 +1,42 @@
+name: Python - Tests (CI)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: python:{{PYTHON_VERSION}}-slim # official slim image: small, pip included
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" 2> /dev/null || python -m pip install -r requirements.txt pytest
+
+      - name: Tests
+        run: |
+          set -euo pipefail
+          python -m pytest -q
+        timeout-minutes: 5

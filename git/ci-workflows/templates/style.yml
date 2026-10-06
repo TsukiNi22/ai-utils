@@ -1,0 +1,40 @@
+name: Style - xstyle (CI)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  style:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/tsukini22/ci:latest # xstyle installed (ci >= v2.1.0)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the base of a pull request is needed by --diff-ref
+
+      - name: Style check (xstyle)
+        run: |
+          set -uo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Pull request: only the lines it changes; push: the whole project
+          scope=()
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            scope=(--diff-ref "origin/${{ github.base_ref }}")
+          fi
+          xstyle "${scope[@]}" --fail-on {{FAIL_ON}} -o xstyle.md
+          status=$?
+          cat xstyle.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Style check::issues of severity {{FAIL_ON}} or above, see the job summary (fix: xstyle --fix)"
+          fi
+          exit "$status"
+        timeout-minutes: 5
