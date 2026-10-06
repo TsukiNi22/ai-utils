@@ -47,9 +47,16 @@ _hot void xstyle::check::comments(const xstyle::SourceFile& file, xstyle::check:
         const std::size_t size = marker_(lines, i);
         const bool isLabel = size == 0 && std::regex_match(lines[i], label);
         if (size == 0 && !isLabel) continue;
+        static const std::regex namespaceOpen(R"(^\s*namespace\b[^;]*\{\s*(?://.*)?$)");
         std::size_t next = i + std::max<std::size_t>(size, 1);
         while (next < lines.size() && xstyle::is_blank(lines[next])) ++next;
-        const bool empty = next >= lines.size() || marker_(lines, next) > 0 || closing_(lines[next]) || (isLabel && std::regex_match(lines[next], label));
+        // A namespace opened right after: the section describes its content (empty only when the namespace is)
+        while (next < lines.size() && std::regex_match(lines[next], namespaceOpen))
+            for (++next; next < lines.size() && xstyle::is_blank(lines[next]); ++next);
+        // A section (separator + title) holds the class / sub blocks that follow it
+        static const std::regex subBlock(R"(^\s*// -+ [A-Za-z][A-Za-z -]* -+ //\s*$)");
+        const bool child = size == 2 && next < lines.size() && std::regex_match(lines[next], subBlock);
+        const bool empty = next >= lines.size() || (marker_(lines, next) > 0 && !child) || closing_(lines[next]) || (isLabel && std::regex_match(lines[next], label));
         if (!empty) continue;
         if (isLabel)
             issues.push_back(xstyle::check::make_issue(file, i, lines[i].find("/*"), "CPP-ORPHAN-GROUP", "Group label with nothing under it", "", xstyle::check::replace_lines(i, 1, {})));
