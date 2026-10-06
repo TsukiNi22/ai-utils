@@ -88,7 +88,7 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
         // Python
         {"PY-WILDCARD-IMPORT", xstyle::Severity::Major,        xstyle::FixMode::Manual, "py",           "from x import *, import the names explicitly"},
         {"PY-BARE-EXCEPT",     xstyle::Severity::Major,        xstyle::FixMode::Manual, "py",           "Bare except:, catch the exceptions expected"},
-        {"PY-TYPE-HINTS",      xstyle::Severity::Minor,        xstyle::FixMode::Manual, "py",           "Function without type hints on its parameters / return"},
+        {"PY-TYPE-HINTS",      xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "py",           "Function without type hints (added when certain: literal defaults, None / literal returns)"},
         {"PY-PRINT-ERROR",     xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "py",           "print(..., file=stderr), use stderr.write"},
         {"PY-OPEN-ENCODING",   xstyle::Severity::Minor,        xstyle::FixMode::Force,  "py",           "open() of a text file without encoding=\"utf-8\""},
 

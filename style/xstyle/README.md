@@ -91,6 +91,11 @@ xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
   | `[ask-fix]` | `--fix` + a question | the missing file header: banner `[n]one`, `[d]efault` (XARTANIA) or `[t]ext` + description, per file (upper case answer: same for the next files); `--header none\|default\|<text>` and `--header-desc "..."` answer without question (CI, no terminal: skipped) |
   | `[manual]` | by hand | needs a decision a tool can't take (a type to write, a name to choose, a code to rewrite with libutils...) |
 
+  Python type hints are added only when the type is certain: a literal default (`level=2` -> `level: int = 2`),
+  `-> None` without any `return value` / `yield`, `-> bool` / `int` / `str`... when every `return` gives a literal of the
+  same type; the other parameters stay `[manual]` (listed as "by hand" in the message). A stub (`...`,
+  `raise NotImplementedError`) or a generator is never typed.
+
 - **Filter by level**: `-m auto,force,ask,manual` (one or several, `forced` accepted) keeps only those issues, in the
   display, the counters, the report and `--fix` (`xstyle --fix --force -m auto` applies only the safe fixes).
 - **Templates**: a file with `{{NAME}}` placeholders is not valid code yet, only the generic rules are checked there.
@@ -205,7 +210,7 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `LU-DISTANCE` | minor | - | cpp | Hand made string distance, use utils::algorithms::c2dmp |
 | `PY-WILDCARD-IMPORT` | major | - | py | from x import *, import the names explicitly |
 | `PY-BARE-EXCEPT` | major | - | py | Bare except:, catch the exceptions expected |
-| `PY-TYPE-HINTS` | minor | - | py | Function without type hints on its parameters / return |
+| `PY-TYPE-HINTS` | minor | auto | py | Function without type hints (added when certain: literal defaults, None / literal returns) |
 | `PY-PRINT-ERROR` | minor | auto | py | print(..., file=stderr), use stderr.write |
 | `PY-OPEN-ENCODING` | minor | force | py | open() of a text file without encoding="utf-8" |
 | `RS-UNWRAP` | major | - | rs | .unwrap() outside of the tests, propagate with ? (and a context) or handle the error |
