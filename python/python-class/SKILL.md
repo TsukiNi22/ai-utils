@@ -44,5 +44,5 @@ python3 SKILL_DIR/scripts/new_file.py <kind> <Name> --dir <folder> [--desc "..."
 - Signatures fully typed (`-> None` included), defaults on the parameters of a mode (`failsafe: bool = False`).
 
 ## 3. After
-`xstyle <files>` (python-style rules), `python3 -c "import <module>"` (or `PYTHONPATH=src` for a package) to check that
+`xstyle --rtk <files>` (python-style rules), `python3 -c "import <module>"` (or `PYTHONPATH=src` for a package) to check that
 the skeleton imports; tests created with `--kind test` are filled with the `tests` skill.

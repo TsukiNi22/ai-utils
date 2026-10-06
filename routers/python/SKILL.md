@@ -27,7 +27,7 @@ latest request of the user; if there is none, inspect the project and propose wh
 | new class, abstract class, tool function, module, exception, constants, test file | `python-class` (+ `python-style`, `python-comments`) |
 | write / edit / refactor / fix Python code | `python-style` + `python-comments` |
 | comments / docstrings only | `python-comments` |
-| review Python code against the user's style | `python-style` + `python-comments` (`xstyle -c PY,G` first) |
+| review Python code against the user's style | `python-style` + `python-comments` (`xstyle --rtk -c PY,G` first) |
 | unit tests (pytest): setup, write, run | `tests` |
 | slow code, profiling, benchmark | `benchmark` (py-spy / cProfile part) |
 | CI / CD (tests, style, PyPI, release) | `ci-cd` |

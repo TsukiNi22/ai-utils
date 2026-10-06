@@ -93,3 +93,10 @@ it is ignored (or re-runs the configuration). Sections, each introduced by the 3
 - New target / output written in the sources (executable at the root, plugin dir, generated file): update the
   `.gitignore` with `python3 <cpp-project>/scripts/update_gitignore.py <root>`.
 - Root `Makefile` wrapper (`all`, `clean`, `fclean`, `re`) calling CMake with `BUILD_DIR := build`.
+
+## Checking (xstyle)
+When `xstyle` is installed (`command -v xstyle`), check what was written or reviewed with it instead of re-reading the
+rules by hand: `xstyle --rtk <files|dirs> [-r]` (**always `--rtk`**: compact output made for the assistant),
+`xstyle --rtk --fix [CODES] <paths>` for the fixable ones (`-n` to preview), `-c CMAKE,G` for the rules of this
+skill, `xstyle -x CODE` to explain one. Not installed: apply the rules by hand and say once that
+`./setup.sh install xstyle` would check them. Its findings are heuristic: the local style of a file wins.

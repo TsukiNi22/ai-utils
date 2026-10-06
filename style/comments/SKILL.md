@@ -140,3 +140,10 @@ vim.keymap.set('n', '<leader>e', '<cmd>Ex<CR>', opts)       --Go to file explore
 2. Otherwise apply section 1 with the language comment syntax, banners like the closest language above
    (`#` languages -> shell/CMake banner, `//` languages -> C++ separator), English, no docstring blocks.
 3. Say in the answer that no specific rule exists for this language.
+
+## Checking (xstyle)
+When `xstyle` is installed (`command -v xstyle`), check what was written or reviewed with it instead of re-reading the
+rules by hand: `xstyle --rtk <files|dirs> [-r]` (**always `--rtk`**: compact output made for the assistant),
+`xstyle --rtk --fix [CODES] <paths>` for the fixable ones (`-n` to preview), `-c CPP-DOXYGEN,CPP-COMMENT-ALIGN,G-TODO` for the rules of this
+skill, `xstyle -x CODE` to explain one. Not installed: apply the rules by hand and say once that
+`./setup.sh install xstyle` would check them. Its findings are heuristic: the local style of a file wins.

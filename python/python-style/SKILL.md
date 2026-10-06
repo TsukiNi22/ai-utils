@@ -9,7 +9,7 @@ Measured on the user's own scripts (libutils `cmake/scripts/const.py`, `generate
 MAGIC (2025, older form: `""" Import """` banners, plain classes for the constants, `print` errors): **the 2026 form
 wins**, the older one is only kept when editing a file already written that way (the local style of a file wins).
 Common rules of every language: `coding-style`; comments: `python-comments`; new files / classes: `python-class`. Everything in **English**.
-Checked by `xstyle` (`PY-*` + the generic rules): run `xstyle <files>` after writing, `xstyle --fix` for the fixable ones.
+Checked by `xstyle` (`PY-*` + the generic rules): run `xstyle --rtk <files>` after writing, `xstyle --rtk --fix` for the fixable ones.
 
 ## File layout
 ```python
@@ -128,5 +128,5 @@ FILES   = Files()
 - 4 spaces, no tabs, no trailing space, `exit(RETURN.OK)` as the last line of a script.
 
 ## Review
-List the deviations with the rule (this skill / `xstyle` code); `xstyle --fix -c PY,G` applies the safe ones,
+List the deviations with the rule (this skill / `xstyle` code); `xstyle --rtk --fix -c PY,G` applies the safe ones,
 `--dangerous-force` the guessed type hints (check them).

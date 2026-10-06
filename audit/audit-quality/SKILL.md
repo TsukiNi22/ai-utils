@@ -28,7 +28,7 @@ listed, GLOB), `gitignore` (outputs not ignored), `commits` (not `type(scope): m
 CHANGELOG version != CMake version), `warnings` (with `--build`).
 The script is heuristic: check a sample of each category before reporting it, drop the false positives.
 When `xstyle` is installed (`command -v xstyle`, built by the repository `setup.sh`), also run
-`xstyle -r <root> -S -o /tmp/xstyle.json`: ~65 rules of `cpp-style` / `cpp-comments` / `coding-style` / libutils usage
+`xstyle --rtk -r <root> -S -o /tmp/xstyle.json` (the JSON for the counters, `xstyle --rtk -r <root>` to read the issues): ~65 rules of `cpp-style` / `cpp-comments` / `coding-style` / libutils usage
 with a severity (unforgivable / major / minor / negligible) and the counters by rule; use its counters in the report
 (sample-check them as well) and point to `xstyle --fix [CODES]` for the fixable ones.
 

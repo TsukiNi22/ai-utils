@@ -135,4 +135,4 @@ spaces, empty lines, indentation by 4, TODO tags) and the Python / shell ones (w
 type hints, `print` to stderr, `open` without encoding, shebang, `set -euo pipefail`, `[[ ]]`) and the Rust ones
 (`unwrap` / `panic!` / `todo!` outside the tests, glob imports, naming, `unsafe` without `// SAFETY:`, errors on
 stdout, `dbg!`): when it is installed,
-run `xstyle <paths> -r` on the files written or reviewed, `xstyle --fix` for the fixable ones.
+run `xstyle --rtk <paths> -r` on the files written or reviewed, `xstyle --rtk --fix` for the fixable ones.

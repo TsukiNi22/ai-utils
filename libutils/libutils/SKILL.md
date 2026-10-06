@@ -145,5 +145,5 @@ write by hand what a section already gives; when reviewing, flag it with the cla
 | old names (`isloaded`, `auto_cast`, `setStyle`, `utils::network::socket::*`) | new names (`isLoaded`, `autoCast`, `set_style`, `utils::network::*`) |
 
 The checker `xstyle` of this repository (`style/xstyle`, `./setup.sh install xstyle`) enforces this table with its
-`LU-*` rules (`xstyle -c LU`; `LU-INCLUDE`, `LU-SECTION`, `LU-ATTRIBUTE`, `LU-MIGRATION` are fixed by `xstyle --fix LU`).
+`LU-*` rules (`xstyle --rtk -c LU`; `LU-INCLUDE`, `LU-SECTION`, `LU-ATTRIBUTE`, `LU-MIGRATION` are fixed by `xstyle --rtk --fix LU`).
 Its migration rule reads the `_migration` aliases of the **installed** headers, so it follows the installed version.

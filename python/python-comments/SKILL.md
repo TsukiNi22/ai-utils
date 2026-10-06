@@ -69,3 +69,10 @@ class Parameters:
 - Disabled code kept only when it is a real alternative, with `#` and no space (`#&& dnf remove -y gnupg2`).
 - No `TODO` / `FIXME` (`G-TODO` of xstyle): describe the limitation in a normal comment.
 - `pass  # Nothing` is never written: `pass` alone is the empty body.
+
+## Checking (xstyle)
+When `xstyle` is installed (`command -v xstyle`), check what was written or reviewed with it instead of re-reading the
+rules by hand: `xstyle --rtk <files|dirs> [-r]` (**always `--rtk`**: compact output made for the assistant),
+`xstyle --rtk --fix [CODES] <paths>` for the fixable ones (`-n` to preview), `-c PY,G-TODO` for the rules of this
+skill, `xstyle -x CODE` to explain one. Not installed: apply the rules by hand and say once that
+`./setup.sh install xstyle` would check them. Its findings are heuristic: the local style of a file wins.

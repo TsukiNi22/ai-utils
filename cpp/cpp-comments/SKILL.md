@@ -93,3 +93,10 @@ For a note, a legend or a kept formula:
 - Disabled code kept with `//` and no space (`//add_library(${TARGET} SHARED ${SRC})`).
 - No `TODO`/`FIXME` tags in the code: describe the limitation in a normal comment instead.
 - No decorative boxes or banners except the file header and the separators above.
+
+## Checking (xstyle)
+When `xstyle` is installed (`command -v xstyle`), check what was written or reviewed with it instead of re-reading the
+rules by hand: `xstyle --rtk <files|dirs> [-r]` (**always `--rtk`**: compact output made for the assistant),
+`xstyle --rtk --fix [CODES] <paths>` for the fixable ones (`-n` to preview), `-c CPP-DOXYGEN,CPP-INCLUDE-COMMENT,CPP-COMMENT-ALIGN,CPP-EMPTY-SECTION,CPP-ORPHAN-GROUP,CPP-NAMESPACE-COMMENT,G-TODO` for the rules of this
+skill, `xstyle -x CODE` to explain one. Not installed: apply the rules by hand and say once that
+`./setup.sh install xstyle` would check them. Its findings are heuristic: the local style of a file wins.

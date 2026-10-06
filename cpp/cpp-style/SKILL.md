@@ -206,6 +206,6 @@ Lookup order before writing any attribute:
 `xstyle` (`style/xstyle` of the skills repository, installed by `./setup.sh install xstyle`) checks this style,
 `cpp-comments` / `cpp-class` layout points and the libutils usage (`LU-*` rules), with a severity per rule and the fix
 proposed. When it is installed (`command -v xstyle`), run it on the files written or reviewed and fix what it
-reports: `xstyle <files|dirs> -r`, `xstyle --fix [CODES] <paths>` (preview with `-n`), `xstyle -x CODE` explains a
+reports: `xstyle --rtk <files|dirs> -r`, `xstyle --rtk --fix [CODES] <paths>` (preview with `-n`), `xstyle -x CODE` explains a
 rule, `// xstyle: ignore CODE` for a justified exception. Its findings are heuristic: a rule that contradicts the
 local style of the file loses (local style wins).

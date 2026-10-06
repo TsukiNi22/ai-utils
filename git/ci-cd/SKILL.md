@@ -92,6 +92,6 @@ that is not clean yet: start with `--fail-on unforgivable` or the PR-only trigge
 - Never publish from a pull request; secrets / environments / pypi.org settings are listed for the user, never created.
 
 ## 6. Check and hand over
-`python3 SKILL_DIR/scripts/check_workflows.py .github/workflows/*.yml` (+ `xstyle .github` for the generic rules), then
+`python3 SKILL_DIR/scripts/check_workflows.py .github/workflows/*.yml` (+ `xstyle --rtk .github` for the generic rules), then
 list for the user: the workflows written, the images used, the secrets / variables to create, what triggers what.
 Commits follow `git-conventions` (`feat(ci): ...`); nothing is pushed without a request.

@@ -49,7 +49,7 @@ Every kind gets `.gitignore` (venv, caches, build outputs) and a `README.md` stu
 1. Fill `const.py` (names, files, values), scaffold the classes / tools / exceptions with `python-class` (empty bodies),
    then write the code with `python-style` and `python-comments`, one module per concern.
 2. Tests: `tests/test_<module>.py` with `pytest` (the `tests` skill for more), run them in the venv.
-3. Check: `xstyle -r .` (generic + `PY-*` rules), fix with `xstyle --fix`.
+3. Check: `xstyle --rtk -r .` (generic + `PY-*` rules), fix with `xstyle --rtk --fix`.
 4. Extras chosen: `readme-style`, `license`, `git-conventions` (first commit
    `feat: initial version of <name>` only if the user asked for the commit).
 5. GitHub repository (remote on github.com): `ci-cd` for the CI/CD (always asked there, never skipped silently).
