@@ -152,7 +152,7 @@ install_tool() {
     echo "  building $tool (log: $log)..."
     if ! cmake -S "$dir" -B "$build" -DCMAKE_BUILD_TYPE=Optimized > "$log" 2>&1; then
         if grep -q "utils" "$log"; then
-            echo "  skip $tool: libutils is required (skill libutils-install, or: sudo dnf install libutils / sudo apt install libutils)"
+            echo "  skip $tool: libutils is required (install: curl -fsSL https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh | bash)"
         else
             echo "  skip $tool: CMake configuration failed, see $log"
         fi

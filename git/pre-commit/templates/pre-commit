@@ -1,5 +1,5 @@
 #!/bin/bash
-# xstyle pre-commit hook: style of what is committed (installed by <skills>/git/pre-commit or ./setup.sh hook install)
+# xstyle pre-commit hook: style of what is committed (installed by the pre-commit skill, or: curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- hook)
 #
 # xstyle missing: warning only (MISSING), issues >= FAIL_ON: commit refused, issues >= WARN_ON: warning.
 # Skip once: git commit --no-verify (or XSTYLE_HOOK=0 git commit). Fix: xstyle --fix --staged, then git add.
@@ -33,7 +33,7 @@ if ! command -v "$XSTYLE_BIN" > /dev/null 2>&1; then
     case "$MISSING" in
         fail) echo "pre-commit: xstyle not found ($XSTYLE_BIN): commit refused (MISSING=fail)" >&2; exit 1 ;;
         ignore) exit 0 ;;
-        *) echo "pre-commit: warning: xstyle not found ($XSTYLE_BIN), style not checked (install: <skills>/setup.sh install xstyle)" >&2; exit 0 ;;
+        *) echo "pre-commit: warning: xstyle not found ($XSTYLE_BIN), style not checked (install: curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle)" >&2; exit 0 ;;
     esac
 fi
 mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACMR)

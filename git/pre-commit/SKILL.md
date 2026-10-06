@@ -5,10 +5,9 @@ description: Set up the xstyle pre-commit hook of a git repository in Tsukini's 
 
 # xstyle pre-commit hook
 
-`SKILL_DIR` = the directory of this file. `<skills>` = the skills repository (the folder holding `setup.sh`:
-`readlink -f SKILL_DIR/../..` when installed as a symlink, else `~/.local/share/tsukini-skills`).
+`SKILL_DIR` = the directory of this file.
 - `templates/pre-commit`: the hook (bash, config block at the top, readable by the user).
-- `scripts/install_hook.sh install|remove|status [options]` (`--help`), also `<skills>/setup.sh hook [command] [options]`
+- `scripts/install_hook.sh install|remove|status [options]` (`--help`), also `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- hook [command] [options]`
   run from the repository.
 - `scripts/demo_repo.sh [dir] [options]`: throwaway repository (`/tmp/xstyle-hook-demo`) with one file per verdict
   and `TRY.md` listing the scenarios.
@@ -56,7 +55,7 @@ Ask all of them, even when a default exists (only skip what the request already 
   languages>` · `Ignorer des règles (lesquelles ?)` · `Aucun`.
 - **Sortie** (`--output`): `Auto (Recommandé: lisible au terminal, compacte sous Claude Code)` · `Toujours lisible` ·
   `Toujours compacte (--rtk)`.
-Then, when xstyle is missing (only if): **Installer xstyle ?** `Oui, ./setup.sh install xstyle (Recommandé)` ·
+Then, when xstyle is missing (only if): **Installer xstyle ?** `Oui, via le setup.sh des skills (Recommandé)` (`curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle`) ·
 `Non, le hook avertira seulement`; libutils missing for the build: the `libutils-install` skill (ask first), cmake /
 clang++ missing: give the `dnf` / `apt` command (root through `SUDO_ASKPASS=~/.local/bin/sudo-askpass sudo -A`, ask).
 Last: **Dépôt de démonstration ?** `Oui, /tmp/xstyle-hook-demo pour essayer` · `Non`.
@@ -77,4 +76,5 @@ bash SKILL_DIR/scripts/install_hook.sh install --repo <root> --fail-on major --w
 `install_hook.sh status --repo <root>` (config shown), then one real run without committing:
 `git stash -k` is never used; run the hook directly: `.git/hooks/pre-commit; echo $?` (it checks the staged lines; with
 nothing staged it exits 0). Report: where the hook is, the chosen options, what is refused / warned, how to skip it,
-how to change it (`<skills>/setup.sh hook --fail-on minor`) or remove it (`<skills>/setup.sh hook remove`).
+how to change it (`curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- hook --fail-on minor`) or remove it (`... | bash -s -- hook remove`):
+the commands given to the user always use the `curl` form (the user may not have the skills repository locally).

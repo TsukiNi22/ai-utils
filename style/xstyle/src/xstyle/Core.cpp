@@ -131,7 +131,7 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("version", {"v", "", "version", ""}, {}, "Version of xstyle");
     this->_parser.setFlag("libcheck", {"", "", "libutils-check", ""}, {}, "Is the libutils skill reference up to date (installed version, libutils repository)? exit 0 yes, 1 no");
     this->_parser.setFlag("completion", {"", "", "completion", ""}, {{"shell", true, [](const std::string& v) {return choice_hook_(v, {"bash", "zsh", "fish"});}}},
-        "Print the completion script of the shell (bash | zsh | fish), installed by setup.sh");
+        "Print the completion script of the shell (bash | zsh | fish), installed by the setup.sh of the skills repository");
     this->_parser.setDefaultUsage();
 
     // Help in the order of the sections (the default one follows the hash order)

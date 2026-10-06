@@ -132,7 +132,7 @@ def main() -> int:
         print(f"Error: no CMakeLists.txt in {root}", file=sys.stderr); return 1
     version = a.version or installed_version()
     if not version:
-        print("Error: libutils is not installed: use the libutils-install skill (libutils.sh install) or give --version",
+        print("Error: libutils is not installed: install it (curl -fsSL https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh | bash) or give --version",
               file=sys.stderr); return 2
     text = open(cmake, encoding="utf-8").read()
     lines = text.split("\n")

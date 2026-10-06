@@ -58,10 +58,10 @@ Hook: `.git/hooks/pre-commit` (config block at its top). Each scenario is indepe
 | xstyle missing | `XSTYLE_BIN=/nonexistent git commit -m major` | warning "xstyle not found", commit accepted |
 | skip once | `git commit --no-verify -m major` or `XSTYLE_HOOK=0 git commit ...` | no check |
 | only staged lines | edit a committed file, stage one line | only the staged lines are checked |
-| other config | `<skills>/git/pre-commit/scripts/install_hook.sh install --fail-on minor` (or `--fix safe`, `--scope files`, `--missing fail`...) | new behavior |
-| state | `<skills>/git/pre-commit/scripts/install_hook.sh status` | config of the hook |
+| other config | `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh \| bash -s -- hook --fail-on minor` (or `--fix safe`, `--scope files`, `--missing fail`...) | new behavior |
+| state | `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh \| bash -s -- hook status` | config of the hook |
 
-Undo the last commit to retry: `git reset --soft HEAD~1`. Recreate everything: `demo_repo.sh` again.
+Undo the last commit to retry: `git reset --soft HEAD~1`. Recreate everything: `demo_repo.sh` again (or `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh \| bash -s -- hook` in a new repository).
 EOF
 "$SELF_DIR/install_hook.sh" install "$@" | sed 's/^/ /'
 echo "Demo repository ready: $DIR (scenarios in $DIR/TRY.md)"
