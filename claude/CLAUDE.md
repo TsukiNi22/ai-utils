@@ -51,3 +51,13 @@ The shell used by Claude has no terminal: a plain `sudo` can't ask for the passw
   too, i.e. with `SUDO_ASKPASS=~/.local/bin/sudo-askpass sudo -A ...` instead of bare `sudo`.
 - Root actions still need the usual confirmation (system changes): ask first, then run
   them this way instead of handing them back to the user.
+
+# xstyle — coding style checker
+
+- `xstyle` (built from the skills repository: `style/xstyle`, `./setup.sh install xstyle`) checks and fixes the
+  user's coding style (C++, CMake, Python, shell, Rust, generic rules, libutils usage). When it is installed
+  (`command -v xstyle`), use it to check what was written or reviewed instead of re-reading the style rules by hand.
+- **Always run it with `--rtk`** (or `XSTYLE_RTK=1`): compact output made for the assistant (no colors, links,
+  source lines or tables; ~5x fewer tokens). The human output is only for the user's own terminal.
+  `xstyle --rtk <paths>`, `xstyle --rtk --fix [CODES] <paths>` (`-n` preview), `xstyle --rtk --diff` (changed lines),
+  `xstyle -x CODE` to explain a rule.
