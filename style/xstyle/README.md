@@ -59,7 +59,7 @@ xstyle -l cpp,rs                       # only the C++ and Rust files (-t: only t
 xstyle --fix                           # fix everything that can be fixed
 xstyle --fix CPP-NULL,G-TRAILING src   # fix only these rules, only in src
 xstyle -f -n -c CPP -r src/core        # preview (dry run) of the C++ fixes of one directory
-xstyle -o report.md                    # also write the report (.txt, .md or .json)
+xstyle -o report.md                    # report in this file (.txt, .md or .json), nothing in the terminal
 xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
 ```
 

@@ -94,7 +94,7 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("dry", {"n", "", "dry-run", ""}, {}, "With --fix: show the changes without writing the files");
 
     /* output */
-    this->_parser.setFlag("report", {"o", "", "report", "XSTYLE_REPORT"}, {{"file", true, utils::arguments::defaultTrueParsingHook}}, "Also write the report in this file (.txt, .md or .json)");
+    this->_parser.setFlag("report", {"o", "", "report", "XSTYLE_REPORT"}, {{"file", true, utils::arguments::defaultTrueParsingHook}}, "Write the report in this file instead of the terminal (.txt, .md or .json)");
     this->_parser.setFlag("format", {"", "", "format", ""}, {{"format", true, [](const std::string& v) {return choice_hook_(v, {"text", "md", "markdown", "json"});}}},
         "Format of the report file: text | md | json (default: from the extension)");
     this->_parser.setFlag("summary", {"S", "", "summary", ""}, {}, "Only the summary (counters by severity and code) in the terminal");
@@ -275,7 +275,7 @@ _cold void xstyle::Core::help_(const utils::arguments::ArgParser& parser) const
         << "    xstyle --fix                           fix everything that can be fixed\n"
         << "    xstyle --fix CPP-NULL,G-TRAILING src   fix only these codes, in src\n"
         << "    xstyle -f -n -c CPP -r src/core        preview the C++ fixes of one directory\n"
-        << "    xstyle -s major -o report.md           major issues and above, Markdown report\n"
+        << "    xstyle -s major -o report.md           major issues and above, Markdown report (terminal silent)\n"
         << "    xstyle -x CPP-THIS                     explain a rule (-L: every rule)\n";
     std::cout << "\n" << bold << "SUPPRESSION" << reset << " (in a comment)\n"
         << "    xstyle: ignore [CODE,...]              this line\n"
@@ -326,6 +326,12 @@ _cold void xstyle::Core::run(void)
     if (this->_listRules) return this->listRules_();
     if (!this->_explain.empty()) return this->explain_();
 
+    // The report must be writable before anything is fixed
+    if (this->_options.report) {
+        std::ofstream report(*this->_options.report, std::ios::app);
+        if (!report.is_open()) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, "Can't write the report " + this->_options.report->string());
+    }
+
     // Project & files
     xstyle::ProjectInfo project = xstyle::detect_project(this->_options.paths.empty() ? std::filesystem::current_path() : this->_options.paths[0]);
     xstyle::Files files = this->collect_();
@@ -373,7 +379,8 @@ _cold void xstyle::Core::run(void)
         }
     }
 
-    reporter.print(std::cout);
+    // With a report file nothing goes to the terminal (only the errors on stderr and the exit status)
+    if (!this->_options.report) reporter.print(std::cout);
     reporter.write();
     this->_exit = reporter.exitCode();
 }
