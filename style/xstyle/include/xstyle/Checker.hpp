@@ -50,6 +50,7 @@ class Checker {
         // ------------ Function ---------- //
         _hot _nodiscard inline std::vector<xstyle::Issue> check(const xstyle::SourceFile& file) const {return this->run_(file, false);};
         _cold _nodiscard inline bool libutils(void) const                                           {return this->_libutils;};
+        _cold _nodiscard inline bool wants(std::string_view code) const                             {return this->selected_(code, true);}; // code selected for the fixes
 
         // ------------ Operator ---------- //
         Checker& operator=(const Checker& other) = delete;

@@ -17,6 +17,7 @@ File Description:
 #include "xstyle/Reporter.hpp"
 #include "xstyle/Rules.hpp"
 #include "xstyle/Tools.hpp"
+#include <functional>
 #include <algorithm>
 #include <unistd.h>
 #include <fstream>
@@ -24,6 +25,7 @@ File Description:
 #include <iomanip>
 #include <cstdlib>
 #include <cstdio>
+#include <array>
 
 /* tools */
 _cold static std::string json_escape_(const std::string& s)
@@ -121,7 +123,10 @@ _cold std::string xstyle::Reporter::issues_(const bool tty) const
     for (const xstyle::Issue& issue: this->_issues) {
         if (issue.file != file && !file.empty()) out << "\n";
         file = issue.file;
-        const std::string fixable = issue.fix ? this->paint_("[auto-fix]", utils::iomanip::Color::Green, tty) : this->paint_("[manual]", utils::iomanip::Color::BrightBlack, tty);
+        std::string fixable = this->paint_("[manual]", utils::iomanip::Color::BrightBlack, tty);
+        if (issue.mode == xstyle::FixMode::Auto) fixable = this->paint_("[auto-fix]", utils::iomanip::Color::Green, tty);
+        if (issue.mode == xstyle::FixMode::Force) fixable = this->paint_("[force-fix]", utils::iomanip::Color::Yellow, tty);
+        if (issue.mode == xstyle::FixMode::Ask) fixable = this->paint_("[ask-fix]", utils::iomanip::Color::Cyan, tty);
         out << this->location_(issue, tty) << " " << this->severity_(issue.severity, tty) << " " << this->paint_(issue.code, utils::iomanip::Color::Cyan, tty) << " " << fixable
             << " " << issue.message << "\n";
         if (issue.line > 0) {
@@ -137,7 +142,7 @@ _cold std::string xstyle::Reporter::issues_(const bool tty) const
             return l;
         }();
         for (std::size_t i = 0; i < lines.size(); ++i) {
-            const std::string label = i > 0 ? "" : issue.fix ? "fix" : "hint";
+            const std::string label = i > 0 ? "" : issue.mode == xstyle::FixMode::Auto ? "fix" : issue.mode == xstyle::FixMode::Force ? "force" : "hint";
             out << this->paint_(pad_(label, 7, true) + " | ", utils::iomanip::Color::BrightBlack, tty)
                 << this->paint_(lines[i], issue.fix ? utils::iomanip::Color::Green : utils::iomanip::Color::BrightBlue, tty) << "\n";
         }
@@ -174,18 +179,25 @@ _cold std::string xstyle::Reporter::fixes_(const bool tty) const
 _cold std::string xstyle::Reporter::summary_(const bool tty) const
 {
     std::ostringstream out;
-    std::map<xstyle::Severity, std::pair<std::size_t, std::size_t>> severities; // severity -> <issues, fixable>
-    std::map<std::string, std::pair<std::size_t, std::size_t>> codes; // code -> <issues, fixable>
-    std::size_t fixable = 0;
+    using Counts = std::array<std::size_t, 4>; // <issues, auto, force, ask>
+    std::map<xstyle::Severity, Counts> severities;
+    std::map<std::string, Counts> codes;
+    Counts total = {};
 
     for (const xstyle::Issue& issue: this->_issues) {
-        ++severities[issue.severity].first;
-        ++codes[issue.code].first;
-        if (!issue.fix) continue;
-        ++severities[issue.severity].second;
-        ++codes[issue.code].second;
-        ++fixable;
+        const std::size_t mode = issue.mode == xstyle::FixMode::Auto ? 1 : issue.mode == xstyle::FixMode::Force ? 2 : issue.mode == xstyle::FixMode::Ask ? 3 : 0;
+        for (Counts* counts: {&severities[issue.severity], &codes[issue.code], &total}) {
+            ++(*counts)[0];
+            if (mode != 0) ++(*counts)[mode];
+        }
     }
+    const std::function<std::string(const Counts&)> columns = [](const Counts& c) {
+        std::string text = pad_(std::to_string(c[0]), 8, true);
+        for (std::size_t i = 1; i < 4; ++i)
+            text += pad_(c[i] ? std::to_string(c[i]) : "-", 7, true);
+        return text;
+    };
+    const std::string titles = pad_("Issues", 8, true) + pad_("Auto", 7, true) + pad_("Force", 7, true) + pad_("Ask", 7, true);
 
     // Files & context
     std::string languages;
@@ -209,32 +221,36 @@ _cold std::string xstyle::Reporter::summary_(const bool tty) const
     out << "\n";
 
     // Counters by severity
-    out << this->paint_(pad_("Severity", 14) + pad_("Issues", 8, true) + pad_("Fixable", 9, true), utils::iomanip::Color::Default, tty, true) << "\n";
+    out << this->paint_(pad_("Severity", 14) + titles, utils::iomanip::Color::Default, tty, true) << "\n";
     for (const xstyle::Severity severity: {xstyle::Severity::Unforgivable, xstyle::Severity::Major, xstyle::Severity::Minor, xstyle::Severity::Negligible}) {
         const std::string name = std::string(xstyle::severity_name(severity));
-        out << this->severity_(severity, tty) << std::string(14 - name.size(), ' ') << pad_(std::to_string(severities[severity].first), 8, true)
-            << pad_(std::to_string(severities[severity].second), 9, true) << "\n";
+        out << this->severity_(severity, tty) << std::string(14 - name.size(), ' ') << columns(severities[severity]) << "\n";
     }
-    out << this->paint_(pad_("total", 14) + pad_(std::to_string(this->_issues.size()), 8, true) + pad_(std::to_string(fixable), 9, true), utils::iomanip::Color::Default, tty, true) << "\n";
+    out << this->paint_(pad_("total", 14) + columns(total), utils::iomanip::Color::Default, tty, true) << "\n";
 
     // Counters by code
     if (!codes.empty()) {
-        out << "\n" << this->paint_(pad_("Code", 24) + pad_("Severity", 14) + pad_("Issues", 8, true) + pad_("Fixable", 9, true), utils::iomanip::Color::Default, tty, true) << "\n";
-        std::vector<std::pair<std::string, std::pair<std::size_t, std::size_t>>> sorted(codes.begin(), codes.end());
-        std::stable_sort(sorted.begin(), sorted.end(), [](const std::pair<std::string, std::pair<std::size_t, std::size_t>>& a, const std::pair<std::string, std::pair<std::size_t, std::size_t>>& b) {
+        out << "\n" << this->paint_(pad_("Code", 24) + pad_("Severity", 14) + titles, utils::iomanip::Color::Default, tty, true) << "\n";
+        std::vector<std::pair<std::string, Counts>> sorted(codes.begin(), codes.end());
+        std::stable_sort(sorted.begin(), sorted.end(), [](const std::pair<std::string, Counts>& a, const std::pair<std::string, Counts>& b) {
             const xstyle::Rule* ra = xstyle::find_rule(a.first);
             const xstyle::Rule* rb = xstyle::find_rule(b.first);
-            return ra->severity != rb->severity ? ra->severity > rb->severity : a.second.first > b.second.first;
+            return ra->severity != rb->severity ? ra->severity > rb->severity : a.second[0] > b.second[0];
         });
         for (const auto &[code, counts]: sorted) {
             const xstyle::Severity severity = xstyle::find_rule(code)->severity;
             const std::string name = std::string(xstyle::severity_name(severity));
             out << this->paint_(pad_(code, 24), utils::iomanip::Color::Cyan, tty) << this->severity_(severity, tty) << std::string(14 - name.size(), ' ')
-                << pad_(std::to_string(counts.first), 8, true) << pad_(counts.second ? std::to_string(counts.second) : "-", 9, true) << "\n";
+                << columns(counts) << "\n";
         }
     }
-    if (fixable > 0 && !this->_options.fix)
-        out << "\n" << this->paint_("Fix them: xstyle --fix [CODE,...] [paths] (-n to preview)", utils::iomanip::Color::Green, tty) << "\n";
+    if (total[1] + total[2] + total[3] > 0) out << "\n";
+    if (total[1] > 0 && !this->_options.fix)
+        out << this->paint_("Auto   xstyle --fix [CODE,...] [paths] (-n to preview)", utils::iomanip::Color::Green, tty) << "\n";
+    if (total[2] > 0 && !(this->_options.fix && this->_options.force))
+        out << this->paint_("Force  xstyle --fix --force: also the fixes that can change the behavior (check them with -n)", utils::iomanip::Color::Yellow, tty) << "\n";
+    if (total[3] > 0)
+        out << this->paint_("Ask    xstyle --fix asks the choice per file (or --header none|default|<text>)", utils::iomanip::Color::Cyan, tty) << "\n";
     if (this->_issues.empty()) out << "\n" << this->paint_("Clean: no issue found", utils::iomanip::Color::Green, tty, true) << "\n";
     return out.str();
 }
@@ -260,14 +276,14 @@ _cold std::string xstyle::Reporter::markdown_(void) const
     for (const xstyle::Issue& issue: this->_issues) {
         if (issue.file != file) {
             file = issue.file;
-            out << "\n## `" << file << "`\n\n| Line | Severity | Code | Auto-fix | Issue | Fix / hint |\n|---|---|---|---|---|---|\n";
+            out << "\n## `" << file << "`\n\n| Line | Severity | Code | Fix | Issue | Fix / hint |\n|---|---|---|---|---|---|\n";
         }
         std::string suggestion = issue.suggestion;
         std::replace(suggestion.begin(), suggestion.end(), '\n', ' ');
         std::error_code error;
         const std::filesystem::path base = std::filesystem::absolute(*this->_options.report, error).parent_path();
         const std::string link = std::filesystem::proximate(issue.path, base, error).generic_string();
-        out << "| [" << issue.line << "](" << link << "#L" << issue.line << ") | " << xstyle::severity_name(issue.severity) << " | `" << issue.code << "` | " << (issue.fix ? "yes" : "-") << " | "
+        out << "| [" << issue.line << "](" << link << "#L" << issue.line << ") | " << xstyle::severity_name(issue.severity) << " | `" << issue.code << "` | " << xstyle::fix_mode_name(issue.mode) << " | "
             << markdown_escape_(issue.message) << " | " << (suggestion.empty() ? "" : "`" + markdown_escape_(suggestion) + "`") << " |\n";
     }
     return out.str();
@@ -294,7 +310,8 @@ _cold std::string xstyle::Reporter::json_(void) const
         const xstyle::Issue& issue = this->_issues[i];
         out << (i == 0 ? "\n" : ",\n") << "        {\"file\": \"" << json_escape_(issue.file) << "\", \"line\": " << issue.line << ", \"column\": " << issue.column
             << ", \"code\": \"" << issue.code << "\", \"severity\": \"" << xstyle::severity_name(issue.severity) << "\", \"message\": \"" << json_escape_(issue.message)
-            << "\", \"source\": \"" << json_escape_(issue.source) << "\", \"suggestion\": \"" << json_escape_(issue.suggestion) << "\", \"fixable\": " << (issue.fix ? "true" : "false") << "}";
+            << "\", \"source\": \"" << json_escape_(issue.source) << "\", \"suggestion\": \"" << json_escape_(issue.suggestion) << "\", \"fixable\": " << (issue.mode == xstyle::FixMode::Auto ? "true" : "false")
+            << ", \"fix\": \"" << (issue.mode == xstyle::FixMode::Manual ? "manual" : std::string(xstyle::fix_mode_name(issue.mode))) << "\"}";
     }
     out << (this->_issues.empty() ? "]\n}\n" : "\n    ]\n}\n");
     return out.str();

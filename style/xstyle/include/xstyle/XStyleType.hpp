@@ -51,6 +51,13 @@ enum class Language: std::uint8_t {
     Other,
 };
 
+enum class FixMode: std::uint8_t {
+    Manual, // hint only
+    Auto, // safe fix, applied by --fix
+    Force, // can change the behavior, applied by --fix --force
+    Ask, // applied by --fix after a question (or the matching option)
+};
+
 enum class FixKind: std::uint8_t {
     Replace, // replace [line, line + count) by lines
     FinalNewline, // add the missing final newline
@@ -75,7 +82,7 @@ enum class Format: std::uint8_t {
 struct Rule {
     std::string_view code;
     xstyle::Severity severity = xstyle::Severity::Minor;
-    bool fixable = false;
+    xstyle::FixMode fix = xstyle::FixMode::Manual; // best fix available (a given issue can be less)
     std::string_view languages; // "*" = every language, else <lang>,<lang> (cpp, c, py, sh...)
     std::string_view description;
 };
@@ -85,6 +92,7 @@ struct Fix {
     std::size_t line = 0; // first replaced line (0-based)
     std::size_t count = 1; // number of replaced lines (0 = insertion before line)
     std::vector<std::string> lines; // new content
+    bool unsafe = false; // can change the behavior: only with --force
 };
 
 struct Issue {
@@ -98,6 +106,7 @@ struct Issue {
     std::string source; // line content (empty for whole file)
     std::string suggestion; // proposed fix, as text
     std::optional<xstyle::Fix> fix; // automatic fix (only for fixable rules)
+    xstyle::FixMode mode = xstyle::FixMode::Manual; // how this issue can be fixed
 };
 
 struct AppliedFix {
@@ -129,6 +138,9 @@ struct Options {
     bool recursive = false;
     bool fix = false;
     bool dryRun = false;
+    bool force = false; // also the fixes that can change the behavior
+    std::optional<std::string> header; // banner of the missing file headers: none | default | <text> (asked when not given)
+    std::string headerDescription; // empty = default description
     std::vector<std::string> fixCodes; // empty = every fixable code
     std::vector<std::string> codes; // only these codes / prefixes (empty = every code)
     std::vector<std::string> ignored; // never these codes / prefixes

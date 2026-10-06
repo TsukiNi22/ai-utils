@@ -58,12 +58,20 @@ _hot std::vector<xstyle::Issue> xstyle::Checker::run_(const xstyle::SourceFile& 
     xstyle::check::Issues issues;
     const xstyle::Language language = file.getLanguage();
 
+    // A template ({{NAME}} placeholders) is not valid code yet: only the generic rules
+    static const std::regex placeholder(R"(\{\{[A-Z][A-Z0-9_]*\}\})");
+    const bool templateFile = std::any_of(file.getLines().begin(), file.getLines().end(), [](const std::string& line) {
+        return line.find("{{") != std::string::npos && std::regex_search(line, placeholder);
+    });
+
     xstyle::check::generic(file, issues);
-    if (file.isCLike()) xstyle::check::cpp(file, this->_project, issues);
-    if (language == xstyle::Language::Cpp && this->_libutils) xstyle::check::libutils(file, this->_project, issues);
-    if (language == xstyle::Language::Python) xstyle::check::python(file, issues);
-    if (language == xstyle::Language::Shell) xstyle::check::shell(file, issues);
-    if (language == xstyle::Language::Rust) xstyle::check::rust(file, issues);
+    if (!templateFile) {
+        if (file.isCLike()) xstyle::check::cpp(file, this->_project, issues);
+        if (language == xstyle::Language::Cpp && this->_libutils) xstyle::check::libutils(file, this->_project, issues);
+        if (language == xstyle::Language::Python) xstyle::check::python(file, issues);
+        if (language == xstyle::Language::Shell) xstyle::check::shell(file, issues);
+        if (language == xstyle::Language::Rust) xstyle::check::rust(file, issues);
+    }
 
     // Selection: language of the rule, codes, severity, suppression comments
     std::erase_if(issues, [&](const xstyle::Issue& issue) {
@@ -85,7 +93,7 @@ _hot std::vector<xstyle::AppliedFix> xstyle::Checker::fix(xstyle::SourceFile& fi
         std::vector<xstyle::Fix> fixes;
         std::vector<std::pair<std::size_t, std::size_t>> ranges;
         for (const xstyle::Issue& issue: this->run_(file, true)) {
-            if (!issue.fix) continue;
+            if (!issue.fix || (issue.fix->unsafe && !this->_options.force)) continue;
             const xstyle::Fix& fix = *issue.fix;
             xstyle::AppliedFix record{issue.code, issue.line, {}, fix.lines};
             if (fix.kind != xstyle::FixKind::Replace) {

@@ -19,8 +19,11 @@ File Description:
     #define _Attribute
     #define _Arguments
     #include <utils/utils.hpp>      // _cold, _nodiscard, utils::arguments::ArgParser
-    #include "XStyleType.hpp"       // xstyle::Options, xstyle::Language
+    #include "SourceFile.hpp"       // xstyle::SourceFile
+    #include "XStyleType.hpp"       // xstyle::Options, xstyle::Language, xstyle::AppliedFix
+    #include "Checker.hpp"          // xstyle::Checker
     #include <filesystem>           // std::filesystem::path
+    #include <optional>             // std::optional
     #include <utility>              // std::pair
     #include <string>               // std::string
     #include <vector>               // std::vector
@@ -50,6 +53,7 @@ class Core {
         bool _listRules = false;
         bool _version = false;
         std::string _completion; // shell of the completion script to print
+        std::optional<std::pair<std::string, std::string>> _headerAnswer; // <banner, description> kept for the next files (empty banner: skip)
         std::string _explain;
         std::vector<std::pair<std::string, std::vector<std::string>>> _sections; // <title, flag ids> of the help, in order
 
@@ -62,6 +66,7 @@ class Core {
         _cold void explain_(void) const;
         _cold void help_(const utils::arguments::ArgParser& parser) const;
         _cold void completion_(void) const; // Core-Completion.cpp
+        _cold _nodiscard std::vector<xstyle::AppliedFix> header_(const xstyle::Checker& checker, xstyle::SourceFile& source);
 
     public:
         // ---------- Pre-Function -------- //

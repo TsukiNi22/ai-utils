@@ -584,9 +584,13 @@ _hot static void header_(const xstyle::SourceFile& file, xstyle::check::Issues& 
                 xstyle::check::replace_line(i, lines[i].substr(0, static_cast<std::size_t>(match.position(1))) + name + lines[i].substr(static_cast<std::size_t>(match.position(1) + match.length(1))))));
         break;
     }
-    if (!xstyle::trim(lines[first]).starts_with("/*") || !hasFile)
-        issues.push_back(xstyle::check::make_issue(file, first, 0, "CPP-HEADER", "No file header",
-            "python3 <skills>/cpp/cpp-class/scripts/header.py --file " + name + " --desc \"...\""));
+    if (xstyle::trim(lines[first]).starts_with("/*") && hasFile) return;
+
+    // Fixed by the Core: --fix asks the banner / description (or --header)
+    xstyle::Issue issue = xstyle::check::make_issue(file, first, 0, "CPP-HEADER", "No file header",
+        "--fix asks the banner (none / default / text) and the description, or --header none|default|<text> [--header-desc \"...\"]");
+    issue.mode = xstyle::FixMode::Ask;
+    issues.push_back(issue);
 }
 
 _hot static void guard_(const xstyle::SourceFile& file, xstyle::check::Issues& issues)
@@ -640,8 +644,8 @@ _hot static void guard_(const xstyle::SourceFile& file, xstyle::check::Issues& i
     if (current != expected && current != separated && !current.ends_with("_" + expected) && !current.ends_with("_" + separated)) {
         const std::regex word("\\b" + current + "\\b");
         std::vector<std::string> fixed(lines.begin() + static_cast<std::ptrdiff_t>(directives[0]), lines.end());
-        for (std::string& l: fixed)
-            l = std::regex_replace(l, word, expected);
+        for (const std::size_t line: {directives[0], directives[1], last}) // only the guard lines, never the code
+            if (line != last || closes) fixed[line - directives[0]] = std::regex_replace(fixed[line - directives[0]], word, expected);
         issues.push_back(xstyle::check::make_issue(file, directives[0], static_cast<std::size_t>(match.position(1)), "CPP-GUARD-NAME", "Guard " + current + " instead of " + expected, "rename " + current + " -> " + expected,
             xstyle::check::replace_lines(directives[0], lines.size() - directives[0], fixed)));
     }
@@ -747,20 +751,24 @@ _hot static void namespaces_(const xstyle::SourceFile& file, xstyle::check::Issu
         }
         if (brace.parent != NO_INDEX || brace.openLine >= migration) continue;
 
-        // // namespace start & // namespace end
-        if (comments[brace.openLine].find("namespace start") == std::string::npos) {
-            if (xstyle::is_blank(comments[brace.openLine]) && xstyle::is_blank(code[brace.openLine].substr(brace.openColumn + 1)))
-                issues.push_back(xstyle::check::make_issue(file, brace.openLine, brace.openColumn, "CPP-NAMESPACE-COMMENT", "Namespace without // namespace start", "",
-                    xstyle::check::replace_line(brace.openLine, rstrip_(lines[brace.openLine]) + " // namespace start")));
-            else
-                issues.push_back(xstyle::check::make_issue(file, brace.openLine, brace.openColumn, "CPP-NAMESPACE-COMMENT", "Namespace without // namespace start", "namespace " + brace.name + " { // namespace start"));
-        }
-        if (brace.closeLine != NO_INDEX && comments[brace.closeLine].find("namespace end") == std::string::npos) {
-            if (xstyle::is_blank(comments[brace.closeLine]) && xstyle::trim(code[brace.closeLine]) == "}")
-                issues.push_back(xstyle::check::make_issue(file, brace.closeLine, brace.closeColumn, "CPP-NAMESPACE-COMMENT", "Namespace without // namespace end", "",
-                    xstyle::check::replace_line(brace.closeLine, rstrip_(lines[brace.closeLine]) + " // namespace end")));
-            else
-                issues.push_back(xstyle::check::make_issue(file, brace.closeLine, brace.closeColumn, "CPP-NAMESPACE-COMMENT", "Namespace without // namespace end", "} // namespace end"));
+        // // namespace start & // namespace end (a bare "// namespace" is completed, another comment is replaced only with --force)
+        for (const bool opening: {true, false}) {
+            const std::size_t line = opening ? brace.openLine : brace.closeLine;
+            const std::string expected = opening ? "namespace start" : "namespace end";
+            if (line == NO_INDEX || comments[line].find(expected) != std::string::npos) continue;
+            const std::string message = std::string("Namespace without // ") + expected;
+            const std::size_t column = opening ? brace.openColumn : brace.closeColumn;
+            const std::string rest = xstyle::trim(code[line].substr(column + 1));
+            if (!rest.empty() && rest != ";") {
+                issues.push_back(xstyle::check::make_issue(file, line, column, "CPP-NAMESPACE-COMMENT", message, opening ? "namespace " + brace.name + " { // namespace start" : "} // namespace end"));
+                continue;
+            }
+            const std::size_t comment = comments[line].find("//");
+            const std::string current = comment == std::string::npos ? "" : xstyle::trim(comments[line].substr(comment + 2));
+            const std::string base = comment == std::string::npos ? rstrip_(lines[line]) : rstrip_(lines[line].substr(0, comment));
+            xstyle::Fix fix = xstyle::check::replace_line(line, base + " // " + expected);
+            fix.unsafe = !xstyle::is_blank(comments[line]) && current != "namespace"; // the comment written there is lost
+            issues.push_back(xstyle::check::make_issue(file, line, column, "CPP-NAMESPACE-COMMENT", message, "", fix));
         }
 
         // Content not indented (relative to the namespace line, + 4 per #if level opened inside)

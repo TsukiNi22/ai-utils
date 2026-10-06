@@ -71,6 +71,8 @@ xstyle -i G-TODO,CPP-AUTO              # every rule except these
 xstyle -l cpp,rs                       # only the C++ and Rust files (-t: only the most used language)
 xstyle --fix                           # fix everything that can be fixed
 xstyle --fix CPP-NULL,G-TRAILING src   # fix only these rules, only in src
+xstyle --fix --force                   # also the [force-fix] ones (can change the behavior: check with -n first)
+xstyle --fix --header default          # missing file headers with the XARTANIA banner (none | default | <text>), no question
 xstyle -f -n -c CPP -r src/core        # preview (dry run) of the C++ fixes of one directory
 xstyle -o report.md                    # report in this file (.txt, .md or .json), nothing in the terminal
 xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
@@ -79,7 +81,16 @@ xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
 - **Paths**: files or directories given as bare arguments; with no path the current directory is scanned
   recursively. Hidden folders, `build*`, `cmake-build-*`, `third_party`, `extern`, `vendor`, `node_modules`... and the
   `generated_*` files are skipped, `-e build,*.gen.hpp` excludes more (folder name, path prefix or glob).
-- **Auto-fix or not**: every issue says `[auto-fix]` (fixed by `--fix`) or `[manual]` (hint only) right after its code, the Markdown report has an `Auto-fix` column, the JSON a `fixable` field.
+- **Fix level** of every issue, right after its code (`Fix` column of the table below, `fix` field of the JSON):
+
+  | Tag | Fixed by | Meaning |
+  |---|---|---|
+  | `[auto-fix]` | `--fix` | safe, the behavior can't change (spaces, includes order, `nullptr`, `[ ]` -> `[[ ]]` when equivalent...) |
+  | `[force-fix]` | `--fix --force` | can change the behavior: `set -euo pipefail` (a failing command now stops the script), `encoding="utf-8"` (a file in another encoding now fails), `[ a -o b ]` / unquoted patterns, a comment replaced; preview with `-n` |
+  | `[ask-fix]` | `--fix` + a question | the missing file header: banner `[n]one`, `[d]efault` (XARTANIA) or `[t]ext` + description, per file (upper case answer: same for the next files); `--header none\|default\|<text>` and `--header-desc "..."` answer without question (CI, no terminal: skipped) |
+  | `[manual]` | by hand | needs a decision a tool can't take (a type to write, a name to choose, a code to rewrite with libutils...) |
+
+- **Templates**: a file with `{{NAME}}` placeholders is not valid code yet, only the generic rules are checked there.
 - **Fix**: the fixes are applied in passes (a fix can reveal another issue: `[[nodiscard]]` -> `_nodiscard` ->
   `#define _Attribute` missing -> added), only the fixable rules (`yes` in the table) are touched, the logic never.
   Review the result with `git diff`.
@@ -133,52 +144,52 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 
 | Code | Severity | Fix | Languages | Rule |
 |---|---|---|---|---|
-| `G-CRLF` | major | yes | * | Windows line endings (CRLF), use LF |
-| `G-TAB` | major | yes | * | Tab used for the indentation, use 4 spaces (except Makefile recipes) |
-| `G-TRAILING` | minor | yes | * | Trailing whitespace |
-| `G-EMPTY-LINES` | minor | yes | * | Two or more consecutive empty lines, one is the maximum |
-| `G-EOF-NEWLINE` | negligible | yes | * | No newline at the end of the file |
-| `G-EOF-EMPTY` | negligible | yes | * | Empty lines at the end of the file |
+| `G-CRLF` | major | auto | * | Windows line endings (CRLF), use LF |
+| `G-TAB` | major | auto | * | Tab used for the indentation, use 4 spaces (except Makefile recipes) |
+| `G-TRAILING` | minor | auto | * | Trailing whitespace |
+| `G-EMPTY-LINES` | minor | auto | * | Two or more consecutive empty lines, one is the maximum |
+| `G-EOF-NEWLINE` | negligible | auto | * | No newline at the end of the file |
+| `G-EOF-EMPTY` | negligible | auto | * | Empty lines at the end of the file |
 | `G-TODO` | minor | - | * | TODO / FIXME / XXX tag, describe the limitation in a normal comment instead |
 | `G-INDENT` | negligible | - | cpp,c,py,sh,lua,js,rs,cmak | eIndentation that is not a multiple of 4 spaces |
 | `CPP-USING-NAMESPACE` | unforgivable | - | cpp | using namespace, always write the fully qualified names |
-| `CPP-GUARD-MISSING` | major | yes | cpp,c | Header without include guard (#ifndef NAME_H / #define NAME_H) |
-| `CPP-PRAGMA-ONCE` | minor | yes | cpp,c | #pragma once instead of the include guard NAME_H |
-| `CPP-GUARD-NAME` | minor | yes | cpp,c | Include guard not named after the file (Name.hpp -> NAME_H) |
-| `CPP-ENDIF-COMMENT` | negligible | yes | cpp,c | Guard #endif without its /* NAME_H */ comment |
-| `CPP-PREPRO-INDENT` | negligible | yes | cpp,c | Preprocessor directive nested in a #if / guard not indented by 4 per level |
-| `CPP-HEADER` | minor | - | cpp,c | Missing file header (cpp-class scripts/header.py) |
-| `CPP-HEADER-FILE` | negligible | yes | cpp,c | @file of the header is not the name of the file |
-| `CPP-NULL` | major | yes | cpp | NULL instead of nullptr |
-| `CPP-C-CAST` | major | yes | cpp | C cast, use static_cast (only (void) is allowed) |
+| `CPP-GUARD-MISSING` | major | auto | cpp,c | Header without include guard (#ifndef NAME_H / #define NAME_H) |
+| `CPP-PRAGMA-ONCE` | minor | auto | cpp,c | #pragma once instead of the include guard NAME_H |
+| `CPP-GUARD-NAME` | minor | auto | cpp,c | Include guard not named after the file (Name.hpp -> NAME_H) |
+| `CPP-ENDIF-COMMENT` | negligible | auto | cpp,c | Guard #endif without its /* NAME_H */ comment |
+| `CPP-PREPRO-INDENT` | negligible | auto | cpp,c | Preprocessor directive nested in a #if / guard not indented by 4 per level |
+| `CPP-HEADER` | minor | ask | cpp,c | Missing file header (cpp-class scripts/header.py) |
+| `CPP-HEADER-FILE` | negligible | auto | cpp,c | @file of the header is not the name of the file |
+| `CPP-NULL` | major | auto | cpp | NULL instead of nullptr |
+| `CPP-C-CAST` | major | auto | cpp | C cast, use static_cast (only (void) is allowed) |
 | `CPP-AUTO` | major | - | cpp | auto, write the type (allowed: iterators, structured bindings) |
 | `CPP-USING-STD` | major | - | cpp | using std::x, always write std::x |
-| `CPP-TYPEDEF` | minor | yes | cpp | typedef, use using Name = Type |
-| `CPP-BRACE-FUNCTION` | major | yes | cpp,c | Function opening brace on the signature line, it goes on its own line |
-| `CPP-BRACE-OWN-LINE` | major | yes | cpp,c | Opening brace of a class / namespace / control block on its own line, it goes on the same line |
-| `CPP-ELSE-LINE` | minor | yes | cpp,c | else / catch not on the closing brace line (} else {) |
-| `CPP-KEYWORD-SPACE` | minor | yes | cpp,c | No space between if / for / while / switch / catch and the parenthesis |
-| `CPP-PAREN-SPACE` | negligible | yes | cpp,c | Space inside the parentheses of a control statement |
-| `CPP-COLON-SPACE` | negligible | yes | cpp | Space before ':' of a range-for, an inheritance or an enum base |
-| `CPP-PTR-REF` | minor | yes | cpp,c | & / * glued to the name instead of the type (const T& name, char* buf) |
-| `CPP-VOID-PARAM` | minor | yes | cpp,c | Empty parameter list, write (void) |
-| `CPP-THIS` | minor | yes | cpp | Member accessed without this-> |
+| `CPP-TYPEDEF` | minor | auto | cpp | typedef, use using Name = Type |
+| `CPP-BRACE-FUNCTION` | major | auto | cpp,c | Function opening brace on the signature line, it goes on its own line |
+| `CPP-BRACE-OWN-LINE` | major | auto | cpp,c | Opening brace of a class / namespace / control block on its own line, it goes on the same line |
+| `CPP-ELSE-LINE` | minor | auto | cpp,c | else / catch not on the closing brace line (} else {) |
+| `CPP-KEYWORD-SPACE` | minor | auto | cpp,c | No space between if / for / while / switch / catch and the parenthesis |
+| `CPP-PAREN-SPACE` | negligible | auto | cpp,c | Space inside the parentheses of a control statement |
+| `CPP-COLON-SPACE` | negligible | auto | cpp | Space before ':' of a range-for, an inheritance or an enum base |
+| `CPP-PTR-REF` | minor | auto | cpp,c | & / * glued to the name instead of the type (const T& name, char* buf) |
+| `CPP-VOID-PARAM` | minor | auto | cpp,c | Empty parameter list, write (void) |
+| `CPP-THIS` | minor | auto | cpp | Member accessed without this-> |
 | `CPP-NAMESPACE-NESTED` | minor | - | cpp | Nested namespace blocks, use namespace a::b { |
-| `CPP-NAMESPACE-COMMENT` | negligible | yes | cpp | Namespace block without // namespace start / // namespace end |
+| `CPP-NAMESPACE-COMMENT` | negligible | auto | cpp | Namespace block without // namespace start / // namespace end |
 | `CPP-NAMESPACE-INDENT` | minor | - | cpp | Content of a namespace indented (it is not) |
-| `CPP-INCLUDE-ORDER` | minor | yes | cpp,c | Include order: personal libs (+ defines), project, external; longest name first |
+| `CPP-INCLUDE-ORDER` | minor | auto | cpp,c | Include order: personal libs (+ defines), project, external; longest name first |
 | `CPP-CLASS-NAME` | major | - | cpp | Class / struct / enum not in PascalCase |
 | `CPP-MEMBER-NAME` | minor | - | cpp | Class data member not named _camelCase |
 | `CPP-MACRO-NAME` | minor | - | cpp,c | Macro not in UPPER_SNAKE (or _lower for attribute / section macros) |
-| `CPP-ONE-LINER` | negligible | yes | cpp | One-liner body not written {statement}; |
+| `CPP-ONE-LINER` | negligible | auto | cpp | One-liner body not written {statement}; |
 | `CPP-ACCESS-ORDER` | negligible | - | cpp | public before private / protected in a class |
 | `CPP-SINGLE-STATEMENT` | minor | - | cpp | Single statement function defined in the .cpp, define it inline in the header |
 | `CPP-DOXYGEN` | minor | - | cpp,c | Doxygen comment (@brief, @param, ///, /**), short plain comments only |
-| `LU-INCLUDE` | major | yes | cpp | libutils header included directly, use #define _Section + <utils/utils.hpp> |
-| `LU-BARE-INCLUDE` | major | yes | cpp | <utils/utils.hpp> without any #define _Section before it |
-| `LU-SECTION` | minor | yes | cpp | libutils section used without its #define before <utils/utils.hpp> |
-| `LU-ATTRIBUTE` | minor | yes | cpp | Standard attribute with a libutils macro equivalent ([[nodiscard]] -> _nodiscard) |
-| `LU-MIGRATION` | major | yes | cpp | Deprecated libutils name (migration alias), use the new name |
+| `LU-INCLUDE` | major | auto | cpp | libutils header included directly, use #define _Section + <utils/utils.hpp> |
+| `LU-BARE-INCLUDE` | major | auto | cpp | <utils/utils.hpp> without any #define _Section before it |
+| `LU-SECTION` | minor | auto | cpp | libutils section used without its #define before <utils/utils.hpp> |
+| `LU-ATTRIBUTE` | minor | auto | cpp | Standard attribute with a libutils macro equivalent ([[nodiscard]] -> _nodiscard) |
+| `LU-MIGRATION` | major | auto | cpp | Deprecated libutils name (migration alias), use the new name |
 | `LU-EXCEPTION` | major | - | cpp | Standard exception thrown, use utils::exception::ErrorException |
 | `LU-ARGS` | minor | - | cpp | Arguments parsed by hand, use utils::arguments::ArgParser |
 | `LU-ANSI` | minor | - | cpp | Raw ANSI escape sequence, use utils::iomanip |
@@ -192,15 +203,15 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `PY-WILDCARD-IMPORT` | major | - | py | from x import *, import the names explicitly |
 | `PY-BARE-EXCEPT` | major | - | py | Bare except:, catch the exceptions expected |
 | `PY-TYPE-HINTS` | minor | - | py | Function without type hints on its parameters / return |
-| `PY-PRINT-ERROR` | minor | - | py | print(..., file=stderr), use stderr.write |
-| `PY-OPEN-ENCODING` | minor | - | py | open() of a text file without encoding="utf-8" |
+| `PY-PRINT-ERROR` | minor | auto | py | print(..., file=stderr), use stderr.write |
+| `PY-OPEN-ENCODING` | minor | force | py | open() of a text file without encoding="utf-8" |
 | `RS-UNWRAP` | major | - | rs | .unwrap() outside of the tests, propagate with ? (and a context) or handle the error |
 | `RS-PANIC` | major | - | rs | panic! / process::exit in a library file, todo! / unimplemented! left anywhere |
 | `RS-GLOB-IMPORT` | major | - | rs | use path::*, import the names explicitly (super::* and preludes excepted) |
 | `RS-NAMING` | minor | - | rs | fn / variables snake_case, types PascalCase, const / static UPPER_SNAKE |
 | `RS-UNSAFE` | minor | - | rs | unsafe block without a // SAFETY: comment explaining why it is sound |
-| `RS-PRINT-ERROR` | minor | yes | rs | Error printed with println!, use eprintln! (stderr) |
+| `RS-PRINT-ERROR` | minor | auto | rs | Error printed with println!, use eprintln! (stderr) |
 | `RS-DBG` | minor | - | rs | dbg! left in the code |
 | `SH-SHEBANG` | minor | - | sh | Script without shebang (#!/bin/bash) |
-| `SH-STRICT` | minor | - | sh | Bash script without set -euo pipefail |
-| `SH-TEST` | negligible | - | sh | [ ] test in a bash script, use [[ ]] |
+| `SH-STRICT` | minor | force | sh | Bash script without set -euo pipefail |
+| `SH-TEST` | negligible | auto | sh | [ ] test in a bash script, use [[ ]] |

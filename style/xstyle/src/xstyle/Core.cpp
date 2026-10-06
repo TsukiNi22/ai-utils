@@ -19,6 +19,7 @@ File Description:
 #include "xstyle/Reporter.hpp"
 #include "xstyle/Checker.hpp"
 #include "xstyle/Project.hpp"
+#include "xstyle/Header.hpp"
 #include "xstyle/Rules.hpp"
 #include "xstyle/Tools.hpp"
 #include "xstyle/Core.hpp"
@@ -92,6 +93,11 @@ _cold void xstyle::Core::setup_(void)
     /* fix */
     this->_parser.setFlag("fix", {"f", "", "fix", ""}, {{"codes", false, codes}}, "Fix what can be fixed automatically (only the given codes / prefixes when given)");
     this->_parser.setFlag("dry", {"n", "", "dry-run", ""}, {}, "With --fix: show the changes without writing the files");
+    this->_parser.setFlag("force", {"", "", "force", ""}, {}, "With --fix: also the [force-fix] fixes, that can change the behavior (set -euo pipefail, encoding...)");
+    this->_parser.setFlag("header", {"", "", "header", "XSTYLE_HEADER"}, {{"banner", true, utils::arguments::defaultTrueParsingHook}},
+        "With --fix: banner of the missing file headers: none | default (XARTANIA) | <text> (asked per file when not given)");
+    this->_parser.setFlag("headerdesc", {"", "", "header-desc", ""}, {{"text", true, utils::arguments::defaultTrueParsingHook}},
+        "With --header: description of the new file headers (default: the default description)");
 
     /* output */
     this->_parser.setFlag("report", {"o", "", "report", "XSTYLE_REPORT"}, {{"file", true, utils::arguments::defaultTrueParsingHook}}, "Write the report in this file instead of the terminal (.txt, .md or .json)");
@@ -113,7 +119,7 @@ _cold void xstyle::Core::setup_(void)
     // Help in the order of the sections (the default one follows the hash order)
     this->_sections = {
         {"SELECTION", {"recursive", "code", "ignore", "severity", "fail", "exclude", "lang", "top", "libutils"}},
-        {"FIX", {"fix", "dry"}},
+        {"FIX", {"fix", "dry", "force", "header", "headerdesc"}},
         {"OUTPUT", {"report", "format", "summary", "color", "link"}},
         {"INFORMATION", {"list", "explain", "version", "completion"}},
     };
@@ -127,7 +133,7 @@ _cold std::vector<std::string> xstyle::Core::extractPaths_(const int argc, char*
         {"c", 1}, {"code", 1}, {"i", 1}, {"ignore", 1}, {"s", 1}, {"severity", 1}, {"F", 1}, {"fail-on", 1}, {"e", 1}, {"exclude", 1},
         {"l", 1}, {"lang", 1}, {"u", 1}, {"libutils", 1}, {"o", 1}, {"report", 1}, {"format", 1}, {"link", 1}, {"x", 1}, {"explain", 1},
         {"completion", 1},
-        {"f", 2}, {"fix", 2},
+        {"f", 2}, {"fix", 2}, {"header", 1}, {"header-desc", 1},
     };
     std::vector<std::string> arguments = {argc > 0 ? argv[0] : "xstyle"};
 
@@ -166,6 +172,9 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "libutils") this->_options.libutils = xstyle::lower(value);
     else if (id == "fix") this->_options.fix = true;
     else if (id == "dry") this->_options.dryRun = true;
+    else if (id == "force") this->_options.force = true;
+    else if (id == "header") this->_options.header = value;
+    else if (id == "headerdesc") this->_options.headerDescription = value;
     else if (id == "report") this->_options.report = std::filesystem::path(value);
     else if (id == "summary") this->_options.summaryOnly = true;
     else if (id == "color") this->_options.color = false;
@@ -248,6 +257,54 @@ _cold xstyle::Files xstyle::Core::collect_(void) const
     return files;
 }
 
+/* fix */
+_cold std::vector<xstyle::AppliedFix> xstyle::Core::header_(const xstyle::Checker& checker, xstyle::SourceFile& source)
+{
+    // Missing file header: --header, else asked when there is a terminal (skipped otherwise)
+    if (!source.isCLike() || !checker.wants("CPP-HEADER")) return {};
+    const std::vector<xstyle::Issue> issues = checker.check(source);
+    if (std::none_of(issues.begin(), issues.end(), [](const xstyle::Issue& issue) {return issue.code == "CPP-HEADER";})) return {};
+
+    std::string banner;
+    std::string description = this->_options.headerDescription;
+    if (this->_options.header) {
+        banner = *this->_options.header;
+    } else if (this->_headerAnswer) {
+        banner = this->_headerAnswer->first;
+        description = this->_headerAnswer->second;
+    } else {
+        if (!::isatty(::fileno(stdin))) return {};
+        std::string answer;
+        std::cerr << source.getDisplay() << ": no file header. Banner: [n]one, [d]efault (XARTANIA), [t]ext, [s]kip"
+            << " (upper case: same answer for the next files) > " << std::flush;
+        if (!std::getline(std::cin, answer) || answer.empty()) return {};
+        const char choice = answer[0];
+        const char lowerChoice = static_cast<char>(std::tolower(static_cast<unsigned char>(choice)));
+        if (lowerChoice == 's') {
+            if (choice == 'S') this->_headerAnswer = {"", ""};
+            return {};
+        }
+        banner = lowerChoice == 'n' ? "none" : "default";
+        if (lowerChoice == 't') {
+            std::cerr << "Banner text > " << std::flush;
+            if (!std::getline(std::cin, banner) || xstyle::trim(banner).empty()) banner = "default";
+        }
+        std::cerr << "Description (empty: the default one) > " << std::flush;
+        (void)std::getline(std::cin, description);
+        if (std::isupper(static_cast<unsigned char>(choice))) this->_headerAnswer = {banner, description};
+    }
+    if (banner.empty()) return {}; // skip for every file
+    if (!xstyle::banner_available() && xstyle::lower(banner) != "none") {
+        std::cerr << "xstyle: built without the banner font, header written without banner" << std::endl;
+        banner = "none";
+    }
+
+    std::vector<std::string> header = xstyle::make_header(source.getPath().filename().string(), banner, description);
+    header.push_back("");
+    source.apply({xstyle::Fix{xstyle::FixKind::Replace, 0, 0, header, false}});
+    return {xstyle::AppliedFix{"CPP-HEADER", 1, {}, header}};
+}
+
 /* information */
 _cold void xstyle::Core::help_(const utils::arguments::ArgParser& parser) const
 {
@@ -291,9 +348,9 @@ _cold void xstyle::Core::help_(const utils::arguments::ArgParser& parser) const
 
 _cold void xstyle::Core::listRules_(void) const
 {
-    std::cout << std::left << std::setw(24) << "Code" << std::setw(14) << "Severity" << std::setw(5) << "Fix" << std::setw(26) << "Languages" << "Description" << "\n";
+    std::cout << std::left << std::setw(24) << "Code" << std::setw(14) << "Severity" << std::setw(7) << "Fix" << std::setw(26) << "Languages" << "Description" << "\n";
     for (const xstyle::Rule& rule: xstyle::rules())
-        std::cout << std::left << std::setw(24) << rule.code << std::setw(14) << xstyle::severity_name(rule.severity) << std::setw(5) << (rule.fixable ? "yes" : "-")
+        std::cout << std::left << std::setw(24) << rule.code << std::setw(14) << xstyle::severity_name(rule.severity) << std::setw(7) << xstyle::fix_mode_name(rule.fix)
             << std::setw(26) << rule.languages << rule.description << "\n";
 }
 
@@ -304,7 +361,8 @@ _cold void xstyle::Core::explain_(void) const
     for (const xstyle::Rule& rule: xstyle::rules()) {
         if (!std::any_of(patterns.begin(), patterns.end(), [&](const std::string& p) {return xstyle::match_code(rule.code, p);})) continue;
         found = true;
-        std::cout << rule.code << " (" << xstyle::severity_name(rule.severity) << (rule.fixable ? ", fixable with --fix" : ", not fixable") << ", languages: " << rule.languages << ")\n"
+        std::cout << rule.code << " (" << xstyle::severity_name(rule.severity) << (rule.fix == xstyle::FixMode::Auto ? ", fixed by --fix" : rule.fix == xstyle::FixMode::Force ? ", fixed by --fix --force (can change the behavior)"
+            : rule.fix == xstyle::FixMode::Ask ? ", fixed by --fix after a question (or --header)" : ", not fixable") << ", languages: " << rule.languages << ")\n"
             << "    " << rule.description << "\n";
     }
     if (!found) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "Unknown rule: " + this->_explain + " (see --list-rules)");
@@ -374,7 +432,9 @@ _cold void xstyle::Core::run(void)
             xstyle::SourceFile source(path, display, language);
             reporter.addFile(source);
             if (this->_options.fix) {
-                const std::vector<xstyle::AppliedFix> applied = checker.fix(source);
+                std::vector<xstyle::AppliedFix> applied = this->header_(checker, source);
+                const std::vector<xstyle::AppliedFix> fixed = checker.fix(source);
+                applied.insert(applied.end(), fixed.begin(), fixed.end());
                 if (!applied.empty() && !this->_options.dryRun) source.save();
                 reporter.addFixes(display, applied);
             }

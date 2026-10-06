@@ -42,6 +42,7 @@ _hot xstyle::Issue xstyle::check::make_issue(const xstyle::SourceFile& file, con
     issue.source = line < file.getLines().size() ? file.getLines()[line] : "";
     issue.suggestion = suggestion;
     issue.fix = fix;
+    issue.mode = !fix ? xstyle::FixMode::Manual : fix->unsafe ? xstyle::FixMode::Force : xstyle::FixMode::Auto;
     if (!fix || !suggestion.empty() || fix->kind != xstyle::FixKind::Replace) return issue;
 
     // Preview of the fix: only the lines that change
