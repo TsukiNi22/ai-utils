@@ -82,7 +82,7 @@ xstyle --diff                          # only the lines changed since HEAD (stag
 xstyle --diff-ref main                 # only the lines changed since a branch / tag / commit
 xstyle --staged --fix                  # only the staged lines (pre-commit hook)
 xstyle --fix --commit                  # fix, then commit the fixed files: chore(style): apply the xstyle fixes (...)
-xstyle --fix --commit-all -m "..."     # fix, then commit every tracked change with the fixes (--message for the text)
+xstyle --fix --commit-all --message "chore(core): ..."  # fix + commit every tracked change with the fixes
 xstyle --libutils-check                # is the libutils skill reference up to date? (exit 0 yes, 1 no)
 ```
 
