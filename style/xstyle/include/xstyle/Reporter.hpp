@@ -49,6 +49,7 @@ class Reporter {
         _cold _nodiscard std::string summary_(const bool tty) const;
         _cold _nodiscard std::string markdown_(void) const;
         _cold _nodiscard std::string json_(void) const;
+        _cold _nodiscard std::string rtk_(void) const; // --rtk
 
     public:
         // ---------- Pre-Function -------- //

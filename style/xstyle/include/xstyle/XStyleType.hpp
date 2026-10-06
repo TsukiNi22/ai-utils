@@ -165,6 +165,7 @@ struct Options {
     std::optional<std::filesystem::path> report; // report file
     std::optional<xstyle::Format> format; // report format (default: from the extension)
     bool summaryOnly = false;
+    bool rtk = false; // compact output for an AI: one line per issue, no color / source / table
     bool color = true;
     xstyle::LinkMode link = xstyle::LinkMode::File;
     std::string libutils = "auto"; // auto | on | off

@@ -428,8 +428,12 @@ _hot static void functions_(const xstyle::SourceFile& file, const xstyle::Projec
     const std::vector<xstyle::LineInfo>& info = file.getInfo();
     const std::vector<xstyle::Brace>& braces = file.getBraces();
 
-    // Free functions defined in the file (static helpers name_ are called without this->)
+    // Free functions defined in the file (static helpers name_ are called without this->), and local lambdas named name_
+    static const std::regex lambdaName(R"(\b([a-z]\w*_)\s*=\s*\[)");
     std::set<std::string> freeFunctions;
+    for (const std::string& line: code)
+        for (std::sregex_iterator it(line.begin(), line.end(), lambdaName); it != std::sregex_iterator(); ++it)
+            freeFunctions.insert((*it)[1].str());
     for (const xstyle::Brace& brace: braces) {
         if (brace.kind != xstyle::Scope::Function || (brace.parent != NO_INDEX && braces[brace.parent].kind != xstyle::Scope::Namespace)) continue;
         for (std::sregex_iterator it(brace.header.begin(), brace.header.end(), functionName); it != std::sregex_iterator(); ++it) {

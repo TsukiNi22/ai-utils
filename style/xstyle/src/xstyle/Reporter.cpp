@@ -26,6 +26,7 @@ File Description:
 #include <cstdlib>
 #include <cstdio>
 #include <array>
+#include <set>
 
 /* tools */
 _cold static std::string json_escape_(const std::string& s)
@@ -323,8 +324,71 @@ _cold std::string xstyle::Reporter::json_(void) const
 }
 
 /* output */
+_cold std::string xstyle::Reporter::rtk_(void) const
+{
+    // The strict minimum for an AI: the file once, one short line per issue (no source: the file can be read), what is the
+    // same for every issue of a rule written once at the end, one summary line
+    static const std::string severities = "nmMU"; // negligible, minor, Major, Unforgivable
+    static const std::string modes = "-afdq"; // manual, auto, force, dangerous, ask
+    const std::function<std::string(const xstyle::Issue&)> shortHint = [](const xstyle::Issue& issue) {
+        std::string hint = xstyle::trim(issue.suggestion.substr(0, issue.suggestion.find('\n')));
+        const std::size_t extra = static_cast<std::size_t>(std::count(issue.suggestion.begin(), issue.suggestion.end(), '\n'));
+        return truncate_(hint, 110) + (extra > 0 ? " (+" + std::to_string(extra) + " lines)" : "");
+    };
+    std::map<std::string, std::pair<std::set<std::string>, std::set<std::string>>> variants; // code -> <messages, hints>
+    for (const xstyle::Issue& issue: this->_issues) {
+        variants[issue.code].first.insert(issue.message);
+        variants[issue.code].second.insert(shortHint(issue));
+    }
+    std::ostringstream out;
+    std::array<std::size_t, 4> bySeverity = {};
+    std::array<std::size_t, 5> byMode = {};
+    std::string file;
+
+    if (!this->_options.summaryOnly && !this->_issues.empty())
+        out << "# >file then line:col CODE severity(U/M/m/n) fix(a=auto f=--force d=--dangerous-force q=asked -=manual) [message] [=> fix|hint]; "
+            << "message / hint shared by a rule: '* CODE' lines at the end\n";
+    for (const xstyle::Issue& issue: this->_issues) {
+        ++bySeverity[static_cast<std::size_t>(issue.severity)];
+        ++byMode[static_cast<std::size_t>(issue.mode)];
+        if (this->_options.summaryOnly) continue;
+        if (issue.file != file) {
+            file = issue.file;
+            out << ">" << file << "\n";
+        }
+        const std::string hint = shortHint(issue);
+        out << (issue.line > 0 ? std::to_string(issue.line) + ":" + std::to_string(issue.column) : "0") << " " << issue.code << " "
+            << severities[static_cast<std::size_t>(issue.severity)] << " " << modes[static_cast<std::size_t>(issue.mode)]
+            << (variants[issue.code].first.size() > 1 ? " " + issue.message : "")
+            << (variants[issue.code].second.size() > 1 && !hint.empty() ? " => " + hint : "") << "\n";
+    }
+    if (!this->_options.summaryOnly)
+        for (const auto &[code, texts]: variants) {
+            const std::string message = texts.first.size() == 1 ? *texts.first.begin() : "";
+            const std::string hint = texts.second.size() == 1 ? *texts.second.begin() : "";
+            if (!message.empty() || !hint.empty()) out << "* " << code << (message.empty() ? "" : " " + message) << (hint.empty() ? "" : " => " + hint) << "\n";
+        }
+    if (!this->_fixes.empty()) {
+        std::map<std::string, std::size_t> codes;
+        for (const auto &[fixedFile, fix]: this->_fixes)
+            ++codes[fix.code];
+        out << (this->_options.dryRun ? "would fix " : "fixed ") << this->_fixes.size() << ":";
+        for (const auto &[code, count]: codes)
+            out << " " << code << "x" << count;
+        out << "\n";
+    }
+    out << "= " << this->_issues.size() << " issues in " << this->_files << " files: U" << bySeverity[3] << " M" << bySeverity[2] << " m" << bySeverity[1]
+        << " n" << bySeverity[0] << " | fix a" << byMode[1] << " f" << byMode[2] << " d" << byMode[3] << " q" << byMode[4] << " -" << byMode[0];
+    if (byMode[1] > 0 && !this->_options.fix) out << " | xstyle --fix";
+    return out.str() + "\n";
+}
+
 _cold void xstyle::Reporter::print(std::ostream& out) const
 {
+    if (this->_options.rtk) {
+        out << this->rtk_();
+        return;
+    }
     const bool tty = this->_options.color && ::isatty(::fileno(stdout)) && !std::getenv("NO_COLOR");
 
     if (!this->_fixes.empty()) out << this->paint_(this->_options.dryRun ? "Would fix:" : "Fixed:", utils::iomanip::Color::Green, tty, true) << "\n" << this->fixes_(tty) << "\n";

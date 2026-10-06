@@ -65,6 +65,7 @@ xstyle                                 # check the current directory (recursive)
 xstyle -r src include                  # only these directories (recursive with -r)
 xstyle src/core/Engine.cpp             # one file
 xstyle -S                              # only the summary (counters by severity and by rule)
+xstyle --rtk                           # compact output for an AI (5x fewer tokens): no color, no source, one line per issue
 xstyle -s major                        # only the major and unforgivable issues
 xstyle -m force,manual                 # only these fix levels (auto, force, ask, manual), comma separated
 xstyle -c CPP-THIS,LU                  # only these rules (code, prefix or pattern: CPP, LU-*, G-TAB)
@@ -117,6 +118,10 @@ xstyle --libutils-check                # is the libutils skill reference up to d
 - **Fix**: the fixes are applied in passes (a fix can reveal another issue: `[[nodiscard]]` -> `_nodiscard` ->
   `#define _Attribute` missing -> added), only the fixable rules (`yes` in the table) are touched, the logic never.
   Review the result with `git diff`.
+- **AI mode** (`--rtk`, or `XSTYLE_RTK=1`): what an assistant needs and nothing else: a legend line, `>file` once, then
+  `line:col CODE severity fix message => fix|hint` per issue (the message / hint shared by every issue of a rule written
+  once in `* CODE ...` lines at the end), `fixed N: CODExK`, one `= N issues ...` summary line, errors on one plain line.
+  No color, no hyperlink, no source line, no table. The skills and the `CLAUDE.md` files run xstyle this way.
 - **Hyperlinks**: the locations are OSC 8 links in the terminal (`--link file`, default), or `vscode://` links
   (`--link vscode`, opens the file at the line), `--no-color` / `NO_COLOR` for plain text.
 - **Changed lines** (`--diff`, `--diff-ref`, `--staged`): only the issues on the lines changed in git (whole file

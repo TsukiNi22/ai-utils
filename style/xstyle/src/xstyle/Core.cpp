@@ -120,6 +120,7 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("format", {"", "", "format", ""}, {{"format", true, [](const std::string& v) {return choice_hook_(v, {"text", "md", "markdown", "json"});}}},
         "Format of the report file: text | md | json (default: from the extension)");
     this->_parser.setFlag("summary", {"S", "", "summary", ""}, {}, "Only the summary (counters by severity and code) in the terminal");
+    this->_parser.setFlag("rtk", {"", "", "rtk", ""}, {}, "Compact output for an AI (token saving): one line per issue, no color / source / table (env XSTYLE_RTK=1)");
     this->_parser.setFlag("color", {"", "", "no-color", ""}, {}, "No colors nor hyperlinks (also with NO_COLOR or when not in a terminal)");
     this->_parser.setFlag("link", {"", "", "link", "XSTYLE_LINK"}, {{"mode", true, [](const std::string& v) {return choice_hook_(v, {"file", "vscode", "none"});}}},
         "Hyperlinks of the locations: file (file://, default) | vscode (vscode://file/...:line:column) | none");
@@ -137,7 +138,7 @@ _cold void xstyle::Core::setup_(void)
     this->_sections = {
         {"SELECTION", {"recursive", "diff", "diffref", "staged", "code", "ignore", "severity", "mode", "fail", "exclude", "lang", "top", "libutils"}},
         {"FIX", {"fix", "dry", "force", "dangerous", "header", "headerdesc", "commit", "commitall", "message"}},
-        {"OUTPUT", {"report", "format", "summary", "color", "link"}},
+        {"OUTPUT", {"rtk", "report", "format", "summary", "color", "link"}},
         {"INFORMATION", {"list", "explain", "version", "libcheck", "completion"}},
     };
     this->_parser.setHelpHook([this](const utils::arguments::ArgParser& parser) {this->help_(parser);});
@@ -204,6 +205,7 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "headerdesc") this->_options.headerDescription = value;
     else if (id == "report") this->_options.report = std::filesystem::path(value);
     else if (id == "summary") this->_options.summaryOnly = true;
+    else if (id == "rtk") this->_options.rtk = true;
     else if (id == "color") this->_options.color = false;
     else if (id == "list") this->_listRules = true;
     else if (id == "explain") this->_explain = value;
@@ -493,6 +495,9 @@ _cold void xstyle::Core::init(const int argc, char* argv[])
     if (usages.empty()) return;
     for (const auto &[id, option, values]: usages[0].arguments)
         this->apply_(id, values);
+    const char* rtk = std::getenv("XSTYLE_RTK");
+    if (rtk && std::string(rtk) != "0" && std::string(rtk) != "") this->_options.rtk = true;
+    if (this->_options.rtk) this->_options.color = false;
 }
 
 _cold void xstyle::Core::run(void)
