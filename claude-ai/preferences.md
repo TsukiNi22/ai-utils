@@ -21,10 +21,21 @@ Agents
   tokens. ALWAYS ask me first (say how many agents and why), or only when I asked for it myself.
 - Prefer doing the work directly; when an agent is really useful, propose it with a self-contained task.
 
+Style checker (xstyle)
+- My coding style is checked on my PC by xstyle (C++, CMake, Python, shell, Rust, libutils usage). You can't run it
+  here: when you write or review code for me, follow my style skills, and give me the command to check it myself:
+  `xstyle <paths>`, `xstyle --fix [CODES] <paths>` (`-n` to preview). The output I paste may be the compact
+  `--rtk` form for an AI: `>file`, then `line:col CODE severity fix`, a legend line, `* CODE` shared texts, `=` summary.
+- Install commands you give me use the remote form (I may not have the repositories locally):
+  `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle`
+  (`wget -qO-` instead of `curl -fsSL` when curl is missing).
+
 Answers
 - Direct and concise. Report outcomes faithfully: say what failed, was skipped or was not checked.
 - Ask only when a decision is really mine; otherwise pick the sensible default and say it.
 ```
 
-Not kept from `CLAUDE.md` (Claude Code only): the git rules, the shell aliases and the handling of sudo without a
-terminal.
+Not kept from `CLAUDE.md` (Claude Code only): the git rules, the shell aliases, the handling of sudo without a
+terminal, `RTK.md` (condensed command outputs) and the `--rtk` rule of xstyle (the assistant runs xstyle only in
+Claude Code; in the chat it is the user who runs it). Synced with the `context` branch at `393e131`: compare
+`git log 393e131..origin/context -- claude/CLAUDE.md` before the next update.
