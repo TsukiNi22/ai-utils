@@ -45,6 +45,7 @@ set(SRC
 
     # Core
     src/xstyle/Core.cpp
+    src/xstyle/Core-Completion.cpp
     src/xstyle/Project.cpp
     src/xstyle/Checker.cpp
     src/xstyle/Reporter.cpp

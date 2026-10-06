@@ -49,6 +49,7 @@ class Core {
         int _exit = 0;
         bool _listRules = false;
         bool _version = false;
+        std::string _completion; // shell of the completion script to print
         std::string _explain;
         std::vector<std::pair<std::string, std::vector<std::string>>> _sections; // <title, flag ids> of the help, in order
 
@@ -60,6 +61,7 @@ class Core {
         _cold void listRules_(void) const;
         _cold void explain_(void) const;
         _cold void help_(const utils::arguments::ArgParser& parser) const;
+        _cold void completion_(void) const; // Core-Completion.cpp
 
     public:
         // ---------- Pre-Function -------- //

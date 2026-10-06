@@ -106,6 +106,8 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("list", {"L", "", "list-rules", ""}, {}, "List every rule (code, severity, fixable, languages)");
     this->_parser.setFlag("explain", {"x", "", "explain", ""}, {{"code", true, codes}}, "Explain the given rule(s)");
     this->_parser.setFlag("version", {"v", "", "version", ""}, {}, "Version of xstyle");
+    this->_parser.setFlag("completion", {"", "", "completion", ""}, {{"shell", true, [](const std::string& v) {return choice_hook_(v, {"bash", "zsh", "fish"});}}},
+        "Print the completion script of the shell (bash | zsh | fish), installed by setup.sh");
     this->_parser.setDefaultUsage();
 
     // Help in the order of the sections (the default one follows the hash order)
@@ -113,7 +115,7 @@ _cold void xstyle::Core::setup_(void)
         {"SELECTION", {"recursive", "code", "ignore", "severity", "fail", "exclude", "lang", "top", "libutils"}},
         {"FIX", {"fix", "dry"}},
         {"OUTPUT", {"report", "format", "summary", "color", "link"}},
-        {"INFORMATION", {"list", "explain", "version"}},
+        {"INFORMATION", {"list", "explain", "version", "completion"}},
     };
     this->_parser.setHelpHook([this](const utils::arguments::ArgParser& parser) {this->help_(parser);});
 }
@@ -124,6 +126,7 @@ _cold std::vector<std::string> xstyle::Core::extractPaths_(const int argc, char*
     static const std::unordered_map<std::string, int> values = { // 1 = mandatory value, 2 = optional codes
         {"c", 1}, {"code", 1}, {"i", 1}, {"ignore", 1}, {"s", 1}, {"severity", 1}, {"F", 1}, {"fail-on", 1}, {"e", 1}, {"exclude", 1},
         {"l", 1}, {"lang", 1}, {"u", 1}, {"libutils", 1}, {"o", 1}, {"report", 1}, {"format", 1}, {"link", 1}, {"x", 1}, {"explain", 1},
+        {"completion", 1},
         {"f", 2}, {"fix", 2},
     };
     std::vector<std::string> arguments = {argc > 0 ? argv[0] : "xstyle"};
@@ -169,6 +172,7 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "list") this->_listRules = true;
     else if (id == "explain") this->_explain = value;
     else if (id == "version") this->_version = true;
+    else if (id == "completion") this->_completion = xstyle::lower(value);
 
     if (id == "fix" && !value.empty()) this->_options.fixCodes = xstyle::split(value, ',');
     if (id == "lang")
@@ -319,6 +323,7 @@ _cold void xstyle::Core::init(const int argc, char* argv[])
 
 _cold void xstyle::Core::run(void)
 {
+    if (!this->_completion.empty()) return this->completion_();
     if (this->_version) {
         std::cout << "xstyle " << XSTYLE_VERSION << std::endl;
         return;

@@ -110,7 +110,7 @@ cd skills
 ./setup.sh list                           # available skills and tools
 ./setup.sh status                         # what is installed
 ./setup.sh install cpp-class              # only one skill (and the skills it requires)
-./setup.sh install xstyle                 # only one tool (built with CMake, installed in ~/.local/bin)
+./setup.sh install xstyle                 # only one tool (built with CMake, installed in ~/.local/bin, + bash / zsh / fish completion)
 ./setup.sh install xstyle --prefix /usr/local
 ./setup.sh install --project ~/my/project # in <project>/.claude/skills instead
 ./setup.sh install --copy                 # copy instead of symlink
