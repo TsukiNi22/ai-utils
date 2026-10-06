@@ -6,6 +6,7 @@ Usage:
     header.py --file Timer.hpp [--banner xartania|none|"<NAME>"] [--desc "..."]
               [--author Tsukini] [--date DD/MM/YYYY]
     header.py --banner-only "<NAME>"      # print only the ASCII banner
+    header.py --file tool.py --style py   # Python box: 63 double quotes, no @date / @file tags
 
 --banner:
     xartania  -> default XARTANIA banner
@@ -70,21 +71,22 @@ def banner_lines(banner: str) -> list[str]:
     return [""] + [" " + row for row in render(name)] + [""]
 
 
-def header(file: str, banner: str, desc: str | None, author: str, date: str) -> str:
+def header(file: str, banner: str, desc: str | None, author: str, date: str, style: str = "cpp") -> str:
     description = [d.strip() for d in desc.split("\n")] if desc else DEFAULT_DESC
-    lines = [BOX_TOP]
+    python = style == "py"
+    lines = ['"' * 63 if python else BOX_TOP]
     lines += banner_lines(banner)
     lines += [
         "Edition:",
-        f"##  @date {date} by @author {author}",
+        f"##  {date} by {author}" if python else f"##  @date {date} by @author {author}",
         "",
         "File Name:",
-        f"##  @file {file}",
+        f"##  {file}" if python else f"##  @file {file}",
         "",
         "File Description:",
     ]
     lines += [f"##  {d}" for d in description]
-    lines.append(BOX_BOTTOM)
+    lines.append('"' * 63 if python else BOX_BOTTOM)
     return "\n".join(lines)
 
 
@@ -96,6 +98,7 @@ def main() -> int:
     parser.add_argument("--author", default="Tsukini")
     parser.add_argument("--date", default=datetime.date.today().strftime("%d/%m/%Y"))
     parser.add_argument("--banner-only", metavar="NAME", help="only print the ascii banner of NAME")
+    parser.add_argument("--style", choices=["cpp", "py"], default=None, help="box of the header (default: from the extension of --file)")
     args = parser.parse_args()
 
     if args.banner_only:
@@ -104,7 +107,8 @@ def main() -> int:
     if not args.file:
         parser.error("--file is required")
     desc = args.desc.replace("\\n", "\n") if args.desc else None
-    print(header(os.path.basename(args.file), args.banner, desc, args.author, args.date))
+    style = args.style or ("py" if args.file.endswith(".py") else "cpp")
+    print(header(os.path.basename(args.file), args.banner, desc, args.author, args.date, style))
     return 0
 
 
