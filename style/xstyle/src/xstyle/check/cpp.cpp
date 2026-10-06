@@ -888,4 +888,5 @@ _hot void xstyle::check::cpp(const xstyle::SourceFile& file, const xstyle::Proje
     namespaces_(file, issues);
     classes_(file, issues);
     doxygen_(file, issues);
+    xstyle::check::comments(file, issues);
 }

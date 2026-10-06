@@ -20,9 +20,11 @@ File Description:
     #include <string_view>      // std::string_view
     #include <filesystem>       // std::filesystem::path
     #include <optional>         // std::optional
+    #include <utility>          // std::pair
     #include <cstdint>          // std::uint8_t
     #include <string>           // std::string
     #include <vector>           // std::vector
+    #include <map>              // std::map
 
 namespace xstyle { // namespace start
 //----------------------------------------------------------------//
@@ -152,6 +154,13 @@ struct Options {
     bool topOnly = false; // only the most used language
     xstyle::Severity minSeverity = xstyle::Severity::Negligible; // reported from this one
     std::vector<xstyle::FixMode> modes; // only these fix levels (empty = every level)
+    bool changedOnly = false; // --diff / --staged: only the changed lines
+    std::string diffRef = "HEAD"; // --diff=<ref>
+    bool staged = false;
+    std::map<std::filesystem::path, std::vector<std::pair<std::size_t, std::size_t>>> changedLines; // file -> <first, last> lines (1-based)
+    bool commit = false; // commit the fixed files only
+    bool commitAll = false; // commit every tracked change + the fixes
+    std::string commitMessage; // empty: chore(style): apply the xstyle fixes
     xstyle::Severity failOn = xstyle::Severity::Negligible; // exit 1 from this one
     std::optional<std::filesystem::path> report; // report file
     std::optional<xstyle::Format> format; // report format (default: from the extension)

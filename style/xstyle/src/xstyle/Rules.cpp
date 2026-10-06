@@ -68,6 +68,19 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
         {"CPP-SINGLE-STATEMENT", xstyle::Severity::Minor,      xstyle::FixMode::Manual, "cpp",          "Single statement function defined in the .cpp, define it inline in the header"},
         {"CPP-DOXYGEN",        xstyle::Severity::Minor,        xstyle::FixMode::Manual, "cpp,c",        "Doxygen comment (@brief, @param, ///, /**), short plain comments only"},
 
+        // C / C++ comments (cpp-comments)
+        {"CPP-INCLUDE-COMMENT", xstyle::Severity::Minor,      xstyle::FixMode::Manual, "cpp,c",        "Include of a header without its trailing comment listing what is used"},
+        {"CPP-COMMENT-ALIGN",  xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "Trailing comments of an include block not aligned on one column"},
+        {"CPP-EMPTY-SECTION",  xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "cpp,c",        "Section separator / class block with nothing linked to it"},
+        {"CPP-ORPHAN-GROUP",   xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "/* group */ label with nothing under it"},
+
+        // CMake (cmake-style)
+        {"CMAKE-SECTION-ORDER", xstyle::Severity::Minor,      xstyle::FixMode::Manual, "cmake",        "Sections not in the cmake-style order"},
+        {"CMAKE-BANNER",       xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cmake",        "Section banner not '# ' + 25 '='"},
+        {"CMAKE-COMPILER-ORDER", xstyle::Severity::Major,     xstyle::FixMode::Force,  "cmake",        "set(CMAKE_CXX_COMPILER) after project(): ignored, it goes before"},
+        {"CMAKE-GLOB-SOURCES", xstyle::Severity::Major,        xstyle::FixMode::Manual, "cmake",        "Sources collected with file(GLOB), list them in set(SRC ...)"},
+        {"CMAKE-UNREGISTERED", xstyle::Severity::Major,        xstyle::FixMode::Force,  "cmake",        "Source file of src/ missing from set(SRC ...)"},
+
         // libutils (installed and used by the project)
         {"LU-INCLUDE",         xstyle::Severity::Major,        xstyle::FixMode::Auto,   "cpp",          "libutils header included directly, use #define _Section + <utils/utils.hpp>"},
         {"LU-BARE-INCLUDE",    xstyle::Severity::Major,        xstyle::FixMode::Auto,   "cpp",          "<utils/utils.hpp> without any #define _Section before it"},

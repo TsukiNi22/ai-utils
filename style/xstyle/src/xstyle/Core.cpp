@@ -23,6 +23,7 @@ File Description:
 #include "xstyle/Rules.hpp"
 #include "xstyle/Tools.hpp"
 #include "xstyle/Core.hpp"
+#include "xstyle/Git.hpp"
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
@@ -97,6 +98,14 @@ _cold void xstyle::Core::setup_(void)
 
     /* fix */
     this->_parser.setFlag("fix", {"f", "", "fix", ""}, {{"codes", false, codes}}, "Fix what can be fixed automatically (only the given codes / prefixes when given)");
+    this->_parser.setFlag("diff", {"d", "", "diff", ""}, {}, "Only the lines changed since HEAD (staged + not staged changes, new files included)");
+    this->_parser.setFlag("diffref", {"", "", "diff-ref", ""}, {{"ref", true, utils::arguments::defaultTrueParsingHook}},
+        "Only the lines changed since this ref (branch, tag, commit: --diff-ref main)");
+    this->_parser.setFlag("staged", {"", "", "staged", ""}, {}, "Only the staged lines (git diff --cached): the pre-commit hook mode");
+    this->_parser.setFlag("commit", {"", "", "commit", ""}, {}, "With --fix: commit the fixed files (a file that already had changes is left out)");
+    this->_parser.setFlag("commitall", {"", "", "commit-all", ""}, {}, "With --fix: commit every tracked change with the fixes");
+    this->_parser.setFlag("message", {"", "", "message", ""}, {{"text", true, utils::arguments::defaultTrueParsingHook}},
+        "Message of --commit / --commit-all (default: chore(style): apply the xstyle fixes (...))");
     this->_parser.setFlag("dry", {"n", "", "dry-run", ""}, {}, "With --fix: show the changes without writing the files");
     this->_parser.setFlag("force", {"", "", "force", ""}, {}, "With --fix: also the [force-fix] fixes, that can change the behavior (set -euo pipefail, encoding...)");
     this->_parser.setFlag("dangerous", {"", "", "dangerous-force", ""}, {},
@@ -119,16 +128,17 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("list", {"L", "", "list-rules", ""}, {}, "List every rule (code, severity, fixable, languages)");
     this->_parser.setFlag("explain", {"x", "", "explain", ""}, {{"code", true, codes}}, "Explain the given rule(s)");
     this->_parser.setFlag("version", {"v", "", "version", ""}, {}, "Version of xstyle");
+    this->_parser.setFlag("libcheck", {"", "", "libutils-check", ""}, {}, "Is the libutils skill reference up to date (installed version, libutils repository)? exit 0 yes, 1 no");
     this->_parser.setFlag("completion", {"", "", "completion", ""}, {{"shell", true, [](const std::string& v) {return choice_hook_(v, {"bash", "zsh", "fish"});}}},
         "Print the completion script of the shell (bash | zsh | fish), installed by setup.sh");
     this->_parser.setDefaultUsage();
 
     // Help in the order of the sections (the default one follows the hash order)
     this->_sections = {
-        {"SELECTION", {"recursive", "code", "ignore", "severity", "mode", "fail", "exclude", "lang", "top", "libutils"}},
-        {"FIX", {"fix", "dry", "force", "dangerous", "header", "headerdesc"}},
+        {"SELECTION", {"recursive", "diff", "diffref", "staged", "code", "ignore", "severity", "mode", "fail", "exclude", "lang", "top", "libutils"}},
+        {"FIX", {"fix", "dry", "force", "dangerous", "header", "headerdesc", "commit", "commitall", "message"}},
         {"OUTPUT", {"report", "format", "summary", "color", "link"}},
-        {"INFORMATION", {"list", "explain", "version", "completion"}},
+        {"INFORMATION", {"list", "explain", "version", "libcheck", "completion"}},
     };
     this->_parser.setHelpHook([this](const utils::arguments::ArgParser& parser) {this->help_(parser);});
 }
@@ -140,7 +150,7 @@ _cold std::vector<std::string> xstyle::Core::extractPaths_(const int argc, char*
         {"c", 1}, {"code", 1}, {"i", 1}, {"ignore", 1}, {"s", 1}, {"severity", 1}, {"F", 1}, {"fail-on", 1}, {"e", 1}, {"exclude", 1},
         {"l", 1}, {"lang", 1}, {"m", 1}, {"mode", 1}, {"u", 1}, {"libutils", 1}, {"o", 1}, {"report", 1}, {"format", 1}, {"link", 1}, {"x", 1}, {"explain", 1},
         {"completion", 1},
-        {"f", 2}, {"fix", 2}, {"header", 1}, {"header-desc", 1},
+        {"f", 2}, {"fix", 2}, {"header", 1}, {"header-desc", 1}, {"message", 1}, {"diff-ref", 1},
     };
     std::vector<std::string> arguments = {argc > 0 ? argv[0] : "xstyle"};
 
@@ -183,6 +193,12 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "fix") this->_options.fix = true;
     else if (id == "dry") this->_options.dryRun = true;
     else if (id == "force") this->_options.force = true;
+    else if (id == "diff") this->_options.changedOnly = true;
+    else if (id == "staged") this->_options.changedOnly = this->_options.staged = true;
+    else if (id == "commit") this->_options.commit = true;
+    else if (id == "commitall") this->_options.commitAll = true;
+    else if (id == "message") this->_options.commitMessage = value;
+    else if (id == "libcheck") this->_libutilsCheck = true;
     else if (id == "dangerous") this->_options.dangerous = this->_options.force = true;
     else if (id == "header") this->_options.header = value;
     else if (id == "headerdesc") this->_options.headerDescription = value;
@@ -195,6 +211,10 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "completion") this->_completion = xstyle::lower(value);
 
     if (id == "fix" && !value.empty()) this->_options.fixCodes = xstyle::split(value, ',');
+    if (id == "diffref") {
+        this->_options.changedOnly = true;
+        this->_options.diffRef = value;
+    }
     if (id == "lang")
         for (const std::string& part: xstyle::split(value, ','))
             this->_options.languages.push_back(*xstyle::parse_language(part));
@@ -233,6 +253,13 @@ _cold xstyle::Files xstyle::Core::collect_(void) const
         files.push_back({std::filesystem::absolute(path), language});
     };
 
+    // --diff / --staged without path: the changed files themselves
+    if (this->_options.changedOnly && this->_options.paths.empty()) {
+        for (const auto &[path, ranges]: this->_options.changedLines)
+            if (std::filesystem::is_regular_file(path, error) && !ranges.empty()) add(path, false);
+        std::sort(files.begin(), files.end());
+        return files;
+    }
     std::vector<std::filesystem::path> paths = this->_options.paths;
     const bool recursive = this->_options.recursive || paths.empty();
     if (paths.empty()) paths.push_back(".");
@@ -314,6 +341,84 @@ _cold std::vector<xstyle::AppliedFix> xstyle::Core::header_(const xstyle::Checke
     header.push_back("");
     source.apply({xstyle::Fix{xstyle::FixKind::Replace, 0, 0, header, false}});
     return {xstyle::AppliedFix{"CPP-HEADER", 1, {}, header}};
+}
+
+/* git */
+_cold void xstyle::Core::commit_(const std::filesystem::path& repository, const std::vector<std::filesystem::path>& fixed,
+    const std::map<std::filesystem::path, std::map<std::string, std::size_t>>& fixedCodes, const std::set<std::filesystem::path>& dirty) const
+{
+    // --commit: only the files that had no change before the fixes (their own changes would be mixed in the commit)
+    std::vector<std::filesystem::path> files;
+    std::error_code error;
+    for (const std::filesystem::path& file: fixed) {
+        if (dirty.contains(std::filesystem::weakly_canonical(file, error))) {
+            std::cerr << "xstyle: " << std::filesystem::proximate(file, error).generic_string() << " had changes before the fixes: not committed (--commit-all to include them)" << std::endl;
+            continue;
+        }
+        files.push_back(file);
+    }
+    if (files.empty() && !this->_options.commitAll) {
+        std::cerr << "xstyle: nothing to commit" << std::endl;
+        return;
+    }
+
+    // chore(style): apply the xstyle fixes (N issues), one line per rule in the body (committed files only)
+    std::map<std::string, std::size_t> codes;
+    for (const std::filesystem::path& file: files)
+        if (fixedCodes.contains(file))
+            for (const auto &[code, count]: fixedCodes.at(file))
+                codes[code] += count;
+    std::size_t total = 0;
+    std::string body;
+    for (const auto &[code, count]: codes) {
+        total += count;
+        body += "- " + code + ": " + std::to_string(count) + "\n";
+    }
+    std::string message = this->_options.commitMessage;
+    if (message.empty()) message = "chore(style): apply the xstyle fixes (" + std::to_string(total) + " issue" + (total > 1 ? "s" : "") + ")\n\n" + body;
+    if (!xstyle::git::commit(repository, files, message, this->_options.commitAll))
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "git commit failed (nothing to commit, hook or identity?)");
+    const std::string hash = xstyle::trim(xstyle::git::run(repository, {"log", "-1", "--format=%h %s"}).out);
+    if (!this->_options.report) std::cout << "Committed: " << hash << std::endl;
+}
+
+_cold void xstyle::Core::libutilsCheck_(void)
+{
+    // Reference of the libutils skill (VERSION.md) vs the installed headers and the libutils repository
+    static const std::regex version(R"(Version \(`CMakeLists.txt`\) \| `([^`]+)`)");
+    static const std::regex hash(R"(\| Commit \| `([0-9a-f]+)`)");
+    const std::filesystem::path reference = std::filesystem::path(XSTYLE_SKILLS_DIR) / "libutils" / "libutils" / "reference" / "VERSION.md";
+    std::ifstream file(reference);
+    const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::smatch match;
+    const std::string referenceVersion = std::regex_search(content, match, version) ? match[1].str() : "";
+    const std::string referenceHash = std::regex_search(content, match, hash) ? match[1].str() : "";
+    if (referenceVersion.empty() || referenceHash.empty()) {
+        std::cout << "status: unknown (no reference at " << reference.string() << ")" << std::endl;
+        this->_exit = KO;
+        return;
+    }
+
+    bool upToDate = true;
+    const xstyle::ProjectInfo project = xstyle::detect_project(std::filesystem::current_path());
+    std::cout << "reference: " << referenceVersion << " (" << referenceHash.substr(0, 7) << ")" << std::endl;
+    if (project.libutilsInstalled) {
+        std::cout << "installed: " << project.libutilsVersion << (project.libutilsVersion == referenceVersion ? "" : " (differs from the reference)") << std::endl;
+        upToDate = upToDate && project.libutilsVersion == referenceVersion;
+    } else {
+        std::cout << "installed: none" << std::endl;
+    }
+    const char* env = std::getenv("LIBUTILS");
+    const char* home = std::getenv("HOME");
+    const std::filesystem::path repository = env ? env : std::filesystem::path(home ? home : "") / "personal_delivery" / "cpp" / "libutils";
+    if (xstyle::git::root(repository)) {
+        const std::string ahead = xstyle::trim(xstyle::git::run(repository, {"rev-list", "--count", referenceHash + "..HEAD", "--", "include", "src", "CHANGELOG.md"}).out);
+        std::cout << "repository: " << repository.string() << ", " << (ahead.empty() ? "?" : ahead) << " commit(s) after the reference" << std::endl;
+        upToDate = upToDate && ahead == "0";
+    }
+    std::cout << "status: " << (upToDate ? "up to date" : "outdated (bash " + (std::filesystem::path(XSTYLE_SKILLS_DIR) / "libutils" / "libutils" / "scripts" / "update.sh").string()
+        + " to regenerate the reference)") << std::endl;
+    this->_exit = upToDate ? OK : 1;
 }
 
 /* information */
@@ -406,8 +511,19 @@ _cold void xstyle::Core::run(void)
         if (!report.is_open()) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, "Can't write the report " + this->_options.report->string());
     }
 
-    // Project & files
+    // Project, git (changed lines, files already changed before the fixes) & files
+    if (this->_libutilsCheck) return this->libutilsCheck_();
     xstyle::ProjectInfo project = xstyle::detect_project(this->_options.paths.empty() ? std::filesystem::current_path() : this->_options.paths[0]);
+    const std::optional<std::filesystem::path> repository = xstyle::git::root(project.root);
+    const bool commit = this->_options.fix && !this->_options.dryRun && (this->_options.commit || this->_options.commitAll);
+    if ((this->_options.changedOnly || commit) && !repository)
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "--diff / --staged / --commit need a git repository");
+    if (this->_options.changedOnly) {
+        std::error_code error;
+        for (const auto &[path, ranges]: xstyle::git::changed_lines(*repository, this->_options.staged, this->_options.staged ? "" : this->_options.diffRef))
+            this->_options.changedLines[std::filesystem::weakly_canonical(path, error)] = ranges;
+    }
+    const std::set<std::filesystem::path> dirty = commit && !this->_options.commitAll ? xstyle::git::dirty_files(*repository) : std::set<std::filesystem::path>();
     xstyle::Files files = this->collect_();
     if (!project.libutilsUsed) {
         static const std::regex include(R"(#\s*include\s*[<"](utils/)?utils\.hpp[>"])");
@@ -435,6 +551,8 @@ _cold void xstyle::Core::run(void)
     const xstyle::Checker checker(this->_options, project);
     xstyle::Reporter reporter(this->_options, project, checker.libutils());
     const std::filesystem::path cwd = std::filesystem::current_path();
+    std::vector<std::filesystem::path> fixed; // files written by the fixes
+    std::map<std::filesystem::path, std::map<std::string, std::size_t>> fixedCodes; // file -> code -> fixes applied
     for (const auto &[path, language]: files) {
         std::error_code error;
         std::string display = std::filesystem::proximate(path, cwd, error).generic_string();
@@ -444,9 +562,14 @@ _cold void xstyle::Core::run(void)
             reporter.addFile(source);
             if (this->_options.fix) {
                 std::vector<xstyle::AppliedFix> applied = this->header_(checker, source);
-                const std::vector<xstyle::AppliedFix> fixed = checker.fix(source);
-                applied.insert(applied.end(), fixed.begin(), fixed.end());
-                if (!applied.empty() && !this->_options.dryRun) source.save();
+                const std::vector<xstyle::AppliedFix> loop = checker.fix(source);
+                applied.insert(applied.end(), loop.begin(), loop.end());
+                if (!applied.empty() && !this->_options.dryRun) {
+                    source.save();
+                    fixed.push_back(path);
+                    for (const xstyle::AppliedFix& fix: applied)
+                        ++fixedCodes[path][fix.code];
+                }
                 reporter.addFixes(display, applied);
             }
             reporter.addIssues(checker.check(source));
@@ -459,4 +582,5 @@ _cold void xstyle::Core::run(void)
     if (!this->_options.report) reporter.print(std::cout);
     reporter.write();
     this->_exit = reporter.exitCode();
+    if (commit) this->commit_(*repository, fixed, fixedCodes, dirty);
 }

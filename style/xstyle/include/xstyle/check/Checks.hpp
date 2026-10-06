@@ -54,6 +54,8 @@ _hot void libutils(const xstyle::SourceFile& file, const xstyle::ProjectInfo& pr
 _hot void python(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
 _hot void shell(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
 _hot void rust(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
+_hot void cmake(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
+_hot void comments(const xstyle::SourceFile& file, xstyle::check::Issues& issues); // cpp-comments structure
 
 /* python typing (check/typing.cpp), on the masked code */
 _hot _nodiscard xstyle::check::TypeGuess python_expression_type(const std::string& expression);

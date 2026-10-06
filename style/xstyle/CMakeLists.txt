@@ -55,6 +55,7 @@ set(SRC
     src/xstyle/Rules.cpp
     src/xstyle/Tools.cpp
     src/xstyle/Header.cpp
+    src/xstyle/Git.cpp
 
     # Core (sub-part: checks)
     src/xstyle/check/generic.cpp
@@ -62,6 +63,8 @@ set(SRC
     src/xstyle/check/libutils.cpp
     src/xstyle/check/script.cpp
     src/xstyle/check/typing.cpp
+    src/xstyle/check/cmake.cpp
+    src/xstyle/check/comments.cpp
     src/xstyle/check/rust.cpp
 )
 add_executable(${TARGET} ${SRC})
@@ -86,6 +89,8 @@ file(WRITE ${CMAKE_BINARY_DIR}/generated/xstyle/Font.hpp
 # Dependencies
 # =========================
 target_include_directories(${TARGET} PRIVATE include ${CMAKE_BINARY_DIR}/generated)
+get_filename_component(SKILLS_DIR "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE) # skills repository (libutils skill reference)
+target_compile_definitions(${TARGET} PRIVATE XSTYLE_SKILLS_DIR="${SKILLS_DIR}")
 target_link_libraries(${TARGET} PRIVATE utils::utils)
 
 # =========================

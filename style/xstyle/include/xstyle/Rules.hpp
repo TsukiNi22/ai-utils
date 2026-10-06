@@ -21,7 +21,7 @@ File Description:
     #include "XStyleType.hpp"       // xstyle::Rule, xstyle::Severity, xstyle::Language
     #include <string_view>          // std::string_view
     #include <optional>             // std::optional
-    #include <string>            // std::string
+    #include <string>               // std::string
     #include <vector>               // std::vector
 
 namespace xstyle { // namespace start

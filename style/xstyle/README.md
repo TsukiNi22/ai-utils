@@ -78,6 +78,12 @@ xstyle --fix --header default          # missing file headers with the XARTANIA 
 xstyle -f -n -c CPP -r src/core        # preview (dry run) of the C++ fixes of one directory
 xstyle -o report.md                    # report in this file (.txt, .md or .json), nothing in the terminal
 xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
+xstyle --diff                          # only the lines changed since HEAD (staged + not staged, new files)
+xstyle --diff-ref main                 # only the lines changed since a branch / tag / commit
+xstyle --staged --fix                  # only the staged lines (pre-commit hook)
+xstyle --fix --commit                  # fix, then commit the fixed files: chore(style): apply the xstyle fixes (...)
+xstyle --fix --commit-all -m "..."     # fix, then commit every tracked change with the fixes (--message for the text)
+xstyle --libutils-check                # is the libutils skill reference up to date? (exit 0 yes, 1 no)
 ```
 
 - **Paths**: files or directories given as bare arguments; with no path the current directory is scanned
@@ -113,6 +119,12 @@ xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
   Review the result with `git diff`.
 - **Hyperlinks**: the locations are OSC 8 links in the terminal (`--link file`, default), or `vscode://` links
   (`--link vscode`, opens the file at the line), `--no-color` / `NO_COLOR` for plain text.
+- **Changed lines** (`--diff`, `--diff-ref`, `--staged`): only the issues on the lines changed in git (whole file
+  issues when the file changed), with no path the changed files themselves; the fixes follow the same filter.
+- **Commit** (`--commit`, `--commit-all`, with `--fix`): the message is `chore(style): apply the xstyle fixes (N issues)`
+  with one line per rule (or `--message`). `--commit` only takes the files that had **no** change before the fixes (their
+  own changes would end up in the commit, they are listed and left), `--commit-all` takes every tracked change too.
+  Never with `--dry-run`.
 - **Exit status**: `0` clean, `1` issues left (from `--fail-on <severity>`, default every severity), `255` error.
 - **Environment**: `XSTYLE_CODES`, `XSTYLE_IGNORE`, `XSTYLE_SEVERITY`, `XSTYLE_EXCLUDE`, `XSTYLE_LIBUTILS`,
   `XSTYLE_LINK`, `XSTYLE_REPORT` give the default of the flag of the same name.
@@ -202,6 +214,15 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `CPP-ACCESS-ORDER` | negligible | - | cpp | public before private / protected in a class |
 | `CPP-SINGLE-STATEMENT` | minor | - | cpp | Single statement function defined in the .cpp, define it inline in the header |
 | `CPP-DOXYGEN` | minor | - | cpp,c | Doxygen comment (@brief, @param, ///, /**), short plain comments only |
+| `CPP-INCLUDE-COMMENT` | minor | - | cpp,c | Include of a header without its trailing comment listing what is used |
+| `CPP-COMMENT-ALIGN` | negligible | auto | cpp,c | Trailing comments of an include block not aligned on one column |
+| `CPP-EMPTY-SECTION` | minor | auto | cpp,c | Section separator / class block with nothing linked to it |
+| `CPP-ORPHAN-GROUP` | negligible | auto | cpp,c | /* group */ label with nothing under it |
+| `CMAKE-SECTION-ORDER` | minor | - | cmake | Sections not in the cmake-style order |
+| `CMAKE-BANNER` | negligible | auto | cmake | Section banner not '# ' + 25 '=' |
+| `CMAKE-COMPILER-ORDER` | major | force | cmake | set(CMAKE_CXX_COMPILER) after project(): ignored, it goes before |
+| `CMAKE-GLOB-SOURCES` | major | - | cmake | Sources collected with file(GLOB), list them in set(SRC ...) |
+| `CMAKE-UNREGISTERED` | major | force | cmake | Source file of src/ missing from set(SRC ...) |
 | `LU-INCLUDE` | major | auto | cpp | libutils header included directly, use #define _Section + <utils/utils.hpp> |
 | `LU-BARE-INCLUDE` | major | auto | cpp | <utils/utils.hpp> without any #define _Section before it |
 | `LU-SECTION` | minor | auto | cpp | libutils section used without its #define before <utils/utils.hpp> |

@@ -71,6 +71,7 @@ _hot std::vector<xstyle::Issue> xstyle::Checker::run_(const xstyle::SourceFile& 
         if (language == xstyle::Language::Python) xstyle::check::python(file, issues);
         if (language == xstyle::Language::Shell) xstyle::check::shell(file, issues);
         if (language == xstyle::Language::Rust) xstyle::check::rust(file, issues);
+        if (language == xstyle::Language::CMake) xstyle::check::cmake(file, issues);
     }
 
     // Selection: language of the rule, codes, severity, suppression comments
@@ -78,10 +79,22 @@ _hot std::vector<xstyle::Issue> xstyle::Checker::run_(const xstyle::SourceFile& 
         const xstyle::Rule* rule = xstyle::find_rule(issue.code);
         return !rule || !xstyle::rule_applies(*rule, language) || !this->selected_(issue.code, fix) || issue.severity < this->_options.minSeverity
             || (!this->_options.modes.empty() && std::find(this->_options.modes.begin(), this->_options.modes.end(), issue.mode) == this->_options.modes.end())
+            || !this->changed_(file, issue.line)
             || this->suppressed_(file, issue);
     });
     std::stable_sort(issues.begin(), issues.end(), [](const xstyle::Issue& a, const xstyle::Issue& b) {return a.line != b.line ? a.line < b.line : a.column < b.column;});
     return issues;
+}
+
+_hot bool xstyle::Checker::changed_(const xstyle::SourceFile& file, const std::size_t line) const
+{
+    // --diff / --staged: only the issues on a changed line (whole file issues: the file changed)
+    if (!this->_options.changedOnly) return true;
+    std::error_code error;
+    auto it = this->_options.changedLines.find(std::filesystem::weakly_canonical(file.getPath(), error));
+    if (it == this->_options.changedLines.end()) return false;
+    if (line == 0) return true;
+    return std::any_of(it->second.begin(), it->second.end(), [&](const std::pair<std::size_t, std::size_t>& range) {return line >= range.first && line <= range.second;});
 }
 
 /* fix */
