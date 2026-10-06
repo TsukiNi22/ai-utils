@@ -7,6 +7,11 @@ description: Audit a project for bugs in a loop - undefined behaviour, memory er
 
 `<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
 
+## libutils freshness
+First, once per conversation: the freshness check of the `libutils` skill (`bash <libutils skill>/scripts/check.sh`,
+section "Freshness check" of `libutils/SKILL.md`). Outdated -> reuse the answer already given in this conversation,
+else ask once (continue / update libutils / update the skills reference / both) and remember it.
+
 `SKILL_DIR` = the directory of this file. Main target: C/C++20 projects of the user (clang++, CMake, libutils),
 the checklist also covers other languages.
 

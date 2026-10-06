@@ -13,6 +13,11 @@ Read before writing the first file:
 The files of `examples/` (real libutils code) are the ground truth for the layout.
 `SKILL_DIR` below = the directory of this file.
 
+## libutils freshness
+First, once per conversation: the freshness check of the `libutils` skill (`bash <libutils skill>/scripts/check.sh`,
+section "Freshness check" of `libutils/SKILL.md`). Outdated -> reuse the answer already given in this conversation,
+else ask once (continue / update libutils / update the skills reference / both) and remember it.
+
 > **Architecture only: never write the content/logic of a function.** Every body is
 > `/* Nothing */` (+ the minimal `return {};` when non-void), even if the user describes the
 > behavior: it goes in a trailing comment of the declaration. The user writes the logic.

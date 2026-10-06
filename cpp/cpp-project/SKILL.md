@@ -17,6 +17,11 @@ in the other skills (workflows, exception scripts, `main.cpp`, CMake templates) 
 `readme-style`, `git-conventions` (CHANGELOG, commits, branches), `html-doc` (docs). Load each one when its step comes.
 `SKILL_DIR` = the directory of this file.
 
+## libutils freshness
+First, once per conversation: the freshness check of the `libutils` skill (`bash <libutils skill>/scripts/check.sh`,
+section "Freshness check" of `libutils/SKILL.md`). Outdated -> reuse the answer already given in this conversation,
+else ask once (continue / update libutils / update the skills reference / both) and remember it.
+
 ## 1. Ask (one AskUserQuestion call, French)
 Name (lower case, `_` preferred: the template's own `setup.sh` only accepts C++ identifiers; `-` is accepted by
 `new_project.sh`, which then uses the name without `-` as namespace) and core class (PascalCase) are usually in the
