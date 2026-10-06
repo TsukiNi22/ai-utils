@@ -1,0 +1,96 @@
+#!/bin/bash
+# xstyle pre-commit hook: style of what is committed (installed by <skills>/git/pre-commit or ./setup.sh hook install)
+#
+# xstyle missing: warning only (MISSING), issues >= FAIL_ON: commit refused, issues >= WARN_ON: warning.
+# Skip once: git commit --no-verify (or XSTYLE_HOOK=0 git commit). Fix: xstyle --fix --staged, then git add.
+
+# >>> config (rewritten by install_hook.sh) >>>
+XSTYLE_BIN="${XSTYLE_BIN:-xstyle}" # binary (XSTYLE_BIN=<path> git commit: test another one, a wrong path = missing)
+SCOPE="staged"                     # staged (only the staged lines) | files (whole staged files) | all (whole project)
+FAIL_ON="major"                    # unforgivable | major | minor | negligible | never
+WARN_ON="minor"                    # minor | negligible | none
+FIX="none"                         # none | safe (auto fixes of the fully staged files, re-added before the check)
+MISSING="warn"                     # warn | fail | ignore (xstyle not installed)
+OUTPUT="auto"                      # auto (compact under Claude Code / XSTYLE_RTK) | human | rtk
+EXTRA_ARGS=""                      # more xstyle options (-l cpp,py -e build -i G-TODO ...)
+# <<< config <<<
+
+set -uo pipefail
+[ "${XSTYLE_HOOK:-1}" = "0" ] && exit 0
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 1
+
+# The hook that was there before the install (moved to pre-commit.local) runs first
+LOCAL_HOOK="$(dirname "${BASH_SOURCE[0]}")/pre-commit.local"
+if [ -x "$LOCAL_HOOK" ]; then
+    "$LOCAL_HOOK" "$@" || exit $?
+fi
+
+# =========================
+# xstyle available?
+# =========================
+if ! command -v "$XSTYLE_BIN" > /dev/null 2>&1; then
+    case "$MISSING" in
+        fail) echo "pre-commit: xstyle not found ($XSTYLE_BIN): commit refused (MISSING=fail)" >&2; exit 1 ;;
+        ignore) exit 0 ;;
+        *) echo "pre-commit: warning: xstyle not found ($XSTYLE_BIN), style not checked (install: <skills>/setup.sh install xstyle)" >&2; exit 0 ;;
+    esac
+fi
+mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACMR)
+[ ${#STAGED[@]} -eq 0 ] && exit 0
+case "$SCOPE" in
+    files) SCOPE_ARGS=("${STAGED[@]}") ;;
+    all) SCOPE_ARGS=(-r .) ;;
+    *) SCOPE_ARGS=(--staged) ;;
+esac
+read -r -a EXTRA <<< "$EXTRA_ARGS"
+OUTPUT_ARGS=()
+if [ "$OUTPUT" = "rtk" ] || { [ "$OUTPUT" = "auto" ] && [ -n "${CLAUDECODE:-}${XSTYLE_RTK:-}" ]; }; then
+    OUTPUT_ARGS=(--rtk)
+fi
+
+# =========================
+# Safe fixes (fully staged files only: a partly staged file would get its unstaged part committed)
+# =========================
+if [ "$FIX" = "safe" ]; then
+    for file in "${STAGED[@]}"; do
+        [ -f "$file" ] || continue
+        if git diff --quiet -- "$file"; then
+            "$XSTYLE_BIN" --rtk "${EXTRA[@]}" "$file" --fix > /dev/null 2>&1 || true # --fix last: its optional value is the codes
+            git add -- "$file"
+        fi
+    done
+fi
+
+# =========================
+# Check
+# =========================
+summary="$("$XSTYLE_BIN" --rtk -S "${SCOPE_ARGS[@]}" "${EXTRA[@]}" 2>&1 | tail -1)"
+if [[ ! "$summary" =~ U([0-9]+)\ M([0-9]+)\ m([0-9]+)\ n([0-9]+) ]]; then
+    echo "pre-commit: warning: xstyle failed, style not checked: $summary" >&2
+    exit 0
+fi
+U="${BASH_REMATCH[1]}"; M="${BASH_REMATCH[2]}"; m="${BASH_REMATCH[3]}"; n="${BASH_REMATCH[4]}"
+count() { # issues of this severity and above
+    case "$1" in
+        unforgivable) echo $((U)) ;;
+        major) echo $((U + M)) ;;
+        minor) echo $((U + M + m)) ;;
+        negligible) echo $((U + M + m + n)) ;;
+        *) echo 0 ;;
+    esac
+}
+failing="$(count "$FAIL_ON")"
+warning="$(count "$WARN_ON")"
+[ "$failing" -eq 0 ] && [ "$warning" -eq 0 ] && exit 0
+
+# The issues from the lowest level reported (warnings included), then the verdict
+level="$WARN_ON"
+[ "$WARN_ON" = "none" ] && level="$FAIL_ON"
+"$XSTYLE_BIN" "${OUTPUT_ARGS[@]}" -s "$level" "${SCOPE_ARGS[@]}" "${EXTRA[@]}" >&2
+if [ "$failing" -gt 0 ]; then
+    echo "pre-commit: commit refused: $failing issue(s) of severity $FAIL_ON or above (fix: xstyle --fix --staged then git add; skip: git commit --no-verify)" >&2
+    exit 1
+fi
+echo "pre-commit: warning: $warning issue(s) of severity $WARN_ON or above, commit accepted" >&2
+exit 0

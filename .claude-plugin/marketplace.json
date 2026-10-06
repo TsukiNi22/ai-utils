@@ -123,6 +123,11 @@
       "source": "./routers/legal"
     },
     {
+      "name": "setup-project",
+      "description": "Router /setup-project: set up a whole project (architecture, tests, license, git + pre-commit hook, CI/CD, README, quick audit)",
+      "source": "./routers/setup-project"
+    },
+    {
       "name": "style",
       "description": "Router /style: Router for the user's coding style in every language",
       "source": "./routers/style"

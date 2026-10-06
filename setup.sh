@@ -12,6 +12,10 @@
 #   status               show which skills and tools are installed
 #   context <command>    global context (CLAUDE.md, RTK.md, hooks, rtk) of the 'context' branch:
 #                        install | remove | update | status [options], see its README
+#   hook [command]       xstyle pre-commit hook of the git repository of the current directory (not global):
+#                        install (default) | remove | status [--repo <dir>] [--fail-on major] [--warn-on minor]
+#                        [--scope staged|files|all] [--fix none|safe] [--missing warn|fail|ignore] [--shared] ...
+#                        (git/pre-commit/scripts/install_hook.sh --help for every option)
 #
 # Tools (<category>/<tool>/tool.txt, ex: style/xstyle): C++ programs built with CMake (clang++, libutils)
 # and installed in <prefix>/bin; a tool that can't be built is skipped with the reason, never fatal.
@@ -62,6 +66,17 @@ if [ "${1:-}" = "context" ]; then
     bash "$CTX" "$@"
     exit $?
 fi
+# =========================
+# pre-commit hook of the current repository (skill pre-commit)
+# =========================
+if [ "${1:-}" = "hook" ]; then
+    shift
+    case "${1:-}" in
+        install|remove|status|-h|--help) ;;
+        *) set -- install "$@" ;;
+    esac
+    exec bash "$REPO/git/pre-commit/scripts/install_hook.sh" "$@"
+fi
 TARGET="$HOME/.claude/skills"
 PREFIX="${SKILLS_PREFIX:-$HOME/.local}"
 TOOLS_BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/tsukini-skills/build"
@@ -79,7 +94,7 @@ TOOLS=()
 # Helpers
 # =========================
 usage() {
-    sed -n '2,31p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
+    sed -n '2,35p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 

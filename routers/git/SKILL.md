@@ -1,6 +1,6 @@
 ---
 name: git
-description: Router for git / GitHub tasks of the user - commit messages, branches, pull requests, tags, releases, CHANGELOG, repository setup, CI/CD workflows - loads git-conventions, ci-cd (and the doc skills when a README/CHANGELOG is involved). Invoke manually with /git.
+description: Router for git / GitHub tasks of the user - commit messages, branches, pull requests, tags, releases, CHANGELOG, repository setup, CI/CD workflows - loads git-conventions, ci-cd, pre-commit (and the doc skills when a README/CHANGELOG is involved). Invoke manually with /git.
 disable-model-invocation: true
 ---
 
@@ -26,6 +26,7 @@ release, PR...).
 | CHANGELOG only | `git-conventions` |
 | new repository, branch protection, gh setup | `git-conventions` (+ `cpp-project` for a new C++ project) |
 | CI / CD workflows, GitHub actions, the Docker images of the CI | `ci-cd` |
+| pre-commit hook, style checked / commits blocked locally before the commit | `pre-commit` |
 
 ## Always
 - Never commit / push / tag / release / open a PR without an explicit request in the current message: write the
