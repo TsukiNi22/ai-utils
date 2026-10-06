@@ -18,7 +18,8 @@ bash SKILL_DIR/scripts/libutils.sh install --source [<git ref>] # build from the
 ## libutils freshness
 First, once per conversation: the freshness check of the `libutils` skill (`bash <libutils skill>/scripts/check.sh`,
 section "Freshness check" of `libutils/SKILL.md`). Outdated -> reuse the answer already given in this conversation,
-else ask once (continue / update libutils / update the skills reference / both) and remember it.
+else ask once (continue / update the installed libutils with `libutils-install` / the project's requirement with
+`libutils-setup` / the skills reference) and remember it.
 
 ## What it does
 - OS from `/etc/os-release`: `rpm` family -> `dnf`, `deb` family -> `apt`, anything else -> source build

@@ -17,12 +17,18 @@ Before relying on the reference, here and in every skill that requires libutils 
 - `status: up to date` -> go on;
 - `status: unknown` (no repository, nothing installed) -> go on, say it once;
 - `status: outdated` -> **if the user already answered this question earlier in the conversation, apply that answer
-  again without asking**; otherwise ask once with AskUserQuestion, then remember the answer for the whole conversation:
-  1. continue with the current reference (say that the newer APIs / renames may be missing);
-  2. update the installed libutils (`libutils-install` skill);
-  3. update the skills reference: `bash SKILL_DIR/scripts/update.sh` (shows the changes then regenerates), then tell the
-     user the skills repository has to be committed;
-  4. both 2 and 3.
+  again without asking**; otherwise ask once (AskUserQuestion, French, `multiSelect: true`), then remember the answer
+  for the whole conversation. The updates are done **by the matching skill**, never by hand:
+  | Choice | Done by |
+  |---|---|
+  | `Continuer avec la référence actuelle` (alone) | nothing; say once that the newer APIs / renames may be missing |
+  | `Mettre à jour libutils installé` | the **`libutils-install`** skill (`libutils.sh update`, root asked by that skill, then `status`) |
+  | `Mettre à jour la version requise par le projet` (only in a project using libutils) | the **`libutils-setup`** skill (`setup_project.py <root> --version <installed version>`: `find_package(utils X.Y.Z)` bumped, rebuild) |
+  | `Mettre à jour la référence des skills` | `bash SKILL_DIR/scripts/update.sh` (shows the changes then regenerates); tell the user the skills repository has to be committed |
+  Pre-select from the lines of `check.sh`: `installed: ... (differs)` with an installed version older than the reference
+  -> `libutils-install`; repository commits after the reference or an installed version newer than it -> the reference
+  (+ `libutils-install` when the repository has a newer version than the installed one); the project's
+  `find_package(utils X.Y.Z)` older than the installed version -> `libutils-setup`.
 
 ## How to answer a libutils question
 1. `reference/index.md`: find the section / header / namespace of what is needed

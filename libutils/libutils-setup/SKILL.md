@@ -10,7 +10,8 @@ description: Set up libutils in the current C++ project - find_package(utils X.Y
 ## libutils freshness
 First, once per conversation: the freshness check of the `libutils` skill (`bash <libutils skill>/scripts/check.sh`,
 section "Freshness check" of `libutils/SKILL.md`). Outdated -> reuse the answer already given in this conversation,
-else ask once (continue / update libutils / update the skills reference / both) and remember it.
+else ask once (continue / update the installed libutils with `libutils-install` / the project's requirement with
+`libutils-setup` / the skills reference) and remember it.
 
 `SKILL_DIR` = the directory of this file.
 
