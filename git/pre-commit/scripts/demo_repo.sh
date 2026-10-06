@@ -6,6 +6,19 @@
 
 set -euo pipefail
 
+# Command running a remote setup.sh, with the download tool available: curl, else wget, else python3, else curl
+remote_setup() {
+    local url="$1" fetch
+    shift
+    if command -v curl > /dev/null 2>&1; then fetch="curl -fsSL $url"
+    elif command -v wget > /dev/null 2>&1; then fetch="wget -qO- $url"
+    elif command -v python3 > /dev/null 2>&1; then
+        fetch="python3 -c 'import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1]).read())' $url"
+    else fetch="curl -fsSL $url"
+    fi
+    echo "$fetch | bash${*:+ -s -- $*}"
+}
+
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR="${1:-/tmp/xstyle-hook-demo}"
 [[ $# -gt 0 ]] && shift
@@ -58,10 +71,15 @@ Hook: `.git/hooks/pre-commit` (config block at its top). Each scenario is indepe
 | xstyle missing | `XSTYLE_BIN=/nonexistent git commit -m major` | warning "xstyle not found", commit accepted |
 | skip once | `git commit --no-verify -m major` or `XSTYLE_HOOK=0 git commit ...` | no check |
 | only staged lines | edit a committed file, stage one line | only the staged lines are checked |
-| other config | `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh \| bash -s -- hook --fail-on minor` (or `--fix safe`, `--scope files`, `--missing fail`...) | new behavior |
-| state | `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh \| bash -s -- hook status` | config of the hook |
+| other config | `{{SETUP}} hook --fail-on minor` (or `--fix safe`, `--scope files`, `--missing fail`...) | new behavior |
+| state | `{{SETUP}} hook status` | config of the hook |
 
-Undo the last commit to retry: `git reset --soft HEAD~1`. Recreate everything: `demo_repo.sh` again (or `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh \| bash -s -- hook` in a new repository).
+Undo the last commit to retry: `git reset --soft HEAD~1`. Recreate everything: `demo_repo.sh` again (or `{{SETUP}} hook` in a new repository).
 EOF
+# Remote setup command of this machine in the scenarios ('|' escaped in the Markdown table)
+setup="$(remote_setup https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh)"
+setup="${setup% | bash} \\| bash -s --"
+content="$(< TRY.md)"
+printf '%s\n' "${content//\{\{SETUP\}\}/$setup}" > TRY.md
 "$SELF_DIR/install_hook.sh" install "$@" | sed 's/^/ /'
 echo "Demo repository ready: $DIR (scenarios in $DIR/TRY.md)"

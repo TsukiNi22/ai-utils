@@ -203,7 +203,7 @@ Lookup order before writing any attribute:
   `_nodiscard` on every getter and function whose result matters.
 
 ## Checking
-`xstyle` (`style/xstyle` of the skills repository, installed by `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle`) checks this style,
+`xstyle` (`style/xstyle` of the skills repository, installed by `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle` (no curl: `wget -qO-` instead of `curl -fsSL`)) checks this style,
 `cpp-comments` / `cpp-class` layout points and the libutils usage (`LU-*` rules), with a severity per rule and the fix
 proposed. When it is installed (`command -v xstyle`), run it on the files written or reviewed and fix what it
 reports: `xstyle --rtk <files|dirs> -r`, `xstyle --rtk --fix [CODES] <paths>` (preview with `-n`), `xstyle -x CODE` explains a

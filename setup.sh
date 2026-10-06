@@ -3,6 +3,7 @@
 #
 # Usage: ./setup.sh <command> [name...] [options]
 #        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- <command> ...
+#        wget -qO- https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- <command> ...
 #
 # Commands:
 #   install [name...]    install the given skills / tools and their requirements (default: all)
@@ -62,7 +63,8 @@ if [ "${1:-}" = "context" ]; then
     CTX="$(mktemp)"
     trap 'rm -f "$CTX"' EXIT
     if git -C "$REPO" fetch -q origin context 2> /dev/null && git -C "$REPO" show origin/context:setup.sh > "$CTX" 2> /dev/null; then :
-    else curl -fsSL "https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh" -o "$CTX"; fi
+    elif command -v curl > /dev/null 2>&1; then curl -fsSL "https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh" -o "$CTX"
+    else wget -qO "$CTX" "https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh"; fi
     bash "$CTX" "$@"
     exit $?
 fi
@@ -93,6 +95,19 @@ TOOLS=()
 # =========================
 # Helpers
 # =========================
+# Command running a remote setup.sh, with the download tool available: curl, else wget, else python3, else curl
+remote_setup() {
+    local url="$1" fetch
+    shift
+    if command -v curl > /dev/null 2>&1; then fetch="curl -fsSL $url"
+    elif command -v wget > /dev/null 2>&1; then fetch="wget -qO- $url"
+    elif command -v python3 > /dev/null 2>&1; then
+        fetch="python3 -c 'import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1]).read())' $url"
+    else fetch="curl -fsSL $url"
+    fi
+    echo "$fetch | bash${*:+ -s -- $*}"
+}
+
 usage() {
     sed -n '2,35p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
@@ -152,7 +167,7 @@ install_tool() {
     echo "  building $tool (log: $log)..."
     if ! cmake -S "$dir" -B "$build" -DCMAKE_BUILD_TYPE=Optimized > "$log" 2>&1; then
         if grep -q "utils" "$log"; then
-            echo "  skip $tool: libutils is required (install: curl -fsSL https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh | bash)"
+            echo "  skip $tool: libutils is required (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh))"
         else
             echo "  skip $tool: CMake configuration failed, see $log"
         fi

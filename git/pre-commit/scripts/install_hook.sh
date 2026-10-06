@@ -29,6 +29,19 @@ FORCE=false
 COMMAND=""
 declare -A CONFIG=()
 
+# Command running a remote setup.sh, with the download tool available: curl, else wget, else python3, else curl
+remote_setup() {
+    local url="$1" fetch
+    shift
+    if command -v curl > /dev/null 2>&1; then fetch="curl -fsSL $url"
+    elif command -v wget > /dev/null 2>&1; then fetch="wget -qO- $url"
+    elif command -v python3 > /dev/null 2>&1; then
+        fetch="python3 -c 'import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1]).read())' $url"
+    else fetch="curl -fsSL $url"
+    fi
+    echo "$fetch | bash${*:+ -s -- $*}"
+}
+
 usage() {
     sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
@@ -122,7 +135,7 @@ case "$COMMAND" in
         else echo "Hook:       not installed"
         fi
         if command -v xstyle > /dev/null 2>&1; then echo "xstyle:     $(xstyle --version)"
-        else echo "xstyle:     not installed (the hook only warns; install: curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle)"
+        else echo "xstyle:     not installed (the hook only warns; install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh install xstyle))"
         fi
         ;;
 
@@ -151,7 +164,7 @@ case "$COMMAND" in
             echo "  warning: core.hooksPath=$CURRENT_PATH: git ignores $HOOKS (--shared, or git config --unset core.hooksPath)"
         fi
         echo "  installed $HOOK"
-        command -v xstyle > /dev/null 2>&1 || echo "  warning: xstyle is not installed: the hook only warns (install: curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle)"
+        command -v xstyle > /dev/null 2>&1 || echo "  warning: xstyle is not installed: the hook only warns (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh install xstyle))"
         ;;
 
     remove)

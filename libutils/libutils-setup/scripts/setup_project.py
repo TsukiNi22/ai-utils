@@ -58,6 +58,15 @@ add_custom_target(generated_external_exception_header
 '''
 
 
+def remote_setup(url: str) -> str:
+    """Command running a remote setup.sh with the download tool available: curl, else wget, else python3, else curl."""
+    if shutil.which("curl") or not (shutil.which("wget") or shutil.which("python3")):
+        return f"curl -fsSL {url} | bash"
+    if shutil.which("wget"):
+        return f"wget -qO- {url} | bash"
+    return f"python3 -c 'import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1]).read())' {url} | bash"
+
+
 def installed_version() -> str | None:
     found = []
     for d in ("/usr/local/include", "/usr/include"):
@@ -132,7 +141,7 @@ def main() -> int:
         print(f"Error: no CMakeLists.txt in {root}", file=sys.stderr); return 1
     version = a.version or installed_version()
     if not version:
-        print("Error: libutils is not installed: install it (curl -fsSL https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh | bash) or give --version",
+        print(f"Error: libutils is not installed: install it ({remote_setup('https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh')}) or give --version",
               file=sys.stderr); return 2
     text = open(cmake, encoding="utf-8").read()
     lines = text.split("\n")
