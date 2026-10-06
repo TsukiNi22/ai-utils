@@ -25,7 +25,7 @@ release, PR...).
 | pull request (team project only) | `git-conventions` |
 | CHANGELOG only | `git-conventions` |
 | new repository, branch protection, gh setup | `git-conventions` (+ `cpp-project` for a new C++ project) |
-| CI / CD workflows, GitHub actions, the Docker images of the CI | `ci-workflows` |
+| CI / CD workflows, GitHub actions, the Docker images of the CI | `ci-cd` |
 
 ## Always
 - Never commit / push / tag / release / open a PR without an explicit request in the current message: write the

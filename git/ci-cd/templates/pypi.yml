@@ -1,0 +1,35 @@
+name: Python - PyPI (CD)
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ${{ vars.RUNNER }}
+    environment: pypi # trusted publishing: configure the project on pypi.org (no token stored)
+    permissions:
+      id-token: write
+
+    container:
+      image: python:{{PYTHON_VERSION}}-slim
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Build the distributions
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Check the version of the tag
+        run: |
+          set -euo pipefail
+          ls dist | grep -q -- "-${GITHUB_REF_NAME#v}" || { echo "::error title=Version::dist/ does not match $GITHUB_REF_NAME"; exit 1; }
+
+      - name: Publish on PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

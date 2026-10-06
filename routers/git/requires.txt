@@ -1,2 +1,2 @@
 git-conventions
-ci-workflows
+ci-cd

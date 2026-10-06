@@ -16,8 +16,11 @@ python3 SKILL_DIR/scripts/new_project.py <name> --kind script|app|package --dir 
   `Script seul`.
 - **Nom** (folder, distribution and command name; the package is the name in lower case with `_`), **description**,
   **version Python minimale** (default: the installed one, `python3 --version`, at least 3.10 for `X | None`).
-- **Extras** (multiSelect): `Tests pytest` · `CI (ci-workflows)` · `README (readme-style)` · `Licence (license)` ·
-  `git init + premier commit (git-conventions)`.
+- **Extras** (multiSelect): `Tests pytest` · `README (readme-style)` · `Licence (license)` ·
+  `git init + premier commit (git-conventions)` · `Dépôt GitHub (gh repo create)`.
+- **CI/CD**: when the project is (or becomes) a GitHub repository (`git remote -v` shows `github.com`, or the
+  `Dépôt GitHub` extra), the **`ci-cd` skill** is loaded after the generation: it asks what to run (tests, style,
+  coverage, PyPI, release...) and writes the workflows (`templates/python.yml`, `pypi.yml`, `release.yml`).
 
 ## 2. Layouts
 | Kind | Files | Run |
@@ -46,5 +49,6 @@ Every kind gets `.gitignore` (venv, caches, build outputs) and a `README.md` stu
 1. Fill `const.py` (names, files, values), write the code with `python-style`, one module per concern.
 2. Tests: `tests/test_<module>.py` with `pytest` (the `tests` skill for more), run them in the venv.
 3. Check: `xstyle -r .` (generic + `PY-*` rules), fix with `xstyle --fix`.
-4. Extras chosen: `readme-style`, `license`, `ci-workflows` (`templates/python.yml`), `git-conventions` (first commit
+4. Extras chosen: `readme-style`, `license`, `git-conventions` (first commit
    `feat: initial version of <name>` only if the user asked for the commit).
+5. GitHub repository (remote on github.com): `ci-cd` for the CI/CD (always asked there, never skipped silently).

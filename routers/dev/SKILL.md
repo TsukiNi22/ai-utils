@@ -39,7 +39,7 @@ The category routers (`cpp`, `git`, `doc`, `style`, `legal`, `audit`) are manual
 | unit tests (C++: GoogleTest like libutils) | `cpp-tests` (C++) or `tests` (any language, asks the framework) | `cpp` |
 | test coverage: measure, what is not tested, fill it | `coverage` (C++, cpp-tests projects) | `audit` |
 | performance: benchmark, profiling, what is slow, optimize | `benchmark` | `audit` |
-| CI / CD, GitHub workflows, actions, Docker images of the CI | `ci-workflows` | `git` |
+| CI / CD, GitHub workflows, actions, Docker images of the CI | `ci-cd` | `git` |
 | several / all audits of the project at once | follow the `audit` router (checklist of audits + format) | `audit` |
 | bugs / UB / crashes / sanitizers audit | `audit-bugs` | `cpp` |
 | cleanliness / conventions audit with a PDF report | `audit-quality` | `style` |

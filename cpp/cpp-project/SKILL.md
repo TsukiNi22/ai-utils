@@ -29,8 +29,8 @@ Name (lower case, `_` preferred: the template's own `setup.sh` only accepts C++ 
 request: ask in plain text if missing.
 1. **Type de projet**: `Binaire` · `Binaire + paquets RPM/DEB` · `Bibliothèque (.a / .so, installable)` · `Header-only`.
    For a library, ask after: static `.a` (default) or shared `.so`, and with or without packages.
-2. **CI/CD**: `Build simple (Recommandé)` (build check on push) · `Complète` (dispatch, unit tests, packages,
-   signed RPM/DEB mirror on gh-pages) · `Aucune`.
+2. **CI/CD** (GitHub repository only, see section 6): `Build simple (Recommandé)` (build check on push) · `Complète`
+   (dispatch, unit tests, packages, signed RPM/DEB mirror on gh-pages) · `Personnalisée (ci-cd)` · `Aucune`.
 3. **libutils**: `Oui (Recommandé)` · `Non`.
 4. **Extras** (multiSelect): `Tests GTest` · `Doc HTML` · `README + CHANGELOG` · `Dépôt GitHub (git init + gh)`.
 Plus the header banner question of `cpp-class` (once, reused for every generated file).
@@ -67,6 +67,11 @@ generated header (see `libutils-exception`), otherwise use the `InternalCode` of
 in `.gitignore`.
 
 ## 6. CI/CD (`templates/workflows/`, placeholders `{{NAME}}`, `{{NAME_UPPER}}` (`-` -> `_`), `{{DNF_DEPS}}`)
+**When the project is a GitHub repository** (`git remote -v` shows `github.com`, or the `Dépôt GitHub` extra was chosen),
+this step is done with the **`ci-cd` skill** (load it): it asks what the CI/CD must run (the `Build simple` / `Complète`
+answer pre-selects its choices: build / build + tests + packages + dispatch), adds the style check (xstyle), the
+coverage and the CD parts (release from the CHANGELOG...) when chosen, and uses the workflows of the table below for the
+C/C++ parts. Without GitHub (local project, other forge): no workflow, say it.
 | Choice | Workflows (`.github/workflows/`) |
 |---|---|
 | Build simple | `build.yml` (already in the template, renamed): build with `make re` + check the executable. Library: `build-libraries.yml` triggered on push (replace `workflow_dispatch` by `push: branches: [main]`). |

@@ -1,0 +1,50 @@
+name: Release - GitHub (CD)
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/tsukini22/git:latest # git / wget, gh installed below only if missing
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Release notes (section of the tag in CHANGELOG.md)
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" {found = 1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error title=Release notes,file=CHANGELOG.md::no section '## [$version]' in CHANGELOG.md"
+            exit 1
+          fi
+          echo "✓ notes of $GITHUB_REF_NAME ok"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          command -v gh > /dev/null || dnf install -y gh
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          prerelease=()
+          case "$GITHUB_REF_NAME" in *-pre*) prerelease=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md "${prerelease[@]}" {{ASSETS}}
