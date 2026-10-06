@@ -73,11 +73,12 @@ Everything is based on my own work, mainly [libutils](https://github.com/TsukiNi
 ## Tools
 
 Programs stored next to the skills they enforce, built and installed by the same `setup.sh` (binary in
-`~/.local/bin`, `--prefix <dir>` to change it).
+`~/.local/bin`, `--prefix <dir>` to change it), and the web tools published on the `gh-pages` branch.
 
 | Tool | Description |
 |---|---|
 | [`xstyle`](style/xstyle/README.md) | C++20 / libutils checker and fixer of my coding style (C++ first, then Python, shell, Rust and the generic rules): issues with file, line, hyperlink, rule and proposed fix, summary by severity (unforgivable / major / minor / negligible) and by rule, `--fix` for every fixable rule or only some codes, files or directories, libutils rules (sections, attributes, deprecated names, code libutils already gives) when libutils is installed and used, CMake and comment layout rules, `--diff` / `--staged` (changed lines only, pre-commit hook), `--commit` of the fixes, `--libutils-check`, bash / zsh / fish completion. Requires libutils, clang++ and CMake. |
+| [Graph explorer](https://tsukini22.github.io/skills/) | Web page (branch [`gh-pages`](https://github.com/TsukiNi22/skills/tree/gh-pages), nothing to install): the project graph of [`html-doc`](docs/html-doc/SKILL.md) for any public GitHub / GitLab repository (`?repo=owner/name`), see [Graph explorer](#graph-explorer). |
 
 ## Installation
 
