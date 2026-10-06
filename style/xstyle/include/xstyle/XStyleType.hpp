@@ -55,6 +55,7 @@ enum class FixMode: std::uint8_t {
     Manual, // hint only
     Auto, // safe fix, applied by --fix
     Force, // can change the behavior, applied by --fix --force
+    Dangerous, // guessed (types...), can be wrong: applied by --fix --dangerous-force
     Ask, // applied by --fix after a question (or the matching option)
 };
 
@@ -93,6 +94,7 @@ struct Fix {
     std::size_t count = 1; // number of replaced lines (0 = insertion before line)
     std::vector<std::string> lines; // new content
     bool unsafe = false; // can change the behavior: only with --force
+    bool dangerous = false; // guessed, can be wrong: only with --dangerous-force
 };
 
 struct Issue {
@@ -139,6 +141,7 @@ struct Options {
     bool fix = false;
     bool dryRun = false;
     bool force = false; // also the fixes that can change the behavior
+    bool dangerous = false; // also the guessed fixes (implies force)
     std::optional<std::string> header; // banner of the missing file headers: none | default | <text> (asked when not given)
     std::string headerDescription; // empty = default description
     std::vector<std::string> fixCodes; // empty = every fixable code

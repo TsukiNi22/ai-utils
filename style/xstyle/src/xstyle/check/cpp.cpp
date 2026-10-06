@@ -551,15 +551,17 @@ _hot static void casts_(const xstyle::SourceFile& file, xstyle::check::Issues& i
                 }
             }
             const bool pointerCast = type.find('*') != std::string::npos;
-            if (end == std::string::npos || end == start || pointerCast) {
+            if (end == std::string::npos || end == start) {
                 issues.push_back(xstyle::check::make_issue(file, i, open, "CPP-C-CAST", "C cast (" + type + ")",
                     pointerCast ? "static_cast<" + type + "> (from void*) or reinterpret_cast<" + type + ">" : "static_cast<" + type + ">(...)"));
                 continue;
             }
             std::string operand = lines[i].substr(start, end - start);
             if (parenthesized) operand = operand.substr(1, operand.size() - 2);
-            issues.push_back(xstyle::check::make_issue(file, i, open, "CPP-C-CAST", "C cast (" + type + ")", "",
-                xstyle::check::replace_line(i, lines[i].substr(0, open) + "static_cast<" + type + ">(" + operand + ")" + lines[i].substr(end))));
+            // A pointer cast may need reinterpret_cast: static_cast is a guess (a wrong one doesn't compile, it never runs wrong)
+            xstyle::Fix fix = xstyle::check::replace_line(i, lines[i].substr(0, open) + "static_cast<" + type + ">(" + operand + ")" + lines[i].substr(end));
+            fix.dangerous = pointerCast;
+            issues.push_back(xstyle::check::make_issue(file, i, open, "CPP-C-CAST", "C cast (" + type + ")" + (pointerCast ? ", static_cast guessed (reinterpret_cast if it doesn't compile)" : ""), "", fix));
         }
     }
 }

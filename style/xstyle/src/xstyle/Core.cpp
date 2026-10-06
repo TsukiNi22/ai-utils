@@ -89,9 +89,9 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("top", {"t", "", "top", ""}, {}, "Only the most used language of the files found");
     this->_parser.setFlag("mode", {"m", "", "mode", "XSTYLE_MODES"}, {{"levels", true, [](const std::string& v) -> std::optional<std::string> {
         for (const std::string& part: xstyle::split(v, ','))
-            if (!xstyle::parse_fix_mode(part)) return "'" + part + "' is not a fix level: auto | force | ask | manual";
+            if (!xstyle::parse_fix_mode(part)) return "'" + part + "' is not a fix level: auto | force | dangerous | ask | manual";
         return std::nullopt;
-    }}}, "Only the issues of these fix levels, comma separated: auto, force, ask, manual (--fix included)");
+    }}}, "Only the issues of these fix levels, comma separated: auto, force, dangerous, ask, manual (--fix included)");
     this->_parser.setFlag("libutils", {"u", "", "libutils", "XSTYLE_LIBUTILS"}, {{"mode", true, [](const std::string& v) {return choice_hook_(v, {"auto", "on", "off"});}}},
         "libutils rules: auto (installed and used by the project, default) | on | off");
 
@@ -99,6 +99,8 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("fix", {"f", "", "fix", ""}, {{"codes", false, codes}}, "Fix what can be fixed automatically (only the given codes / prefixes when given)");
     this->_parser.setFlag("dry", {"n", "", "dry-run", ""}, {}, "With --fix: show the changes without writing the files");
     this->_parser.setFlag("force", {"", "", "force", ""}, {}, "With --fix: also the [force-fix] fixes, that can change the behavior (set -euo pipefail, encoding...)");
+    this->_parser.setFlag("dangerous", {"", "", "dangerous-force", ""}, {},
+        "With --fix: also the [danger-fix] fixes, guessed and possibly wrong (types guessed from the usage, pointer casts...), implies --force");
     this->_parser.setFlag("header", {"", "", "header", "XSTYLE_HEADER"}, {{"banner", true, utils::arguments::defaultTrueParsingHook}},
         "With --fix: banner of the missing file headers: none | default (XARTANIA) | <text> (asked per file when not given)");
     this->_parser.setFlag("headerdesc", {"", "", "header-desc", ""}, {{"text", true, utils::arguments::defaultTrueParsingHook}},
@@ -124,7 +126,7 @@ _cold void xstyle::Core::setup_(void)
     // Help in the order of the sections (the default one follows the hash order)
     this->_sections = {
         {"SELECTION", {"recursive", "code", "ignore", "severity", "mode", "fail", "exclude", "lang", "top", "libutils"}},
-        {"FIX", {"fix", "dry", "force", "header", "headerdesc"}},
+        {"FIX", {"fix", "dry", "force", "dangerous", "header", "headerdesc"}},
         {"OUTPUT", {"report", "format", "summary", "color", "link"}},
         {"INFORMATION", {"list", "explain", "version", "completion"}},
     };
@@ -181,6 +183,7 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "fix") this->_options.fix = true;
     else if (id == "dry") this->_options.dryRun = true;
     else if (id == "force") this->_options.force = true;
+    else if (id == "dangerous") this->_options.dangerous = this->_options.force = true;
     else if (id == "header") this->_options.header = value;
     else if (id == "headerdesc") this->_options.headerDescription = value;
     else if (id == "report") this->_options.report = std::filesystem::path(value);

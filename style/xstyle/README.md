@@ -73,6 +73,7 @@ xstyle -l cpp,rs                       # only the C++ and Rust files (-t: only t
 xstyle --fix                           # fix everything that can be fixed
 xstyle --fix CPP-NULL,G-TRAILING src   # fix only these rules, only in src
 xstyle --fix --force                   # also the [force-fix] ones (can change the behavior: check with -n first)
+xstyle --fix --dangerous-force         # also the [danger-fix] ones: guessed (types from the usage...), can be wrong
 xstyle --fix --header default          # missing file headers with the XARTANIA banner (none | default | <text>), no question
 xstyle -f -n -c CPP -r src/core        # preview (dry run) of the C++ fixes of one directory
 xstyle -o report.md                    # report in this file (.txt, .md or .json), nothing in the terminal
@@ -88,15 +89,23 @@ xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
   |---|---|---|
   | `[auto-fix]` | `--fix` | safe, the behavior can't change (spaces, includes order, `nullptr`, `[ ]` -> `[[ ]]` when equivalent...) |
   | `[force-fix]` | `--fix --force` | can change the behavior: `set -euo pipefail` (a failing command now stops the script), `encoding="utf-8"` (a file in another encoding now fails), `[ a -o b ]` / unquoted patterns, a comment replaced; preview with `-n` |
+  | `[danger-fix]` | `--fix --dangerous-force` (implies `--force`) | guessed, can be wrong: Python types guessed from the usage / the name / a local variable, `T \| None` (Python 3.10+), `static_cast` of a C pointer cast (`reinterpret_cast` needed if it doesn't compile) |
   | `[ask-fix]` | `--fix` + a question | the missing file header: banner `[n]one`, `[d]efault` (XARTANIA) or `[t]ext` + description, per file (upper case answer: same for the next files); `--header none\|default\|<text>` and `--header-desc "..."` answer without question (CI, no terminal: skipped) |
   | `[manual]` | by hand | needs a decision a tool can't take (a type to write, a name to choose, a code to rewrite with libutils...) |
 
-  Python type hints are added only when the type is certain: a literal default (`level=2` -> `level: int = 2`),
-  `-> None` without any `return value` / `yield`, `-> bool` / `int` / `str`... when every `return` gives a literal of the
-  same type; the other parameters stay `[manual]` (listed as "by hand" in the message). A stub (`...`,
-  `raise NotImplementedError`) or a generator is never typed.
+  Python type hints, per parameter / return:
+  - **certain** (`[auto-fix]`): a literal default (`level=2` -> `level: int = 2`), `-> None` without any `return value` /
+    `yield`, every `return` of the same certain type: literal, display (`[...]` list, `{...}` dict / set, `(a, b)` tuple),
+    builtin (`len()` int, `str()`, `isinstance()` bool...), stdlib (`os.path.join()` str, `os.path.exists()` bool...),
+    `not` / `is` / `in` (bool), `"text" + x` (str);
+  - **guessed** (`[danger-fix]`): from the usage in the body (`x.split()` str, `x.append()` list, `x.items()` dict,
+    `open(x)` str, `range(x)` int), from the name (`is_*` / `verbose` bool, `*_path` / `name` str, `count` / `size` int),
+    a local variable assigned once (`parts = line.split(",")` then `return parts`), comparisons `==` / `<` (bool, can be
+    overloaded), methods on an unknown value (`x.strip()` str), `T | None`;
+  - **unknown** (`[manual]`, listed as "by hand"): anything else; a stub (`...`, `raise NotImplementedError`) or a
+    generator is never typed.
 
-- **Filter by level**: `-m auto,force,ask,manual` (one or several, `forced` accepted) keeps only those issues, in the
+- **Filter by level**: `-m auto,force,dangerous,ask,manual` (one or several, `forced` / `danger` accepted) keeps only those issues, in the
   display, the counters, the report and `--fix` (`xstyle --fix --force -m auto` applies only the safe fixes).
 - **Templates**: a file with `{{NAME}}` placeholders is not valid code yet, only the generic rules are checked there.
 - **Fix**: the fixes are applied in passes (a fix can reveal another issue: `[[nodiscard]]` -> `_nodiscard` ->

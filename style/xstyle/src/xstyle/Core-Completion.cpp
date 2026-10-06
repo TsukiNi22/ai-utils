@@ -47,7 +47,7 @@ _cold void xstyle::Core::completion_(void) const
     };
     const std::string levels = "unforgivable major minor negligible";
     const std::string prefixes = "G CPP LU PY SH RS";
-    const std::string modes = "auto force ask manual";
+    const std::string modes = "auto force dangerous ask manual";
     std::string languages;
     for (std::uint8_t i = 0; i < static_cast<std::uint8_t>(xstyle::Language::Other); ++i)
         languages += (languages.empty() ? "" : " ") + std::string(xstyle::language_id(static_cast<xstyle::Language>(i)));

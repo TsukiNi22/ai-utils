@@ -186,6 +186,7 @@ _cold std::string_view xstyle::fix_mode_name(const xstyle::FixMode mode)
     switch (mode) {
         case xstyle::FixMode::Auto:  return "auto";
         case xstyle::FixMode::Force: return "force";
+        case xstyle::FixMode::Dangerous: return "dangerous";
         case xstyle::FixMode::Ask:   return "ask";
         default:                     return "-";
     }
@@ -197,6 +198,7 @@ _cold std::optional<xstyle::FixMode> xstyle::parse_fix_mode(const std::string& n
     if (lower == "auto" || lower == "auto-fix") return xstyle::FixMode::Auto;
     if (lower == "force" || lower == "forced" || lower == "force-fix") return xstyle::FixMode::Force;
     if (lower == "ask" || lower == "ask-fix") return xstyle::FixMode::Ask;
+    if (lower == "dangerous" || lower == "danger" || lower == "danger-fix") return xstyle::FixMode::Dangerous;
     if (lower == "manual" || lower == "hint") return xstyle::FixMode::Manual;
     return std::nullopt;
 }

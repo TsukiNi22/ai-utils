@@ -14,6 +14,8 @@ File Description:
 #include <utils/utils.hpp>
 #include "xstyle/check/Checks.hpp"
 #include "xstyle/Tools.hpp"
+#include <functional>
+#include <algorithm>
 #include <regex>
 
 /* tools */
@@ -51,66 +53,6 @@ _hot static std::string stderr_write_(const std::string& code, const std::string
     return line.substr(0, start) + stream + ".write(" + text + ")" + line.substr(end);
 }
 
-_hot static std::string literal_type_(const std::string& masked) // type of a simple literal (empty: anything else), on the masked code
-{
-    static const std::regex integer(R"(^[-+]?(?:\d[\d_]*|0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+)$)");
-    static const std::regex real(R"(^[-+]?(?:\d[\d_]*\.\d*|\.\d+)(?:[eE][-+]?\d+)?$|^[-+]?\d+[eE][-+]?\d+$)");
-    static const std::regex text(R"(^([rRuUfFbB]{0,2})("|')\s*\2$)"); // contents masked: one literal only
-    const std::string value = xstyle::trim(masked);
-    std::smatch match;
-
-    if (value == "True" || value == "False") return "bool";
-    if (std::regex_match(value, integer)) return "int";
-    if (std::regex_match(value, real)) return "float";
-    if (std::regex_match(value, match, text)) return xstyle::lower(match[1].str()).find('b') != std::string::npos ? "bytes" : "str";
-    return "";
-}
-
-_hot static std::string return_type_(const std::vector<std::string>& code, const std::size_t def, const std::string& inlineBody) // return type when it is certain (empty: unknown)
-{
-    static const std::regex returnValue(R"((?:^|[:;]\s*)return\b(.*)$)");
-    static const std::regex yield(R"(\byield\b)");
-    static const std::regex nested(R"(^\s*(?:async\s+)?(?:def|class)\b)");
-    const std::size_t indent = xstyle::indentation(code[def]).size();
-    std::size_t skipBelow = std::string::npos; // body of a nested function / class
-    std::vector<std::string> types;
-    bool valued = false;
-    bool first = true;
-
-    // Body on the def line (def f(x): ...), else the indented lines below it
-    std::vector<std::string> body;
-    if (!xstyle::is_blank(inlineBody)) body.push_back(inlineBody);
-    for (std::size_t j = def + 1; j < code.size() && xstyle::is_blank(inlineBody); ++j) {
-        if (xstyle::is_blank(code[j])) continue;
-        const std::size_t level = xstyle::indentation(code[j]).size();
-        if (level <= indent) break;
-        if (skipBelow != std::string::npos && level > skipBelow) continue;
-        skipBelow = std::string::npos;
-        if (std::regex_search(code[j], nested)) skipBelow = level;
-        body.push_back(skipBelow == level ? "def" : code[j]);
-    }
-
-    for (const std::string& statement: body) {
-        const std::string line = xstyle::trim(statement);
-        // Stub / abstract body: the return type is the one of the implementations
-        if (first && (line == "..." || line.starts_with("raise NotImplementedError"))) return "";
-        first = false;
-        if (line == "def") continue; // nested function / class: its returns are not ours
-        if (std::regex_search(line, yield)) return ""; // generator
-        std::smatch match;
-        if (!std::regex_search(line, match, returnValue)) continue;
-        std::string value = xstyle::trim(match[1].str());
-        if (value.ends_with(";")) value.pop_back();
-        if (value.empty() || value == "None") continue;
-        valued = true;
-        types.push_back(literal_type_(value));
-    }
-    if (!valued) return "None";
-    for (const std::string& type: types)
-        if (type.empty() || type != types[0]) return "";
-    return types[0];
-}
-
 /* checks */
 _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::Issues& issues)
 {
@@ -122,6 +64,7 @@ _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::I
     static const std::regex binaryMode(R"(['"][rwax+]*b[rwax+]*['"])");
     const std::vector<std::string>& lines = file.getLines();
     const std::vector<std::string>& code = file.getCode();
+    const bool future = std::any_of(code.begin(), code.end(), [](const std::string& line) {return line.find("from __future__ import annotations") != std::string::npos;});
 
     for (std::size_t i = 0; i < code.size(); ++i) {
         std::smatch match;
@@ -139,7 +82,7 @@ _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::I
                 issues.push_back(xstyle::check::make_issue(file, i, column, "PY-PRINT-ERROR", "Error printed with print(file=stderr)", "", xstyle::check::replace_line(i, fixed)));
         }
 
-        // Type hints on every parameter and on the return (added when certain: literal defaults, None / literal returns)
+        // Type hints: the certain ones are [auto-fix], the guessed ones [danger-fix], the others by hand
         if (std::regex_search(code[i], match, definition)) {
             const std::string name = match[1].str();
             const std::size_t open = static_cast<std::size_t>(match.position(2));
@@ -157,14 +100,18 @@ _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::I
                 }
             }
             std::vector<std::string> missing;
+            std::vector<std::string> guessed;
             std::vector<std::string> unknown;
-            std::string fixed = lines[i];
-            const std::string inlineBody = code[i].substr(static_cast<std::size_t>(match.position(0) + match.length(0)));
-            const std::string returnType = !match[3].matched && name != "__init__" ? return_type_(code, i, inlineBody) : "";
+            std::string certainLine = lines[i]; // only the certain hints
+            std::string guessedLine = lines[i]; // certain + guessed hints
             if (!match[3].matched && name != "__init__") {
+                const std::string inlineBody = code[i].substr(static_cast<std::size_t>(match.position(0) + match.length(0)));
+                const xstyle::check::TypeGuess type = xstyle::check::python_return_type(code, i, inlineBody, future);
                 missing.push_back("return");
-                if (returnType.empty()) unknown.push_back("return");
-                else fixed.insert(close + 1, " -> " + returnType);
+                if (type.type.empty()) unknown.push_back("return");
+                else if (!type.certain) guessed.push_back("return (" + type.type + ")");
+                if (type.certain) certainLine.insert(close + 1, " -> " + type.type);
+                if (!type.type.empty()) guessedLine.insert(close + 1, " -> " + type.type);
             }
             for (std::size_t p = spans.size(); p > 0; --p) {
                 const auto &[a, b] = spans[p - 1];
@@ -174,27 +121,39 @@ _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::I
                 const std::string declaration = xstyle::trim(masked.substr(0, equal));
                 if (parameter == "self" || parameter == "cls" || parameter == "*" || parameter == "/" || declaration.find(':') != std::string::npos) continue;
                 missing.insert(missing.begin(), declaration);
-                const std::string type = equal == std::string::npos || declaration.starts_with("*") ? "" : literal_type_(masked.substr(equal + 1));
-                if (type.empty()) {
+                const xstyle::check::TypeGuess type = declaration.starts_with("*") ? xstyle::check::TypeGuess{}
+                    : xstyle::check::python_parameter_type(code, i, declaration, equal == std::string::npos ? "" : masked.substr(equal + 1));
+                if (type.type.empty()) {
                     unknown.insert(unknown.begin(), declaration);
                     continue;
                 }
-                const std::string value = xstyle::trim(lines[i].substr(a + equal + 1, b - a - equal - 1));
+                if (!type.certain) guessed.insert(guessed.begin(), declaration + " (" + type.type + ")");
                 const std::string spacing = lines[i].substr(a, masked.find_first_not_of(" \t"));
-                fixed.replace(a, b - a, spacing + declaration + ": " + type + " = " + value);
+                const std::string value = equal == std::string::npos ? "" : " = " + xstyle::trim(lines[i].substr(a + equal + 1, b - a - equal - 1));
+                const std::string annotated = spacing + declaration + ": " + type.type + value;
+                if (type.certain) certainLine.replace(a, b - a, annotated);
+                guessedLine.replace(a, b - a, annotated);
             }
             if (!missing.empty()) {
-                std::string list;
-                for (const std::string& m: missing)
-                    list += (list.empty() ? "" : ", ") + m;
-                std::string left;
-                for (const std::string& u: unknown)
-                    left += (left.empty() ? "" : ", ") + u;
-                const std::string message = "No type hint for: " + list + " (" + name + ")" + (unknown.size() < missing.size() && !unknown.empty() ? ", by hand: " + left : "");
-                if (fixed == lines[i])
-                    issues.push_back(xstyle::check::make_issue(file, i, static_cast<std::size_t>(match.position(1)), "PY-TYPE-HINTS", message, "def " + name + "(param: type) -> type:"));
-                else
-                    issues.push_back(xstyle::check::make_issue(file, i, static_cast<std::size_t>(match.position(1)), "PY-TYPE-HINTS", message, "", xstyle::check::replace_line(i, fixed)));
+                const std::function<std::string(const std::vector<std::string>&)> join = [](const std::vector<std::string>& items) {
+                    std::string text;
+                    for (const std::string& item: items)
+                        text += (text.empty() ? "" : ", ") + item;
+                    return text;
+                };
+                std::string message = "No type hint for: " + join(missing) + " (" + name + ")";
+                if (!guessed.empty()) message += ", guessed: " + join(guessed);
+                if (!unknown.empty() && unknown.size() < missing.size()) message += ", by hand: " + join(unknown);
+                const std::size_t column = static_cast<std::size_t>(match.position(1));
+                if (certainLine != lines[i]) {
+                    issues.push_back(xstyle::check::make_issue(file, i, column, "PY-TYPE-HINTS", message, "", xstyle::check::replace_line(i, certainLine)));
+                } else if (guessedLine != lines[i]) {
+                    xstyle::Fix fix = xstyle::check::replace_line(i, guessedLine);
+                    fix.dangerous = true;
+                    issues.push_back(xstyle::check::make_issue(file, i, column, "PY-TYPE-HINTS", message, "", fix));
+                } else {
+                    issues.push_back(xstyle::check::make_issue(file, i, column, "PY-TYPE-HINTS", message, "def " + name + "(param: type) -> type:"));
+                }
             }
         }
 

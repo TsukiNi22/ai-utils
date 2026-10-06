@@ -94,7 +94,7 @@ _hot std::vector<xstyle::AppliedFix> xstyle::Checker::fix(xstyle::SourceFile& fi
         std::vector<xstyle::Fix> fixes;
         std::vector<std::pair<std::size_t, std::size_t>> ranges;
         for (const xstyle::Issue& issue: this->run_(file, true)) {
-            if (!issue.fix || (issue.fix->unsafe && !this->_options.force)) continue;
+            if (!issue.fix || (issue.fix->unsafe && !this->_options.force) || (issue.fix->dangerous && !this->_options.dangerous)) continue;
             const xstyle::Fix& fix = *issue.fix;
             xstyle::AppliedFix record{issue.code, issue.line, {}, fix.lines};
             if (fix.kind != xstyle::FixKind::Replace) {

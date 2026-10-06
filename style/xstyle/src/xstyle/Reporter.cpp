@@ -126,6 +126,7 @@ _cold std::string xstyle::Reporter::issues_(const bool tty) const
         std::string fixable = this->paint_("[manual]", utils::iomanip::Color::BrightBlack, tty);
         if (issue.mode == xstyle::FixMode::Auto) fixable = this->paint_("[auto-fix]", utils::iomanip::Color::Green, tty);
         if (issue.mode == xstyle::FixMode::Force) fixable = this->paint_("[force-fix]", utils::iomanip::Color::Yellow, tty);
+        if (issue.mode == xstyle::FixMode::Dangerous) fixable = this->paint_("[danger-fix]", utils::iomanip::Color::BrightMagenta, tty);
         if (issue.mode == xstyle::FixMode::Ask) fixable = this->paint_("[ask-fix]", utils::iomanip::Color::Cyan, tty);
         out << this->location_(issue, tty) << " " << this->severity_(issue.severity, tty) << " " << this->paint_(issue.code, utils::iomanip::Color::Cyan, tty) << " " << fixable
             << " " << issue.message << "\n";
@@ -142,7 +143,8 @@ _cold std::string xstyle::Reporter::issues_(const bool tty) const
             return l;
         }();
         for (std::size_t i = 0; i < lines.size(); ++i) {
-            const std::string label = i > 0 ? "" : issue.mode == xstyle::FixMode::Auto ? "fix" : issue.mode == xstyle::FixMode::Force ? "force" : "hint";
+            const std::string label = i > 0 ? "" : issue.mode == xstyle::FixMode::Auto ? "fix" : issue.mode == xstyle::FixMode::Force ? "force"
+                : issue.mode == xstyle::FixMode::Dangerous ? "danger" : "hint";
             out << this->paint_(pad_(label, 7, true) + " | ", utils::iomanip::Color::BrightBlack, tty)
                 << this->paint_(lines[i], issue.fix ? utils::iomanip::Color::Green : utils::iomanip::Color::BrightBlue, tty) << "\n";
         }
@@ -179,13 +181,14 @@ _cold std::string xstyle::Reporter::fixes_(const bool tty) const
 _cold std::string xstyle::Reporter::summary_(const bool tty) const
 {
     std::ostringstream out;
-    using Counts = std::array<std::size_t, 4>; // <issues, auto, force, ask>
+    using Counts = std::array<std::size_t, 5>; // <issues, auto, force, danger, ask>
     std::map<xstyle::Severity, Counts> severities;
     std::map<std::string, Counts> codes;
     Counts total = {};
 
     for (const xstyle::Issue& issue: this->_issues) {
-        const std::size_t mode = issue.mode == xstyle::FixMode::Auto ? 1 : issue.mode == xstyle::FixMode::Force ? 2 : issue.mode == xstyle::FixMode::Ask ? 3 : 0;
+        const std::size_t mode = issue.mode == xstyle::FixMode::Auto ? 1 : issue.mode == xstyle::FixMode::Force ? 2 : issue.mode == xstyle::FixMode::Dangerous ? 3
+            : issue.mode == xstyle::FixMode::Ask ? 4 : 0;
         for (Counts* counts: {&severities[issue.severity], &codes[issue.code], &total}) {
             ++(*counts)[0];
             if (mode != 0) ++(*counts)[mode];
@@ -193,11 +196,11 @@ _cold std::string xstyle::Reporter::summary_(const bool tty) const
     }
     const std::function<std::string(const Counts&)> columns = [](const Counts& c) {
         std::string text = pad_(std::to_string(c[0]), 8, true);
-        for (std::size_t i = 1; i < 4; ++i)
+        for (std::size_t i = 1; i < c.size(); ++i)
             text += pad_(c[i] ? std::to_string(c[i]) : "-", 7, true);
         return text;
     };
-    const std::string titles = pad_("Issues", 8, true) + pad_("Auto", 7, true) + pad_("Force", 7, true) + pad_("Ask", 7, true);
+    const std::string titles = pad_("Issues", 8, true) + pad_("Auto", 7, true) + pad_("Force", 7, true) + pad_("Danger", 7, true) + pad_("Ask", 7, true);
 
     // Files & context
     std::string languages;
@@ -244,12 +247,14 @@ _cold std::string xstyle::Reporter::summary_(const bool tty) const
                 << columns(counts) << "\n";
         }
     }
-    if (total[1] + total[2] + total[3] > 0) out << "\n";
+    if (total[1] + total[2] + total[3] + total[4] > 0) out << "\n";
     if (total[1] > 0 && !this->_options.fix)
         out << this->paint_("Auto   xstyle --fix [CODE,...] [paths] (-n to preview)", utils::iomanip::Color::Green, tty) << "\n";
     if (total[2] > 0 && !(this->_options.fix && this->_options.force))
         out << this->paint_("Force  xstyle --fix --force: also the fixes that can change the behavior (check them with -n)", utils::iomanip::Color::Yellow, tty) << "\n";
-    if (total[3] > 0)
+    if (total[3] > 0 && !(this->_options.fix && this->_options.dangerous))
+        out << this->paint_("Danger xstyle --fix --dangerous-force: also the guessed fixes, possibly wrong (check them with -n)", utils::iomanip::Color::BrightMagenta, tty) << "\n";
+    if (total[4] > 0)
         out << this->paint_("Ask    xstyle --fix asks the choice per file (or --header none|default|<text>)", utils::iomanip::Color::Cyan, tty) << "\n";
     if (this->_issues.empty()) out << "\n" << this->paint_("Clean: no issue found", utils::iomanip::Color::Green, tty, true) << "\n";
     return out.str();
