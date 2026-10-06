@@ -1,6 +1,6 @@
 ---
 name: cpp
-description: Router for every C++ task of the user - looks at the request and the project, then loads the right C++ skills (cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style, libutils, libutils-exception). Invoke manually with /cpp.
+description: Router for every C++ task of the user - looks at the request and the project, then loads the right C++ skills (cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style, libutils, libutils-exception, cpp-tests, coverage, benchmark, ci-cd). Invoke manually with /cpp.
 disable-model-invocation: true
 ---
 
@@ -33,7 +33,10 @@ if there is none, inspect the project and propose what can be done).
 | throw/catch/print errors, new error codes, exception JSON, generated exception header | `libutils-exception` (+ `libutils`) |
 | install / update / remove libutils, build fails because libutils is missing or too old | `libutils-install` |
 | add libutils to the current project (CMake, custom exceptions setup) | `libutils-setup` |
-| unit tests: setup, write tests for a module / the whole project, coverage | `cpp-tests` |
+| unit tests: setup, write tests for a module / the whole project | `cpp-tests` |
+| coverage: measure, what is not tested, fill it, coverage report | `coverage` (+ `cpp-tests`) |
+| slow code, profiling, benchmark, optimization | `benchmark` |
+| CI / CD workflows (build, tests, xstyle, packages, release) | `ci-cd` |
 | bugs, UB, crashes, memory errors, sanitizers, correctness review | `audit-bugs` |
 | cleanliness / conventions audit, report of the project quality | `audit-quality` (PDF through `report`) |
 | new `.cpp` added | also `cmake-style` (registration in `SRC`, `cpp-class/scripts/cmake_add.py`) |

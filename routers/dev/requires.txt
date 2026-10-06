@@ -8,3 +8,6 @@ tests
 coding-style
 python-style
 python-project
+python
+python-class
+python-comments

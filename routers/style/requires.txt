@@ -5,3 +5,4 @@ comments
 cmake-style
 audit-quality
 python-style
+python-comments

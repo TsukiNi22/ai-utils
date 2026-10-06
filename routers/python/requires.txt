@@ -1,0 +1,9 @@
+python-project
+python-class
+python-style
+python-comments
+tests
+ci-cd
+benchmark
+git-conventions
+readme-style

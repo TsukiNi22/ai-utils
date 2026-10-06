@@ -24,7 +24,7 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 | explain how something works (concept, algorithm, protocol, math) with diagrams / animations / interactive examples, simple + technical | `explain-doc` (+ `html-style`) |
 | any other HTML page, a palette / color / font / theme to define | `html-style` |
 | CHANGELOG, release notes, PR description | `git-conventions` |
-| comments / documentation inside the code (any language), file headers | `comments` (+ `cpp-comments` for C++) |
+| comments / documentation inside the code (any language), file headers | `comments` (+ `cpp-comments` for C++, `python-comments` for Python) |
 | a result / report / study delivered as PDF | `report` |
 | doc of a libutils based project | also `libutils` (exact APIs) |
 | full documentation pass | `readme-style` + `html-doc` + `git-conventions` (CHANGELOG) |

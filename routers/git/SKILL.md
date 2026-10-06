@@ -1,6 +1,6 @@
 ---
 name: git
-description: Router for git / GitHub tasks of the user - commit messages, branches, pull requests, tags, releases, CHANGELOG, repository setup - loads git-conventions (and the doc skills when a README/CHANGELOG is involved). Invoke manually with /git.
+description: Router for git / GitHub tasks of the user - commit messages, branches, pull requests, tags, releases, CHANGELOG, repository setup, CI/CD workflows - loads git-conventions, ci-cd (and the doc skills when a README/CHANGELOG is involved). Invoke manually with /git.
 disable-model-invocation: true
 ---
 

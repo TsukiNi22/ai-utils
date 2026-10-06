@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, git, doc, style and legal routers: cpp-project, cpp-class, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc, html-style, explain-doc, report, license, audit-deps) before doing the task.
+description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, python, git, doc, style, audit and legal routers: cpp-project, cpp-class, python-project, python-class, python-style, python-comments, ci-cd, coverage, benchmark, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc, html-style, explain-doc, report, license, audit-deps) before doing the task.
 disable-model-invocation: true
 ---
 
@@ -48,8 +48,9 @@ The category routers (`cpp`, `git`, `doc`, `style`, `legal`, `audit`) are manual
 | license (choose, add, replace, compatibility) | `license` | `legal` |
 | dependencies: licenses to credit / restrictive / paid, vulnerabilities | `audit-deps` | `legal` |
 | style only (format / review like the user) | `cpp-style`, `cpp-comments`, `coding-style` (other languages), `cmake-style`, `comments` by file type | `style` |
-| Python code | `python-style` (+ `comments`) | `style` |
-| new Python project / package / tool | `python-project` | - |
+| Python code | `python-style` + `python-comments` | `python` |
+| new Python class / module / tool / exception / test file | `python-class` | `python` |
+| new Python project / package / tool | `python-project` | `python` |
 | code in another language than C++ (shell, Lua, JS/TS, Rust, C...) | `coding-style` + `comments` | `style` |
 | README, wiki, Markdown docs | `readme-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |

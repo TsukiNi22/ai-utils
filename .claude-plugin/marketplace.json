@@ -53,7 +53,7 @@
     },
     {
       "name": "python-skills",
-      "description": "Python: the user's style and the project setup (script, MAGIC application, installable package)",
+      "description": "Python: project setup, files / classes scaffolding, style and comments",
       "source": "./",
       "strict": false,
       "skills": [
@@ -96,6 +96,11 @@
       "name": "cpp",
       "description": "Router /cpp: Router for every C++ task of the user",
       "source": "./routers/cpp"
+    },
+    {
+      "name": "python",
+      "description": "Router /python: every Python task (project, class, style, comments, tests, CI/CD, benchmark)",
+      "source": "./routers/python"
     },
     {
       "name": "dev",

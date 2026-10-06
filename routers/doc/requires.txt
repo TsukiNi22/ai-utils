@@ -1,1 +1,9 @@
-readme-style html-doc html-style explain-doc git-conventions cpp-comments comments report
+readme-style
+html-doc
+html-style
+explain-doc
+git-conventions
+cpp-comments
+comments
+report
+python-comments
