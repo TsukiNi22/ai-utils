@@ -94,7 +94,7 @@ system (`bash SKILL_DIR/scripts/list_attributes.sh <project_root>`), then only t
 5. Remove every section with nothing linked to it (class blocks `// --- X --- //`, file sections
    `/* DEFINE */`, `/* PROTOTYPE */`..., empty visibilities and `/* group */` labels): the template
    blocks are not mandatory, only the ones holding a declaration are kept.
-6. Short functions (getters, setters, accessors, `name_` forwarders, one-liners) go in the
+6. Short functions (getters, setters, accessors, `name_` forwarders, any single-statement body) go in the
    `Function` block of the `.hpp` with `inline` after the attributes, not in the .cpp, when it can
    help the compiler inline them (not on `virtual` methods). Rules in `reference/layout.md`.
 7. Private / protected / internal functions are named `<name>(<Name>)*_` (camelCase + trailing `_`:

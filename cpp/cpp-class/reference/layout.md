@@ -145,13 +145,15 @@ Inside each visibility, in this order (a block with nothing linked to it is remo
   is removed too, and an empty `/* group */` label as well. Never leave a separator followed by
   nothing or directly by the next separator.
 - **Short functions are inlined in the header**: getters, setters, one-member accessors, wrappers
-  forwarding to their `name_` implementation and other one-line functions are defined in the
+  forwarding to their `name_` implementation and any function whose body is a single statement (what
+  would be the 2-line .cpp form `signature` + `{return ...;}`, a small computation included) are defined in the
   `// ------------ Function ---------- //` block of the `.hpp` with the `inline` keyword after the
   attributes (`_cold _nodiscard inline T id(void) const {return this->_id;};`, see `Scheduler.hpp`,
   `IdHandler.hpp`), never declared in Pre-Function and defined in the .cpp: the compiler can then
   inline them at the call site. Only when it can help: a `virtual` method (`override`/`final`) is
   still defined in the header when short but without `inline` (pointless on a virtual call), and a
-  function with real logic, heavy includes or a hot path that is not trivial stays in the .cpp.
+  function with real logic (more than one statement), or whose body needs an include the header doesn't
+  have otherwise, stays in the .cpp.
 - Members first (before the blocks), with their default value at the declaration,
   grouped under `/* group */` comments when there are many.
 - Sub-groups inside a block: `/* setup */`, `/* setter */`, `/* getter */`, `/* raw */`, `/* parsing */`...

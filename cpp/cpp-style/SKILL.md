@@ -62,6 +62,15 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
   _cold _nodiscard rtype::engine::Layout& getRoot(void)    {return this->_root;};
   ```
   Include comments keep their own alignment (see `cpp-comments`), this rule is only for functions.
+- **A function whose body is a single statement goes in the header**, never in the .cpp: a definition that would
+  fit in 2 lines in the .cpp (signature, then `{return ...;}`) is written as a one-liner in the `Function` block of
+  the `.hpp`, with `inline` after the attributes (not on a `virtual` / `override` method, defined there without
+  `inline`), and its declaration is removed from the Pre-Function block:
+  ```cpp
+  _hot _nodiscard inline std::size_t byteLength(void) const {return (this->bitLength() + 7) / 8;};
+  ```
+  Same when editing / reviewing existing code: such a .cpp definition is moved to the header. It stays in the
+  .cpp only when the header would need an include it doesn't have otherwise (cycle, heavy dependency).
 - One empty line between functions and between logical blocks; never two.
 
 ## Statements
