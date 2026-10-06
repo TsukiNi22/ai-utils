@@ -22,7 +22,17 @@ local style wins. Comments: the `comments` skill. Everything (code, identifiers,
   `255` special/fatal), early returns, failsafe options rather than crashes.
 - Short functions, early returns, no magic number (named constant with a trailing comment), no dead code (kept
   commented only when it is a real alternative).
-- Imports / includes explicit and grouped (no wildcard import).
+- Imports / includes explicit (no wildcard import), always in this order (same rule as the C++ includes of
+  `cpp-style`):
+  1. what the **personal libraries** need before being imported (a C `#define`, an environment variable, a path
+     added to `sys.path`...);
+  2. the **personal libraries** (the user's own libraries / packages);
+  3. the **project** modules, each with what it needs (define, setting) on the line just before it;
+  4. the **external and standard** libraries, each with what it needs on the line just before it.
+
+  Inside each group: the longest module name first, down to the shortest; between names of the same length, the
+  most complex / specialized module first. When the project enforces another order with a tool (`gofmt` /
+  `goimports`, `rustfmt`, `isort` / `ruff`, eslint `import/order`), the tool's order wins.
 
 ## Python (from libutils `cmake/scripts/*.py`)
 ```python

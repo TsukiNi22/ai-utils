@@ -81,13 +81,11 @@ namespace a::b { // namespace start
 ```
 - Guard = file name in upper case without separator + `_H` (`IdHandler.hpp` -> `IDHANDLER_H`,
   `ArgParserType.hpp` -> `ARGPARSERTYPE_H`). `#define` is indented by 4 spaces.
-- Includes inside a header:
-  - project files first, with a **relative** path (`"../../attribute/Attribute.hpp"`, `"ISocket.hpp"`),
-    then the libutils block (`#define _Section` lines + `<utils/utils.hpp>`, see "libutils includes"),
-    then the STL;
-  - roughly sorted from the longest line to the shortest (staircase);
-  - each one has a trailing comment, **aligned** on the same column, listing what is used
-    (`// std::mutex, std::unique_lock`).
+- Includes inside a header, in the order of `cpp-style` "Includes": the libutils `#define _Section` lines, the
+  personal libraries (`<utils/utils.hpp>`), the project files with a **relative** path (`"../../EngineType.hpp"`,
+  `"ISocket.hpp"`), then the external / standard libraries; a `#define` an include needs on the line just before
+  it; in each group the longest name first, the most complex first at equal length; each include has a trailing
+  comment, **aligned** on the same column, listing what is used (`// std::mutex, std::unique_lock`).
 - Namespace: see the "Namespaces" section below.
 - Free functions in `/* PROTOTYPE */`, grouped under small `/* group */` comments.
 
@@ -193,9 +191,9 @@ Inside each visibility, in this order (a block with nothing linked to it is remo
 ```
 <header>
 
-#include "module/Name.hpp"
 #define _Attribute
 #include <utils/utils.hpp>
+#include "module/Name.hpp"
 #include <string>
 
 ns::Name::Name(const std::string& name)
@@ -209,8 +207,9 @@ _hot void ns::Name::method(void)
     /* Nothing */
 }
 ```
-- Includes: project ones first with the path **from `include/`**, then the `#define _Section` lines +
-  `<utils/utils.hpp>` (libutils projects, sections of what the .cpp itself uses), then the STL, no comments.
+- Includes in the order of `cpp-style` "Includes": the `#define _Section` lines + `<utils/utils.hpp>` (libutils
+  projects, sections of what the .cpp itself uses), the project ones with the path **from `include/`**, then the
+  external / standard ones; longest name first in each group; no comments.
 - No `namespace x {}` block: every definition is fully qualified.
 - Same order as the declarations in the header.
 
@@ -229,15 +228,17 @@ when the project already uses that form). Never `"utils/attribute/Attribute.hpp"
 `utils.hpp` does not give, like the observers (`<utils/security/observer/Observer.hpp>`...), is
 included directly. The trailing comment of the root include lists what is used
 (`#include <utils/utils.hpp>   // _cold, _nodiscard, utils::system::Scheduler`), aligned with the others.
-Inside libutils itself (`internal` mode) the includes stay relative (`"../attribute/Attribute.hpp"`).
+Inside libutils itself (`internal` mode) the includes stay relative (`"../attribute/Attribute.hpp"`) and are
+project includes (sorted with the other project headers).
 
-**Sections (mandatory)**: every file (.hpp and .cpp) defines the sections it uses right before the root
-include, one `#define` per line (indented like the includes in a header):
+**Sections (mandatory)**: every file (.hpp and .cpp) defines the sections it uses at the top of its includes,
+right before the root include (the personal libraries come first, `cpp-style` "Includes"), one `#define` per line
+(indented like the includes in a header):
 ```cpp
-    #include "../EngineType.hpp"    // rtype::engine::Id
     #define _Attribute
     #define _System
     #include <utils/utils.hpp>      // _cold, _nodiscard, utils::system::IdHandler
+    #include "../EngineType.hpp"    // rtype::engine::Id
     #include <memory>               // std::unique_ptr
 ```
 Why: `utils.hpp` has no global include guard, it only includes the sections defined before it (everything

@@ -1,9 +1,9 @@
 {{HEADER}}
 
-#include "{{HPP_INCLUDE_ROOT}}"
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "{{HPP_INCLUDE_ROOT}}"
 #include <exception>
 #include <iostream>
 

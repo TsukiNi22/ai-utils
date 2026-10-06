@@ -96,6 +96,34 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
 - Ternaries for short choices, parenthesized when nested.
 - Discarded return values are cast: `(void)lock.try_lock();`.
 
+## Includes
+Always this order, groups one after the other (no empty line between them):
+1. the `#define` needed by the **personal libraries** (the user's own libraries: libutils `_Section` lines...);
+2. the **personal libraries** (`<utils/utils.hpp>`, `"..."` or `<...>`);
+3. the **project** headers in `"..."`, each one with the `#define` it needs on the line just before it;
+4. the **external and standard** libraries in `<...>`, each one with the `#define` it needs on the line just before it.
+
+Inside each group: the **longest name first**, down to the shortest (name = what is between the quotes / angle
+brackets, path included); between names of the same length, the most complex / specialized header first, the
+simplest last. A `#define` stays glued above its include and moves with it.
+```cpp
+#define _Attribute
+#define _System
+#include <utils/utils.hpp>
+#include "engine/EngineType.hpp"
+#include "engine/Entity.hpp"
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#include <unordered_map>
+#include <memory>
+#include <string>
+```
+- In a header: indented by 4 spaces (inside the guard), each include with an aligned trailing comment listing what
+  is used (`cpp-comments`); in a .cpp: no comments. The project headers: relative path in a header
+  (`"../EngineType.hpp"`), path from `include/` in a .cpp (`cpp-class`).
+- Inside a personal library itself (libutils), its own headers are project headers (group 3).
+- Only what the file uses; an include that becomes unused is removed.
+
 ## Types & C++ usage
 - Fully qualified names, never `using namespace` (`std::size_t`, `utils::exception::ErrorException`).
 - **No `auto`**: always write the type, even when it is long. Allowed only for an iterator

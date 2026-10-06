@@ -7,9 +7,9 @@
     /* INCLUDE */
 
     /* type */
-    #include "I{{NAME}}.hpp"                // {{NAMESPACE}}::I{{NAME}}
     {{UTILS_SECTIONS}}
     #include {{UTILS_INCLUDE}}         // _cold, _hot, _nodiscard
+    #include "I{{NAME}}.hpp"                // {{NAMESPACE}}::I{{NAME}}
     #include <string>                       // std::string
 
 namespace {{NAMESPACE}} { // namespace start
