@@ -128,3 +128,9 @@ done
 ## Any other language
 Follow the closest existing file of the project; otherwise the common rules above with the language's official
 formatter conventions, and say that no specific rule covers it.
+
+## Checking
+`xstyle` (`style/xstyle`, `./setup.sh install xstyle`) checks the generic rules of every language (tabs, trailing
+spaces, empty lines, indentation by 4, TODO tags) and the Python / shell ones (wildcard imports, bare `except:`,
+type hints, `print` to stderr, `open` without encoding, shebang, `set -euo pipefail`, `[[ ]]`): when it is installed,
+run `xstyle <paths> -r` on the files written or reviewed, `xstyle --fix` for the fixable ones.

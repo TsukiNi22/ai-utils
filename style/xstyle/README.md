@@ -1,0 +1,169 @@
+# xstyle
+
+Checker and fixer of my coding style, C++ first (`cpp-style`, `cpp-comments`, `cpp-class` layout, libutils
+usage), then Python, shell and the generic rules of every language. Each issue is printed with its file, line
+and column (terminal hyperlink), the rule broken and the fix proposed; a summary counts the issues by severity
+(**unforgivable**, **major**, **minor**, **negligible**) and by rule. Everything that can be fixed safely is fixed
+with `--fix`, for every rule or only some codes, files or directories.
+
+### Table of Contents
+ - [Dependencies](#dependencies)
+ - [Installation](#installation)
+ - [Usage](#usage)
+ - [libutils](#libutils)
+ - [Rules](#rules)
+
+## Dependencies
+
+| Name | Version | Fedora (`dnf`) | Debian/Ubuntu (`apt`) |
+|---|---|---|---|
+| [libutils](https://github.com/TsukiNi22/libutils) | >= 3.0.0 | `libutils` | `libutils` |
+| clang++ | C++20 | `clang` | `clang` |
+| CMake | >= 3.20 | `cmake` | `cmake` |
+
+## Installation
+
+Built and installed by the `setup.sh` of the repository, like the skills (binary in `~/.local/bin`):
+
+```bash
+./setup.sh install xstyle                  # build (Optimized) + install into ~/.local/bin
+./setup.sh install xstyle --prefix /usr/local
+./setup.sh status                          # skills & tools installed
+./setup.sh remove xstyle
+```
+
+> [!NOTE]
+> `./setup.sh install` (no name) installs every skill and every tool, a tool that can't be built (missing
+> libutils, clang++ or cmake) is skipped with the reason. `./setup.sh update` rebuilds the installed tools.
+
+By hand:
+
+```bash
+cmake -S style/xstyle -B build -DCMAKE_BUILD_TYPE=Optimized
+cmake --build build --parallel $(nproc)
+cmake --install build --prefix ~/.local
+```
+
+## Usage
+
+```bash
+xstyle                                 # check the current directory (recursive), every known language
+xstyle -r src include                  # only these directories (recursive with -r)
+xstyle src/core/Engine.cpp             # one file
+xstyle -S                              # only the summary (counters by severity and by rule)
+xstyle -s major                        # only the major and unforgivable issues
+xstyle -c CPP-THIS,LU                  # only these rules (code, prefix or pattern: CPP, LU-*, G-TAB)
+xstyle -i G-TODO,CPP-AUTO              # every rule except these
+xstyle -l cpp                          # only the C++ files (-t: only the most used language)
+xstyle --fix                           # fix everything that can be fixed
+xstyle --fix CPP-NULL,G-TRAILING src   # fix only these rules, only in src
+xstyle -f -n -c CPP -r src/core        # preview (dry run) of the C++ fixes of one directory
+xstyle -o report.md                    # also write the report (.txt, .md or .json)
+xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
+```
+
+- **Paths**: files or directories given as bare arguments; with no path the current directory is scanned
+  recursively. Hidden folders, `build*`, `cmake-build-*`, `third_party`, `extern`, `vendor`, `node_modules`... and the
+  `generated_*` files are skipped, `-e build,*.gen.hpp` excludes more (folder name, path prefix or glob).
+- **Fix**: the fixes are applied in passes (a fix can reveal another issue: `[[nodiscard]]` -> `_nodiscard` ->
+  `#define _Attribute` missing -> added), only the fixable rules (`yes` in the table) are touched, the logic never.
+  Review the result with `git diff`.
+- **Hyperlinks**: the locations are OSC 8 links in the terminal (`--link file`, default), or `vscode://` links
+  (`--link vscode`, opens the file at the line), `--no-color` / `NO_COLOR` for plain text.
+- **Exit status**: `0` clean, `1` issues left (from `--fail-on <severity>`, default every severity), `255` error.
+- **Environment**: `XSTYLE_CODES`, `XSTYLE_IGNORE`, `XSTYLE_SEVERITY`, `XSTYLE_EXCLUDE`, `XSTYLE_LIBUTILS`,
+  `XSTYLE_LINK`, `XSTYLE_REPORT` give the default of the flag of the same name.
+
+Suppression, in a comment of the file:
+
+```cpp
+std::cout << "\033[1m"; // xstyle: ignore LU-ANSI
+// xstyle: ignore-next CPP-AUTO
+auto lambda = [](int x) {return x * 2;};
+// xstyle: ignore-file CPP-GUARD-MISSING (no guard on purpose)
+```
+
+## libutils
+
+The `LU-*` rules are enabled when libutils is **installed** (`/usr/include`, `/usr/local/include`,
+`~/.local/include` or `CPATH`) **and used by the project** (`find_package(utils)` / `utils::utils` in the root
+`CMakeLists.txt`, or `utils.hpp` included); `--libutils on|off` forces them. Inside libutils itself they are off.
+- includes: one root `<utils/utils.hpp>` preceded by the `#define _Section` of every section used (detected from
+  the `utils::<section>::` names and the attribute macros of the file), never a libutils header one by one;
+- `[[nodiscard]]`, `[[maybe_unused]]`, `alignas(...)`... -> the libutils macros (`_nodiscard`, `_unused`, `_alignas`...);
+- deprecated names -> new names, read from the `_migration` aliases of the **installed** headers
+  (`isloaded()` -> `isLoaded()`, `utils::network::socket::is_ip` -> `utils::network::is_ip`...);
+- code that libutils already gives: standard exceptions, `argv` parsed by hand, raw ANSI sequences, BSD sockets,
+  `pipe` / `fork` / `epoll` / `shm_open` / `dlopen`, thread pools, degree / radian conversions, base64, verbose
+  flags, string distances (hint with the libutils class to use).
+
+## Rules
+
+Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: `*` = every file checked.
+
+| Code | Severity | Fix | Languages | Rule |
+|---|---|---|---|---|
+| `G-CRLF` | major | yes | * | Windows line endings (CRLF), use LF |
+| `G-TAB` | major | yes | * | Tab used for the indentation, use 4 spaces (except Makefile recipes) |
+| `G-TRAILING` | minor | yes | * | Trailing whitespace |
+| `G-EMPTY-LINES` | minor | yes | * | Two or more consecutive empty lines, one is the maximum |
+| `G-EOF-NEWLINE` | negligible | yes | * | No newline at the end of the file |
+| `G-EOF-EMPTY` | negligible | yes | * | Empty lines at the end of the file |
+| `G-TODO` | minor | - | * | TODO / FIXME / XXX tag, describe the limitation in a normal comment instead |
+| `G-INDENT` | negligible | - | cpp,c,py,sh,lua,js,cmake | Indentation that is not a multiple of 4 spaces |
+| `CPP-USING-NAMESPACE` | unforgivable | - | cpp | using namespace, always write the fully qualified names |
+| `CPP-GUARD-MISSING` | major | yes | cpp,c | Header without include guard (#ifndef NAME_H / #define NAME_H) |
+| `CPP-PRAGMA-ONCE` | minor | yes | cpp,c | #pragma once instead of the include guard NAME_H |
+| `CPP-GUARD-NAME` | minor | yes | cpp,c | Include guard not named after the file (Name.hpp -> NAME_H) |
+| `CPP-ENDIF-COMMENT` | negligible | yes | cpp,c | Guard #endif without its /* NAME_H */ comment |
+| `CPP-PREPRO-INDENT` | negligible | yes | cpp,c | Preprocessor directive nested in a #if / guard not indented by 4 per level |
+| `CPP-HEADER` | minor | - | cpp,c | Missing file header (cpp-class scripts/header.py) |
+| `CPP-HEADER-FILE` | negligible | yes | cpp,c | @file of the header is not the name of the file |
+| `CPP-NULL` | major | yes | cpp | NULL instead of nullptr |
+| `CPP-C-CAST` | major | yes | cpp | C cast, use static_cast (only (void) is allowed) |
+| `CPP-AUTO` | major | - | cpp | auto, write the type (allowed: iterators, structured bindings) |
+| `CPP-USING-STD` | major | - | cpp | using std::x, always write std::x |
+| `CPP-TYPEDEF` | minor | yes | cpp | typedef, use using Name = Type |
+| `CPP-BRACE-FUNCTION` | major | yes | cpp,c | Function opening brace on the signature line, it goes on its own line |
+| `CPP-BRACE-OWN-LINE` | major | yes | cpp,c | Opening brace of a class / namespace / control block on its own line, it goes on the same line |
+| `CPP-ELSE-LINE` | minor | yes | cpp,c | else / catch not on the closing brace line (} else {) |
+| `CPP-KEYWORD-SPACE` | minor | yes | cpp,c | No space between if / for / while / switch / catch and the parenthesis |
+| `CPP-PAREN-SPACE` | negligible | yes | cpp,c | Space inside the parentheses of a control statement |
+| `CPP-COLON-SPACE` | negligible | yes | cpp | Space before ':' of a range-for, an inheritance or an enum base |
+| `CPP-PTR-REF` | minor | yes | cpp,c | & / * glued to the name instead of the type (const T& name, char* buf) |
+| `CPP-VOID-PARAM` | minor | yes | cpp,c | Empty parameter list, write (void) |
+| `CPP-THIS` | minor | yes | cpp | Member accessed without this-> |
+| `CPP-NAMESPACE-NESTED` | minor | - | cpp | Nested namespace blocks, use namespace a::b { |
+| `CPP-NAMESPACE-COMMENT` | negligible | yes | cpp | Namespace block without // namespace start / // namespace end |
+| `CPP-NAMESPACE-INDENT` | minor | - | cpp | Content of a namespace indented (it is not) |
+| `CPP-INCLUDE-ORDER` | minor | yes | cpp,c | Include order: personal libs (+ defines), project, external; longest name first |
+| `CPP-CLASS-NAME` | major | - | cpp | Class / struct / enum not in PascalCase |
+| `CPP-MEMBER-NAME` | minor | - | cpp | Class data member not named _camelCase |
+| `CPP-MACRO-NAME` | minor | - | cpp,c | Macro not in UPPER_SNAKE (or _lower for attribute / section macros) |
+| `CPP-ONE-LINER` | negligible | yes | cpp | One-liner body not written {statement}; |
+| `CPP-ACCESS-ORDER` | negligible | - | cpp | public before private / protected in a class |
+| `CPP-SINGLE-STATEMENT` | minor | - | cpp | Single statement function defined in the .cpp, define it inline in the header |
+| `CPP-DOXYGEN` | minor | - | cpp,c | Doxygen comment (@brief, @param, ///, /**), short plain comments only |
+| `LU-INCLUDE` | major | yes | cpp | libutils header included directly, use #define _Section + <utils/utils.hpp> |
+| `LU-BARE-INCLUDE` | major | yes | cpp | <utils/utils.hpp> without any #define _Section before it |
+| `LU-SECTION` | minor | yes | cpp | libutils section used without its #define before <utils/utils.hpp> |
+| `LU-ATTRIBUTE` | minor | yes | cpp | Standard attribute with a libutils macro equivalent ([[nodiscard]] -> _nodiscard) |
+| `LU-MIGRATION` | major | yes | cpp | Deprecated libutils name (migration alias), use the new name |
+| `LU-EXCEPTION` | major | - | cpp | Standard exception thrown, use utils::exception::ErrorException |
+| `LU-ARGS` | minor | - | cpp | Arguments parsed by hand, use utils::arguments::ArgParser |
+| `LU-ANSI` | minor | - | cpp | Raw ANSI escape sequence, use utils::iomanip |
+| `LU-SOCKET` | minor | - | cpp | Raw BSD socket, use utils::network (TCPSocket, Server, Client) |
+| `LU-SYSCALL` | minor | - | cpp | Raw pipe / dup / fork / epoll / shm / dlopen, use utils::encapsulation |
+| `LU-THREADS` | minor | - | cpp | Hand made thread pool, use utils::pool::Cluster or utils::system::Scheduler |
+| `LU-ANGLE` | minor | - | cpp | Degree / radian conversion by hand, use utils::math::trigo |
+| `LU-BASE64` | minor | - | cpp | Hand made base64, use utils::smanip::codec::Base64Codec |
+| `LU-VERBOSE` | minor | - | cpp | Hand made verbose flag, use utils::verbose (set_verbose, onBasicVerbose) |
+| `LU-DISTANCE` | minor | - | cpp | Hand made string distance, use utils::algorithms::c2dmp |
+| `PY-WILDCARD-IMPORT` | major | - | py | from x import *, import the names explicitly |
+| `PY-BARE-EXCEPT` | major | - | py | Bare except:, catch the exceptions expected |
+| `PY-TYPE-HINTS` | minor | - | py | Function without type hints on its parameters / return |
+| `PY-PRINT-ERROR` | minor | - | py | print(..., file=stderr), use stderr.write |
+| `PY-OPEN-ENCODING` | minor | - | py | open() of a text file without encoding="utf-8" |
+| `SH-SHEBANG` | minor | - | sh | Script without shebang (#!/bin/bash) |
+| `SH-STRICT` | minor | - | sh | Bash script without set -euo pipefail |
+| `SH-TEST` | negligible | - | sh | [ ] test in a bash script, use [[ ]] |

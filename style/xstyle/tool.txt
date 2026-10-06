@@ -1,0 +1,1 @@
+Coding style checker / fixer (C++ first, libutils aware, Python, shell, generic rules) with severity counters

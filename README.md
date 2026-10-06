@@ -60,6 +60,15 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 
 Everything is based on my own work, mainly [libutils](https://github.com/TsukiNi22/libutils).
 
+## Tools
+
+Programs stored next to the skills they enforce, built and installed by the same `setup.sh` (binary in
+`~/.local/bin`, `--prefix <dir>` to change it).
+
+| Tool | Description |
+|---|---|
+| [`xstyle`](style/xstyle/README.md) | C++20 / libutils checker and fixer of my coding style (C++ first, then Python, shell and the generic rules): issues with file, line, hyperlink, rule and proposed fix, summary by severity (unforgivable / major / minor / negligible) and by rule, `--fix` for every fixable rule or only some codes, files or directories, libutils rules (sections, attributes, deprecated names, code libutils already gives) when libutils is installed and used. Requires libutils, clang++ and CMake. |
+
 ## Installation
 
 ### Quick Setup - 1 (without cloning)
@@ -98,12 +107,14 @@ cd skills
 ### Commands
 
 ```bash
-./setup.sh list                           # available skills
+./setup.sh list                           # available skills and tools
 ./setup.sh status                         # what is installed
 ./setup.sh install cpp-class              # only one skill (and the skills it requires)
+./setup.sh install xstyle                 # only one tool (built with CMake, installed in ~/.local/bin)
+./setup.sh install xstyle --prefix /usr/local
 ./setup.sh install --project ~/my/project # in <project>/.claude/skills instead
 ./setup.sh install --copy                 # copy instead of symlink
-./setup.sh update                         # git pull of the repository
+./setup.sh update                         # git pull of the repository (+ rebuild of the installed tools)
 ./setup.sh remove                         # remove every skill of this repo
 ./setup.sh remove cpp-class               # remove only one
 ./setup.sh remove --purge                 # (curl/wget mode) also delete the managed clone

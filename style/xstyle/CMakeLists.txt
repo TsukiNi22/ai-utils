@@ -1,0 +1,91 @@
+cmake_minimum_required(VERSION 3.20)
+set(TARGET xstyle)
+set(CMAKE_CXX_COMPILER clang++)
+project(${TARGET} VERSION 1.0.0 LANGUAGES CXX)
+
+# =========================
+# Compilateur & Standard
+# =========================
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON) # Moderne compilation -fPIE
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Optimized) # Installed by setup.sh: optimized by default
+endif()
+
+# =========================
+# Requirement
+# =========================
+find_package(utils 3.0.0 CONFIG REQUIRED) # Check utils dependencies existance
+find_program(CCACHE_PROGRAM ccache) # Used for cache during compilation
+if (CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+endif()
+
+# =========================
+# Warnings
+# =========================
+add_compile_options(
+    -W
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wunused-parameter
+    -Wshadow
+    -Wuninitialized
+)
+
+# =========================
+# Sources
+# =========================
+set(SRC
+    # Entry
+    src/xstyle/main.cpp
+
+    # Core
+    src/xstyle/Core.cpp
+    src/xstyle/Project.cpp
+    src/xstyle/Checker.cpp
+    src/xstyle/Reporter.cpp
+
+    # Core (sub-part: source & rules)
+    src/xstyle/SourceFile.cpp
+    src/xstyle/Rules.cpp
+    src/xstyle/Tools.cpp
+
+    # Core (sub-part: checks)
+    src/xstyle/check/generic.cpp
+    src/xstyle/check/cpp.cpp
+    src/xstyle/check/libutils.cpp
+    src/xstyle/check/script.cpp
+)
+add_executable(${TARGET} ${SRC})
+
+# =========================
+# Dependencies
+# =========================
+target_include_directories(${TARGET} PRIVATE include)
+target_link_libraries(${TARGET} PRIVATE utils::utils)
+
+# =========================
+# Modes
+# =========================
+target_compile_options(${TARGET} PRIVATE
+    $<$<CONFIG:Debug>:-g -ggdb3>
+    $<$<CONFIG:Asan>:-fsanitize=address,undefined -fno-omit-frame-pointer -g -ggdb3>
+    $<$<CONFIG:Optimized>:-O2 -pipe -DNDEBUG>
+)
+target_link_options(${TARGET} PRIVATE
+    $<$<CONFIG:Asan>:-fsanitize=address,undefined>
+)
+
+# =========================
+# Installation
+# =========================
+include(GNUInstallDirs) # load variable used for installation
+
+# Binary
+install(TARGETS ${TARGET}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT bin
+)

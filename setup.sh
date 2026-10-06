@@ -1,22 +1,26 @@
 #!/bin/bash
-# Install / remove the skills of this repository for Claude Code.
+# Install / remove the skills (and the tools) of this repository for Claude Code.
 #
-# Usage: ./setup.sh <command> [skill...] [options]
+# Usage: ./setup.sh <command> [name...] [options]
 #        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- <command> ...
 #
 # Commands:
-#   install [skill...]   install the given skills and their requirements (default: all)
-#   remove  [skill...]   remove the given skills (default: all the skills of this repo)
-#   update               pull the last version of the repository (the symlinks follow)
-#   list                 list the skills available in this repo
-#   status               show which skills are installed
+#   install [name...]    install the given skills / tools and their requirements (default: all)
+#   remove  [name...]    remove the given skills / tools (default: all the skills & tools of this repo)
+#   update               pull the last version of the repository (the symlinks follow, the tools are rebuilt)
+#   list                 list the skills and the tools available in this repo
+#   status               show which skills and tools are installed
 #   context <command>    global context (CLAUDE.md, RTK.md, hooks, rtk) of the 'context' branch:
 #                        install | remove | update | status [options], see its README
+#
+# Tools (<category>/<tool>/tool.txt, ex: style/xstyle): C++ programs built with CMake (clang++, libutils)
+# and installed in <prefix>/bin; a tool that can't be built is skipped with the reason, never fatal.
 #
 # Options:
 #   --project <dir>      target <dir>/.claude/skills instead of ~/.claude/skills
 #   --copy               copy the files instead of a symlink (default: symlink, edits are live)
 #   --force              replace an already existing skill that doesn't come from this repo
+#   --prefix <dir>       install prefix of the tools (default: ~/.local, binaries in <dir>/bin)
 #   --purge              with remove: also delete the managed clone (curl/wget mode)
 #   -h, --help           show this help
 #
@@ -58,17 +62,20 @@ if [ "${1:-}" = "context" ]; then
     exit $?
 fi
 TARGET="$HOME/.claude/skills"
+PREFIX="${SKILLS_PREFIX:-$HOME/.local}"
+TOOLS_BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/tsukini-skills/build"
 MODE="link"
 FORCE=false
 PURGE=false
 COMMAND=""
 SKILLS=()
+TOOLS=()
 
 # =========================
 # Helpers
 # =========================
 usage() {
-    sed -n '2,26p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
+    sed -n '2,30p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -93,6 +100,58 @@ skill_dir() {
 
 description() {
     sed -n 's/^description: *//p' "$(skill_dir "$1")/SKILL.md" | head -1 | cut -c1-90
+}
+
+# Tools are stored as <category>/<tool>/tool.txt (one line: description), built into <prefix>/bin/<tool>
+tools() {
+    for file in "$REPO"/*/*/tool.txt; do
+        [ -f "$file" ] && basename "$(dirname "$file")"
+    done | sort
+}
+
+tool_dir() {
+    for dir in "$REPO"/*/"$1"; do
+        [ -f "$dir/tool.txt" ] && { echo "$dir"; return; }
+    done
+}
+
+# true if <prefix>/bin/<tool> is this tool (answers "<tool> <version>" to --version)
+tool_installed() {
+    [ -x "$PREFIX/bin/$1" ] && "$PREFIX/bin/$1" --version 2> /dev/null | grep -q "^$1 "
+}
+
+# Build with CMake (Optimized) then install into the prefix, skipped (not fatal) when it can't be built
+install_tool() {
+    local tool="$1" dir build log
+    dir="$(tool_dir "$tool")"
+    build="$TOOLS_BUILD/$tool"
+    log="$TOOLS_BUILD/$tool.log"
+    for cmd in cmake clang++; do
+        command -v "$cmd" > /dev/null 2>&1 || { echo "  skip $tool: $cmd is required to build it"; return 0; }
+    done
+    command mkdir -p "$TOOLS_BUILD"
+    echo "  building $tool (log: $log)..."
+    if ! cmake -S "$dir" -B "$build" -DCMAKE_BUILD_TYPE=Optimized > "$log" 2>&1; then
+        if grep -q "utils" "$log"; then
+            echo "  skip $tool: libutils is required (skill libutils-install, or: sudo dnf install libutils / sudo apt install libutils)"
+        else
+            echo "  skip $tool: CMake configuration failed, see $log"
+        fi
+        return 0
+    fi
+    if ! cmake --build "$build" --parallel "$(nproc 2> /dev/null || echo 2)" >> "$log" 2>&1; then
+        echo "  skip $tool: build failed, see $log"
+        return 0
+    fi
+    if ! cmake --install "$build" --prefix "$PREFIX" >> "$log" 2>&1; then
+        echo "  skip $tool: can't install into $PREFIX (--prefix <dir> to change it), see $log"
+        return 0
+    fi
+    echo "  installed $tool -> $PREFIX/bin/$tool"
+    case ":$PATH:" in
+        *":$PREFIX/bin:"*) ;;
+        *) echo "  warning: $PREFIX/bin is not in the PATH (add: export PATH=\"$PREFIX/bin:\$PATH\")" ;;
+    esac
 }
 
 # true if the installed skill comes from this repo (symlink to it or copy with the marker)
@@ -120,6 +179,11 @@ while [ $# -gt 0 ]; do
             TARGET="$(cd "$2" && pwd)/.claude/skills"
             shift
             ;;
+        --prefix)
+            [ $# -lt 2 ] && error "--prefix requires a directory"
+            PREFIX="$(command mkdir -p "$2" && cd "$2" && pwd)"
+            shift
+            ;;
         --copy) MODE="copy" ;;
         --force) FORCE=true ;;
         --purge) PURGE=true ;;
@@ -132,12 +196,20 @@ done
 
 [ -z "$COMMAND" ] && usage 1
 
+# Names: skills or tools (none = every skill and every tool)
 if [ ${#SKILLS[@]} -eq 0 ]; then
     mapfile -t SKILLS < <(available)
+    mapfile -t TOOLS < <(tools)
+else
+    NAMES=("${SKILLS[@]}")
+    SKILLS=()
+    for name in "${NAMES[@]}"; do
+        if [ -n "$(skill_dir "$name")" ]; then SKILLS+=("$name")
+        elif [ -n "$(tool_dir "$name")" ]; then TOOLS+=("$name")
+        else error "unknown skill or tool '$name' (see: $0 list)"
+        fi
+    done
 fi
-for skill in "${SKILLS[@]}"; do
-    [ -n "$(skill_dir "$skill")" ] || error "unknown skill '$skill' (see: $0 list)"
-done
 
 # Add the skills required by the selected ones (<skill>/requires.txt), only for install
 if [ "$COMMAND" = "install" ]; then
@@ -160,11 +232,19 @@ fi
 case "$COMMAND" in
     update)
         git -C "$REPO" pull --ff-only
+        for tool in $(tools); do
+            tool_installed "$tool" && install_tool "$tool"
+        done
         ;;
 
     list)
+        echo "Skills:"
         for skill in $(available); do
             printf "  %-20s %s\n" "$skill" "$(description "$skill")"
+        done
+        echo "Tools:"
+        for tool in $(tools); do
+            printf "  %-20s %s\n" "$tool" "$(head -1 "$(tool_dir "$tool")/tool.txt" | cut -c1-90)"
         done
         ;;
 
@@ -178,6 +258,14 @@ case "$COMMAND" in
             else state="not installed"
             fi
             printf "  %-20s %s\n" "$skill" "$state"
+        done
+        echo "Tools: $PREFIX/bin"
+        for tool in $(tools); do
+            if tool_installed "$tool"; then state="installed ($("$PREFIX/bin/$tool" --version 2> /dev/null))"
+            elif [ -e "$PREFIX/bin/$tool" ]; then state="conflict (another program with this name)"
+            else state="not installed"
+            fi
+            printf "  %-20s %s\n" "$tool" "$state"
         done
         ;;
 
@@ -202,6 +290,9 @@ case "$COMMAND" in
             find "$(skill_dir "$skill")" -path '*/scripts/*' \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} +
             echo "  installed $skill -> $dest ($MODE)"
         done
+        for tool in "${TOOLS[@]}"; do
+            install_tool "$tool"
+        done
         ;;
 
     remove)
@@ -214,6 +305,17 @@ case "$COMMAND" in
                 echo "  removed $skill"
             else
                 echo "  skip $skill: $dest doesn't come from this repo (use --force to remove it)"
+            fi
+        done
+        for tool in "${TOOLS[@]}"; do
+            if tool_installed "$tool" || { $FORCE && [ -e "$PREFIX/bin/$tool" ]; }; then
+                rm -f "$PREFIX/bin/$tool"
+                rm -rf "${TOOLS_BUILD:?}/$tool" "$TOOLS_BUILD/$tool.log"
+                echo "  removed $tool ($PREFIX/bin/$tool)"
+            elif [ -e "$PREFIX/bin/$tool" ]; then
+                echo "  skip $tool: $PREFIX/bin/$tool is another program (use --force to remove it)"
+            else
+                echo "  $tool: not installed"
             fi
         done
         ;;
