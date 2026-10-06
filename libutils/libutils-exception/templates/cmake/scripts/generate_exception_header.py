@@ -55,7 +55,7 @@ if __name__ != "__main__":
     exit(ERROR.FATAL)
 
 ##### Tools #####
-def uint64_hash(s):
+def uint64_hash(s: str) -> int:
     digest = sha256(s.encode()).digest()
     value = int.from_bytes(digest[:8], "big") # 8 octets = 64 bits
     return 1 + (value % VALUES.SIZE_MAX) # limit values

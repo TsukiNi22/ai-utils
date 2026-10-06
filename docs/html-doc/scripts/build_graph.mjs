@@ -48,8 +48,6 @@ const project = opt("project", github ? github.split("/")[1] : repo.split("/").p
 const branch = opt("branch", "main");
 const key = opt("key", project.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
 
-
-
 // Template & extractor: an existing page keeps its HTML/CSS, but always gets the script of the skill
 const skillPage = readFileSync(opt("template", join(SKILL_DIR, "templates", "graph.html")), "utf8");
 const lastScript = (h) => { const s = h.lastIndexOf("<script>"); return [s, h.indexOf("</script>", s) + "</script>".length]; };

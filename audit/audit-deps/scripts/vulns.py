@@ -29,15 +29,13 @@ spec = importlib.util.spec_from_file_location("deps", os.path.join(HERE, "deps.p
 deps_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deps_mod)
 
-
-def run(cmd, timeout=120):
+def run(cmd: list[str], timeout: int = 120) -> str:
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
     except Exception:
         return ""
 
-
-def osv(payload):
+def osv(payload: dict) -> list | None:
     try:
         req = urllib.request.Request("https://api.osv.dev/v1/query", data=json.dumps(payload).encode(),
                                      headers={"Content-Type": "application/json"})
@@ -46,12 +44,10 @@ def osv(payload):
     except Exception:
         return None
 
-
-def vkey(v):
+def vkey(v: str | None) -> list[int]:
     return [int(x) if x.isdigit() else 0 for x in re.findall(r"\d+", v or "")][:4] or [0]
 
-
-def in_range(version, rng):
+def in_range(version: str, rng: str) -> bool:
     """GitHub ranges like '< 0.26.0', '>= 1.0, < 1.2', '<= 2.3', '= 1.0'."""
     if not rng or not version:
         return True
@@ -65,16 +61,14 @@ def in_range(version, rng):
             return False
     return True
 
-
-def severity_of(v):
+def severity_of(v: dict) -> str:
     s = (v.get("database_specific") or {}).get("severity") or ""
     for sv in v.get("severity", []) or []:
         if sv.get("type", "").startswith("CVSS") and not s:
             s = sv.get("score", "")
     return s or "?"
 
-
-def main():
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root", nargs="?", default=".")
     ap.add_argument("--no-transitive", action="store_true")
@@ -87,7 +81,7 @@ def main():
     now = datetime.datetime.now(datetime.timezone.utc)
     findings = []
 
-    def add(dep, vid, sev, summary, published, fixed, source):
+    def add(dep: dict, vid: str, sev: str, summary: str, published: str, fixed: str, source: str) -> None:
         recent = False
         try:
             recent = (now - datetime.datetime.fromisoformat(published.replace("Z", "+00:00"))).days <= a.recent_days
@@ -150,14 +144,13 @@ def main():
         md.append(f"| `{f['dependency']}`{'' if f['direct'] else ' (transitive)'}{' [test]' if f['scope'] == 'test' else ''} | {f['version']} | "
                   f"{f['id']}{' **recent**' if f['recent'] else ''} — {f['summary'][:80]} | {f['severity']} | {f['published']} | {f['fixed'] or '—'} | {f['source']} |")
     if a.json:
-        json.dump({"dependencies": deps, "findings": findings, "checked": checked}, open(a.json, "w"), indent=1)
+        json.dump({"dependencies": deps, "findings": findings, "checked": checked}, open(a.json, "w", encoding="utf-8"), indent=1)
     if a.md:
-        open(a.md, "w").write("\n".join(md) + "\n")
+        open(a.md, "w", encoding="utf-8").write("\n".join(md) + "\n")
     print(f"{len(deps)} dependencies, checked: {checked}, {len(findings)} advisory(ies), "
           f"{sum(f['recent'] for f in findings)} recent, {sum(f['severity'] == 'MALICIOUS' for f in findings)} malicious")
     print("\n".join(md[:2 + 25]))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

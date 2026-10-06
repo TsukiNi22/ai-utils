@@ -22,14 +22,12 @@ SOURCE = HEADER + (".cpp", ".cc", ".cxx", ".c")
 SKIP = {"if", "for", "while", "switch", "return", "sizeof", "decltype", "alignas", "requires", "static_assert",
         "noexcept", "throw", "operator", "static_cast", "reinterpret_cast", "const_cast", "dynamic_cast"}
 
-
 def strip(text: str) -> str:
     """Remove comments, strings and preprocessor lines (structure kept)."""
     text = re.sub(r"//[^\n]*|/\*.*?\*/", " ", text, flags=re.S)
     text = re.sub(r'R"([^(]*)\(.*?\)\1"', '""', text, flags=re.S)
     text = re.sub(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', '""', text)
     return re.sub(r"^[ \t]*#(?:[^\n]*\\\n)*[^\n]*", "", text, flags=re.M)
-
 
 def func_name(head: str) -> str:
     head = re.sub(r"^template\s*<.*?>\s*", "", head.strip(), flags=re.S)
@@ -39,7 +37,6 @@ def func_name(head: str) -> str:
         if name in SKIP or re.fullmatch(r"_[a-z]+", name): continue # attribute macros (_hot, _nodiscard...)
         return m.group(1)
     return ""
-
 
 def declarations(text: str, methods: bool) -> list[tuple[str, str]]:
     """[(kind, name)] declared in a header."""
@@ -93,7 +90,6 @@ def declarations(text: str, methods: bool) -> list[tuple[str, str]]:
             head = ""
     return out
 
-
 def declared(h: str, stack: list, out: list, methods: bool) -> None:
     full = func_name(h)
     if not full: return
@@ -106,11 +102,9 @@ def declared(h: str, stack: list, out: list, methods: bool) -> None:
     elif all(s[0] == "ns" for s in stack) and "::" not in full and name != "main":
         out.append(("function", name))
 
-
 def module_of(rel: str) -> str:
     parts = rel.split("/")
     return parts[1] if len(parts) >= 3 else (parts[0] if len(parts) == 2 else "root")
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -123,16 +117,16 @@ def main() -> int:
     root = os.path.abspath(a.root)
     inc, tst = os.path.join(root, a.include), os.path.join(root, a.tests)
     if not os.path.isdir(inc):
-        print(f"Error: no {a.include}/ in {root}", file=sys.stderr); return 1
+        sys.stderr.write(f"Error: no {a.include}/ in {root}\n"); return 1
 
     words = set()
     if os.path.isdir(tst):
         for d, _, files in os.walk(tst):
             for f in files:
                 if f.endswith(SOURCE):
-                    words |= set(re.findall(r"[A-Za-z_]\w*", strip(open(os.path.join(d, f), errors="replace").read())))
+                    words |= set(re.findall(r"[A-Za-z_]\w*", strip(open(os.path.join(d, f), errors="replace", encoding="utf-8").read())))
     else:
-        print(f"warning: no {a.tests}/ directory: nothing is tested yet", file=sys.stderr)
+        sys.stderr.write(f"warning: no {a.tests}/ directory: nothing is tested yet\n")
 
     modules: dict[str, dict] = {}
     for d, _, files in os.walk(inc):
@@ -141,7 +135,7 @@ def main() -> int:
             path = os.path.join(d, f)
             rel = os.path.relpath(path, inc)
             mod = modules.setdefault(module_of(rel), {"done": [], "todo": []})
-            for kind, name in dict.fromkeys(declarations(open(path, errors="replace").read(), a.methods)):
+            for kind, name in dict.fromkeys(declarations(open(path, errors="replace", encoding="utf-8").read(), a.methods)):
                 hit = all(p in words for p in name.split("::"))
                 mod["done" if hit else "todo"].append((kind, name, rel))
 
@@ -163,7 +157,6 @@ def main() -> int:
             for kind, n, rel in sorted(modules[name]["done"], key=lambda x: (x[2], x[1])):
                 print(f"tested    {kind:<8} {n:<40} {rel}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

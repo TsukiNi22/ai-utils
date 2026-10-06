@@ -24,13 +24,14 @@ File Description:
     /* INCLUDE */
 
     /* type */
-    #include "../../attribute/Attribute.hpp"                // _cold, _hot, _nodiscard, _migration
+    #include "../../attribute/Attribute.hpp"                // _cold, _hot, _nodiscard, _unused, _migration
     #include "../../exception/ExceptionDefine.hpp"          // utils::exception::InternalCode
     #include "../../exception/custom/FatalException.hpp"    // utils::exception::FatalException
     #include "../NetworkDefine.hpp"                         // SOCKET_CHUNK_SIZE, OVERFLOW_LIMIT
     #include "../NetworkType.hpp"                           // utils::network::Address
     #include "ISocket.hpp"                                  // utils::network::ISocket
-    #include <sys/socket.h>                                 // socklen_t
+    #include <sys/socket.h>                                 // socklen_t, sockaddr
+    #include <sys/types.h>                                  // ssize_t
     #include <unordered_map>                                // std::unordered_map
     #include <cstddef>                                      // std::size_t
     #include <vector>                                       // std::vector
@@ -82,19 +83,18 @@ class ASocket: public utils::network::ISocket {
         void discard(int fd = -1) final; // forget the internal buffers of a fd (closed connection), -1 = every fd
 
         // ------------ Function ---------- //
-
         /* sender */
-        _hot void send(const std::string& s, int fd = -1) final {this->buffered(s, fd); this->flush(fd);}; // (default) send it now
+        _hot void send(const std::string& s, int fd = -1) final         {this->buffered(s, fd); this->flush(fd);}; // (default) send it now
         _hot void sendBuffered(const std::string& s, int fd = -1) final {this->buffered(s, fd);}; // store in a buffer
 
         /* setter */
-        _cold void setPayloadSeparator(char c = '\n') final {this->_separator = std::string(1, c);}; // default: '\n'
-        _cold void setPayloadSeparator(std::string s = "\n") final {this->_separator = s;};
+        _cold void setPayloadSeparator(char c = '\n') final                  {this->_separator = std::string(1, c);}; // default: '\n'
+        _cold void setPayloadSeparator(std::string s = "\n") final           {this->_separator = s;};
         _cold void setChunckSize(std::size_t size = SOCKET_CHUNK_SIZE) final {this->_chunk = size;}; // default: 4096
-        _cold void setOverflow(std::size_t overflow = OVERFLOW_LIMIT) final {this->_overflow = overflow;}; // size without a valid payload before throw, default: 4096 (0 = unlimited)
+        _cold void setOverflow(std::size_t overflow = OVERFLOW_LIMIT) final  {this->_overflow = overflow;}; // size without a valid payload before throw, default: 4096 (0 = unlimited)
 
         /* getter */
-        _cold _nodiscard int getFd(void) const final {return this->_fd;}; // fd of the socket
+        _cold _nodiscard int getFd(void) const final                {return this->_fd;}; // fd of the socket
         _hot _nodiscard bool hasAcceptOverload(void) const override {return false;};
         _hot _nodiscard bool hasRecvOverload(void) const override   {return false;};
         _hot _nodiscard bool hasSendOverload(void) const override   {return false;};
@@ -125,9 +125,9 @@ class ASocket: public utils::network::ISocket {
 //----------------------------------------------------------------//
 /* MIGRATION */
 namespace utils::network::socket {
-    _migration(4, 0, 0) inline bool is_ip(const std::string& s) {return utils::network::is_ip(s);};
+    _migration(4, 0, 0) inline bool is_ip(const std::string& s)                          {return utils::network::is_ip(s);};
     _migration(4, 0, 0) inline std::string resolve_hostname(const std::string& hostname) {return utils::network::resolve_hostname(hostname);};
-    _migration(4, 0, 0) inline void resolve_address(utils::network::Address& address) {utils::network::resolve_address(address);};
+    _migration(4, 0, 0) inline void resolve_address(utils::network::Address& address)    {utils::network::resolve_address(address);};
     using ASocket _migration(4, 0, 0) = utils::network::ASocket;
 }
 

@@ -11,14 +11,14 @@ Edition:
 ##  @date 21/09/2026 by @author Tsukini
 
 File Name:
-##  @file ArgParsers.hpp
+##  @file ArgParserType.hpp
 
 File Description:
 ##  Declaration of the ArgParser type for void & non void function
 \**************************************************************/
 
-#ifndef ARGPARSERSTYPE_H
-    #define ARGPARSERSTYPE_H
+#ifndef ARGPARSERTYPE_H
+    #define ARGPARSERTYPE_H
 
     //----------------------------------------------------------------//
     /* INCLUDE */
@@ -26,12 +26,13 @@ File Description:
     /* type */
     #include <functional>   // std::function
     #include <optional>     // std::optional
+    #include <utility>      // std::pair
     #include <vector>       // std::vector
     #include <string>       // std::string
     #include <deque>        // std::deque
     #include <tuple>        // std::tuple
 
-namespace utils::arguments { // namespace
+namespace utils::arguments { // namespace start
 //----------------------------------------------------------------//
 /* STRUCT */
 
@@ -75,4 +76,4 @@ struct Flag {
 };
 
 } // namespace end
-#endif /* ARGPARSERSTYPE_H */
+#endif /* ARGPARSERTYPE_H */

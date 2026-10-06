@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+from collections.abc import Iterator
 
 STD = set("""algorithm any array atomic barrier bit bitset cassert cctype cerrno cfenv cfloat charconv chrono cinttypes
 climits clocale cmath codecvt compare complex concepts condition_variable coroutine csetjmp csignal cstdarg cstddef
@@ -45,27 +46,23 @@ float iso646 fenv inttypes stdbool complex tgmath uchar execinfo cxxabi elf link
 fnmatch ifaddrs utime ucontext""".split())
 VENDOR_DIRS = ("third_party", "thirdparty", "3rdparty", "vendor", "external", "extern", "deps", "libs", "cmake/libs")
 
-
-def run(cmd):
+def run(cmd: list[str]) -> str:
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout.strip()
     except Exception:
         return ""
 
-
-def http_json(url):
+def http_json(url: str) -> dict | list | None:
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "audit-deps"}), timeout=15) as r:
             return json.load(r)
     except Exception:
         return None
 
-
 # ---------------------------------------------------------------- #
 # License classification
 
 SYSTEM_RUNTIME = re.compile(r"^(glibc|libgcc|libstdc\+\+|libatomic|libgomp|kernel|linux-libc|musl|libxcrypt)(-|$)")
-
 
 def classify(lic: str, name: str = "") -> str:
     if SYSTEM_RUNTIME.match(name):
@@ -95,7 +92,6 @@ def classify(lic: str, name: str = "") -> str:
         return "weak-copyleft"
     return "unknown"
 
-
 OBLIGATIONS = {
     "system-runtime": "system C/C++ runtime: its exceptions (GCC runtime / LGPL dynamic) allow any use, nothing to credit",
     "public-domain": "nothing required",
@@ -110,11 +106,10 @@ OBLIGATIONS = {
     "unknown": "NO license found = all rights reserved: do not use/distribute until clarified",
 }
 
-
 # ---------------------------------------------------------------- #
 # System packages (rpm / dpkg)
 
-def pkg_of_file(path):
+def pkg_of_file(path: str) -> str | None:
     if shutil.which("rpm"):
         out = run(["rpm", "-qf", "--qf", "%{NAME}\n", path])
         if out and "not owned" not in out and "n'appartient" not in out:
@@ -125,8 +120,7 @@ def pkg_of_file(path):
             return out.split(":")[0]
     return None
 
-
-def pkg_info(name):
+def pkg_info(name: str) -> dict | None:
     if shutil.which("rpm"):
         out = run(["rpm", "-q", "--qf", "%{NAME}|%{VERSION}-%{RELEASE}|%{LICENSE}|%{URL}\n", name])
         if out and "|" in out:
@@ -139,12 +133,11 @@ def pkg_info(name):
             lic = ""
             cp = f"/usr/share/doc/{n}/copyright"
             if os.path.exists(cp):
-                lic = ", ".join(sorted(set(re.findall(r"^License:\s*(.+)$", open(cp, errors="replace").read(), re.M))))
+                lic = ", ".join(sorted(set(re.findall(r"^License:\s*(.+)$", open(cp, errors="replace", encoding="utf-8").read(), re.M))))
             return {"name": n, "version": v, "license": lic, "url": u, "ecosystem": "deb"}
     return None
 
-
-def requires_of(pkg, depth):
+def requires_of(pkg: str, depth: int) -> set[str]:
     """Library packages required by a system package (rpm only)."""
     if not shutil.which("rpm") or depth <= 0:
         return set()
@@ -162,20 +155,18 @@ def requires_of(pkg, depth):
         deeper |= requires_of(p, depth - 1)
     return found | deeper
 
-
 # ---------------------------------------------------------------- #
 # Inventory
 
-def license_file_of(path):
+def license_file_of(path: str) -> str | None:
     for f in sorted(glob.glob(os.path.join(path, "*"))):
         if re.match(r"(?i)(license|licence|copying|unlicense)(\.|$|-)", os.path.basename(f)) and os.path.isfile(f):
             return f
     return None
 
-
-def guess_license_text(path):
+def guess_license_text(path: str) -> str:
     try:
-        t = open(path, errors="replace").read()[:4000]
+        t = open(path, errors="replace", encoding="utf-8").read()[:4000]
     except Exception:
         return ""
     checks = [("Apache-2.0", r"Apache License,?\s+Version 2\.0"), ("GPL-3.0", r"GNU GENERAL PUBLIC LICENSE\s+Version 3"),
@@ -190,8 +181,7 @@ def guess_license_text(path):
             return spdx
     return ""
 
-
-def cmake_commands(text):
+def cmake_commands(text: str) -> Iterator[tuple[str, list[str]]]:
     text = re.sub(r"#[^\n]*", "", text)
     for m in re.finditer(r"([A-Za-z_]\w*)\s*\(", text):
         depth, i = 1, m.end()
@@ -200,8 +190,7 @@ def cmake_commands(text):
             i += 1
         yield m.group(1).lower(), re.findall(r'"[^"]*"|[^\s"]+', text[m.end():i - 1])
 
-
-def find_cmake_config(name):
+def find_cmake_config(name: str) -> str | None:
     pats = [f"/usr/lib*/cmake/{name}*/{name}Config.cmake", f"/usr/lib*/cmake/{name}*/{name.lower()}-config.cmake",
             f"/usr/share/cmake/{name}*/{name}Config.cmake", f"/usr/share/{name.lower()}*/cmake/{name}Config.cmake",
             f"/usr/local/lib*/cmake/{name}*/{name}Config.cmake", f"/usr/lib*/cmake/{name.lower()}*/*onfig.cmake"]
@@ -211,11 +200,10 @@ def find_cmake_config(name):
             return hits[0]
     return None
 
-
-def inventory(root, transitive):
+def inventory(root: str, transitive: bool) -> list:
     deps = {}
 
-    def add(key, **kw):
+    def add(key: str, **kw: str) -> dict:
         d = deps.setdefault(key, {"name": key, "version": "", "license": "", "url": "", "ecosystem": "", "source": [], "direct": True})
         for k, v in kw.items():
             if k == "source":
@@ -228,7 +216,7 @@ def inventory(root, transitive):
         if "/build" in cm or "/_deps/" in cm:
             continue
         rel = os.path.relpath(cm, root)
-        for name, args in cmake_commands(open(cm, errors="replace").read()):
+        for name, args in cmake_commands(open(cm, errors="replace", encoding="utf-8").read()):
             if name == "find_package" and args:
                 pkg = args[0]
                 if pkg in ("PkgConfig", "Python3", "Python", "Threads", "GTest") and pkg != "GTest":
@@ -257,7 +245,7 @@ def inventory(root, transitive):
     # Git submodules
     gm = os.path.join(root, ".gitmodules")
     if os.path.exists(gm):
-        for path, url in re.findall(r"path\s*=\s*(\S+)\s*\n\s*url\s*=\s*(\S+)", open(gm).read()):
+        for path, url in re.findall(r"path\s*=\s*(\S+)\s*\n\s*url\s*=\s*(\S+)", open(gm, encoding="utf-8").read()):
             sha = run(["git", "-C", root, "ls-tree", "HEAD", path]).split()
             lf = license_file_of(os.path.join(root, path))
             add(os.path.basename(path), version=sha[2] if len(sha) > 2 else "", url=url, ecosystem="git",
@@ -279,7 +267,7 @@ def inventory(root, transitive):
     for f in glob.glob(os.path.join(root, "**", "*.[ch]*"), recursive=True):
         if "/build" in f or not re.search(r"\.(c|cc|cpp|cxx|h|hh|hpp|hxx|tpp|inl)$", f):
             continue
-        for inc in re.findall(r'^\s*#\s*include\s*<([^>]+)>', open(f, errors="replace").read(), re.M):
+        for inc in re.findall(r'^\s*#\s*include\s*<([^>]+)>', open(f, errors="replace", encoding="utf-8").read(), re.M):
             first = inc.split("/")[0]
             base = re.sub(r"\.(h|hpp|hh|hxx|h\+\+)$", "", first)
             if inc in seen_inc or inc in STD or first in SYS_DIRS or base in POSIX or (not "/" in inc and "." not in inc):
@@ -298,7 +286,7 @@ def inventory(root, transitive):
     reqs = glob.glob(os.path.join(root, "requirements*.txt")) + glob.glob(os.path.join(root, "**", "requirements*.txt"), recursive=True)
     for rf in sorted(set(reqs)):
         if "/build" in rf: continue
-        for line in open(rf, errors="replace"):
+        for line in open(rf, errors="replace", encoding="utf-8"):
             m = re.match(r"^\s*([A-Za-z0-9_.-]+)\s*(?:[=<>~!]=?\s*([\w.]+))?", line)
             if not m or line.strip().startswith(("#", "-")): continue
             name, ver = m.group(1), m.group(2) or ""
@@ -315,9 +303,9 @@ def inventory(root, transitive):
     # npm
     pj = os.path.join(root, "package.json")
     if os.path.exists(pj):
-        data = json.load(open(pj))
+        data = json.load(open(pj, encoding="utf-8"))
         lock = os.path.join(root, "package-lock.json")
-        locked = json.load(open(lock)).get("packages", {}) if os.path.exists(lock) else {}
+        locked = json.load(open(lock, encoding="utf-8")).get("packages", {}) if os.path.exists(lock) else {}
         direct = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
         for name, spec in direct.items():
             e = locked.get(f"node_modules/{name}", {})
@@ -330,8 +318,8 @@ def inventory(root, transitive):
     # Rust
     cl = os.path.join(root, "Cargo.lock")
     if os.path.exists(cl) and (transitive or True):
-        direct = set(re.findall(r'^\s*([A-Za-z0-9_-]+)\s*=', open(os.path.join(root, "Cargo.toml")).read().split("[dependencies]")[-1], re.M)) if os.path.exists(os.path.join(root, "Cargo.toml")) else set()
-        for name, ver in re.findall(r'\[\[package\]\]\s*name = "([^"]+)"\s*version = "([^"]+)"', open(cl).read()):
+        direct = set(re.findall(r'^\s*([A-Za-z0-9_-]+)\s*=', open(os.path.join(root, "Cargo.toml"), encoding="utf-8").read().split("[dependencies]")[-1], re.M)) if os.path.exists(os.path.join(root, "Cargo.toml")) else set()
+        for name, ver in re.findall(r'\[\[package\]\]\s*name = "([^"]+)"\s*version = "([^"]+)"', open(cl, encoding="utf-8").read()):
             if name not in direct and not transitive: continue
             meta = http_json(f"https://crates.io/api/v1/crates/{name}/{ver}")
             d = add(f"crates:{name}", version=ver, license=(meta or {}).get("version", {}).get("license", ""), ecosystem="crates.io", source="Cargo.lock")
@@ -363,8 +351,7 @@ def inventory(root, transitive):
                 d["obligation"] = "test only (not distributed): no obligation for the product"
     return sorted(deps.values(), key=lambda d: (not d["direct"], d["name"]))
 
-
-def main():
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root", nargs="?", default=".")
     ap.add_argument("--transitive", action="store_true")
@@ -375,14 +362,14 @@ def main():
     root = os.path.abspath(a.root)
     deps = inventory(root, a.transitive)
     if a.json:
-        json.dump(deps, open(a.json, "w"), indent=1)
+        json.dump(deps, open(a.json, "w", encoding="utf-8"), indent=1)
     md = ["| Dependency | Version | License | Category | Scope | Direct | Found in |", "|---|---|---|---|---|---|---|"]
     for d in deps:
         lic = d['license'] if len(d['license']) < 70 else d['license'][:67] + "..."
         md.append(f"| `{d['name']}` | {d['version'] or '?'} | {lic or '**none found**'} | {d['category']} | {d['scope']} | "
                   f"{'yes' if d['direct'] else 'no'} | {'; '.join(d['source'])[:90]} |")
     if a.md:
-        open(a.md, "w").write("\n".join(md) + "\n")
+        open(a.md, "w", encoding="utf-8").write("\n".join(md) + "\n")
     if a.notices:
         out = ["# Third-party notices", "", "This project uses the following third-party software.", ""]
         for d in deps:
@@ -391,15 +378,14 @@ def main():
             out += [f"## {d['name']} {d['version']}", "", f"- License: {d['license'] or 'unknown'}", f"- Home: {d['url'] or '-'}", ""]
             texts = glob.glob(f"/usr/share/licenses/{d['name']}/*") + glob.glob(f"/usr/share/doc/{d['name']}/copyright")
             for t in texts[:3]:
-                out += ["```", open(t, errors="replace").read().strip()[:6000], "```", ""]
-        open(a.notices, "w").write("\n".join(out))
+                out += ["```", open(t, errors="replace", encoding="utf-8").read().strip()[:6000], "```", ""]
+        open(a.notices, "w", encoding="utf-8").write("\n".join(out))
     print("\n".join(md))
     cats = {}
     for d in deps:
         cats[d["category"]] = cats.get(d["category"], 0) + 1
     print("\n" + ", ".join(f"{k}: {v}" for k, v in sorted(cats.items())))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

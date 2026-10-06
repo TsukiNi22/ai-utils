@@ -28,6 +28,7 @@ File Description:
     #include "../exception/ExceptionDefine.hpp"         // utils::exception::InternalCode
     #include "../exception/basic/ErrorException.hpp"    // utils::exception::ErrorException
     #include "../exception/custom/FatalException.hpp"   // utils::exception::FatalException
+    #include <type_traits>                              // std::is_integral_v
     #include <limits>                                   // std::numeric_limits<T>
     #include <mutex>                                    // std::mutex
     #include <set>                                      // std::set
@@ -54,7 +55,7 @@ class IdHandler {
             if (safe_mode) lock.lock();
             else (void)lock.try_lock();
 
-            T id;
+            T id = 0;
             if (this->_freeIds.size() > 0) {
                 auto it = this->_freeIds.begin();
                 id = *it;
@@ -149,11 +150,11 @@ class IdHandler {
             } while (id == 0 || this->_usedIds.contains(id));
             return id;
         };
-        _hot T allocate(T& id, const bool safe_mode = true)     {return (id = this->allocate_(safe_mode));};
-        _hot _nodiscard T allocate(const bool safe_mode = true) {return this->allocate_(safe_mode);};
-        _hot void free(T& id, const bool safe_mode = true)       {this->free_(id, safe_mode); id = 0;}
-        _hot void free(const T& id, const bool safe_mode = true) {this->free_(id, safe_mode);};
-        _cold void free(void) {this->clear(true);}; // free every id
+        _hot inline T allocate(T& id, const bool safe_mode = true)      {return (id = this->allocate_(safe_mode));};
+        _hot _nodiscard inline T allocate(const bool safe_mode = true)  {return this->allocate_(safe_mode);};
+        _hot inline void free(T& id, const bool safe_mode = true)       {this->free_(id, safe_mode); id = 0;};
+        _hot inline void free(const T& id, const bool safe_mode = true) {this->free_(id, safe_mode);};
+        _cold inline void free(void)                                    {this->clear(true);}; // free every id
         _cold void clear(const bool safe_mode = true) // free every id
         {
             std::unique_lock<std::mutex> lock(this->_lock, std::defer_lock);

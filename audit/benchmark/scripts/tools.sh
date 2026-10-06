@@ -5,7 +5,7 @@
 #
 # One line per tool: "<tool> ok <version>" | "<tool> missing <install command>", then the perf permission level.
 
-set -uo pipefail
+set -uo pipefail # no -e: the probes of the missing tools fail on purpose (xstyle: ignore-file SH-STRICT)
 
 # Package manager of the OS
 if command -v dnf > /dev/null 2>&1; then

@@ -33,15 +33,15 @@ REPO=false
 LOCAL=false
 YES=""
 COMMAND="${1:-}"
-[ $# -gt 0 ] && shift
+[[ $# -gt 0 ]] && shift
 
 usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         --stable) CHANNEL="" ;;
         --variants) VARIANTS="$2"; shift ;;
-        --source) SOURCE=true; if [ $# -gt 1 ] && [[ "$2" != -* ]]; then REF="$2"; shift; fi ;;
+        --source) SOURCE=true; if [[ $# -gt 1 ]] && [[ "$2" != -* ]]; then REF="$2"; shift; fi ;;
         --repo) REPO=true ;;
         --local) LOCAL=true ;;
         --no-sudo) SUDO="" ;;
@@ -51,15 +51,15 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-[ -z "$COMMAND" ] && usage 1
-[ "$VARIANTS" = "all" ] && VARIANTS="db,as"
+[[ -z "$COMMAND" ]] && usage 1
+[[ "$VARIANTS" = "all" ]] && VARIANTS="db,as"
 for v in ${VARIANTS//,/ }; do [[ "$v" =~ ^(db|as)$ ]] || { echo "Error: unknown variant '$v' (db, as, all)" >&2; exit 1; }; done
 
 # =========================
 # OS
 # =========================
 OS_ID="unknown"; OS_LIKE=""; OS_VERSION=""
-if [ -f /etc/os-release ]; then
+if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     OS_ID="${ID:-unknown}"; OS_LIKE="${ID_LIKE:-}"; OS_VERSION="${VERSION_ID:-}"
 fi
@@ -80,32 +80,32 @@ packages() {
     done
     echo "$list"
 }
-other_channel() { [ -z "$CHANNEL" ] && echo "-pre" || echo ""; }
+other_channel() { [[ -z "$CHANNEL" ]] && echo "-pre" || echo ""; }
 
 installed_rpm() { rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\n' 'libutils*' 2>/dev/null | sort; }
 installed_deb() { dpkg-query -W -f '${Package} ${Version} ${Status}\n' 'libutils*' 2>/dev/null | awk '$NF=="installed"{print $1, $2}' | sort; }
 installed() { case "$FAMILY" in rpm) installed_rpm ;; deb) installed_deb ;; *) true ;; esac; }
 header_version() {
     for d in /usr/include /usr/local/include; do
-        [ -f "$d/utils/version.hpp" ] && echo "$(sed -n 's/.*__LIBUTILS_VERSION__ "\(.*\)".*/\1/p' "$d/utils/version.hpp" | head -1) ($d)"
+        [[ -f "$d/utils/version.hpp" ]] && echo "$(sed -n 's/.*__LIBUTILS_VERSION__ "\(.*\)".*/\1/p' "$d/utils/version.hpp" | head -1) ($d)"
     done
 }
 repo_ready() {
     case "$FAMILY" in
-        rpm) [ -f /etc/yum.repos.d/libutils.repo ] ;;
-        deb) [ -f /etc/apt/sources.list.d/libutils.list ] ;;
+        rpm) [[ -f /etc/yum.repos.d/libutils.repo ]] ;;
+        deb) [[ -f /etc/apt/sources.list.d/libutils.list ]] ;;
         *) false ;;
     esac
 }
 need_root() {
-    [ -z "$SUDO" ] && return 0
+    [[ -z "$SUDO" ]] && return 0
     [[ "$SUDO" == *"-A"* ]] && return 0
     sudo -n true 2> /dev/null && return 0
-    [ -t 0 ] && return 0
+    [[ -t 0 ]] && return 0
     # No terminal: graphical password prompt (sudo -A + SUDO_ASKPASS) when a display is available
     local askpass="${SUDO_ASKPASS:-$HOME/.local/bin/sudo-askpass}"
-    [ -x "$askpass" ] || askpass="$(cd "$(dirname "$0")" && pwd)/sudo-askpass" # copy shipped with the skill
-    if [ -x "$askpass" ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    [[ -x "$askpass" ]] || askpass="$(cd "$(dirname "$0")" && pwd)/sudo-askpass" # copy shipped with the skill
+    if [[ -x "$askpass" ]] && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
         export SUDO_ASKPASS="$askpass"
         SUDO="sudo -A"
         return 0
@@ -119,8 +119,8 @@ setup_repo() {
     need_root
     echo "Setting up the libutils mirror ($FAMILY)..."
     # The official script calls sudo by itself: run it as root once (--no-sudo) to ask the password only once
-    if [ -n "$SUDO" ]; then $SUDO bash -c "curl -fsSL '$SETUP_URL' | bash -s -- --no-sudo"; else curl -fsSL "$SETUP_URL" | bash -s -- --no-sudo; fi
-    [ "$FAMILY" = "deb" ] && $SUDO apt-get update -q
+    if [[ -n "$SUDO" ]]; then $SUDO bash -c "curl -fsSL '$SETUP_URL' | bash -s -- --no-sudo"; else curl -fsSL "$SETUP_URL" | bash -s -- --no-sudo; fi
+    [[ "$FAMILY" = "deb" ]] && $SUDO apt-get update -q
     return 0
 }
 
@@ -147,8 +147,8 @@ case "$COMMAND" in
         echo "OS: $OS_ID $OS_VERSION ($FAMILY)"
         echo "Mirror: $(repo_ready && echo configured || echo 'not configured')"
         echo "Installed packages:"; installed | sed 's/^/  /' | grep . || echo "  none"
-        echo "Headers: $(header_version | paste -sd ' ' || true)"; [ -z "$(header_version)" ] && echo "  none"
-        if [ -d /usr/local/include/utils ] && [ -d /usr/include/utils ]; then
+        echo "Headers: $(header_version | paste -sd ' ' || true)"; [[ -z "$(header_version)" ]] && echo "  none"
+        if [[ -d /usr/local/include/utils ]] && [[ -d /usr/include/utils ]]; then
             echo "WARNING: a source install in /usr/local shadows the packages (compilers and find_package search /usr/local first)."
             echo "         remove it to use the packages: libutils.sh remove --local (or keep it on purpose)"
         fi
@@ -159,28 +159,28 @@ case "$COMMAND" in
         ;;
 
     repo)
-        [ "$FAMILY" = "rpm" ] || [ "$FAMILY" = "deb" ] || { echo "No package mirror for this OS: use --source" >&2; exit 1; }
+        [[ "$FAMILY" = "rpm" ]] || [[ "$FAMILY" = "deb" ]] || { echo "No package mirror for this OS: use --source" >&2; exit 1; }
         setup_repo
         ;;
 
     install|update)
-        if [ "$FAMILY" = "source" ] || [ "$FAMILY" = "other" ]; then
-            [ "$FAMILY" = "other" ] && echo "No package for '$OS_ID': building from the sources"
+        if [[ "$FAMILY" = "source" ]] || [[ "$FAMILY" = "other" ]]; then
+            [[ "$FAMILY" = "other" ]] && echo "No package for '$OS_ID': building from the sources"
             source_install; exit 0
         fi
         setup_repo
         need_root
         PKGS="$(packages)"
         # Switching channel: the stable and pre packages conflict
-        if [ -n "$CHANNEL" ]; then CONFLICT="$(installed | awk '{print $1}' | grep -v -- '-pre$' || true)"
+        if [[ -n "$CHANNEL" ]]; then CONFLICT="$(installed | awk '{print $1}' | grep -v -- '-pre$' || true)"
         else CONFLICT="$(installed | awk '{print $1}' | grep -- '-pre$' || true)"; fi
-        if [ -n "$CONFLICT" ]; then
+        if [[ -n "$CONFLICT" ]]; then
             echo "Removing the other channel: $(echo $CONFLICT)"
             case "$FAMILY" in rpm) $SUDO dnf remove $YES $CONFLICT ;; deb) $SUDO apt-get remove $YES $CONFLICT ;; esac
         fi
-        if [ "$COMMAND" = "update" ]; then
+        if [[ "$COMMAND" = "update" ]]; then
             # Keep the variants already installed (db/as) in the selected channel
-            for name in $(echo "$CONFLICT" | sed 's/-pre$//'); do [ -n "$CHANNEL" ] && PKGS="$PKGS ${name}-pre" || PKGS="$PKGS $name"; done
+            for name in $(echo "$CONFLICT" | sed 's/-pre$//'); do [[ -n "$CHANNEL" ]] && PKGS="$PKGS ${name}-pre" || PKGS="$PKGS $name"; done
             for name in $(installed | awk '{print $1}'); do PKGS="$PKGS $name"; done
             PKGS="$(echo $PKGS | tr ' ' '\n' | grep -vE '^libutils-dev' | sort -u | paste -sd ' ')"
             case "$FAMILY" in
@@ -197,9 +197,9 @@ case "$COMMAND" in
         ;;
 
     remove)
-        if [ "$FAMILY" = "rpm" ] || [ "$FAMILY" = "deb" ]; then
+        if [[ "$FAMILY" = "rpm" ]] || [[ "$FAMILY" = "deb" ]]; then
             PKGS="$(installed | awk '{print $1}' | paste -sd ' ')"
-            if [ -n "$PKGS" ]; then
+            if [[ -n "$PKGS" ]]; then
                 need_root
                 case "$FAMILY" in rpm) $SUDO dnf remove $YES $PKGS ;; deb) $SUDO apt-get remove $YES $PKGS ;; esac
             else
@@ -214,7 +214,7 @@ case "$COMMAND" in
                 echo "Mirror removed"
             fi
         fi
-        if [ -d /usr/local/include/utils ] || ls /usr/local/lib*/libutils*.a > /dev/null 2>&1; then
+        if [[ -d /usr/local/include/utils ]] || ls /usr/local/lib*/libutils*.a > /dev/null 2>&1; then
             if $LOCAL; then
                 need_root
                 $SUDO rm -rf /usr/local/include/utils /usr/local/lib/libutils*.a /usr/local/lib64/libutils*.a \

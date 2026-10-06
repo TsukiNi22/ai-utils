@@ -24,7 +24,6 @@ from weasyprint import CSS, HTML
 
 CSS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates", "report.css")
 
-
 def commonmark_lists(src: str) -> str:
     """Python-Markdown needs an empty line before a list (CommonMark doesn't): add it, outside code fences."""
     out, fence, prev = [], False, ""
@@ -37,7 +36,6 @@ def commonmark_lists(src: str) -> str:
         out.append(line)
         prev = line
     return "\n".join(out)
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -75,7 +73,6 @@ def main() -> int:
         os.remove(a.input)
     print(f"{out}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

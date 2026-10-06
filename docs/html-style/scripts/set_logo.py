@@ -29,13 +29,11 @@ NAMES = re.compile(r"^(logo|icon|brand|favicon)([-_.][\w-]*)?\.(svg|png|jpe?g|ic
 MIME = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".ico": "image/x-icon",
         ".webp": "image/webp"}
 
-
 def default_logo() -> str:
     page = (SKILL / "templates" / "page.html").read_text(encoding="utf-8")
     return re.search(r'<svg class="logo".*?</svg>', page, re.S).group(0)
 
-
-def find_logo(repo: Path, docs: Path):
+def find_logo(repo: Path, docs: Path) -> list:
     found = []
     for root, dirs, files in os.walk(repo):
         dirs[:] = [d for d in dirs if d not in SKIP and not (Path(root) / d).resolve() == docs.resolve()]
@@ -48,7 +46,6 @@ def find_logo(repo: Path, docs: Path):
                         len(f))
                 found.append((rank, p))
     return [p for _, p in sorted(found)]
-
 
 def inline_svg(path: Path) -> str:
     s = path.read_text(encoding="utf-8", errors="replace")
@@ -75,14 +72,12 @@ def inline_svg(path: Path) -> str:
         s = s.replace(f"url(#{i})", f"url(#logo-{i})").replace(f'href="#{i}"', f'href="#logo-{i}"')
     return re.sub(r">\s+<", "><", s)
 
-
 def raster(path: Path) -> str:
     data = path.read_bytes()
     if len(data) > 100 * 1024:
         print(f"warning: {path} is {len(data) // 1024} KB, inlined in every page (prefer an SVG or a smaller PNG)")
     mime = MIME.get(path.suffix.lower(), "image/png")
     return f'<img class="logo" src="data:{mime};base64,{base64.b64encode(data).decode()}" alt="" aria-hidden="true">'
-
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -129,7 +124,6 @@ def main() -> int:
         pages += 1
     print(f"logo: {source} -> {pages} page(s){' (dry run)' if a.dry_run else ''}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

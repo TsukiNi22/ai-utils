@@ -176,7 +176,6 @@ Lookup order before writing any attribute:
 3. still not there (or no libutils): the standard form, `[[...]]` (`[[gnu::...]]`), `alignas(...)`, or
    `__attribute__((...))` / `__builtin_*` when no standard spelling exists.
 
-
 | libutils | standard |
 |---|---|
 | `_hot` / `_cold` | `[[gnu::hot]]` / `[[gnu::cold]]` |

@@ -18,12 +18,12 @@
 # outputs written in the sources (binaries at the root, generated headers) never touch the project.
 # Exit code: 0 = no sanitizer report, 1 = reports found, 2 = build failure.
 
-set -uo pipefail
+set -uo pipefail # no -e: a failing build / test is reported, not fatal (xstyle: ignore-file SH-STRICT)
 
-PROJECT="${1:-}"; [ -z "$PROJECT" ] && { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+PROJECT="${1:-}"; [[ -z "$PROJECT" ]] && { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 shift
 MODE="all"; RUN=""; KEEP=false; TIMEOUT=120; LSAN_SUPP=""; TSAN_SUPP=""
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         asan|ubsan|tsan|all) MODE="$1" ;;
         --run) RUN="$2"; shift ;;
@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 PROJECT="$(cd "$PROJECT" && pwd)" || exit 2
-[ -f "$PROJECT/CMakeLists.txt" ] || { echo "Error: no CMakeLists.txt in $PROJECT" >&2; exit 2; }
+[[ -f "$PROJECT/CMakeLists.txt" ]] || { echo "Error: no CMakeLists.txt in $PROJECT" >&2; exit 2; }
 NAME="$(basename "$PROJECT")"
 WORK="$(mktemp -d "/tmp/sanitize-$NAME-XXXX")"
 $KEEP || trap 'rm -rf "$WORK"' EXIT
@@ -52,7 +52,7 @@ run_variant() { # <label> <sanitizer flags>
     command mkdir -p "$src"
     # Copy of the working tree without .git / build outputs
     tar -C "$PROJECT" --exclude=.git --exclude=build --exclude='build-*' --exclude='cmake-build-*' -cf - . | tar -C "$src" -xf -
-    local tests=OFF; [ -f "$src/tests/CMakeLists.txt" ] && tests=ON
+    local tests=OFF; [[ -f "$src/tests/CMakeLists.txt" ]] && tests=ON
     echo "=== $label: configure + build (tests $tests)"
     # clang/clang++ forced before project(): the default c++ (gcc) may lack the sanitizer runtimes
     if ! cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=$tests \
@@ -67,12 +67,12 @@ run_variant() { # <label> <sanitizer flags>
     fi
     grep -E "warning:" "$LOGS/$label-build.log" | sort -u > "$LOGS/$label-warnings.log"
     echo "    build ok, $(wc -l < "$LOGS/$label-warnings.log") unique compiler warning(s)"
-    if [ "$tests" = ON ]; then
+    if [[ "$tests" = ON ]]; then
         echo "=== $label: ctest"
         (cd "$src/build" && timeout "$((TIMEOUT * 4))" ctest --output-on-failure --timeout "$TIMEOUT" > "$LOGS/$label-ctest.log" 2>&1)
         grep -E "tests passed|tests failed|Total Test" "$LOGS/$label-ctest.log" | sed 's/^/    /'
     fi
-    if [ -n "$RUN" ]; then
+    if [[ -n "$RUN" ]]; then
         echo "=== $label: run '$RUN'"
         (cd "$src" && timeout "$TIMEOUT" bash -c "$RUN" > "$LOGS/$label-run.log" 2>&1); echo "    exit code $?"
     fi
@@ -109,8 +109,8 @@ echo
 echo "--- Project frames in the stacks (most frequent)"
 printf '%s\n' "$REPORTS" | grep -oE "#[0-9]+ 0x[0-9a-f]+ in [^ ]+ /tmp/sanitize-[^/]+/[^/]+/(src|include|tests)/[^ ]+" \
     | sed -E 's#.* in ([^ ]+) /tmp/sanitize-[^/]+/[^/]+/#\1 #' | sort | uniq -c | sort -rn | head -20
-if [ -n "$(printf '%s\n' "$REPORTS" | grep -E 'ERROR: (Address|Leak)Sanitizer|runtime error:|WARNING: ThreadSanitizer')" ]; then
-    [ $status -eq 0 ] && status=1
+if [[ -n "$(printf '%s\n' "$REPORTS" | grep -E 'ERROR: (Address|Leak)Sanitizer|runtime error:|WARNING: ThreadSanitizer')" ]]; then
+    [[ $status -eq 0 ]] && status=1
 fi
 $KEEP && echo && echo "Kept: $WORK (logs in $LOGS)"
 exit $status

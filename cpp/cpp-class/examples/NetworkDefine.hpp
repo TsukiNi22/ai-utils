@@ -3,14 +3,14 @@ Edition:
 ##  @date 15/08/2026 by @author Tsukini
 
 File Name:
-##  @file Define.hpp
+##  @file NetworkDefine.hpp
 
 File Description:
 ##  Different definition of values for socket definition
 \**************************************************************/
 
-#ifndef DEFINE_H
-    #define DEFINE_H
+#ifndef NETWORKDEFINE_H
+    #define NETWORKDEFINE_H
 
     //----------------------------------------------------------------//
     /* DEFINE */
@@ -37,4 +37,4 @@ enum class Status {
 };
 
 } // namespace end
-#endif /* DEFINE_H */
+#endif /* NETWORKDEFINE_H */

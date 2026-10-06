@@ -47,7 +47,7 @@ class TempDir {
         {
             std::string pattern = (std::filesystem::temp_directory_path() / "utils-tests-XXXXXX").string();
             if (::mkdtemp(pattern.data()) == nullptr)
-                throw std::runtime_error("mkdtemp failed");
+                throw std::runtime_error("mkdtemp failed"); // std only: the test tools work without libutils (xstyle: ignore LU-EXCEPTION)
             this->_path = pattern;
         };
         TempDir(const TempDir& other) = delete;

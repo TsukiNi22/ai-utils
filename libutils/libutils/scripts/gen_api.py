@@ -25,10 +25,8 @@ SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ATTRIBUTE_MACROS = re.compile(r"\b_(hot|cold|nodiscard|noinline|unused|hidden|ctor|dtor|fallthrough|likely|unlikely|noaddress|packed|legacy)\b\s*")
 MIGRATION = re.compile(r"_migration\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*")
 
-
 def git(repo: str, *args: str) -> str:
     return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True).stdout
-
 
 # ---------------------------------------------------------------- #
 # Source cleaning
@@ -56,7 +54,6 @@ def split_comment(line: str) -> tuple[str, str]:
         i += 1
     return "".join(code), ""
 
-
 def clean_lines(text: str) -> list[tuple[str, str]]:
     """Remove the block comments and the preprocessor, return [(code, comment)]."""
     out, in_block = [], False
@@ -82,7 +79,6 @@ def clean_lines(text: str) -> list[tuple[str, str]]:
         out.append((code.rstrip(), comment))
     return out
 
-
 def defines(text: str) -> list[tuple[str, str, str]]:
     """#define NAME value // comment (without the include guards)."""
     res = []
@@ -93,13 +89,11 @@ def defines(text: str) -> list[tuple[str, str, str]]:
         res.append((m.group(1) + (m.group(2) or ""), value.strip().rstrip("\\").strip(), comment))
     return res
 
-
 def description(text: str) -> str:
     m = re.search(r"File Description:\s*\n((?:##.*\n)+)", text)
     if not m: return ""
     desc = " ".join(l.lstrip("#").strip() for l in m.group(1).strip().split("\n"))
     return "" if desc.startswith("You know, I don t think") else desc
-
 
 # ---------------------------------------------------------------- #
 # Parsing
@@ -114,17 +108,16 @@ def simplify(sig: str) -> str:
     sig = re.sub(r"(\)(?:\s*noexcept)?(?:\s*requires\s+[^:]*?)?)\s*:\s*_\w+\s*[({].*$", r"\1", sig)
     return sig.strip().rstrip(";").strip()
 
-
 class Parser:
     def __init__(self, text: str):
         self.lines = clean_lines(text)
         self.items: list[dict] = [] # {kind, name, ns, sig, comment, members}
 
-    def parse(self):
+    def parse(self) -> list[dict]:
         self.block(0, len(self.lines), ns="", scope=None)
         return self.items
 
-    def block(self, start: int, end: int, ns: str, scope: dict | None, access: str = "public"):
+    def block(self, start: int, end: int, ns: str, scope: dict | None, access: str = "public") -> None:
         """Parse statements between lines [start, end). scope = the class being parsed (None at namespace level)."""
         i, buf, comment, template = start, "", "", ""
         while i < end:
@@ -201,7 +194,7 @@ class Parser:
                 buf, template = "", ""
         return
 
-    def statement(self, stmt: str, comment: str, ns: str, scope: dict | None):
+    def statement(self, stmt: str, comment: str, ns: str, scope: dict | None) -> None:
         s = simplify(stmt)
         if not s or s.startswith(("static_assert", "friend")): return
         if re.search(r"=\s*delete$", s): return
@@ -214,7 +207,7 @@ class Parser:
             return # private like member in a public section (shouldn't happen)
         self.add({"kind": kind, "name": "", "ns": ns, "sig": s, "comment": comment, "members": []}, scope)
 
-    def add(self, item: dict, scope: dict | None):
+    def add(self, item: dict, scope: dict | None) -> None:
         (scope["members"] if scope is not None else self.items).append(item)
 
     def next_body_brace(self, line_idx: int, pos: int) -> tuple[int, int, bool] | None:
@@ -286,12 +279,10 @@ class Parser:
     def text(self, a: int, b: int) -> str:
         return " ".join(self.lines[k][0] for k in range(a, b + 1))
 
-
 # ---------------------------------------------------------------- #
 # Rendering
 
 SKIP_NAMES = {"requires", "static_cast", "alignas", "decltype", "noexcept", "sizeof", "deprecated", "if", "template"}
-
 
 def func_name(sig: str) -> str:
     """Name of the declared function / concept (attributes and requires clauses ignored)."""
@@ -316,7 +307,6 @@ def render_item(item: dict, indent: str = "") -> list[str]:
         return out
     end = "" if item["kind"] == "enum" else ";"
     return [f"{indent}{item['sig']}{end}{com}"]
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -434,7 +424,6 @@ def main() -> int:
         f.write("\n".join(version_md))
     print(f"libutils {version} @ {short} ({date}): {len(files)} headers, {len(sections)} sections -> {args.out}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

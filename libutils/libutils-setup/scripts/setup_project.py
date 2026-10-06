@@ -34,7 +34,6 @@ def skill_dir(name: str) -> str:
             return cand
     return os.path.join(os.path.dirname(here), name)
 
-
 EXC_TEMPLATES = os.path.join(skill_dir("libutils-exception"), "templates")
 BANNER = "# ========================="
 EXC_BLOCK = '''file(GLOB_RECURSE EXCEPTION_CONFIG_FILES
@@ -57,7 +56,6 @@ add_custom_target(generated_external_exception_header
 )
 '''
 
-
 def remote_setup(url: str) -> str:
     """Command running a remote setup.sh with the download tool available: curl, else wget, else python3, else curl."""
     if shutil.which("curl") or not (shutil.which("wget") or shutil.which("python3")):
@@ -66,20 +64,18 @@ def remote_setup(url: str) -> str:
         return f"wget -qO- {url} | bash"
     return f"python3 -c 'import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1]).read())' {url} | bash"
 
-
 def installed_version() -> str | None:
     found = []
     for d in ("/usr/local/include", "/usr/include"):
         p = os.path.join(d, "utils", "version.hpp")
         if os.path.isfile(p):
-            m = re.search(r'__LIBUTILS_VERSION__\s+"v?([0-9.]+)"', open(p).read())
+            m = re.search(r'__LIBUTILS_VERSION__\s+"v?([0-9.]+)"', open(p, encoding="utf-8").read())
             if m: found.append((d, m.group(1)))
     if not found: return None
     if len(found) > 1 and found[0][1] != found[1][1]:
         print(f"warning: /usr/local has libutils {found[0][1]} and /usr has {found[1][1]}: /usr/local is used first "
               f"by the compiler (libutils-install: 'libutils.sh remove --local' to drop it)", file=sys.stderr)
     return max((v for _, v in found), key=lambda v: [int(x) for x in v.split(".")])
-
 
 def section_end(lines: list[str], title: str) -> int | None:
     """Index after the last non empty line of the section `title` (None if the section doesn't exist)."""
@@ -93,7 +89,6 @@ def section_end(lines: list[str], title: str) -> int | None:
                 return j
     return None
 
-
 def add_section(lines: list[str], title: str, body: list[str], before: tuple[str, ...]) -> None:
     """Create a section before the first existing one of `before` (or at the end)."""
     at = len(lines)
@@ -105,7 +100,6 @@ def add_section(lines: list[str], title: str, body: list[str], before: tuple[str
     while at > 0 and not lines[at - 1].strip(): at -= 1
     block = [BANNER, f"# {title}", BANNER] + body + ([""] if at < len(lines) and lines[at].strip() else [])
     lines[at:at] = ([""] if at else []) + block
-
 
 def insert_in_section(lines: list[str], title: str, body: list[str], before: tuple[str, ...]) -> None:
     end = section_end(lines, title)
@@ -120,11 +114,9 @@ def insert_in_section(lines: list[str], title: str, body: list[str], before: tup
             if lines[i].startswith(BANNER): break
     lines[end:end] = body
 
-
 def targets_of(text: str) -> list[str]:
     names = re.findall(r"^\s*add_(?:executable|library)\(\s*([^\s)]+)", text, re.M)
     return list(dict.fromkeys(names))
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -138,7 +130,7 @@ def main() -> int:
     root = os.path.abspath(a.root)
     cmake = os.path.join(root, "CMakeLists.txt")
     if not os.path.isfile(cmake):
-        print(f"Error: no CMakeLists.txt in {root}", file=sys.stderr); return 1
+        sys.stderr.write(f"Error: no CMakeLists.txt in {root}\n"); return 1
     version = a.version or installed_version()
     if not version:
         print(f"Error: libutils is not installed: install it ({remote_setup('https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh')}) or give --version",
@@ -147,7 +139,7 @@ def main() -> int:
     lines = text.split("\n")
     targets = [t for t in a.targets.split(",") if t] or targets_of(text)
     if not targets:
-        print("Error: no add_executable/add_library found, give --targets", file=sys.stderr); return 1
+        sys.stderr.write("Error: no add_executable/add_library found, give --targets\n"); return 1
     done = []
 
     # Requirement
@@ -214,14 +206,13 @@ def main() -> int:
         os.makedirs(os.path.join(root, "include/exception"), exist_ok=True)
         gi = os.path.join(root, ".gitignore")
         line = "include/exception/generated_external_exception_header.hpp"
-        content = open(gi).read() if os.path.exists(gi) else ""
+        content = open(gi, encoding="utf-8").read() if os.path.exists(gi) else ""
         if line not in content:
-            with open(gi, "a") as f: f.write(("" if not content or content.endswith("\n") else "\n") + line + "\n")
+            with open(gi, "a", encoding="utf-8") as f: f.write(("" if not content or content.endswith("\n") else "\n") + line + "\n")
             done.append(".gitignore: generated header")
     print(f"libutils {version} -> targets {', '.join(targets)}")
     print("\n".join("  " + d for d in done) if done else "  already set up, nothing to do")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

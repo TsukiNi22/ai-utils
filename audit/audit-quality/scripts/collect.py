@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 
 def skill_dir(name: str) -> str:
     """Directory of another skill: installed flat (~/.claude/skills/<name>) or in this repository (<category>/<name>)."""
@@ -41,28 +42,24 @@ def skill_dir(name: str) -> str:
             return cand
     return os.path.join(os.path.dirname(here), name)
 
-
 CODE = re.compile(r"\.(cpp|hpp|cc|hh|cxx|hxx|tpp|inl|c|h)$")
 SKIP_DIRS = {".git", "build", "_deps", "third_party", "vendor", "external", "node_modules", "docs", ".cache"}
 COMMIT = re.compile(r"^!?(feat|fix|docs|chore|test|refactor|perf|style|build|ci|release)(\([^)]+\))?!?: \S")
 
-
-def run(cmd, cwd=None, timeout=600):
+def run(cmd: list[str], cwd: str | None = None, timeout: int = 600) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     except Exception as e:
         return subprocess.CompletedProcess(cmd, 1, "", str(e))
 
-
-def files_of(root):
+def files_of(root: str) -> Iterator[str]:
     for d, dirs, files in os.walk(root):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS and not x.startswith("build")]
         for f in files:
             if CODE.search(f):
                 yield os.path.relpath(os.path.join(d, f), root)
 
-
-def strip_comments_strings(line, state):
+def strip_comments_strings(line: str, state: dict) -> str:
     """Very small C/C++ lexer: returns the code of a line without comments/strings (state = in block comment)."""
     out, i = [], 0
     while i < len(line):
@@ -82,8 +79,7 @@ def strip_comments_strings(line, state):
         out.append(c); i += 1
     return "".join(out)
 
-
-def main():
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root", nargs="?", default=".")
     ap.add_argument("--json")
@@ -139,9 +135,9 @@ def main():
     # CMake sources
     cm = os.path.join(root, "CMakeLists.txt")
     if os.path.isfile(cm):
-        cmtext = open(cm).read()
+        cmtext = open(cm, encoding="utf-8").read()
         if re.search(r"file\s*\(\s*GLOB[^)]*\.(cpp|c)\b", cmtext): add("cmake", "CMakeLists.txt", 1, "sources collected with file(GLOB)")
-        alltext = cmtext + "".join(open(os.path.join(d, f)).read() for d, _, fs in os.walk(root) if "/build" not in d for f in fs if f == "CMakeLists.txt" and os.path.join(d, f) != cm)
+        alltext = cmtext + "".join(open(os.path.join(d, f), encoding="utf-8").read() for d, _, fs in os.walk(root) if "/build" not in d for f in fs if f == "CMakeLists.txt" and os.path.join(d, f) != cm)
         for p in paths:
             if re.search(r"\.(cpp|c|cc)$", p) and not p.startswith(("tests/", "test/")) and os.path.basename(p) not in alltext and p not in alltext:
                 add("cmake", p, 1, "source not listed in any CMakeLists.txt")
@@ -178,8 +174,8 @@ def main():
         if not os.path.exists(os.path.join(root, f)) and not (f == "LICENSE" and any(os.path.exists(os.path.join(root, x)) for x in ("LICENSE.md", "COPYING"))):
             add("docs", f, 0, f"{f} missing")
     if os.path.isfile(cm) and os.path.isfile(os.path.join(root, "CHANGELOG.md")):
-        v = re.search(r"project\([^)]*VERSION\s+([0-9.]+)", open(cm).read())
-        c = re.search(r"^## \[?v?([0-9][0-9.]*)", open(os.path.join(root, "CHANGELOG.md")).read(), re.M)
+        v = re.search(r"project\([^)]*VERSION\s+([0-9.]+)", open(cm, encoding="utf-8").read())
+        c = re.search(r"^## \[?v?([0-9][0-9.]*)", open(os.path.join(root, "CHANGELOG.md"), encoding="utf-8").read(), re.M)
         if v and c and v.group(1) != c.group(1): add("docs", "CHANGELOG.md", 0, f"last entry v{c.group(1)} but CMake version v{v.group(1)}")
     # Build warnings
     if a.build and os.path.isfile(cm):
@@ -199,15 +195,14 @@ def main():
     R["summary"]["lines"] = sum(m["lines"] for m in R["modules"].values())
     R["summary"]["counts"] = {k: len(v) for k, v in sorted(F.items())}
     if a.json:
-        json.dump(R, open(a.json, "w"), indent=1)
+        json.dump(R, open(a.json, "w", encoding="utf-8"), indent=1)
     md = ["| Category | Findings |", "|---|---|"] + [f"| `{k}` | {v} |" for k, v in R["summary"]["counts"].items()]
     md += ["", "| Module | Files | Lines |", "|---|---|---|"] + [f"| `{k}` | {v['files']} | {v['lines']} |" for k, v in sorted(R["modules"].items())]
     if a.md:
-        open(a.md, "w").write("\n".join(md) + "\n")
+        open(a.md, "w", encoding="utf-8").write("\n".join(md) + "\n")
     print(f"{R['summary']['files']} files, {R['summary']['lines']} lines")
     print("\n".join(md[:2 + len(R['summary']['counts'])]))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

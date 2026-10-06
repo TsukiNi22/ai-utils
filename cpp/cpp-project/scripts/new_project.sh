@@ -14,11 +14,11 @@ set -euo pipefail
 
 usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
-[ $# -lt 3 ] && usage 1
+[[ $# -lt 3 ]] && usage 1
 TARGET="$1"; NAME="$2"; CORE="$3"; shift 3
 SOURCE=""
 LIBUTILS=true
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         --source) SOURCE="$2"; shift ;;
         --no-libutils) LIBUTILS=false ;;
@@ -30,7 +30,7 @@ done
 
 [[ "$NAME" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "Error: project name must be lower case (a-z, 0-9, '-', '_')" >&2; exit 1; }
 [[ "$CORE" =~ ^[A-Z][A-Za-z0-9]*$ ]] || { echo "Error: core name must be PascalCase" >&2; exit 1; }
-if [ -d "$TARGET" ] && [ -n "$(ls -A "$TARGET" 2>/dev/null | grep -v '^\.git$' || true)" ]; then
+if [[ -d "$TARGET" ]] && [[ -n "$(ls -A "$TARGET" 2>/dev/null | grep -v '^\.git$' || true)" ]]; then
     echo "Error: $TARGET is not empty" >&2; exit 1
 fi
 
@@ -38,12 +38,12 @@ fi
 # Copy the template (committed files only)
 # =========================
 LOCAL="$HOME/personal_delivery/cpp/cpp_project_template"
-if [ -z "$SOURCE" ]; then
-    [ -d "$LOCAL/.git" ] && SOURCE="$LOCAL" || SOURCE="https://github.com/TsukiNi22/cpp_project_template.git"
+if [[ -z "$SOURCE" ]]; then
+    [[ -d "$LOCAL/.git" ]] && SOURCE="$LOCAL" || SOURCE="https://github.com/TsukiNi22/cpp_project_template.git"
 fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-if [ -d "$SOURCE/.git" ]; then
+if [[ -d "$SOURCE/.git" ]]; then
     git -C "$SOURCE" archive --format=tar HEAD | tar -x -C "$TMP"
     FROM="$SOURCE @ $(git -C "$SOURCE" rev-parse --short HEAD)"
 else
@@ -64,7 +64,7 @@ sed -i "/# Don't run on template repository/{N;d;}" "$TMP/.github/workflows/buil
 rename() { # <from> <to>
     find "$TMP" -depth -name "*$1*" -not -path "*/.git/*" | while read -r path; do
         new="$(dirname "$path")/$(basename "$path" | sed "s/$1/$2/g")"
-        [ "$path" != "$new" ] && mv "$path" "$new"
+        [[ "$path" != "$new" ]] && mv "$path" "$new"
     done
 }
 replace() { # <from> <to> <include patterns...>
@@ -82,7 +82,7 @@ grep -rlZ "CORE_H" "$TMP" 2>/dev/null | xargs -0 -r sed -i "s/\\bCORE_H\\b/${GUA
 
 # A namespace can't contain '-': use the project name without it
 NS="$(echo "$NAME" | tr -d '-')"
-if [ "$NS" != "$NAME" ]; then
+if [[ "$NS" != "$NAME" ]]; then
     grep -rlZE --include="*.cpp" --include="*.hpp" "namespace $NAME\\b|\\b$NAME::" "$TMP" 2>/dev/null \
         | xargs -0 -r sed -i "s/namespace $NAME\\b/namespace $NS/g; s/\\b$NAME::/$NS::/g"
 fi
@@ -96,7 +96,7 @@ if ! $LIBUTILS; then
 fi
 
 # Doxygen project name
-[ -f "$TMP/Doxyfile" ] && sed -i "s|^PROJECT_NAME *=.*|PROJECT_NAME           = \"$NAME\"|" "$TMP/Doxyfile"
+[[ -f "$TMP/Doxyfile" ]] && sed -i "s|^PROJECT_NAME *=.*|PROJECT_NAME           = \"$NAME\"|" "$TMP/Doxyfile"
 
 # Edition date of the headers = today (like the nvim header update)
 TODAY="$(date +%d/%m/%Y)"

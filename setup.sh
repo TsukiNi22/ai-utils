@@ -42,9 +42,9 @@ SKILLS_HOME="${SKILLS_HOME:-$HOME/.local/share/tsukini-skills}"
 # Piped mode (curl/wget): work from a managed clone
 # =========================
 SELF="${BASH_SOURCE[0]:-}"
-if [ -z "$SELF" ] || [ ! -f "$SELF" ] || ! ls "$(dirname "$SELF")"/*/*/SKILL.md > /dev/null 2>&1; then
+if [[ -z "$SELF" ]] || [[ ! -f "$SELF" ]] || ! ls "$(dirname "$SELF")"/*/*/SKILL.md > /dev/null 2>&1; then
     command -v git > /dev/null 2>&1 || { echo "Error: git is required" >&2; exit 1; }
-    if [ -d "$SKILLS_HOME/.git" ]; then
+    if [[ -d "$SKILLS_HOME/.git" ]]; then
         git -C "$SKILLS_HOME" pull -q --ff-only || echo "warning: update of $SKILLS_HOME failed, using the local version" >&2
     else
         command mkdir -p "$(dirname "$SKILLS_HOME")"
@@ -58,7 +58,7 @@ REPO="$(cd "$(dirname "$SELF")" && pwd)"
 # =========================
 # Global context (branch 'context'): delegate to its own setup.sh
 # =========================
-if [ "${1:-}" = "context" ]; then
+if [[ "${1:-}" = "context" ]]; then
     shift
     CTX="$(mktemp)"
     trap 'rm -f "$CTX"' EXIT
@@ -71,7 +71,7 @@ fi
 # =========================
 # pre-commit hook of the current repository (skill pre-commit)
 # =========================
-if [ "${1:-}" = "hook" ]; then
+if [[ "${1:-}" = "hook" ]]; then
     shift
     case "${1:-}" in
         install|remove|status|-h|--help) ;;
@@ -121,14 +121,14 @@ error() {
 # Skills are stored as <category>/<skill>/SKILL.md (routers/, cpp/, docs/...), installed flat by name
 available() {
     for file in "$REPO"/*/*/SKILL.md; do
-        [ -f "$file" ] && basename "$(dirname "$file")"
+        [[ -f "$file" ]] && basename "$(dirname "$file")"
     done | sort
 }
 
 # Path of a skill in the repository from its name (empty when unknown)
 skill_dir() {
     for dir in "$REPO"/*/"$1"; do
-        [ -f "$dir/SKILL.md" ] && { echo "$dir"; return; }
+        [[ -f "$dir/SKILL.md" ]] && { echo "$dir"; return; }
     done
 }
 
@@ -139,19 +139,19 @@ description() {
 # Tools are stored as <category>/<tool>/tool.txt (one line: description), built into <prefix>/bin/<tool>
 tools() {
     for file in "$REPO"/*/*/tool.txt; do
-        [ -f "$file" ] && basename "$(dirname "$file")"
+        [[ -f "$file" ]] && basename "$(dirname "$file")"
     done | sort
 }
 
 tool_dir() {
     for dir in "$REPO"/*/"$1"; do
-        [ -f "$dir/tool.txt" ] && { echo "$dir"; return; }
+        [[ -f "$dir/tool.txt" ]] && { echo "$dir"; return; }
     done
 }
 
 # true if <prefix>/bin/<tool> is this tool (answers "<tool> <version>" to --version)
 tool_installed() {
-    [ -x "$PREFIX/bin/$1" ] && "$PREFIX/bin/$1" --version 2> /dev/null | grep -q "^$1 "
+    [[ -x "$PREFIX/bin/$1" ]] && "$PREFIX/bin/$1" --version 2> /dev/null | grep -q "^$1 "
 }
 
 # Build with CMake (Optimized) then install into the prefix, skipped (not fatal) when it can't be built
@@ -221,18 +221,18 @@ remove_completion() {
 update_zshrc() {
     local dir="$COMPLETION_DATA/zsh/site-functions" list="" tool tmp
     for tool in $(tools); do
-        [ -f "$dir/_$tool" ] && list="$list $tool"
+        [[ -f "$dir/_$tool" ]] && list="$list $tool"
     done
     list="${list# }"
-    [ -f "$ZSHRC" ] || [ -n "$list" ] || return 0
+    [[ -f "$ZSHRC" ]] || [[ -n "$list" ]] || return 0
     tmp="$(mktemp)"
     # Without the old block and the empty lines at the end
-    if [ -f "$ZSHRC" ]; then
+    if [[ -f "$ZSHRC" ]]; then
         sed '/^# >>> tsukini-skills completion >>>$/,/^# <<< tsukini-skills completion <<<$/d' "$ZSHRC" \
             | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$tmp"
     fi
-    if [ -n "$list" ]; then
-        [ -s "$tmp" ] && echo >> "$tmp"
+    if [[ -n "$list" ]]; then
+        [[ -s "$tmp" ]] && echo >> "$tmp"
         cat >> "$tmp" << ZSHBLOCK
 # >>> tsukini-skills completion >>>
 # Added by the skills setup.sh (remove this block to disable it): completion of $list
@@ -278,30 +278,30 @@ reload_hint() {
 # true if the installed skill comes from this repo (symlink to it or copy with the marker)
 is_ours() {
     local dest="$TARGET/$1"
-    if [ -L "$dest" ]; then
-        [ "$(readlink -f "$dest")" = "$(readlink -f "$(skill_dir "$1")")" ]
+    if [[ -L "$dest" ]]; then
+        [[ "$(readlink -f "$dest")" = "$(readlink -f "$(skill_dir "$1")")" ]]
     else
-        [ -f "$dest/.installed-from" ] && [ "$(cat "$dest/.installed-from")" = "$REPO" ]
+        [[ -f "$dest/.installed-from" ]] && [[ "$(cat "$dest/.installed-from")" = "$REPO" ]]
     fi
 }
 
 # =========================
 # Parse arguments
 # =========================
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         install|remove|update|list|status)
-            [ -n "$COMMAND" ] && error "only one command allowed"
+            [[ -n "$COMMAND" ]] && error "only one command allowed"
             COMMAND="$1"
             ;;
         --project)
-            [ $# -lt 2 ] && error "--project requires a directory"
-            [ -d "$2" ] || error "directory not found: $2"
+            [[ $# -lt 2 ]] && error "--project requires a directory"
+            [[ -d "$2" ]] || error "directory not found: $2"
             TARGET="$(cd "$2" && pwd)/.claude/skills"
             shift
             ;;
         --prefix)
-            [ $# -lt 2 ] && error "--prefix requires a directory"
+            [[ $# -lt 2 ]] && error "--prefix requires a directory"
             PREFIX="$(command mkdir -p "$2" && cd "$2" && pwd)"
             shift
             ;;
@@ -315,31 +315,31 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-[ -z "$COMMAND" ] && usage 1
+[[ -z "$COMMAND" ]] && usage 1
 
 # Names: skills or tools (none = every skill and every tool)
-if [ ${#SKILLS[@]} -eq 0 ]; then
+if [[ ${#SKILLS[@]} -eq 0 ]]; then
     mapfile -t SKILLS < <(available)
     mapfile -t TOOLS < <(tools)
 else
     NAMES=("${SKILLS[@]}")
     SKILLS=()
     for name in "${NAMES[@]}"; do
-        if [ -n "$(skill_dir "$name")" ]; then SKILLS+=("$name")
-        elif [ -n "$(tool_dir "$name")" ]; then TOOLS+=("$name")
+        if [[ -n "$(skill_dir "$name")" ]]; then SKILLS+=("$name")
+        elif [[ -n "$(tool_dir "$name")" ]]; then TOOLS+=("$name")
         else error "unknown skill or tool '$name' (see: $0 list)"
         fi
     done
 fi
 
 # Add the skills required by the selected ones (<skill>/requires.txt), only for install
-if [ "$COMMAND" = "install" ]; then
+if [[ "$COMMAND" = "install" ]]; then
     i=0
-    while [ $i -lt ${#SKILLS[@]} ]; do
+    while [[ $i -lt ${#SKILLS[@]} ]]; do
         req="$(skill_dir "${SKILLS[$i]}")/requires.txt"
-        if [ -f "$req" ]; then
+        if [[ -f "$req" ]]; then
             for dep in $(cat "$req"); do
-                [ -n "$(skill_dir "$dep")" ] || error "'${SKILLS[$i]}' requires an unknown skill '$dep'"
+                [[ -n "$(skill_dir "$dep")" ]] || error "'${SKILLS[$i]}' requires an unknown skill '$dep'"
                 [[ " ${SKILLS[*]} " == *" $dep "* ]] || SKILLS+=("$dep")
             done
         fi
@@ -373,9 +373,9 @@ case "$COMMAND" in
         echo "Target: $TARGET"
         for skill in $(available); do
             dest="$TARGET/$skill"
-            if [ -L "$dest" ] && is_ours "$skill"; then state="installed (symlink)"
-            elif [ -e "$dest" ] && is_ours "$skill"; then state="installed (copy)"
-            elif [ -e "$dest" ]; then state="conflict (another skill with this name)"
+            if [[ -L "$dest" ]] && is_ours "$skill"; then state="installed (symlink)"
+            elif [[ -e "$dest" ]] && is_ours "$skill"; then state="installed (copy)"
+            elif [[ -e "$dest" ]]; then state="conflict (another skill with this name)"
             else state="not installed"
             fi
             printf "  %-20s %s\n" "$skill" "$state"
@@ -384,10 +384,10 @@ case "$COMMAND" in
         for tool in $(tools); do
             if tool_installed "$tool"; then
                 state="installed ($("$PREFIX/bin/$tool" --version 2> /dev/null))"
-                [ -f "$COMPLETION_DATA/bash-completion/completions/$tool" ] && state="$state, completion: bash"
-                [ -f "$COMPLETION_DATA/zsh/site-functions/_$tool" ] && state="$state, zsh"
-                [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions/$tool.fish" ] && state="$state, fish"
-            elif [ -e "$PREFIX/bin/$tool" ]; then state="conflict (another program with this name)"
+                [[ -f "$COMPLETION_DATA/bash-completion/completions/$tool" ]] && state="$state, completion: bash"
+                [[ -f "$COMPLETION_DATA/zsh/site-functions/_$tool" ]] && state="$state, zsh"
+                [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions/$tool.fish" ]] && state="$state, fish"
+            elif [[ -e "$PREFIX/bin/$tool" ]]; then state="conflict (another program with this name)"
             else state="not installed"
             fi
             printf "  %-20s %s\n" "$tool" "$state"
@@ -398,7 +398,7 @@ case "$COMMAND" in
         command mkdir -p "$TARGET"
         for skill in "${SKILLS[@]}"; do
             dest="$TARGET/$skill"
-            if [ -e "$dest" ] || [ -L "$dest" ]; then
+            if [[ -e "$dest" ]] || [[ -L "$dest" ]]; then
                 if is_ours "$skill" || $FORCE; then
                     rm -rf "$dest"
                 else
@@ -406,7 +406,7 @@ case "$COMMAND" in
                     continue
                 fi
             fi
-            if [ "$MODE" = "link" ]; then
+            if [[ "$MODE" = "link" ]]; then
                 ln -s "$(skill_dir "$skill")" "$dest"
             else
                 cp -r "$(skill_dir "$skill")" "$dest"
@@ -423,7 +423,7 @@ case "$COMMAND" in
     remove)
         for skill in "${SKILLS[@]}"; do
             dest="$TARGET/$skill"
-            if [ ! -e "$dest" ] && [ ! -L "$dest" ]; then
+            if [[ ! -e "$dest" ]] && [[ ! -L "$dest" ]]; then
                 echo "  $skill: not installed"
             elif is_ours "$skill" || $FORCE; then
                 rm -rf "$dest"
@@ -433,12 +433,12 @@ case "$COMMAND" in
             fi
         done
         for tool in "${TOOLS[@]}"; do
-            if tool_installed "$tool" || { $FORCE && [ -e "$PREFIX/bin/$tool" ]; }; then
+            if tool_installed "$tool" || { $FORCE && [[ -e "$PREFIX/bin/$tool" ]]; }; then
                 rm -f "$PREFIX/bin/$tool"
                 remove_completion "$tool"
                 rm -rf "${TOOLS_BUILD:?}/$tool" "$TOOLS_BUILD/$tool.log"
                 echo "  removed $tool ($PREFIX/bin/$tool)"
-            elif [ -e "$PREFIX/bin/$tool" ]; then
+            elif [[ -e "$PREFIX/bin/$tool" ]]; then
                 echo "  skip $tool: $PREFIX/bin/$tool is another program (use --force to remove it)"
             else
                 echo "  $tool: not installed"
@@ -447,12 +447,12 @@ case "$COMMAND" in
         ;;
 esac
 
-if [ "$COMMAND" = "install" ] || [ "$COMMAND" = "update" ]; then
+if [[ "$COMMAND" = "install" ]] || [[ "$COMMAND" = "update" ]]; then
     reload_hint
 fi
 
-if [ "$COMMAND" = "remove" ] && $PURGE; then
-    if [ "$REPO" = "$(cd "$SKILLS_HOME" 2>/dev/null && pwd)" ]; then
+if [[ "$COMMAND" = "remove" ]] && $PURGE; then
+    if [[ "$REPO" = "$(cd "$SKILLS_HOME" 2>/dev/null && pwd)" ]]; then
         rm -rf "$SKILLS_HOME"
         echo "  purged $SKILLS_HOME"
     else

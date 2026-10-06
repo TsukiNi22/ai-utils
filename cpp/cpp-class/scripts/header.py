@@ -27,7 +27,6 @@ DEFAULT_DESC = [
     "for me, life is all about functions...",
 ]
 
-
 def load_font(path: str) -> tuple[int, dict[str, list[str]]]:
     with open(path, encoding="utf-8") as f:
         lines = f.read().split("\n")
@@ -48,7 +47,6 @@ def load_font(path: str) -> tuple[int, dict[str, list[str]]]:
         glyphs[chr(code)] = clean
     return height, glyphs
 
-
 def render(text: str) -> list[str]:
     height, glyphs = load_font(FONT)
     out = [""] * height
@@ -63,13 +61,11 @@ def render(text: str) -> list[str]:
         out.pop()
     return out
 
-
 def banner_lines(banner: str) -> list[str]:
     if banner.lower() == "none":
         return []
     name = "XARTANIA" if banner.lower() == "xartania" else banner
     return [""] + [" " + row for row in render(name)] + [""]
-
 
 def header(file: str, banner: str, desc: str | None, author: str, date: str, style: str = "cpp") -> str:
     description = [d.strip() for d in desc.split("\n")] if desc else DEFAULT_DESC
@@ -88,7 +84,6 @@ def header(file: str, banner: str, desc: str | None, author: str, date: str, sty
     lines += [f"##  {d}" for d in description]
     lines.append('"' * 63 if python else BOX_BOTTOM)
     return "\n".join(lines)
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Xartania header generator")
@@ -110,7 +105,6 @@ def main() -> int:
     style = args.style or ("py" if args.file.endswith(".py") else "cpp")
     print(header(os.path.basename(args.file), args.banner, desc, args.author, args.date, style))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

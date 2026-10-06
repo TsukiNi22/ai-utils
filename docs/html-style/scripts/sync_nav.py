@@ -30,7 +30,6 @@ import sys
 ORDER = [("guide", "Guide"), ("technical", "Technical"), ("graph", "Graph")]
 FEATURES = [("repo", r'<a class="icon-btn repo-link"[^>]*>.*?</a>'), ("lang", r'<div class="lang-switch".*?</div>')]
 
-
 def nav_title(text: str, path: str) -> str:
     m = re.search(r'<html[^>]*\bdata-nav-title="([^"]*)"', text)
     if m:
@@ -39,7 +38,6 @@ def nav_title(text: str, path: str) -> str:
     if m:
         return html.unescape(re.split(r"\s[·|:-]\s", m.group(1).strip())[-1])
     return os.path.splitext(os.path.basename(path))[0].replace("-", " ").title()
-
 
 def main() -> int:
     d = sys.argv[1] if len(sys.argv) > 1 else "docs"
@@ -131,7 +129,6 @@ def main() -> int:
     for w in warnings:
         print("warning: " + w)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

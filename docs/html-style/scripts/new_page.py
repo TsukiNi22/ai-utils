@@ -29,10 +29,8 @@ LANG_SWITCH = """<div class="lang-switch" role="group" aria-label="Language" dat
   </div>
   <span class="divider" aria-hidden="true"></span>"""
 
-
 def read(paths):
     return "\n".join(Path(p).read_text(encoding="utf-8") for p in paths)
-
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -77,7 +75,6 @@ def main():
     if left:
         print("unfilled placeholders: " + ", ".join(left) + " (--set KEY=VALUE or edit the page)")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

@@ -13,7 +13,7 @@
 # Then: python3 uncovered.py <out> --md <out>/uncovered.md
 # Exit code: 0 measured (even with failing tests: see tests.log), 2 build failure.
 
-set -uo pipefail
+set -uo pipefail # no -e: failing tests must not stop the measure (xstyle: ignore-file SH-STRICT)
 
 PROJECT="."; OUT=""; HTML=false; RUN=""; IGNORE='(^|/)(tests|_deps|build)/|^/usr/|generated_'
 while [[ $# -gt 0 ]]; do

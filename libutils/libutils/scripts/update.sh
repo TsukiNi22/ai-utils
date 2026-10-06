@@ -16,7 +16,7 @@ REMOTE="https://github.com/TsukiNi22/libutils.git"
 REF="HEAD"
 CHECK=false
 
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         --ref) REF="$2"; shift ;;
         --repo) REPO="$2"; shift ;;
@@ -28,9 +28,9 @@ while [ $# -gt 0 ]; do
 done
 
 # Repository (fallback on a cached clone)
-if [ ! -d "$REPO/.git" ]; then
+if [[ ! -d "$REPO/.git" ]]; then
     REPO="$HOME/.cache/libutils"
-    if [ -d "$REPO/.git" ]; then
+    if [[ -d "$REPO/.git" ]]; then
         git -C "$REPO" fetch -q origin && git -C "$REPO" reset -q --hard origin/main
     else
         git clone -q "$REMOTE" "$REPO"
@@ -43,12 +43,12 @@ NEW="$(git -C "$REPO" rev-parse "$REF")"
 
 echo "Repository: $REPO"
 echo "Reference : ${OLD:0:7} -> ${NEW:0:7} ($REF)"
-if [ -n "$(git -C "$REPO" status --porcelain -- include src 2>/dev/null)" ]; then
+if [[ -n "$(git -C "$REPO" status --porcelain -- include src 2>/dev/null)" ]]; then
     echo "warning: uncommitted changes in include/ or src/ are NOT part of the reference (commit them first)"
 fi
-if [ -z "$OLD" ]; then
+if [[ -z "$OLD" ]]; then
     echo "No previous reference."
-elif [ "$OLD" = "$NEW" ]; then
+elif [[ "$OLD" = "$NEW" ]]; then
     echo "Already up to date."
 else
     echo

@@ -25,9 +25,10 @@ File Description:
 #include <cstddef>
 #include <algorithm>
 #include <thread>
+#include <string>
 #include <mutex>
 
-_hot void utils::system::Scheduler::clear(void)
+_hot void utils::system::Scheduler::clear_(void)
 {
     std::lock_guard lock(this->_lock);
 
@@ -35,7 +36,7 @@ _hot void utils::system::Scheduler::clear(void)
     if (this->_finished.empty()) return;
     for (std::size_t id: this->_finished) this->cancel_(id);
     this->_finished.clear();
-};
+}
 
 _cold void utils::system::Scheduler::cancel(std::size_t id)
 {

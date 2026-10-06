@@ -28,7 +28,7 @@ File Description:
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <string.h>
+#include <cstring>
 #include <netdb.h>
 #include <cerrno>
 #include <cstddef>
@@ -57,13 +57,13 @@ _cold _nodiscard std::string utils::network::resolve_hostname(const std::string&
     // Get the information
     onAdvancedVerbose("Get the correponding ipv4 from the hostname '" << hostname << "'...");
     if ((status = ::getaddrinfo(hostname.c_str(), nullptr, &settings, &res)) != 0)
-        throw utils::exception::ErrorException(utils::exception::InternalCode::SocketInit, gai_strerror(status));
+        throw utils::exception::ErrorException(utils::exception::InternalCode::SocketInit, ::gai_strerror(status));
 
     // Convert the result in an ip
     onAdvancedVerbose("Convert the result into a valid ipv4...");
-    if (!::inet_ntop(AF_INET, &((struct sockaddr_in*) res->ai_addr)->sin_addr, ip, sizeof(ip))) {
+    if (!::inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip))) {
         ::freeaddrinfo(res);
-        throw utils::exception::ErrorException(utils::exception::InternalCode::SocketInit, strerror(errno));
+        throw utils::exception::ErrorException(utils::exception::InternalCode::SocketInit, std::strerror(errno));
     }
 
     // Clean the memory
@@ -148,7 +148,7 @@ _hot _nodiscard std::size_t utils::network::ASocket::receive(int fd)
     ssize_t bytes = this->recv(fd, buffer.data(), buffer.size());
     if (bytes < 0) _unlikely {
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return 0;
-        throw utils::exception::ErrorException(utils::exception::InternalCode::Socket, strerror(errno));
+        throw utils::exception::ErrorException(utils::exception::InternalCode::Socket, std::strerror(errno));
     } else if (bytes == 0) _unlikely {
         throw utils::exception::NoneException(utils::exception::InternalCode::SocketClosed);
     }
@@ -179,8 +179,8 @@ _hot _nodiscard int utils::network::ASocket::accept(void)
 
     // Accept the client
     onAdvancedVerbose("Accepting the new connection...");
-    if ((fd = this->accept(this->_fd, (sockaddr *)&(storage), &len)) < 0)
-        throw utils::exception::ErrorException(utils::exception::InternalCode::Accept, strerror(errno));
+    if ((fd = this->accept(this->_fd, reinterpret_cast<sockaddr*>(&storage), &len)) < 0)
+        throw utils::exception::ErrorException(utils::exception::InternalCode::Accept, std::strerror(errno));
     const sockaddr_in& in = reinterpret_cast<const sockaddr_in&>(storage);
     onBasicVerbose("New client '" << ::inet_ntoa(in.sin_addr) << ":" << ::ntohs(in.sin_port) << "'");
 
@@ -202,11 +202,10 @@ _hot _nodiscard std::string utils::network::ASocket::recv(int fd)
     // Read the socket while there is no '\n' encountered (raw mode: while there is nothing)
     std::size_t pos = (this->_separator.empty() ? (storage.empty() ? std::string::npos : storage.size()) : storage.find(this->_separator));
     while (pos == std::string::npos) {
-
         // Read the socket
         ssize_t bytes = this->recv(fd, buffer.data(), buffer.size());
         if (bytes < 0) _unlikely {
-            throw utils::exception::ErrorException(utils::exception::InternalCode::Socket, strerror(errno));
+            throw utils::exception::ErrorException(utils::exception::InternalCode::Socket, std::strerror(errno));
         } else if (bytes == 0) _unlikely {
             throw utils::exception::NoneException(utils::exception::InternalCode::SocketClosed);
         }
@@ -260,11 +259,11 @@ _hot void utils::network::ASocket::flush(int fd)
 
     // While the data wasn't fully sended
     ssize_t total = 0;
-    ssize_t size = buffer.size();
+    ssize_t size = static_cast<ssize_t>(buffer.size());
     while (total < size) {
-        ssize_t sent = this->send(fd, buffer.data() + total, size - total);
+        ssize_t sent = this->send(fd, buffer.data() + total, static_cast<std::size_t>(size - total));
         if (sent < 0) _unlikely {
-            throw utils::exception::ErrorException(utils::exception::InternalCode::Socket, strerror(errno));
+            throw utils::exception::ErrorException(utils::exception::InternalCode::Socket, std::strerror(errno));
         } else if (sent == 0) _unlikely {
             throw utils::exception::NoneException(utils::exception::InternalCode::SocketClosed);
         }

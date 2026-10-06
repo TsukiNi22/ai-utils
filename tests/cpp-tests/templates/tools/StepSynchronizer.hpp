@@ -39,11 +39,13 @@ class StepSynchronizer {
         int _currentStep = -1;
 
     public:
-        void waitForStep(int step) {
+        void waitForStep(int step)
+        {
             std::unique_lock<std::mutex> lock(this->_mutex);
             this->_cv.wait(lock, [&]{return this->_currentStep == step;});
         }
-        void advanceTo(int step) {
+        void advanceTo(int step)
+        {
             {
                 std::lock_guard<std::mutex> lock(this->_mutex);
                 this->_currentStep = step;

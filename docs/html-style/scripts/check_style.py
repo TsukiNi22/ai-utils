@@ -33,25 +33,21 @@ TEXT_PAIRS = [  # (foreground, background, minimum ratio)
 ]
 INLINE = r"(code|kbd|mark|samp|var|dfn|abbr|\.badge|\.tag|\.chip|\.pill)"
 
-
 def css_of(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() in (".html", ".htm"):
         return "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", text, re.S))
     return text
 
-
 def strip_comments(css: str) -> str:
     return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-
 
 def block(css: str, selector: str) -> dict:
     """Variables of the first `selector { ... }` block (exact selector)."""
     m = re.search(re.escape(selector) + r"\s*\{([^{}]*)\}", css)
     return dict(re.findall(r"--([\w-]+)\s*:\s*([^;]+);", m.group(1))) if m else {}
 
-
-def rgb(value: str):
+def rgb(value: str) -> tuple[int, int, int] | None:
     v = value.strip().lower()
     m = re.fullmatch(r"#([0-9a-f]{3}|[0-9a-f]{6})", v)
     if m:
@@ -64,29 +60,25 @@ def rgb(value: str):
         return (0, 0, 0)
     return None
 
-
-def luminance(c):
-    def ch(x):
+def luminance(c: tuple[int, int, int]) -> float:
+    def ch(x: float) -> float:
         x /= 255
         return x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
     r, g, b = (ch(x) for x in c)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
-
-def contrast(a, b):
+def contrast(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
     la, lb = sorted((luminance(a), luminance(b)), reverse=True)
     return (la + 0.05) / (lb + 0.05)
 
-
-def resolve(value: str, tokens: dict):
+def resolve(value: str, tokens: dict) -> tuple[int, int, int] | None:
     value = value.strip()
     m = re.fullmatch(r"var\(--([\w-]+)\)", value)
     if m:
         value = tokens.get(m.group(1), "")
     return rgb(value)
 
-
-def rules(css: str):
+def rules(css: str) -> list[tuple[str, dict]]:
     """Flat (selector, declarations) list, @media blocks included (their condition is ignored)."""
     out = []
     for sel, body in re.findall(r"([^{}@]+)\{([^{}]*)\}", css):
@@ -95,10 +87,8 @@ def rules(css: str):
             out.append((s.strip(), decl))
     return out
 
-
 # ---------- Diagrams (inline SVG of the pages) ----------
 FONT = {"lbl": 13, "small": 11.5, "title": 12}
-
 
 class SvgCollector(HTMLParser):
     """Shapes, arrows and texts of every <svg> with a viewBox, translate() of the groups applied."""
@@ -107,7 +97,7 @@ class SvgCollector(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.svgs, self.stack, self.text = [], [], None
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = dict(attrs)
         if tag == "svg" and "viewbox" in a and not self.stack:  # attribute names arrive lower-cased
             vb = [float(v) for v in re.split(r"[\s,]+", a["viewbox"].strip())]
@@ -150,7 +140,7 @@ class SvgCollector(HTMLParser):
         if tag == "text":
             self.stack.append((tag, ox, oy, skip))
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag == "text" and self.text is not None:
             if self.text["s"].strip():
                 self.svgs[-1]["texts"].append(self.text)
@@ -158,12 +148,11 @@ class SvgCollector(HTMLParser):
         if self.stack and self.stack[-1][0] == tag:
             self.stack.pop()
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.text is not None:
             self.text["s"] += data
 
-
-def path_ends(d: str):
+def path_ends(d: str) -> tuple[tuple[float, float], tuple[float, float]] | None:
     """First and last point of an SVG path (absolute and relative commands)."""
     tok = re.findall(r"[MmLlHhVvCcSsQqTtAaZz]|-?\d*\.?\d+(?:e-?\d+)?", d)
     x = y = sx = sy = 0.0
@@ -198,8 +187,7 @@ def path_ends(d: str):
             first = (x, y)
     return (first, (x, y)) if first else None
 
-
-def border_distance(shape, p):
+def border_distance(shape: tuple, p: tuple[float, float]) -> float:
     """Distance from p to the border of a shape (0 on the border)."""
     if shape[0] == "rect":
         _, x, y, w, h = shape
@@ -215,8 +203,7 @@ def border_distance(shape, p):
     k = ((p[0] - cx) ** 2 / rx ** 2 + (p[1] - cy) ** 2 / ry ** 2) ** 0.5
     return abs(k - 1) * min(rx, ry)
 
-
-def check_diagrams(html_text: str):
+def check_diagrams(html_text: str) -> tuple[list[str], list[str]]:
     errors, warnings = [], []
     c = SvgCollector()
     c.feed(html_text)
@@ -247,7 +234,6 @@ def check_diagrams(html_text: str):
                     warnings.append(f"line {t['line']}: text '{t['s'].strip()[:40]}' crosses the border of a box")
                     break
     return errors, warnings
-
 
 def check(path: Path, reference: dict | None) -> int:
     raw = css_of(path)
@@ -322,8 +308,7 @@ def check(path: Path, reference: dict | None) -> int:
         print(f"  warning: {w}")
     return len(errors)
 
-
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="+")
     ap.add_argument("--compare")
@@ -331,7 +316,6 @@ def main():
     reference = block(strip_comments(css_of(Path(a.compare))), ":root") if a.compare else None
     total = sum(check(Path(f), reference) for f in a.files)
     sys.exit(1 if total else 0)
-
 
 if __name__ == "__main__":
     main()

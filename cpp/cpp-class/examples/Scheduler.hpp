@@ -52,7 +52,7 @@ class Scheduler: private utils::security::observer::Observer<"Scheduler"> {
         std::unordered_map<std::size_t, std::jthread> _tasks;
 
         // ---------- Pre-Function -------- //
-        void clear(void); // clear finished task
+        void clear_(void); // clear finished task
 
         // ------------ Function ---------- //
         _cold inline void cancel_(std::size_t id) {this->_tasks.erase(id); this->_idHandler.free(id);};
@@ -62,12 +62,12 @@ class Scheduler: private utils::security::observer::Observer<"Scheduler"> {
         void cancel(std::size_t id); // cancel given task
 
         // ------------ Function ---------- //
-        _cold inline void cancel(void) {this->_tasks.clear(); this->_finished.clear(); this->_idHandler.free();}
+        _cold inline void cancel(void) {this->_tasks.clear(); this->_finished.clear(); this->_idHandler.free();};
         template<typename Fn>
         _hot std::size_t schedule(std::chrono::milliseconds delay, const Fn& fn) // schedule a new task
         {
             static_assert(std::is_invocable_r_v<void, Fn>, "Fn must be callable with no arguments (signature: void(void))");
-            this->clear();
+            this->clear_();
 
             // Get a new id
             std::size_t id = this->_idHandler.allocate();
@@ -80,7 +80,7 @@ class Scheduler: private utils::security::observer::Observer<"Scheduler"> {
                 std::condition_variable_any cv;
 
                 // Wait until timeout or cancel trigger
-                (void)cv.wait_for(cvlock, stoken, delay, []{return false;});
+                (void)cv.wait_for(cvlock, stoken, delay, [](void) {return false;});
 
                 if (!stoken.stop_requested()) _likely {fn();}
 
@@ -90,7 +90,7 @@ class Scheduler: private utils::security::observer::Observer<"Scheduler"> {
             }));
 
             return id;
-        }
+        };
 
         // ------------ Operator ---------- //
         Scheduler& operator=(const Scheduler& other) = delete;

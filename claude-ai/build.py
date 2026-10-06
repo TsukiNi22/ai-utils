@@ -15,13 +15,13 @@ import argparse
 import re
 import sys
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SKIP = {"__pycache__", ".DS_Store"}
 KEYS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 NOTE = re.compile(r"^`<name>` \(a skill\) = the folder of that skill:.*$", re.M)
-
 
 def for_claude_ai(text: str) -> str:
     """SKILL.md for claude.ai: accepted frontmatter keys only, other skills side by side."""
@@ -32,11 +32,9 @@ def for_claude_ai(text: str) -> str:
         text = "---\n" + "\n".join(keep) + "\n---\n" + text[m.end():]
     return NOTE.sub("`<name>` (a skill) = the folder of that skill, next to this one: `../<name>`.", text)
 
-
-def skills():
+def skills() -> Iterator[Path]:
     for md in sorted(REPO.glob("*/*/SKILL.md")):
         yield md.parent
-
 
 def build(skill: Path, out: Path) -> Path:
     text = (skill / "SKILL.md").read_text()
@@ -62,8 +60,7 @@ def build(skill: Path, out: Path) -> Path:
             z.write(f, str(arc))
     return dest
 
-
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(REPO / "dist" / "claude-ai"))
     ap.add_argument("names", nargs="*")
@@ -76,7 +73,6 @@ def main():
         d = build(s, out)
         print(f"{d.relative_to(out.parent) if out.parent in d.parents else d}  ({d.stat().st_size // 1024} KB)")
     print(f"\n{len(todo)} archives in {out} - upload them in claude.ai: Customize > Skills > Add > Upload")
-
 
 if __name__ == "__main__":
     main()

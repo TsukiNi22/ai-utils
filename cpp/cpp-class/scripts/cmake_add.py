@@ -20,7 +20,6 @@ import sys
 
 LIST_VARS = ("SRC", "SRCS", "SOURCES", "SOURCE", "SRC_FILES", "SOURCE_FILES")
 
-
 def find_block(lines: list[str], var: str | None) -> tuple[int, int] | None:
     """Return (start, end) line indexes of the source list: start = 'set(VAR', end = ')' line."""
     names = (var,) if var else LIST_VARS
@@ -42,13 +41,11 @@ def find_block(lines: list[str], var: str | None) -> tuple[int, int] | None:
                     break
     return None
 
-
 def entry(line: str) -> str | None:
     code = line.split("#", 1)[0].strip().strip('"')
     if code.startswith("${CMAKE_SOURCE_DIR}/"):
         code = code[len("${CMAKE_SOURCE_DIR}/"):]
     return code if re.search(r"\.(cpp|cc|cxx|c)$", code) else None
-
 
 def closeness(a: str, b: str) -> int:
     pa, pb = a.split("/"), b.split("/")
@@ -56,7 +53,6 @@ def closeness(a: str, b: str) -> int:
     while n < min(len(pa), len(pb)) and pa[n] == pb[n]:
         n += 1
     return n
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -85,7 +81,7 @@ def main() -> int:
 
     block = find_block(lines, args.var)
     if block is None:
-        print("no source list found in the CMake, add it by hand", file=sys.stderr)
+        sys.stderr.write("no source list found in the CMake, add it by hand\n")
         return 2
     start, end = block
 
@@ -121,7 +117,6 @@ def main() -> int:
         f.write("\n".join(lines))
     print(f"added {source} in {args.cmake} (line {at + len(new)})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

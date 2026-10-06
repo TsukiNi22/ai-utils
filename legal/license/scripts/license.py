@@ -35,7 +35,6 @@ COMMON = [
     "Elastic-2.0", "PolyForm-Noncommercial-1.0.0", "PolyForm-Small-Business-1.0.0", "SSPL-1.0",
 ]
 
-
 def get(url: str) -> str | None:
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, re.sub(r"[^\w.-]", "_", url.split("://", 1)[1]))
@@ -49,10 +48,8 @@ def get(url: str) -> str | None:
     open(path, "w", encoding="utf-8").write(text)
     return text
 
-
 def choose_id(spdx: str) -> str:
     return re.sub(r"-(only|or-later)$", "", spdx).lower()
-
 
 def from_choosealicense(spdx: str) -> tuple[dict, str] | None:
     raw = get(CHOOSE.format(choose_id(spdx)))
@@ -69,7 +66,6 @@ def from_choosealicense(spdx: str) -> tuple[dict, str] | None:
             meta[key].append(line.strip()[2:])
     return meta, body.lstrip("\n")
 
-
 def text_of(spdx: str) -> tuple[str, str]:
     c = from_choosealicense(spdx)
     if c and (c[0].get("spdx-id", "").lower() == spdx.lower() or choose_id(spdx) != spdx.lower()):
@@ -81,13 +77,11 @@ def text_of(spdx: str) -> tuple[str, str]:
         return c[1], "choosealicense.com"
     raise SystemExit(f"Error: no text found for '{spdx}' (check the SPDX id: https://spdx.org/licenses/)")
 
-
 def holder_default() -> str:
     try:
         return subprocess.run(["git", "config", "user.name"], capture_output=True, text=True).stdout.strip()
     except Exception:
         return ""
-
 
 def fill(text: str, holder: str, year: str) -> str:
     for p in ("[year]", "<year>"):
@@ -97,12 +91,10 @@ def fill(text: str, holder: str, year: str) -> str:
             text = text.replace(p, holder)
     return text
 
-
 def normalize(text: str) -> list[str]:
     text = re.sub(r"(?im)^.*copyright.*\d{4}.*$", " ", text) # drop the copyright lines
     text = text.lower().replace("&", "and")
     return re.findall(r"[a-z0-9]+", text)
-
 
 def cmd_list(_: argparse.Namespace) -> int:
     print("Common SPDX ids (any id of https://spdx.org/licenses/ works with fetch):")
@@ -112,7 +104,6 @@ def cmd_list(_: argparse.Namespace) -> int:
           "Autoconf-exception-3.0, OpenJDK-assembly-exception-1.0 ...")
     print("Not in SPDX: Commons Clause (https://commonsclause.com, added on top of a license)")
     return 0
-
 
 def cmd_info(a: argparse.Namespace) -> int:
     c = from_choosealicense(a.id)
@@ -126,7 +117,6 @@ def cmd_info(a: argparse.Namespace) -> int:
         print(f"  {k}: {', '.join(meta.get(k) or []) or '-'}")
     return 0
 
-
 def cmd_fetch(a: argparse.Namespace) -> int:
     text, source = text_of(a.id)
     holder = a.holder if a.holder is not None else holder_default()
@@ -134,21 +124,20 @@ def cmd_fetch(a: argparse.Namespace) -> int:
     left = sorted(set(re.findall(r"\[(?:year|fullname)\]|<(?:year|copyright holders|owner)>", text)))
     if a.out:
         if os.path.exists(a.out) and not a.force:
-            print(f"Error: {a.out} exists (confirm with the user, then --force)", file=sys.stderr)
+            sys.stderr.write(f"Error: {a.out} exists (confirm with the user, then --force)\n")
             return 1
         open(a.out, "w", encoding="utf-8").write(text if text.endswith("\n") else text + "\n")
         print(f"{a.id} ({source}) -> {a.out}  holder: {holder or '-'}  year: {a.year}")
     else:
         sys.stdout.write(text)
     if left:
-        print(f"warning: placeholders left: {', '.join(left)}", file=sys.stderr)
+        sys.stderr.write(f"warning: placeholders left: {', '.join(left)}\n")
     return 0
-
 
 def cmd_exception(a: argparse.Namespace) -> int:
     t = get(SPDX.format(a.id))
     if not t:
-        print(f"Error: exception '{a.id}' not found", file=sys.stderr)
+        sys.stderr.write(f"Error: exception '{a.id}' not found\n")
         return 1
     if a.out:
         open(a.out, "w", encoding="utf-8").write(t)
@@ -156,7 +145,6 @@ def cmd_exception(a: argparse.Namespace) -> int:
     else:
         sys.stdout.write(t)
     return 0
-
 
 def cmd_identify(a: argparse.Namespace) -> int:
     target = normalize(open(a.file, encoding="utf-8", errors="replace").read())
@@ -187,7 +175,6 @@ def cmd_identify(a: argparse.Namespace) -> int:
         print(f"  notice: {h.strip()}")
     return 0
 
-
 def main() -> int:
     ap = argparse.ArgumentParser(description="License helper")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -200,7 +187,6 @@ def main() -> int:
     p = sub.add_parser("exception"); p.add_argument("id"); p.add_argument("--out", default=None)
     a = ap.parse_args()
     return {"list": cmd_list, "info": cmd_info, "fetch": cmd_fetch, "identify": cmd_identify, "exception": cmd_exception}[a.cmd](a)
-
 
 if __name__ == "__main__":
     sys.exit(main())

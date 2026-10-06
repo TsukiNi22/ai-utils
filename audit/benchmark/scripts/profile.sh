@@ -20,7 +20,7 @@
 # memory.txt, info.txt. Then: python3 hotspots.py <out> --md <out>/hotspots.md
 # Exit code: 0 measured, 2 build / run failure.
 
-set -uo pipefail
+set -uo pipefail # no -e: the profiled program and the optional tools may fail (xstyle: ignore-file SH-STRICT)
 
 CMD=""; PROJECT="."; CWD=""; BUILD_TYPE=""; RUNS=10; OUT=""; CALLGRIND=false; MEMORY=false; BUILD=true
 while [[ $# -gt 0 ]]; do
