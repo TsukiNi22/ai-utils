@@ -45,7 +45,7 @@ _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::I
     static const std::regex bareExcept(R"(^\s*except\s*:)");
     static const std::regex definition(R"(^\s*(?:async\s+)?def\s+(\w+)\s*\((.*)\)\s*(->\s*[^:]+)?:)");
     static const std::regex printError(R"(\bprint\s*\(.*\bfile\s*=\s*(?:sys\.)?stderr)");
-    static const std::regex openCall(R"((?:^|[^\w.])open\s*\(([^)]*)\))");
+    static const std::regex openCall(R"((?:^|[^\w.])open\s*\()");
     static const std::regex binaryMode(R"(['"][rwax+]*b[rwax+]*['"])");
     const std::vector<std::string>& lines = file.getLines();
     const std::vector<std::string>& code = file.getCode();
@@ -82,8 +82,12 @@ _hot void xstyle::check::python(const xstyle::SourceFile& file, xstyle::check::I
 
         // open() of a text file without encoding (the mode is read on the real line, the code is masked)
         for (std::sregex_iterator it(code[i].begin(), code[i].end(), openCall); it != std::sregex_iterator(); ++it) {
-            const std::size_t start = static_cast<std::size_t>(it->position(1));
-            const std::string arguments = lines[i].substr(start, static_cast<std::size_t>(it->length(1)));
+            // Arguments up to the matching parenthesis (open(os.path.join(a, b), "w", encoding="utf-8"))
+            const std::size_t start = static_cast<std::size_t>(it->position(0) + it->length(0));
+            std::size_t end = start;
+            for (int depth = 1; end < code[i].size() && depth > 0; ++end)
+                depth += code[i][end] == '(' ? 1 : code[i][end] == ')' ? -1 : 0;
+            const std::string arguments = lines[i].substr(start, end - start);
             if (arguments.find("encoding") != std::string::npos || std::regex_search(arguments, binaryMode)) continue;
             issues.push_back(xstyle::check::make_issue(file, i, start, "PY-OPEN-ENCODING", "Text file opened without encoding", "open(..., encoding=\"utf-8\")"));
         }
