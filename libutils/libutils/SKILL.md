@@ -103,3 +103,26 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 | `type` | `utils::type` | `Vector2/3`, `OVector2/3`, `Matrix`/`OMatrix`, `BidirectionalLookupTable`, `Freezable`, `Worker` |
 | `verbose` | `utils::verbose` | verbose levels and macros |
 | `root` | `utils` | `utils.hpp` umbrella include, `utils::version` |
+
+## Use libutils instead of rewriting it
+In a project that uses libutils (installed **and** `find_package(utils)` / `utils.hpp` in the project), never
+write by hand what a section already gives; when reviewing, flag it with the class to use:
+| Written by hand | libutils |
+|---|---|
+| `throw std::runtime_error(...)` and the other standard exceptions | `utils::exception::ErrorException(InternalCode::X, "info")` (`libutils-exception`) |
+| `argv[i]` compared / `getopt` | `utils::arguments::ArgParser` (flags, options, usages, env, help) |
+| `"\033[31m"`, `"\x1b[0m"` | `utils::iomanip` (`color(Color::Red)`, `set_style({...})`, `reset()`, `file_hyperlink`, `hyperlink`) |
+| `socket(AF_INET...)`, `bind` / `listen` / `accept`, `sockaddr_in` | `utils::network::TCPSocket`, `Server`, `Client`, `Address` |
+| `pipe`, `dup2`, `fork`, `epoll_*`, `shm_open` + `mmap`, `dlopen` / `dlsym` | `utils::encapsulation::Pipe`, `Dup`, `Process`, `Poll`, `SharedMemory`, `SharedObject` |
+| `std::vector<std::thread>` pool, delayed tasks | `utils::pool::Cluster`, `utils::system::Scheduler`, `utils::system::LoadBalancer` |
+| id counter + free list | `utils::system::IdHandler<T>` |
+| `* M_PI / 180`, `180 / M_PI` | `utils::math::trigo::deg_to_rad` / `rad_to_deg` |
+| base64 alphabet / encoder | `utils::smanip::codec::Base64Codec` |
+| `if (verbose) std::cout << ...` | `utils::verbose` (`set_verbose(Debug)`, `onBasicVerbose(info)`, `onDebugVerbose(info)`) |
+| Levenshtein / edit distance | `utils::algorithms::c2dmp::c2dmp` |
+| `[[nodiscard]]`, `[[maybe_unused]]`, `alignas(n)`... | `_nodiscard`, `_unused`, `_alignas(n)`... (`cpp-style` "Attributes") |
+| old names (`isloaded`, `auto_cast`, `setStyle`, `utils::network::socket::*`) | new names (`isLoaded`, `autoCast`, `set_style`, `utils::network::*`) |
+
+The checker `xstyle` of this repository (`style/xstyle`, `./setup.sh install xstyle`) enforces this table with its
+`LU-*` rules (`xstyle -c LU`; `LU-INCLUDE`, `LU-SECTION`, `LU-ATTRIBUTE`, `LU-MIGRATION` are fixed by `xstyle --fix LU`).
+Its migration rule reads the `_migration` aliases of the **installed** headers, so it follows the installed version.
