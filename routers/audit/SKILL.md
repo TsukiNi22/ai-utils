@@ -36,6 +36,11 @@ scope, mode, iterations, fixes) are asked by that audit when it starts, in one c
   README / tests / examples, else the test suite in an optimized build), quick depth (perf + time), report only, no
   optimization applied; skipped with the reason when nothing can be run (library without benchmark target or tests).
 
+`xstyle` (when installed: `command -v xstyle`) is always run with **`--rtk`** by the audits (compact output made for
+the assistant; `-o <file>.json` for counters kept in a report): `audit-quality` uses all its rules, `audit-bugs` the ones
+that hide bugs. Not installed: say once that `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle`
+(no curl: `wget -qO-` instead of `curl -fsSL`) would add those checks.
+
 ## 3. Run (in this order, sequentially)
 1. `audit-deps` first when selected: its JSON (`/tmp/deps.json`, `/tmp/vulns.json`) is reused by `audit-quality`
    and `audit-bugs` instead of running the scripts again.

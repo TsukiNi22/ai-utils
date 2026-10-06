@@ -44,6 +44,10 @@ project frames. Exit 0 = clean, 1 = reports, 2 = build failure. `--keep` to read
   `cppcheck --enable=all --inconclusive`, `scan-build cmake --build`, `valgrind --leak-check=full --track-origins=yes`
   on a non-sanitized build.
 - Other languages: their linters / type checkers / test suites with race or debug modes.
+- `xstyle` when installed (`command -v xstyle`): `xstyle --rtk -r <project> -c CPP-NULL,CPP-C-CAST,PY-BARE-EXCEPT,SH-STRICT,LU-EXCEPTION,LU-MIGRATION`
+  (**always `--rtk`**: compact output made for the assistant), the style rules that hide bugs (C casts, `NULL`,
+  silent `except:`, scripts going on after a failure, deprecated libutils names); each one confirmed by reading the
+  code before becoming a finding (the full style audit is `audit-quality`).
 
 ### Dependencies (security)
 ```bash

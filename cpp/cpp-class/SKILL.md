@@ -120,6 +120,9 @@ source list found: add it by hand in the right `add_executable`/`add_library`/`t
   `clang++ -std=c++20 -Wall -Wextra -Wno-unused-parameter -fsyntax-only -I<project_root>/include <file>`
   (`g++` as fallback). Fix every error/warning caused by the generated code (the unused parameters
   of the empty bodies are expected, never silence them in the code).
+- When `xstyle` is installed (`command -v xstyle`): `xstyle --rtk <created files>` (**always `--rtk`**: compact output
+  made for the assistant), `xstyle --rtk --fix [CODES] <files>` for the fixable ones; what it can't see (logic in a
+  body, `inline`, names ending with `_`) is still checked by hand below.
 - Re-read the files against `reference/layout.md` and `cpp-style` (braces, `(void)`, `this->`,
   `;` after one-liners, one-liner bodies aligned tight (longest signature + 1 space), aligned include comments, section separators, guard name, namespace comments)
   and check that **no body contains logic**, that **no section separator is left empty** and that
