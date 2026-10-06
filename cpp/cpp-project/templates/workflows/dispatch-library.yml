@@ -75,12 +75,12 @@ jobs:
   notify-build-libraries:
     needs: [dispatch, notify-unit-tests]
     if: needs.dispatch.outputs.ignore == 'false' && needs.dispatch.outputs.build == 'false' && needs.notify-unit-tests.result == 'success'
-  
+
     runs-on: ${{ vars.RUNNER }}
     defaults:
       run:
         shell: bash
-  
+
     steps:
       - name: Trigger build-libraries.yml (workflow_dispatch)
         run: |
@@ -97,7 +97,7 @@ jobs:
     runs-on: ${{ vars.RUNNER }}
 
     steps:
-      - name: Trigger build-packages.yml (workflow_dispatch) and wait 
+      - name: Trigger build-packages.yml (workflow_dispatch) and wait
         uses: convictional/trigger-workflow-and-wait@v1.6.5
         with:
           owner: ${{ github.repository_owner }}

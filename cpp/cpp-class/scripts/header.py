@@ -56,8 +56,9 @@ def render(text: str) -> list[str]:
         width = max(len(r) for r in glyph)
         for r in range(height):
             out[r] += glyph[r].ljust(width)
-    # Remove the empty trailing rows of the font
-    while out and not out[-1].strip():
+    # No trailing space (the last glyph is padded) and no empty row at the end
+    out = [row.rstrip() for row in out]
+    while out and not out[-1]:
         out.pop()
     return out
 

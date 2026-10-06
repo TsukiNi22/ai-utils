@@ -1,6 +1,6 @@
 /**************************************************************\
 
- ██╗  ██╗ █████╗ ██████╗ ████████╗ █████╗ ███╗   ██╗██╗ █████╗ 
+ ██╗  ██╗ █████╗ ██████╗ ████████╗ █████╗ ███╗   ██╗██╗ █████╗
  ╚██╗██╔╝██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗████╗  ██║██║██╔══██╗
   ╚███╔╝ ███████║██████╔╝   ██║   ███████║██╔██╗ ██║██║███████║
   ██╔██╗ ██╔══██║██╔══██╗   ██║   ██╔══██║██║╚██╗██║██║██╔══██║
@@ -33,7 +33,7 @@ File Description:
     #include <cstddef>                              // std::size_t
     #include <thread>                               // std::jthread
     #include <chrono>                               // std::chrono::milliseconds
-    #include <vector>                               // std::vector   
+    #include <vector>                               // std::vector
     #include <mutex>                                // std::mutex, std::unique_lock, std::lock_guard
 
 namespace utils::system { // namespace start
@@ -72,7 +72,7 @@ class Scheduler: private utils::security::observer::Observer<"Scheduler"> {
             // Get a new id
             std::size_t id = this->_idHandler.allocate();
 
-            // Setup the new thread 
+            // Setup the new thread
             this->_tasks.emplace(id, std::jthread([this, id, delay, fn](std::stop_token stoken) {
                 // Setup condition_variable_any
                 std::mutex mutex;
