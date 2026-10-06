@@ -39,6 +39,7 @@ _cold _nodiscard std::string_view severity_name(const xstyle::Severity severity)
 _cold _nodiscard std::optional<xstyle::Severity> parse_severity(const std::string& name);
 _cold _nodiscard std::string_view language_name(const xstyle::Language language);
 _cold _nodiscard std::string_view fix_mode_name(const xstyle::FixMode mode); // auto | force | ask | -
+_cold _nodiscard std::optional<xstyle::FixMode> parse_fix_mode(const std::string& name); // auto | force(d) | ask | manual
 _cold _nodiscard std::string_view language_id(const xstyle::Language language); // cpp, c, py...
 _cold _nodiscard std::optional<xstyle::Language> parse_language(const std::string& name);
 

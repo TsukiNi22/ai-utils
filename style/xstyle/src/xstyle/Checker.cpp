@@ -77,6 +77,7 @@ _hot std::vector<xstyle::Issue> xstyle::Checker::run_(const xstyle::SourceFile& 
     std::erase_if(issues, [&](const xstyle::Issue& issue) {
         const xstyle::Rule* rule = xstyle::find_rule(issue.code);
         return !rule || !xstyle::rule_applies(*rule, language) || !this->selected_(issue.code, fix) || issue.severity < this->_options.minSeverity
+            || (!this->_options.modes.empty() && std::find(this->_options.modes.begin(), this->_options.modes.end(), issue.mode) == this->_options.modes.end())
             || this->suppressed_(file, issue);
     });
     std::stable_sort(issues.begin(), issues.end(), [](const xstyle::Issue& a, const xstyle::Issue& b) {return a.line != b.line ? a.line < b.line : a.column < b.column;});

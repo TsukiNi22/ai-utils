@@ -87,6 +87,11 @@ _cold void xstyle::Core::setup_(void)
         "Skip the paths matching these patterns, comma separated (folder name, path prefix or glob: build,third_party,*.gen.hpp)");
     this->_parser.setFlag("lang", {"l", "", "lang", ""}, {{"languages", true, languages}}, "Only these languages, comma separated (cpp,c,py,sh,rs,lua,js,cmake,make,yaml,json,md)");
     this->_parser.setFlag("top", {"t", "", "top", ""}, {}, "Only the most used language of the files found");
+    this->_parser.setFlag("mode", {"m", "", "mode", "XSTYLE_MODES"}, {{"levels", true, [](const std::string& v) -> std::optional<std::string> {
+        for (const std::string& part: xstyle::split(v, ','))
+            if (!xstyle::parse_fix_mode(part)) return "'" + part + "' is not a fix level: auto | force | ask | manual";
+        return std::nullopt;
+    }}}, "Only the issues of these fix levels, comma separated: auto, force, ask, manual (--fix included)");
     this->_parser.setFlag("libutils", {"u", "", "libutils", "XSTYLE_LIBUTILS"}, {{"mode", true, [](const std::string& v) {return choice_hook_(v, {"auto", "on", "off"});}}},
         "libutils rules: auto (installed and used by the project, default) | on | off");
 
@@ -118,7 +123,7 @@ _cold void xstyle::Core::setup_(void)
 
     // Help in the order of the sections (the default one follows the hash order)
     this->_sections = {
-        {"SELECTION", {"recursive", "code", "ignore", "severity", "fail", "exclude", "lang", "top", "libutils"}},
+        {"SELECTION", {"recursive", "code", "ignore", "severity", "mode", "fail", "exclude", "lang", "top", "libutils"}},
         {"FIX", {"fix", "dry", "force", "header", "headerdesc"}},
         {"OUTPUT", {"report", "format", "summary", "color", "link"}},
         {"INFORMATION", {"list", "explain", "version", "completion"}},
@@ -131,7 +136,7 @@ _cold std::vector<std::string> xstyle::Core::extractPaths_(const int argc, char*
     // ArgParser options are positional (one each): the paths are taken out before the parsing
     static const std::unordered_map<std::string, int> values = { // 1 = mandatory value, 2 = optional codes
         {"c", 1}, {"code", 1}, {"i", 1}, {"ignore", 1}, {"s", 1}, {"severity", 1}, {"F", 1}, {"fail-on", 1}, {"e", 1}, {"exclude", 1},
-        {"l", 1}, {"lang", 1}, {"u", 1}, {"libutils", 1}, {"o", 1}, {"report", 1}, {"format", 1}, {"link", 1}, {"x", 1}, {"explain", 1},
+        {"l", 1}, {"lang", 1}, {"m", 1}, {"mode", 1}, {"u", 1}, {"libutils", 1}, {"o", 1}, {"report", 1}, {"format", 1}, {"link", 1}, {"x", 1}, {"explain", 1},
         {"completion", 1},
         {"f", 2}, {"fix", 2}, {"header", 1}, {"header-desc", 1},
     };
@@ -169,6 +174,9 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "fail") this->_options.failOn = *xstyle::parse_severity(value);
     else if (id == "exclude") this->_options.excludes = xstyle::split(value, ',');
     else if (id == "top") this->_options.topOnly = true;
+    else if (id == "mode")
+        for (const std::string& part: xstyle::split(value, ','))
+            this->_options.modes.push_back(*xstyle::parse_fix_mode(part));
     else if (id == "libutils") this->_options.libutils = xstyle::lower(value);
     else if (id == "fix") this->_options.fix = true;
     else if (id == "dry") this->_options.dryRun = true;

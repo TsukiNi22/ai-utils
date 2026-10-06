@@ -148,6 +148,7 @@ struct Options {
     std::vector<xstyle::Language> languages; // empty = every known language
     bool topOnly = false; // only the most used language
     xstyle::Severity minSeverity = xstyle::Severity::Negligible; // reported from this one
+    std::vector<xstyle::FixMode> modes; // only these fix levels (empty = every level)
     xstyle::Severity failOn = xstyle::Severity::Negligible; // exit 1 from this one
     std::optional<std::filesystem::path> report; // report file
     std::optional<xstyle::Format> format; // report format (default: from the extension)

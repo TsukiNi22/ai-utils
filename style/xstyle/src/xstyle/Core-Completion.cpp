@@ -41,12 +41,13 @@ _cold void xstyle::Core::completion_(void) const
 {
     // What each flag takes (the flags without entry take nothing)
     static const std::unordered_map<std::string, std::string> kinds = {
-        {"code", "codes"}, {"ignore", "codes"}, {"explain", "codes"}, {"fix", "fix"}, {"severity", "level"}, {"fail", "level"}, {"lang", "lang"},
+        {"code", "codes"}, {"ignore", "codes"}, {"explain", "codes"}, {"fix", "fix"}, {"severity", "level"}, {"fail", "level"}, {"lang", "lang"}, {"mode", "modes"},
         {"libutils", "auto on off"}, {"format", "text md json"}, {"link", "file vscode none"}, {"completion", "bash zsh fish"}, {"report", "file"}, {"exclude", "path"},
         {"header", "none default"},
     };
     const std::string levels = "unforgivable major minor negligible";
     const std::string prefixes = "G CPP LU PY SH RS";
+    const std::string modes = "auto force ask manual";
     std::string languages;
     for (std::uint8_t i = 0; i < static_cast<std::uint8_t>(xstyle::Language::Other); ++i)
         languages += (languages.empty() ? "" : " ") + std::string(xstyle::language_id(static_cast<xstyle::Language>(i)));
@@ -82,6 +83,7 @@ _cold void xstyle::Core::completion_(void) const
                     << (kind == "fix" ? "            [[ \"$cur\" == [A-Z]* ]] || { compopt -o filenames; mapfile -t -O \"${#COMPREPLY[@]}\" COMPREPLY < <(compgen -f -- \"$cur\"); }\n" : "");
             else if (kind == "level") std::cout << "            mapfile -t COMPREPLY < <(compgen -W \"" << levels << "\" -- \"$cur\")\n";
             else if (kind == "lang") std::cout << "            _xstyle_list \"$cur\" \"" << languages << "\"\n";
+            else if (kind == "modes") std::cout << "            _xstyle_list \"$cur\" \"" << modes << "\"\n";
             else if (kind == "file") std::cout << "            compopt -o filenames\n            mapfile -t COMPREPLY < <(compgen -f -- \"$cur\")\n";
             else if (kind == "path") std::cout << "            compopt -o filenames\n            mapfile -t COMPREPLY < <(compgen -d -- \"$cur\")\n";
             else std::cout << "            mapfile -t COMPREPLY < <(compgen -W \"" << kind << "\" -- \"$cur\")\n";
@@ -106,6 +108,8 @@ _cold void xstyle::Core::completion_(void) const
             << "    _sequence compadd - $codes\n}\n\n"
             << "_xstyle_langs()\n{\n"
             << "    _sequence compadd - " << languages << "\n}\n\n"
+            << "_xstyle_modes()\n{\n"
+            << "    _sequence compadd - " << modes << "\n}\n\n"
             << "_arguments -s -S \\\n"
             << "    '(- *)'{-h,--help}'[Display the help and exit]' \\\n";
         for (const std::string& id: ids) {
@@ -123,6 +127,7 @@ _cold void xstyle::Core::completion_(void) const
                 if (kind == "codes" || kind == "fix") action = "_xstyle_codes";
                 else if (kind == "level") action = "(" + levels + ")";
                 else if (kind == "lang") action = "_xstyle_langs";
+                else if (kind == "modes") action = "_xstyle_modes";
                 else if (kind == "file") action = "_files";
                 else if (kind == "path") action = "_files -/";
                 spec += (kind == "fix" ? "::" : ":") + name + ":" + action;
@@ -150,6 +155,7 @@ _cold void xstyle::Core::completion_(void) const
             else if (kind == "fix") std::cout << " -a '(__xstyle_codes)'";
             else if (kind == "level") std::cout << " -x -a '" << levels << "'";
             else if (kind == "lang") std::cout << " -x -a '" << languages << "'";
+            else if (kind == "modes") std::cout << " -x -a '" << modes << "'";
             else if (kind == "file" || kind == "path") std::cout << " -r -F";
             else std::cout << " -x -a '" << kind << "'";
         }

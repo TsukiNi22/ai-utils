@@ -66,6 +66,7 @@ xstyle -r src include                  # only these directories (recursive with 
 xstyle src/core/Engine.cpp             # one file
 xstyle -S                              # only the summary (counters by severity and by rule)
 xstyle -s major                        # only the major and unforgivable issues
+xstyle -m force,manual                 # only these fix levels (auto, force, ask, manual), comma separated
 xstyle -c CPP-THIS,LU                  # only these rules (code, prefix or pattern: CPP, LU-*, G-TAB)
 xstyle -i G-TODO,CPP-AUTO              # every rule except these
 xstyle -l cpp,rs                       # only the C++ and Rust files (-t: only the most used language)
@@ -90,6 +91,8 @@ xstyle -x CPP-THIS                     # explain a rule, -L lists every rule
   | `[ask-fix]` | `--fix` + a question | the missing file header: banner `[n]one`, `[d]efault` (XARTANIA) or `[t]ext` + description, per file (upper case answer: same for the next files); `--header none\|default\|<text>` and `--header-desc "..."` answer without question (CI, no terminal: skipped) |
   | `[manual]` | by hand | needs a decision a tool can't take (a type to write, a name to choose, a code to rewrite with libutils...) |
 
+- **Filter by level**: `-m auto,force,ask,manual` (one or several, `forced` accepted) keeps only those issues, in the
+  display, the counters, the report and `--fix` (`xstyle --fix --force -m auto` applies only the safe fixes).
 - **Templates**: a file with `{{NAME}}` placeholders is not valid code yet, only the generic rules are checked there.
 - **Fix**: the fixes are applied in passes (a fix can reveal another issue: `[[nodiscard]]` -> `_nodiscard` ->
   `#define _Attribute` missing -> added), only the fixable rules (`yes` in the table) are touched, the logic never.
