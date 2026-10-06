@@ -72,7 +72,7 @@ _cold void xstyle::Core::setup_(void)
     };
     const std::function<std::optional<std::string>(const std::string&)> languages = [](const std::string& v) -> std::optional<std::string> {
         for (const std::string& part: xstyle::split(v, ','))
-            if (!xstyle::parse_language(part)) return "'" + part + "' is not a language: cpp, c, py, sh, lua, js, cmake, make, yaml, json, md";
+            if (!xstyle::parse_language(part)) return "'" + part + "' is not a language: cpp, c, py, sh, rs, lua, js, cmake, make, yaml, json, md";
         return std::nullopt;
     };
 
@@ -84,7 +84,7 @@ _cold void xstyle::Core::setup_(void)
     this->_parser.setFlag("fail", {"F", "", "fail-on", ""}, {{"level", true, severity}}, "Exit 1 only if an issue of this severity or above is left (default: negligible)");
     this->_parser.setFlag("exclude", {"e", "", "exclude", "XSTYLE_EXCLUDE"}, {{"patterns", true, utils::arguments::defaultTrueParsingHook}},
         "Skip the paths matching these patterns, comma separated (folder name, path prefix or glob: build,third_party,*.gen.hpp)");
-    this->_parser.setFlag("lang", {"l", "", "lang", ""}, {{"languages", true, languages}}, "Only these languages, comma separated (cpp,c,py,sh,lua,js,cmake,make,yaml,json,md)");
+    this->_parser.setFlag("lang", {"l", "", "lang", ""}, {{"languages", true, languages}}, "Only these languages, comma separated (cpp,c,py,sh,rs,lua,js,cmake,make,yaml,json,md)");
     this->_parser.setFlag("top", {"t", "", "top", ""}, {}, "Only the most used language of the files found");
     this->_parser.setFlag("libutils", {"u", "", "libutils", "XSTYLE_LIBUTILS"}, {{"mode", true, [](const std::string& v) {return choice_hook_(v, {"auto", "on", "off"});}}},
         "libutils rules: auto (installed and used by the project, default) | on | off");

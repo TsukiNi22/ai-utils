@@ -30,7 +30,7 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
         {"G-EOF-NEWLINE",      xstyle::Severity::Negligible,   true,  "*",            "No newline at the end of the file"},
         {"G-EOF-EMPTY",        xstyle::Severity::Negligible,   true,  "*",            "Empty lines at the end of the file"},
         {"G-TODO",             xstyle::Severity::Minor,        false, "*",            "TODO / FIXME / XXX tag, describe the limitation in a normal comment instead"},
-        {"G-INDENT",           xstyle::Severity::Negligible,   false, "cpp,c,py,sh,lua,js,cmake", "Indentation that is not a multiple of 4 spaces"},
+        {"G-INDENT",           xstyle::Severity::Negligible,   false, "cpp,c,py,sh,lua,js,rs,cmake", "Indentation that is not a multiple of 4 spaces"},
 
         // C / C++
         {"CPP-USING-NAMESPACE", xstyle::Severity::Unforgivable, false, "cpp",         "using namespace, always write the fully qualified names"},
@@ -90,6 +90,15 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
         {"PY-TYPE-HINTS",      xstyle::Severity::Minor,        false, "py",           "Function without type hints on its parameters / return"},
         {"PY-PRINT-ERROR",     xstyle::Severity::Minor,        false, "py",           "print(..., file=stderr), use stderr.write"},
         {"PY-OPEN-ENCODING",   xstyle::Severity::Minor,        false, "py",           "open() of a text file without encoding=\"utf-8\""},
+
+        // Rust (rustfmt conventions + no panic / unwrap in the library code)
+        {"RS-UNWRAP",          xstyle::Severity::Major,        false, "rs",           ".unwrap() outside of the tests, propagate with ? (and a context) or handle the error"},
+        {"RS-PANIC",           xstyle::Severity::Major,        false, "rs",           "panic! / process::exit in a library file, todo! / unimplemented! left anywhere"},
+        {"RS-GLOB-IMPORT",     xstyle::Severity::Major,        false, "rs",           "use path::*, import the names explicitly (super::* and preludes excepted)"},
+        {"RS-NAMING",          xstyle::Severity::Minor,        false, "rs",           "fn / variables snake_case, types PascalCase, const / static UPPER_SNAKE"},
+        {"RS-UNSAFE",          xstyle::Severity::Minor,        false, "rs",           "unsafe block without a // SAFETY: comment explaining why it is sound"},
+        {"RS-PRINT-ERROR",     xstyle::Severity::Minor,        true,  "rs",           "Error printed with println!, use eprintln! (stderr)"},
+        {"RS-DBG",             xstyle::Severity::Minor,        false, "rs",           "dbg! left in the code"},
 
         // Shell
         {"SH-SHEBANG",         xstyle::Severity::Minor,        false, "sh",           "Script without shebang (#!/bin/bash)"},
@@ -161,6 +170,7 @@ _cold std::string_view xstyle::language_name(const xstyle::Language language)
         case xstyle::Language::Shell:      return "Shell";
         case xstyle::Language::Lua:        return "Lua";
         case xstyle::Language::JavaScript: return "JavaScript / TypeScript";
+        case xstyle::Language::Rust:       return "Rust";
         case xstyle::Language::CMake:      return "CMake";
         case xstyle::Language::Makefile:   return "Makefile";
         case xstyle::Language::Yaml:       return "YAML";
@@ -179,6 +189,7 @@ _cold std::string_view xstyle::language_id(const xstyle::Language language)
         case xstyle::Language::Shell:      return "sh";
         case xstyle::Language::Lua:        return "lua";
         case xstyle::Language::JavaScript: return "js";
+        case xstyle::Language::Rust:       return "rs";
         case xstyle::Language::CMake:      return "cmake";
         case xstyle::Language::Makefile:   return "make";
         case xstyle::Language::Yaml:       return "yaml";
@@ -197,6 +208,7 @@ _cold std::optional<xstyle::Language> xstyle::parse_language(const std::string& 
     if (lower == "python") lower = "py";
     if (lower == "shell" || lower == "bash") lower = "sh";
     if (lower == "ts" || lower == "javascript" || lower == "typescript") lower = "js";
+    if (lower == "rust") lower = "rs";
     if (lower == "makefile") lower = "make";
     if (lower == "yml") lower = "yaml";
     if (lower == "markdown") lower = "md";

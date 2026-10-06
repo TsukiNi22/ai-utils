@@ -134,8 +134,9 @@ _hot void xstyle::check::generic(const xstyle::SourceFile& file, xstyle::check::
         // Indentation multiple of 4 (code lines only, continuations are free)
         const std::string& masked = code[i];
         const bool open = file.isCLike() ? info[i].parenDepth > 0 : brackets > 0;
+        const bool blocks = language == xstyle::Language::Rust || language == xstyle::Language::JavaScript; // { opens a block, not a continuation
         for (const char c: masked)
-            if (!file.isCLike()) brackets = std::max(0L, brackets + (c == '(' || c == '[' || c == '{' ? 1 : c == ')' || c == ']' || c == '}' ? -1 : 0));
+            if (!file.isCLike() && !(blocks && (c == '{' || c == '}'))) brackets = std::max(0L, brackets + (c == '(' || c == '[' || c == '{' ? 1 : c == ')' || c == ']' || c == '}' ? -1 : 0));
         if (!xstyle::is_blank(masked) && !info[i].inComment && !info[i].preprocessor && !open && indent.find('\t') == std::string::npos
             && indent.size() % 4 != 0 && xstyle::rule_applies(*xstyle::find_rule("G-INDENT"), language)
             && (previous == NO_INDEX || !continued_(code[previous], masked))

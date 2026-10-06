@@ -132,5 +132,7 @@ formatter conventions, and say that no specific rule covers it.
 ## Checking
 `xstyle` (`style/xstyle`, `./setup.sh install xstyle`) checks the generic rules of every language (tabs, trailing
 spaces, empty lines, indentation by 4, TODO tags) and the Python / shell ones (wildcard imports, bare `except:`,
-type hints, `print` to stderr, `open` without encoding, shebang, `set -euo pipefail`, `[[ ]]`): when it is installed,
+type hints, `print` to stderr, `open` without encoding, shebang, `set -euo pipefail`, `[[ ]]`) and the Rust ones
+(`unwrap` / `panic!` / `todo!` outside the tests, glob imports, naming, `unsafe` without `// SAFETY:`, errors on
+stdout, `dbg!`): when it is installed,
 run `xstyle <paths> -r` on the files written or reviewed, `xstyle --fix` for the fixable ones.

@@ -81,6 +81,7 @@ _hot void xstyle::SourceFile::analyze_(void)
     switch (this->_language) {
         case xstyle::Language::Cpp:
         case xstyle::Language::C:
+        case xstyle::Language::Rust:
         case xstyle::Language::JavaScript: this->maskCLike_(); break;
         case xstyle::Language::Python:
         case xstyle::Language::Shell:
@@ -98,7 +99,9 @@ _hot void xstyle::SourceFile::maskCLike_(void)
     enum class State {Normal, Block, String, Raw, Template};
     State state = State::Normal;
     char quote = '"';
-    std::string rawEnd; // )delim"
+    std::string rawEnd; // )delim" | "## (Rust)
+    const bool rust = this->_language == xstyle::Language::Rust;
+    std::size_t depth = 0; // nested block comments (Rust)
 
     for (std::size_t i = 0; i < this->_lines.size(); ++i) {
         const std::string& line = this->_lines[i];
@@ -115,10 +118,16 @@ _hot void xstyle::SourceFile::maskCLike_(void)
                 case State::Block:
                     comment[j] = c;
                     code[j] = ' ';
-                    if (c == '*' && next == '/') {
+                    if (rust && c == '/' && next == '*') {
+                        comment[j + 1] = '*';
+                        code[j + 1] = ' ';
+                        ++depth;
+                        ++j;
+                    } else if (c == '*' && next == '/') {
                         comment[j + 1] = '/';
                         code[j + 1] = ' ';
-                        state = State::Normal;
+                        if (depth == 0) state = State::Normal;
+                        else --depth;
                         ++j;
                     }
                     ++j;
@@ -157,6 +166,24 @@ _hot void xstyle::SourceFile::maskCLike_(void)
                         code[j + 1] = ' ';
                         state = State::Block;
                         j += 2;
+                    } else if (rust && c == 'r' && (next == '"' || next == '#') && (j == 0 || !xstyle::is_word(line[j - 1]) || line[j - 1] == 'b')) {
+                        // r"..." / r#"..."# / br"..."
+                        std::size_t k = j + 1;
+                        while (k < n && line[k] == '#') ++k;
+                        if (k >= n || line[k] != '"') {
+                            ++j;
+                            break;
+                        }
+                        rawEnd = "\"" + std::string(k - j - 1, '#');
+                        state = State::Raw;
+                        j = k + 1;
+                    } else if (rust && c == '\'') {
+                        // 'x' / '\n' is a char, 'a (lifetime / label) is not
+                        if (next == '\\' || (j + 2 < n && line[j + 2] == '\'')) {
+                            quote = c;
+                            state = State::String;
+                        }
+                        ++j;
                     } else if (c == 'R' && next == '"' && (j == 0 || !xstyle::is_word(line[j - 1]) || line[j - 1] == '8' || line[j - 1] == 'u' || line[j - 1] == 'L' || line[j - 1] == 'U')) {
                         std::size_t open = line.find('(', j + 2);
                         if (open == std::string::npos) {
@@ -188,7 +215,7 @@ _hot void xstyle::SourceFile::maskCLike_(void)
         }
 
         // A plain string / char never continues on the next line (unless escaped): recover
-        if (state == State::String && (n == 0 || line[n - 1] != '\\')) state = State::Normal;
+        if (state == State::String && !(rust && quote == '"') && (n == 0 || line[n - 1] != '\\')) state = State::Normal;
     }
 }
 

@@ -59,6 +59,7 @@ set(SRC
     src/xstyle/check/cpp.cpp
     src/xstyle/check/libutils.cpp
     src/xstyle/check/script.cpp
+    src/xstyle/check/rust.cpp
 )
 add_executable(${TARGET} ${SRC})
 

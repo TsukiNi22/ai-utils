@@ -44,7 +44,7 @@ class Core {
     private:
         xstyle::Options _options;
         utils::arguments::ArgParser _parser{"xstyle", "Check (and fix) Tsukini's coding style: C++ first (cpp-style, cpp-comments, libutils), "
-            "then Python, shell and the generic rules of every language.\nPaths: files or directories given as bare arguments (default: .), "
+            "then Python, shell, Rust and the generic rules of every language.\nPaths: files or directories given as bare arguments (default: .), "
             "directories are scanned recursively with -r (always with no path)."};
         int _exit = 0;
         bool _listRules = false;

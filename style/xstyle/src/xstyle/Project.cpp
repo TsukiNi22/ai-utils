@@ -140,7 +140,7 @@ _cold xstyle::Language xstyle::language_of(const std::filesystem::path& path)
         {".hh", xstyle::Language::Cpp}, {".hxx", xstyle::Language::Cpp}, {".ipp", xstyle::Language::Cpp}, {".tpp", xstyle::Language::Cpp},
         {".inl", xstyle::Language::Cpp}, {".h", xstyle::Language::Cpp}, {".c", xstyle::Language::C}, {".py", xstyle::Language::Python},
         {".sh", xstyle::Language::Shell}, {".bash", xstyle::Language::Shell}, {".lua", xstyle::Language::Lua}, {".js", xstyle::Language::JavaScript},
-        {".mjs", xstyle::Language::JavaScript}, {".ts", xstyle::Language::JavaScript}, {".tsx", xstyle::Language::JavaScript}, {".jsx", xstyle::Language::JavaScript},
+        {".rs", xstyle::Language::Rust}, {".mjs", xstyle::Language::JavaScript}, {".ts", xstyle::Language::JavaScript}, {".tsx", xstyle::Language::JavaScript}, {".jsx", xstyle::Language::JavaScript},
         {".cmake", xstyle::Language::CMake}, {".mk", xstyle::Language::Makefile}, {".yml", xstyle::Language::Yaml}, {".yaml", xstyle::Language::Yaml},
         {".json", xstyle::Language::Json}, {".md", xstyle::Language::Markdown},
     };

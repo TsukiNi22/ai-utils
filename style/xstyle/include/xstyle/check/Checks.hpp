@@ -45,6 +45,7 @@ _hot void cpp(const xstyle::SourceFile& file, const xstyle::ProjectInfo& project
 _hot void libutils(const xstyle::SourceFile& file, const xstyle::ProjectInfo& project, xstyle::check::Issues& issues);
 _hot void python(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
 _hot void shell(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
+_hot void rust(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
 
 /* issue */
 _hot _nodiscard xstyle::Issue make_issue(const xstyle::SourceFile& file, const std::size_t line, const std::size_t column, std::string_view code,

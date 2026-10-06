@@ -63,6 +63,7 @@ _hot std::vector<xstyle::Issue> xstyle::Checker::run_(const xstyle::SourceFile& 
     if (language == xstyle::Language::Cpp && this->_libutils) xstyle::check::libutils(file, this->_project, issues);
     if (language == xstyle::Language::Python) xstyle::check::python(file, issues);
     if (language == xstyle::Language::Shell) xstyle::check::shell(file, issues);
+    if (language == xstyle::Language::Rust) xstyle::check::rust(file, issues);
 
     // Selection: language of the rule, codes, severity, suppression comments
     std::erase_if(issues, [&](const xstyle::Issue& issue) {

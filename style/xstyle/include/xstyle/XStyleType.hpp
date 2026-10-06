@@ -42,6 +42,7 @@ enum class Language: std::uint8_t {
     Shell,
     Lua,
     JavaScript,
+    Rust,
     CMake,
     Makefile,
     Yaml,

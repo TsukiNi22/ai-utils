@@ -1,7 +1,7 @@
 # xstyle
 
 Checker and fixer of my coding style, C++ first (`cpp-style`, `cpp-comments`, `cpp-class` layout, libutils
-usage), then Python, shell and the generic rules of every language. Each issue is printed with its file, line
+usage), then Python, shell, Rust and the generic rules of every language. Each issue is printed with its file, line
 and column (terminal hyperlink), the rule broken and the fix proposed; a summary counts the issues by severity
 (**unforgivable**, **major**, **minor**, **negligible**) and by rule. Everything that can be fixed safely is fixed
 with `--fix`, for every rule or only some codes, files or directories.
@@ -11,6 +11,7 @@ with `--fix`, for every rule or only some codes, files or directories.
  - [Installation](#installation)
  - [Usage](#usage)
  - [libutils](#libutils)
+ - [Languages](#languages)
  - [Rules](#rules)
 
 ## Dependencies
@@ -54,7 +55,7 @@ xstyle -S                              # only the summary (counters by severity 
 xstyle -s major                        # only the major and unforgivable issues
 xstyle -c CPP-THIS,LU                  # only these rules (code, prefix or pattern: CPP, LU-*, G-TAB)
 xstyle -i G-TODO,CPP-AUTO              # every rule except these
-xstyle -l cpp                          # only the C++ files (-t: only the most used language)
+xstyle -l cpp,rs                       # only the C++ and Rust files (-t: only the most used language)
 xstyle --fix                           # fix everything that can be fixed
 xstyle --fix CPP-NULL,G-TRAILING src   # fix only these rules, only in src
 xstyle -f -n -c CPP -r src/core        # preview (dry run) of the C++ fixes of one directory
@@ -97,6 +98,21 @@ The `LU-*` rules are enabled when libutils is **installed** (`/usr/include`, `/u
   `pipe` / `fork` / `epoll` / `shm_open` / `dlopen`, thread pools, degree / radian conversions, base64, verbose
   flags, string distances (hint with the libutils class to use).
 
+## Languages
+
+| Language | Files | Rules |
+|---|---|---|
+| C++ | `.cpp .cc .cxx .hpp .hh .hxx .ipp .tpp .inl .h` | generic + `CPP-*` + `LU-*` (libutils installed and used) |
+| C | `.c` (+ `.h` without C++ in the project) | generic + the `CPP-*` rules marked `c` |
+| Rust | `.rs` | generic + `RS-*` (tests: `#[cfg(test)]` module, `tests/`, `benches/`, `examples/` excepted for unwrap / panic) |
+| Python | `.py` | generic + `PY-*` |
+| Shell | `.sh .bash` | generic + `SH-*` |
+| Lua, JS / TS, CMake | `.lua`, `.js .mjs .ts .tsx .jsx`, `CMakeLists.txt .cmake` | generic |
+| Makefile, YAML | `Makefile .mk`, `.yml .yaml` | generic (no indentation by 4, Makefile recipe tabs allowed) |
+| JSON, Markdown | `.json`, `.md` | generic (Markdown: trailing spaces allowed) |
+
+Any other file is skipped when a directory is scanned; given explicitly, it gets the basic generic rules.
+
 ## Rules
 
 Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: `*` = every file checked.
@@ -110,7 +126,7 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `G-EOF-NEWLINE` | negligible | yes | * | No newline at the end of the file |
 | `G-EOF-EMPTY` | negligible | yes | * | Empty lines at the end of the file |
 | `G-TODO` | minor | - | * | TODO / FIXME / XXX tag, describe the limitation in a normal comment instead |
-| `G-INDENT` | negligible | - | cpp,c,py,sh,lua,js,cmake | Indentation that is not a multiple of 4 spaces |
+| `G-INDENT` | negligible | - | cpp,c,py,sh,lua,js,rs,cmak | eIndentation that is not a multiple of 4 spaces |
 | `CPP-USING-NAMESPACE` | unforgivable | - | cpp | using namespace, always write the fully qualified names |
 | `CPP-GUARD-MISSING` | major | yes | cpp,c | Header without include guard (#ifndef NAME_H / #define NAME_H) |
 | `CPP-PRAGMA-ONCE` | minor | yes | cpp,c | #pragma once instead of the include guard NAME_H |
@@ -164,6 +180,13 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `PY-TYPE-HINTS` | minor | - | py | Function without type hints on its parameters / return |
 | `PY-PRINT-ERROR` | minor | - | py | print(..., file=stderr), use stderr.write |
 | `PY-OPEN-ENCODING` | minor | - | py | open() of a text file without encoding="utf-8" |
+| `RS-UNWRAP` | major | - | rs | .unwrap() outside of the tests, propagate with ? (and a context) or handle the error |
+| `RS-PANIC` | major | - | rs | panic! / process::exit in a library file, todo! / unimplemented! left anywhere |
+| `RS-GLOB-IMPORT` | major | - | rs | use path::*, import the names explicitly (super::* and preludes excepted) |
+| `RS-NAMING` | minor | - | rs | fn / variables snake_case, types PascalCase, const / static UPPER_SNAKE |
+| `RS-UNSAFE` | minor | - | rs | unsafe block without a // SAFETY: comment explaining why it is sound |
+| `RS-PRINT-ERROR` | minor | yes | rs | Error printed with println!, use eprintln! (stderr) |
+| `RS-DBG` | minor | - | rs | dbg! left in the code |
 | `SH-SHEBANG` | minor | - | sh | Script without shebang (#!/bin/bash) |
 | `SH-STRICT` | minor | - | sh | Bash script without set -euo pipefail |
 | `SH-TEST` | negligible | - | sh | [ ] test in a bash script, use [[ ]] |
