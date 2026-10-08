@@ -1,9 +1,9 @@
-# skills - context
+# ai-utils - context
 
 Global / default context of Claude Code (not skills): what every session loads on my computers.
 
 > [!TIP]
-> The skills are on the [`main`](https://github.com/TsukiNi22/skills) branch.
+> The skills are on the [`main`](https://github.com/TsukiNi22/ai-utils) branch.
 
 | File | Installed as | Content |
 | ---- | ------------ | ------- |
@@ -17,13 +17,13 @@ Global / default context of Claude Code (not skills): what every session loads o
 
 ### Quick Setup - 1 (without cloning)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- install
 ```
 
 or with `wget`:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh | bash -s -- install
+wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- install
 ```
 
 The branch is cloned (or updated) into `~/.local/share/tsukini-context` (`CONTEXT_HOME` to change it).
@@ -31,8 +31,8 @@ From the `main` branch, `./setup.sh context install` does the same.
 
 ### Quick Setup - 2 (from a clone)
 ```bash
-git clone --branch context --single-branch git@github.com:TsukiNi22/skills.git skills-context
-cd skills-context
+git clone --branch context --single-branch git@github.com:TsukiNi22/ai-utils.git ai-utils-context
+cd ai-utils-context
 ./setup.sh install
 ```
 

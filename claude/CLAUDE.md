@@ -54,7 +54,7 @@ The shell used by Claude has no terminal: a plain `sudo` can't ask for the passw
 
 # xstyle — coding style checker
 
-- `xstyle` (built from the skills repository: `style/xstyle`, `./setup.sh install xstyle`) checks and fixes the
+- `xstyle` (built from the ai-utils repository: `style/xstyle`, `./setup.sh install xstyle`) checks and fixes the
   user's coding style (C++, CMake, Python, shell, Rust, generic rules, libutils usage). When it is installed
   (`command -v xstyle`), use it to check what was written or reviewed instead of re-reading the style rules by hand.
 - **Always run it with `--rtk`** (or `XSTYLE_RTK=1`): compact output made for the assistant (no colors, links,

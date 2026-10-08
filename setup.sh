@@ -2,7 +2,7 @@
 # Install / remove / update the global Claude Code context (CLAUDE.md, RTK.md, hooks, helpers).
 #
 # Usage: ./setup.sh <command> [options]
-#        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh | bash -s -- <command> ...
+#        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- <command> ...
 #
 # Commands:
 #   install    link (or copy) the files into ~/.claude and ~/.local/bin, merge the hooks in settings.json,
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-REMOTE="${CONTEXT_REMOTE:-https://github.com/TsukiNi22/skills.git}"
+REMOTE="${CONTEXT_REMOTE:-https://github.com/TsukiNi22/ai-utils.git}"
 BRANCH="context"
 CONTEXT_HOME="${CONTEXT_HOME:-$HOME/.local/share/tsukini-context}"
 RTK_INSTALL="https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh"
