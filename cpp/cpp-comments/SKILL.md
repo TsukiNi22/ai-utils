@@ -99,4 +99,4 @@ When `xstyle` is installed (`command -v xstyle`), check what was written or revi
 rules by hand: `xstyle --rtk <files|dirs> [-r]` (**always `--rtk`**: compact output made for the assistant),
 `xstyle --rtk --fix [CODES] <paths>` for the fixable ones (`-n` to preview), `-c CPP-DOXYGEN,CPP-INCLUDE-COMMENT,CPP-COMMENT-ALIGN,CPP-EMPTY-SECTION,CPP-ORPHAN-GROUP,CPP-NAMESPACE-COMMENT,G-TODO` for the rules of this
 skill, `xstyle -x CODE` to explain one. Not installed: apply the rules by hand and say once that
-`curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle` (no curl: `wget -qO-` instead of `curl -fsSL`) would check them. Its findings are heuristic: the local style of a file wins.
+`curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install xstyle` (no curl: `wget -qO-` instead of `curl -fsSL`) would check them. Its findings are heuristic: the local style of a file wins.

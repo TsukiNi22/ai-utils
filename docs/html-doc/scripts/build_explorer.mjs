@@ -2,8 +2,8 @@
 // Build the graph explorer: the graph page of the skill without embedded project, which asks the user for a public
 // GitHub / GitLab repository (remembered until Ctrl + Shift + F3, or ?repo=owner/name) and builds its graph in the browser.
 //
-// Usage: node build_explorer.mjs [--out graph.html] [--home https://github.com/TsukiNi22/skills] [--template <html>]
-// Published on the gh-pages branch of the skills repository (graph.html + index.html redirecting to it).
+// Usage: node build_explorer.mjs [--out graph.html] [--home https://github.com/TsukiNi22/ai-utils] [--template <html>]
+// Published on the gh-pages branch of the ai-utils repository (graph.html + index.html redirecting to it).
 
 import {readFileSync, writeFileSync, mkdirSync} from "node:fs";
 import {dirname, join, resolve} from "node:path";
@@ -13,7 +13,7 @@ const SKILL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const opt = (name, def) => { const i = argv.indexOf("--" + name); return i >= 0 ? argv[i + 1] : def; };
 const out = resolve(opt("out", "graph.html"));
-const home = opt("home", "https://github.com/TsukiNi22/skills");
+const home = opt("home", "https://github.com/TsukiNi22/ai-utils");
 
 let html = readFileSync(opt("template", join(SKILL_DIR, "templates", "graph.html")), "utf8");
 const json = (o) => JSON.stringify(o).replace(/<\//g, "<\\/");

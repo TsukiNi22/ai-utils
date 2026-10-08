@@ -2,8 +2,8 @@
 # Install / remove the skills (and the tools) of this repository for Claude Code.
 #
 # Usage: ./setup.sh <command> [name...] [options]
-#        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- <command> ...
-#        wget -qO- https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- <command> ...
+#        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- <command> ...
+#        wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- <command> ...
 #
 # Commands:
 #   install [name...]    install the given skills / tools and their requirements (default: all)
@@ -35,7 +35,7 @@
 
 set -euo pipefail
 
-REMOTE="${SKILLS_REMOTE:-https://github.com/TsukiNi22/skills.git}"
+REMOTE="${SKILLS_REMOTE:-https://github.com/TsukiNi22/ai-utils.git}"
 SKILLS_HOME="${SKILLS_HOME:-$HOME/.local/share/tsukini-skills}"
 
 # =========================
@@ -63,8 +63,8 @@ if [[ "${1:-}" = "context" ]]; then
     CTX="$(mktemp)"
     trap 'rm -f "$CTX"' EXIT
     if git -C "$REPO" fetch -q origin context 2> /dev/null && git -C "$REPO" show origin/context:setup.sh > "$CTX" 2> /dev/null; then :
-    elif command -v curl > /dev/null 2>&1; then curl -fsSL "https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh" -o "$CTX"
-    else wget -qO "$CTX" "https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh"; fi
+    elif command -v curl > /dev/null 2>&1; then curl -fsSL "https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh" -o "$CTX"
+    else wget -qO "$CTX" "https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh"; fi
     bash "$CTX" "$@"
     exit $?
 fi

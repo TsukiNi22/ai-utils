@@ -3827,7 +3827,7 @@ extractGraph.wanted = function (p) {
     });
     $("pause").textContent = state.paused ? tr("Resume") : tr("Freeze");
 
-    // ---------- Explorer (any repository given by the user, e.g. the gh-pages of the skills repository) ---------- //
+    // ---------- Explorer (any repository given by the user, e.g. the gh-pages of the ai-utils repository) ---------- //
     const EXPLORER = "graph-explorer:repo";
     function parseRepo(s) { // owner/repo, GitHub / GitLab URLs (with /tree/<branch>)
         s = (s || "").trim().replace(/\.git$/, "").replace(/\/+$/, "");

@@ -24,7 +24,7 @@ Before relying on the reference, here and in every skill that requires libutils 
   | `Continuer avec la référence actuelle` (alone) | nothing; say once that the newer APIs / renames may be missing |
   | `Mettre à jour libutils installé` | the **`libutils-install`** skill (`libutils.sh update`, root asked by that skill, then `status`) |
   | `Mettre à jour la version requise par le projet` (only in a project using libutils) | the **`libutils-setup`** skill (`setup_project.py <root> --version <installed version>`: `find_package(utils X.Y.Z)` bumped, rebuild) |
-  | `Mettre à jour la référence des skills` | `bash SKILL_DIR/scripts/update.sh` (shows the changes then regenerates); tell the user the skills repository has to be committed |
+  | `Mettre à jour la référence des skills` | `bash SKILL_DIR/scripts/update.sh` (shows the changes then regenerates); tell the user the ai-utils repository has to be committed |
   Pre-select from the lines of `check.sh`: `installed: ... (differs)` with an installed version older than the reference
   -> `libutils-install`; repository commits after the reference or an installed version newer than it -> the reference
   (+ `libutils-install` when the repository has a newer version than the installed one); the project's
@@ -144,6 +144,6 @@ write by hand what a section already gives; when reviewing, flag it with the cla
 | `[[nodiscard]]`, `[[maybe_unused]]`, `alignas(n)`... | `_nodiscard`, `_unused`, `_alignas(n)`... (`cpp-style` "Attributes") |
 | old names (`isloaded`, `auto_cast`, `setStyle`, `utils::network::socket::*`) | new names (`isLoaded`, `autoCast`, `set_style`, `utils::network::*`) |
 
-The checker `xstyle` of this repository (`style/xstyle`, `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle` (no curl: `wget -qO-` instead of `curl -fsSL`)) enforces this table with its
+The checker `xstyle` of this repository (`style/xstyle`, `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install xstyle` (no curl: `wget -qO-` instead of `curl -fsSL`)) enforces this table with its
 `LU-*` rules (`xstyle --rtk -c LU`; `LU-INCLUDE`, `LU-SECTION`, `LU-ATTRIBUTE`, `LU-MIGRATION` are fixed by `xstyle --rtk --fix LU`).
 Its migration rule reads the `_migration` aliases of the **installed** headers, so it follows the installed version.

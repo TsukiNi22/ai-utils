@@ -1,5 +1,5 @@
 #!/bin/bash
-# xstyle pre-commit hook: style of what is committed (installed by the pre-commit skill, or by the setup.sh of TsukiNi22/skills: hook)
+# xstyle pre-commit hook: style of what is committed (installed by the pre-commit skill, or by the setup.sh of TsukiNi22/ai-utils: hook)
 #
 # xstyle missing: warning only (MISSING), issues >= FAIL_ON: commit refused, issues >= WARN_ON: warning.
 # Skip once: git commit --no-verify (or XSTYLE_HOOK=0 git commit). Fix: xstyle --fix --staged, then git add.
@@ -47,7 +47,7 @@ if ! command -v "$XSTYLE_BIN" > /dev/null 2>&1; then
     case "$MISSING" in
         fail) echo "pre-commit: xstyle not found ($XSTYLE_BIN): commit refused (MISSING=fail)" >&2; exit 1 ;;
         ignore) exit 0 ;;
-        *) echo "pre-commit: warning: xstyle not found ($XSTYLE_BIN), style not checked (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh install xstyle))" >&2; exit 0 ;;
+        *) echo "pre-commit: warning: xstyle not found ($XSTYLE_BIN), style not checked (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh install xstyle))" >&2; exit 0 ;;
     esac
 fi
 mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACMR)

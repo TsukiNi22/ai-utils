@@ -241,8 +241,8 @@ asks for a public **GitHub or GitLab** repository (`owner/repo`, `github.com/...
 browser (GitHub: 3 API requests per load, raw files from `raw.githubusercontent.com`; GitLab: API v4) and builds the
 graph with the same extractor. The link stays editable in the panel (Open / Update), is remembered by the browser
 with the graph of each repository until **Ctrl + Shift + R** (forgets them and reloads the page, which asks again). It is published on the
-`gh-pages` branch of the skills repository (`graph.html` + `index.html` redirecting to it):
-https://tsukini22.github.io/skills/ - regenerate it after a change of the template.
+`gh-pages` branch of the ai-utils repository (`graph.html` + `index.html` redirecting to it):
+https://tsukini22.github.io/ai-utils/ - regenerate it after a change of the template.
 - Big graphs (thousands of nodes): Barnes-Hut repulsion above 300 nodes (typed arrays; the exact loop below, same
   look), the simulation in a Web Worker above 3000 nodes (the page stays fluid while it settles), cached sphere
   sprites (rebuilt per ~1.5° of camera angle, fog baked in), and above 2000 nodes / 2500 relations: relations batched

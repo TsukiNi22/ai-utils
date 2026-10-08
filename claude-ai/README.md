@@ -8,7 +8,7 @@ Claude Code reads the skills from `~/.claude/skills` (installed by `setup.sh`) a
 | skill uploaded on claude.ai | yes | yes (synced) | no |
 | `.claude/skills` committed in a project | no | yes | yes |
 | `CLAUDE.md` | no (use the preferences below) | yes | if committed in the project |
-| plugin of the marketplace (`/plugin marketplace add TsukiNi22/skills`) | no | yes | yes, added in the session |
+| plugin of the marketplace (`/plugin marketplace add TsukiNi22/ai-utils`) | no | yes | yes, added in the session |
 
 ## 1. Skills
 

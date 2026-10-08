@@ -1,4 +1,4 @@
-# skills repository
+# ai-utils repository
 
 Skills of the user for Claude Code (`<category>/<skill>/SKILL.md`), the routers (`routers/`), the tools built by
 `setup.sh` (`<category>/<tool>/tool.txt`, ex: `style/xstyle`) and the claude.ai packaging (`claude-ai/`).

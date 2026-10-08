@@ -31,5 +31,5 @@ release, PR...).
 ## Always
 - Never commit / push / tag / release / open a PR without an explicit request in the current message: write the
   message and suggest the command otherwise.
-- No AI attribution (Co-Authored-By, "Generated with") except where the user allowed it (the skills repository).
+- No AI attribution (Co-Authored-By, "Generated with") except where the user allowed it (the ai-utils repository).
 - Start the answer with one line listing the loaded skills.

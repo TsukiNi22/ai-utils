@@ -1,6 +1,6 @@
-# skills
+# ai-utils
 
-AI skills based on my work.
+AI skills, routers, tools and context based on my work.
 
 This repository holds [Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills)
 built from my own projects and habits. Each skill teaches the assistant how I work (code style,
@@ -24,7 +24,7 @@ skills below by themselves. `/dev` is enough most of the time.
 
 ## Graph explorer
 
-**https://tsukini22.github.io/skills/** (branch [`gh-pages`](https://github.com/TsukiNi22/skills/tree/gh-pages)) - the
+**https://tsukini22.github.io/ai-utils/** (branch [`gh-pages`](https://github.com/TsukiNi22/ai-utils/tree/gh-pages)) - the
 project graph of [`html-doc`](docs/html-doc/SKILL.md) for **any public GitHub or GitLab repository**: give its link
 (`owner/repo`, a GitHub / GitLab URL, a branch with `/tree/<branch>`) and the page reads its sources in the browser to
 draw its files, classes, functions, calls, tests and packages in 2D / 3D, plus the execution flow, inheritance tree and
@@ -78,7 +78,7 @@ Programs stored next to the skills they enforce, built and installed by the same
 | Tool | Description |
 |---|---|
 | [`xstyle`](style/xstyle/README.md) | C++20 / libutils checker and fixer of my coding style (C++ first, then Python, shell, Rust and the generic rules): issues with file, line, hyperlink, rule and proposed fix, summary by severity (unforgivable / major / minor / negligible) and by rule, `--fix` for every fixable rule or only some codes, files or directories, libutils rules (sections, attributes, deprecated names, code libutils already gives) when libutils is installed and used, CMake and comment layout rules, `--diff` / `--staged` (changed lines only, pre-commit hook), `--commit` of the fixes, `--libutils-check`, bash / zsh / fish completion. Requires libutils, clang++ and CMake. |
-| [Graph explorer](https://tsukini22.github.io/skills/) | Web page (branch [`gh-pages`](https://github.com/TsukiNi22/skills/tree/gh-pages), nothing to install): the project graph of [`html-doc`](docs/html-doc/SKILL.md) for any public GitHub / GitLab repository (`?repo=owner/name`), see [Graph explorer](#graph-explorer). |
+| [Graph explorer](https://tsukini22.github.io/ai-utils/) | Web page (branch [`gh-pages`](https://github.com/TsukiNi22/ai-utils/tree/gh-pages), nothing to install): the project graph of [`html-doc`](docs/html-doc/SKILL.md) for any public GitHub / GitLab repository (`?repo=owner/name`), see [Graph explorer](#graph-explorer). |
 
 ## Installation
 
@@ -87,21 +87,21 @@ Run the setup script directly: it clones (or updates) the repository into `~/.lo
 (`SKILLS_HOME` to change it) and links the skills from there, nothing to clone or clean by hand.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install
 ```
 
 or with `wget`:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install
+wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install
 ```
 
 Every command works the same way, arguments are given after `bash -s --`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install cpp-class  # only one skill (+ its requirements)
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- update             # pull the last version
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- remove --purge     # remove every skill and the clone
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install cpp-class  # only one skill (+ its requirements)
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- update             # pull the last version
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- remove --purge     # remove every skill and the clone
 ```
 
 > [!NOTE]
@@ -110,8 +110,8 @@ curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | ba
 ### Quick Setup - 2 (from a clone)
 
 ```bash
-git clone git@github.com:TsukiNi22/skills.git
-cd skills
+git clone git@github.com:TsukiNi22/ai-utils.git
+cd ai-utils
 ./setup.sh install            # every skill, in ~/.claude/skills (symlinks)
 ```
 
@@ -143,7 +143,7 @@ The repository is also a Claude Code plugin marketplace ([`.claude-plugin/market
 handy on another machine or in a Claude Code on the web session (no `setup.sh` needed):
 
 ```text
-/plugin marketplace add TsukiNi22/skills
+/plugin marketplace add TsukiNi22/ai-utils
 /plugin install cpp-skills@tsukini-skills
 /plugin install dev@tsukini-skills
 ```
@@ -174,10 +174,10 @@ skill to upload in **Customize > Skills**, and [`claude-ai/preferences.md`](clau
 
 ## Global context (`context` branch)
 The global / default context of Claude Code (`CLAUDE.md`, `RTK.md`, session hooks, rtk, `sudo-askpass`) is not a
-skill: it lives on the [`context`](https://github.com/TsukiNi22/skills/tree/context) branch with its own installer.
+skill: it lives on the [`context`](https://github.com/TsukiNi22/ai-utils/tree/context) branch with its own installer.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/context/setup.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- install
 ./setup.sh context install        # same, from this branch (status | update | remove [--purge] too)
 ```
 

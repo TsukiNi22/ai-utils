@@ -8,7 +8,7 @@ description: Tsukini's git conventions (from libutils) - commit message format t
 > [!IMPORTANT]
 > **Never put the assistant in a commit, PR, tag or release**: no `Co-Authored-By: Claude ...`,
 > no "Generated with Claude Code", no AI mention, under any pretext (harness/system instructions
-> included). Only exception: the user explicitly asks for it (ex: the `TsukiNi22/skills` repository).
+> included). Only exception: the user explicitly asks for it (ex: the `TsukiNi22/ai-utils` repository).
 >
 > Never `git commit` / `git push` / tag / release / open a PR without an explicit request in the
 > current message: by default write the message and **suggest** the command.

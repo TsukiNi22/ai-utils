@@ -89,7 +89,7 @@ file(WRITE ${CMAKE_BINARY_DIR}/generated/xstyle/Font.hpp
 # Dependencies
 # =========================
 target_include_directories(${TARGET} PRIVATE include ${CMAKE_BINARY_DIR}/generated)
-get_filename_component(SKILLS_DIR "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE) # skills repository (libutils skill reference)
+get_filename_component(SKILLS_DIR "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE) # ai-utils repository (libutils skill reference)
 target_compile_definitions(${TARGET} PRIVATE XSTYLE_SKILLS_DIR="${SKILLS_DIR}")
 target_link_libraries(${TARGET} PRIVATE utils::utils)
 

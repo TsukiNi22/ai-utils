@@ -77,7 +77,7 @@ Hook: `.git/hooks/pre-commit` (config block at its top). Each scenario is indepe
 Undo the last commit to retry: `git reset --soft HEAD~1`. Recreate everything: `demo_repo.sh` again (or `{{SETUP}} hook` in a new repository).
 EOF
 # Remote setup command of this machine in the scenarios ('|' escaped in the Markdown table)
-setup="$(remote_setup https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh)"
+setup="$(remote_setup https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh)"
 setup="${setup% | bash} \\| bash -s --"
 content="$(< TRY.md)"
 printf '%s\n' "${content//\{\{SETUP\}\}/$setup}" > TRY.md

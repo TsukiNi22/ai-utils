@@ -13,7 +13,7 @@
 #   --output <mode>       auto (compact under Claude Code, default) | human | rtk
 #   --extra "<args>"      more xstyle options (-l cpp,py -e build -i CPP-AUTO ...)
 #   --shared              versioned hook: .githooks/pre-commit + core.hooksPath (the whole team gets it)
-#   --link                symlink to the template (follows the updates of the skills repository) instead of a copy
+#   --link                symlink to the template (follows the updates of the ai-utils repository) instead of a copy
 #   --force               replace a hook that is not this one without keeping it (default: kept as pre-commit.local)
 #   -h, --help            show this help
 
@@ -135,7 +135,7 @@ case "$COMMAND" in
         else echo "Hook:       not installed"
         fi
         if command -v xstyle > /dev/null 2>&1; then echo "xstyle:     $(xstyle --version)"
-        else echo "xstyle:     not installed (the hook only warns; install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh install xstyle))"
+        else echo "xstyle:     not installed (the hook only warns; install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh install xstyle))"
         fi
         ;;
 
@@ -164,7 +164,7 @@ case "$COMMAND" in
             echo "  warning: core.hooksPath=$CURRENT_PATH: git ignores $HOOKS (--shared, or git config --unset core.hooksPath)"
         fi
         echo "  installed $HOOK"
-        command -v xstyle > /dev/null 2>&1 || echo "  warning: xstyle is not installed: the hook only warns (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh install xstyle))"
+        command -v xstyle > /dev/null 2>&1 || echo "  warning: xstyle is not installed: the hook only warns (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh install xstyle))"
         ;;
 
     remove)

@@ -27,7 +27,7 @@ with `--fix`, for every rule or only some codes, files or directories.
 Built and installed by the `setup.sh` of the repository, like the skills (binary in `~/.local/bin`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/skills/main/setup.sh | bash -s -- install xstyle   # without a clone
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install xstyle   # without a clone
 ./setup.sh install xstyle                  # build (Optimized) + install into ~/.local/bin
 ./setup.sh install xstyle --prefix /usr/local
 ./setup.sh status                          # skills & tools installed
