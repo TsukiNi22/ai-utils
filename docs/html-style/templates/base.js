@@ -132,13 +132,39 @@ window.docDiagram = (function () {
     else k = 1 / Math.sqrt((dx * dx) / (s.rx * s.rx) + (dy * dy) / (s.ry * s.ry));
     return [c[0] + dx * k + dx / len * gap, c[1] + dy * k + dy / len * gap];
   }
-  function end(s, spec, toward, gap) {
-    var name = spec.split(':')[1];
-    var p = name ? side(s, name) : border(s, toward, 0);
-    var dx = toward[0] - p[0], dy = toward[1] - p[1], len = Math.hypot(dx, dy) || 1;
-    return [p[0] + dx / len * gap, p[1] + dy / len * gap];
+  // Point of the border of s for an arrow coming from / going to toward; off spreads several arrows of the same
+  // shape along its side (instead of all reaching the same point)
+  function end(s, spec, toward, gap, off) {
+    var name = spec.split(':')[1], p;
+    if (name) p = side(s, name);
+    else if (off && s.kind === 'rect') {
+        var c = center(s), dx = toward[0] - c[0], dy = toward[1] - c[1];
+        if (Math.abs(dy) * s.w >= Math.abs(dx) * s.h) p = [c[0] + off * s.w, c[1] + (dy < 0 ? -1 : 1) * s.h / 2];
+        else p = [c[0] + (dx < 0 ? -1 : 1) * s.w / 2, c[1] + off * s.h];
+    } else p = border(s, toward, 0);
+    var vx = toward[0] - p[0], vy = toward[1] - p[1], len = Math.hypot(vx, vy) || 1;
+    return [p[0] + vx / len * gap, p[1] + vy / len * gap];
+  }
+  // Slot (-0.3 .. 0.3 of the side) of each arrow end sharing a shape, ordered by where the other end is
+  function slots(items) {
+    var groups = {};
+    items.forEach(function (it) { if (!it.spec.split(':')[1]) (groups[it.id] = groups[it.id] || []).push(it); });
+    Object.keys(groups).forEach(function (id) {
+      var g = groups[id], s = g[0].shape, c = center(s);
+      if (g.length < 2) return;
+      g.forEach(function (it) {
+        var dx = it.toward[0] - c[0], dy = it.toward[1] - c[1];
+        it.vertical = s.kind === 'rect' && Math.abs(dy) * s.w >= Math.abs(dx) * s.h;
+        it.key = it.vertical ? dx : dy;
+      });
+      [true, false].forEach(function (v) {
+        var sub = g.filter(function (it) { return it.vertical === v; }).sort(function (a, b) { return a.key - b.key; });
+        if (sub.length > 1) sub.forEach(function (it, i) { it.off = ((i + 1) / (sub.length + 1) - 0.5) * 0.6; });
+      });
+    });
   }
   function layout(svg) {
+    var items = [], links = [];
     svg.querySelectorAll('[data-from][data-to]').forEach(function (path) {
       var fa = path.dataset.from, ta = path.dataset.to;
       var a = shape(svg, fa.split(':')[0]), b = shape(svg, ta.split(':')[0]);
@@ -148,7 +174,15 @@ window.docDiagram = (function () {
       var cb = ta.indexOf(':') > 0 ? side(b, ta.split(':')[1]) : center(b);
       var mx = (ca[0] + cb[0]) / 2, my = (ca[1] + cb[1]) / 2, len = Math.hypot(cb[0] - ca[0], cb[1] - ca[1]) || 1;
       var ctrl = [mx - (cb[1] - ca[1]) / len * bend * len, my + (cb[0] - ca[0]) / len * bend * len];
-      var p1 = end(a, fa, bend ? ctrl : cb, gap), p2 = end(b, ta, bend ? ctrl : ca, gap);
+      var ea = { spec: fa, id: fa.split(':')[0], shape: a, toward: bend ? ctrl : cb, off: 0 };
+      var eb = { spec: ta, id: ta.split(':')[0], shape: b, toward: bend ? ctrl : ca, off: 0 };
+      items.push(ea, eb);
+      links.push({ path: path, gap: gap, bend: bend, ctrl: ctrl, ea: ea, eb: eb });
+    });
+    slots(items);
+    links.forEach(function (l) {
+      var path = l.path, gap = l.gap, bend = l.bend, ctrl = l.ctrl;
+      var p1 = end(l.ea.shape, l.ea.spec, l.ea.toward, gap, l.ea.off), p2 = end(l.eb.shape, l.eb.spec, l.eb.toward, gap, l.eb.off);
       var f = function (p) { return p[0].toFixed(1) + ' ' + p[1].toFixed(1); };
       path.setAttribute('d', bend ? 'M' + f(p1) + ' Q' + f(ctrl) + ' ' + f(p2) : 'M' + f(p1) + ' L' + f(p2));
       var mid = bend ? [(p1[0] + 2 * ctrl[0] + p2[0]) / 4, (p1[1] + 2 * ctrl[1] + p2[1]) / 4] : [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];

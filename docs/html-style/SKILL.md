@@ -72,7 +72,7 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 | page header | `<header><div class="page-eyebrow">Kind</div><h1>...</h1><p class="lead">...</p></header>` |
 | remark / limit / validated | `<div class="callout">`, `.callout.warn`, `.callout.ok` |
 | table | `<div class="table-wrap"><table><thead>...` (muted uppercase heads, row lines) |
-| code | `<code>` inline; `<pre data-title="File"><code>` block (title bar, **Copy** button; `data-nocopy` to remove) |
+| code | `<code>` inline; `<pre data-title="File"><code>` block (1px `--border` outline so it shows on the page, title bar, **Copy** button; `data-nocopy` to remove) |
 | alternatives | `<div class="ctabs" data-tabs="g"><button data-tab="a">` + `<div class="ctab-panel" data-tabs="g" data-tab="a">` |
 | contents list | `<aside class="sidebar" id="sidebar"><p>Contents</p><a href="#x">1. ...</a>` (visible section highlighted) |
 | previous / next | `<nav class="pager"><a href="..."><span>Previous</span>Title</a><a class="next">` |
@@ -84,7 +84,8 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
   (`a` / `b` = id of a `rect` / `circle` / `ellipse`, or of a `<g>` holding one); `data-from="a:right"` picks a
   side (`top`, `bottom`, `left`, `right`), `data-bend="-0.2"` curves it (negative = above a left-to-right arrow),
   `data-gap` leaves space; a label `<text data-label-for="<path id>" data-offset="-8">` is put on its middle.
-  `base.js` writes the `d` from the shapes, so an arrow always starts and ends on them. A hand-written arrow
+  `base.js` writes the `d` from the shapes, so an arrow always starts and ends on them; several arrows reaching
+  the same side of a box (without `:side`) are spread along it (never one point, never superposed). A hand-written arrow
   must start and end on a shape border (`check_style.py` reports the others; `data-free` for an arrow pointing
   to nothing on purpose).
 - Text: inside the drawing (`viewBox`), either fully inside a box or fully outside (never across its border),

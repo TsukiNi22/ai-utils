@@ -92,6 +92,7 @@ code {
 }
 pre {
   background: var(--code-bg);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px 16px;
   overflow-x: auto;
@@ -229,7 +230,7 @@ pre { position: relative; }
 pre[data-title]::before {
   content: attr(data-title); display: block; margin: -14px -16px 12px; padding: 6px 16px;
   font: 12px system-ui, sans-serif; color: var(--muted); border-bottom: 1px solid var(--border);
-  background: var(--surface); border-radius: 8px 8px 0 0;
+  background: var(--surface); border-radius: 7px 7px 0 0;
 }
 pre .copy {
   position: absolute; top: 8px; right: 8px; font: 12px system-ui, sans-serif; cursor: pointer;
