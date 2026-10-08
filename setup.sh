@@ -169,9 +169,13 @@ install_tool() {
         command -v "$cmd" > /dev/null 2>&1 || { echo "  skip $tool: $cmd is required to build it"; return 0; }
     done
     command mkdir -p "$TOOLS_BUILD"
+    # Stale cache (the repository was moved / renamed): configure again from scratch
+    if [[ -f "$build/CMakeCache.txt" ]] && ! grep -qx "CMAKE_HOME_DIRECTORY:INTERNAL=$dir" "$build/CMakeCache.txt"; then
+        rm -rf "$build"
+    fi
     echo "  building $tool (log: $log)..."
     if ! cmake -S "$dir" -B "$build" -DCMAKE_BUILD_TYPE=Optimized > "$log" 2>&1; then
-        if grep -q "utils" "$log"; then
+        if grep -qE "Could not find a package configuration file.*utils|find_package\(utils|utilsConfig\.cmake" "$log"; then
             echo "  skip $tool: libutils is required (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh))"
         else
             echo "  skip $tool: CMake configuration failed, see $log"
