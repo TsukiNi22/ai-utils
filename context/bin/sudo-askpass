@@ -1,0 +1,19 @@
+#!/bin/bash
+# Graphical password prompt for `sudo -A` (SUDO_ASKPASS) when there is no terminal (ex: Claude Code).
+# Usage: SUDO_ASKPASS=~/.local/bin/sudo-askpass sudo -A <command>
+# Prints the password on stdout (what sudo expects), exit 1 when cancelled.
+
+PROMPT="${1:-Password:}"
+# Command that asked for root (parent sudo process), shown in the dialog
+CMD="$(ps -o args= -p "$PPID" 2>/dev/null | sed 's/^sudo -A //; s/^sudo //' | cut -c1-200)"
+TEXT="Root access requested${CMD:+ for:\n<tt>$(printf '%s' "$CMD" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')</tt>}\n\n$PROMPT"
+
+if command -v zenity > /dev/null 2>&1; then
+    exec zenity --entry --hide-text --title="sudo" --text="$TEXT" --width=460 2> /dev/null
+elif command -v kdialog > /dev/null 2>&1; then
+    exec kdialog --title "sudo" --password "$(printf '%b' "$TEXT" | sed 's/<[^>]*>//g')"
+elif command -v systemd-ask-password > /dev/null 2>&1; then
+    exec systemd-ask-password "$(printf '%b' "$TEXT" | sed 's/<[^>]*>//g' | tr '\n' ' ')"
+fi
+echo "sudo-askpass: no graphical prompt available (zenity, kdialog)" >&2
+exit 1
