@@ -2,7 +2,7 @@
 
 Skills of the user for Claude Code (`<category>/<skill>/SKILL.md`), the routers (`routers/`), the tools built by
 `setup.sh` (`<category>/<tool>/tool.txt`, ex: `style/xstyle`) and the claude.ai packaging (`claude-ai/`).
-The global context (`~/.claude/CLAUDE.md`, `RTK.md`, hooks) lives on the `context` branch (`./setup.sh context ...`).
+The global context (`~/.claude/CLAUDE.md`, `RTK.md`, hooks) lives in `context/` (`./setup.sh context ...`).
 
 ## Checking with xstyle
 - Check / fix the style with `xstyle`, **always with `--rtk`** (compact output made for the assistant, ~5x fewer

@@ -172,13 +172,13 @@ The same skills in the claude.ai chat (web, desktop, mobile): `python3 claude-ai
 skill to upload in **Customize > Skills**, and [`claude-ai/preferences.md`](claude-ai/preferences.md) is the
 `CLAUDE.md` adapted to the chat, to paste in the personal preferences. Details: [`claude-ai/README.md`](claude-ai/README.md).
 
-## Global context (`context` branch)
+## Global context (`context/`)
 The global / default context of Claude Code (`CLAUDE.md`, `RTK.md`, session hooks, rtk, `sudo-askpass`) is not a
-skill: it lives on the [`context`](https://github.com/TsukiNi22/ai-utils/tree/context) branch with its own installer.
+skill: it lives in [`context/`](context/README.md) with its own installer.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- install
-./setup.sh context install        # same, from this branch (status | update | remove [--purge] too)
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- context install
+./setup.sh context install        # same, from a clone (status | update | remove too)
 ```
 
 ## Usage

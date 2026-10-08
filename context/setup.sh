@@ -2,7 +2,8 @@
 # Install / remove / update the global Claude Code context (CLAUDE.md, RTK.md, hooks, helpers).
 #
 # Usage: ./setup.sh <command> [options]
-#        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- <command> ...
+#        curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- context <command> ...
+#        ./setup.sh context <command> ...   (from the root of the repository)
 #
 # Commands:
 #   install    link (or copy) the files into ~/.claude and ~/.local/bin, merge the hooks in settings.json,
@@ -15,39 +16,19 @@
 #   --copy       copy the files instead of symlinks (default: symlink, edits are live and versioned)
 #   --no-rtk     don't install rtk (the RTK.md instructions and the rtk hook need it)
 #   --no-hooks   don't touch ~/.claude/settings.json (hooks)
-#   --purge      with remove: also delete the managed clone (curl/wget mode)
 #   -h, --help   show this help
 #
-# Run without a clone (curl/wget), the branch is cloned/updated into $CONTEXT_HOME
-# (default: ~/.local/share/tsukini-context) and the script runs from there.
 # Replaced files are saved in ~/.claude/backups/context/ and restored by remove.
 
 set -euo pipefail
 
-REMOTE="${CONTEXT_REMOTE:-https://github.com/TsukiNi22/ai-utils.git}"
-BRANCH="context"
-CONTEXT_HOME="${CONTEXT_HOME:-$HOME/.local/share/tsukini-context}"
 RTK_INSTALL="https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh"
 
-# =========================
-# Piped mode (curl/wget): work from a managed clone of the branch
-# =========================
-SELF="${BASH_SOURCE[0]:-}"
-if [ -z "$SELF" ] || [ ! -f "$SELF" ] || [ ! -f "$(dirname "$SELF")/claude/CLAUDE.md" ]; then
-    command -v git > /dev/null 2>&1 || { echo "Error: git is required" >&2; exit 1; }
-    if [ -d "$CONTEXT_HOME/.git" ]; then
-        git -C "$CONTEXT_HOME" pull -q --ff-only || echo "warning: update of $CONTEXT_HOME failed, using the local version" >&2
-    else
-        command mkdir -p "$(dirname "$CONTEXT_HOME")"
-        git clone -q --branch "$BRANCH" --single-branch "$REMOTE" "$CONTEXT_HOME"
-    fi
-    exec bash "$CONTEXT_HOME/setup.sh" "$@"
-fi
-
+SELF="${BASH_SOURCE[0]}"
 REPO="$(cd "$(dirname "$SELF")" && pwd)"
 BACKUP="$HOME/.claude/backups/context"
 SETTINGS="$HOME/.claude/settings.json"
-MODE="link"; RTK=true; HOOKS=true; PURGE=false
+MODE="link"; RTK=true; HOOKS=true
 COMMAND=""
 
 # repo file -> installed path
@@ -58,7 +39,7 @@ FILES=(
     "bin/sudo-askpass:$HOME/.local/bin/sudo-askpass"
 )
 
-usage() { sed -n '2,24p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,22p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -66,7 +47,6 @@ while [ $# -gt 0 ]; do
         --copy) MODE="copy" ;;
         --no-rtk) RTK=false ;;
         --no-hooks) HOOKS=false ;;
-        --purge) PURGE=true ;;
         -h|--help) usage 0 ;;
         *) echo "Error: unknown argument '$1'" >&2; usage 1 ;;
     esac
@@ -166,10 +146,6 @@ case "$COMMAND" in
             fi
         done
         if $HOOKS; then echo "  $(hooks unmerge)"; fi
-        if $PURGE; then
-            if [ "$REPO" = "$(cd "$CONTEXT_HOME" 2>/dev/null && pwd)" ]; then rm -rf "$CONTEXT_HOME"; echo "  purged $CONTEXT_HOME"
-            else echo "  --purge ignored: $REPO is not the managed clone ($CONTEXT_HOME)"; fi
-        fi
         echo "  rtk is kept (remove it with: rm ~/.local/bin/rtk)"
         ;;
 esac

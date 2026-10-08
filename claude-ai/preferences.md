@@ -1,6 +1,6 @@
 # Personal preferences for claude.ai
 
-The `CLAUDE.md` of the `context` branch adapted to the claude.ai chat (it has no shell nor files of the PC): paste the
+The `context/claude/CLAUDE.md` adapted to the claude.ai chat (it has no shell nor files of the PC): paste the
 block below in claude.ai, **Settings > Profile > Instructions for Claude** (applied to every conversation). The skills of this repository are uploaded separately (see `README.md` of this folder).
 
 ```text
@@ -37,5 +37,5 @@ Answers
 
 Not kept from `CLAUDE.md` (Claude Code only): the git rules, the shell aliases, the handling of sudo without a
 terminal, `RTK.md` (condensed command outputs) and the `--rtk` rule of xstyle (the assistant runs xstyle only in
-Claude Code; in the chat it is the user who runs it). Synced with the `context` branch at `393e131`: compare
-`git log 393e131..origin/context -- claude/CLAUDE.md` before the next update.
+Claude Code; in the chat it is the user who runs it). Synced with `context/claude/CLAUDE.md` at `393e131`: compare
+`git log 393e131..HEAD -- context/claude/CLAUDE.md` before the next update.

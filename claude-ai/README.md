@@ -1,7 +1,7 @@
 # Skills and preferences on claude.ai
 
 Claude Code reads the skills from `~/.claude/skills` (installed by `setup.sh`) and the rules from `~/.claude/CLAUDE.md`
-(`context` branch). The claude.ai chat (web, desktop, mobile) has its own copies:
+(`context/`). The claude.ai chat (web, desktop, mobile) has its own copies:
 
 | What | claude.ai chat | Claude Code (terminal) | Claude Code on the web (cloud sessions) |
 |---|---|---|---|

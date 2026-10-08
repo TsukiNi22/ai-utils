@@ -11,7 +11,7 @@
 #   update               pull the last version of the repository (the symlinks follow, the tools are rebuilt)
 #   list                 list the skills and the tools available in this repo
 #   status               show which skills and tools are installed
-#   context <command>    global context (CLAUDE.md, RTK.md, hooks, rtk) of the 'context' branch:
+#   context <command>    global context (CLAUDE.md, RTK.md, hooks, rtk) of the context/ folder:
 #                        install | remove | update | status [options], see its README
 #   hook [command]       xstyle pre-commit hook of the git repository of the current directory (not global):
 #                        install (default) | remove | status [--repo <dir>] [--fail-on major] [--warn-on minor]
@@ -56,17 +56,11 @@ fi
 REPO="$(cd "$(dirname "$SELF")" && pwd)"
 
 # =========================
-# Global context (branch 'context'): delegate to its own setup.sh
+# Global context (context/): delegate to its own setup.sh
 # =========================
 if [[ "${1:-}" = "context" ]]; then
     shift
-    CTX="$(mktemp)"
-    trap 'rm -f "$CTX"' EXIT
-    if git -C "$REPO" fetch -q origin context 2> /dev/null && git -C "$REPO" show origin/context:setup.sh > "$CTX" 2> /dev/null; then :
-    elif command -v curl > /dev/null 2>&1; then curl -fsSL "https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh" -o "$CTX"
-    else wget -qO "$CTX" "https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh"; fi
-    bash "$CTX" "$@"
-    exit $?
+    exec bash "$REPO/context/setup.sh" "$@"
 fi
 # =========================
 # pre-commit hook of the current repository (skill pre-commit)

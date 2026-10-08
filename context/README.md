@@ -3,7 +3,7 @@
 Global / default context of Claude Code (not skills): what every session loads on my computers.
 
 > [!TIP]
-> The skills are on the [`main`](https://github.com/TsukiNi22/ai-utils) branch.
+> The skills, routers and tools of the repository are in the other folders, see the [root README](../README.md).
 
 | File | Installed as | Content |
 | ---- | ------------ | ------- |
@@ -17,35 +17,33 @@ Global / default context of Claude Code (not skills): what every session loads o
 
 ### Quick Setup - 1 (without cloning)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- context install
 ```
 
 or with `wget`:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/context/setup.sh | bash -s -- install
+wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- context install
 ```
 
-The branch is cloned (or updated) into `~/.local/share/tsukini-context` (`CONTEXT_HOME` to change it).
-From the `main` branch, `./setup.sh context install` does the same.
+The repository is cloned (or updated) into `~/.local/share/tsukini-skills` (`SKILLS_HOME` to change it).
 
 ### Quick Setup - 2 (from a clone)
 ```bash
-git clone --branch context --single-branch git@github.com:TsukiNi22/ai-utils.git ai-utils-context
-cd ai-utils-context
-./setup.sh install
+git clone git@github.com:TsukiNi22/ai-utils.git
+cd ai-utils
+./setup.sh context install
 ```
 
 ### Commands
 ```bash
-./setup.sh status                 # what is installed (files, hooks, rtk)
-./setup.sh install                # symlinks + hooks merge + rtk if missing
-./setup.sh install --copy         # copies instead of symlinks
-./setup.sh install --no-rtk       # don't install rtk
-./setup.sh install --no-hooks     # don't touch ~/.claude/settings.json
-./setup.sh update                 # git pull (the symlinks follow)
-./setup.sh remove                 # remove, restore the replaced files, unmerge the hooks
-./setup.sh remove --purge         # (curl/wget mode) also delete the managed clone
+./setup.sh context status                 # what is installed (files, hooks, rtk)
+./setup.sh context install                # symlinks + hooks merge + rtk if missing
+./setup.sh context install --copy         # copies instead of symlinks
+./setup.sh context install --no-rtk       # don't install rtk
+./setup.sh context install --no-hooks     # don't touch ~/.claude/settings.json
+./setup.sh context update                 # git pull (the symlinks follow)
+./setup.sh context remove                 # remove, restore the replaced files, unmerge the hooks
 ```
 
 > [!NOTE]
