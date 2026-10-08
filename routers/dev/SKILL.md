@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, python, git, doc, style, audit and legal routers: cpp-project, cpp-class, python-project, python-class, python-style, python-comments, ci-cd, pre-commit, rtk, coverage, benchmark, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, html-doc, html-style, explain-doc, report, license, audit-deps) before doing the task.
+description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, python, git, doc, style, audit and legal routers: cpp-project, cpp-class, python-project, python-class, python-style, python-comments, ci-cd, pre-commit, rtk, coverage, benchmark, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, wiki-style, html-doc, html-style, explain-doc, report, license, audit-deps) before doing the task.
 disable-model-invocation: true
 ---
 
@@ -55,7 +55,8 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | new Python class / module / tool / exception / test file | `python-class` | `python` |
 | new Python project / package / tool | `python-project` | `python` |
 | code in another language than C++ (shell, Lua, JS/TS, Rust, C...) | `coding-style` + `comments` | `style` |
-| README, wiki, Markdown docs | `readme-style` | `doc` |
+| README, Markdown docs | `readme-style` | `doc` |
+| GitHub wiki | `wiki-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |
 | explanation page (how something works), simple + technical | `explain-doc` | `doc` |
 | any other HTML page, palette / color / font | `html-style` | `doc` |

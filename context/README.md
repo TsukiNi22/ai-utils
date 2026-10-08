@@ -28,6 +28,10 @@ wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | b
 
 The repository is cloned (or updated) into `~/.local/share/tsukini-skills` (`SKILLS_HOME` to change it).
 
+> [!TIP]
+> The context is also part of the global installer: `./setup.sh install` (everything) or `./setup.sh install context`
+> (only this), `--no-context` to leave it out, see the [root README](../README.md#context).
+
 ### Quick Setup - 2 (from a clone)
 ```bash
 git clone git@github.com:TsukiNi22/ai-utils.git

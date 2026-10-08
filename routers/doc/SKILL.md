@@ -1,6 +1,6 @@
 ---
 name: doc
-description: Router for documentation tasks of the user - README and Markdown docs, wiki pages, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), explanation pages (simple + technical), HTML style, reports, code comments - loads readme-style, html-doc, explain-doc, html-style, report, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
+description: Router for documentation tasks of the user - README and Markdown docs, GitHub wiki, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), explanation pages (simple + technical), HTML style, reports, code comments - loads readme-style, wiki-style, html-doc, explain-doc, html-style, report, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
 disable-model-invocation: true
 ---
 
@@ -19,7 +19,8 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 ## Skills
 | Situation | Skills |
 |---|---|
-| README, wiki page, Markdown guide | `readme-style` |
+| README, Markdown guide | `readme-style` |
+| GitHub wiki (`<repo>.wiki`: Home, sidebar, section pages) | `wiki-style` (+ `readme-style` for the Markdown rules, `libutils` for a libutils based project) |
 | HTML documentation, `docs/` site, GitHub Pages, project graph | `html-doc` (+ `readme-style` for the README link) |
 | explain how something works (concept, algorithm, protocol, math) with diagrams / animations / interactive examples, simple + technical | `explain-doc` (+ `html-style`) |
 | any other HTML page, a palette / color / font / theme to define | `html-style` |
@@ -27,7 +28,7 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 | comments / documentation inside the code (any language), file headers | `comments` (+ `cpp-comments` for C++, `python-comments` for Python) |
 | a result / report / study delivered as PDF | `report` |
 | doc of a libutils based project | also `libutils` (exact APIs) |
-| full documentation pass | `readme-style` + `html-doc` + `git-conventions` (CHANGELOG) |
+| full documentation pass | `readme-style` + `wiki-style` (if a wiki exists) + `html-doc` + `git-conventions` (CHANGELOG) |
 
 ## Always
 - An audit / summary of the docs is delivered through `report` (format asked once, English, `audit/` at the repository root).

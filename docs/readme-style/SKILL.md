@@ -1,6 +1,6 @@
 ---
 name: readme-style
-description: Tsukini's style for README.md and Markdown documentation (from libutils, context-forge, c2dmp-hsm, s.o.s) - title + tagline, Table of Contents, Dependencies/Packages/Quick Setup/Usage/Workflows sections, GitHub callouts, tables, bash blocks. Use whenever writing, rewriting or reviewing a README, a wiki page or any Markdown doc for one of the user's projects. For CHANGELOG/release notes use git-conventions; for HTML docs use html-doc.
+description: Tsukini's style for README.md and Markdown documentation (from libutils, context-forge, c2dmp-hsm, s.o.s) - title + tagline, Table of Contents, Dependencies/Packages/Quick Setup/Usage/Workflows sections, GitHub callouts, tables, bash blocks. Use whenever writing, rewriting or reviewing a README or any Markdown doc for one of the user's projects. For a GitHub wiki use wiki-style; for CHANGELOG/release notes use git-conventions; for HTML docs use html-doc.
 ---
 
 # Tsukini README / Markdown doc style

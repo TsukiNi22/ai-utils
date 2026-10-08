@@ -1,4 +1,5 @@
 readme-style
+wiki-style
 html-doc
 html-style
 explain-doc

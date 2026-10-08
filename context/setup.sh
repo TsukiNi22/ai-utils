@@ -11,6 +11,7 @@
 #   remove     remove what was installed (restore the backups of the replaced files, unmerge the hooks)
 #   update     pull the last version (the symlinks follow)
 #   status     show what is installed
+#   list       list the files (repo file:installed path)
 #
 # Options:
 #   --copy       copy the files instead of symlinks (default: symlink, edits are live and versioned)
@@ -39,11 +40,11 @@ FILES=(
     "bin/sudo-askpass:$HOME/.local/bin/sudo-askpass"
 )
 
-usage() { sed -n '2,22p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,23p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        install|remove|update|status) COMMAND="$1" ;;
+        install|remove|update|status|list) COMMAND="$1" ;;
         --copy) MODE="copy" ;;
         --no-rtk) RTK=false ;;
         --no-hooks) HOOKS=false ;;
@@ -97,6 +98,11 @@ PY
 case "$COMMAND" in
     update)
         git -C "$REPO" pull --ff-only
+        ;;
+
+    list)
+        printf '%s\n' "${FILES[@]}" | sed "s#$HOME#~#"
+        printf '%s\n' "claude/settings.hooks.json:~/.claude/settings.json (hooks merged)"
         ;;
 
     status)

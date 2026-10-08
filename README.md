@@ -5,6 +5,8 @@ AI skills, routers, tools and context based on my work.
 This repository holds [Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills)
 built from my own projects and habits. Each skill teaches the assistant how I work (code style,
 file layout, tooling), so that what it generates looks like something I wrote myself.
+Four kinds of things, all installed by the same [`setup.sh`](#installation): the [routers](#routers), the
+[skills](#skills), the [tools](#tools) and the global [context](#context).
 
 ## Routers
 Skills invoked **manually** that look at the request, the project and the language, then load the right
@@ -41,6 +43,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`cpp-comments`](cpp/cpp-comments/SKILL.md) | How I comment C++ code: section separators, `/* group */` labels, aligned trailing comments, no Doxygen. |
 | [`git-conventions`](git/git-conventions/SKILL.md) | Commit messages `type(scope): message`, CI keywords, tags, GitHub releases, CHANGELOG, branches (`main` alone when solo; `main`/`dev`/`sub/`/`feat/`/`fix/` in a team) and PRs (CHANGELOG-style body, `gh` assignee/labels), no AI attribution. |
 | [`readme-style`](docs/readme-style/SKILL.md) | README / Markdown docs structure: Table of Contents, Dependencies, Packages, Quick Setup, Usage, GitHub callouts, tables. |
+| [`wiki-style`](docs/wiki-style/SKILL.md) | GitHub wiki of a project, from the libutils wiki: the `<repo>.wiki.git` repository, `Home` (version stamp, pages, dependencies), `_Sidebar` / `_Footer`, guide pages, the `Sections` / `Tools-Preview` overviews and one page per section (opening callout, Table of Contents, tables of members, Example, Errors); templates and `scripts/check_wiki.py` (links, anchors, sidebar coverage, code fences, tables). |
 | [`html-doc`](docs/html-doc/SKILL.md) | One uniform style for the HTML documentation: an optional user guide, the technical documentation and an interactive 2D/3D project graph of any common stack (C / C++, Python, JS / TS / web, Java, C#, Go, Rust, PHP, Ruby) with execution / inheritance / flame diagrams (filters by category/group/relation, rebuilt from the GitHub repository with an update button), all static self-contained pages with a sun/moon theme button. |
 | [`html-style`](docs/html-style/SKILL.md) | My visual style for any HTML page (from `html-doc`): light / dark color tokens, system fonts and type scale, layout, components, SVG diagram classes, sun/moon and EN/FR switches, rules (self-contained, WCAG contrast); `scripts/new_page.py` builds a self-contained page, `scripts/check_style.py` checks a page or a palette (tokens, contrast, unreadable inherited colors, external resources). |
 | [`explain-doc`](docs/explain-doc/SKILL.md) | Explanation pages (how something works) in two levels switched in place, **Simple** (analogies, plain words, numbers) and **Technical** (terms, formulas, complexity, edge cases, code, sources), with SVG diagrams, step-by-step animations, MathML formulas, interactive playgrounds / simulations checking the formulas, quizzes and a glossary. Built on `html-style`. |
@@ -80,11 +83,33 @@ Programs stored next to the skills they enforce, built and installed by the same
 | [`xstyle`](style/xstyle/README.md) | C++20 / libutils checker and fixer of my coding style (C++ first, then Python, shell, Rust and the generic rules): issues with file, line, hyperlink, rule and proposed fix, summary by severity (unforgivable / major / minor / negligible) and by rule, `--fix` for every fixable rule or only some codes, files or directories, libutils rules (sections, attributes, deprecated names, code libutils already gives) when libutils is installed and used, CMake and comment layout rules, `--diff` / `--staged` (changed lines only, pre-commit hook), `--commit` of the fixes, `--libutils-check`, bash / zsh / fish completion. Requires libutils, clang++ and CMake. |
 | [Graph explorer](https://tsukini22.github.io/ai-utils/) | Web page (branch [`gh-pages`](https://github.com/TsukiNi22/ai-utils/tree/gh-pages), nothing to install): the project graph of [`html-doc`](docs/html-doc/SKILL.md) for any public GitHub / GitLab repository (`?repo=owner/name`), see [Graph explorer](#graph-explorer). |
 
+## Context
+
+The global / default context of Claude Code: what every session loads on my computers, not a skill. It lives in
+[`context/`](context/README.md) and is installed by the same `setup.sh` (`install` / `remove` / `status` / `list`,
+name `context`), as symlinks in `~/.claude` and `~/.local/bin`: the files it replaces are saved in
+`~/.claude/backups/context/` and restored by `remove`, the hooks are merged in `~/.claude/settings.json` without
+touching the other settings.
+
+| Item | Installed as | Content |
+|---|---|---|
+| [`claude/CLAUDE.md`](context/claude/CLAUDE.md) | `~/.claude/CLAUDE.md` | Global instructions: git rules, language of the outputs, shell aliases, subagents cost, root access without TTY (graphical `sudo`), `xstyle --rtk` |
+| [`claude/RTK.md`](context/claude/RTK.md) | `~/.claude/RTK.md` | How to read the command output condensed by [rtk](https://github.com/rtk-ai/rtk) (imported by `CLAUDE.md`) |
+| [`claude/hooks/session-aliases.sh`](context/claude/hooks/session-aliases.sh) | `~/.claude/hooks/session-aliases.sh` | `SessionStart` hook: gives the zsh aliases to Claude (and the ones that lock the session) |
+| [`claude/settings.hooks.json`](context/claude/settings.hooks.json) | merged in `~/.claude/settings.json` | Hooks: `SessionStart` aliases + `PreToolUse` `rtk hook claude` |
+| [`bin/sudo-askpass`](context/bin/sudo-askpass) | `~/.local/bin/sudo-askpass` | Graphical password prompt (zenity) for `sudo -A` when there is no terminal |
+
+> [!NOTE]
+> The context is global: `install --project` never installs it. `--no-context` leaves it aside, `--no-rtk` /
+> `--no-hooks` are given to it, `./setup.sh context <command>` runs only the context (details in
+> [`context/README.md`](context/README.md)). `rtk` is installed with its official installer when it is missing.
+> It is not in the plugin marketplace (a plugin can't write `~/.claude/CLAUDE.md`).
+
 ## Installation
 
 ### Quick Setup - 1 (without cloning)
 Run the setup script directly: it clones (or updates) the repository into `~/.local/share/tsukini-skills`
-(`SKILLS_HOME` to change it) and links the skills from there, nothing to clone or clean by hand.
+(`SKILLS_HOME` to change it) and links the skills and the context from there, nothing to clone or clean by hand.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install
@@ -101,7 +126,7 @@ Every command works the same way, arguments are given after `bash -s --`:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install cpp-class  # only one skill (+ its requirements)
 curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- update             # pull the last version
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- remove --purge     # remove every skill and the clone
+curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- remove --purge     # remove everything (skills, tools, context) and the clone
 ```
 
 > [!NOTE]
@@ -112,22 +137,24 @@ curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | 
 ```bash
 git clone git@github.com:TsukiNi22/ai-utils.git
 cd ai-utils
-./setup.sh install            # every skill, in ~/.claude/skills (symlinks)
+./setup.sh install            # every skill in ~/.claude/skills (symlinks), the tools and the context
 ```
 
 ### Commands
 
 ```bash
-./setup.sh list                           # available skills and tools
-./setup.sh status                         # what is installed
+./setup.sh list                           # available skills, tools and context
+./setup.sh status                         # what is installed (skills, tools, context)
 ./setup.sh install cpp-class              # only one skill (and the skills it requires)
 ./setup.sh install xstyle                 # only one tool (built with CMake, installed in ~/.local/bin, + bash / zsh / fish completion)
 ./setup.sh install xstyle --prefix /usr/local
+./setup.sh install context                # only the context (CLAUDE.md, RTK.md, hooks, sudo-askpass), --no-rtk / --no-hooks
+./setup.sh install --no-context           # everything but the context
 ./setup.sh install --project ~/my/project # in <project>/.claude/skills instead
 ./setup.sh install --copy                 # copy instead of symlink
 ./setup.sh update                         # git pull of the repository (+ rebuild of the installed tools)
-./setup.sh remove                         # remove every skill of this repo
-./setup.sh remove cpp-class               # remove only one
+./setup.sh remove                         # remove every skill, tool and the context of this repo
+./setup.sh remove cpp-class               # remove only one (`remove context` restores the replaced files)
 ./setup.sh remove --purge                 # (curl/wget mode) also delete the managed clone
 ./setup.sh hook                           # xstyle pre-commit hook in the git repository of the current directory
 ./setup.sh hook --fail-on minor --shared  # options (git/pre-commit/scripts/install_hook.sh --help), hook status | remove
@@ -152,7 +179,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 |---|---|
 | `cpp-skills` | cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style |
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
-| `doc-skills` | readme-style, html-doc, html-style, explain-doc, report |
+| `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, report |
 | `git-skills` | git-conventions, ci-cd, pre-commit |
 | `ai-skills` | rtk |
 | `style-skills` | coding-style, comments |
@@ -172,15 +199,6 @@ The same skills in the claude.ai chat (web, desktop, mobile): `python3 claude-ai
 skill to upload in **Customize > Skills**, and [`claude-ai/preferences.md`](claude-ai/preferences.md) is the
 `CLAUDE.md` adapted to the chat, to paste in the personal preferences. Details: [`claude-ai/README.md`](claude-ai/README.md).
 
-## Global context (`context/`)
-The global / default context of Claude Code (`CLAUDE.md`, `RTK.md`, session hooks, rtk, `sudo-askpass`) is not a
-skill: it lives in [`context/`](context/README.md) with its own installer.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- context install
-./setup.sh context install        # same, from a clone (status | update | remove too)
-```
-
 ## Usage
 
 Once installed, the skill is used automatically when relevant
@@ -198,11 +216,12 @@ python/    python-project, python-class, python-style, python-comments
 libutils/  libutils, libutils-exception, libutils-install, libutils-setup
 tests/     tests, cpp-tests, coverage
 style/     coding-style, comments, xstyle (tool)
-docs/      readme-style, html-doc, html-style, explain-doc, report
+docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, report
 git/       git-conventions, ci-cd, pre-commit
 audit/     audit-bugs, audit-quality, audit-deps, benchmark
 legal/     license
 ai/        rtk
+context/   global context of Claude Code (CLAUDE.md, RTK.md, hooks, sudo-askpass), installed by setup.sh
 ```
 
 Every skill is `<category>/<skill>/` and is installed flat as `~/.claude/skills/<skill>` (the category is only for

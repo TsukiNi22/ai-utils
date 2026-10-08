@@ -6,17 +6,21 @@
 #        wget -qO- https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- <command> ...
 #
 # Commands:
-#   install [name...]    install the given skills / tools and their requirements (default: all)
-#   remove  [name...]    remove the given skills / tools (default: all the skills & tools of this repo)
+#   install [name...]    install the given skills / tools / context and their requirements (default: all)
+#   remove  [name...]    remove the given skills / tools / context (default: all of this repo)
 #   update               pull the last version of the repository (the symlinks follow, the tools are rebuilt)
-#   list                 list the skills and the tools available in this repo
-#   status               show which skills and tools are installed
-#   context <command>    global context (CLAUDE.md, RTK.md, hooks, rtk) of the context/ folder:
-#                        install | remove | update | status [options], see its README
+#   list                 list the skills, the tools and the context available in this repo
+#   status               show which skills, tools and context are installed
+#   context <command>    only the context, with its own options: install | remove | update | status
 #   hook [command]       xstyle pre-commit hook of the git repository of the current directory (not global):
 #                        install (default) | remove | status [--repo <dir>] [--fail-on major] [--warn-on minor]
 #                        [--scope staged|files|all] [--fix none|safe] [--missing warn|fail|ignore] [--shared] ...
 #                        (git/pre-commit/scripts/install_hook.sh --help for every option)
+#
+# Context (context/, name `context`): the global instructions of Claude Code (CLAUDE.md, RTK.md, session hooks,
+# rtk, sudo-askpass) installed in ~/.claude and ~/.local/bin (symlinks, the replaced files are saved and restored by
+# remove). Part of the default `install` / `remove` / `status` (not with --project: it is global), `--no-context`
+# skips it, `--no-rtk` / `--no-hooks` are given to it, see context/README.md.
 #
 # Tools (<category>/<tool>/tool.txt, ex: style/xstyle): C++ programs built with CMake (clang++, libutils)
 # and installed in <prefix>/bin; a tool that can't be built is skipped with the reason, never fatal.
@@ -27,6 +31,9 @@
 #   --copy               copy the files instead of a symlink (default: symlink, edits are live)
 #   --force              replace an already existing skill that doesn't come from this repo
 #   --prefix <dir>       install prefix of the tools (default: ~/.local, binaries in <dir>/bin)
+#   --no-context         leave the context aside (default install / remove / status handle it)
+#   --no-rtk             context: don't install rtk
+#   --no-hooks           context: don't touch ~/.claude/settings.json
 #   --purge              with remove: also delete the managed clone (curl/wget mode)
 #   -h, --help           show this help
 #
@@ -85,6 +92,10 @@ PURGE=false
 COMMAND=""
 SKILLS=()
 TOOLS=()
+CONTEXT=true       # the context is handled by default
+CONTEXT_NAMED=false
+CONTEXT_OPTS=()
+PROJECT=false
 
 # =========================
 # Helpers
@@ -103,7 +114,7 @@ remote_setup() {
 }
 
 usage() {
-    sed -n '2,35p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
+    sed -n '2,41p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -292,6 +303,7 @@ while [[ $# -gt 0 ]]; do
             [[ $# -lt 2 ]] && error "--project requires a directory"
             [[ -d "$2" ]] || error "directory not found: $2"
             TARGET="$(cd "$2" && pwd)/.claude/skills"
+            PROJECT=true
             shift
             ;;
         --prefix)
@@ -302,6 +314,8 @@ while [[ $# -gt 0 ]]; do
         --copy) MODE="copy" ;;
         --force) FORCE=true ;;
         --purge) PURGE=true ;;
+        --no-context) CONTEXT=false ;;
+        --no-rtk|--no-hooks) CONTEXT_OPTS+=("$1") ;;
         -h|--help) usage 0 ;;
         -*) error "unknown option '$1'" ;;
         *) SKILLS+=("$1") ;;
@@ -315,13 +329,16 @@ done
 if [[ ${#SKILLS[@]} -eq 0 ]]; then
     mapfile -t SKILLS < <(available)
     mapfile -t TOOLS < <(tools)
+    $PROJECT && CONTEXT=false    # the context is global, never in a project folder
 else
     NAMES=("${SKILLS[@]}")
     SKILLS=()
+    CONTEXT=false
     for name in "${NAMES[@]}"; do
-        if [[ -n "$(skill_dir "$name")" ]]; then SKILLS+=("$name")
+        if [[ "$name" = "context" ]]; then CONTEXT=true; CONTEXT_NAMED=true
+        elif [[ -n "$(skill_dir "$name")" ]]; then SKILLS+=("$name")
         elif [[ -n "$(tool_dir "$name")" ]]; then TOOLS+=("$name")
-        else error "unknown skill or tool '$name' (see: $0 list)"
+        else error "unknown skill, tool or context '$name' (see: $0 list)"
         fi
     done
 fi
@@ -443,6 +460,26 @@ esac
 
 if [[ "$COMMAND" = "install" ]] || [[ "$COMMAND" = "update" ]]; then
     reload_hint
+fi
+
+# =========================
+# Context (context/setup.sh): same command, only when it is selected
+# =========================
+if $CONTEXT && [[ "$COMMAND" != "update" ]]; then
+    $PROJECT && $CONTEXT_NAMED && echo "  note: the context is global, --project is ignored for it"
+    case "$COMMAND" in
+        list)
+            echo "Context: (installed in ~/.claude and ~/.local/bin by 'install context')"
+            while IFS=: read -r src dst; do printf "  %-34s %s\n" "$src" "$dst"; done < <(bash "$REPO/context/setup.sh" list)
+            ;;
+        *)
+            echo "Context:"
+            ctx_opts=()
+            [[ "$MODE" = "copy" ]] && ctx_opts+=(--copy)
+            [[ "$COMMAND" = "install" ]] && ctx_opts+=(${CONTEXT_OPTS[@]+"${CONTEXT_OPTS[@]}"})
+            bash "$REPO/context/setup.sh" "$COMMAND" ${ctx_opts[@]+"${ctx_opts[@]}"}
+            ;;
+    esac
 fi
 
 if [[ "$COMMAND" = "remove" ]] && $PURGE; then
