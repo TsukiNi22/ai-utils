@@ -186,7 +186,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
     }
     for (const auto &[action, key]: c.keys) {
         const std::string name = action;
-        pages.back().settings.push_back({"keys", name, name, SettingKind::Text, {}, "Ctrl+<letter>, Alt+<letter>, F1..F12, Tab, Escape", false,
+        pages.back().settings.push_back({"keys", name, name, SettingKind::Text, {}, "Ctrl+<letter>, Ctrl+Shift+<letter>, Alt+<letter>, F1..F12, Tab, Escape; alternatives separated by |", false,
             [name](const cluster::Config& cf) {return cf.keys.contains(name) ? cf.keys.at(name) : std::string();}});
     }
     return pages;

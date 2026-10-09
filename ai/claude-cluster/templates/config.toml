@@ -59,7 +59,8 @@ voice_fr = "tom-medium"
 voice_en = "en_GB-northern_english_male-medium"
 
 [keys]
-# action = "key": Ctrl+<letter>, Alt+<letter>, F1..F12, Tab, Escape (see `claude-cluster --keys`)
+# action = "key": Ctrl+<letter>, Ctrl+Shift+<letter>, Alt+<letter>, F1..F12, Tab, Escape; alternatives with |
+# (most terminals keep Ctrl+Shift+<letter> for themselves: the Alt+ alternative is for them)
 palette = "Ctrl+K"
 next_session = "Ctrl+N"
 prev_session = "Ctrl+P"
@@ -73,6 +74,8 @@ push_to_talk = "F5"
 mute = "F6"
 layout = "F2"
 settings = "F9"
+restore = "Ctrl+Shift+T|Alt+T"   # reopen a closed session (the trash)
+prefix = "Ctrl+B"          # then an arrow: session on the left / right / above / below (like tmux)
 quit = "Ctrl+Q"
 
 # Own style: [styles.<name>] with the keys of a built-in one (hex colors), then ui.style = "<name>"

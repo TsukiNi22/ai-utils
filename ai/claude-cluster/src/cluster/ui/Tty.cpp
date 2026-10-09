@@ -26,6 +26,8 @@ File Description:
 #include <ftxui/dom/elements.hpp>
 #include <functional>
 #include <algorithm>
+#include <chrono>
+#include <regex>
 #include <cmath>
 #include <map>
 
@@ -123,7 +125,25 @@ _cold std::string key_name_(const ftxui::Event& event)
         return std::string("Ctrl+") + static_cast<char>('A' + input[0] - 1);
     if (input.size() == 2 && input[0] == 27 && std::isalpha(static_cast<unsigned char>(input[1])))
         return std::string("Alt+") + static_cast<char>(std::toupper(static_cast<unsigned char>(input[1])));
-    return "";
+
+    // Extended sequences (terminals that tell the modifiers apart): CSI u "ESC[<code>;<mods>u" and xterm
+    // modifyOtherKeys "ESC[27;<mods>;<code>~" -> "Ctrl+Shift+T", "Alt+X"...
+    static const std::regex csiU("^\x1b\\[(\\d+);(\\d+)u$");
+    static const std::regex otherKeys("^\x1b\\[27;(\\d+);(\\d+)~$");
+    std::smatch match;
+    int code = 0;
+    int mods = 0;
+    if (std::regex_match(input, match, csiU)) {
+        code = std::stoi(match[1].str());
+        mods = std::stoi(match[2].str());
+    } else if (std::regex_match(input, match, otherKeys)) {
+        mods = std::stoi(match[1].str());
+        code = std::stoi(match[2].str());
+    }
+    if (code <= 32 || code >= 127 || mods < 2) return "";
+    const int bits = mods - 1;
+    return std::string(bits & 4 ? "Ctrl+" : "") + (bits & 1 ? "Shift+" : "") + (bits & 2 ? "Alt+" : "")
+        + static_cast<char>(std::toupper(static_cast<unsigned char>(code)));
 }
 
 _cold std::string state_mark_(const cluster::State state)
@@ -157,6 +177,7 @@ class TtyUi {
         std::string _message;
         bool _messageError = false;
         int _selected = 0;
+        std::int64_t _prefixUntil = 0;              // Ctrl+B pressed: unix ms until which an arrow moves between sessions
         std::vector<cluster::SettingsPage> _pages;  // settings page
         int _page = 0;
         int _item = 0;
@@ -201,6 +222,34 @@ class TtyUi {
             this->_active = list[static_cast<std::size_t>(index)].spec.id;
         }
 
+        void moveDir_(const int dx, const int dy)
+        {
+            // Session on the left / right / above / below in the current layout (grid: rows and columns; list, tabs: previous / next)
+            const std::vector<cluster::Snapshot> list = this->sessions_();
+            const int count = static_cast<int>(list.size());
+            if (count == 0) return;
+            auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
+            const int index = it == list.end() ? 0 : static_cast<int>(it - list.begin());
+            const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
+            const int columns = layout == "grid" && count > 1 ? static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))) : 1;
+            int target = index;
+            if (dx != 0 || columns == 1) target = (index + (dx != 0 ? dx : dy) + count) % count;
+            else if (index + dy * columns >= 0 && index + dy * columns < count) target = index + dy * columns;
+            this->_active = list[static_cast<std::size_t>(target)].spec.id;
+        }
+
+        void openRestore_(void)
+        {
+            if (this->_manager.trash().empty()) {
+                this->status_("the trash is empty: no closed session to reopen");
+                return;
+            }
+            this->_filter = "restore:";
+            this->_selected = 0;
+            this->filter_();
+            this->_mode = Mode::Palette;
+        }
+
         void filter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
@@ -225,6 +274,8 @@ class TtyUi {
                 this->theme_();
             } else if (base == "settings") {
                 this->openSettings_();
+            } else if (base == "restore_menu") {
+                this->openRestore_();
             } else if (base == "quit") {
                 this->_screen.Exit();
             } else if (base == "auth_login" || base == "auth_logout") {
@@ -264,7 +315,12 @@ class TtyUi {
         bool shortcut_(const std::string& action)
         {
             if (action.empty()) return false;
-            if (action == "palette") {
+            if (action == "restore") {
+                this->openRestore_();
+            } else if (action == "prefix") {
+                this->_prefixUntil = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() + 2000;
+                this->status_(this->_manager.config().keys.at("prefix") + ": ← → ↑ ↓ to change of session");
+            } else if (action == "palette") {
                 this->_filter.clear();
                 this->_selected = 0;
                 this->filter_();
@@ -864,6 +920,17 @@ class TtyUi {
                     break;
             }
 
+            // prefix (Ctrl+B) then an arrow: change of session
+            if (this->_prefixUntil > 0) {
+                const bool armed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() <= this->_prefixUntil;
+                this->_prefixUntil = 0;
+                this->_status.clear();
+                if (armed && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown)) {
+                    this->moveDir_(event == ftxui::Event::ArrowLeft ? -1 : event == ftxui::Event::ArrowRight ? 1 : 0,
+                        event == ftxui::Event::ArrowUp ? -1 : event == ftxui::Event::ArrowDown ? 1 : 0);
+                    return true;
+                }
+            }
             if (this->shortcut_(cluster::key_action(this->_manager.config(), key))) return true;
             if (event == ftxui::Event::PageUp) this->_scroll[this->_active] += 10;
             else if (event == ftxui::Event::PageDown) this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 10);

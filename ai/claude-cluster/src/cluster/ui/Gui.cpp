@@ -163,9 +163,21 @@ class Window: public QMainWindow {
                 delete shortcut;
             this->shortcuts.clear();
             for (const auto &[action, key]: this->manager.config().keys) {
-                QShortcut* shortcut = new QShortcut(QKeySequence(q_(key)), this);
-                const std::string name = action;
-                QObject::connect(shortcut, &QShortcut::activated, [this, name]() {this->shortcut(name);});
+                if (action == "prefix") continue; // only the chords below
+                for (const std::string& alternative: cluster::split(key, '|')) {
+                    QShortcut* shortcut = new QShortcut(QKeySequence(q_(alternative)), this);
+                    const std::string name = action;
+                    QObject::connect(shortcut, &QShortcut::activated, [this, name]() {this->shortcut(name);});
+                    this->shortcuts.push_back(shortcut);
+                }
+            }
+            // prefix then an arrow (Ctrl+B, Left...): session on the left / right / above / below
+            const std::string prefix = this->manager.config().keys.contains("prefix") ? this->manager.config().keys.at("prefix") : "Ctrl+B";
+            for (const auto &[arrow, direction]: std::vector<std::pair<std::string, std::pair<int, int>>>{
+                {"Left", {-1, 0}}, {"Right", {1, 0}}, {"Up", {0, -1}}, {"Down", {0, 1}}}) {
+                QShortcut* shortcut = new QShortcut(QKeySequence(q_(prefix + ", " + arrow)), this);
+                const std::pair<int, int> move = direction;
+                QObject::connect(shortcut, &QShortcut::activated, [this, move]() {this->moveDir(move.first, move.second);});
                 this->shortcuts.push_back(shortcut);
             }
         }
@@ -193,6 +205,8 @@ class Window: public QMainWindow {
                 this->signature.clear();
             } else if (base == "settings") {
                 this->settings();
+            } else if (base == "restore_menu") {
+                this->openRestore();
             } else if (base == "quit") {
                 this->close();
             } else if (base == "auth_login" || base == "auth_logout") {
@@ -217,7 +231,30 @@ class Window: public QMainWindow {
             if (ok) this->run(action, value.toStdString());
         }
 
-        void palette(void)
+        void openRestore(void)
+        {
+            if (this->manager.trash().empty()) this->message("the trash is empty: no closed session to reopen", false);
+            else this->palette("restore:");
+        }
+
+        void moveDir(const int dx, const int dy)
+        {
+            // grid: rows and columns; list, tabs: previous / next
+            const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
+            const int count = static_cast<int>(sessions.size());
+            if (count == 0) return;
+            auto it = std::find_if(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;});
+            const int index = it == sessions.end() ? 0 : static_cast<int>(it - sessions.begin());
+            const std::string layout = this->manager.ui("layout", this->manager.config().layout);
+            const int columns = layout == "grid" && count > 1 ? static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))) : 1;
+            int next = index;
+            if (dx != 0 || columns == 1) next = (index + (dx != 0 ? dx : dy) + count) % count;
+            else if (index + dy * columns >= 0 && index + dy * columns < count) next = index + dy * columns;
+            this->active = sessions[static_cast<std::size_t>(next)].spec.id;
+            this->refresh(true);
+        }
+
+        void palette(const QString& initial = QString())
         {
             QDialog dialog(this);
             dialog.setWindowTitle("Command palette");
@@ -241,6 +278,7 @@ class Window: public QMainWindow {
                     }
                 items->setCurrentRow(0);
             };
+            filter->setText(initial);
             fill();
             QObject::connect(filter, &QLineEdit::textChanged, [&]() {fill();});
             QObject::connect(filter, &QLineEdit::returnPressed, [&]() {dialog.accept();});
@@ -378,6 +416,7 @@ class Window: public QMainWindow {
                 const std::string layout = this->manager.ui("layout", this->manager.config().layout);
                 this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
             } else if (action == "settings") this->settings();
+            else if (action == "restore") this->openRestore();
             else if (action == "quit") this->close();
         }
 

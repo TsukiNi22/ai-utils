@@ -66,6 +66,7 @@ _cold void cluster::Config::defaults_(void)
         {"palette", "Ctrl+K"}, {"next_session", "Ctrl+N"}, {"prev_session", "Ctrl+P"}, {"global", "Ctrl+G"},
         {"new_session", "Ctrl+T"}, {"close_session", "Ctrl+W"}, {"allow", "Ctrl+Y"}, {"deny", "Ctrl+D"},
         {"interrupt", "Ctrl+C"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"quit", "Ctrl+Q"},
+        {"restore", "Ctrl+Shift+T|Alt+T"}, {"prefix", "Ctrl+B"},
     };
 }
 
