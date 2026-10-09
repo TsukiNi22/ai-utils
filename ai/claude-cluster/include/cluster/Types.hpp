@@ -152,7 +152,8 @@ struct Snapshot {
     std::string modelUsed;              // from the init message
     std::string lastError;
     std::string remoteId;               // Remote Control: id of the background session
-    int queued = 0;                     // prompts sent while working
+    int queued = 0;                     // prompts waiting for the end of the running turn
+    std::vector<std::string> queue;     // their text (Esc in the prompt: the last one back to edit)
 };
 
 //----------------------------------------------------------------//

@@ -300,6 +300,43 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
     return result;
 }
 
+_cold std::string cluster::next_mode(const std::string& mode)
+{
+    static const std::vector<std::string> cycle = {"auto", "acceptEdits", "plan", "bypassPermissions", "manual"};
+    auto it = std::find(cycle.begin(), cycle.end(), mode == "default" ? "manual" : mode);
+    return it == cycle.end() || it + 1 == cycle.end() ? cycle.front() : *(it + 1);
+}
+
+_cold std::string cluster::help_text(const cluster::Config& config)
+{
+    static const std::vector<std::pair<std::string, std::string>> actions = {
+        {"palette", "command palette"}, {"settings", "settings page"}, {"help", "this help"},
+        {"next_session", "next session"}, {"prev_session", "previous session"}, {"prefix", "then an arrow: session on the left / right / above / below"},
+        {"global", "the global session"}, {"new_session", "new session"}, {"close_session", "close the session (trash)"},
+        {"restore", "reopen a closed session"}, {"allow", "allow the permission"}, {"always", "always allow (rule)"}, {"deny", "deny the permission"},
+        {"interrupt", "stop the running turn, else clear the prompt (copy with a selection)"}, {"mode_cycle", "next permission mode"},
+        {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
+        {"undo", "undo"}, {"redo", "redo"}, {"select_all", "select all"}, {"cut", "cut"}, {"paste", "paste (text or image)"},
+        {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
+        {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},
+    };
+    std::string text = "Keys (config [keys], settings page F9):";
+    for (const auto &[action, description]: actions) {
+        if (!config.keys.contains(action)) continue;
+        const std::string key = config.keys.at(action);
+        text += "\n" + key + std::string(key.size() < 30 ? 30 - key.size() : 1, ' ') + description;
+    }
+    text += "\nAlt+1..9                      session N"
+        "\nAlt+Enter / Shift+Enter       new line in the prompt"
+        "\nEsc                           queued prompt back in the prompt (to edit it)"
+        "\nEsc Esc                       clear the prompt"
+        "\nEnter                         send (/local commands run here)"
+        "\nShift / Ctrl+Shift + arrows   select; Ctrl + arrows: by word; Home / End"
+        "\nPageUp / PageDown, wheel      scroll the transcript"
+        "\n@ / /                         completion: Tab complete, Enter accept, arrows choose, Space / Esc close";
+    return text;
+}
+
 _cold std::string cluster::key_action(const cluster::Config& config, const std::string& key)
 {
     // a key can have alternatives: "Ctrl+Shift+T|Alt+T"

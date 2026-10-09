@@ -91,6 +91,8 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 |---|---|
 | Ctrl+K | command palette (every action: new session, modes, panels, styles, layouts, providers, voice...) |
 | F9 | settings page |
+| F1 | every key |
+| Alt+1 .. Alt+9 | session N |
 | Ctrl+N (Alt+N) / Alt+P | next / previous session |
 | Ctrl+B then ← → ↑ ↓ | session on the left / right / above / below (grid: rows and columns) |
 | Ctrl+G | the global session |
@@ -98,7 +100,9 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+W | close the session (to the trash) |
 | Ctrl+Shift+T, Ctrl+Shift+R (terminal: Alt+T) | reopen a closed session (list of the trash) |
 | Alt+Y / Alt+A / Alt+D | allow / always allow / deny the permission |
-| Ctrl+C | interrupt the turn (copy when text is selected in the prompt) |
+| Ctrl+C | stop the running turn; none: clear the prompt (copy when text is selected) |
+| Shift+Tab | next permission mode (auto, acceptEdits, plan, bypassPermissions, manual) |
+| Ctrl+F | search in the transcript (Enter / ↑ older, ↓ newer, Esc close) |
 | F2 / F5 / F6 / Ctrl+Q | layout / push-to-talk / stop speaking / quit (the sessions are kept) |
 | PageUp / PageDown, wheel | scroll the transcript |
 
@@ -116,7 +120,11 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 
 | Key | Action |
 |---|---|
-| Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent) |
+| Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent); while a turn runs the prompt is **queued** (shown under the transcript) |
+| Alt+Enter / Shift+Enter | new line (prompt on several lines) |
+| Esc | the last queued prompt of the session back in the prompt, removed from the queue (to edit it) |
+| Esc Esc | clear the prompt |
+| Ctrl+E | edit the prompt in `$VISUAL` / `$EDITOR` (window: a multi-line dialog) |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
 | Ctrl+← → , Home / End | move by word, to the start / end |

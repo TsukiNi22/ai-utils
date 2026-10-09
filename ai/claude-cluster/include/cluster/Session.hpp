@@ -25,6 +25,7 @@ File Description:
     #include "Auth.hpp"             // cluster::Backend, cluster::Env
     #include <functional>           // std::function
     #include <filesystem>           // std::filesystem::path
+    #include <optional>             // std::optional
     #include <fstream>              // std::ofstream
     #include <atomic>               // std::atomic
     #include <thread>               // std::thread
@@ -44,6 +45,11 @@ struct Event {
     std::string session;
     std::string text;
     bool error = false;
+};
+
+struct Queued {
+    std::string text;
+    std::vector<std::string> images;
 };
 
 struct Launch {
@@ -73,7 +79,7 @@ class Session {
         std::atomic<bool> _stopping{false};
         std::atomic<bool> _busy{false};     // per-turn drivers: a process is running
         std::atomic<std::uint64_t> _version{1};
-        std::deque<std::string> _pending;   // per-turn drivers: prompts waiting for the running turn
+        std::deque<cluster::Queued> _pending;   // prompts waiting for the end of the running turn (kept here: editable)
         std::string _stderr;                // tail of the error output
         std::string _lastText;              // last assistant text of the turn
         cluster::Usage _turn;               // finished messages of the running turn
@@ -96,6 +102,8 @@ class Session {
         _cold void entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool = "");
         _cold void tool_(const std::string& id, const std::string& name, const cluster::Json& input);
         _cold void turnDone_(const std::string& text, const bool error);
+        _cold void dispatch_(const cluster::Queued& prompt);  // claude: written now (lock held)
+        _cold void queue_(void);                                // snapshot of the queue
         _cold inline void touch_(void) {++this->_version;};
         _cold void emit_(const cluster::Event::Kind kind, const std::string& text = "", const bool error = false);
 
@@ -106,6 +114,7 @@ class Session {
         _cold void answer(const std::string& requestId, const std::string& behavior); // allow | always | deny
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);
+        _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)
         _cold void stop(void);
         _cold void rename(const std::string& name);
         _cold void togglePanel(const std::string& panel);

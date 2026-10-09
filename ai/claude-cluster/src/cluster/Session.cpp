@@ -60,6 +60,35 @@ _cold static std::string tool_summary_(const std::string& name, const cluster::J
     return name == "TodoWrite" ? "todo list" : cluster::one_line(input.dump(), 120);
 }
 
+struct Prepared {
+    std::string shown;          // transcript: [Image: path]
+    std::string prompt;         // per-turn agents: @path
+    cluster::Json content;      // claude: text + image blocks (empty: the text alone)
+};
+
+_cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
+{
+    Prepared out{queued.text, queued.text, cluster::Json::array()};
+    for (std::size_t i = 0; i < queued.images.size(); ++i) {
+        const std::string& path = queued.images[i];
+        const std::string token = "[Image #" + std::to_string(i + 1) + "]";
+        for (std::size_t at = out.shown.find(token); at != std::string::npos; at = out.shown.find(token))
+            out.shown.replace(at, token.size(), "[Image: " + path + "]");
+        for (std::size_t at = out.prompt.find(token); at != std::string::npos; at = out.prompt.find(token))
+            out.prompt.replace(at, token.size(), "@" + path);
+        if (!blocks) continue;
+        std::ifstream file(path, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (bytes.empty()) continue;
+        const std::string extension = cluster::lower(std::filesystem::path(path).extension().string());
+        const std::string media = extension == ".jpg" || extension == ".jpeg" ? "image/jpeg" : extension == ".gif" ? "image/gif"
+            : extension == ".webp" ? "image/webp" : "image/png";
+        out.content.push_back({{"type", "image"}, {"source", {{"type", "base64"}, {"media_type", media}, {"data", utils::smanip::codec::Base64Codec().encode(bytes)}}}});
+    }
+    if (!out.content.empty()) out.content.insert(out.content.begin(), {{"type", "text"}, {"text", queued.text}});
+    return out;
+}
+
 /* constructor */
 _cold cluster::Session::Session(cluster::Launch launch)
     : _launch(std::move(launch))
@@ -249,9 +278,11 @@ _cold void cluster::Session::runTurns_(void)
                 this->_busy = false;
                 return;
             }
-            prompt = this->_pending.front();
+            const Prepared prepared = prepare_(this->_pending.front(), false);
+            prompt = prepared.prompt;
+            this->entry_(cluster::EntryKind::User, prepared.shown);
             this->_pending.pop_front();
-            this->_data.queued = static_cast<int>(this->_pending.size());
+            this->queue_();
             this->_data.state = cluster::State::Working;
             this->_turn = {};
             this->_lastText.clear();
@@ -464,8 +495,13 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->_data.partial.clear();
         if (this->persistent()) {
             this->_data.state = this->_data.permissions.empty() ? cluster::State::Idle : cluster::State::Waiting;
-            this->_data.queued = std::max(0, this->_data.queued - 1);
             this->emit_(cluster::Event::Kind::TurnDone, text, error);
+            if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) {
+                const cluster::Queued next = this->_pending.front();
+                this->_pending.pop_front();
+                this->queue_();
+                this->dispatch_(next);
+            }
         } else {
             this->_lastText = text;
         }
@@ -622,27 +658,7 @@ _cold void cluster::Session::write_(const cluster::Json& message)
 
 _cold void cluster::Session::send(const std::string& text, const std::vector<std::string>& images)
 {
-    // [Image #N] of the text: image blocks for claude, @path for the other agents; the transcript keeps the paths
-    std::string shown = text;
-    std::string prompt = text;
-    cluster::Json content = cluster::Json::array();
-    for (std::size_t i = 0; i < images.size(); ++i) {
-        const std::string token = "[Image #" + std::to_string(i + 1) + "]";
-        for (std::size_t at = shown.find(token); at != std::string::npos; at = shown.find(token))
-            shown.replace(at, token.size(), "[Image: " + images[i] + "]");
-        for (std::size_t at = prompt.find(token); at != std::string::npos; at = prompt.find(token))
-            prompt.replace(at, token.size(), "@" + images[i]);
-        if (!this->persistent()) continue;
-        std::ifstream file(images[i], std::ios::binary);
-        const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        if (bytes.empty()) continue;
-        const std::string extension = cluster::lower(std::filesystem::path(images[i]).extension().string());
-        const std::string media = extension == ".jpg" || extension == ".jpeg" ? "image/jpeg" : extension == ".gif" ? "image/gif"
-            : extension == ".webp" ? "image/webp" : "image/png";
-        content.push_back({{"type", "image"}, {"source", {{"type", "base64"}, {"media_type", media}, {"data", utils::smanip::codec::Base64Codec().encode(bytes)}}}});
-    }
-    if (!content.empty()) content.insert(content.begin(), {{"type", "text"}, {"text", text}});
-
+    const cluster::Queued prompt{text, images};
     if (this->persistent()) {
         if (!this->_worker.joinable() || this->_data.state == cluster::State::Stopped || this->_data.state == cluster::State::Error) {
             if (this->_worker.joinable()) this->_worker.join();
@@ -651,17 +667,18 @@ _cold void cluster::Session::send(const std::string& text, const std::vector<std
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         std::lock_guard<std::mutex> lock(this->_mutex);
-        this->entry_(cluster::EntryKind::User, shown);
-        this->write_({{"type", "user"}, {"message", {{"role", "user"}, {"content", content.empty() ? cluster::Json(text) : content}}}});
-        if (this->_data.state == cluster::State::Working) this->_data.queued++;
-        else this->_data.state = cluster::State::Working;
-        this->_turn = {};
+        // a turn runs: kept here (editable) until its end, then written
+        if (this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting) {
+            this->_pending.push_back(prompt);
+            this->queue_();
+        } else {
+            this->dispatch_(prompt);
+        }
     } else {
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
-            this->entry_(cluster::EntryKind::User, shown);
             this->_pending.push_back(prompt);
-            this->_data.queued = static_cast<int>(this->_pending.size()) - (this->_busy ? 0 : 1);
+            this->queue_();
             if (this->_data.state != cluster::State::Working) this->_data.state = cluster::State::Working;
         }
         if (!this->_busy) {
@@ -672,6 +689,34 @@ _cold void cluster::Session::send(const std::string& text, const std::vector<std
         }
     }
     this->touch_();
+}
+
+_cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
+{
+    const Prepared prepared = prepare_(prompt, true);
+    this->entry_(cluster::EntryKind::User, prepared.shown);
+    this->write_({{"type", "user"}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prompt.text) : prepared.content}}}});
+    this->_data.state = cluster::State::Working;
+    this->_turn = {};
+}
+
+_cold void cluster::Session::queue_(void)
+{
+    this->_data.queue.clear();
+    for (const cluster::Queued& queued: this->_pending)
+        this->_data.queue.push_back(queued.text);
+    this->_data.queued = static_cast<int>(this->_pending.size());
+}
+
+_cold std::optional<cluster::Queued> cluster::Session::unqueue(void)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (this->_pending.empty()) return std::nullopt;
+    const cluster::Queued last = this->_pending.back();
+    this->_pending.pop_back();
+    this->queue_();
+    this->touch_();
+    return last;
 }
 
 _cold void cluster::Session::answer(const std::string& requestId, const std::string& behavior)

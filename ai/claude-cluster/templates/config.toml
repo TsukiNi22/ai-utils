@@ -79,6 +79,11 @@ paste = "Ctrl+V"           # text, or an image of the clipboard ([Image #N])
 stash = "Ctrl+S"           # put the prompt aside
 unstash = "Ctrl+P"         # take the last one back
 history = "Ctrl+R"         # prompts sent before
+edit = "Ctrl+E"            # the prompt in $VISUAL / $EDITOR
+search = "Ctrl+F"          # search in the transcript of the session
+mode_cycle = "Shift+Tab"   # next permission mode: auto, acceptEdits, plan, bypassPermissions, manual
+help = "F1"                # every key
+# fixed: Alt+1..9 session N, Alt+Enter / Shift+Enter new line, Esc (queued prompt back to edit), Esc Esc (clear the prompt)
 push_to_talk = "F5"
 mute = "F6"
 layout = "F2"

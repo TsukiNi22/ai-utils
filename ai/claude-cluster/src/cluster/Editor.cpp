@@ -96,7 +96,7 @@ _cold std::size_t cluster::Editor::wordStart_(const std::size_t at) const
 {
     // start of the word ending at `at` (an escaped space "\ " is inside the word)
     std::size_t p = at;
-    while (p > 0 && !(this->_text[p - 1] == ' ' && !(p >= 2 && this->_text[p - 2] == '\\')))
+    while (p > 0 && this->_text[p - 1] != '\n' && !(this->_text[p - 1] == ' ' && !(p >= 2 && this->_text[p - 2] == '\\')))
         --p;
     return p;
 }

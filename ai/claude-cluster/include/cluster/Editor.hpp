@@ -99,6 +99,7 @@ class Editor {
         _cold void setText(const std::string& text);
         _cold void clear(void);
         _cold void addImage(const std::string& path);   // [Image #N] at the cursor
+        _cold inline void setImages(const std::vector<std::string>& images) {this->_images = images;}; // with setText: a queued prompt back
 
         /* completion */
         _cold inline void setProvider(cluster::CompletionProvider provider) {this->_provider = std::move(provider);};

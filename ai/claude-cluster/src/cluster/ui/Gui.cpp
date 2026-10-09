@@ -15,6 +15,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Session.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
@@ -22,7 +23,9 @@ File Description:
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDoubleSpinBox>
+#include <QPlainTextEdit>
 #include <QFontDatabase>
+#include <QTextDocument>
 #include <QApplication>
 #include <QTextBrowser>
 #include <QKeySequence>
@@ -35,6 +38,7 @@ File Description:
 #include <QGridLayout>
 #include <QMessageBox>
 #include <QFormLayout>
+#include <QTextCursor>
 #include <QScrollBar>
 #include <functional>
 #include <QTabWidget>
@@ -92,12 +96,25 @@ _cold QString span_(const std::string& color, const QString& text, const bool bo
 class Window;
 
 // Prompt of the window: QLineEdit (undo / redo / selection / clipboard of Qt) + the completion list and the images
-class PromptEdit: public QLineEdit {
+class PromptEdit: public QPlainTextEdit {
     protected:
         void keyPressEvent(QKeyEvent* event) override;
         bool focusNextPrevChild(bool) override {return false;}; // Tab completes, never leaves the prompt
 
     public:
+        QString text(void) const {return this->toPlainText();};
+        void setText(const QString& text) {this->setPlainText(text); this->moveCursor(QTextCursor::End);};
+        int cursorPosition(void) const {return this->textCursor().position();};
+        bool hasSelectedText(void) const {return this->textCursor().hasSelection();};
+        void insert(const QString& text) {this->textCursor().insertText(text);};
+        void setSelection(const int start, const int length)
+        {
+            QTextCursor cursor = this->textCursor();
+            cursor.setPosition(start);
+            cursor.setPosition(start + length, QTextCursor::KeepAnchor);
+            this->setTextCursor(cursor);
+        };
+        void fit(void);                     // 1 to 8 lines high
         Window* window = nullptr;
         cluster::Editor completion;
         QListWidget* popup = nullptr;
@@ -135,6 +152,9 @@ class Window: public QMainWindow {
         QListWidget* list = nullptr;
         QTabBar* tabs = nullptr;
         PromptEdit* input = nullptr;
+        QWidget* findBar = nullptr;
+        QLineEdit* findInput = nullptr;
+        std::int64_t lastEscape = 0;
         QLabel* status = nullptr;
         QLabel* voiceLabel = nullptr;
         QLabel* target = nullptr;
@@ -197,12 +217,23 @@ class Window: public QMainWindow {
             for (const auto &[action, key]: this->manager.config().keys) {
                 if (action == "prefix") continue; // only the chords below
                 if (action == "undo" || action == "redo" || action == "select_all" || action == "cut" || action == "paste") continue; // the prompt (Qt)
+                if (action == "mode_cycle") continue; // Shift+Tab: in the prompt (else it moves the focus)
                 for (const std::string& alternative: cluster::split(key, '|')) {
                     QShortcut* shortcut = new QShortcut(QKeySequence(q_(alternative)), this);
                     const std::string name = action;
                     QObject::connect(shortcut, &QShortcut::activated, [this, name]() {this->shortcut(name);});
                     this->shortcuts.push_back(shortcut);
                 }
+            }
+            // Alt+1..9: session N
+            for (int n = 1; n <= 9; ++n) {
+                QShortcut* shortcut = new QShortcut(QKeySequence(q_("Alt+" + std::to_string(n))), this);
+                QObject::connect(shortcut, &QShortcut::activated, [this, n]() {
+                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    if (static_cast<std::size_t>(n) <= all.size()) this->active = all[static_cast<std::size_t>(n - 1)].spec.id;
+                    this->refresh(true);
+                });
+                this->shortcuts.push_back(shortcut);
             }
             // prefix then an arrow (Ctrl+B, Left...): session on the left / right / above / below
             const std::string prefix = this->manager.config().keys.contains("prefix") ? this->manager.config().keys.at("prefix") : "Ctrl+B";
@@ -443,14 +474,34 @@ class Window: public QMainWindow {
                 this->refresh(true);
             } else if (action == "new_session") this->choose({"new_session", "New session", "folder [backend]", ".", false});
             else if (action == "close_session") this->run({"close_session", "", "", "", false}, "");
-            else if (action == "allow" || action == "deny" || action == "interrupt" || action == "mute") this->run({action, "", "", "", false}, "");
+            else if (action == "allow" || action == "deny" || action == "mute") this->run({action, "", "", "", false}, "");
             else if (action == "push_to_talk") this->run({"voice_toggle", "", "", "", false}, "");
             else if (action == "layout") {
                 const std::string layout = this->manager.ui("layout", this->manager.config().layout);
                 this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
             } else if (action == "settings") this->settings();
             else if (action == "restore") this->openRestore();
-            else if (action == "stash") {
+            else if (action == "interrupt") {
+                // a turn runs: stop it; else clear the prompt
+                const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
+                if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) this->run({"interrupt", "", "", "", false}, "");
+                else this->input->reset();
+            } else if (action == "mode_cycle") {
+                const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
+                if (snap) this->run({"mode:" + cluster::next_mode(snap->spec.mode), "", "", "", false}, "");
+            } else if (action == "help") {
+                QMessageBox box(QMessageBox::Information, "claude-cluster keys", q_(cluster::help_text(this->manager.config())), QMessageBox::Ok, this);
+                box.setStyleSheet("QLabel{font-family:monospace;}");
+                box.exec();
+            } else if (action == "search") {
+                this->findBar->setVisible(true);
+                this->findInput->setFocus();
+                this->findInput->selectAll();
+            } else if (action == "edit") {
+                bool ok = false;
+                const QString text = QInputDialog::getMultiLineText(this, "Edit the prompt", "Prompt (Ok: back in the prompt)", this->input->text(), &ok);
+                if (ok) this->input->setText(text);
+            } else if (action == "stash") {
                 if (cluster::trim(this->input->text().toStdString()).empty()) {
                     this->message("nothing to stash", false);
                 } else {
@@ -479,6 +530,39 @@ class Window: public QMainWindow {
                 }
             } else if (action == "always") this->run({"always", "", "", "", false}, "");
             else if (action == "quit") this->close();
+        }
+
+        void escape(void)
+        {
+            // a queued prompt of the session: back in the prompt to edit it (removed from the queue); else Esc Esc clears
+            const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            const std::optional<cluster::Queued> queued = this->manager.unqueue(this->active);
+            if (queued) {
+                if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->text().toStdString());
+                this->input->reset();
+                this->input->setText(q_(queued->text));
+                for (const std::string& image: queued->images)
+                    this->input->addImage(image);
+                this->message("queued prompt back to edit (Enter: queue it again)", false);
+                this->lastEscape = 0;
+            } else if (now - this->lastEscape < 600) {
+                this->input->reset();
+                this->lastEscape = 0;
+            } else {
+                this->lastEscape = now;
+            }
+        }
+
+        void find(const bool older)
+        {
+            // Ctrl+F: the text in the transcript of the active session (Enter: older, Shift+Enter: newer)
+            SessionView* view = this->views.contains("") ? this->views[""] : this->views.contains(this->active) ? this->views[this->active] : nullptr;
+            if (!view || this->findInput->text().isEmpty()) return;
+            const QTextDocument::FindFlags flags = older ? QTextDocument::FindBackward : QTextDocument::FindFlags();
+            if (!view->log->find(this->findInput->text(), flags)) {
+                view->log->moveCursor(older ? QTextCursor::End : QTextCursor::Start);
+                view->log->find(this->findInput->text(), flags);
+            }
         }
 
         void send(void)
@@ -571,16 +655,33 @@ class Window: public QMainWindow {
             root->addWidget(this->voiceLabel);
             QHBoxLayout* bar = new QHBoxLayout();
             this->input = new PromptEdit(this, central);
-            this->input->setPlaceholderText("Prompt (Enter to send) · @ file · / command · Ctrl+K palette · Ctrl+R history");
+            this->input->setPlaceholderText("Prompt (Enter to send, Shift / Alt+Enter new line) · @ file · / command · Ctrl+K palette · F1 keys");
             this->input->chipsBar = new QWidget(central);
             new QHBoxLayout(this->input->chipsBar);
             this->input->chipsBar->layout()->setContentsMargins(0, 0, 0, 0);
             this->input->chipsBar->setVisible(false);
             root->addWidget(this->input->chipsBar);
+            this->findBar = new QWidget(central);
+            QHBoxLayout* findLayout = new QHBoxLayout(this->findBar);
+            findLayout->setContentsMargins(0, 0, 0, 0);
+            findLayout->addWidget(new QLabel("Find:", this->findBar));
+            this->findInput = new QLineEdit(this->findBar);
+            this->findInput->setPlaceholderText("text of the transcript · Enter older · Shift+Enter newer · Esc close");
+            findLayout->addWidget(this->findInput, 1);
+            QObject::connect(this->findInput, &QLineEdit::textChanged, [this]() {this->find(true);});
+            QObject::connect(this->findInput, &QLineEdit::returnPressed, [this]() {
+                this->find(!(QApplication::keyboardModifiers() & Qt::ShiftModifier));
+            });
+            QShortcut* closeFind = new QShortcut(QKeySequence(Qt::Key_Escape), this->findInput, nullptr, nullptr, Qt::WidgetShortcut);
+            QObject::connect(closeFind, &QShortcut::activated, [this]() {
+                this->findBar->setVisible(false);
+                this->input->setFocus();
+            });
+            this->findBar->setVisible(false);
+            root->addWidget(this->findBar);
             this->input->popup = new QListWidget(central);
             this->input->popup->setFocusPolicy(Qt::NoFocus);
             this->input->popup->setVisible(false);
-            QObject::connect(this->input, &QLineEdit::returnPressed, [this]() {this->send();});
             this->target = new QLabel(central);
             QPushButton* sendButton = new QPushButton("Send", central);
             QObject::connect(sendButton, &QPushButton::clicked, [this]() {this->send();});
@@ -662,12 +763,20 @@ class Window: public QMainWindow {
 };
 
 PromptEdit::PromptEdit(Window* owner, QWidget* parent)
-    : QLineEdit(parent), window(owner)
+    : QPlainTextEdit(parent), window(owner)
 {
     this->completion.setProvider(cluster::completion_provider(owner->manager, [owner]() {return owner->active;}));
-    QObject::connect(this, &QLineEdit::textEdited, [this]() {this->refreshCompletion();});
-    QObject::connect(this, &QLineEdit::cursorPositionChanged, [this]() {this->refreshCompletion();});
-    QObject::connect(this, &QLineEdit::returnPressed, [this]() {this->window->send();});
+    this->setTabChangesFocus(false);
+    this->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    QObject::connect(this, &QPlainTextEdit::textChanged, [this]() {this->refreshCompletion(); this->fit();});
+    QObject::connect(this, &QPlainTextEdit::cursorPositionChanged, [this]() {this->refreshCompletion();});
+    this->fit();
+}
+
+void PromptEdit::fit(void)
+{
+    const int lines = std::clamp(static_cast<int>(this->document()->size().height()), 1, 8);
+    this->setFixedHeight(lines * this->fontMetrics().lineSpacing() + 2 * this->frameWidth() + static_cast<int>(2 * this->document()->documentMargin()) + 4);
 }
 
 void PromptEdit::refreshCompletion(void)
@@ -736,6 +845,23 @@ void PromptEdit::reset(void)
 void PromptEdit::keyPressEvent(QKeyEvent* event)
 {
     const bool open = this->popup && this->popup->isVisible();
+    const bool enter = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
+    if (enter && (event->modifiers() & (Qt::ShiftModifier | Qt::AltModifier))) {
+        this->insertPlainText("\n"); // Alt+Enter / Shift+Enter: new line
+        return;
+    }
+    if (enter && !open) {
+        this->window->send();
+        return;
+    }
+    if (event->key() == Qt::Key_Backtab) {
+        this->window->shortcut("mode_cycle");
+        return;
+    }
+    if (event->key() == Qt::Key_Escape && !open) {
+        this->window->escape();
+        return;
+    }
     if (open) {
         if (event->key() == Qt::Key_Tab) {
             this->apply(false);
@@ -762,7 +888,7 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
     }
     if (event->key() == Qt::Key_Tab) return;
     if (event->matches(QKeySequence::Copy) && !this->hasSelectedText()) {
-        this->window->shortcut("interrupt"); // Ctrl+C without selection: interrupt
+        this->window->shortcut("interrupt"); // Ctrl+C without selection: stop the turn, else clear the prompt
         return;
     }
     if (event->matches(QKeySequence::Paste)) {
@@ -780,7 +906,7 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
             }
         }
     }
-    QLineEdit::keyPressEvent(event);
+    QPlainTextEdit::keyPressEvent(event);
 }
 
 SessionView::SessionView(Window* window, const std::string& sessionId, const bool compact)

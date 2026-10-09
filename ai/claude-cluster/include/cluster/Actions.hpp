@@ -54,6 +54,8 @@ _cold _nodiscard std::string key_action(const cluster::Config& config, const std
 _cold _nodiscard cluster::CompletionProvider completion_provider(cluster::Manager& manager, std::function<std::string(void)> session);
 _cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager& manager, const std::string& session, const std::string& line);
 _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_commands(void);  // local /commands <usage, description>
+_cold _nodiscard std::string next_mode(const std::string& mode);    // Shift+Tab: auto, acceptEdits, plan, bypassPermissions, manual
+_cold _nodiscard std::string help_text(const cluster::Config& config);   // F1: every key
 
 } // namespace end
 

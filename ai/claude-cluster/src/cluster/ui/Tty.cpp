@@ -12,9 +12,11 @@ File Description:
 
 #define _Exception
 #define _Attribute
+#define _Encapsulation
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Session.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
@@ -41,7 +43,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search};
 
 struct Theme {
     ftxui::Color bg;
@@ -129,7 +131,7 @@ _cold std::string key_name_(const ftxui::Event& event)
     const std::string& input = event.input();
     if (input.size() == 1 && input[0] >= 1 && input[0] <= 26 && input[0] != 9 && input[0] != 10 && input[0] != 13)
         return std::string("Ctrl+") + static_cast<char>('A' + input[0] - 1);
-    if (input.size() == 2 && input[0] == 27 && std::isalpha(static_cast<unsigned char>(input[1])))
+    if (input.size() == 2 && input[0] == 27 && std::isalnum(static_cast<unsigned char>(input[1])))
         return std::string("Alt+") + static_cast<char>(std::toupper(static_cast<unsigned char>(input[1])));
 
     // Extended sequences (terminals that tell the modifiers apart): CSI u "ESC[<code>;<mods>u" and xterm
@@ -232,6 +234,10 @@ class TtyUi {
         std::vector<std::string> _historyItems;     // Mode::History, filtered
         std::vector<ftxui::Box> _imageBoxes;        // pasted images in the prompt bar (mouse hover)
         int _hoverImage = -1;
+        std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
+        std::string _search;                        // Ctrl+F in the transcript of the active session
+        std::vector<std::size_t> _matches;          // entries matching
+        int _hit = 0;                               // the current one (index in _matches)
         std::string _filter;
         std::string _prompt;
         std::string _message;
@@ -310,6 +316,43 @@ class TtyUi {
             this->_mode = Mode::Palette;
         }
 
+        void searchUpdate_(void)
+        {
+            this->_matches.clear();
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+            const std::string wanted = cluster::lower(this->_search);
+            if (!snap || wanted.empty()) return;
+            for (std::size_t i = 0; i < snap->entries.size(); ++i)
+                if (cluster::lower(snap->entries[i].text).find(wanted) != std::string::npos) this->_matches.push_back(i);
+            this->_hit = this->_matches.empty() ? 0 : static_cast<int>(this->_matches.size()) - 1; // the newest first
+        }
+
+        void externalEdit_(void)
+        {
+            // the prompt in $VISUAL / $EDITOR (the interface comes back after)
+            const std::filesystem::path path = cluster::data_dir() / "prompt-edit.md";
+            std::error_code error;
+            std::filesystem::create_directories(path.parent_path(), error);
+            std::ofstream(path) << this->_editor.text();
+            const char* visual = std::getenv("VISUAL");
+            const char* editor = std::getenv("EDITOR");
+            std::vector<std::string> command = cluster::split(visual && *visual ? visual : editor && *editor ? editor : "vi", ' ');
+            command.push_back(path.string());
+            this->_screen.WithRestoredIO([&]() {
+                utils::encapsulation::Process process;
+                try {
+                    (void)process.spawn(command[0], std::vector<std::string>(command.begin() + 1, command.end()));
+                    (void)process.wait();
+                } catch (const utils::exception::IException& e) {
+                    std::cerr << e.info() << std::endl;
+                }
+            })();
+            std::ifstream in(path);
+            std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
+            this->_editor.setText(text);
+        }
+
         void historyFilter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
@@ -368,36 +411,62 @@ class TtyUi {
 
         _nodiscard ftxui::Element prompt_(const int width)
         {
-            // the prompt line: selection inverted, cursor, the end shown when it is too long
+            // the prompt (several lines: Alt+Enter / Shift+Enter): selection inverted, cursor, 8 lines around the cursor
+            if (this->_mode == Mode::Search) {
+                return ftxui::hbox({ftxui::text(" find › ") | ftxui::color(this->_theme.warn) | ftxui::bold, ftxui::text(this->_search) | ftxui::color(this->_theme.text),
+                    ftxui::text("▏") | ftxui::blink, ftxui::text("  " + (this->_matches.empty() ? std::string("no match") : std::to_string(this->_hit + 1) + "/" + std::to_string(this->_matches.size()))
+                    + "  Enter / ↑ older · ↓ newer · Esc close") | ftxui::color(this->_theme.muted), ftxui::filler()});
+            }
             const std::string& text = this->_editor.text();
             const std::pair<std::size_t, std::size_t> sel = this->_editor.selection();
             const std::size_t cursor = this->_editor.cursor();
-            ftxui::Elements parts = {ftxui::text(" › ") | ftxui::color(this->_theme.accent) | ftxui::bold};
-            std::size_t from = 0;
-            const std::size_t room = static_cast<std::size_t>(std::max(10, width - 30));
-            if (text.size() > room && cursor > room / 2) from = std::min(cursor - room / 2, text.size() - std::min(text.size(), room));
-            while (from > 0 && (static_cast<unsigned char>(text[from]) & 0xC0) == 0x80) --from;
-            if (from > 0) parts.push_back(ftxui::text("…") | ftxui::color(this->_theme.muted));
-            const std::function<void(std::size_t, std::size_t, bool)> piece = [&](std::size_t a, std::size_t b, bool selected) {
-                a = std::max(a, from);
-                if (b <= a) return;
-                ftxui::Element element = ftxui::text(text.substr(a, b - a)) | ftxui::color(this->_theme.text);
-                parts.push_back(selected ? element | ftxui::inverted : element);
-            };
-            if (sel.first != sel.second) {
-                piece(0, sel.first, false);
-                piece(sel.first, sel.second, true);
-                piece(sel.second, text.size(), false);
-            } else {
-                piece(0, cursor, false);
-                if (this->_mode == Mode::Normal) parts.push_back(ftxui::text("▏") | ftxui::color(this->_theme.accent) | ftxui::blink);
-                piece(cursor, text.size(), false);
+            std::vector<std::pair<std::size_t, std::size_t>> lines; // <start, end> of each line
+            for (std::size_t start = 0;;) {
+                const std::size_t nl = text.find('\n', start);
+                lines.emplace_back(start, nl == std::string::npos ? text.size() : nl);
+                if (nl == std::string::npos) break;
+                start = nl + 1;
             }
-            if (text.empty() && this->_mode == Mode::Normal)
-                parts.push_back(ftxui::text(" @ file · / command · " + this->_manager.config().keys.at("history") + " history") | ftxui::color(this->_theme.muted) | ftxui::dim);
-            parts.push_back(ftxui::filler());
-            parts.push_back(ftxui::text(this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ") | ftxui::color(this->_theme.muted) | ftxui::dim);
-            return ftxui::hbox(std::move(parts));
+            std::size_t current = 0;
+            for (std::size_t i = 0; i < lines.size(); ++i)
+                if (cursor >= lines[i].first && cursor <= lines[i].second) current = i;
+            const std::size_t first = current >= 7 ? current - 7 : 0;
+            const std::size_t room = static_cast<std::size_t>(std::max(10, width - 30));
+            ftxui::Elements rows;
+            for (std::size_t i = first; i < lines.size() && i < first + 8; ++i) {
+                const auto [ls, le] = lines[i];
+                ftxui::Elements parts = {ftxui::text(i == 0 ? " › " : "   ") | ftxui::color(this->_theme.accent) | ftxui::bold};
+                std::size_t from = ls;
+                if (le - ls > room && cursor > ls + room / 2 && i == current) from = std::min(cursor - room / 2, le - room);
+                while (from > ls && (static_cast<unsigned char>(text[from]) & 0xC0) == 0x80) --from;
+                if (from > ls) parts.push_back(ftxui::text("…") | ftxui::color(this->_theme.muted));
+                const std::function<void(std::size_t, std::size_t, bool)> piece = [&](std::size_t x, std::size_t y, bool selected) {
+                    x = std::max(x, from);
+                    y = std::min(y, le);
+                    if (y <= x) return;
+                    ftxui::Element element = ftxui::text(text.substr(x, y - x)) | ftxui::color(this->_theme.text);
+                    parts.push_back(selected ? element | ftxui::inverted : element);
+                };
+                if (sel.first != sel.second) {
+                    piece(ls, sel.first, false);
+                    piece(sel.first, sel.second, true);
+                    piece(sel.second, le, false);
+                } else if (i == current) {
+                    piece(ls, cursor, false);
+                    if (this->_mode == Mode::Normal) parts.push_back(ftxui::text("▏") | ftxui::color(this->_theme.accent) | ftxui::blink);
+                    piece(cursor, le, false);
+                } else {
+                    piece(ls, le, false);
+                }
+                if (text.empty() && this->_mode == Mode::Normal)
+                    parts.push_back(ftxui::text(" @ file · / command · " + this->_manager.config().keys.at("history") + " history · " + this->_manager.config().keys.at("help") + " keys")
+                        | ftxui::color(this->_theme.muted) | ftxui::dim);
+                parts.push_back(ftxui::filler());
+                if (i == first) parts.push_back(ftxui::text(this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                rows.push_back(ftxui::hbox(std::move(parts)));
+            }
+            if (lines.size() > 8) rows.push_back(ftxui::text("   " + std::to_string(lines.size()) + " lines") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(rows));
         }
 
         _nodiscard ftxui::Element completion_(void) const
@@ -547,9 +616,29 @@ class TtyUi {
             } else if (action == "cut") {
                 const std::string text = this->_editor.cut();
                 if (!text.empty()) cluster::detach({"wl-copy", "--", text});
-            } else if (action == "interrupt" && !this->_editor.selected().empty()) {
-                cluster::detach({"wl-copy", "--", this->_editor.selected()}); // Ctrl+C on a selection: copy
-                this->status_("copied");
+            } else if (action == "interrupt") {
+                // a turn runs: stop it; else a selection: copy it; else: clear the prompt
+                const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+                if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) {
+                    this->run_({"interrupt", "", "", "", false}, "");
+                } else if (!this->_editor.selected().empty()) {
+                    cluster::detach({"wl-copy", "--", this->_editor.selected()});
+                    this->status_("copied");
+                } else {
+                    this->_editor.clear();
+                }
+            } else if (action == "mode_cycle") {
+                const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+                if (snap) this->run_({"mode:" + cluster::next_mode(snap->spec.mode), "", "", "", false}, "");
+            } else if (action == "help") {
+                this->status_(cluster::help_text(this->_manager.config()));
+            } else if (action == "search") {
+                this->_search.clear();
+                this->_matches.clear();
+                this->_hit = 0;
+                this->_mode = Mode::Search;
+            } else if (action == "edit") {
+                this->externalEdit_();
             } else if (action == "always") {
                 this->run_({"always", "", "", "", false}, "");
             } else if (action == "restore") {
@@ -796,9 +885,14 @@ class TtyUi {
         {
             // Wrapped lines of the transcript, the last ones (minus the scroll)
             std::vector<ftxui::Element> lines;
-            const std::size_t start = s.entries.size() > 300 ? s.entries.size() - 300 : 0;
+            const bool searching = this->_mode == Mode::Search && s.spec.id == this->_active && !this->_matches.empty();
+            const std::size_t hitEntry = searching ? this->_matches[static_cast<std::size_t>(this->_hit)] : std::string::npos;
+            int hitLine = -1;
+            const std::size_t start = s.entries.size() > 300 && !searching ? s.entries.size() - 300 : 0;
             for (std::size_t i = start; i < s.entries.size(); ++i) {
                 const cluster::Entry& e = s.entries[i];
+                const bool matched = searching && std::find(this->_matches.begin(), this->_matches.end(), i) != this->_matches.end();
+                if (i == hitEntry) hitLine = static_cast<int>(lines.size());
                 std::string prefix;
                 ftxui::Color tint = this->_theme.text;
                 ftxui::Decorator deco = ftxui::nothing;
@@ -813,15 +907,23 @@ class TtyUi {
                 }
                 const std::string body = e.kind == cluster::EntryKind::Thinking ? cluster::one_line(e.text, 300) : e.text;
                 if (e.kind == cluster::EntryKind::User && !lines.empty()) lines.push_back(ftxui::text(""));
-                for (const std::string& line: wrap_(prefix + body, static_cast<std::size_t>(std::max(10, width - 2))))
-                    lines.push_back(ftxui::text(line) | ftxui::color(tint) | deco);
+                for (const std::string& line: wrap_(prefix + body, static_cast<std::size_t>(std::max(10, width - 2)))) {
+                    ftxui::Element element = ftxui::text(line) | ftxui::color(tint) | deco;
+                    if (i == hitEntry) element = element | ftxui::inverted;
+                    else if (matched) element = element | ftxui::bgcolor(this->_theme.surface);
+                    lines.push_back(element);
+                }
             }
             if (!s.partial.empty())
                 for (const std::string& line: wrap_(s.partial, static_cast<std::size_t>(std::max(10, width - 2))))
                     lines.push_back(ftxui::text(line) | ftxui::color(this->_theme.text) | ftxui::dim);
             if (s.state == cluster::State::Working) lines.push_back(ftxui::text("… working" + (s.queued > 0 ? " (" + std::to_string(s.queued) + " queued)" : std::string())) | ftxui::color(this->_theme.muted) | ftxui::dim);
+            for (const std::string& queued: s.queue)
+                lines.push_back(ftxui::text("⧗ queued: " + cluster::one_line(queued, static_cast<std::size_t>(std::max(10, width - 30))) + (compact ? "" : "  (Esc: edit)"))
+                    | ftxui::color(this->_theme.warn));
 
             int& scroll = this->_scroll[s.spec.id];
+            if (hitLine >= 0) scroll = std::max(0, static_cast<int>(lines.size()) - hitLine - height / 2);
             scroll = std::clamp(scroll, 0, std::max(0, static_cast<int>(lines.size()) - height));
             const int end = static_cast<int>(lines.size()) - scroll;
             const int begin = std::max(0, end - height);
@@ -1167,6 +1269,22 @@ class TtyUi {
                     return true;
                 case Mode::Settings:
                     return this->settingsEvent_(event);
+                case Mode::Search:
+                    if (event == ftxui::Event::Escape) {
+                        this->_mode = Mode::Normal;
+                        this->_scroll[this->_active] = 0;
+                    } else if (event == ftxui::Event::Return || event == ftxui::Event::ArrowUp || cluster::key_action(this->_manager.config(), key) == "search") {
+                        if (!this->_matches.empty()) this->_hit = (this->_hit + static_cast<int>(this->_matches.size()) - 1) % static_cast<int>(this->_matches.size());
+                    } else if (event == ftxui::Event::ArrowDown) {
+                        if (!this->_matches.empty()) this->_hit = (this->_hit + 1) % static_cast<int>(this->_matches.size());
+                    } else if (event == ftxui::Event::Backspace) {
+                        if (!this->_search.empty()) this->_search.pop_back();
+                        this->searchUpdate_();
+                    } else if (event.is_character()) {
+                        this->_search += event.character();
+                        this->searchUpdate_();
+                    }
+                    return true;
                 case Mode::History:
                     if (event == ftxui::Event::Escape) {
                         this->_mode = Mode::Normal;
@@ -1216,6 +1334,35 @@ class TtyUi {
                     this->_editor.dismiss();
                     return true;
                 }
+            }
+            const std::string& raw = event.input();
+            if (raw == "\x1b\r" || raw == "\x1b\n" || raw == "\x1b[13;2u" || raw == "\x1b[27;2;13~") { // xstyle: ignore LU-ANSI (read)
+                this->_editor.insert("\n"); // Alt+Enter / Shift+Enter: new line
+                return true;
+            }
+            if (key.size() == 5 && key.starts_with("Alt+") && key[4] >= '1' && key[4] <= '9') {
+                const std::vector<cluster::Snapshot> list = this->sessions_();
+                const std::size_t index = static_cast<std::size_t>(key[4] - '1');
+                if (index < list.size()) this->_active = list[index].spec.id;
+                return true;
+            }
+            if (event == ftxui::Event::Escape) {
+                // a queued prompt of the session: back in the prompt to edit it (removed from the queue); else Esc Esc clears
+                const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                const std::optional<cluster::Queued> queued = this->_manager.unqueue(this->_active);
+                if (queued) {
+                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.text());
+                    this->_editor.setText(queued->text);
+                    this->_editor.setImages(queued->images);
+                    this->status_("queued prompt back to edit (Enter: queue it again)");
+                    this->_lastEscape = 0;
+                } else if (now - this->_lastEscape < 600) {
+                    this->_editor.clear();
+                    this->_lastEscape = 0;
+                } else {
+                    this->_lastEscape = now;
+                }
+                return true;
             }
             if (this->shortcut_(cluster::key_action(this->_manager.config(), key))) return true;
             const std::optional<Arrow> arrow = arrow_(event);

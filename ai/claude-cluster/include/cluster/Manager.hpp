@@ -118,6 +118,7 @@ class Manager {
         _cold void setMode(const std::string& id, const std::string& mode);
         _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};
         _cold inline void interrupt(const std::string& id) {this->get_(id)->interrupt();};
+        _cold _nodiscard inline std::optional<cluster::Queued> unqueue(const std::string& id) {return this->get_(id)->unqueue();}; // last queued prompt, removed
         _cold void cd(const std::string& id, const std::string& cwd);
         _cold void togglePanel(const std::string& id, const std::string& panel);
         _cold void setRemote(const bool on);
