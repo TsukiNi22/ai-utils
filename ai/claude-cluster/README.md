@@ -85,11 +85,49 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `remote on\|off` | Remote Control of the global session |
 | `providers`, `notices` | backends and their state, last events |
 
-In the interfaces: **Ctrl+K** opens the command palette (every action: new session, modes, panels, styles,
-layouts, restore from the trash, providers, voice...), **Ctrl+N / Ctrl+P** next / previous session, **Ctrl+G** the
-global session, **Ctrl+T** new session, **Ctrl+Y / Ctrl+D** allow / deny the permission, **Ctrl+C** interrupt,
-**F2** layout, **F5** push-to-talk, **F6** stop speaking, **F9** settings, **Ctrl+Q** quit (the sessions are kept);
-**PageUp / PageDown** or the wheel scroll the transcript. Every key is set in the config.
+Keys of the interfaces (every one set in `[keys]` / the settings page, alternatives with `|`):
+
+| Key | Action |
+|---|---|
+| Ctrl+K | command palette (every action: new session, modes, panels, styles, layouts, providers, voice...) |
+| F9 | settings page |
+| Ctrl+N (Alt+N) / Alt+P | next / previous session |
+| Ctrl+B then ← → ↑ ↓ | session on the left / right / above / below (grid: rows and columns) |
+| Ctrl+G | the global session |
+| Ctrl+T | new session |
+| Ctrl+W | close the session (to the trash) |
+| Ctrl+Shift+T, Ctrl+Shift+R (terminal: Alt+T) | reopen a closed session (list of the trash) |
+| Alt+Y / Alt+A / Alt+D | allow / always allow / deny the permission |
+| Ctrl+C | interrupt the turn (copy when text is selected in the prompt) |
+| F2 / F5 / F6 / Ctrl+Q | layout / push-to-talk / stop speaking / quit (the sessions are kept) |
+| PageUp / PageDown, wheel | scroll the transcript |
+
+> [!NOTE]
+> Most terminals keep Ctrl+Shift+<letter> for themselves (new tab) or send it as Ctrl+<letter>: the Alt+ alternatives
+> are for them; the window gets every key. The terminal decodes the extended sequences (CSI u / modifyOtherKeys) of
+> the terminals that send them.
+
+### Prompt
+
+Like Claude Code: **`@`** completes the files and folders of the project of the session, **`/`** the local commands,
+the skills and the commands of the agent, then their arguments (`/cd` and `/new` folders, `/mode` modes, `/restore`
+closed sessions). In the list: **Tab** completes without validating (into a folder: its content), **Enter** accepts
+and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a space inside a name).
+
+| Key | Action |
+|---|---|
+| Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent) |
+| Ctrl+Z / Ctrl+Y | undo / redo |
+| Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
+| Ctrl+← → , Home / End | move by word, to the start / end |
+| Ctrl+X / Ctrl+C / Ctrl+V | cut / copy (with a selection) / paste: text, or an **image** of the clipboard as `[Image #N]` |
+| Ctrl+S / Ctrl+P | stash the prompt / take the last one back (kept over the runs) |
+| Ctrl+R | history of the prompts sent (type to filter, Enter puts it in the prompt) |
+
+Local commands: `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
+`/export [file]`, `/restore [session]`, `/settings`, `/help`. A pasted image goes to Claude as an image block (to the
+other agents as `@path`); the mouse over its chip shows it (terminal: drawn with half blocks through `magick`; window: tooltip),
+and over `[Image: ...]` in the transcript of the window.
 
 Panels of a session (each one enabled per session from the palette): **tokens** (last prompt, current one, total),
 **context** (used / window), **cost** (session, last turn, budget, 5 h / 7 d limits), **skills** (loaded, available),

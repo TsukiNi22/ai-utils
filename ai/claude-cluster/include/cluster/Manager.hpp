@@ -110,7 +110,7 @@ class Manager {
 
         /* sessions */
         _cold _nodiscard std::string spawn(const cluster::SpawnRequest& request);
-        _cold void send(const std::string& id, const std::string& text, const bool force = false);
+        _cold void send(const std::string& id, const std::string& text, const bool force = false, const std::vector<std::string>& images = {});
         _cold void close(const std::string& id);
         _cold _nodiscard std::string restore(const std::string& id);
         _cold void purge(const std::string& id = "");       // delete for good from the trash (empty: the expired ones, "*": all)
@@ -131,6 +131,11 @@ class Manager {
         _cold _nodiscard std::vector<cluster::Hit> search(const std::string& text, const std::size_t max = 50) const;
         _cold _nodiscard std::string exportMarkdown(const std::string& id) const;
         _cold _nodiscard cluster::Json toJson(const cluster::Snapshot& snapshot, const bool full) const;
+        _cold void addHistory(const std::string& text, const std::string& session);     // prompts sent (history.jsonl)
+        _cold _nodiscard std::vector<std::string> history(const std::size_t max = 500) const; // newest first, no duplicate
+        _cold void stashPush(const std::string& text);                                  // prompt put aside (stash.json)
+        _cold _nodiscard std::optional<std::string> stashPop(void);
+        _cold _nodiscard std::size_t stashSize(void) const;
 
         // ---------- Function -------- //
         _nodiscard std::vector<cluster::Snapshot> list(const bool withGlobal = true) const;

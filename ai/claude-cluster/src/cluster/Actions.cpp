@@ -186,6 +186,120 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
     return result;
 }
 
+/* prompt: completion and local /commands */
+_cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_commands(void)
+{
+    static const std::vector<std::pair<std::string, std::string>> list = {
+        {"cd", "<folder>: move the session to another project"},
+        {"new", "<folder> [backend]: new session"},
+        {"mode", "<mode>: permission mode of the session"},
+        {"rename", "<name>: rename the session"},
+        {"close", "close the session (to the trash)"},
+        {"interrupt", "stop the running turn"},
+        {"export", "[file]: conversation as Markdown"},
+        {"restore", "<session>: reopen a closed session"},
+        {"settings", "the settings page"},
+        {"help", "the local commands"},
+    };
+    return list;
+}
+
+_cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager& manager, std::function<std::string(void)> session)
+{
+    return [&manager, session](const cluster::CompletionKind kind, const std::string& query) {
+        std::vector<cluster::Candidate> items;
+        const std::optional<cluster::Snapshot> snap = manager.snapshot(session());
+        const std::string cwd = snap ? snap->spec.cwd : cluster::expand_home("~").string();
+        const std::string wanted = cluster::lower(query);
+        const std::function<void(const std::string&, const std::string&)> add = [&](const std::string& value, const std::string& description) {
+            const std::string lowered = cluster::lower(value);
+            if (!wanted.empty() && lowered.find(wanted) == std::string::npos) return;
+            if (std::any_of(items.begin(), items.end(), [&](const cluster::Candidate& c) {return c.value == value;})) return;
+            items.push_back({value, value, description, false});
+        };
+        switch (kind) {
+            case cluster::CompletionKind::File: return cluster::complete_paths(cwd, query, false);
+            case cluster::CompletionKind::Folder: return cluster::complete_paths(cwd, query, true);
+            case cluster::CompletionKind::Mode:
+                for (const auto &[mode, description]: cluster::permission_modes())
+                    add(mode, description);
+                break;
+            case cluster::CompletionKind::Trash:
+                for (const cluster::SessionSpec& spec: manager.trash())
+                    add(spec.name, "closed " + cluster::human_age(spec.deleted) + " ago, " + cluster::short_path(spec.cwd));
+                break;
+            case cluster::CompletionKind::Command:
+                for (const auto &[name, description]: cluster::slash_commands())
+                    add(name, description);
+                if (snap) {
+                    for (const std::string& skill: snap->skillsAvailable)
+                        add(skill, "skill");
+                    for (const std::string& command: snap->slashCommands)
+                        add(command, "command of the agent");
+                }
+                // the ones starting with the query first
+                std::stable_sort(items.begin(), items.end(), [&](const cluster::Candidate& a, const cluster::Candidate& b) {
+                    return cluster::lower(a.value).starts_with(wanted) > cluster::lower(b.value).starts_with(wanted);
+                });
+                break;
+            default: break;
+        }
+        if (items.size() > 60) items.resize(60);
+        return items;
+    };
+}
+
+_cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& manager, const std::string& session, const std::string& line)
+{
+    // A local /command runs here; any other /command (skill, command of the agent) is sent as the prompt
+    if (!line.starts_with("/")) return std::nullopt;
+    const std::size_t space = line.find(' ');
+    const std::string name = line.substr(1, space == std::string::npos ? std::string::npos : space - 1);
+    const std::string arg = space == std::string::npos ? "" : cluster::unescape_path(cluster::trim(line.substr(space + 1)));
+    const std::vector<std::pair<std::string, std::string>>& local = cluster::slash_commands();
+    if (std::none_of(local.begin(), local.end(), [&](const std::pair<std::string, std::string>& c) {return c.first == name;})) return std::nullopt;
+
+    cluster::ActionResult result;
+    try {
+        if (name == "cd") {
+            manager.cd(session, arg);
+            result.message = "moved to " + cluster::short_path(arg);
+        } else if (name == "new") {
+            const std::vector<std::string> parts = cluster::split(arg, ' ');
+            result.focus = manager.spawn({parts.empty() ? "." : parts[0], "", parts.size() > 1 ? parts[1] : "", "", "", ""});
+            result.message = "session " + result.focus + " started";
+        } else if (name == "mode") {
+            manager.setMode(session, arg);
+        } else if (name == "rename") {
+            manager.rename(session, arg);
+        } else if (name == "close") {
+            manager.close(session);
+            result.focus = GLOBAL_ID;
+            result.message = "closed (Ctrl+Shift+T / Alt+T to reopen)";
+        } else if (name == "interrupt") {
+            manager.interrupt(session);
+        } else if (name == "export") {
+            const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+            const std::string path = arg.empty() ? "~/" + (snap ? snap->spec.name : session) + ".md" : arg;
+            std::ofstream(cluster::expand_home(path)) << manager.exportMarkdown(session);
+            result.message = "exported to " + cluster::expand_home(path).string();
+        } else if (name == "restore") {
+            if (arg.empty()) result.ui = "restore_menu";
+            else result.focus = manager.restore(arg);
+        } else if (name == "settings") {
+            result.ui = "settings";
+        } else if (name == "help") {
+            result.message = "local commands (the other / commands go to the agent: skills, /compact...):";
+            for (const auto &[command, description]: local)
+                result.message += "\n/" + command + " " + description;
+        }
+    } catch (const utils::exception::IException& e) {
+        result.message = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+        result.error = true;
+    }
+    return result;
+}
+
 _cold std::string cluster::key_action(const cluster::Config& config, const std::string& key)
 {
     // a key can have alternatives: "Ctrl+Shift+T|Alt+T"

@@ -15,6 +15,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Editor.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
@@ -25,7 +26,12 @@ File Description:
 #include <ftxui/screen/terminal.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <functional>
+#include <termios.h>
 #include <algorithm>
+#include <unistd.h>
+#include <optional>
+#include <fstream>
+#include <sstream>
 #include <chrono>
 #include <regex>
 #include <cmath>
@@ -35,7 +41,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History};
 
 struct Theme {
     ftxui::Color bg;
@@ -146,6 +152,57 @@ _cold std::string key_name_(const ftxui::Event& event)
         + static_cast<char>(std::toupper(static_cast<unsigned char>(code)));
 }
 
+struct Arrow {
+    int dx = 0;
+    int dy = 0;
+    bool shift = false;
+    bool ctrl = false;
+};
+
+_cold std::optional<Arrow> arrow_(const ftxui::Event& event)
+{
+    // plain arrows, and "ESC[1;<mods><A-D>" (2 Shift, 5 Ctrl, 6 Ctrl+Shift)
+    if (event == ftxui::Event::ArrowLeft) return Arrow{-1, 0, false, false};
+    if (event == ftxui::Event::ArrowRight) return Arrow{1, 0, false, false};
+    if (event == ftxui::Event::ArrowUp) return Arrow{0, -1, false, false};
+    if (event == ftxui::Event::ArrowDown) return Arrow{0, 1, false, false};
+    const std::string& input = event.input();
+    if (input.size() != 6 || !input.starts_with("\x1b[1;")) return std::nullopt; // xstyle: ignore LU-ANSI (read, not written)
+    const int mods = input[4] - '1';
+    const char key = input[5];
+    Arrow arrow{key == 'D' ? -1 : key == 'C' ? 1 : 0, key == 'A' ? -1 : key == 'B' ? 1 : 0, (mods & 1) != 0, (mods & 4) != 0};
+    if (arrow.dx == 0 && arrow.dy == 0) return std::nullopt;
+    return arrow;
+}
+
+struct Preview {
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> rgb;
+};
+
+_cold const Preview& preview_(const std::string& path)
+{
+    // image -> 48x48 pixels max (magick), drawn with half blocks (two pixels per character)
+    static std::map<std::string, Preview> cache;
+    auto it = cache.find(path);
+    if (it != cache.end()) return it->second;
+    Preview preview;
+    const cluster::Captured out = cluster::capture({"magick", path, "-resize", "48x48", "-depth", "8", "ppm:-"}, "", 10);
+    std::istringstream in(out.out);
+    std::string magic;
+    int max = 0;
+    in >> magic >> preview.width >> preview.height >> max;
+    in.get();
+    if (magic == "P6" && preview.width > 0 && preview.height > 0) {
+        preview.rgb.resize(static_cast<std::size_t>(preview.width * preview.height * 3));
+        in.read(reinterpret_cast<char*>(preview.rgb.data()), static_cast<std::streamsize>(preview.rgb.size()));
+    } else {
+        preview.width = 0;
+    }
+    return cache.emplace(path, preview).first->second;
+}
+
 _cold std::string state_mark_(const cluster::State state)
 {
     switch (state) {
@@ -171,7 +228,10 @@ class TtyUi {
         Theme _theme{};
         Mode _mode = Mode::Normal;
         std::string _active = GLOBAL_ID;
-        std::string _input;
+        cluster::Editor _editor;                    // the prompt
+        std::vector<std::string> _historyItems;     // Mode::History, filtered
+        std::vector<ftxui::Box> _imageBoxes;        // pasted images in the prompt bar (mouse hover)
+        int _hoverImage = -1;
         std::string _filter;
         std::string _prompt;
         std::string _message;
@@ -250,6 +310,146 @@ class TtyUi {
             this->_mode = Mode::Palette;
         }
 
+        void historyFilter_(void)
+        {
+            const std::string wanted = cluster::lower(this->_filter);
+            this->_historyItems.clear();
+            for (const std::string& text: this->_manager.history())
+                if (wanted.empty() || cluster::lower(text).find(wanted) != std::string::npos) this->_historyItems.push_back(text);
+            this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_historyItems.size()) - 1));
+        }
+
+        void paste_(void)
+        {
+            // clipboard: an image is saved and put as [Image #N], else its text is inserted
+            const std::string types = cluster::capture({"wl-paste", "--list-types"}, "", 5).out;
+            const std::size_t at = types.find("image/");
+            if (at != std::string::npos) {
+                const std::string type = cluster::trim(types.substr(at, types.find('\n', at) - at));
+                const std::string extension = type == "image/jpeg" ? ".jpg" : type == "image/gif" ? ".gif" : type == "image/webp" ? ".webp" : ".png";
+                const cluster::Captured image = cluster::capture({"wl-paste", "--type", type}, "", 10);
+                if (image.code == 0 && !image.out.empty()) {
+                    std::error_code error;
+                    std::filesystem::create_directories(cluster::data_dir() / "images", error);
+                    const std::filesystem::path path = cluster::data_dir() / "images" / ("paste-" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count()) + extension);
+                    std::ofstream(path, std::ios::binary) << image.out;
+                    this->_editor.addImage(path.string());
+                    return;
+                }
+            }
+            const cluster::Captured text = cluster::capture({"wl-paste", "--no-newline"}, "", 5);
+            if (text.code == 0) this->_editor.insert(text.out);
+            else this->status_("clipboard unreadable (wl-paste)", true);
+        }
+
+        void submit_(void)
+        {
+            const std::string text = cluster::trim(this->_editor.text());
+            if (text.empty()) return;
+            const std::optional<cluster::ActionResult> local = cluster::run_slash(this->_manager, this->_active, text);
+            if (local) {
+                this->_manager.addHistory(text, this->_active);
+                this->_editor.clear();
+                if (!local->focus.empty()) this->_active = local->focus;
+                if (local->ui == "settings") this->openSettings_();
+                else if (local->ui == "restore_menu") this->openRestore_();
+                if (!local->message.empty()) this->status_(local->message, local->error);
+                return;
+            }
+            try {
+                this->_manager.send(this->_active, text, false, this->_editor.images());
+                this->_editor.clear();
+                this->_scroll[this->_active] = 0;
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
+            }
+        }
+
+        _nodiscard ftxui::Element prompt_(const int width)
+        {
+            // the prompt line: selection inverted, cursor, the end shown when it is too long
+            const std::string& text = this->_editor.text();
+            const std::pair<std::size_t, std::size_t> sel = this->_editor.selection();
+            const std::size_t cursor = this->_editor.cursor();
+            ftxui::Elements parts = {ftxui::text(" › ") | ftxui::color(this->_theme.accent) | ftxui::bold};
+            std::size_t from = 0;
+            const std::size_t room = static_cast<std::size_t>(std::max(10, width - 30));
+            if (text.size() > room && cursor > room / 2) from = std::min(cursor - room / 2, text.size() - std::min(text.size(), room));
+            while (from > 0 && (static_cast<unsigned char>(text[from]) & 0xC0) == 0x80) --from;
+            if (from > 0) parts.push_back(ftxui::text("…") | ftxui::color(this->_theme.muted));
+            const std::function<void(std::size_t, std::size_t, bool)> piece = [&](std::size_t a, std::size_t b, bool selected) {
+                a = std::max(a, from);
+                if (b <= a) return;
+                ftxui::Element element = ftxui::text(text.substr(a, b - a)) | ftxui::color(this->_theme.text);
+                parts.push_back(selected ? element | ftxui::inverted : element);
+            };
+            if (sel.first != sel.second) {
+                piece(0, sel.first, false);
+                piece(sel.first, sel.second, true);
+                piece(sel.second, text.size(), false);
+            } else {
+                piece(0, cursor, false);
+                if (this->_mode == Mode::Normal) parts.push_back(ftxui::text("▏") | ftxui::color(this->_theme.accent) | ftxui::blink);
+                piece(cursor, text.size(), false);
+            }
+            if (text.empty() && this->_mode == Mode::Normal)
+                parts.push_back(ftxui::text(" @ file · / command · " + this->_manager.config().keys.at("history") + " history") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            parts.push_back(ftxui::filler());
+            parts.push_back(ftxui::text(this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            return ftxui::hbox(std::move(parts));
+        }
+
+        _nodiscard ftxui::Element completion_(void) const
+        {
+            if (!this->_editor.completing() || this->_mode != Mode::Normal) return ftxui::emptyElement();
+            const std::vector<cluster::Candidate>& items = this->_editor.items();
+            const int selected = this->_editor.selectedItem();
+            const int start = std::max(0, std::min(selected - 4, static_cast<int>(items.size()) - 8));
+            ftxui::Elements rows;
+            for (int i = start; i < static_cast<int>(items.size()) && i < start + 8; ++i) {
+                const cluster::Candidate& c = items[static_cast<std::size_t>(i)];
+                const std::string prefix = this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command ? "/" : "";
+                ftxui::Element row = ftxui::hbox({ftxui::text("  " + prefix + c.label + "  "), ftxui::text(cluster::one_line(c.description, 70)) | ftxui::dim, ftxui::filler()});
+                rows.push_back(i == selected ? row | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : row | ftxui::color(this->_theme.text));
+            }
+            rows.push_back(ftxui::text("  Tab complete · Enter accept · ↑↓ choose · Space / Esc close (\\ + Space: a space in the name)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(rows)) | ftxui::bgcolor(this->_theme.surface);
+        }
+
+        _nodiscard ftxui::Element images_(void)
+        {
+            // pasted images: one chip each; the mouse over a chip shows the image (half blocks)
+            const std::vector<std::string>& images = this->_editor.images();
+            this->_imageBoxes.resize(images.size());
+            if (images.empty()) return ftxui::emptyElement();
+            ftxui::Elements chips = {ftxui::text(" ")};
+            for (std::size_t i = 0; i < images.size(); ++i) {
+                ftxui::Element chip = ftxui::text(" [Image #" + std::to_string(i + 1) + "] " + std::filesystem::path(images[i]).filename().string() + " ")
+                    | ftxui::color(this->_theme.text) | ftxui::bgcolor(static_cast<int>(i) == this->_hoverImage ? this->_theme.accent : this->_theme.surface);
+                chips.push_back(chip | ftxui::reflect(this->_imageBoxes[i]));
+                chips.push_back(ftxui::text(" "));
+            }
+            chips.push_back(ftxui::text("(mouse over: preview)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            ftxui::Element line = ftxui::hbox(std::move(chips));
+            if (this->_hoverImage < 0 || this->_hoverImage >= static_cast<int>(images.size())) return line;
+            const Preview& image = preview_(images[static_cast<std::size_t>(this->_hoverImage)]);
+            if (image.width == 0) return ftxui::vbox({ftxui::text(" (no preview: magick needed)") | ftxui::dim, line});
+            ftxui::Elements rows;
+            for (int y = 0; y + 1 < image.height + 1; y += 2) {
+                ftxui::Elements cells = {ftxui::text("  ")};
+                for (int x = 0; x < image.width; ++x) {
+                    const std::size_t top = static_cast<std::size_t>((y * image.width + x) * 3);
+                    const std::size_t bottom = static_cast<std::size_t>((std::min(y + 1, image.height - 1) * image.width + x) * 3);
+                    cells.push_back(ftxui::text("▀") | ftxui::color(ftxui::Color::RGB(image.rgb[top], image.rgb[top + 1], image.rgb[top + 2]))
+                        | ftxui::bgcolor(ftxui::Color::RGB(image.rgb[bottom], image.rgb[bottom + 1], image.rgb[bottom + 2])));
+                }
+                rows.push_back(ftxui::hbox(std::move(cells)));
+            }
+            rows.push_back(line);
+            return ftxui::vbox(std::move(rows));
+        }
+
         void filter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
@@ -315,7 +515,44 @@ class TtyUi {
         bool shortcut_(const std::string& action)
         {
             if (action.empty()) return false;
-            if (action == "restore") {
+            if (action == "undo") {
+                this->_editor.undo();
+            } else if (action == "redo") {
+                this->_editor.redo();
+            } else if (action == "select_all") {
+                this->_editor.selectAll();
+            } else if (action == "stash") {
+                if (cluster::trim(this->_editor.text()).empty()) {
+                    this->status_("nothing to stash");
+                } else {
+                    this->_manager.stashPush(this->_editor.text());
+                    this->_editor.clear();
+                    this->status_("prompt stashed (" + std::to_string(this->_manager.stashSize()) + "), " + this->_manager.config().keys.at("unstash") + " to take it back");
+                }
+            } else if (action == "unstash") {
+                const std::optional<std::string> text = this->_manager.stashPop();
+                if (!text) {
+                    this->status_("the stash is empty");
+                } else {
+                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.text()); // swapped, not lost
+                    this->_editor.setText(*text);
+                }
+            } else if (action == "history") {
+                this->_filter.clear();
+                this->_selected = 0;
+                this->historyFilter_();
+                this->_mode = Mode::History;
+            } else if (action == "paste") {
+                this->paste_();
+            } else if (action == "cut") {
+                const std::string text = this->_editor.cut();
+                if (!text.empty()) cluster::detach({"wl-copy", "--", text});
+            } else if (action == "interrupt" && !this->_editor.selected().empty()) {
+                cluster::detach({"wl-copy", "--", this->_editor.selected()}); // Ctrl+C on a selection: copy
+                this->status_("copied");
+            } else if (action == "always") {
+                this->run_({"always", "", "", "", false}, "");
+            } else if (action == "restore") {
                 this->openRestore_();
             } else if (action == "prefix") {
                 this->_prefixUntil = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() + 2000;
@@ -808,6 +1045,17 @@ class TtyUi {
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), ftxui::text(this->_filter) | ftxui::color(this->_theme.text), ftxui::text("▏") | ftxui::blink}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items))}), 80);
             }
+            if (this->_mode == Mode::History) {
+                ftxui::Elements items;
+                const int start = std::max(0, this->_selected - 12);
+                for (int i = start; i < static_cast<int>(this->_historyItems.size()) && i < start + 24; ++i) {
+                    ftxui::Element item = ftxui::text(" " + cluster::one_line(this->_historyItems[static_cast<std::size_t>(i)], 110) + " ");
+                    items.push_back(i == this->_selected ? item | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : item | ftxui::color(this->_theme.text));
+                }
+                if (items.empty()) items.push_back(ftxui::text(" no prompt yet") | ftxui::color(this->_theme.muted));
+                return box(ftxui::vbox({ftxui::hbox({ftxui::text(" history > ") | ftxui::color(this->_theme.accent), ftxui::text(this->_filter), ftxui::text("▏") | ftxui::blink}),
+                    ftxui::separatorLight(), ftxui::vbox(std::move(items)), ftxui::text(" Enter: put in the prompt · Esc: close") | ftxui::dim}), 120);
+            }
             if (this->_mode == Mode::Prompt) {
                 const std::string shown = this->_password ? std::string(width_(this->_prompt), '*') : this->_prompt;
                 return box(ftxui::vbox({ftxui::text(" " + this->_pending.title) | ftxui::bold, ftxui::text(" " + this->_pending.input + ":") | ftxui::color(this->_theme.muted),
@@ -854,14 +1102,14 @@ class TtyUi {
                     + c.keys.at("global") + " global · " + c.keys.at("new_session") + " new · " + c.keys.at("quit") + " quit ") | ftxui::color(this->_theme.muted),
             });
             const int bodyHeight = size.dimy - 4 - (this->_app.voice->listening() || !this->_app.voice->pending().empty() ? 1 : 0);
-            ftxui::Element input = ftxui::hbox({ftxui::text(" › ") | ftxui::color(this->_theme.accent) | ftxui::bold, ftxui::text(this->_input) | ftxui::color(this->_theme.text),
-                ftxui::text(this->_mode == Mode::Normal ? "▏" : "") | ftxui::blink, ftxui::filler(),
-                ftxui::text(this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ") | ftxui::color(this->_theme.muted) | ftxui::dim});
+            ftxui::Element input = this->prompt_(size.dimx);
             ftxui::Element document = ftxui::vbox({
                 top,
                 this->body_(size.dimx, bodyHeight) | ftxui::flex,
                 this->voice_(),
+                this->completion_(),
                 ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                this->images_(),
                 input,
                 ftxui::text(" " + status) | ftxui::color(error ? this->_theme.error : this->_theme.muted),
             }) | ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg);
@@ -876,6 +1124,9 @@ class TtyUi {
             if (event == ftxui::Event::Custom) return true;
             if (event.is_mouse()) {
                 const ftxui::Mouse& mouse = event.mouse();
+                this->_hoverImage = -1;
+                for (std::size_t i = 0; i < this->_imageBoxes.size(); ++i)
+                    if (this->_imageBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverImage = static_cast<int>(i);
                 if (mouse.button == ftxui::Mouse::WheelUp) this->_scroll[this->_active] += 3;
                 else if (mouse.button == ftxui::Mouse::WheelDown) this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 3);
                 return true;
@@ -916,6 +1167,25 @@ class TtyUi {
                     return true;
                 case Mode::Settings:
                     return this->settingsEvent_(event);
+                case Mode::History:
+                    if (event == ftxui::Event::Escape) {
+                        this->_mode = Mode::Normal;
+                    } else if (event == ftxui::Event::ArrowDown) {
+                        this->_selected = std::min(this->_selected + 1, std::max(0, static_cast<int>(this->_historyItems.size()) - 1));
+                    } else if (event == ftxui::Event::ArrowUp || cluster::key_action(this->_manager.config(), key) == "history") {
+                        this->_selected = std::max(0, this->_selected - 1);
+                    } else if (event == ftxui::Event::Return) {
+                        if (!this->_historyItems.empty()) this->_editor.setText(this->_historyItems[static_cast<std::size_t>(this->_selected)]);
+                        this->_mode = Mode::Normal;
+                    } else if (event == ftxui::Event::Backspace) {
+                        if (!this->_filter.empty()) this->_filter.pop_back();
+                        this->historyFilter_();
+                    } else if (event.is_character()) {
+                        this->_filter += event.character();
+                        this->_selected = 0;
+                        this->historyFilter_();
+                    }
+                    return true;
                 case Mode::Normal:
                     break;
             }
@@ -931,27 +1201,37 @@ class TtyUi {
                     return true;
                 }
             }
+            // completion list open: Tab completes, Enter accepts, arrows choose, Space / Esc close
+            if (this->_editor.completing()) {
+                if (event == ftxui::Event::Tab) {
+                    this->_editor.tab();
+                    return true;
+                } else if (event == ftxui::Event::Return) {
+                    this->_editor.accept();
+                    return true;
+                } else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown) {
+                    this->_editor.select(event == ftxui::Event::ArrowUp ? -1 : 1);
+                    return true;
+                } else if (event == ftxui::Event::Escape) {
+                    this->_editor.dismiss();
+                    return true;
+                }
+            }
             if (this->shortcut_(cluster::key_action(this->_manager.config(), key))) return true;
+            const std::optional<Arrow> arrow = arrow_(event);
             if (event == ftxui::Event::PageUp) this->_scroll[this->_active] += 10;
             else if (event == ftxui::Event::PageDown) this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 10);
-            else if (event == ftxui::Event::Return) {
-                const std::string text = cluster::trim(this->_input);
-                if (text.empty()) return true;
-                try {
-                    this->_manager.send(this->_active, text);
-                    this->_input.clear();
-                    this->_scroll[this->_active] = 0;
-                } catch (const utils::exception::IException& e) {
-                    this->status_(e.info(), true);
-                }
-            } else if (event == ftxui::Event::Backspace) {
-                while (!this->_input.empty() && (static_cast<unsigned char>(this->_input.back()) & 0xC0) == 0x80) this->_input.pop_back();
-                if (!this->_input.empty()) this->_input.pop_back();
-            } else if (event.is_character()) {
-                this->_input += event.character();
-            } else {
-                return false;
-            }
+            else if (event == ftxui::Event::Return) this->submit_();
+            else if (event == ftxui::Event::Backspace) this->_editor.backspace();
+            else if (event == ftxui::Event::Delete) this->_editor.erase();
+            else if (event == ftxui::Event::Home || event.input() == "\x1b[1;2H") this->_editor.home(event != ftxui::Event::Home); // xstyle: ignore LU-ANSI (read)
+            else if (event == ftxui::Event::End || event.input() == "\x1b[1;2F") this->_editor.end(event != ftxui::Event::End); // xstyle: ignore LU-ANSI (read)
+            else if (arrow && arrow->dx != 0) {
+                if (arrow->ctrl) arrow->dx < 0 ? this->_editor.wordLeft(arrow->shift) : this->_editor.wordRight(arrow->shift);
+                else arrow->dx < 0 ? this->_editor.left(arrow->shift) : this->_editor.right(arrow->shift);
+            } else if (event == ftxui::Event::Character(' ')) this->_editor.space();
+            else if (event.is_character()) this->_editor.insert(event.character());
+            else return false;
             return true;
         }
 
@@ -960,6 +1240,14 @@ class TtyUi {
         {
             this->theme_();
             if (this->_app.askRestore) this->_mode = Mode::Restore;
+            this->_editor.setProvider(cluster::completion_provider(this->_manager, [this]() {return this->_active;}));
+            termios original{};
+            const bool tty = ::tcgetattr(STDIN_FILENO, &original) == 0;
+            if (tty) {
+                termios raw = original;
+                raw.c_iflag &= ~static_cast<tcflag_t>(IXON);
+                ::tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+            }
             this->_screen.ForceHandleCtrlC(false);
             this->_screen.ForceHandleCtrlZ(false);
 
@@ -981,6 +1269,7 @@ class TtyUi {
             ftxui::Component root = ftxui::Renderer([this]() {return this->render_();});
             root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event);});
             this->_screen.Loop(root);
+            if (tty) ::tcsetattr(STDIN_FILENO, TCSANOW, &original);
             alive = false;
             refresher.join();
             return 0;

@@ -15,10 +15,12 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Editor.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
 #include <QDialogButtonBox>
+#include <QDesktopServices>
 #include <QDoubleSpinBox>
 #include <QFontDatabase>
 #include <QApplication>
@@ -36,20 +38,30 @@ File Description:
 #include <QScrollBar>
 #include <functional>
 #include <QTabWidget>
+#include <QClipboard>
 #include <QLineEdit>
 #include <QSplitter>
 #include <QShortcut>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QKeyEvent>
+#include <QMimeData>
 #include <QPalette>
+#include <QToolTip>
 #include <QSpinBox>
+#include <QCursor>
+#include <fstream>
 #include <QWidget>
 #include <QTabBar>
 #include <QDialog>
+#include <QImage>
+#include <chrono>
 #include <QFrame>
 #include <QLabel>
 #include <QTimer>
+#include <regex>
 #include <cmath>
+#include <QUrl>
 #include <map>
 
 namespace {
@@ -79,6 +91,26 @@ _cold QString span_(const std::string& color, const QString& text, const bool bo
 
 class Window;
 
+// Prompt of the window: QLineEdit (undo / redo / selection / clipboard of Qt) + the completion list and the images
+class PromptEdit: public QLineEdit {
+    protected:
+        void keyPressEvent(QKeyEvent* event) override;
+        bool focusNextPrevChild(bool) override {return false;}; // Tab completes, never leaves the prompt
+
+    public:
+        Window* window = nullptr;
+        cluster::Editor completion;
+        QListWidget* popup = nullptr;
+        QWidget* chipsBar = nullptr;
+        std::vector<std::string> images;
+
+        PromptEdit(Window* owner, QWidget* parent);
+        void refreshCompletion(void);
+        void apply(const bool final);
+        void addImage(const std::string& path);
+        void reset(void);
+};
+
 class SessionView: public QFrame {
     public:
         std::string id;
@@ -102,7 +134,7 @@ class Window: public QMainWindow {
         std::map<std::string, SessionView*> views;
         QListWidget* list = nullptr;
         QTabBar* tabs = nullptr;
-        QLineEdit* input = nullptr;
+        PromptEdit* input = nullptr;
         QLabel* status = nullptr;
         QLabel* voiceLabel = nullptr;
         QLabel* target = nullptr;
@@ -164,6 +196,7 @@ class Window: public QMainWindow {
             this->shortcuts.clear();
             for (const auto &[action, key]: this->manager.config().keys) {
                 if (action == "prefix") continue; // only the chords below
+                if (action == "undo" || action == "redo" || action == "select_all" || action == "cut" || action == "paste") continue; // the prompt (Qt)
                 for (const std::string& alternative: cluster::split(key, '|')) {
                     QShortcut* shortcut = new QShortcut(QKeySequence(q_(alternative)), this);
                     const std::string name = action;
@@ -417,6 +450,34 @@ class Window: public QMainWindow {
                 this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
             } else if (action == "settings") this->settings();
             else if (action == "restore") this->openRestore();
+            else if (action == "stash") {
+                if (cluster::trim(this->input->text().toStdString()).empty()) {
+                    this->message("nothing to stash", false);
+                } else {
+                    this->manager.stashPush(this->input->text().toStdString());
+                    this->input->reset();
+                    this->message("prompt stashed (" + std::to_string(this->manager.stashSize()) + ")", false);
+                }
+            } else if (action == "unstash") {
+                const std::optional<std::string> text = this->manager.stashPop();
+                if (!text) {
+                    this->message("the stash is empty", false);
+                } else {
+                    if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->text().toStdString());
+                    this->input->setText(q_(*text));
+                }
+            } else if (action == "history") {
+                QStringList items;
+                for (const std::string& text: this->manager.history())
+                    items << q_(text);
+                if (items.isEmpty()) {
+                    this->message("no prompt yet", false);
+                } else {
+                    bool ok = false;
+                    const QString item = QInputDialog::getItem(this, "History", "Prompt (type to filter)", items, 0, true, &ok);
+                    if (ok) this->input->setText(item);
+                }
+            } else if (action == "always") this->run({"always", "", "", "", false}, "");
             else if (action == "quit") this->close();
         }
 
@@ -424,9 +485,20 @@ class Window: public QMainWindow {
         {
             const std::string text = cluster::trim(this->input->text().toStdString());
             if (text.empty()) return;
+            const std::optional<cluster::ActionResult> local = cluster::run_slash(this->manager, this->active, text);
+            if (local) {
+                this->manager.addHistory(text, this->active);
+                this->input->reset();
+                if (!local->focus.empty()) this->active = local->focus;
+                if (local->ui == "settings") this->settings();
+                else if (local->ui == "restore_menu") this->openRestore();
+                if (!local->message.empty()) this->message(local->message, local->error);
+                this->refresh(true);
+                return;
+            }
             try {
-                this->manager.send(this->active, text);
-                this->input->clear();
+                this->manager.send(this->active, text, false, this->input->images);
+                this->input->reset();
             } catch (const utils::exception::IException& e) {
                 this->message(e.info(), true);
             }
@@ -498,8 +570,16 @@ class Window: public QMainWindow {
             this->voiceLabel = new QLabel(central);
             root->addWidget(this->voiceLabel);
             QHBoxLayout* bar = new QHBoxLayout();
-            this->input = new QLineEdit(central);
-            this->input->setPlaceholderText("Prompt (Enter to send) · Ctrl+K palette");
+            this->input = new PromptEdit(this, central);
+            this->input->setPlaceholderText("Prompt (Enter to send) · @ file · / command · Ctrl+K palette · Ctrl+R history");
+            this->input->chipsBar = new QWidget(central);
+            new QHBoxLayout(this->input->chipsBar);
+            this->input->chipsBar->layout()->setContentsMargins(0, 0, 0, 0);
+            this->input->chipsBar->setVisible(false);
+            root->addWidget(this->input->chipsBar);
+            this->input->popup = new QListWidget(central);
+            this->input->popup->setFocusPolicy(Qt::NoFocus);
+            this->input->popup->setVisible(false);
             QObject::connect(this->input, &QLineEdit::returnPressed, [this]() {this->send();});
             this->target = new QLabel(central);
             QPushButton* sendButton = new QPushButton("Send", central);
@@ -581,6 +661,128 @@ class Window: public QMainWindow {
         }
 };
 
+PromptEdit::PromptEdit(Window* owner, QWidget* parent)
+    : QLineEdit(parent), window(owner)
+{
+    this->completion.setProvider(cluster::completion_provider(owner->manager, [owner]() {return owner->active;}));
+    QObject::connect(this, &QLineEdit::textEdited, [this]() {this->refreshCompletion();});
+    QObject::connect(this, &QLineEdit::cursorPositionChanged, [this]() {this->refreshCompletion();});
+    QObject::connect(this, &QLineEdit::returnPressed, [this]() {this->window->send();});
+}
+
+void PromptEdit::refreshCompletion(void)
+{
+    // the completion of the shared editor on the text of Qt (UTF-8 bytes <-> UTF-16 positions)
+    const std::string text = this->text().toStdString();
+    const std::size_t cursor = this->text().left(this->cursorPosition()).toStdString().size();
+    this->completion.sync(text, cursor);
+    if (!this->popup) return;
+    if (!this->completion.completing()) {
+        this->popup->setVisible(false);
+        return;
+    }
+    const std::string prefix = this->completion.kind() == cluster::CompletionKind::File ? "@" : this->completion.kind() == cluster::CompletionKind::Command ? "/" : "";
+    this->popup->clear();
+    for (const cluster::Candidate& c: this->completion.items())
+        this->popup->addItem(q_(prefix + c.label + "    " + cluster::one_line(c.description, 80)));
+    this->popup->setCurrentRow(this->completion.selectedItem());
+    const int rows = std::min(8, this->popup->count());
+    const int height = rows * (this->popup->sizeHintForRow(0) + 2) + 6;
+    const QPoint at = this->mapTo(this->popup->parentWidget(), QPoint(0, 0));
+    this->popup->setGeometry(at.x(), at.y() - height - 2, this->width(), height);
+    this->popup->raise();
+    this->popup->setVisible(true);
+}
+
+void PromptEdit::apply(const bool final)
+{
+    // the word replaced through a selection + insert: the undo of Qt keeps working
+    if (!this->completion.completing()) return;
+    const cluster::Candidate candidate = this->completion.items()[static_cast<std::size_t>(this->completion.selectedItem())];
+    const std::string text = this->text().toStdString();
+    const int start = static_cast<int>(QString::fromStdString(text.substr(0, this->completion.completionStart())).size());
+    this->setSelection(start, this->cursorPosition() - start);
+    this->insert(q_(candidate.value + (final && !candidate.directory ? " " : "")));
+    if (final) {
+        this->completion.dismiss();
+        this->popup->setVisible(false);
+    }
+}
+
+void PromptEdit::addImage(const std::string& path)
+{
+    this->images.push_back(path);
+    this->insert(q_("[Image #" + std::to_string(this->images.size()) + "] "));
+    QLabel* chip = new QLabel(q_("[Image #" + std::to_string(this->images.size()) + "] " + std::filesystem::path(path).filename().string()), this->chipsBar);
+    chip->setToolTip("<img src=\"" + q_(path) + "\" width=\"420\">");
+    chip->setStyleSheet("padding:2px 6px;border-radius:4px;border:1px solid palette(highlight);");
+    this->chipsBar->layout()->addWidget(chip);
+    this->chipsBar->setVisible(true);
+}
+
+void PromptEdit::reset(void)
+{
+    this->clear();
+    this->images.clear();
+    QLayoutItem* item = nullptr;
+    while ((item = this->chipsBar->layout()->takeAt(0))) {
+        delete item->widget();
+        delete item;
+    }
+    this->chipsBar->setVisible(false);
+    if (this->popup) this->popup->setVisible(false);
+}
+
+void PromptEdit::keyPressEvent(QKeyEvent* event)
+{
+    const bool open = this->popup && this->popup->isVisible();
+    if (open) {
+        if (event->key() == Qt::Key_Tab) {
+            this->apply(false);
+            return;
+        }
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            this->apply(true);
+            return;
+        }
+        if (event->key() == Qt::Key_Up || event->key() == Qt::Key_Down) {
+            this->completion.select(event->key() == Qt::Key_Up ? -1 : 1);
+            this->popup->setCurrentRow(this->completion.selectedItem());
+            return;
+        }
+        if (event->key() == Qt::Key_Escape) {
+            this->completion.dismiss();
+            this->popup->setVisible(false);
+            return;
+        }
+        if (event->key() == Qt::Key_Space && !(this->cursorPosition() > 0 && this->text().at(this->cursorPosition() - 1) == '\\')) {
+            this->completion.dismiss();
+            this->popup->setVisible(false);
+        }
+    }
+    if (event->key() == Qt::Key_Tab) return;
+    if (event->matches(QKeySequence::Copy) && !this->hasSelectedText()) {
+        this->window->shortcut("interrupt"); // Ctrl+C without selection: interrupt
+        return;
+    }
+    if (event->matches(QKeySequence::Paste)) {
+        // an image of the clipboard: saved, [Image #N] in the prompt, previewed on hover of its chip
+        const QMimeData* mime = QApplication::clipboard()->mimeData();
+        if (mime && mime->hasImage()) {
+            const QImage image = qvariant_cast<QImage>(mime->imageData());
+            std::error_code error;
+            std::filesystem::create_directories(cluster::data_dir() / "images", error);
+            const std::filesystem::path path = cluster::data_dir() / "images" / ("paste-" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count()) + ".png");
+            if (!image.isNull() && image.save(q_(path.string()), "PNG")) {
+                this->addImage(path.string());
+                return;
+            }
+        }
+    }
+    QLineEdit::keyPressEvent(event);
+}
+
 SessionView::SessionView(Window* window, const std::string& sessionId, const bool compact)
     : QFrame(window), id(sessionId)
 {
@@ -590,7 +792,12 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->header->setTextFormat(Qt::RichText);
     this->log = new QTextBrowser(this);
     this->log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    this->log->setOpenExternalLinks(true);
+    this->log->setOpenLinks(false);
+    QObject::connect(this->log, &QTextBrowser::anchorClicked, [](const QUrl& url) {QDesktopServices::openUrl(url);});
+    QObject::connect(this->log, &QTextBrowser::highlighted, [](const QUrl& url) {
+        if (url.isLocalFile() && !QImage(url.toLocalFile()).isNull()) QToolTip::showText(QCursor::pos(), "<img src=\"" + url.toLocalFile() + "\" width=\"420\">");
+        else QToolTip::hideText();
+    });
     this->panels = new QLabel(this);
     this->panels->setObjectName("panels");
     this->panels->setTextFormat(Qt::RichText);
@@ -648,7 +855,21 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         for (std::size_t i = start; i < s.entries.size(); ++i) {
             const cluster::Entry& e = s.entries[i];
             switch (e.kind) {
-                case cluster::EntryKind::User: html += "<p>" + span_(st.accent, "› " + esc_(e.text), true) + "</p>"; break;
+                case cluster::EntryKind::User: {
+                    // [Image: path] -> link, previewed on hover
+                    QString body;
+                    static const std::regex image(R"(\[Image: ([^\]]+)\])");
+                    std::string rest = e.text;
+                    std::smatch match;
+                    while (std::regex_search(rest, match, image)) {
+                        body += esc_(match.prefix().str()) + "<a href=\"" + QUrl::fromLocalFile(q_(match[1].str())).toString() + "\">[Image: "
+                            + esc_(std::filesystem::path(match[1].str()).filename().string()) + "]</a>";
+                        rest = match.suffix().str();
+                    }
+                    body += esc_(rest);
+                    html += "<p>" + span_(st.accent, "› " + body, true) + "</p>";
+                    break;
+                }
                 case cluster::EntryKind::Assistant: html += "<p>" + span_(st.text, esc_(e.text)) + "</p>"; break;
                 case cluster::EntryKind::Thinking: if (!compact) html += "<p>" + span_(st.muted, "∴ " + esc_(cluster::one_line(e.text, 300))) + "</p>"; break;
                 case cluster::EntryKind::Tool: html += "<div>" + span_(st.muted, "⏺ <b>" + esc_(e.tool) + "</b> " + esc_(e.text)) + "</div>"; break;
@@ -769,6 +990,10 @@ _cold int cluster::run_gui(cluster::App& app)
     if (screenshot && *screenshot) {
         const QString path = screenshot;
         if (std::getenv("CLAUDE_CLUSTER_SCREENSHOT_SETTINGS")) QTimer::singleShot(1000, &window, [&window]() {window.settings();});
+        if (const char* typed = std::getenv("CLAUDE_CLUSTER_SCREENSHOT_TYPE")) QTimer::singleShot(1500, &window, [&window, typed]() {
+            window.input->setText(typed); // debug: text typed in the prompt (completion list shown)
+            window.input->refreshCompletion();
+        });
         QTimer::singleShot(3000, &window, [&window, path]() {
             window.refresh(true);
             window.grab().save(path);

@@ -20,6 +20,7 @@ File Description:
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include "Manager.hpp"          // cluster::Manager
+    #include "Editor.hpp"           // cluster::CompletionProvider
     #include "Voice.hpp"            // cluster::Voice
     #include <string>               // std::string
     #include <vector>               // std::vector
@@ -40,6 +41,7 @@ struct ActionResult {
     std::string message;    // shown to the user
     bool error = false;
     std::string focus;      // session to show after the action
+    std::string ui;         // front-end action to run after (settings, restore_menu)
 };
 
 //----------------------------------------------------------------//
@@ -49,6 +51,9 @@ _cold _nodiscard std::vector<cluster::Action> actions(cluster::Manager& manager,
 _cold _nodiscard cluster::ActionResult run_action(cluster::Manager& manager, cluster::Voice& voice, const std::string& id,
     const std::string& session, const std::string& input);
 _cold _nodiscard std::string key_action(const cluster::Config& config, const std::string& key);   // "Ctrl+K" -> "palette"
+_cold _nodiscard cluster::CompletionProvider completion_provider(cluster::Manager& manager, std::function<std::string(void)> session);
+_cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager& manager, const std::string& session, const std::string& line);
+_cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_commands(void);  // local /commands <usage, description>
 
 } // namespace end
 

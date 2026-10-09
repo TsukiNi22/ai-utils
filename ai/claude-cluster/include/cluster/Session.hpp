@@ -102,7 +102,7 @@ class Session {
     public:
         // ---------- Pre-Function -------- //
         _cold void start(void);
-        _cold void send(const std::string& text);
+        _cold void send(const std::string& text, const std::vector<std::string>& images = {}); // images: [Image #N] of the text
         _cold void answer(const std::string& requestId, const std::string& behavior); // allow | always | deny
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);

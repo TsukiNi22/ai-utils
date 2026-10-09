@@ -146,6 +146,7 @@ struct Snapshot {
     std::vector<cluster::ToolRun> tools;
     std::vector<std::string> skillsLoaded;
     std::vector<std::string> skillsAvailable;
+    std::vector<std::string> slashCommands;     // commands of the agent (/compact, skills...)
     std::vector<std::string> files;     // files modified by Edit / Write / NotebookEdit
     std::string partial;                // text being streamed
     std::string modelUsed;              // from the init message

@@ -148,7 +148,7 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     return spec.id;
 }
 
-_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force)
+_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images)
 {
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     const cluster::Snapshot snap = session->snapshot();
@@ -160,7 +160,8 @@ _cold void cluster::Manager::send(const std::string& id, const std::string& text
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
             "budget of " + cluster::human_cost(this->_config.budget) + " reached for " + snap.spec.name + " (force it, or raise sessions.budget_usd)");
     }
-    session->send(text);
+    session->send(text, images);
+    this->addHistory(text, id);
 }
 
 _cold void cluster::Manager::close(const std::string& id)

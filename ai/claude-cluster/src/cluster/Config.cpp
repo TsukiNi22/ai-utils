@@ -63,10 +63,12 @@ _cold void cluster::Config::defaults_(void)
 {
     this->styles = builtin_styles_();
     this->keys = {
-        {"palette", "Ctrl+K"}, {"next_session", "Ctrl+N"}, {"prev_session", "Ctrl+P"}, {"global", "Ctrl+G"},
-        {"new_session", "Ctrl+T"}, {"close_session", "Ctrl+W"}, {"allow", "Ctrl+Y"}, {"deny", "Ctrl+D"},
+        {"palette", "Ctrl+K"}, {"next_session", "Ctrl+N|Alt+N"}, {"prev_session", "Alt+P"}, {"global", "Ctrl+G"},
+        {"new_session", "Ctrl+T"}, {"close_session", "Ctrl+W"}, {"allow", "Alt+Y"}, {"always", "Alt+A"}, {"deny", "Alt+D"},
+        {"undo", "Ctrl+Z"}, {"redo", "Ctrl+Y"}, {"select_all", "Ctrl+A"}, {"stash", "Ctrl+S"}, {"unstash", "Ctrl+P"},
+        {"history", "Ctrl+R"}, {"paste", "Ctrl+V"}, {"cut", "Ctrl+X"},
         {"interrupt", "Ctrl+C"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"quit", "Ctrl+Q"},
-        {"restore", "Ctrl+Shift+T|Alt+T"}, {"prefix", "Ctrl+B"},
+        {"restore", "Ctrl+Shift+T|Ctrl+Shift+R|Alt+T"}, {"prefix", "Ctrl+B"},
     };
 }
 

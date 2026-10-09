@@ -109,6 +109,64 @@ _cold std::string cluster::Manager::exportMarkdown(const std::string& id) const
     return md.str();
 }
 
+/* prompts: history and stash */
+_cold void cluster::Manager::addHistory(const std::string& text, const std::string& session)
+{
+    if (cluster::trim(text).empty()) return;
+    std::error_code error;
+    std::filesystem::create_directories(cluster::data_dir(), error);
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    std::ofstream(cluster::data_dir() / "history.jsonl", std::ios::app) << cluster::Json{{"time", cluster::now()}, {"session", session}, {"text", text}}.dump() << "\n";
+}
+
+_cold std::vector<std::string> cluster::Manager::history(const std::size_t max) const
+{
+    std::vector<std::string> lines;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        std::ifstream in(cluster::data_dir() / "history.jsonl");
+        std::string line;
+        while (std::getline(in, line))
+            lines.push_back(line);
+    }
+    std::vector<std::string> list;
+    for (auto it = lines.rbegin(); it != lines.rend() && list.size() < max; ++it) {
+        try {
+            const std::string text = cluster::Json::parse(*it).value("text", std::string());
+            if (!text.empty() && std::find(list.begin(), list.end(), text) == list.end()) list.push_back(text);
+        } catch (const cluster::Json::exception&) {}
+    }
+    return list;
+}
+
+_cold void cluster::Manager::stashPush(const std::string& text)
+{
+    if (cluster::trim(text).empty()) return;
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    cluster::Json stash = cluster::read_json(cluster::data_dir() / "stash.json").value_or(cluster::Json::array());
+    if (!stash.is_array()) stash = cluster::Json::array();
+    stash.push_back(text);
+    cluster::write_json(cluster::data_dir() / "stash.json", stash);
+}
+
+_cold std::optional<std::string> cluster::Manager::stashPop(void)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    cluster::Json stash = cluster::read_json(cluster::data_dir() / "stash.json").value_or(cluster::Json::array());
+    if (!stash.is_array() || stash.empty()) return std::nullopt;
+    const std::string text = stash.back().is_string() ? stash.back().get<std::string>() : "";
+    stash.erase(stash.size() - 1);
+    cluster::write_json(cluster::data_dir() / "stash.json", stash);
+    return text;
+}
+
+_cold std::size_t cluster::Manager::stashSize(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    const std::optional<cluster::Json> stash = cluster::read_json(cluster::data_dir() / "stash.json");
+    return stash && stash->is_array() ? stash->size() : 0;
+}
+
 _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, const bool full) const
 {
     const cluster::Metrics& m = snap.metrics;
