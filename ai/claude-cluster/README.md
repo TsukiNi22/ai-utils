@@ -215,8 +215,8 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 **Settings page** (F9 or the palette: *Settings*), like a BIOS setup: one tab per section (Interface, Agent,
 Commands, Global session, Sessions, Voice, Keys), the help of the selected option on the right, `*` on the changed
 ones. Terminal: `↑↓` select, `←→` / `Enter` change a choice / toggle / number, `Enter` edit a text, `Tab` /
-`Shift+Tab` section, **F10** save & exit, **Esc** exit (twice when there are unsaved changes). Window: a tabs dialog
-(help on hover, F10 / Save). The changes are written in `config.toml` - only the values, its comments kept - and
+`Shift+Tab` section, **Ctrl+S** (or F10 when the terminal lets it through) save & exit, **Esc** exit: with unsaved changes it asks "Save the changes? (y / n)", y saves, any other key drops them. Window: a tabs dialog
+(help on hover, Ctrl+S / Save; closed with changes: asked). The changes are written in `config.toml` - only the values, its comments kept - and
 reloaded live; the options marked *applied at the next start* need a restart. Profiles, providers and own styles
 stay in the file.
 

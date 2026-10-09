@@ -417,10 +417,12 @@ class Window: public QMainWindow {
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
             QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-            QShortcut* save = new QShortcut(QKeySequence(Qt::Key_F10), &dialog);
-            QObject::connect(save, &QShortcut::activated, &dialog, &QDialog::accept);
+            for (const QKeySequence& key: {QKeySequence("Ctrl+S"), QKeySequence(Qt::Key_F10)}) {
+                QShortcut* save = new QShortcut(key, &dialog);
+                QObject::connect(save, &QShortcut::activated, &dialog, &QDialog::accept);
+            }
             layout->addWidget(sections, 1);
-            layout->addWidget(new QLabel("* applied at the next start · hover an option for its help · F10 save · Esc cancel", &dialog));
+            layout->addWidget(new QLabel("* applied at the next start · hover an option for its help · Ctrl+S save · Esc close (asks to save the changes)", &dialog));
             layout->addWidget(buttons);
             // Debug: CLAUDE_CLUSTER_SCREENSHOT also saves this page (<file>-settings.png), then closes it
             const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT");
@@ -431,7 +433,7 @@ class Window: public QMainWindow {
                     dialog.reject();
                 });
             }
-            if (dialog.exec() != QDialog::Accepted) return;
+            const bool accepted = dialog.exec() == QDialog::Accepted;
 
             std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> changes;
             for (const auto &[setting, read]: fields) {
@@ -439,6 +441,11 @@ class Window: public QMainWindow {
                 if (value != setting.value(config)) changes[{setting.section, setting.key}] = {setting, value};
             }
             if (changes.empty()) return;
+            // closed (Esc / Cancel) with changes: asked, no = dropped
+            if (!accepted && ((screenshot && *screenshot)
+                || QMessageBox::question(this, "claude-cluster setup", q_("Save the " + std::to_string(changes.size()) + " change(s)?"),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) != QMessageBox::Yes))
+                return;
             try {
                 cluster::settings_write(config, changes);
             } catch (const utils::exception::IException& e) {

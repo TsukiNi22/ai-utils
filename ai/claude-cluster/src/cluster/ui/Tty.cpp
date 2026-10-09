@@ -767,13 +767,23 @@ class TtyUi {
                 }
                 return true;
             }
-            if (event == ftxui::Event::F10) {
-                this->saveSettings_();
-            } else if (event == ftxui::Event::Escape) {
-                if (!this->_changes.empty() && this->_note != "unsaved") {
-                    this->_note = "unsaved";
+            // "Save the changes? (y / n)": y saves, any other key drops them
+            if (this->_note == "confirm") {
+                if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
+                    this->saveSettings_();
                 } else {
                     this->_changes.clear();
+                    this->_note.clear();
+                    this->_mode = Mode::Normal;
+                }
+                return true;
+            }
+            if (event == ftxui::Event::F10 || event.input() == std::string(1, '\x13')) { // F10 / Ctrl+S
+                this->saveSettings_();
+            } else if (event == ftxui::Event::Escape) {
+                if (!this->_changes.empty()) {
+                    this->_note = "confirm";
+                } else {
                     this->_mode = Mode::Normal;
                 }
             } else if (event == ftxui::Event::Tab || event == ftxui::Event::PageDown) {
@@ -838,7 +848,7 @@ class TtyUi {
                 }
             }
             if (rows.empty()) rows.push_back(ftxui::text("   nothing here") | ftxui::color(t.muted));
-            std::string note = this->_note == "unsaved" ? "Unsaved changes: Escape again to drop them, F10 to save" : this->_note;
+            std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)" : this->_note;
             ftxui::Element helpBox = ftxui::vbox({
                 ftxui::text(" Item Specific Help") | ftxui::bold | ftxui::color(t.accent),
                 ftxui::separatorLight() | ftxui::color(t.border),
@@ -857,7 +867,7 @@ class TtyUi {
                 ftxui::hbox({ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::flex, ftxui::separatorLight() | ftxui::color(t.border), helpBox}) | ftxui::flex,
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
                 ftxui::text(" " + note) | ftxui::color(t.warn),
-                ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   F10 save & exit   Esc exit ")
+                ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   Ctrl+S save & exit   Esc exit (asks to save) ")
                     | ftxui::color(t.bg) | ftxui::bgcolor(t.muted), ftxui::filler()}) | ftxui::bgcolor(t.muted),
             }) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, size.dimy) | ftxui::color(t.text) | ftxui::bgcolor(t.bg);
         }
