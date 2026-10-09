@@ -1,0 +1,1 @@
+Several Claude Code (or other agent) sessions in parallel, driven by a global session (terminal / window, MCP, voice)

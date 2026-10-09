@@ -177,6 +177,13 @@ install_tool() {
     if ! cmake -S "$dir" -B "$build" -DCMAKE_BUILD_TYPE=Optimized > "$log" 2>&1; then
         if grep -qE "Could not find a package configuration file.*utils|find_package\(utils|utilsConfig\.cmake" "$log"; then
             echo "  skip $tool: libutils is required (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh))"
+        elif package="$(grep -oE 'provided by "[^"]+"' "$log" | head -1 | cut -d'"' -f2)" && [[ -n "$package" ]]; then
+            case "$package" in
+                nlohmann_json) hint="dnf: json-devel, apt: nlohmann-json3-dev" ;;
+                tomlplusplus) hint="dnf: tomlplusplus-devel, apt: libtomlplusplus-dev" ;;
+                *) hint="its development package" ;;
+            esac
+            echo "  skip $tool: $package is required ($hint), see $log"
         else
             echo "  skip $tool: CMake configuration failed, see $log"
         fi

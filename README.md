@@ -81,6 +81,7 @@ Programs stored next to the skills they enforce, built and installed by the same
 | Tool | Description |
 |---|---|
 | [`xstyle`](style/xstyle/README.md) | C++20 / libutils checker and fixer of my coding style (C++ first, then Python, shell, Rust and the generic rules): issues with file, line, hyperlink, rule and proposed fix, summary by severity (unforgivable / major / minor / negligible) and by rule, `--fix` for every fixable rule or only some codes, files or directories, libutils rules (sections, attributes, deprecated names, code libutils already gives) when libutils is installed and used, CMake and comment layout rules, `--diff` / `--staged` (changed lines only, pre-commit hook), `--commit` of the fixes, `--libutils-check`, bash / zsh / fish completion. Requires libutils, clang++ and CMake. |
+| [`claude-cluster`](ai/claude-cluster/README.md) | Several Claude Code sessions in parallel (one or more per project) from one terminal (FTXUI) or window (Qt6), list / grid / tabs: per session the transcript, loaded skills, git graph and diff, tokens (last prompt, current, total), context, cost and limits, live permissions; a **global session** drives the others through its MCP server (spawn, prompts, permissions, modes, task queue, trash / restore, search, export) with its own system prompt and Remote Control; other agents too (Ollama local, Anthropic- / OpenAI-compatible endpoints, opencode, Codex) with `auth login / logout`; voice (push-to-talk, always, or a wake phrase like "ok claude"); headless commands (`--rtk`). Requires libutils, nlohmann/json, toml++ (Qt6 optional). |
 | [Graph explorer](https://tsukini22.github.io/ai-utils/) | Web page (branch [`gh-pages`](https://github.com/TsukiNi22/ai-utils/tree/gh-pages), nothing to install): the project graph of [`html-doc`](docs/html-doc/SKILL.md) for any public GitHub / GitLab repository (`?repo=owner/name`), see [Graph explorer](#graph-explorer). |
 
 ## Context
@@ -220,7 +221,7 @@ docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, report
 git/       git-conventions, ci-cd, pre-commit
 audit/     audit-bugs, audit-quality, audit-deps, benchmark
 legal/     license
-ai/        rtk
+ai/        rtk, claude-cluster (tool)
 context/   global context of Claude Code (CLAUDE.md, RTK.md, hooks, sudo-askpass), installed by setup.sh
 ```
 

@@ -11,6 +11,9 @@ The global context (`~/.claude/CLAUDE.md`, `RTK.md`, hooks) lives in `context/` 
 - Local build while working on xstyle itself: `cmake -S style/xstyle -B /tmp/xstyle-build -DCMAKE_BUILD_TYPE=Optimized`
   then `cmake --build /tmp/xstyle-build --parallel`; xstyle must stay clean on its own sources
   (`/tmp/xstyle-build/xstyle --rtk style/xstyle`) and build without warning (Debug too).
+- Same for the other tools (`ai/claude-cluster`: `cmake -S ai/claude-cluster -B /tmp/cc-build`, then
+  `xstyle --rtk -r ai/claude-cluster`); test claude-cluster isolated with `CLAUDE_CLUSTER_CONFIG_DIR`,
+  `CLAUDE_CLUSTER_DATA_DIR` and `CLAUDE_CLUSTER_SOCKET` (`claude-cluster serve` + the headless commands).
 
 ## Writing skills
 - English, the user's style skills for the code of the scripts (`python-style`, `coding-style` for shell, `cpp-style`).

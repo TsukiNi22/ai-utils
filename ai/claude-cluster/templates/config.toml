@@ -1,0 +1,99 @@
+# claude-cluster configuration (~/.config/claude-cluster/config.toml), reloaded live when saved.
+# Every key is optional: a missing key keeps its default (the values below).
+
+[ui]
+frontend = "auto"          # auto | tty | gui (the --tty / --gui flags win)
+layout = "list"            # list (list + active panel) | grid | tabs
+style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized-light | mono, or a [styles.<name>] below
+panels = ["skills", "tokens", "context", "cost", "git"]   # default panels of a new session (+ "diff", "tools")
+restore = "ask"            # ask | always | never: sessions of the previous run at start (like Firefox)
+notify = true              # desktop notification: permission waiting, turn finished, error
+
+[agent]
+# Backend of a new session: "<provider>[/<model>]" (claude-cluster auth list: every provider and its state)
+#   claude driver (full: live permissions, MCP, Remote Control): anthropic (= claude, its login), anthropic-api,
+#     ollama (local), openrouter, deepseek, kimi, zai, minimax (Anthropic-compatible endpoints)
+#   qwen driver (Qwen Code): openai, ollama-openai (OpenAI-compatible endpoints)
+#   opencode driver: opencode/<provider>/<model> (its own providers, `opencode auth`)
+#   codex driver: codex[/<model>] (OpenAI Codex CLI, `codex login`)
+default = "claude"
+permission_mode = "default" # default | acceptEdits | plan | bypassPermissions
+extra_args = []
+
+[commands]                 # programs of the drivers
+claude = "claude"
+qwen = "qwen"
+opencode = "opencode"
+codex = "codex"
+
+[global]
+enabled = true
+backend = "claude"         # must be a claude-driver provider (the MCP control needs it)
+cwd = "~"                  # working folder of the global session
+model = ""
+prompt = "~/.config/claude-cluster/global.md"   # its own system prompt (added to the global CLAUDE.md)
+remote_name = "claude-cluster"                  # name of the Remote Control session
+
+[sessions]
+trash_days = 14            # a closed session stays restorable this many days
+max_parallel = 4           # task queue: sessions working at the same time
+budget_usd = 0.0           # 0 = no budget; reached: the session refuses new prompts (notified)
+
+[voice]
+enabled = false
+mode = "push"              # push: push-to-talk key | auto: every sentence heard | wake: only after the wake phrase
+wake_word = "ok claude"    # wake mode: phrase(s) that trigger the listening, variants separated by commas
+                           #   (speech recognition can bend it: "ok claude, okay claude, hey claude")
+wake_seconds = 8           # wake mode: the phrase alone arms the listening this long (the next sentence is the prompt)
+wake_reply = ""            # wake mode: spoken when armed (ex: "Oui ?"), empty: silent
+only_me = true             # voice-listen --only-me (needs voice-enroll)
+confirm_seconds = 3        # the transcription is shown this long before it is sent (0: sent at once)
+speak = true               # spoken summary of the answers of the global session
+summary_chars = 220
+listen_command = "voice-listen"
+say_command = "voice-say"
+voice_fr = "tom-medium"
+voice_en = "en_GB-northern_english_male-medium"
+
+[keys]
+# action = "key": Ctrl+<letter>, Alt+<letter>, F1..F12, Tab, Escape (see `claude-cluster --keys`)
+palette = "Ctrl+K"
+next_session = "Ctrl+N"
+prev_session = "Ctrl+P"
+global = "Ctrl+G"
+new_session = "Ctrl+T"
+close_session = "Ctrl+W"
+allow = "Ctrl+Y"
+deny = "Ctrl+D"
+interrupt = "Ctrl+C"
+push_to_talk = "F5"
+mute = "F6"
+layout = "F2"
+quit = "Ctrl+Q"
+
+# Own style: [styles.<name>] with the keys of a built-in one (hex colors), then ui.style = "<name>"
+# [styles.mine]
+# bg = "#16181c"
+# surface = "#1c1f24"
+# text = "#e6e8eb"
+# muted = "#9aa0a6"
+# accent = "#7aa2f7"
+# border = "#30343b"
+# ok = "#3fb950"
+# warn = "#d29922"
+# error = "#f85149"
+
+# Own provider: [providers.<name>] (driver "claude": Anthropic-compatible, "qwen": OpenAI-compatible)
+# [providers.lmstudio]
+# driver = "qwen"
+# base_url = "http://localhost:1234/v1"
+# model = "qwen3-coder-30b"
+# key = false              # true: an API key is asked by `claude-cluster auth login lmstudio`
+
+# Profiles: claude-cluster spawn --profile <name> (or from the palette)
+# [profiles.libutils]
+# cwd = "~/personal_delivery/cpp/libutils"
+# backend = "claude/opus"
+# permission_mode = "acceptEdits"
+# prompt = "Run the unit tests and report the failures"
+# extra_args = ["--effort", "high"]
