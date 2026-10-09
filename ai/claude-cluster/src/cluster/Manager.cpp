@@ -86,6 +86,7 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     launch.backend = this->_auth.resolve(spec.backend);
     launch.env = this->_auth.env(launch.backend);
     launch.command = this->_config.command(launch.backend.provider.driver);
+    launch.allowBypass = this->_config.allowBypass;
     if (!cluster::has_command(launch.command))
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument,
             "`" + launch.command + "` is not installed (backend " + spec.backend + ")");
@@ -212,12 +213,12 @@ _cold void cluster::Manager::purge(const std::string& id)
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::int64_t limit = cluster::now() - static_cast<std::int64_t>(this->_config.trashDays) * 86400;
         std::erase_if(this->_trash, [&](const cluster::SessionSpec& spec) {
-            const bool gone = id.empty() ? spec.deleted < limit : (spec.id == id || spec.name == id);
+            const bool gone = id == "*" || (id.empty() ? spec.deleted < limit : (spec.id == id || spec.name == id));
             if (gone) removed.push_back(spec.id);
             return gone;
         });
     }
-    if (!id.empty() && removed.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + id + "' in the trash");
+    if (!id.empty() && id != "*" && removed.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + id + "' in the trash");
     std::error_code error;
     for (const std::string& gone: removed)
         std::filesystem::remove(log_file_(gone), error);
@@ -306,6 +307,7 @@ _cold void cluster::Manager::startGlobal(void)
     spec.backend = this->_config.globalBackend + (this->_config.globalModel.empty() ? "" : "/" + this->_config.globalModel);
     if (spec.created == 0) spec.created = cluster::now();
     if (spec.panels.empty()) spec.panels = {"tokens", "context", "cost"};
+    spec.mode = !this->_config.globalMode.empty() ? this->_config.globalMode : spec.mode.empty() ? this->_config.mode : spec.mode;
     if (this->_auth.resolve(spec.backend).provider.driver != "claude") {
         this->notice_(GLOBAL_ID, "global.backend must use the claude driver (MCP control): '" + spec.backend + "' replaced by claude", true);
         spec.backend = "claude";

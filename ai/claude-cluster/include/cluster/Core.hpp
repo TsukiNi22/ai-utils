@@ -48,6 +48,15 @@ struct Options {
     std::map<std::string, std::string> values; // --name, --mode, --profile, --prompt, --target, --after, --path
 };
 
+// A headless command: help and completion of the shells (bash, zsh, fish) are generated from it
+struct Command {
+    std::string name;
+    std::string usage;              // arguments shown in the help
+    std::string description;
+    std::vector<std::string> args;  // kind of each positional argument: session, trash, task, folder, file, text,
+                                    // provider, mode, behavior, onoff, task_sub, auth_sub
+};
+
 // Everything a front-end needs, with the 1 s tick (config reload, tasks, voice)
 struct App {
     cluster::Config config;
@@ -81,6 +90,8 @@ class Core {
         _cold _nodiscard std::vector<std::string> extract_(const int argc, char* argv[]);
         _cold void help_(void) const;
         _cold void completion_(void) const;         // Core-Completion.cpp
+        _cold void complete_(const std::string& kind) const;   // __complete <kind>: values for the shells (Core-Completion.cpp)
+        _cold _nodiscard std::string flagKind_(const std::string& id) const; // kind of the value of a flag
         _cold int ui_(const bool serve = false);    // serve: no front-end, until SIGINT / SIGTERM
         _cold int headless_(void);
         _cold int auth_(void);
@@ -102,6 +113,7 @@ class Core {
 //----------------------------------------------------------------//
 /* FUNCTION */
 
+_cold _nodiscard const std::vector<cluster::Command>& commands(void);  // Core-Completion.cpp
 _cold int run_tty(cluster::App& app);
 #ifdef CLUSTER_GUI
 _cold int run_gui(cluster::App& app);

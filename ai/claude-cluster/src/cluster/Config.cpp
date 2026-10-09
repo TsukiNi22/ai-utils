@@ -101,6 +101,7 @@ _cold void cluster::Config::load(void)
     /* agent */
     this->backend = table["agent"]["default"].value_or(this->backend);
     this->mode = table["agent"]["permission_mode"].value_or(this->mode);
+    this->allowBypass = table["agent"]["allow_bypass"].value_or(this->allowBypass);
     this->extraArgs = strings_(table["agent"]["extra_args"], {});
     if (const toml::table* commandsTable = table["commands"].as_table())
         for (const auto &[name, value]: *commandsTable)
@@ -111,6 +112,7 @@ _cold void cluster::Config::load(void)
     this->globalBackend = table["global"]["backend"].value_or(this->globalBackend);
     this->globalCwd = table["global"]["cwd"].value_or(this->globalCwd);
     this->globalModel = table["global"]["model"].value_or(this->globalModel);
+    this->globalMode = table["global"]["permission_mode"].value_or(this->globalMode);
     this->globalPrompt = table["global"]["prompt"].value_or(this->globalPrompt);
     this->remoteName = table["global"]["remote_name"].value_or(this->remoteName);
 

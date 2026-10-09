@@ -10,8 +10,10 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
 - `session_spawn`: new session in a project folder (name, model, permission mode, profile, first prompt).
 - `session_send`: a prompt to a session (it is queued if the session is working).
 - `session_allow`: answer a pending permission (`allow`, `always`, `deny`).
-- `session_set_mode`: permission mode (`default`, `acceptEdits`, `plan`, `bypassPermissions`).
+- `session_set_mode`: permission mode (`auto`, `manual`, `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`).
 - `session_interrupt`, `session_close` (to the trash, restorable), `session_restore`, `session_rename`, `session_cd`.
+- `session_trash`, `session_purge`: the closed sessions, delete one (or `*`: all) for good - irreversible, only when
+  the user asked for it.
 - `task_add` / `task_list` / `task_cancel`: queue of tasks given to free sessions (target, dependencies).
 - `search` / `export`: history of every session.
 

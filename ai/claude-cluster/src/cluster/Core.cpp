@@ -80,7 +80,12 @@ _cold void cluster::App::stop(void)
 _cold void cluster::Core::setup_(void)
 {
     const std::function<std::optional<std::string>(const std::string&)> any = utils::arguments::defaultTrueParsingHook;
-    const std::function<std::optional<std::string>(const std::string&)> modes = [](const std::string& v) {return choice_(v, {"default", "acceptEdits", "plan", "bypassPermissions"});};
+    const std::function<std::optional<std::string>(const std::string&)> modes = [](const std::string& v) {
+        std::vector<std::string> names;
+        for (const auto &[mode, description]: cluster::permission_modes())
+            names.push_back(mode);
+        return choice_(v, names);
+    };
     const std::function<std::optional<std::string>(const std::string&)> layouts = [](const std::string& v) {return choice_(v, {"list", "grid", "tabs"});};
     const std::function<std::optional<std::string>(const std::string&)> shells = [](const std::string& v) {return choice_(v, {"bash", "zsh", "fish"});};
 
@@ -185,6 +190,7 @@ _cold void cluster::Core::run(void)
     }
     const std::string& cmd = this->_words[0];
     if (cmd == "mcp") this->_exit = cluster::mcp_serve();
+    else if (cmd == "__complete") this->complete_(this->_words.size() > 1 ? this->_words[1] : "");
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
     else if (cmd == "help") this->help_();
@@ -435,29 +441,10 @@ _cold void cluster::Core::help_(void) const
         << "    claude-cluster <command> [args] [--rtk | --json]                    headless, on the running instance\n"
         << "    claude-cluster auth list | login <provider> | logout <provider>      providers and credentials\n\n"
         << bold << "COMMANDS" << reset << "\n";
-    const std::vector<std::pair<std::string, std::string>> commands = {
-        {"list", "sessions: state, backend, tokens, context, cost, permissions"},
-        {"status <s>", "details and last messages of a session (id, name or name prefix)"},
-        {"spawn [folder]", "new session (--name, --backend, --mode, --profile, --prompt)"},
-        {"send <s> <text...>", "prompt to a session (queued when working, --force: ignore the budget)"},
-        {"allow <s> [allow|always|deny]", "answer the pending permission"},
-        {"mode <s> <mode>", "default | acceptEdits | plan | bypassPermissions"},
-        {"interrupt <s>", "stop the running turn"},
-        {"rename <s> <name>", "rename a session"},
-        {"cd <s> <folder>", "move a session to another project"},
-        {"close <s>", "close (to the trash)"},
-        {"trash / restore <s>", "closed sessions / restore one"},
-        {"purge [s]", "delete for good (default: the expired ones)"},
-        {"task add|list|cancel", "task queue (add: --target, --after t1,t2)"},
-        {"search <text>", "full-text search in every history"},
-        {"export <s> [file]", "conversation as Markdown"},
-        {"remote on|off", "Remote Control of the global session"},
-        {"providers / notices", "backends state / last events"},
-        {"serve", "run the cluster without interface (headless, until Ctrl+C)"},
-        {"mcp", "MCP server of the global session (started by it)"},
-    };
-    for (const auto &[usage, description]: commands)
-        std::cout << "    " << green << usage << reset << std::string(usage.size() < 32 ? 32 - usage.size() : 1, ' ') << description << "\n";
+    for (const cluster::Command& command: cluster::commands()) {
+        const std::string usage = command.name + (command.usage.empty() ? "" : " " + command.usage);
+        std::cout << "    " << green << usage << reset << std::string(usage.size() < 32 ? 32 - usage.size() : 1, ' ') << command.description << "\n";
+    }
     std::cout << "\n" << bold << "FLAGS" << reset << "\n";
     for (const auto &[id, flag]: this->_parser.getFlags()) {
         const auto &[shortName, flagName, longName, env] = flag.flag;

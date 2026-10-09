@@ -446,7 +446,7 @@ class TtyUi {
                 ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                 ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
                 ftxui::text(model) | ftxui::color(this->_theme.muted),
-                ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" ? this->_theme.warn : this->_theme.muted),
+                ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted),
                 ftxui::filler(),
                 ftxui::text(cluster::short_path(s.spec.cwd) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
             };

@@ -92,11 +92,15 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
 
     if (driver == "claude") {
         args.insert(args.end(), {"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--include-partial-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode});
+            "--include-partial-messages", "--permission-prompt-tool", "stdio"});
+        // without it claude refuses to switch to bypassPermissions later (it only makes the mode possible)
+        if (this->_launch.allowBypass) args.push_back("--allow-dangerously-skip-permissions");
+        if (!mode.empty()) args.insert(args.end(), {"--permission-mode", mode});
         if (!model.empty()) args.insert(args.end(), {"--model", model});
         if (!spec.claudeId.empty()) args.insert(args.end(), {"--resume", spec.claudeId});
     } else if (driver == "qwen") {
-        const std::string approval = mode == "plan" ? "plan" : mode == "acceptEdits" ? "auto-edit" : mode == "bypassPermissions" ? "yolo" : "default";
+        const std::string approval = mode == "plan" ? "plan" : mode == "acceptEdits" || mode == "auto" ? "auto-edit"
+            : mode == "bypassPermissions" ? "yolo" : "default";
         args.insert(args.end(), {"-o", "stream-json", "--approval-mode", approval, "--auth-type", "openai"});
         if (!model.empty()) args.insert(args.end(), {"-m", model});
         if (!spec.claudeId.empty()) args.insert(args.end(), {"-r", spec.claudeId});
@@ -110,7 +114,7 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
     } else if (driver == "codex") {
         args.insert(args.end(), {"exec", "--json", "--skip-git-repo-check"});
         if (mode == "bypassPermissions") args.push_back("--dangerously-bypass-approvals-and-sandbox");
-        else args.insert(args.end(), {"--sandbox", mode == "acceptEdits" ? "workspace-write" : "read-only"});
+        else args.insert(args.end(), {"--sandbox", mode == "acceptEdits" || mode == "auto" ? "workspace-write" : "read-only"});
         if (!model.empty()) args.insert(args.end(), {"-m", model});
         if (!spec.claudeId.empty()) args.insert(args.end(), {"resume", spec.claudeId});
         args.push_back(prompt);
@@ -414,6 +418,20 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->_data.permissions.push_back(permission);
         this->_data.state = cluster::State::Waiting;
         this->emit_(cluster::Event::Kind::Permission, permission.tool + ": " + cluster::one_line(permission.description, 120));
+    } else if (type == "control_response" && event.contains("response")) {
+        const cluster::Json& response = event["response"];
+        if (response.value("subtype", std::string()) == "error") {
+            this->entry_(cluster::EntryKind::Error, response.value("error", std::string("request refused by the agent")));
+        } else if (response.contains("response") && response["response"].is_object() && response["response"].contains("mode")) {
+            this->_data.spec.mode = response["response"].value("mode", this->_data.spec.mode);
+            this->entry_(cluster::EntryKind::System, "permission mode: " + this->_data.spec.mode);
+        }
+    } else if (type == "control_cancel_request") {
+        const std::string id = event.value("request_id", std::string());
+        const std::size_t before = this->_data.permissions.size();
+        std::erase_if(this->_data.permissions, [&](const cluster::Permission& p) {return p.requestId == id;});
+        if (this->_data.permissions.size() != before) this->entry_(cluster::EntryKind::System, "permission request cancelled by the agent");
+        if (this->_data.permissions.empty() && this->_data.state == cluster::State::Waiting) this->_data.state = cluster::State::Working;
     } else if (type == "rate_limit_event" && event.contains("rate_limit_info")) {
         const cluster::Json windows = event["rate_limit_info"].value("unifiedWindows", cluster::Json::object());
         if (windows.contains("five_hour")) metrics.limit5h = windows["five_hour"].value("utilization", -1.0);
@@ -641,7 +659,12 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
     cluster::Json response = {{"behavior", behavior == "deny" ? "deny" : "allow"}};
     if (behavior == "deny") response["message"] = "Denied by the user (claude-cluster)";
     else response["updatedInput"] = it->input;
-    if (behavior == "always" && it->suggestions.is_array() && !it->suggestions.empty()) response["updatedPermissions"] = it->suggestions;
+    if (behavior == "always" && it->suggestions.is_array()) {
+        cluster::Json rules = cluster::Json::array();
+        for (const cluster::Json& suggestion: it->suggestions)
+            if (suggestion.value("type", std::string()) == "addRules" || suggestion.value("type", std::string()) == "addDirectories") rules.push_back(suggestion);
+        if (!rules.empty()) response["updatedPermissions"] = rules;
+    }
     this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", it->requestId}, {"response", response}}}});
     this->entry_(cluster::EntryKind::System, std::string(behavior == "deny" ? "denied " : behavior == "always" ? "always allowed " : "allowed ") + it->tool);
     this->_data.permissions.erase(it);
@@ -651,14 +674,16 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
 
 _cold void cluster::Session::setMode(const std::string& mode)
 {
-    static const std::array<const char*, 4> modes = {"default", "acceptEdits", "plan", "bypassPermissions"};
-    if (std::find_if(modes.begin(), modes.end(), [&](const char* m) {return mode == m;}) == modes.end())
-        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "'" + mode + "': default | acceptEdits | plan | bypassPermissions");
+    const std::vector<std::pair<std::string, std::string>>& modes = cluster::permission_modes();
+    if (std::none_of(modes.begin(), modes.end(), [&](const std::pair<std::string, std::string>& m) {return m.first == mode;}))
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "'" + mode + "': auto | manual | acceptEdits | plan | dontAsk | bypassPermissions");
     std::lock_guard<std::mutex> lock(this->_mutex);
-    this->_data.spec.mode = mode;
-    if (this->persistent() && this->_in != -1)
+    if (this->persistent() && this->_in != -1) {
         this->write_({{"type", "control_request"}, {"request_id", "mode-" + std::to_string(cluster::now())}, {"request", {{"subtype", "set_permission_mode"}, {"mode", mode}}}});
-    this->entry_(cluster::EntryKind::System, "permission mode: " + mode);
+    } else {
+        this->_data.spec.mode = mode; // next start / next turn
+        this->entry_(cluster::EntryKind::System, "permission mode: " + mode);
+    }
     this->touch_();
 }
 

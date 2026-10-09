@@ -35,8 +35,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         }
         list.push_back({"interrupt", "Interrupt the running turn", "", "", false});
         list.push_back({"rename", "Rename the session", "name", snap->spec.name, false});
-        for (const char* mode: {"default", "acceptEdits", "plan", "bypassPermissions"})
-            list.push_back({std::string("mode:") + mode, std::string("Permission mode: ") + mode + (snap->spec.mode == mode ? " (current)" : ""), "", "", false});
+        for (const auto &[mode, description]: cluster::permission_modes())
+            list.push_back({"mode:" + mode, "Permission mode: " + mode + " - " + description + (snap->spec.mode == mode ? " (current)" : ""), "", "", false});
         for (const char* panel: {"skills", "tokens", "context", "cost", "git", "diff", "tools", "files"})
             list.push_back({std::string("panel:") + panel, std::string("Panel ") + panel + (snap->spec.panels.contains(panel) ? ": hide" : ": show"), "", "", false});
         if (!snap->spec.global) {
@@ -47,8 +47,12 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         }
         list.push_back({"export", "Export the conversation to Markdown", "file", "~/" + snap->spec.name + ".md", false});
     }
-    for (const cluster::SessionSpec& spec: manager.trash())
+    for (const cluster::SessionSpec& spec: manager.trash()) {
         list.push_back({"restore:" + spec.id, "Restore " + spec.name + " (" + cluster::short_path(spec.cwd) + ", closed " + cluster::human_age(spec.deleted) + " ago)", "", "", false});
+        list.push_back({"purge:" + spec.id, "Delete for good " + spec.name + " (trash: conversation and history)", "", "", false});
+    }
+    if (!manager.trash().empty())
+        list.push_back({"purge_all", "Empty the whole trash (" + std::to_string(manager.trash().size()) + " session(s), for good)", "type yes to confirm", "", false});
     for (const auto &[name, profile]: config.profiles)
         list.push_back({"profile:" + name, "New session from the profile " + name, "", "", false});
     list.push_back({"task_add", "Queue a task: [target |] prompt", "task", "", false});
@@ -161,8 +165,12 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             for (const std::string& line: missing)
                 result.message += "\n- " + line;
         } else if (base == "purge") {
-            manager.purge();
-            result.message = "trash purged (expired sessions)";
+            manager.purge(arg);
+            result.message = arg.empty() ? "trash purged (expired sessions)" : "deleted for good";
+        } else if (base == "purge_all") {
+            if (cluster::lower(cluster::trim(input)) != "yes") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not confirmed: the trash is kept");
+            manager.purge("*");
+            result.message = "trash emptied";
         } else if (base == "config") {
             result.message = manager.config().path().string() + " (reloaded when saved), system prompt: " + manager.config().globalPrompt;
         } else {

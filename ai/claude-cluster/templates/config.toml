@@ -17,7 +17,8 @@ notify = true              # desktop notification: permission waiting, turn fini
 #   opencode driver: opencode/<provider>/<model> (its own providers, `opencode auth`)
 #   codex driver: codex[/<model>] (OpenAI Codex CLI, `codex login`)
 default = "claude"
-permission_mode = "default" # default | acceptEdits | plan | bypassPermissions
+permission_mode = "auto"   # auto | manual | acceptEdits | plan | dontAsk | bypassPermissions (empty: the default of claude -p, manual)
+allow_bypass = true        # claude: launched with --allow-dangerously-skip-permissions, so bypassPermissions can be chosen
 extra_args = []
 
 [commands]                 # programs of the drivers
@@ -31,6 +32,8 @@ enabled = true
 backend = "claude"         # must be a claude-driver provider (the MCP control needs it)
 cwd = "~"                  # working folder of the global session
 model = ""
+permission_mode = "bypassPermissions" # of the global session, applied at every start: it can do anything without
+                           # asking (empty: the mode of [agent])
 prompt = "~/.config/claude-cluster/global.md"   # its own system prompt (added to the global CLAUDE.md)
 remote_name = "claude-cluster"                  # name of the Remote Control session
 

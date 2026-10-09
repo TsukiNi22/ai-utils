@@ -113,7 +113,7 @@ class Manager {
         _cold void send(const std::string& id, const std::string& text, const bool force = false);
         _cold void close(const std::string& id);
         _cold _nodiscard std::string restore(const std::string& id);
-        _cold void purge(const std::string& id = "");       // definitive delete (empty: the expired ones)
+        _cold void purge(const std::string& id = "");       // delete for good from the trash (empty: the expired ones, "*": all)
         _cold void rename(const std::string& id, const std::string& name);
         _cold void setMode(const std::string& id, const std::string& mode);
         _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};

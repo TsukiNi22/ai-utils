@@ -98,7 +98,8 @@ class Config {
 
         /* agent */
         std::string backend = "claude";
-        std::string mode = "default";
+        std::string mode = "auto";      // permission mode of the new sessions (empty: the default of the agent)
+        bool allowBypass = true;
         std::vector<std::string> extraArgs;
         std::map<std::string, std::string> commands = {{"claude", "claude"}, {"qwen", "qwen"}, {"opencode", "opencode"}, {"codex", "codex"}};
 
@@ -107,6 +108,7 @@ class Config {
         std::string globalBackend = "claude";
         std::string globalCwd = "~";
         std::string globalModel;
+        std::string globalMode = "bypassPermissions"; // never asked (empty: the mode of [agent])
         std::string globalPrompt = "~/.config/claude-cluster/global.md";
         std::string remoteName = "claude-cluster";
 

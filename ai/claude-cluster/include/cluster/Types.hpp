@@ -17,8 +17,11 @@ File Description:
     /* INCLUDE */
 
     /* type */
+    #define _Attribute
+    #include <utils/utils.hpp>      // _nodiscard
     #include <nlohmann/json.hpp>    // nlohmann::json
     #include <cstdint>              // std::int64_t
+    #include <utility>              // std::pair
     #include <string>               // std::string
     #include <vector>               // std::vector
     #include <set>                  // std::set
@@ -155,6 +158,9 @@ struct Snapshot {
 /* FUNCTION */
 
 _nodiscard const char* state_name(cluster::State state);
+
+// Permission modes of Claude Code (2.1): <mode, description>; "default" is the old name of "manual"
+_nodiscard inline const std::vector<std::pair<std::string, std::string>>& permission_modes(void) {static const std::vector<std::pair<std::string, std::string>> modes = {{"auto", "the classifier allows the safe actions (default of claude-cluster)"}, {"manual", "asks for every sensitive tool"}, {"default", "same as manual"}, {"acceptEdits", "file edits allowed, the rest asked"}, {"plan", "read only, plans"}, {"dontAsk", "never asks: what is not allowed is refused"}, {"bypassPermissions", "everything allowed"}}; return modes;};
 
 } // namespace end
 

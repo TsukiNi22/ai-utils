@@ -51,6 +51,7 @@ struct Launch {
     cluster::Backend backend;
     cluster::Env env;
     std::string command;                    // program of the driver
+    bool allowBypass = true;                // claude: --allow-dangerously-skip-permissions (bypassPermissions possible)
     std::vector<std::string> extraArgs;     // added by the manager (global session: MCP, system prompt)
     std::filesystem::path log;              // JSONL of the transcript
     std::function<void(const cluster::Event&)> listener;
