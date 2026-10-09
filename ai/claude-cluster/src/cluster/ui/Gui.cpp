@@ -13,10 +13,13 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QFontDatabase>
 #include <QApplication>
 #include <QTextBrowser>
@@ -29,12 +32,17 @@ File Description:
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QMessageBox>
+#include <QFormLayout>
 #include <QScrollBar>
 #include <functional>
+#include <QTabWidget>
 #include <QLineEdit>
 #include <QSplitter>
 #include <QShortcut>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QPalette>
+#include <QSpinBox>
 #include <QWidget>
 #include <QTabBar>
 #include <QDialog>
@@ -183,6 +191,8 @@ class Window: public QMainWindow {
                 this->manager.setUi("style", arg);
                 this->applyStyle();
                 this->signature.clear();
+            } else if (base == "settings") {
+                this->settings();
             } else if (base == "quit") {
                 this->close();
             } else if (base == "auth_login" || base == "auth_logout") {
@@ -243,6 +253,104 @@ class Window: public QMainWindow {
             this->choose(shown[static_cast<std::size_t>(items->currentRow())]);
         }
 
+        void settings(void)
+        {
+            // Every option of config.toml, one tab per section; saved in the file (comments kept), reloaded live
+            QDialog dialog(this);
+            dialog.setWindowTitle("claude-cluster setup");
+            dialog.resize(860, 620);
+            dialog.setPalette(QApplication::palette());
+            dialog.setStyleSheet(this->styleSheet());
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+            QTabWidget* sections = new QTabWidget(&dialog);
+            const cluster::Config& config = this->manager.config();
+            std::vector<std::pair<cluster::Setting, std::function<std::string()>>> fields; // <setting, value of its widget>
+
+            for (const cluster::SettingsPage& page: cluster::settings_pages(config)) {
+                QWidget* tab = new QWidget(sections);
+                QFormLayout* form = new QFormLayout(tab);
+                for (const cluster::Setting& setting: page.settings) {
+                    const std::string current = setting.value(config);
+                    const QString tip = q_(setting.description + (setting.restart ? "\n(applied at the next start)" : ""));
+                    QWidget* widget = nullptr;
+                    std::function<std::string()> read;
+                    if (setting.kind == cluster::SettingKind::Bool) {
+                        QCheckBox* box = new QCheckBox(tab);
+                        box->setChecked(current == "true");
+                        read = [box]() {return box->isChecked() ? std::string("true") : std::string("false");};
+                        widget = box;
+                    } else if (setting.kind == cluster::SettingKind::Choice) {
+                        QComboBox* box = new QComboBox(tab);
+                        for (const std::string& choice: setting.choices)
+                            box->addItem(choice.empty() ? QString("(agent default)") : q_(choice), q_(choice));
+                        box->setCurrentIndex(std::max(0, box->findData(q_(current))));
+                        read = [box]() {return box->currentData().toString().toStdString();};
+                        widget = box;
+                    } else if (setting.kind == cluster::SettingKind::Int) {
+                        QSpinBox* box = new QSpinBox(tab);
+                        box->setRange(0, 1000000);
+                        box->setValue(QString::fromStdString(current).toInt());
+                        read = [box]() {return std::to_string(box->value());};
+                        widget = box;
+                    } else if (setting.kind == cluster::SettingKind::Float) {
+                        QDoubleSpinBox* box = new QDoubleSpinBox(tab);
+                        box->setRange(0, 1000000);
+                        box->setDecimals(2);
+                        box->setValue(QString::fromStdString(current).toDouble());
+                        read = [box]() {return QString::number(box->value()).toStdString();};
+                        widget = box;
+                    } else {
+                        QLineEdit* line = new QLineEdit(q_(current), tab);
+                        read = [line]() {return cluster::trim(line->text().toStdString());};
+                        widget = line;
+                    }
+                    widget->setToolTip(tip);
+                    QLabel* label = new QLabel(q_(setting.label + (setting.restart ? " *" : "")), tab);
+                    label->setToolTip(tip);
+                    form->addRow(label, widget);
+                    fields.emplace_back(setting, read);
+                }
+                sections->addTab(tab, q_(page.title));
+            }
+            QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+            QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+            QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+            QShortcut* save = new QShortcut(QKeySequence(Qt::Key_F10), &dialog);
+            QObject::connect(save, &QShortcut::activated, &dialog, &QDialog::accept);
+            layout->addWidget(sections, 1);
+            layout->addWidget(new QLabel("* applied at the next start · hover an option for its help · F10 save · Esc cancel", &dialog));
+            layout->addWidget(buttons);
+            // Debug: CLAUDE_CLUSTER_SCREENSHOT also saves this page (<file>-settings.png), then closes it
+            const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT");
+            if (screenshot && *screenshot) {
+                const QString path = QString(screenshot).replace(".png", "-settings.png");
+                QTimer::singleShot(1200, &dialog, [&dialog, path]() {
+                    dialog.grab().save(path);
+                    dialog.reject();
+                });
+            }
+            if (dialog.exec() != QDialog::Accepted) return;
+
+            std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> changes;
+            for (const auto &[setting, read]: fields) {
+                const std::string value = read();
+                if (value != setting.value(config)) changes[{setting.section, setting.key}] = {setting, value};
+            }
+            if (changes.empty()) return;
+            try {
+                cluster::settings_write(config, changes);
+            } catch (const utils::exception::IException& e) {
+                this->message(std::string("not saved: ") + e.info(), true);
+                return;
+            }
+            for (const char* key: {"layout", "style"})
+                if (changes.contains({"ui", key})) this->manager.setUi(key, changes.at({"ui", key}).second);
+            (void)this->manager.config().reload();
+            this->bindKeys();
+            this->signature.clear();
+            this->message(std::to_string(changes.size()) + " setting(s) saved", false);
+        }
+
         void move(const int delta)
         {
             const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
@@ -269,7 +377,8 @@ class Window: public QMainWindow {
             else if (action == "layout") {
                 const std::string layout = this->manager.ui("layout", this->manager.config().layout);
                 this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
-            } else if (action == "quit") this->close();
+            } else if (action == "settings") this->settings();
+            else if (action == "quit") this->close();
         }
 
         void send(void)
@@ -620,6 +729,7 @@ _cold int cluster::run_gui(cluster::App& app)
     const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT");
     if (screenshot && *screenshot) {
         const QString path = screenshot;
+        if (std::getenv("CLAUDE_CLUSTER_SCREENSHOT_SETTINGS")) QTimer::singleShot(1000, &window, [&window]() {window.settings();});
         QTimer::singleShot(3000, &window, [&window, path]() {
             window.refresh(true);
             window.grab().save(path);

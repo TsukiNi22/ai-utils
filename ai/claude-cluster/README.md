@@ -88,8 +88,8 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 In the interfaces: **Ctrl+K** opens the command palette (every action: new session, modes, panels, styles,
 layouts, restore from the trash, providers, voice...), **Ctrl+N / Ctrl+P** next / previous session, **Ctrl+G** the
 global session, **Ctrl+T** new session, **Ctrl+Y / Ctrl+D** allow / deny the permission, **Ctrl+C** interrupt,
-**F2** layout, **F5** push-to-talk, **F6** stop speaking, **Ctrl+Q** quit (the sessions are kept); **PageUp /
-PageDown** or the wheel scroll the transcript. Every key is set in the config.
+**F2** layout, **F5** push-to-talk, **F6** stop speaking, **F9** settings, **Ctrl+Q** quit (the sessions are kept);
+**PageUp / PageDown** or the wheel scroll the transcript. Every key is set in the config.
 
 Panels of a session (each one enabled per session from the palette): **tokens** (last prompt, current one, total),
 **context** (used / window), **cost** (session, last turn, budget, 5 h / 7 d limits), **skills** (loaded, available),
@@ -166,6 +166,14 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 
 ## Configuration
 
+**Settings page** (F9 or the palette: *Settings*), like a BIOS setup: one tab per section (Interface, Agent,
+Commands, Global session, Sessions, Voice, Keys), the help of the selected option on the right, `*` on the changed
+ones. Terminal: `↑↓` select, `←→` / `Enter` change a choice / toggle / number, `Enter` edit a text, `Tab` /
+`Shift+Tab` section, **F10** save & exit, **Esc** exit (twice when there are unsaved changes). Window: a tabs dialog
+(help on hover, F10 / Save). The changes are written in `config.toml` - only the values, its comments kept - and
+reloaded live; the options marked *applied at the next start* need a restart. Profiles, providers and own styles
+stay in the file.
+
 `~/.config/claude-cluster/config.toml` (written commented on the first run, reloaded when saved): interface
 (`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never`, `notify`), `[agent]` default backend
 and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel` of the task
@@ -180,6 +188,7 @@ own `[providers.<name>]`. See [`templates/config.toml`](templates/config.toml).
 | `CLAUDE_CLUSTER_SOCKET` | control socket (default `$XDG_RUNTIME_DIR/claude-cluster/control.sock`) |
 | `CLAUDE_CLUSTER_BACKEND` | same as `--backend` |
 | `CLAUDE_CLUSTER_RTK` | same as `--rtk` |
+| `CLAUDE_CLUSTER_SCREENSHOT` | debug of the window: saves it to this PNG after 3 s then quits (`QT_QPA_PLATFORM=offscreen`); with `CLAUDE_CLUSTER_SCREENSHOT_SETTINGS=1` the settings page too (`<file>-settings.png`) |
 
 ## How it works
 

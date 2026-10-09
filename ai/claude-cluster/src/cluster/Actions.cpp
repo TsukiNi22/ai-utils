@@ -23,6 +23,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     const cluster::Config& config = manager.config();
     const std::optional<cluster::Snapshot> snap = session.empty() ? std::nullopt : manager.snapshot(session);
     std::vector<cluster::Action> list = {
+        {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
         {"send", "Send a prompt to the session", "prompt", "", false},
     };

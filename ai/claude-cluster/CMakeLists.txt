@@ -83,6 +83,7 @@ set(SRC
     src/cluster/Control.cpp
     src/cluster/Mcp.cpp
     src/cluster/Actions.cpp
+    src/cluster/Settings.cpp
 
     # Front-ends
     src/cluster/ui/Tty.cpp

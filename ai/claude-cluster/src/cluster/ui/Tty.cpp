@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
@@ -32,7 +33,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings};
 
 struct Theme {
     ftxui::Color bg;
@@ -156,6 +157,13 @@ class TtyUi {
         std::string _message;
         bool _messageError = false;
         int _selected = 0;
+        std::vector<cluster::SettingsPage> _pages;  // settings page
+        int _page = 0;
+        int _item = 0;
+        bool _editing = false;
+        std::string _edit;
+        std::string _note;
+        std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> _changes;
         cluster::Action _pending;                   // action waiting for its input
         std::vector<cluster::Action> _actions;      // palette, filtered
         std::map<std::string, int> _scroll;         // lines scrolled up, per session
@@ -215,6 +223,8 @@ class TtyUi {
             } else if (base == "style") {
                 this->_manager.setUi("style", arg);
                 this->theme_();
+            } else if (base == "settings") {
+                this->openSettings_();
             } else if (base == "quit") {
                 this->_screen.Exit();
             } else if (base == "auth_login" || base == "auth_logout") {
@@ -279,6 +289,8 @@ class TtyUi {
             } else if (action == "layout") {
                 const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
                 this->_manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
+            } else if (action == "settings") {
+                this->openSettings_();
             } else if (action == "quit") {
                 this->_screen.Exit();
             } else {
@@ -293,6 +305,179 @@ class TtyUi {
             const std::string name = this->_manager.ui("style", config.style);
             auto it = config.styles.find(name);
             this->_theme = make_theme_(it != config.styles.end() ? it->second : config.currentStyle());
+        }
+
+        /* settings page */
+        void openSettings_(void)
+        {
+            this->_pages = cluster::settings_pages(this->_manager.config());
+            this->_page = 0;
+            this->_item = 0;
+            this->_editing = false;
+            this->_note.clear();
+            this->_changes.clear();
+            this->_mode = Mode::Settings;
+        }
+
+        _nodiscard std::string settingValue_(const cluster::Setting& setting) const
+        {
+            auto it = this->_changes.find({setting.section, setting.key});
+            return it != this->_changes.end() ? it->second.second : setting.value(this->_manager.config());
+        }
+
+        void setSetting_(const cluster::Setting& setting, const std::string& value)
+        {
+            const std::string error = cluster::setting_check(setting, value);
+            if (!error.empty()) {
+                this->_note = setting.label + ": " + error;
+                return;
+            }
+            if (value == setting.value(this->_manager.config())) this->_changes.erase({setting.section, setting.key});
+            else this->_changes[{setting.section, setting.key}] = {setting, value};
+            this->_note.clear();
+        }
+
+        void saveSettings_(void)
+        {
+            if (!this->_changes.empty()) {
+                try {
+                    cluster::settings_write(this->_manager.config(), this->_changes);
+                } catch (const utils::exception::IException& e) {
+                    this->_note = std::string("not saved: ") + e.info();
+                    return;
+                }
+                // the live choices of layout / style follow the saved ones
+                for (const char* key: {"layout", "style"})
+                    if (this->_changes.contains({"ui", key})) this->_manager.setUi(key, this->_changes.at({"ui", key}).second);
+                bool restart = false;
+                for (const auto &[where, change]: this->_changes)
+                    restart |= change.first.restart;
+                (void)this->_manager.config().reload();
+                this->theme_();
+                this->status_(std::to_string(this->_changes.size()) + " setting(s) saved" + (restart ? " (some at the next start)" : ""));
+            }
+            this->_changes.clear();
+            this->_mode = Mode::Normal;
+        }
+
+        bool settingsEvent_(ftxui::Event event)
+        {
+            if (this->_pages.empty()) {
+                this->_mode = Mode::Normal;
+                return true;
+            }
+            const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
+            const int count = static_cast<int>(page.settings.size());
+            if (count > 0) this->_item = std::clamp(this->_item, 0, count - 1);
+
+            if (this->_editing) {
+                const cluster::Setting& setting = page.settings[static_cast<std::size_t>(this->_item)];
+                if (event == ftxui::Event::Return) {
+                    this->setSetting_(setting, cluster::trim(this->_edit));
+                    this->_editing = false;
+                } else if (event == ftxui::Event::Escape) {
+                    this->_editing = false;
+                } else if (event == ftxui::Event::Backspace) {
+                    while (!this->_edit.empty() && (static_cast<unsigned char>(this->_edit.back()) & 0xC0) == 0x80) this->_edit.pop_back();
+                    if (!this->_edit.empty()) this->_edit.pop_back();
+                } else if (event.is_character()) {
+                    this->_edit += event.character();
+                }
+                return true;
+            }
+            if (event == ftxui::Event::F10) {
+                this->saveSettings_();
+            } else if (event == ftxui::Event::Escape) {
+                if (!this->_changes.empty() && this->_note != "unsaved") {
+                    this->_note = "unsaved";
+                } else {
+                    this->_changes.clear();
+                    this->_mode = Mode::Normal;
+                }
+            } else if (event == ftxui::Event::Tab || event == ftxui::Event::PageDown) {
+                this->_page = (this->_page + 1) % static_cast<int>(this->_pages.size());
+                this->_item = 0;
+            } else if (event == ftxui::Event::TabReverse || event == ftxui::Event::PageUp) {
+                this->_page = (this->_page + static_cast<int>(this->_pages.size()) - 1) % static_cast<int>(this->_pages.size());
+                this->_item = 0;
+            } else if (event == ftxui::Event::ArrowDown) {
+                this->_item = std::min(this->_item + 1, std::max(0, count - 1));
+            } else if (event == ftxui::Event::ArrowUp) {
+                this->_item = std::max(this->_item - 1, 0);
+            } else if (count > 0 && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Return
+                || event == ftxui::Event::Character(' '))) {
+                const cluster::Setting& setting = page.settings[static_cast<std::size_t>(this->_item)];
+                const bool cycle = setting.kind == cluster::SettingKind::Bool || setting.kind == cluster::SettingKind::Choice;
+                const bool number = setting.kind == cluster::SettingKind::Int || setting.kind == cluster::SettingKind::Float;
+                if (event == ftxui::Event::Return && !cycle) {
+                    this->_edit = this->settingValue_(setting);
+                    this->_editing = true;
+                } else if (cycle || (number && event != ftxui::Event::Return && event != ftxui::Event::Character(' '))) {
+                    this->setSetting_(setting, cluster::setting_next(setting, this->settingValue_(setting), event == ftxui::Event::ArrowLeft ? -1 : 1));
+                }
+            }
+            return true;
+        }
+
+        _nodiscard ftxui::Element settings_(const ftxui::Dimensions& size)
+        {
+            const Theme& t = this->_theme;
+            ftxui::Elements tabs;
+            for (std::size_t i = 0; i < this->_pages.size(); ++i) {
+                const bool active = static_cast<int>(i) == this->_page;
+                ftxui::Element tab = ftxui::text("  " + this->_pages[i].title + "  ");
+                tabs.push_back(active ? tab | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : tab | ftxui::color(t.text));
+            }
+            const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
+            ftxui::Elements rows;
+            std::string help;
+            bool restart = false;
+            for (std::size_t i = 0; i < page.settings.size(); ++i) {
+                const cluster::Setting& setting = page.settings[i];
+                const bool selected = static_cast<int>(i) == this->_item;
+                const bool changed = this->_changes.contains({setting.section, setting.key});
+                std::string value = this->settingValue_(setting);
+                if (selected && this->_editing) value = this->_edit + "▏";
+                else if (setting.kind == cluster::SettingKind::Bool) value = value == "true" ? "Enabled" : "Disabled";
+                else if (setting.kind == cluster::SettingKind::Choice) value = "< " + (value.empty() ? std::string("(agent default)") : value) + " >";
+                else if (value.empty()) value = "(empty)";
+                const std::string label = setting.label + " ";
+                const std::size_t dots = label.size() < 34 ? 34 - label.size() : 1;
+                ftxui::Element line = ftxui::hbox({
+                    ftxui::text(changed ? " * " : "   ") | ftxui::color(t.warn) | ftxui::bold,
+                    ftxui::text(label + std::string(dots, '.') + " ") | ftxui::color(t.muted),
+                    ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
+                    ftxui::filler(),
+                });
+                rows.push_back(line);
+                if (selected) {
+                    help = setting.description;
+                    restart = setting.restart;
+                }
+            }
+            if (rows.empty()) rows.push_back(ftxui::text("   nothing here") | ftxui::color(t.muted));
+            std::string note = this->_note == "unsaved" ? "Unsaved changes: Escape again to drop them, F10 to save" : this->_note;
+            ftxui::Element helpBox = ftxui::vbox({
+                ftxui::text(" Item Specific Help") | ftxui::bold | ftxui::color(t.accent),
+                ftxui::separatorLight() | ftxui::color(t.border),
+                ftxui::paragraph(help) | ftxui::color(t.text),
+                ftxui::text(""),
+                restart ? ftxui::paragraph("Applied at the next start of claude-cluster") | ftxui::color(t.warn) : ftxui::emptyElement(),
+                ftxui::filler(),
+                ftxui::text(std::to_string(this->_changes.size()) + " change(s) not saved") | ftxui::color(this->_changes.empty() ? t.muted : t.warn),
+                ftxui::paragraph(cluster::short_path(this->_manager.config().path().string())) | ftxui::color(t.muted) | ftxui::dim,
+            }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 38);
+            return ftxui::vbox({
+                ftxui::hbox({ftxui::text(" claude-cluster setup ") | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent), ftxui::filler(),
+                    ftxui::text(" config.toml ") | ftxui::color(t.muted)}),
+                ftxui::hbox(std::move(tabs)) | ftxui::bgcolor(t.surface),
+                ftxui::separatorHeavy() | ftxui::color(t.accent),
+                ftxui::hbox({ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::flex, ftxui::separatorLight() | ftxui::color(t.border), helpBox}) | ftxui::flex,
+                ftxui::separatorHeavy() | ftxui::color(t.accent),
+                ftxui::text(" " + note) | ftxui::color(t.warn),
+                ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   F10 save & exit   Esc exit ")
+                    | ftxui::color(t.bg) | ftxui::bgcolor(t.muted), ftxui::filler()}) | ftxui::bgcolor(t.muted),
+            }) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, size.dimy) | ftxui::color(t.text) | ftxui::bgcolor(t.bg);
         }
 
         /* rendering */
@@ -624,6 +809,7 @@ class TtyUi {
                 input,
                 ftxui::text(" " + status) | ftxui::color(error ? this->_theme.error : this->_theme.muted),
             }) | ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg);
+            if (this->_mode == Mode::Settings) return this->settings_(size);
             if (this->_mode == Mode::Normal) return document;
             return ftxui::dbox({document, this->modal_()});
         }
@@ -672,6 +858,8 @@ class TtyUi {
                         if (!this->_prompt.empty()) this->_prompt.pop_back();
                     } else if (event.is_character()) this->_prompt += event.character();
                     return true;
+                case Mode::Settings:
+                    return this->settingsEvent_(event);
                 case Mode::Normal:
                     break;
             }

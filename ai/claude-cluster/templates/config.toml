@@ -72,6 +72,7 @@ interrupt = "Ctrl+C"
 push_to_talk = "F5"
 mute = "F6"
 layout = "F2"
+settings = "F9"
 quit = "Ctrl+Q"
 
 # Own style: [styles.<name>] with the keys of a built-in one (hex colors), then ui.style = "<name>"
