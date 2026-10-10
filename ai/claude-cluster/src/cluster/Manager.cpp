@@ -15,9 +15,11 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
+#include <filesystem>
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <regex>
 
 /* tools */
 _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
@@ -304,7 +306,9 @@ _cold void cluster::Manager::startGlobal(void)
     spec.id = GLOBAL_ID;
     spec.name = "global";
     spec.global = true;
-    spec.cwd = cluster::expand_home(this->_config.globalCwd).string();
+    const std::string cwd = this->globalDir_().string();
+    if (!spec.cwd.empty() && spec.cwd != cwd) spec.claudeId.clear(); // its conversation is kept by claude in the other folder
+    spec.cwd = cwd;
     spec.backend = this->_config.globalBackend + (this->_config.globalModel.empty() ? "" : "/" + this->_config.globalModel);
     if (spec.created == 0) spec.created = cluster::now();
     if (spec.panels.empty()) spec.panels = {"tokens", "context", "cost"};
@@ -327,6 +331,41 @@ _cold void cluster::Manager::startGlobal(void)
     }
 }
 
+_cold std::filesystem::path cluster::Manager::globalDir_(void) const
+{
+    if (!this->_config.globalCwd.empty()) return cluster::expand_home(this->_config.globalCwd);
+    const std::filesystem::path dir = cluster::data_dir() / "global";
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    return dir;
+}
+
+namespace {
+
+_cold void trust_folder_(const std::filesystem::path& folder)
+{
+    // claude --bg needs a trusted folder (the trust prompt of an interactive claude): claude-cluster accepts it for its
+    // own folder in ~/.claude.json (written to a temporary file then renamed: never a half-written file)
+    const std::filesystem::path file = cluster::expand_home("~/.claude.json");
+    std::ifstream in(file);
+    if (!in) return;
+    cluster::Json data = cluster::Json::parse(in, nullptr, false);
+    if (data.is_discarded() || !data.is_object()) return;
+    cluster::Json& project = data["projects"][folder.string()];
+    if (project.is_object() && project.value("hasTrustDialogAccepted", false)) return;
+    project["hasTrustDialogAccepted"] = true;
+    const std::filesystem::path temporary = file.string() + ".claude-cluster";
+    {
+        std::ofstream out(temporary);
+        out << data.dump(2);
+        if (!out) return;
+    }
+    std::error_code error;
+    std::filesystem::rename(temporary, file, error);
+}
+
+} // namespace
+
 _cold void cluster::Manager::setRemote(const bool on)
 {
     const std::shared_ptr<cluster::Session> session = this->get_(GLOBAL_ID);
@@ -336,7 +375,12 @@ _cold void cluster::Manager::setRemote(const bool on)
 
     if (on) {
         if (!this->_remoteId.empty()) return;
-        // Remote Control needs an interactive session: the conversation goes on in a background claude (claude --bg)
+        // Remote Control needs an interactive session: the conversation goes on in a background claude (claude --bg),
+        // which runs only in a trusted folder, never the home folder
+        if (std::filesystem::path(spec.cwd) == cluster::expand_home("~"))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
+                "Remote Control: claude --bg never runs in the home folder; set global.cwd to another folder, or empty (a folder of its own), then restart");
+        if (this->_config.globalCwd.empty()) trust_folder_(spec.cwd);
         session->stop();
         std::vector<std::string> args = {command, "--bg", "--remote-control", this->_config.remoteName};
         if (!spec.claudeId.empty()) args.insert(args.end(), {"--resume", spec.claudeId});
@@ -349,11 +393,16 @@ _cold void cluster::Manager::setRemote(const bool on)
         const cluster::Captured started = cluster::capture(envArgs, spec.cwd, 60);
         if (started.code != 0) {
             session->start();
-            throw utils::exception::ErrorException(utils::exception::InternalCode::Process, "claude --bg failed: " + cluster::one_line(started.out, 300));
+            const bool trust = started.out.find("not trusted") != std::string::npos;
+            throw utils::exception::ErrorException(utils::exception::InternalCode::Process, trust
+                ? "Remote Control: " + spec.cwd + " is not trusted by claude: run `claude` there once and accept the trust prompt (or global.cwd empty)"
+                : "claude --bg failed: " + cluster::one_line(started.out, 300));
         }
-        // The short id is the last word of the output ("... <id>")
-        const std::vector<std::string> words = cluster::split(cluster::trim(started.out), ' ');
-        this->_remoteId = words.empty() ? "" : words.back();
+        // The short id: "backgrounded · <id> (idle ...)" then "claude stop <id>" (colored: escape codes removed first)
+        const std::string plain = std::regex_replace(started.out, std::regex("\x1b\\[[0-9;]*[A-Za-z]"), "");
+        std::smatch match;
+        if (std::regex_search(plain, match, std::regex("claude stop ([0-9a-f]+)")) || std::regex_search(plain, match, std::regex("backgrounded\\D*([0-9a-f]{6,})")))
+            this->_remoteId = match[1];
         this->notice_(GLOBAL_ID, "Remote Control on (" + this->_config.remoteName + ", background session " + this->_remoteId + ")");
     } else {
         if (this->_remoteId.empty()) return;

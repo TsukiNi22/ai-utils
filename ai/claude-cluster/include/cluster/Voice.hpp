@@ -45,7 +45,12 @@ class Voice {
         cluster::Manager& _manager;
         mutable std::mutex _mutex;
         std::thread _listener;
-        std::atomic<bool> _listening{false};
+        std::atomic<bool> _listening{false};       // voice-listen runs (its model is loaded once: ~10 s)
+        std::atomic<bool> _ready{false};           // its model is loaded ("voice-listen: ready")
+        std::atomic<bool> _open{false};            // push mode: F5 opened the listening
+        std::atomic<bool> _paused{false};          // auto / wake modes: listening stopped by the key
+        std::atomic<std::int64_t> _graceUntil{0};  // push mode: a sentence ending just after F5 is kept
+        std::atomic<std::int64_t> _lastStart{0};
         std::atomic<pid_t> _listenPid{-1};
         std::atomic<pid_t> _sayPid{-1};
         std::vector<cluster::Pending> _pending;
@@ -73,7 +78,10 @@ class Voice {
         _cold _nodiscard std::vector<std::string> setup(void) const;   // what is missing, with the command to fix it
 
         // ---------- Function -------- //
-        _nodiscard inline bool listening(void) const {return this->_listening;};
+        // push mode: F5 pressed; other modes: voice-listen runs
+        _nodiscard inline bool listening(void) const {return this->_manager.config().voice.mode == "push" ? this->_open.load() && this->_listening.load() : this->_listening.load();};
+        _nodiscard inline bool ready(void) const {return this->_ready;};
+        _nodiscard inline bool running(void) const {return this->_listening;};
         _nodiscard inline bool speaking(void) const {return this->_sayPid > 0;};
         _nodiscard bool armed(void) const;                 // wake mode: the wake phrase was just heard
         _nodiscard std::vector<cluster::Pending> pending(void) const;

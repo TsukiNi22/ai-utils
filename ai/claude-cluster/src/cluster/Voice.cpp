@@ -71,7 +71,7 @@ _cold cluster::Voice::Voice(cluster::Manager& manager)
 {
     this->_manager.onGlobalAnswer = [this](const std::string& text) {this->speak(text);};
     const cluster::VoiceConf& conf = this->_manager.config().voice;
-    if (conf.enabled && (conf.mode == "auto" || conf.mode == "wake")) this->start(); // always listening
+    if (conf.enabled) this->start(); // loaded now: its model takes ~10 s
 }
 
 _cold cluster::Voice::~Voice()
@@ -87,6 +87,8 @@ _cold void cluster::Voice::start(void)
     if (this->_listening || !this->_manager.config().voice.enabled) return;
     if (this->_listener.joinable()) this->_listener.join();
     this->_listening = true;
+    this->_ready = false;
+    this->_lastStart = now_ms_();
     this->_listener = std::thread(&cluster::Voice::listen_, this);
     ++this->_version;
 }
@@ -102,6 +104,17 @@ _cold void cluster::Voice::stop(void)
 
 _cold void cluster::Voice::toggle(void)
 {
+    // push mode: voice-listen stays loaded, the key opens / closes what is taken; other modes: pause / resume
+    const cluster::VoiceConf& conf = this->_manager.config().voice;
+    if (!conf.enabled) return;
+    if (conf.mode == "push") {
+        if (!this->_listening) this->start();
+        this->_open = !this->_open;
+        if (!this->_open) this->_graceUntil = now_ms_() + 2500;
+        ++this->_version;
+        return;
+    }
+    this->_paused = this->_listening.load();
     if (this->_listening) this->stop();
     else this->start();
 }
@@ -157,8 +170,18 @@ _cold void cluster::Voice::listen_(void)
                     } catch (const cluster::Json::exception&) {}
                 }
             } else {
-                // partial hypothesis: "\r\033[K<text>" without new line
+                // partial hypothesis: "\r\033[K<text>" without new line ("voice-listen: ready" once the model is loaded)
                 errBuffer.append(chunk.data(), static_cast<std::size_t>(size));
+                if (errBuffer.find("voice-listen:") != std::string::npos) { // its own messages ("ready"), not a partial text
+                    if (errBuffer.find("ready") != std::string::npos) this->_ready = true;
+                    errBuffer.clear();
+                    ++this->_version;
+                    continue;
+                }
+                if (conf.mode == "push" && !this->_open) {
+                    errBuffer.clear();
+                    continue;
+                }
                 const std::size_t cr = errBuffer.rfind('\r');
                 std::string partial = cr == std::string::npos ? errBuffer : errBuffer.substr(cr + 1);
                 partial = std::regex_replace(partial, std::regex("\x1b\\[[0-9;]*[A-Za-z]"), "");
@@ -174,6 +197,7 @@ _cold void cluster::Voice::listen_(void)
     (void)process.wait();
     this->_listenPid = -1;
     this->_listening = false;
+    this->_ready = false;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_partial.clear();
@@ -186,6 +210,7 @@ _cold void cluster::Voice::heard_(const std::string& heard)
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     std::string text = cluster::trim(heard);
     if (text.empty()) return;
+    if (conf.mode == "push" && !this->_open && now_ms_() > this->_graceUntil) return; // push-to-talk closed
 
     // Wake mode: nothing is taken before the wake phrase; the phrase with a command sends it, the phrase alone
     // arms the listening for wake_seconds (the next sentence is the command)
@@ -232,6 +257,10 @@ _cold void cluster::Voice::heard_(const std::string& heard)
 /* pending transcriptions */
 _cold void cluster::Voice::tick(void)
 {
+    // voice-listen follows the config: started when the voice is enabled (again 10 s after a crash), stopped when not
+    const cluster::VoiceConf& conf = this->_manager.config().voice;
+    if (conf.enabled && !this->_listening && !this->_paused && now_ms_() - this->_lastStart > 10000) this->start();
+    else if (!conf.enabled && this->_listening) this->stop();
     std::vector<cluster::Pending> ready;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);

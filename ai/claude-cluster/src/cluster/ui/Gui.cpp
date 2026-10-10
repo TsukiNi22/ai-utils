@@ -20,6 +20,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
+#include <QSyntaxHighlighter>
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDoubleSpinBox>
@@ -99,6 +100,7 @@ class Window;
 class PromptEdit: public QPlainTextEdit {
     protected:
         void keyPressEvent(QKeyEvent* event) override;
+        void insertFromMimeData(const QMimeData* source) override;  // a long text pasted: one [Pasted text #N]
         bool focusNextPrevChild(bool) override {return false;}; // Tab completes, never leaves the prompt
 
     public:
@@ -115,17 +117,51 @@ class PromptEdit: public QPlainTextEdit {
             this->setTextCursor(cursor);
         };
         void fit(void);                     // 1 to 8 lines high
+        void vimSync(void);                 // [ui] vim / vim, the cursor and the label of the mode
+        bool vimKey(QKeyEvent* event);      // a key of vim (Normal / Visual, Esc of Insert); true: used
+        QLabel* vimLabel = nullptr;
         Window* window = nullptr;
-        cluster::Editor completion;
+        cluster::Editor completion;         // completion, vim, and the atoms ([Image #N], [Pasted text #N]: one block)
         QListWidget* popup = nullptr;
         QWidget* chipsBar = nullptr;
-        std::vector<std::string> images;
+        std::map<std::string, QLabel*> chips; // label of an image -> its chip (shown while the label is in the text)
 
         PromptEdit(Window* owner, QWidget* parent);
         void refreshCompletion(void);
         void apply(const bool final);
-        void addImage(const std::string& path);
+        void addImage(const std::string& path, const bool insert = true);
         void reset(void);
+        _nodiscard std::string raw(void) const {return this->completion.atomize(this->text().toStdString());}; // labels -> atoms
+        _nodiscard std::string plain(void) const {return this->completion.expand(this->raw());};               // to send / stash
+        _nodiscard std::optional<std::pair<int, int>> atomNear(const int pos, const int where) const;           // -1 before, 1 after, 0 inside
+};
+
+// The labels of the atoms marked like chips
+class AtomHighlighter: public QSyntaxHighlighter {
+    private:
+        PromptEdit* _edit = nullptr;
+
+    protected:
+        void highlightBlock(const QString& text) override
+        {
+            QTextCharFormat format;
+            format.setFontWeight(QFont::Bold);
+            format.setForeground(this->_edit->palette().color(QPalette::Highlight));
+            QColor back = this->_edit->palette().color(QPalette::Highlight);
+            back.setAlpha(45);
+            format.setBackground(back);
+            for (std::size_t i = 0; i < this->_edit->completion.atomCount(); ++i) {
+                const QString label = QString::fromStdString(this->_edit->completion.atom(i).label);
+                for (int at = text.indexOf(label); at >= 0; at = text.indexOf(label, at + 1))
+                    this->setFormat(at, static_cast<int>(label.size()), format);
+            }
+        }
+
+    public:
+        AtomHighlighter(PromptEdit* owner)
+            : QSyntaxHighlighter(owner->document()), _edit(owner)
+        {
+        }
 };
 
 class SessionView: public QFrame {
@@ -417,12 +453,30 @@ class Window: public QMainWindow {
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
             QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-            for (const QKeySequence& key: {QKeySequence("Ctrl+S"), QKeySequence(Qt::Key_F10)}) {
-                QShortcut* save = new QShortcut(key, &dialog);
-                QObject::connect(save, &QShortcut::activated, &dialog, &QDialog::accept);
-            }
+            // Ctrl+S: saved, the page stays (the values written become the current ones); F10: save and close
+            QShortcut* saveKey = new QShortcut(QKeySequence("Ctrl+S"), &dialog);
+            QObject::connect(saveKey, &QShortcut::activated, [this, &fields, &dialog]() {
+                std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> now;
+                for (const auto &[setting, read]: fields) {
+                    const std::string value = read();
+                    if (value != setting.value(this->manager.config())) now[{setting.section, setting.key}] = {setting, value};
+                }
+                if (now.empty()) return;
+                try {
+                    cluster::settings_write(this->manager.config(), now);
+                } catch (const utils::exception::IException& e) {
+                    this->message(std::string("not saved: ") + e.info(), true);
+                    return;
+                }
+                for (const char* key: {"layout", "style", "vim"})
+                    if (now.contains({"ui", key})) this->manager.setUi(key, now.at({"ui", key}).second);
+                (void)this->manager.config().reload();
+                dialog.setWindowTitle(q_("claude-cluster setup - " + std::to_string(now.size()) + " setting(s) saved"));
+            });
+            QShortcut* closeKey = new QShortcut(QKeySequence(Qt::Key_F10), &dialog);
+            QObject::connect(closeKey, &QShortcut::activated, &dialog, &QDialog::accept);
             layout->addWidget(sections, 1);
-            layout->addWidget(new QLabel("* applied at the next start · hover an option for its help · Ctrl+S save · Esc close (asks to save the changes)", &dialog));
+            layout->addWidget(new QLabel("* applied at the next start · hover an option for its help · Ctrl+S save · F10 save & close · Esc close (asks to save the changes)", &dialog));
             layout->addWidget(buttons);
             // Debug: CLAUDE_CLUSTER_SCREENSHOT also saves this page (<file>-settings.png), then closes it
             const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT");
@@ -452,7 +506,7 @@ class Window: public QMainWindow {
                 this->message(std::string("not saved: ") + e.info(), true);
                 return;
             }
-            for (const char* key: {"layout", "style"})
+            for (const char* key: {"layout", "style", "vim"})
                 if (changes.contains({"ui", key})) this->manager.setUi(key, changes.at({"ui", key}).second);
             (void)this->manager.config().reload();
             this->bindKeys();
@@ -506,13 +560,13 @@ class Window: public QMainWindow {
                 this->findInput->selectAll();
             } else if (action == "edit") {
                 bool ok = false;
-                const QString text = QInputDialog::getMultiLineText(this, "Edit the prompt", "Prompt (Ok: back in the prompt)", this->input->text(), &ok);
+                const QString text = QInputDialog::getMultiLineText(this, "Edit the prompt", "Prompt (Ok: back in the prompt)", q_(this->input->plain()), &ok);
                 if (ok) this->input->setText(text);
             } else if (action == "stash") {
                 if (cluster::trim(this->input->text().toStdString()).empty()) {
                     this->message("nothing to stash", false);
                 } else {
-                    this->manager.stashPush(this->input->text().toStdString());
+                    this->manager.stashPush(this->input->plain());
                     this->input->reset();
                     this->message("prompt stashed (" + std::to_string(this->manager.stashSize()) + ")", false);
                 }
@@ -521,7 +575,7 @@ class Window: public QMainWindow {
                 if (!text) {
                     this->message("the stash is empty", false);
                 } else {
-                    if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->text().toStdString());
+                    if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->plain());
                     this->input->setText(q_(*text));
                 }
             } else if (action == "history") {
@@ -543,13 +597,13 @@ class Window: public QMainWindow {
         {
             // a queued prompt of the session: back in the prompt to edit it (removed from the queue); else Esc Esc clears
             const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-            const std::optional<cluster::Queued> queued = this->manager.unqueue(this->active);
+            const std::optional<cluster::Queued> queued = this->manager.snapshot(this->active) ? this->manager.unqueue(this->active) : std::nullopt;
             if (queued) {
-                if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->text().toStdString());
+                if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->plain());
                 this->input->reset();
+                for (const std::string& image: queued->images) // its [Image #N] are in the text: atoms again, no new label
+                    this->input->addImage(image, false);
                 this->input->setText(q_(queued->text));
-                for (const std::string& image: queued->images)
-                    this->input->addImage(image);
                 this->message("queued prompt back to edit (Enter: queue it again)", false);
                 this->lastEscape = 0;
             } else if (now - this->lastEscape < 600) {
@@ -574,7 +628,7 @@ class Window: public QMainWindow {
 
         void send(void)
         {
-            const std::string text = cluster::trim(this->input->text().toStdString());
+            const std::string text = cluster::trim(this->input->plain());
             if (text.empty()) return;
             const std::optional<cluster::ActionResult> local = cluster::run_slash(this->manager, this->active, text);
             if (local) {
@@ -588,7 +642,10 @@ class Window: public QMainWindow {
                 return;
             }
             try {
-                this->manager.send(this->active, text, false, this->input->images);
+                std::vector<std::string> images;
+                for (const auto &[label, path]: this->input->completion.imagesIn(this->input->raw()))
+                    images.push_back(path);
+                this->manager.send(this->active, text, false, images);
                 this->input->reset();
             } catch (const utils::exception::IException& e) {
                 this->message(e.info(), true);
@@ -692,7 +749,10 @@ class Window: public QMainWindow {
             this->target = new QLabel(central);
             QPushButton* sendButton = new QPushButton("Send", central);
             QObject::connect(sendButton, &QPushButton::clicked, [this]() {this->send();});
+            this->input->vimLabel = new QLabel(central);
+            this->input->vimLabel->setStyleSheet("font-weight:bold;");
             bar->addWidget(this->input, 1);
+            bar->addWidget(this->input->vimLabel);
             bar->addWidget(this->target);
             bar->addWidget(sendButton);
             root->addLayout(bar);
@@ -749,6 +809,7 @@ class Window: public QMainWindow {
             const cluster::VoiceConf& conf = this->manager.config().voice;
             QString voiceText;
             if (voice.listening()) voiceText = span_(st.ok, conf.mode == "wake" ? (voice.armed() ? "◉ armed: say the command" : q_("○ waiting for \"" + conf.wakeWord + "\"")) : "◉ listening", true);
+            if (voice.listening() && !voice.ready()) voiceText = span_(st.warn, "… loading the speech model (~10 s)", true);
             for (const cluster::Pending& p: voice.pending())
                 voiceText += "  " + esc_((p.target.empty() ? "" : "→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ": ") + p.text);
             if (voice.speaking()) voiceText += "  " + span_(st.muted, "speaking (" + q_(conf.wakeWord.empty() ? "" : "") + q_(this->manager.config().keys.at("mute")) + " mute)");
@@ -765,6 +826,7 @@ class Window: public QMainWindow {
                 this->bindKeys();
                 this->signature.clear();
             }
+            if (this->input) this->input->vimSync();
             this->refresh(false);
         }
 };
@@ -775,8 +837,30 @@ PromptEdit::PromptEdit(Window* owner, QWidget* parent)
     this->completion.setProvider(cluster::completion_provider(owner->manager, [owner]() {return owner->active;}));
     this->setTabChangesFocus(false);
     this->setLineWrapMode(QPlainTextEdit::WidgetWidth);
-    QObject::connect(this, &QPlainTextEdit::textChanged, [this]() {this->refreshCompletion(); this->fit();});
-    QObject::connect(this, &QPlainTextEdit::cursorPositionChanged, [this]() {this->refreshCompletion();});
+    new AtomHighlighter(this);
+    QObject::connect(this, &QPlainTextEdit::textChanged, [this]() {
+        this->refreshCompletion();
+        this->fit();
+        // a chip while its [Image #N] is in the text
+        const QString text = this->text();
+        bool any = false;
+        for (const auto &[label, chip]: this->chips) {
+            chip->setVisible(text.contains(QString::fromStdString(label)));
+            any |= chip->isVisible();
+        }
+        if (this->chipsBar) this->chipsBar->setVisible(any);
+    });
+    QObject::connect(this, &QPlainTextEdit::cursorPositionChanged, [this]() {
+        // never inside a label (click, vim): to its end
+        QTextCursor cursor = this->textCursor();
+        const std::optional<std::pair<int, int>> inside = this->atomNear(cursor.position(), 0);
+        if (inside) {
+            cursor.setPosition(inside->second, cursor.hasSelection() ? QTextCursor::KeepAnchor : QTextCursor::MoveAnchor);
+            this->setTextCursor(cursor);
+            return;
+        }
+        this->refreshCompletion();
+    });
     this->fit();
 }
 
@@ -825,11 +909,36 @@ void PromptEdit::apply(const bool final)
     }
 }
 
-void PromptEdit::addImage(const std::string& path)
+std::optional<std::pair<int, int>> PromptEdit::atomNear(const int pos, const int where) const
 {
-    this->images.push_back(path);
-    this->insert(q_("[Image #" + std::to_string(this->images.size()) + "] "));
-    QLabel* chip = new QLabel(q_("[Image #" + std::to_string(this->images.size()) + "] " + std::filesystem::path(path).filename().string()), this->chipsBar);
+    // a label of an atom: ending at pos (-1), starting at pos (1), or around pos (0); <start, end> in UTF-16
+    const QString text = this->text();
+    for (std::size_t i = 0; i < this->completion.atomCount(); ++i) {
+        const QString label = QString::fromStdString(this->completion.atom(i).label);
+        const int size = static_cast<int>(label.size());
+        for (int at = text.indexOf(label); at >= 0; at = text.indexOf(label, at + 1)) {
+            if ((where < 0 && at + size == pos) || (where > 0 && at == pos) || (where == 0 && at < pos && pos < at + size))
+                return std::make_pair(at, at + size);
+        }
+    }
+    return std::nullopt;
+}
+
+void PromptEdit::insertFromMimeData(const QMimeData* source)
+{
+    if (source->hasText() && !source->hasImage()) {
+        this->insertPlainText(QString::fromStdString(this->completion.shown(this->completion.newPaste(source->text().toStdString()))));
+        return;
+    }
+    QPlainTextEdit::insertFromMimeData(source);
+}
+
+void PromptEdit::addImage(const std::string& path, const bool insert)
+{
+    const std::string label = this->completion.shown(this->completion.newImage(path));
+    if (insert) this->insert(q_(label + " "));
+    QLabel* chip = new QLabel(q_(label + " " + std::filesystem::path(path).filename().string()), this->chipsBar);
+    this->chips[label] = chip;
     chip->setToolTip("<img src=\"" + q_(path) + "\" width=\"420\">");
     chip->setStyleSheet("padding:2px 6px;border-radius:4px;border:1px solid palette(highlight);");
     this->chipsBar->layout()->addWidget(chip);
@@ -839,7 +948,8 @@ void PromptEdit::addImage(const std::string& path)
 void PromptEdit::reset(void)
 {
     this->clear();
-    this->images.clear();
+    this->completion.clear();
+    this->chips.clear();
     QLayoutItem* item = nullptr;
     while ((item = this->chipsBar->layout()->takeAt(0))) {
         delete item->widget();
@@ -849,8 +959,105 @@ void PromptEdit::reset(void)
     if (this->popup) this->popup->setVisible(false);
 }
 
+void PromptEdit::vimSync(void)
+{
+    const bool on = this->window->manager.ui("vim", this->window->manager.config().vim ? "true" : "false") == "true";
+    this->completion.setVim(on);
+    this->completion.setPasteLimits(this->window->manager.config().pasteLines, this->window->manager.config().pasteChars);
+    const cluster::VimMode vim = this->completion.vim();
+    const bool block = vim != cluster::VimMode::Off && vim != cluster::VimMode::Insert;
+    this->setCursorWidth(block ? std::max(2, this->fontMetrics().horizontalAdvance('M')) : 1);
+    if (!this->vimLabel) return;
+    static const std::map<cluster::VimMode, QString> names = {{cluster::VimMode::Insert, "-- INSERT --"}, {cluster::VimMode::Normal, "-- NORMAL --"},
+        {cluster::VimMode::Visual, "-- VISUAL --"}, {cluster::VimMode::VisualLine, "-- V-LINE --"}};
+    this->vimLabel->setVisible(vim != cluster::VimMode::Off);
+    if (vim != cluster::VimMode::Off) this->vimLabel->setText(names.at(vim) + " " + q_(this->completion.vimPending()));
+}
+
+bool PromptEdit::vimKey(QKeyEvent* event)
+{
+    // the shared editor runs the vim command on the text of Qt, the result goes back as one edit (undo of Qt kept)
+    this->vimSync();
+    const cluster::VimMode vim = this->completion.vim();
+    if (vim == cluster::VimMode::Off) return false;
+    const bool escape = event->key() == Qt::Key_Escape;
+    if (vim == cluster::VimMode::Insert && !escape) return false;
+    if (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier)) {
+        if (vim != cluster::VimMode::Insert && event->key() == Qt::Key_R && event->modifiers() == Qt::ControlModifier) {
+            this->redo();
+            return true;
+        }
+        return false; // the shortcuts
+    }
+    if (vim != cluster::VimMode::Insert && (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+        (void)this->completion.vimKey("Escape");
+        this->window->send();
+        return true;
+    }
+    static const std::map<int, std::string> keys = {{Qt::Key_Left, "h"}, {Qt::Key_Right, "l"}, {Qt::Key_Up, "k"}, {Qt::Key_Down, "j"},
+        {Qt::Key_Backspace, "h"}, {Qt::Key_Home, "0"}, {Qt::Key_End, "$"}, {Qt::Key_Delete, "x"}, {Qt::Key_Escape, "Escape"}};
+    std::string key = keys.contains(event->key()) ? keys.at(event->key()) : event->text().toStdString();
+    if (key.empty() || (key.size() == 1 && static_cast<unsigned char>(key[0]) < 0x20 && key != "Escape")) return vim != cluster::VimMode::Insert;
+    if (key == "u" && vim == cluster::VimMode::Normal && this->completion.vimPending().empty()) {
+        this->undo();
+        return true;
+    }
+    const QString before = this->text();
+    this->completion.sync(this->raw(), this->completion.atomize(before.left(this->cursorPosition()).toStdString()).size());
+    const bool used = this->completion.vimKey(key);
+    const std::string after = this->completion.text();
+    const QString text = QString::fromStdString(this->completion.shown(after));
+    const std::function<int(std::size_t)> utf16 = [this, &after](std::size_t at) {
+        return static_cast<int>(QString::fromStdString(this->completion.shown(after.substr(0, std::min(at, after.size())))).size());
+    };
+    QTextCursor cursor = this->textCursor();
+    if (text != before) {
+        cursor.beginEditBlock();
+        cursor.select(QTextCursor::Document);
+        cursor.insertText(text);
+        cursor.endEditBlock();
+    }
+    const std::pair<std::size_t, std::size_t> sel = this->completion.selection();
+    const cluster::VimMode now = this->completion.vim();
+    if ((now == cluster::VimMode::Visual || now == cluster::VimMode::VisualLine) && sel.first != sel.second) {
+        cursor.setPosition(utf16(sel.first));
+        cursor.setPosition(utf16(sel.second), QTextCursor::KeepAnchor);
+    } else {
+        cursor.setPosition(utf16(this->completion.cursor()));
+    }
+    this->setTextCursor(cursor);
+    if (now != cluster::VimMode::Insert && this->popup) this->popup->setVisible(false);
+    this->vimSync();
+    return used;
+}
+
 void PromptEdit::keyPressEvent(QKeyEvent* event)
 {
+    if (!(this->popup && this->popup->isVisible()) && this->vimKey(event)) return;
+    {
+        // an atom ([Image #N], [Pasted text #N]) is one character: removed / crossed at once
+        QTextCursor cursor = this->textCursor();
+        const bool shift = event->modifiers() & Qt::ShiftModifier;
+        const int key = event->key();
+        std::optional<std::pair<int, int>> atom;
+        if (!cursor.hasSelection() && key == Qt::Key_Backspace) atom = this->atomNear(cursor.position(), -1);
+        else if (!cursor.hasSelection() && key == Qt::Key_Delete) atom = this->atomNear(cursor.position(), 1);
+        if (atom) {
+            cursor.setPosition(atom->first);
+            cursor.setPosition(atom->second, QTextCursor::KeepAnchor);
+            cursor.removeSelectedText();
+            this->setTextCursor(cursor);
+            return;
+        }
+        if ((key == Qt::Key_Left || key == Qt::Key_Right) && !(event->modifiers() & Qt::ControlModifier)) {
+            atom = this->atomNear(cursor.position(), key == Qt::Key_Left ? -1 : 1);
+            if (atom) {
+                cursor.setPosition(key == Qt::Key_Left ? atom->first : atom->second, shift ? QTextCursor::KeepAnchor : QTextCursor::MoveAnchor);
+                this->setTextCursor(cursor);
+                return;
+            }
+        }
+    }
     const bool open = this->popup && this->popup->isVisible();
     const bool enter = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
     if (enter && (event->modifiers() & (Qt::ShiftModifier | Qt::AltModifier))) {

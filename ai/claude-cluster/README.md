@@ -25,6 +25,7 @@ ones (Qwen Code), opencode and the OpenAI Codex CLI work too.
 | Qt6 Widgets (optional: window) | >= 6.2 | `qt6-qtbase-devel` | `qt6-base-dev` |
 | [FTXUI](https://github.com/ArthurSonzogni/FTXUI) (terminal) | 6.1.9 | fetched by CMake | fetched by CMake |
 | clang++, CMake | C++20, >= 3.20 | `clang cmake` | `clang cmake` |
+| chafa / ImageMagick (optional: image previews in the terminal) | | `chafa ImageMagick` | `chafa imagemagick` |
 | an agent | | [`claude`](https://docs.claude.com/en/docs/claude-code) (default), `ollama`, `qwen`, `opencode`, `codex` | |
 
 > [!NOTE]
@@ -129,13 +130,25 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 | Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
 | Ctrl+← → , Home / End | move by word, to the start / end |
 | Ctrl+X / Ctrl+C / Ctrl+V | cut / copy (with a selection) / paste: text, or an **image** of the clipboard as `[Image #N]` |
+| Backspace / Delete / ← → on `[Image #N]`, `[Pasted text #N]` | the whole block at once (one character for the editor, like Claude Code) |
 | Ctrl+S / Ctrl+P | stash the prompt / take the last one back (kept over the runs) |
 | Ctrl+R | history of the prompts sent (type to filter, Enter puts it in the prompt) |
 
 Local commands: `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
-`/export [file]`, `/restore [session]`, `/settings`, `/help`. A pasted image goes to Claude as an image block (to the
-other agents as `@path`); the mouse over its chip shows it (terminal: drawn with half blocks through `magick`; window: tooltip),
-and over `[Image: ...]` in the transcript of the window.
+`/export [file]`, `/restore [session]`, `/settings`, `/vim`, `/help`. A pasted image goes to Claude as an image block (to the
+other agents as `@path`); the mouse over its chip shows it (terminal: `chafa` symbols in true colors, else half blocks
+through `magick`; window: the image in a tooltip), and over `[Image: ...]` in the transcript of the window.
+
+**Pasted text**: a paste of more than `[ui] paste_lines` lines (3) or `paste_chars` characters (800) is one
+`[Pasted text #N +L lines]` block in the prompt (0: never); it is sent, stashed, edited (Ctrl+E) as its full text. In
+the terminal the paste of the terminal itself (Ctrl+Shift+V, bracketed paste) arrives in one piece: its new lines don't
+send the prompt.
+
+**Vim mode** (`/vim`, the palette, or `[ui] vim = true`): the prompt starts in Insert (`-- INSERT --`), **Esc** goes to
+Normal (block cursor, `-- NORMAL --`): `h j k l` / arrows, `w b e`, `0 ^ $`, `gg G`, `f t F T<c>`, `x X s S D C`,
+`dd cc yy`, `d c y` + a motion, `p P`, `u` / `Ctrl+R`, `~`, `J`, `r<c>`, counts (`3w`, `2dd`), `v` / `V` visual
+(`d x c y ~`), `i a I A o O` back to Insert. In Normal: **Enter** sends, **Esc** with nothing pending does the Esc of the
+prompt (queued prompt back, Esc Esc clears), the Ctrl / Alt / F keys stay the shortcuts.
 
 Panels of a session (each one enabled per session from the palette): **tokens** (last prompt, current one, total),
 **context** (used / window), **cost** (session, last turn, budget, 5 h / 7 d limits), **skills** (loaded, available),
@@ -191,7 +204,10 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   proposed first;
 - **Remote Control** (`remote on` / palette): Remote Control needs an interactive Claude Code, so the conversation
   goes on in a background session (`claude --bg --resume <id> --remote-control <name>`), reachable from claude.ai or
-  the app; `remote off` stops it and resumes the conversation here.
+  the app; `remote off` stops it and resumes the conversation here. `claude --bg` runs only in a **trusted** folder,
+  never the home folder: the global session has a folder of its own (`[global] cwd = ""`:
+  `~/.local/share/claude-cluster/global`), that claude-cluster marks trusted in `~/.claude.json`; with another
+  `global.cwd`, run `claude` there once and accept the trust prompt.
 
 ## Voice
 
@@ -199,10 +215,12 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 
 | Mode | Listening | Prompt |
 |---|---|---|
-| `push` | push-to-talk key (F5: start, F5 again: stop) | every sentence heard while listening |
-| `auto` | always | every sentence heard |
+| `push` | push-to-talk key (F5: start, F5 again: stop; a sentence ending just after is kept) | every sentence heard while listening |
+| `auto` | always, from the start (no key; F5 pauses / resumes) | every sentence heard |
 | `wake` | always | only after the wake phrase (`wake_word = "ok claude"`, variants separated by commas): "ok claude, list the sessions" sends it; "ok claude" alone arms the listening `wake_seconds` (optional spoken `wake_reply`) and the next sentence is the prompt |
 
+- The speech model is loaded at the start (about 10 s, `… loading the speech model` in the status line), in every
+  mode: F5 listens at once.
 - `only_me = true`: only the enrolled voice of the user (`voice-enroll`).
 - The transcription is shown `confirm_seconds` before it is sent (palette: send now / drop / correct); the global
   session gets it as `[voice] ...` and asks when a word looks wrong or the request is ambiguous.
@@ -215,8 +233,9 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 **Settings page** (F9 or the palette: *Settings*), like a BIOS setup: one tab per section (Interface, Agent,
 Commands, Global session, Sessions, Voice, Keys), the help of the selected option on the right, `*` on the changed
 ones. Terminal: `↑↓` select, `←→` / `Enter` change a choice / toggle / number, `Enter` edit a text, `Tab` /
-`Shift+Tab` section, **Ctrl+S** (or F10 when the terminal lets it through) save & exit, **Esc** exit: with unsaved changes it asks "Save the changes? (y / n)", y saves, any other key drops them. Window: a tabs dialog
-(help on hover, Ctrl+S / Save; closed with changes: asked). The changes are written in `config.toml` - only the values, its comments kept - and
+`Shift+Tab` section, **Ctrl+S** save (the page stays), **F10** save & exit (when the terminal lets it through),
+**Esc** exit: with unsaved changes it asks "Save the changes? (y / n)", y saves, any other key drops them. Window: a
+tabs dialog (help on hover, Ctrl+S save, F10 / Save save & close; closed with changes: asked). The changes are written in `config.toml` - only the values, its comments kept - and
 reloaded live; the options marked *applied at the next start* need a restart. Profiles, providers and own styles
 stay in the file.
 

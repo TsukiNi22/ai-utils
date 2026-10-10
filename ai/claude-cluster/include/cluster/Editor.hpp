@@ -7,8 +7,9 @@ File Name:
 
 File Description:
 ##  Prompt editor of the front-ends: cursor, selection, undo /
-##  redo, pasted images, and the completion of @files, /commands
-##  (skills, local commands) and their arguments
+##  redo, atoms (pasted images and long texts: one character),
+##  vim mode, and the completion of @files, /commands (skills,
+##  local commands) and their arguments
 \**************************************************************/
 
 #ifndef CLUSTER_EDITOR_H
@@ -40,6 +41,14 @@ enum class CompletionKind {
     Trash,      // argument of /restore
 };
 
+enum class VimMode {
+    Off,        // plain editor
+    Insert,
+    Normal,
+    Visual,     // characters
+    VisualLine, // lines
+};
+
 //----------------------------------------------------------------//
 /* STRUCT */
 
@@ -48,6 +57,13 @@ struct Candidate {
     std::string label;          // shown in the list
     std::string description;
     bool directory = false;     // Tab / Enter go on inside it
+};
+
+// [Image #N] / [Pasted text #N +L lines]: one character of the text (U+F0000 + index), shown as its label
+struct Atom {
+    std::string label;
+    std::string content;        // the pasted text (empty: an image)
+    std::string image;          // path of the image
 };
 
 using CompletionProvider = std::function<std::vector<cluster::Candidate>(const cluster::CompletionKind, const std::string&)>;
@@ -63,13 +79,22 @@ class Editor {
         std::vector<std::pair<std::string, std::size_t>> _undo;
         std::vector<std::pair<std::string, std::size_t>> _redo;
         bool _typing = false;                       // consecutive characters: one undo step
-        std::vector<std::string> _images;           // [Image #N] -> path (N = index + 1)
+        std::vector<cluster::Atom> _atoms;          // index i -> the character U+F0000 + i (kept: undo)
+        int _imageCount = 0;                        // numbers of the labels since the last clear
+        int _pasteCount = 0;
+        int _pasteLines = 3;                        // a paste of more lines / characters becomes an atom (0: never)
+        int _pasteChars = 800;
         cluster::CompletionProvider _provider;
         cluster::CompletionKind _kind = cluster::CompletionKind::None;
         std::size_t _start = 0;                     // first byte of the completed word (after @ or /)
         std::vector<cluster::Candidate> _items;
         int _selected = 0;
         std::string _dismissed;                     // word for which the list was closed
+        cluster::VimMode _vim = cluster::VimMode::Off;
+        std::string _pending;                       // vim: operator / prefix waiting (d, c, y, g, r, f, t...)
+        std::string _count;                         // vim: count typed before the command
+        std::string _register;                      // vim: last yank / delete
+        bool _linewise = false;                     // the register holds whole lines
 
         // ---------- Pre-Function -------- //
         _cold void save_(const bool typing = false);
@@ -80,6 +105,12 @@ class Editor {
         _cold _nodiscard std::size_t next_(const std::size_t at) const;
         _cold _nodiscard std::size_t wordStart_(const std::size_t at) const;
         _cold void move_(const std::size_t to, const bool select);
+        _cold _nodiscard std::size_t lineStart_(const std::size_t at) const;
+        _cold _nodiscard std::size_t lineEnd_(const std::size_t at) const;     // position of its \n (or the end)
+        _cold _nodiscard std::optional<std::size_t> motion_(const std::string& key, const std::size_t count) const;
+        _cold void operate_(const char op, std::size_t from, std::size_t to, const bool linewise);
+        _cold void enterInsert_(void);
+        _cold _nodiscard bool vimCommand_(const std::string& key);
 
     public:
         // ---------- Pre-Function -------- //
@@ -98,8 +129,16 @@ class Editor {
         _cold _nodiscard std::string cut(void);     // selected text, removed
         _cold void setText(const std::string& text);
         _cold void clear(void);
-        _cold void addImage(const std::string& path);   // [Image #N] at the cursor
-        _cold inline void setImages(const std::vector<std::string>& images) {this->_images = images;}; // with setText: a queued prompt back
+        _cold inline void addImage(const std::string& path) {this->insert(this->newImage(path) + " ");}; // [Image #N] at the cursor
+        _cold inline void paste(const std::string& text) {this->insert(this->newPaste(text));};          // long: [Pasted text #N +L lines]
+        _cold void setImages(const std::vector<std::string>& images);   // with setText: a queued prompt back, its labels atoms again
+        _cold _nodiscard std::string newImage(const std::string& path); // the character of a new image atom
+        _cold _nodiscard std::string newPaste(std::string text);        // the character of a new paste atom, or the text if short
+        _cold inline void setPasteLimits(const int lines, const int chars) {this->_pasteLines = lines; this->_pasteChars = chars;};
+
+        /* vim (Off: plain editor) */
+        _cold void setVim(const bool on);           // on: Insert mode first (like Claude Code)
+        _cold _nodiscard bool vimKey(const std::string& key);  // a key of the Normal / Visual modes, Escape of Insert; true: used
 
         /* completion */
         _cold inline void setProvider(cluster::CompletionProvider provider) {this->_provider = std::move(provider);};
@@ -115,12 +154,22 @@ class Editor {
         _nodiscard inline std::size_t cursor(void) const {return this->_cursor;};
         _nodiscard std::pair<std::size_t, std::size_t> selection(void) const;   // empty: from == to
         _nodiscard std::string selected(void) const;
-        _nodiscard inline const std::vector<std::string>& images(void) const {return this->_images;};
+        _nodiscard std::optional<std::size_t> atomAt(const std::string& text, const std::size_t at) const; // index of the atom there
+        _nodiscard inline const cluster::Atom& atom(const std::size_t index) const {return this->_atoms[index];};
+        _nodiscard inline std::size_t atomCount(void) const {return this->_atoms.size();};
+        _nodiscard std::string shown(const std::string& text) const;    // atoms -> labels (display, window)
+        _nodiscard std::string atomize(const std::string& text) const;  // labels of the known atoms -> atoms
+        _nodiscard std::string expand(const std::string& text) const;   // to send: images -> labels, pastes -> their text
+        _nodiscard std::vector<std::pair<std::string, std::string>> imagesIn(const std::string& text) const; // <label, path>
+        _nodiscard std::vector<std::string> images(void) const;         // paths of the images still in the text
+        _nodiscard inline std::string plain(void) const {return this->expand(this->_text);};
         _nodiscard inline bool completing(void) const {return !this->_items.empty();};
         _nodiscard inline const std::vector<cluster::Candidate>& items(void) const {return this->_items;};
         _nodiscard inline int selectedItem(void) const {return this->_selected;};
         _nodiscard inline cluster::CompletionKind kind(void) const {return this->_kind;};
         _nodiscard inline std::size_t completionStart(void) const {return this->_start;};
+        _nodiscard inline cluster::VimMode vim(void) const {return this->_vim;};
+        _nodiscard inline const std::string& vimPending(void) const {return this->_pending;};
 
         // ---------- Constructor -------- //
         Editor(void) = default;

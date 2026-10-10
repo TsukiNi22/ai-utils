@@ -25,6 +25,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     std::vector<cluster::Action> list = {
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
         {"restore_menu", "Reopen a closed session (the trash)", "", "", true},
+        {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
         {"send", "Send a prompt to the session", "prompt", "", false},
     };
@@ -99,6 +100,10 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             result.message = "session " + result.focus + " started";
         } else if (base == "send") {
             manager.send(session, input);
+        } else if (base == "vim") {
+            const bool on = manager.ui("vim", manager.config().vim ? "true" : "false") != "true";
+            manager.setUi("vim", on ? "true" : "false");
+            result.message = on ? "vim mode on (Esc: Normal, i: Insert)" : "vim mode off";
         } else if (base == "allow" || base == "always" || base == "deny") {
             manager.answer(session, "", base);
             result.message = base == "deny" ? "denied" : "allowed";
@@ -199,6 +204,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"export", "[file]: conversation as Markdown"},
         {"restore", "<session>: reopen a closed session"},
         {"settings", "the settings page"},
+        {"vim", "vim mode of the prompt on / off"},
         {"help", "the local commands"},
     };
     return list;
@@ -288,6 +294,10 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             else result.focus = manager.restore(arg);
         } else if (name == "settings") {
             result.ui = "settings";
+        } else if (name == "vim") {
+            const bool on = manager.ui("vim", manager.config().vim ? "true" : "false") != "true";
+            manager.setUi("vim", on ? "true" : "false");
+            result.message = on ? "vim mode on (Esc: Normal, i: Insert)" : "vim mode off";
         } else if (name == "help") {
             result.message = "local commands (the other / commands go to the agent: skills, /compact...):";
             for (const auto &[command, description]: local)
@@ -331,6 +341,8 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         "\nEsc                           queued prompt back in the prompt (to edit it)"
         "\nEsc Esc                       clear the prompt"
         "\nEnter                         send (/local commands run here)"
+        "\n/vim                          vim mode: Esc Normal (hjkl w b e 0 ^ $ gg G f t x X s S D C dd cc yy d/c/y+motion"
+        "\n                              p P u Ctrl+R ~ J r v V counts), i a I A o O Insert, Enter sends"
         "\nShift / Ctrl+Shift + arrows   select; Ctrl + arrows: by word; Home / End"
         "\nPageUp / PageDown, wheel      scroll the transcript"
         "\n@ / /                         completion: Tab complete, Enter accept, arrows choose, Space / Esc close";

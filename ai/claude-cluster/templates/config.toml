@@ -8,6 +8,9 @@ style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized
 panels = ["skills", "tokens", "context", "cost", "git"]   # default panels of a new session (+ "diff", "tools")
 restore = "ask"            # ask | always | never: sessions of the previous run at start (like Firefox)
 notify = true              # desktop notification: permission waiting, turn finished, error
+vim = false                # vim mode of the prompt: Esc Normal (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o Insert
+paste_lines = 3            # a paste of more lines is one [Pasted text #N +L lines] in the prompt (0: never)
+paste_chars = 800          # or of more characters (0: never)
 
 [agent]
 # Backend of a new session: "<provider>[/<model>]" (claude-cluster auth list: every provider and its state)
@@ -30,7 +33,9 @@ codex = "codex"
 [global]
 enabled = true
 backend = "claude"         # must be a claude-driver provider (the MCP control needs it)
-cwd = "~"                  # working folder of the global session
+cwd = ""                   # working folder of the global session; empty: a folder of its own
+                           #   (~/.local/share/claude-cluster/global, trusted by claude-cluster for Remote Control:
+                           #   claude --bg never runs in the home folder)
 model = ""
 permission_mode = "bypassPermissions" # of the global session, applied at every start: it can do anything without
                            # asking (empty: the mode of [agent])

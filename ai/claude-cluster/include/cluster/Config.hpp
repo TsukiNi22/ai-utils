@@ -95,6 +95,9 @@ class Config {
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "git"};
         std::string restore = "ask";
         bool notify = true;
+        bool vim = false;                       // vim mode of the prompt (Insert / Normal / Visual)
+        int pasteLines = 3;                     // a paste of more lines becomes [Pasted text #N +L lines] (0: never)
+        int pasteChars = 800;                   // or of more characters
 
         /* agent */
         std::string backend = "claude";
@@ -106,7 +109,7 @@ class Config {
         /* global */
         bool globalEnabled = true;
         std::string globalBackend = "claude";
-        std::string globalCwd = "~";
+        std::string globalCwd;                  // empty: a folder of its own (<data>/global, trusted for Remote Control)
         std::string globalModel;
         std::string globalMode = "bypassPermissions"; // never asked (empty: the mode of [agent])
         std::string globalPrompt = "~/.config/claude-cluster/global.md";

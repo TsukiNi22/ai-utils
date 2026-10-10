@@ -111,6 +111,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.restore;}},
             {"ui", "notify", "Desktop notifications", SettingKind::Bool, {}, "permission waiting, turn finished, error", false,
                 [](const cluster::Config& cf) {return cf.notify ? std::string("true") : std::string("false");}},
+            {"ui", "vim", "Vim mode of the prompt", SettingKind::Bool, {}, "Esc: Normal mode (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o: Insert", false,
+                [](const cluster::Config& cf) {return cf.vim ? std::string("true") : std::string("false");}},
+            {"ui", "paste_lines", "Paste collapsed above (lines)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N +L lines] in the prompt (0: never)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.pasteLines);}},
+            {"ui", "paste_chars", "Paste collapsed above (characters)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N] in the prompt (0: never)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.pasteChars);}},
         }},
         {"agent", "Agent", {
             {"agent", "default", "Backend of new sessions", SettingKind::Text, {}, "<provider>[/<model>]: claude, claude/opus, ollama/<model>, openai/<model>, opencode/<p>/<m>, codex", false,

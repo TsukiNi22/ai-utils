@@ -101,6 +101,9 @@ _cold void cluster::Config::load(void)
     this->panels = strings_(table["ui"]["panels"], this->panels);
     this->restore = table["ui"]["restore"].value_or(this->restore);
     this->notify = table["ui"]["notify"].value_or(this->notify);
+    this->vim = table["ui"]["vim"].value_or(this->vim);
+    this->pasteLines = table["ui"]["paste_lines"].value_or(this->pasteLines);
+    this->pasteChars = table["ui"]["paste_chars"].value_or(this->pasteChars);
 
     /* agent */
     this->backend = table["agent"]["default"].value_or(this->backend);

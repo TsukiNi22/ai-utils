@@ -92,6 +92,7 @@ class Manager {
         _cold void event_(const cluster::Event& event);
         _cold void notice_(const std::string& session, const std::string& text, const bool error = false);
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
+        _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
         _cold void writeMcpConfig_(void) const;
         _cold void schedule_(void);                         // Manager-Tasks.cpp
         _cold void taskDone_(const std::string& session, const bool error);
