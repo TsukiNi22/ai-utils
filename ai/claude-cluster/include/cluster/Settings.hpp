@@ -37,6 +37,7 @@ enum class SettingKind {
     Text,
     Choice,
     List,       // comma separated in the page, a TOML array in the file
+    Action,     // not an option: Enter runs it (its key names it), its value is a status
 };
 
 //----------------------------------------------------------------//
@@ -65,6 +66,7 @@ struct SettingsPage {
 _cold _nodiscard std::vector<cluster::SettingsPage> settings_pages(const cluster::Config& config);
 _cold _nodiscard std::string setting_next(const cluster::Setting& setting, const std::string& value, const int step); // Bool / Choice / Int / Float
 _cold _nodiscard std::string setting_check(const cluster::Setting& setting, const std::string& value); // error message, empty: valid
+_cold bool settings_set(const cluster::Config& config, const std::string& section, const std::string& key, const std::string& value);
 _cold void settings_write(const cluster::Config& config, const std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes);
 
 } // namespace end

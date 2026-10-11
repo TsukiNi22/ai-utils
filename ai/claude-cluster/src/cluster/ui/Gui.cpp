@@ -16,7 +16,10 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
+#include "cluster/Machine.hpp"
+#include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
+#include "cluster/Reveal.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
@@ -31,6 +34,7 @@ File Description:
 #include <QTextBrowser>
 #include <QKeySequence>
 #include <QInputDialog>
+#include <QProgressBar>
 #include <QMainWindow>
 #include <QListWidget>
 #include <QPushButton>
@@ -54,6 +58,7 @@ File Description:
 #include <QPalette>
 #include <QToolTip>
 #include <QSpinBox>
+#include <QBuffer>
 #include <QCursor>
 #include <fstream>
 #include <QWidget>
@@ -124,15 +129,17 @@ class PromptEdit: public QPlainTextEdit {
         cluster::Editor completion;         // completion, vim, and the atoms ([Image #N], [Pasted text #N]: one block)
         QListWidget* popup = nullptr;
         QWidget* chipsBar = nullptr;
-        std::map<std::string, QLabel*> chips; // label of an image -> its chip (shown while the label is in the text)
+        void refreshChips(void);            // one chip per atom of the prompt (images, pasted texts)
 
         PromptEdit(Window* owner, QWidget* parent);
         void refreshCompletion(void);
         void apply(const bool final);
-        void addImage(const std::string& path, const bool insert = true);
+        bool addImage(const std::string& path, const bool insert = true); // false: this image was already in the prompt
         void reset(void);
         _nodiscard std::string raw(void) const {return this->completion.atomize(this->text().toStdString());}; // labels -> atoms
         _nodiscard std::string plain(void) const {return this->completion.expand(this->raw());};               // to send / stash
+        _nodiscard cluster::Draft draft(void) const {return this->completion.draftOf(this->raw());};          // + its images and pastes
+        void loadDraft(const cluster::Draft& draft);                                                         // a prompt back, blocks again
         _nodiscard std::optional<std::pair<int, int>> atomNear(const int pos, const int where) const;           // -1 before, 1 after, 0 inside
 };
 
@@ -175,7 +182,7 @@ class SessionView: public QFrame {
         std::string lastKey;
 
         SessionView(Window* window, const std::string& sessionId, const bool compact);
-        void update(const cluster::Snapshot& s, const cluster::Style& style, cluster::Manager& manager, const bool compact);
+        void update(const cluster::Snapshot& s, const cluster::Style& style, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded);
 };
 
 class Window: public QMainWindow {
@@ -197,6 +204,34 @@ class Window: public QMainWindow {
         std::uint64_t lastVersion = 0;
         std::int64_t statusTime = 0;
         std::vector<QShortcut*> shortcuts;
+        cluster::Reveal reveal;                 // the answers typed as they come
+        bool animating = false;                 // typing / a turn running: drawn at every tick
+        bool expanded = false;                  // Ctrl+O: thinking and tool results in full
+        int historyAt = -1;                     // Up / Down: -1 the prompt being written, else an index of the history
+        std::vector<cluster::Draft> historyList;
+        std::map<int, QString> historyEdits;    // the texts changed while browsing (forgotten when a prompt is sent)
+
+        bool historyStep(const int delta)
+        {
+            // +1 older, -1 newer, never looped; the text left (changed or not) is kept for when it comes back
+            if (this->historyAt == -1 && delta > 0) this->historyList = this->manager.drafts();
+            const int to = this->historyAt + delta;
+            if (to < -1 || to >= static_cast<int>(this->historyList.size())) return false;
+            this->historyEdits[this->historyAt] = this->input->text();
+            this->historyAt = to;
+            const auto edited = this->historyEdits.find(to);
+            if (edited != this->historyEdits.end()) this->input->setText(edited->second);
+            else this->input->loadDraft(this->historyList[static_cast<std::size_t>(to)]);
+            this->message(to == -1 ? "back to the prompt being written" : "history " + std::to_string(to + 1) + "/" + std::to_string(this->historyList.size()) + " (↓ newer)", false);
+            return true;
+        }
+
+        void historyReset(void)
+        {
+            this->historyAt = -1;
+            this->historyEdits.clear();
+            this->historyList.clear();
+        }
 
         Window(cluster::App& application)
             : app(application), manager(*application.manager)
@@ -207,7 +242,7 @@ class Window: public QMainWindow {
             this->rebuild();
             QTimer* timer = new QTimer(this);
             QObject::connect(timer, &QTimer::timeout, [this]() {this->tick();});
-            timer->start(150);
+            timer->start(50);
         }
 
         _nodiscard const cluster::Style& theme(void) const
@@ -305,6 +340,8 @@ class Window: public QMainWindow {
                 this->signature.clear();
             } else if (base == "settings") {
                 this->settings();
+            } else if (base == "machine_sync" || base == "edit_global_prompt") {
+                this->settingAction(base == "machine_sync" ? "machine_sync" : "edit_prompt");
             } else if (base == "restore_menu") {
                 this->openRestore();
             } else if (base == "quit") {
@@ -437,6 +474,12 @@ class Window: public QMainWindow {
                         box->setValue(QString::fromStdString(current).toDouble());
                         read = [box]() {return QString::number(box->value()).toStdString();};
                         widget = box;
+                    } else if (setting.kind == cluster::SettingKind::Action) {
+                        QPushButton* button = new QPushButton(q_("▶ " + current), tab);
+                        const std::string key = setting.key;
+                        QObject::connect(button, &QPushButton::clicked, [this, key]() {this->settingAction(key);});
+                        read = [current]() {return current;}; // not an option: never a change
+                        widget = button;
                     } else {
                         QLineEdit* line = new QLineEdit(q_(current), tab);
                         read = [line]() {return cluster::trim(line->text().toStdString());};
@@ -543,10 +586,14 @@ class Window: public QMainWindow {
             } else if (action == "settings") this->settings();
             else if (action == "restore") this->openRestore();
             else if (action == "interrupt") {
-                // a turn runs: stop it; else clear the prompt
+                // voice prompts waiting: dropped; else a turn runs: stop it; else clear the prompt
                 const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
-                if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) this->run({"interrupt", "", "", "", false}, "");
-                else this->input->reset();
+                if (!this->app.voice->pending().empty()) this->app.voice->cancel();
+                else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) this->run({"interrupt", "", "", "", false}, "");
+                else {
+                    this->input->reset();
+                    this->historyReset();
+                }
             } else if (action == "mode_cycle") {
                 const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
                 if (snap) this->run({"mode:" + cluster::next_mode(snap->spec.mode), "", "", "", false}, "");
@@ -554,6 +601,12 @@ class Window: public QMainWindow {
                 QMessageBox box(QMessageBox::Information, "claude-cluster keys", q_(cluster::help_text(this->manager.config())), QMessageBox::Ok, this);
                 box.setStyleSheet("QLabel{font-family:monospace;}");
                 box.exec();
+            } else if (action == "expand") {
+                this->expanded = !this->expanded;
+                for (const auto &[id, view]: this->views)
+                    view->lastKey.clear();
+                this->message(this->expanded ? "thinking and tool results in full" : "thinking and tool results folded", false);
+                this->refresh(true);
             } else if (action == "search") {
                 this->findBar->setVisible(true);
                 this->findInput->setFocus();
@@ -561,22 +614,23 @@ class Window: public QMainWindow {
             } else if (action == "edit") {
                 bool ok = false;
                 const QString text = QInputDialog::getMultiLineText(this, "Edit the prompt", "Prompt (Ok: back in the prompt)", q_(this->input->plain()), &ok);
-                if (ok) this->input->setText(text);
+                if (ok) this->input->setText(q_(this->input->completion.shown(this->input->completion.collapse(text.toStdString())))); // unchanged pastes: blocks again
             } else if (action == "stash") {
                 if (cluster::trim(this->input->text().toStdString()).empty()) {
                     this->message("nothing to stash", false);
                 } else {
-                    this->manager.stashPush(this->input->plain());
+                    this->manager.stashPush(this->input->draft());
                     this->input->reset();
+                    this->historyReset();
                     this->message("prompt stashed (" + std::to_string(this->manager.stashSize()) + ")", false);
                 }
             } else if (action == "unstash") {
-                const std::optional<std::string> text = this->manager.stashPop();
+                const std::optional<cluster::Draft> text = this->manager.stashPop();
                 if (!text) {
                     this->message("the stash is empty", false);
                 } else {
-                    if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->plain());
-                    this->input->setText(q_(*text));
+                    if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->draft());
+                    this->input->loadDraft(*text);
                 }
             } else if (action == "history") {
                 QStringList items;
@@ -587,7 +641,12 @@ class Window: public QMainWindow {
                 } else {
                     bool ok = false;
                     const QString item = QInputDialog::getItem(this, "History", "Prompt (type to filter)", items, 0, true, &ok);
-                    if (ok) this->input->setText(item);
+                    if (ok) {
+                        const std::vector<cluster::Draft> drafts = this->manager.drafts();
+                        auto it = std::find_if(drafts.begin(), drafts.end(), [&](const cluster::Draft& d) {return d.text == item.toStdString();});
+                        this->input->loadDraft(it != drafts.end() ? *it : cluster::Draft{item.toStdString(), {}, {}});
+                        this->historyReset();
+                    }
                 }
             } else if (action == "always") this->run({"always", "", "", "", false}, "");
             else if (action == "quit") this->close();
@@ -595,19 +654,29 @@ class Window: public QMainWindow {
 
         void escape(void)
         {
+            if (!this->app.voice->pending().empty()) {
+                this->app.voice->cancelLast(); // the last voice prompt waiting (Ctrl+C: all of them)
+                return;
+            }
             // a queued prompt of the session: back in the prompt to edit it (removed from the queue); else Esc Esc clears
             const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             const std::optional<cluster::Queued> queued = this->manager.snapshot(this->active) ? this->manager.unqueue(this->active) : std::nullopt;
             if (queued) {
-                if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->plain());
+                if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->draft());
                 this->input->reset();
+                this->historyReset();
                 for (const std::string& image: queued->images) // its [Image #N] are in the text: atoms again, no new label
                     this->input->addImage(image, false);
                 this->input->setText(q_(queued->text));
                 this->message("queued prompt back to edit (Enter: queue it again)", false);
                 this->lastEscape = 0;
+            } else if (now - this->lastEscape < 600 && cluster::trim(this->input->text().toStdString()).empty()) {
+                // Esc Esc on an empty prompt (like Claude Code): the last turn leaves the conversation, its prompt comes back
+                this->lastEscape = 0;
+                this->rewind();
             } else if (now - this->lastEscape < 600) {
                 this->input->reset();
+                this->historyReset();
                 this->lastEscape = 0;
             } else {
                 this->lastEscape = now;
@@ -626,30 +695,73 @@ class Window: public QMainWindow {
             }
         }
 
+        void rewind(void)
+        {
+            // the last turn leaves the conversation (claude started again: in the worker), its prompt comes back
+            const std::string session = this->active;
+            this->message("taking the last prompt back…", false);
+            this->worker.push([this, session]() {
+                std::optional<cluster::Queued> prompt;
+                std::string error;
+                try {
+                    prompt = this->manager.rewind(session);
+                } catch (const utils::exception::IException& e) {
+                    error = e.info();
+                }
+                QMetaObject::invokeMethod(this, [this, prompt, error]() {
+                    if (!prompt) {
+                        this->message(error, true);
+                        return;
+                    }
+                    if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->draft());
+                    this->input->loadDraft({prompt->text, prompt->images, {}});
+                    this->historyReset();
+                    this->message("the last prompt left the conversation: back here to edit (Esc Esc on an empty prompt: the one before)", false);
+                    this->refresh(true);
+                }, Qt::QueuedConnection);
+            });
+        }
+
         void send(void)
         {
+            // the prompt leaves at once (feedback), the send / the local command runs in the worker, its result comes back
+            // here; an error: the prompt back, nothing lost
             const std::string text = cluster::trim(this->input->plain());
             if (text.empty()) return;
-            const std::optional<cluster::ActionResult> local = cluster::run_slash(this->manager, this->active, text);
-            if (local) {
-                this->manager.addHistory(text, this->active);
-                this->input->reset();
-                if (!local->focus.empty()) this->active = local->focus;
-                if (local->ui == "settings") this->settings();
-                else if (local->ui == "restore_menu") this->openRestore();
-                if (!local->message.empty()) this->message(local->message, local->error);
-                this->refresh(true);
-                return;
-            }
-            try {
-                std::vector<std::string> images;
-                for (const auto &[label, path]: this->input->completion.imagesIn(this->input->raw()))
-                    images.push_back(path);
-                this->manager.send(this->active, text, false, images);
-                this->input->reset();
-            } catch (const utils::exception::IException& e) {
-                this->message(e.info(), true);
-            }
+            const cluster::Draft draft = this->input->draft();
+            std::vector<std::string> images;
+            for (const auto &[label, path]: this->input->completion.imagesIn(this->input->raw()))
+                images.push_back(path);
+            const std::string session = this->active;
+            this->input->reset();
+            this->historyReset();
+            this->message(text.starts_with("/") ? cluster::split(text, ' ')[0] + "…" : "sent", false);
+            this->worker.push([this, text, draft, images, session]() {
+                std::optional<cluster::ActionResult> local;
+                std::string error;
+                try {
+                    local = cluster::run_slash(this->manager, session, text);
+                    if (local) this->manager.addHistory(draft, session);
+                    else this->manager.send(session, text, false, images, draft.pastes);
+                } catch (const utils::exception::IException& e) {
+                    error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+                }
+                QMetaObject::invokeMethod(this, [this, local, error, draft]() {
+                    if (!error.empty()) {
+                        this->message(error, true);
+                        if (cluster::trim(this->input->text().toStdString()).empty()) this->input->loadDraft(draft);
+                        return;
+                    }
+                    if (local) {
+                        if (!local->focus.empty()) this->active = local->focus;
+                        if (local->ui == "settings") this->settings();
+                        else if (local->ui == "restore_menu") this->openRestore();
+                        else if (local->ui == "rewind") this->rewind();
+                        if (!local->message.empty()) this->message(local->message, local->error);
+                    }
+                    this->refresh(true);
+                }, Qt::QueuedConnection);
+            });
         }
 
         void rebuild(void)
@@ -767,7 +879,7 @@ class Window: public QMainWindow {
         {
             this->rebuild();
             const std::uint64_t version = this->manager.version() + this->app.voice->version();
-            if (!force && version == this->lastVersion) return;
+            if (!force && version == this->lastVersion && !this->animating) return;
             this->lastVersion = version;
             const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
             const cluster::Style& st = this->theme();
@@ -790,18 +902,22 @@ class Window: public QMainWindow {
                     if (sessions[i].spec.id == this->active) this->tabs->setCurrentIndex(static_cast<int>(i));
                 }
             }
+            this->reveal.frameStart();
+            bool working = false;
             for (const cluster::Snapshot& s: sessions) {
+                working |= s.state == cluster::State::Working;
                 auto it = this->views.find(s.spec.id);
                 if (it != this->views.end()) {
                     it->second->setProperty("active", s.spec.id == this->active);
                     it->second->style()->unpolish(it->second);
                     it->second->style()->polish(it->second);
-                    it->second->update(s, st, this->manager, true);
+                    it->second->update(s, st, this->manager, true, this->reveal, this->expanded);
                 } else if (s.spec.id == this->active && this->views.contains("")) {
                     this->views[""]->id = s.spec.id;
-                    this->views[""]->update(s, st, this->manager, false);
+                    this->views[""]->update(s, st, this->manager, false, this->reveal, this->expanded);
                 }
             }
+            this->animating = working || this->reveal.active();
             this->target->setText(q_(this->active == GLOBAL_ID ? "→ global" : "→ " + this->active));
 
             // voice bar, last notice
@@ -820,8 +936,121 @@ class Window: public QMainWindow {
                 this->status->setText(span_(notices.back().error ? st.error : st.muted, esc_(cluster::one_line(notices.back().text, 200))));
         }
 
+        std::uint64_t focusSeen = 0;            // last ui_focus applied
+        cluster::Worker worker;                 // the sends / commands, in their order, out of the window thread
+        QDialog* scanDialog = nullptr;          // the progress of the map of this computer
+        QProgressBar* scanBar = nullptr;
+        QLabel* scanText = nullptr;
+
+        void scanProgress(void)
+        {
+            // the scan running (then 4 s): its bar, its steps checked, the last lines, the one running, the next one
+            const std::optional<std::pair<cluster::MachineProgress, std::int64_t>> scan = this->manager.machineProgress();
+            const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            const bool shown = scan && (scan->second == 0 || now - scan->second < 4000);
+            if (!shown) {
+                if (this->scanDialog) this->scanDialog->hide();
+                return;
+            }
+            if (!this->scanDialog) {
+                this->scanDialog = new QDialog(this);
+                this->scanDialog->setWindowTitle("Map of this computer");
+                this->scanDialog->resize(560, 220);
+                QVBoxLayout* layout = new QVBoxLayout(this->scanDialog);
+                this->scanBar = new QProgressBar(this->scanDialog);
+                this->scanText = new QLabel(this->scanDialog);
+                layout->addWidget(this->scanBar);
+                layout->addWidget(this->scanText);
+            }
+            const cluster::MachineProgress& p = scan->first;
+            this->scanBar->setValue(static_cast<int>(p.fraction * 100));
+            QString text;
+            for (const auto &[name, state]: p.steps)
+                text += q_((state == 2 ? "✓ " : state == 1 ? "◌ " : "· ") + name + "    ");
+            text += "<br><br>";
+            for (const std::string& line: p.log)
+                text += "✓ " + esc_(line) + "<br>";
+            if (!p.now.empty()) text += "<b>◌ " + esc_(p.now) + "</b><br>";
+            if (!p.next.empty()) text += "· next: " + esc_(p.next);
+            this->scanText->setText(text);
+            if (!this->scanDialog->isVisible()) this->scanDialog->show();
+        }
+
+        void askMachine(const int startup)
+        {
+            // the map of this computer: what is read and stored, yes / no (at start: 1 no map: no is never asked again,
+            // 2 an old one: proposed again machine_days later); yes: the questions about the user still empty, the scan
+            const std::string title = startup == 2 ? "The map of this computer is " + std::to_string(cluster::machine_days_old()) + " days old: sync it?\n\n"
+                : startup == 3 && cluster::machine_days_old() >= 0 ? "Sync the map of this computer? (last " + cluster::machine_age() + ")\n\n" : "";
+            QMessageBox box(QMessageBox::Question, "claude-cluster", q_(title + cluster::machine_scope()), QMessageBox::Yes | QMessageBox::No, this);
+            box.setDefaultButton(QMessageBox::Yes);
+            if (box.exec() != QMessageBox::Yes) {
+                if (startup == 2) this->manager.machineLater();
+                else if (startup == 1) this->manager.machineDecline();
+                return;
+            }
+            for (const cluster::ProfileQuestion& q: cluster::machine_questions(this->manager.config())) {
+                bool ok = false;
+                QString answer;
+                if (q.choices.empty()) {
+                    answer = QInputDialog::getText(this, "About you (for the global session)", q_(q.question), QLineEdit::Normal, q_(q.value), &ok);
+                } else {
+                    QStringList items;
+                    for (const std::string& choice: q.choices)
+                        items << q_(choice);
+                    answer = QInputDialog::getItem(this, "About you (for the global session)", q_(q.question), items,
+                        std::max<qsizetype>(0, items.indexOf(q_(q.value))), true, &ok);
+                }
+                if (ok) (void)cluster::settings_set(this->manager.config(), "user", q.key, answer.trimmed().toStdString());
+            }
+            (void)this->manager.config().reload();
+            this->manager.scanMachine();
+            this->message("mapping this computer…", false);
+        }
+
+        void settingAction(const std::string& key)
+        {
+            // an action of the settings: the map of this computer, the system prompt of the global session (edited here)
+            if (key == "machine_sync") {
+                this->askMachine(0);
+                return;
+            }
+            if (key != "edit_prompt") return;
+            const std::filesystem::path path = cluster::expand_home(this->manager.config().globalPrompt);
+            std::ifstream in(path);
+            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            bool ok = false;
+            const QString edited = QInputDialog::getMultiLineText(this, "System prompt of the global session", q_(cluster::short_path(path.string())), q_(text), &ok);
+            if (!ok || edited.toStdString() == text) return;
+            std::ofstream(path) << edited.toStdString();
+            try {
+                this->manager.restartGlobal();
+                this->message("system prompt saved: the global session started again (same conversation)", false);
+            } catch (const utils::exception::IException& e) {
+                this->message(std::string("system prompt saved, the global session not restarted: ") + e.info(), true);
+            }
+        }
+        std::string styleSeen;
+
         void tick(void)
         {
+            this->scanProgress();
+            // the global session asked to show a session (ui_focus) or another style (ui_style)
+            const std::pair<std::uint64_t, std::string> focus = this->manager.focusRequest();
+            if (focus.first != this->focusSeen) {
+                this->focusSeen = focus.first;
+                if (this->manager.snapshot(focus.second)) {
+                    this->active = focus.second;
+                    this->signature.clear();
+                }
+            }
+            this->manager.noteActive(this->active);
+            const std::string style = this->manager.ui("style", this->manager.config().style);
+            if (style != this->styleSeen) {
+                this->styleSeen = style;
+                this->applyStyle();
+                this->signature.clear();
+            }
             if (this->manager.config().reload()) {
                 this->bindKeys();
                 this->signature.clear();
@@ -841,14 +1070,7 @@ PromptEdit::PromptEdit(Window* owner, QWidget* parent)
     QObject::connect(this, &QPlainTextEdit::textChanged, [this]() {
         this->refreshCompletion();
         this->fit();
-        // a chip while its [Image #N] is in the text
-        const QString text = this->text();
-        bool any = false;
-        for (const auto &[label, chip]: this->chips) {
-            chip->setVisible(text.contains(QString::fromStdString(label)));
-            any |= chip->isVisible();
-        }
-        if (this->chipsBar) this->chipsBar->setVisible(any);
+        this->refreshChips();
     });
     QObject::connect(this, &QPlainTextEdit::cursorPositionChanged, [this]() {
         // never inside a label (click, vim): to its end
@@ -933,29 +1155,84 @@ void PromptEdit::insertFromMimeData(const QMimeData* source)
     QPlainTextEdit::insertFromMimeData(source);
 }
 
-void PromptEdit::addImage(const std::string& path, const bool insert)
+bool PromptEdit::addImage(const std::string& path, const bool insert)
 {
+    // the same image (file named by its content) again: one more reference to it, one image sent
     const std::string label = this->completion.shown(this->completion.newImage(path));
+    const bool known = this->text().contains(q_(label));
     if (insert) this->insert(q_(label + " "));
-    QLabel* chip = new QLabel(q_(label + " " + std::filesystem::path(path).filename().string()), this->chipsBar);
-    this->chips[label] = chip;
-    chip->setToolTip("<img src=\"" + q_(path) + "\" width=\"420\">");
-    chip->setStyleSheet("padding:2px 6px;border-radius:4px;border:1px solid palette(highlight);");
-    this->chipsBar->layout()->addWidget(chip);
-    this->chipsBar->setVisible(true);
+    this->refreshChips();
+    return !known;
+}
+
+void PromptEdit::refreshChips(void)
+{
+    // one button per atom of the prompt, dim when out of the text: click puts it back, right click opens the image,
+    // hover shows the image / the pasted text
+    if (!this->chipsBar) return;
+    QLayoutItem* item = nullptr;
+    while ((item = this->chipsBar->layout()->takeAt(0))) {
+        if (item->widget()) item->widget()->deleteLater(); // a chip may be the one being clicked
+        delete item;
+    }
+    const QString text = this->text();
+    const std::vector<std::size_t> atoms = this->completion.promptAtoms();
+    for (const std::size_t index: atoms) {
+        const cluster::Atom& atom = this->completion.atom(index);
+        const QString label = q_(atom.label);
+        const bool in = text.contains(label);
+        QPushButton* chip = new QPushButton(label + (atom.image.empty() ? QString() : " " + q_(std::filesystem::path(atom.image).filename().string())), this->chipsBar);
+        chip->setFlat(!in);
+        chip->setStyleSheet(in ? "padding:2px 6px;" : "padding:2px 6px;color:palette(mid);");
+        if (atom.image.empty()) {
+            QStringList lines = q_(atom.content).split('\n');
+            const qsizetype total = lines.size();
+            if (total > 40) lines = lines.mid(0, 40);
+            chip->setToolTip("<pre>" + lines.join('\n').toHtmlEscaped() + (total > 40 ? "\n… " + QString::number(total - 40) + " more line(s)" : QString()) + "</pre>");
+        } else {
+            chip->setToolTip("<img src=\"" + q_(atom.image) + "\" width=\"520\"><br>click: in the prompt · right click: open");
+            chip->setContextMenuPolicy(Qt::CustomContextMenu);
+            const std::string image = atom.image;
+            QObject::connect(chip, &QPushButton::customContextMenuRequested, [this, image](const QPoint&) {
+                const std::string viewer = cluster::trim(this->window->manager.config().imageViewer);
+                if (viewer.empty()) {
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(q_(image)));
+                } else {
+                    std::vector<std::string> command = cluster::split(viewer, ' ');
+                    command.push_back(image);
+                    cluster::detach(command);
+                }
+            });
+        }
+        QObject::connect(chip, &QPushButton::clicked, [this, index, label]() {
+            this->insert(label + (this->completion.atom(index).image.empty() ? QString() : QString(" ")));
+            this->setFocus();
+        });
+        this->chipsBar->layout()->addWidget(chip);
+    }
+    static_cast<QHBoxLayout*>(this->chipsBar->layout())->addStretch(1);
+    this->chipsBar->setVisible(!atoms.empty());
+}
+
+void PromptEdit::loadDraft(const cluster::Draft& draft)
+{
+    // its images (labels in the order of the text) and its pasted texts as blocks
+    this->reset();
+    for (const std::string& image: draft.images)
+        this->addImage(image, false);
+    std::string text = draft.text;
+    for (const std::string& paste: draft.pastes) {
+        const std::size_t at = text.find(paste);
+        if (at != std::string::npos) text.replace(at, paste.size(), this->completion.shown(this->completion.pasteAtom(paste)));
+    }
+    this->setText(q_(text));
 }
 
 void PromptEdit::reset(void)
 {
     this->clear();
     this->completion.clear();
-    this->chips.clear();
-    QLayoutItem* item = nullptr;
-    while ((item = this->chipsBar->layout()->takeAt(0))) {
-        delete item->widget();
-        delete item;
-    }
-    this->chipsBar->setVisible(false);
+    this->refreshChips();
     if (this->popup) this->popup->setVisible(false);
 }
 
@@ -1068,6 +1345,11 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
         this->window->send();
         return;
     }
+    if (!open && (event->key() == Qt::Key_Up || event->key() == Qt::Key_Down) && !(event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier))) {
+        // on the first / last line of the prompt: the history (never looped)
+        QTextCursor probe = this->textCursor();
+        if (!probe.movePosition(event->key() == Qt::Key_Up ? QTextCursor::Up : QTextCursor::Down) && this->window->historyStep(event->key() == Qt::Key_Up ? 1 : -1)) return;
+    }
     if (event->key() == Qt::Key_Backtab) {
         this->window->shortcut("mode_cycle");
         return;
@@ -1112,10 +1394,14 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
             const QImage image = qvariant_cast<QImage>(mime->imageData());
             std::error_code error;
             std::filesystem::create_directories(cluster::data_dir() / "images", error);
-            const std::filesystem::path path = cluster::data_dir() / "images" / ("paste-" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count()) + ".png");
-            if (!image.isNull() && image.save(q_(path.string()), "PNG")) {
-                this->addImage(path.string());
+            QByteArray bytes;
+            QBuffer buffer(&bytes);
+            buffer.open(QIODevice::WriteOnly);
+            if (!image.isNull() && image.save(&buffer, "PNG")) {
+                // named by its content: the same image pasted again is the same [Image #N]
+                const std::filesystem::path path = cluster::data_dir() / "images" / ("img-" + cluster::content_hash(bytes.toStdString()) + ".png");
+                if (!std::filesystem::exists(path, error)) std::ofstream(path, std::ios::binary) << bytes.toStdString();
+                if (!this->addImage(path.string())) this->window->message("the same image: one more reference to it (sent once)", false);
                 return;
             }
         }
@@ -1172,7 +1458,7 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     layout->addWidget(this->permBar);
 }
 
-void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, cluster::Manager& manager, const bool compact)
+void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded)
 {
     static cluster::Git git; // lives as long as the program (its refresh threads)
     const cluster::Metrics& m = s.metrics;
@@ -1183,23 +1469,32 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     QString head = span_(st.accent, esc_(s.spec.name), true) + "  " + span_(s.state == cluster::State::Error ? st.error : st.text, cluster::state_name(s.state))
         + "  " + span_(st.muted, esc_(model + "  ·  mode " + s.spec.mode + (compact ? "" : "  ·  " + cluster::short_path(s.spec.cwd))));
     if (!s.lastError.empty()) head += "<br>" + span_(st.error, esc_(cluster::one_line(s.lastError, 200)));
-    if (s.state == cluster::State::Remote) head += "<br>" + span_(st.accent, "Remote Control: continue on claude.ai / the Claude app");
+    if (!s.remoteUrl.empty() || !s.bridgeState.empty())
+        head += "<br>" + span_(st.accent, "Remote Control " + esc_(s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? QString()
+            : ": <a href=\"" + q_(s.remoteUrl) + "\">" + esc_(s.remoteUrl) + "</a>")) + span_(st.muted, "  (live on claude.ai and here)");
     this->header->setText(head);
 
     // transcript (rebuilt only when it changed)
-    const std::string key = std::to_string(s.entries.size()) + "|" + std::to_string(s.partial.size()) + "|" + cluster::state_name(s.state) + "|" + st.name;
+    const cluster::Config& config = manager.config();
+    const cluster::Frame frame = reveal.step(s, config.typewriter, config.typewriterSpeed);
+    const std::int64_t ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const std::string key = std::to_string(frame.visible) + "|" + std::to_string(frame.typedBytes) + "|" + std::to_string(frame.partialBytes) + "|" + std::to_string(s.thinking.size())
+        + "|" + cluster::state_name(s.state) + "|" + st.name + "|" + (expanded ? "e" : "") + (s.state == cluster::State::Working ? "|" + std::to_string(ms / 150) : "");
     if (key != this->lastKey) {
         this->lastKey = key;
         QString html;
         const std::size_t start = s.entries.size() > 400 ? s.entries.size() - 400 : 0;
-        for (std::size_t i = start; i < s.entries.size(); ++i) {
+        const QString more = " (" + q_(config.keys.contains("expand") ? config.keys.at("expand") : std::string("Ctrl+O")) + " to expand)";
+        const std::function<QString(const std::string&)> pre = [](const std::string& text) {return "<pre style=\"margin:0;white-space:pre-wrap\">" + esc_(text) + "</pre>";};
+        for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
             const cluster::Entry& e = s.entries[i];
+            const std::string text = i == frame.typed ? e.text.substr(0, frame.typedBytes) : e.text;
             switch (e.kind) {
                 case cluster::EntryKind::User: {
                     // [Image: path] -> link, previewed on hover
                     QString body;
                     static const std::regex image(R"(\[Image: ([^\]]+)\])");
-                    std::string rest = e.text;
+                    std::string rest = text.starts_with("[voice] ") ? text.substr(8) : text; // the mark is for the agent
                     std::smatch match;
                     while (std::regex_search(rest, match, image)) {
                         body += esc_(match.prefix().str()) + "<a href=\"" + QUrl::fromLocalFile(q_(match[1].str())).toString() + "\">[Image: "
@@ -1210,16 +1505,47 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                     html += "<p>" + span_(st.accent, "› " + body, true) + "</p>";
                     break;
                 }
-                case cluster::EntryKind::Assistant: html += "<p>" + span_(st.text, esc_(e.text)) + "</p>"; break;
-                case cluster::EntryKind::Thinking: if (!compact) html += "<p>" + span_(st.muted, "∴ " + esc_(cluster::one_line(e.text, 300))) + "</p>"; break;
-                case cluster::EntryKind::Tool: html += "<div>" + span_(st.muted, "⏺ <b>" + esc_(e.tool) + "</b> " + esc_(e.text)) + "</div>"; break;
-                case cluster::EntryKind::ToolResult: if (!compact) html += "<div>" + span_(st.muted, "&nbsp;&nbsp;⎿ " + esc_(cluster::one_line(e.text, 300))) + "</div>"; break;
-                case cluster::EntryKind::System: html += "<div>" + span_(st.muted, "· " + esc_(e.text)) + "</div>"; break;
-                case cluster::EntryKind::Error: html += "<div>" + span_(st.error, "✗ " + esc_(e.text)) + "</div>"; break;
+                case cluster::EntryKind::Assistant: html += "<p>" + span_(st.text, "⏺ " + esc_(text)) + "</p>"; break;
+                case cluster::EntryKind::Thinking:
+                    // like Claude Code: folded, Ctrl+O shows it
+                    if (compact) break;
+                    html += "<div style=\"margin-top:10px\">" + span_(st.muted, "<i>∴ Thinking" + (expanded ? QString("…") : more) + "</i>") + "</div>";
+                    if (expanded) html += "<div style=\"margin-left:16px\">" + span_(st.muted, "<i>" + pre(text) + "</i>") + "</div>";
+                    break;
+                case cluster::EntryKind::Tool:
+                    if (e.tool == "TodoWrite") html += "<div style=\"margin-top:10px\">" + span_(st.ok, "⏺ <b>Update Todos</b>") + "</div><div style=\"margin-left:16px\">" + span_(st.text, pre(text)) + "</div>";
+                    else html += "<div style=\"margin-top:10px\">" + span_(st.ok, "⏺ <b>" + esc_(e.tool) + "</b>") + span_(st.text, "(" + esc_(text) + ")") + "</div>";
+                    break;
+                case cluster::EntryKind::ToolResult: {
+                    // the first lines (Ctrl+O: all)
+                    if (compact) break;
+                    QStringList parts = q_(text).split('\n');
+                    const qsizetype total = parts.size();
+                    if (!expanded && total > 3) parts = parts.mid(0, 3);
+                    const QString shown = parts.join('\n').trimmed().isEmpty() ? QString("(no output)") : parts.join('\n');
+                    html += "<div style=\"margin-left:12px\">" + span_(st.muted, pre(("⎿  " + shown).replace("\n", "\n   ").toStdString())) + "</div>";
+                    if (total > parts.size()) html += "<div style=\"margin-left:12px\">" + span_(st.muted, pre("   … +" + std::to_string(total - parts.size()) + " lines" + more.toStdString())) + "</div>";
+                    break;
+                }
+                case cluster::EntryKind::System: html += "<div style=\"margin-top:10px\">" + span_(st.muted, "· " + esc_(text)) + "</div>"; break;
+                case cluster::EntryKind::Error: html += "<div style=\"margin-top:10px\">" + span_(st.error, "✗ " + esc_(text)) + "</div>"; break;
             }
         }
-        if (!s.partial.empty()) html += "<p>" + span_(st.muted, esc_(s.partial)) + "</p>";
-        if (s.state == cluster::State::Working) html += "<p>" + span_(st.muted, "… working") + "</p>";
+        // the text streamed (typed), the live thinking, the state of the turn (like Claude Code)
+        if (frame.typed == static_cast<std::size_t>(-1) && frame.partialBytes > 0) html += "<p>" + span_(st.text, "⏺ " + esc_(s.partial.substr(0, frame.partialBytes))) + "</p>";
+        if (!s.thinking.empty() && !compact) html += "<div>" + span_(st.muted, "<i>∴ " + (expanded ? pre(s.thinking) : esc_(cluster::one_line(s.thinking.substr(s.thinking.size() > 400 ? s.thinking.size() - 400 : 0), 160))) + "</i>") + "</div>";
+        if (s.state == cluster::State::Working) {
+            static const std::vector<std::string> spinner = {"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"};
+            std::int64_t since = 0;
+            for (auto it = s.entries.rbegin(); it != s.entries.rend() && since == 0; ++it)
+                if (it->kind == cluster::EntryKind::User) since = it->time;
+            const bool tool = !s.entries.empty() && s.entries.back().kind == cluster::EntryKind::Tool;
+            const std::string verb = !s.thinking.empty() ? "Thinking" : (!s.partial.empty() || frame.typed != static_cast<std::size_t>(-1)) ? "Writing"
+                : tool ? "Running " + s.entries.back().tool : "Working";
+            const std::int64_t output = s.metrics.current.output;
+            html += "<p>" + span_(st.accent, esc_(spinner[static_cast<std::size_t>(ms / 120) % spinner.size()] + " " + verb + "… (" + (since > 0 ? std::to_string(cluster::now() - since) + "s" : std::string("…"))
+                + (output > 0 ? " · ↓ " + cluster::human_tokens(output) + " tokens" : std::string()) + " · " + config.keys.at("interrupt") + " to interrupt)")) + "</p>";
+        }
         QScrollBar* bar = this->log->verticalScrollBar();
         const bool bottom = bar->value() >= bar->maximum() - 4;
         const int value = bar->value();
@@ -1239,9 +1565,14 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         return "<tr><td>" + span_(st.muted, esc_(left)) + "</td><td align=\"right\">" + esc_(right) + "</td></tr>";
     };
     const std::function<QString(const std::string&)> title = [&](const std::string& name) -> QString {return "<p style=\"margin-top:8px\">" + span_(st.accent, esc_(name), true) + "</p>";};
-    if (s.spec.panels.contains("tokens"))
-        p += title("Tokens") + "<table width=\"100%\">" + line("last prompt", cluster::human_tokens(m.last.total())) + line("current", cluster::human_tokens(m.current.total()))
-            + line("total", cluster::human_tokens(m.total.total())) + line("turns", std::to_string(m.turns)) + "</table>";
+    if (s.spec.panels.contains("tokens")) {
+        // the new tokens apart from the ones read again from the cache at every step
+        const std::function<std::string(const cluster::Usage&)> split = [](const cluster::Usage& u) {
+            return cluster::human_tokens(u.input + u.cacheCreation + u.output) + (u.cacheRead > 0 ? " +" + cluster::human_tokens(u.cacheRead) + " cache" : "");
+        };
+        p += title("Tokens") + "<table width=\"100%\">" + line("last turn", split(m.last)) + line("current", split(m.current))
+            + line("total", split(m.total)) + line("turns", std::to_string(m.turns)) + "</table>";
+    }
     if (s.spec.panels.contains("context")) {
         const int percent = m.contextWindow > 0 ? static_cast<int>(100 * m.contextUsed / m.contextWindow) : 0;
         p += title("Context") + "<table width=\"100%\">" + line(cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow), std::to_string(percent) + "%")
@@ -1320,11 +1651,14 @@ _cold int cluster::run_gui(cluster::App& app)
         std::string list;
         for (const cluster::SessionSpec& spec: previous)
             list += "\n  " + spec.name + "  (" + spec.backend + ", " + cluster::short_path(spec.cwd) + ")";
-        const QMessageBox::StandardButton answer = QMessageBox::question(&window, "claude-cluster", q_("Restore the previous sessions?" + list + "\n\nNo: start clean (they stay in the trash "
-            + std::to_string(app.manager->config().trashDays) + " days)."), QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-        app.manager->restorePrevious(answer == QMessageBox::Yes);
+        QMessageBox box(QMessageBox::Question, "claude-cluster", q_("Restore the previous run?" + list + "\n  global session: its conversation\n\nNo: start new (the sessions to the trash "
+            + std::to_string(app.manager->config().trashDays) + " days, a new global conversation)."), QMessageBox::Yes | QMessageBox::No, &window);
+        box.setDefaultButton(QMessageBox::Yes);
+        box.setEscapeButton(QMessageBox::Yes); // closed: everything kept
+        app.manager->answerRestore(box.exec() == QMessageBox::Yes);
         window.refresh(true);
     }
+    if (app.askMachine != 0 && !std::getenv("CLAUDE_CLUSTER_SCREENSHOT")) window.askMachine(app.askMachine);
     // Debug: CLAUDE_CLUSTER_SCREENSHOT=<file.png> saves the window after 3 s then quits (with QT_QPA_PLATFORM=offscreen)
     const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT");
     if (screenshot && *screenshot) {

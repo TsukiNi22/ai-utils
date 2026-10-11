@@ -18,11 +18,16 @@ File Description:
 #include "cluster/Session.hpp"
 #include "cluster/Tools.hpp"
 #include <sys/epoll.h>
+#include <filesystem>
 #include <algorithm>
 #include <unistd.h>
 #include <signal.h>
+#include <fstream>
 #include <fcntl.h>
+#include <cstdio>
+#include <random>
 #include <array>
+#include <map>
 
 /* tools */
 static thread_local std::vector<cluster::Event> pending_events_; // events found while the lock is held, sent after
@@ -60,6 +65,26 @@ _cold static std::string tool_summary_(const std::string& name, const cluster::J
     return name == "TodoWrite" ? "todo list" : cluster::one_line(input.dump(), 120);
 }
 
+_cold static std::string clip_(const std::string& text, const std::size_t max)
+{
+    // a tool result kept on its lines (the interfaces show the first ones, Ctrl+O all of them)
+    std::string out = text.size() > max ? text.substr(0, max) + "\n…" : text;
+    while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
+    return out;
+}
+
+_cold static std::string todos_(const cluster::Json& input)
+{
+    // TodoWrite: the list as Claude Code shows it (☐ pending, ◼ in progress, ☒ done)
+    std::string out;
+    for (const cluster::Json& todo: input.value("todos", cluster::Json::array())) {
+        const std::string status = todo.value("status", std::string());
+        out += std::string(out.empty() ? "" : "\n") + (status == "completed" ? "☒ " : status == "in_progress" ? "◼ " : "☐ ")
+            + todo.value("content", std::string());
+    }
+    return out;
+}
+
 struct Prepared {
     std::string shown;          // transcript: [Image: path]
     std::string prompt;         // per-turn agents: @path
@@ -83,10 +108,45 @@ _cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
         const std::string extension = cluster::lower(std::filesystem::path(path).extension().string());
         const std::string media = extension == ".jpg" || extension == ".jpeg" ? "image/jpeg" : extension == ".gif" ? "image/gif"
             : extension == ".webp" ? "image/webp" : "image/png";
-        out.content.push_back({{"type", "image"}, {"source", {{"type", "base64"}, {"media_type", media}, {"data", utils::smanip::codec::Base64Codec().encode(bytes)}}}});
+        out.content.push_back(cluster::Json::object({{"type", "image"}, {"source", {{"type", "base64"}, {"media_type", media}, {"data", utils::smanip::codec::Base64Codec().encode(bytes)}}}}));
     }
-    if (!out.content.empty()) out.content.insert(out.content.begin(), {{"type", "text"}, {"text", queued.text}});
+    // one object (an initializer list given to insert() would add its elements: ["type", "text"], refused by the API)
+    if (!out.content.empty()) out.content.insert(out.content.begin(), cluster::Json::object({{"type", "text"}, {"text", queued.text}}));
     return out;
+}
+
+_cold static std::optional<std::string> rewind_point_(const std::string& claudeId, const std::string& leaf)
+{
+    // the transcript of claude (~/.claude/projects/<folder>/<id>.jsonl): from the leaf of the conversation up its
+    // parents to the last prompt of the user; the message before it is the cut ("": the start of the conversation)
+    std::error_code error;
+    std::filesystem::path transcript;
+    for (const std::filesystem::directory_entry& folder: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/projects"), error))
+        if (std::filesystem::exists(folder.path() / (claudeId + ".jsonl"), error)) transcript = folder.path() / (claudeId + ".jsonl");
+    if (transcript.empty()) return std::nullopt;
+    std::map<std::string, cluster::Json> messages;
+    std::string last;
+    std::ifstream file(transcript);
+    std::string line;
+    while (std::getline(file, line)) {
+        const cluster::Json json = cluster::Json::parse(line, nullptr, false);
+        if (json.is_discarded() || !json.contains("uuid") || !json["uuid"].is_string() || json.value("isSidechain", false)) continue;
+        last = json["uuid"].get<std::string>();
+        messages[last] = json;
+    }
+    std::string at = messages.contains(leaf) ? leaf : last;
+    while (messages.contains(at)) {
+        const cluster::Json& message = messages.at(at);
+        const cluster::Json parent = message.value("parentUuid", cluster::Json());
+        if (message.value("isCompactSummary", false)) return std::nullopt; // not before a compaction
+        const cluster::Json content = message.contains("message") ? message["message"].value("content", cluster::Json()) : cluster::Json();
+        const bool prompt = message.value("type", std::string()) == "user" && !message.value("isMeta", false) && (content.is_string()
+            || (content.is_array() && std::none_of(content.begin(), content.end(), [](const cluster::Json& b) {return b.value("type", std::string()) == "tool_result";})));
+        if (prompt) return parent.is_string() ? parent.get<std::string>() : std::string();
+        if (!parent.is_string()) return std::nullopt;
+        at = parent.get<std::string>();
+    }
+    return std::nullopt;
 }
 
 /* constructor */
@@ -122,12 +182,13 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
 
     if (driver == "claude") {
         args.insert(args.end(), {"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--include-partial-messages", "--permission-prompt-tool", "stdio"});
+            "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio"}); // replay: the prompts of claude.ai
         // without it claude refuses to switch to bypassPermissions later (it only makes the mode possible)
         if (this->_launch.allowBypass) args.push_back("--allow-dangerously-skip-permissions");
         if (!mode.empty()) args.insert(args.end(), {"--permission-mode", mode});
         if (!model.empty()) args.insert(args.end(), {"--model", model});
         if (!spec.claudeId.empty()) args.insert(args.end(), {"--resume", spec.claudeId});
+        if (!spec.claudeId.empty() && !spec.resumeAt.empty()) args.insert(args.end(), {"--resume-session-at", spec.resumeAt}); // after a rewind
     } else if (driver == "qwen") {
         const std::string approval = mode == "plan" ? "plan" : mode == "acceptEdits" || mode == "auto" ? "auto-edit"
             : mode == "bypassPermissions" ? "yolo" : "default";
@@ -179,7 +240,14 @@ _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const 
     this->_process->dup(toIn);
     this->_process->dup(toOut);
     this->_process->dup(toErr);
-    (void)this->_process->spawn("env", envArgs);
+    // a session of its own (setsid, same pid: exec without a fork): the signals of the terminal (its tab closed: SIGHUP)
+    // never reach the agent, claude-cluster stops it itself
+    if (cluster::has_command("setsid")) {
+        envArgs.insert(envArgs.begin(), "env");
+        (void)this->_process->spawn("setsid", envArgs);
+    } else {
+        (void)this->_process->spawn("env", envArgs);
+    }
 
     // Parent: keep the write end of stdin and the read ends of the outputs (released from the Pipe objects)
     in.closeRead();
@@ -264,8 +332,18 @@ _cold void cluster::Session::start(void)
         // claude waits for the first message before its init: ready as soon as it runs
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (this->_data.state == cluster::State::Starting) this->_data.state = cluster::State::Idle;
+        if (!this->_launch.remoteName.empty() && this->_launch.backend.provider.driver == "claude" && this->_in != -1)
+            this->write_({{"type", "control_request"}, {"request_id", "rc-on-" + std::to_string(cluster::now())},
+                {"request", {{"subtype", "remote_control"}, {"enabled", true}, {"name", this->_launch.remoteName}}}});
     }
     this->_worker = std::thread(&cluster::Session::read_, this);
+}
+
+_cold void cluster::Session::restart(void)
+{
+    // not from the reader thread: it is joined here
+    if (this->_worker.joinable()) this->_worker.join();
+    this->start();
 }
 
 _cold void cluster::Session::runTurns_(void)
@@ -377,6 +455,11 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 if (skill.is_string()) this->_data.skillsAvailable.push_back(skill.get<std::string>());
         if (this->_data.state == cluster::State::Starting) this->_data.state = cluster::State::Idle;
         this->emit_(cluster::Event::Kind::Init);
+    } else if (type == "system" && subtype == "bridge_state") {
+        const std::string state = event.value("state", std::string());
+        if (state != this->_data.bridgeState && (state == "disconnected" || state == "failed" || state == "error"))
+            this->entry_(cluster::EntryKind::Error, "Remote Control: " + state);
+        this->_data.bridgeState = state;
     } else if (type == "system" && subtype == "compact_boundary") {
         this->entry_(cluster::EntryKind::System, "context compacted");
     } else if (type == "stream_event" && event.contains("event")) {
@@ -399,11 +482,14 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             this->_live = {};
         } else if (kind == "content_block_delta" && e.contains("delta") && e["delta"].value("type", std::string()) == "text_delta") {
             this->_data.partial += e["delta"].value("text", std::string());
+        } else if (kind == "content_block_delta" && e.contains("delta") && e["delta"].value("type", std::string()) == "thinking_delta") {
+            this->_data.thinking += e["delta"].value("thinking", std::string());
         }
         metrics.current = this->_turn;
         add_(metrics.current, this->_live);
     } else if (type == "assistant" && event.contains("message")) {
         if (!event.value("parent_tool_use_id", cluster::Json()).is_null()) return; // inside a sub-agent
+        if (event.contains("uuid") && event["uuid"].is_string()) this->_data.spec.leaf = event["uuid"].get<std::string>();
         for (const cluster::Json& block: event["message"].value("content", cluster::Json::array())) {
             const std::string kind = block.value("type", std::string());
             if (kind == "text") {
@@ -412,6 +498,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 this->_data.partial.clear();
             } else if (kind == "thinking") {
                 this->entry_(cluster::EntryKind::Thinking, block.value("thinking", std::string()));
+                this->_data.thinking.clear();
             } else if (kind == "tool_use") {
                 this->tool_(block.value("id", std::string()), block.value("name", std::string()), block.value("input", cluster::Json::object()));
             }
@@ -423,7 +510,28 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             metrics.current = this->_turn;
         }
     } else if (type == "user" && event.contains("message")) {
+        if (event.contains("uuid") && event["uuid"].is_string() && event.value("parent_tool_use_id", cluster::Json()).is_null())
+            this->_data.spec.leaf = event["uuid"].get<std::string>();
         const cluster::Json content = event["message"].value("content", cluster::Json());
+        // the replay of a prompt: written here (its uuid known: already shown) or sent from claude.ai (Remote Control)
+        const std::string uuid = event.value("uuid", std::string());
+        if (event.value("isReplay", false) && this->_sent.erase(uuid) > 0) return;
+        if (event.value("isReplay", false) && event.value("parent_tool_use_id", cluster::Json()).is_null() && !event.value("isSynthetic", false)
+            && !event.value("isMeta", false)) {
+            std::string text;
+            if (content.is_string()) text = content.get<std::string>();
+            else if (content.is_array())
+                for (const cluster::Json& block: content)
+                    if (block.value("type", std::string()) == "text") text += block.value("text", std::string());
+            const bool tool = content.is_array() && std::any_of(content.begin(), content.end(), [](const cluster::Json& b) {return b.value("type", std::string()) == "tool_result";});
+            if (!tool && !cluster::trim(text).empty() && !cluster::trim(text).starts_with("<") && text.find("[Request interrupted") == std::string::npos) {
+                this->entry_(cluster::EntryKind::User, text);
+                this->_data.state = cluster::State::Working;
+                this->_turn = {};
+                this->emit_(cluster::Event::Kind::Prompt, text); // the history of the prompts too
+            }
+            return;
+        }
         if (!content.is_array()) return;
         for (const cluster::Json& block: content) {
             if (block.value("type", std::string()) != "tool_result") continue;
@@ -439,7 +547,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             else if (block.contains("content") && block["content"].is_array())
                 for (const cluster::Json& part: block["content"])
                     text += part.value("text", std::string());
-            this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, cluster::one_line(text, 300));
+            this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(text, 6000));
         }
     } else if (type == "control_request" && event.contains("request")) {
         const cluster::Json& request = event["request"];
@@ -458,6 +566,10 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         const cluster::Json& response = event["response"];
         if (response.value("subtype", std::string()) == "error") {
             this->entry_(cluster::EntryKind::Error, response.value("error", std::string("request refused by the agent")));
+            if (response.value("request_id", std::string()).starts_with("rc-on-")) this->_launch.remoteName.clear();
+        } else if (response.contains("response") && response["response"].is_object() && response["response"].contains("session_url")) {
+            this->_data.remoteUrl = response["response"].value("session_url", std::string());
+            this->entry_(cluster::EntryKind::System, "Remote Control on: " + this->_data.remoteUrl);
         } else if (response.contains("response") && response["response"].is_object() && response["response"].contains("mode")) {
             this->_data.spec.mode = response["response"].value("mode", this->_data.spec.mode);
             this->entry_(cluster::EntryKind::System, "permission mode: " + this->_data.spec.mode);
@@ -530,7 +642,7 @@ _cold void cluster::Session::opencode_(const cluster::Json& event)
                 run.error = error;
             }
         const cluster::Json output = state.value("output", cluster::Json());
-        this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, cluster::one_line(output.is_string() ? output.get<std::string>() : output.dump(), 300));
+        this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(output.is_string() ? output.get<std::string>() : output.dump(), 6000));
     } else if (type == "step_finish") {
         const cluster::Json tokens = part.value("tokens", cluster::Json::object());
         cluster::Usage usage;
@@ -578,7 +690,7 @@ _cold void cluster::Session::codex_(const cluster::Json& event)
                     run.done = true;
                     run.error = error;
                 }
-            this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, cluster::one_line(item.value("aggregated_output", std::string()), 300));
+            this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(item.value("aggregated_output", std::string()), 6000));
         } else if (kind == "file_change" && type == "item.completed") {
             for (const cluster::Json& change: item.value("changes", cluster::Json::array())) {
                 const std::string path = change.value("path", std::string());
@@ -607,7 +719,7 @@ _cold void cluster::Session::tool_(const std::string& id, const std::string& nam
     const std::string summary = tool_summary_(name, input);
     this->_data.tools.push_back({id, name, summary, false, false, cluster::now()});
     if (this->_data.tools.size() > 200) this->_data.tools.erase(this->_data.tools.begin());
-    this->entry_(cluster::EntryKind::Tool, summary, name);
+    this->entry_(cluster::EntryKind::Tool, name == "TodoWrite" ? todos_(input) : summary, name);
 
     // Skills loaded and files modified, for their panels
     if (name == "Skill") {
@@ -691,11 +803,27 @@ _cold void cluster::Session::send(const std::string& text, const std::vector<std
     this->touch_();
 }
 
+_cold static std::string uuid_(void)
+{
+    // a random uuid (version 4): the id of a prompt written here, carried by its replay
+    static std::mt19937_64 random{std::random_device{}()};
+    const std::uint64_t high = random();
+    const std::uint64_t low = random();
+    char out[37] = {};
+    std::snprintf(out, sizeof(out), "%08x-%04x-4%03x-%04x-%012llx", static_cast<unsigned>(high >> 32), static_cast<unsigned>((high >> 16) & 0xFFFF),
+        static_cast<unsigned>(high & 0x0FFF), static_cast<unsigned>(0x8000 | ((low >> 48) & 0x3FFF)), static_cast<unsigned long long>(low & 0xFFFFFFFFFFFFULL));
+    return out;
+}
+
 _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
 {
     const Prepared prepared = prepare_(prompt, true);
+    this->_lastPrompt = prompt;
+    this->_data.spec.resumeAt.clear(); // the conversation goes on from the cut: its new messages are the latest
     this->entry_(cluster::EntryKind::User, prepared.shown);
-    this->write_({{"type", "user"}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prompt.text) : prepared.content}}}});
+    const std::string uuid = uuid_();
+    this->_sent.insert(uuid);
+    this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prompt.text) : prepared.content}}}});
     this->_data.state = cluster::State::Working;
     this->_turn = {};
 }
@@ -772,6 +900,65 @@ _cold void cluster::Session::interrupt(void)
     this->touch_();
 }
 
+_cold cluster::Queued cluster::Session::rewind(void)
+{
+    // like Esc Esc in Claude Code: the last turn leaves the conversation (claude goes on from the message before its
+    // prompt: --resume-session-at, kept until the next prompt) and the transcript; its prompt comes back to be edited
+    std::string claudeId;
+    std::string leaf;
+    cluster::Queued prompt;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (this->_launch.backend.provider.driver != "claude" || !this->persistent())
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: only for the sessions of Claude Code");
+        auto user = std::find_if(this->_data.entries.rbegin(), this->_data.entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
+        if (user == this->_data.entries.rend() || this->_data.spec.claudeId.empty())
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: no prompt to take back");
+        claudeId = this->_data.spec.claudeId;
+        leaf = this->_data.spec.leaf;
+        prompt = this->_lastPrompt.text.empty() ? cluster::Queued{user->text, {}} : this->_lastPrompt;
+    }
+    const std::optional<std::string> point = rewind_point_(claudeId, leaf);
+    if (!point) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: the last prompt is not in the transcript of claude (compacted?)");
+    this->stop();
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto user = std::find_if(this->_data.entries.rbegin(), this->_data.entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
+        if (user != this->_data.entries.rend()) this->_data.entries.erase(std::next(user).base(), this->_data.entries.end());
+        this->_data.partial.clear();
+        this->_data.thinking.clear();
+        this->_data.permissions.clear();
+        // the log of the session: from its last prompt on, removed
+        this->_log.close();
+        std::vector<std::string> lines;
+        {
+            std::ifstream in(this->_launch.log);
+            for (std::string line; std::getline(in, line);)
+                lines.push_back(line);
+        }
+        std::size_t keep = lines.size();
+        for (std::size_t i = lines.size(); i-- > 0;) {
+            const cluster::Json json = cluster::Json::parse(lines[i], nullptr, false);
+            if (!json.is_discarded() && json.value("kind", -1) == static_cast<int>(cluster::EntryKind::User)) {
+                keep = i;
+                break;
+            }
+        }
+        {
+            std::ofstream out(this->_launch.log, std::ios::trunc);
+            for (std::size_t i = 0; i < keep; ++i)
+                out << lines[i] << "\n";
+        }
+        this->_log.open(this->_launch.log, std::ios::app);
+        this->_data.spec.leaf = *point;
+        this->_data.spec.resumeAt = *point;
+        if (point->empty()) this->_data.spec.claudeId.clear(); // its first prompt: a new conversation
+        this->_lastPrompt = {};
+    }
+    this->start();
+    return prompt;
+}
+
 _cold void cluster::Session::stop(void)
 {
     this->_stopping = true;
@@ -793,6 +980,43 @@ _cold void cluster::Session::stop(void)
     }
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_data.state = cluster::State::Stopped;
+    this->touch_();
+}
+
+_cold void cluster::Session::mark(const std::string& text)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->entry_(cluster::EntryKind::System, text);
+    this->touch_();
+}
+
+_cold void cluster::Session::setClaudeId(const std::string& id)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_data.spec.claudeId = id;
+    this->_data.spec.leaf.clear();
+    this->_data.spec.resumeAt.clear();
+    this->touch_();
+}
+
+_cold void cluster::Session::remoteControl(const bool on, const std::string& name)
+{
+    // the session itself on claude.ai (control_request remote_control of the SDK): the prompts of both sides go to this
+    // claude, its events come here (live); kept over the restarts of the process (Launch::remoteName)
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (this->_launch.backend.provider.driver != "claude" || !this->persistent())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "Remote Control: only for the sessions of Claude Code");
+    this->_launch.remoteName = on ? name : "";
+    if (this->_in != -1) {
+        cluster::Json request = {{"subtype", "remote_control"}, {"enabled", on}};
+        if (on) request["name"] = name;
+        this->write_({{"type", "control_request"}, {"request_id", std::string(on ? "rc-on-" : "rc-off-") + std::to_string(cluster::now())}, {"request", request}});
+    }
+    if (!on) {
+        this->_data.remoteUrl.clear();
+        this->_data.bridgeState.clear();
+    }
+    this->entry_(cluster::EntryKind::System, on ? "Remote Control: connecting…" : "Remote Control off");
     this->touch_();
 }
 

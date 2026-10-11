@@ -7,10 +7,19 @@ layout = "list"            # list (list + active panel) | grid | tabs
 style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized-light | mono, or a [styles.<name>] below
 panels = ["skills", "tokens", "context", "cost", "git"]   # default panels of a new session (+ "diff", "tools")
 restore = "ask"            # ask | always | never: sessions of the previous run at start (like Firefox)
-notify = true              # desktop notification: permission waiting, turn finished, error
+notify = true              # desktop notifications at all (the ones of the global session too)
+notify_global = true       # when the global session answers
+notify_done = true         # when a sub-session finishes its turn
+notify_permission = true   # when a permission waits
 vim = false                # vim mode of the prompt: Esc Normal (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o Insert
 paste_lines = 3            # a paste of more lines is one [Pasted text #N +L lines] in the prompt (0: never)
 paste_chars = 800          # or of more characters (0: never)
+editor = ""                # Ctrl+E; empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano (the first installed)
+machine_days = 30          # the map of this computer older than this: a sync proposed at start (0: never)
+image_viewer = ""          # right click on an image chip; empty: xdg-open (the viewer of the desktop)
+image_preview = "blocks"   # terminal preview on hover: blocks (the pixels as half blocks) | chafa (its symbols)
+typewriter = true          # the answers typed as they come, also when the agent sends them at once (false: as received)
+typewriter_speed = 400     # characters per second (faster by itself when a long text is behind)
 
 [agent]
 # Backend of a new session: "<provider>[/<model>]" (claude-cluster auth list: every provider and its state)
@@ -63,6 +72,21 @@ say_command = "voice-say"
 voice_fr = "tom-medium"
 voice_en = "en_GB-northern_english_male-medium"
 
+[user]                     # about you, for the global session (asked at the first map of this computer, F9 > User)
+nickname = ""
+email = ""
+editor = ""                # your main editor (Ctrl+E too when [ui] editor is empty)
+language = ""              # of the answers: fr | en | empty (the one of the message)
+notes = ""                 # anything the global session should know
+
+[service]                  # claude-cluster service enable: "ok claude" opens claude-cluster (voice on) when none runs
+frontend = "tty"           # tty: in a terminal | gui: a window
+terminal = ""              # tty: the terminal with its option to run a command ("kitty", "alacritty -e"...), empty: the first installed
+voice_mode = "auto"        # the voice of the claude-cluster opened: auto (every sentence) | wake | push
+wake_word = ""             # empty: [voice] wake_word
+python = "~/.local/share/voice/venv/bin/python"   # the python of voice-listen (sherpa-onnx), its model is used
+source = ""                # microphone (PulseAudio / PipeWire source), empty: the default one
+
 [keys]
 # action = "key": Ctrl+<letter>, Ctrl+Shift+<letter>, Alt+<letter>, F1..F12, Tab, Escape; alternatives with |
 # (most terminals keep Ctrl+Shift+<letter> for themselves: the Alt+ alternative is for them)
@@ -84,7 +108,8 @@ paste = "Ctrl+V"           # text, or an image of the clipboard ([Image #N])
 stash = "Ctrl+S"           # put the prompt aside
 unstash = "Ctrl+P"         # take the last one back
 history = "Ctrl+R"         # prompts sent before
-edit = "Ctrl+E"            # the prompt in $VISUAL / $EDITOR
+edit = "Ctrl+E"            # the prompt in an editor ([ui] editor, else nvim, vim, vi, $VISUAL, $EDITOR, emacs, nano)
+expand = "Ctrl+O"          # transcript: thinking and tool results in full / short
 search = "Ctrl+F"          # search in the transcript of the session
 mode_cycle = "Shift+Tab"   # next permission mode: auto, acceptEdits, plan, bypassPermissions, manual
 help = "F1"                # every key

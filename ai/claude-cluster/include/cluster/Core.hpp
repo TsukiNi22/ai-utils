@@ -65,6 +65,7 @@ struct App {
     std::unique_ptr<cluster::Voice> voice;
     cluster::Options options;
     bool askRestore = false;        // the front-end asks restore / start clean
+    int askMachine = 0;             // the front-end asks to map this computer: 1 no map yet, 2 an old one (Manager::machineAsk), 3 --rescan
     std::atomic<bool> running{true};
     std::thread ticker;
 
@@ -95,6 +96,7 @@ class Core {
         _cold int ui_(const bool serve = false);    // serve: no front-end, until SIGINT / SIGTERM
         _cold int headless_(void);
         _cold int auth_(void);
+        _cold int machine_(void);                   // machine sync [--yes] | show | path
         _cold void print_(const std::string& cmd, const cluster::Json& data) const;
 
     public:

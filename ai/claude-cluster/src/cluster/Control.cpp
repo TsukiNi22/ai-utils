@@ -14,15 +14,19 @@ File Description:
 #define _Attribute
 #define _Encapsulation
 #include <utils/utils.hpp>
+#include "cluster/Settings.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Tools.hpp"
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <sys/stat.h>
+#include <algorithm>
 #include <sys/un.h>
 #include <unistd.h>
 #include <fstream>
 #include <cstring>
+#include <chrono>
+#include <thread>
 #include <array>
 
 /* tools */
@@ -208,8 +212,30 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt")})}};
         } else if (cmd == "send") {
             const std::string id = session();
+            const bool reply = request.value("reply", false) && id != GLOBAL_ID;
+            if (reply) manager.replyTo(id); // before: a short turn could end before it is known
             manager.send(id, arg_(request, "text"), request.value("force", false));
-            data = {{"id", id}, {"queued", true}};
+            data = {{"id", id}, {"queued", true}, {"reply", reply ? "its answer comes back to you as a message [reply from ...] when done: no need to poll it" : "no"}};
+        } else if (cmd == "wait") {
+            // until the session is done (idle, nothing queued) or the time is over: its last answer only, not its context
+            const std::string id = session();
+            const int seconds = std::clamp(request.value("timeout", 100), 1, 110);
+            const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+            std::optional<cluster::Snapshot> snap = manager.snapshot(id);
+            const std::function<bool(void)> busy = [&snap]() {
+                return snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting || snap->state == cluster::State::Starting || snap->queued > 0);
+            };
+            while (busy() && std::chrono::steady_clock::now() < end) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(400));
+                snap = manager.snapshot(id);
+            }
+            if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session " + id);
+            std::string answer;
+            for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && answer.empty(); ++it)
+                if (it->kind == cluster::EntryKind::Assistant) answer = it->text;
+            data = {{"id", id}, {"state", cluster::state_name(snap->state)}, {"done", !busy()}, {"answer", answer.size() > 6000 ? answer.substr(0, 6000) + "\n[...]" : answer}};
+            if (busy()) data["note"] = "still working: wait again, or send with reply and go on (its answer will come back)";
+            if (!snap->permissions.empty()) data["permission"] = snap->permissions.front().tool + ": " + cluster::one_line(snap->permissions.front().description, 200);
         } else if (cmd == "close") {
             manager.close(session());
         } else if (cmd == "restore") {
@@ -236,6 +262,20 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = cluster::Json::array();
             for (const cluster::Task& t: manager.tasks())
                 data.push_back({{"id", t.id}, {"prompt", cluster::one_line(t.prompt, 200)}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session}});
+        } else if (cmd == "notify") {
+            const bool sent = manager.notifyDesktop(arg_(request, "title", "claude-cluster"), arg_(request, "text"), request.value("urgent", false));
+            data = {{"sent", sent}};
+            if (!sent) data["note"] = "desktop notifications are off ([ui] notify)";
+        } else if (cmd == "schedule_add") {
+            data = {{"id", manager.addSchedule(arg_(request, "when"), arg_(request, "action", "prompt"), arg_(request, "session"), arg_(request, "text"),
+                request.value("every", 0))}};
+        } else if (cmd == "schedule_list") {
+            data = cluster::Json::array();
+            for (const cluster::Schedule& w: manager.schedules())
+                data.push_back({{"id", w.id}, {"at", cluster::clock_time(w.at)}, {"in_minutes", (w.at - cluster::now()) / 60}, {"every_minutes", w.every},
+                    {"action", w.action}, {"session", w.session}, {"text", cluster::one_line(w.text, 200)}});
+        } else if (cmd == "schedule_cancel") {
+            manager.cancelSchedule(arg_(request, "id"));
         } else if (cmd == "task_cancel") {
             manager.cancelTask(arg_(request, "id"));
         } else if (cmd == "search") {
@@ -253,6 +293,46 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             }
         } else if (cmd == "remote") {
             manager.setRemote(request.value("on", true));
+            data = {{"remote", manager.remote()}};
+        } else if (cmd == "ui_state") {
+            const cluster::Config& config = manager.config();
+            data = {{"shown", manager.active()}, {"layout", manager.ui("layout", config.layout)}, {"style", manager.ui("style", config.style)},
+                {"remote", manager.remote()}, {"vim", manager.ui("vim", config.vim ? "true" : "false") == "true"},
+                {"layouts", {"list", "grid", "tabs"}}, {"panels", {"skills", "tokens", "context", "cost", "git", "diff", "tools", "files"}}};
+            data["styles"] = cluster::Json::array();
+            for (const auto &[name, style]: config.styles)
+                data["styles"].push_back(name);
+        } else if (cmd == "ui_focus") {
+            manager.requestFocus(arg_(request, "session", "g"));
+        } else if (cmd == "ui_layout") {
+            const std::string layout = arg_(request, "layout");
+            if (layout != "list" && layout != "grid" && layout != "tabs")
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "layout: list | grid | tabs");
+            manager.setUi("layout", layout);
+        } else if (cmd == "ui_style") {
+            const std::string style = arg_(request, "style");
+            if (!manager.config().styles.contains(style)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown style " + style);
+            manager.setUi("style", style);
+        } else if (cmd == "ui_panel") {
+            manager.togglePanel(session(), arg_(request, "panel"));
+        } else if (cmd == "settings_get") {
+            // every option of the settings page: its section, key, value, choices and help
+            const std::string section = arg_(request, "section");
+            data = cluster::Json::array();
+            for (const cluster::SettingsPage& page: cluster::settings_pages(manager.config()))
+                for (const cluster::Setting& setting: page.settings)
+                    if (section.empty() || section == setting.section)
+                        data.push_back({{"section", setting.section}, {"key", setting.key}, {"label", setting.label}, {"value", setting.value(manager.config())},
+                            {"choices", setting.choices}, {"help", setting.description}, {"at_next_start", setting.restart}});
+        } else if (cmd == "settings_set") {
+            // one option written in config.toml (its comments kept), loaded again; the live ones of the interface follow
+            const std::string section = arg_(request, "section");
+            const std::string key = arg_(request, "key");
+            const std::string value = arg_(request, "value");
+            const bool restart = cluster::settings_set(manager.config(), section, key, value);
+            if (section == "ui" && (key == "layout" || key == "style" || key == "vim")) manager.setUi(key, value);
+            (void)manager.config().reload();
+            data = {{"value", value}, {"at_next_start", restart}};
         } else if (cmd == "notices") {
             data = cluster::Json::array();
             for (const cluster::Notice& n: manager.notices(30))

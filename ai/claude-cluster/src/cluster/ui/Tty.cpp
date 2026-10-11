@@ -17,7 +17,10 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
+#include "cluster/Machine.hpp"
+#include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
+#include "cluster/Reveal.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
@@ -34,6 +37,7 @@ File Description:
 #include <optional>
 #include <fstream>
 #include <sstream>
+#include <atomic>
 #include <chrono>
 #include <regex>
 #include <cmath>
@@ -43,7 +47,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile};
 
 struct Theme {
     ftxui::Color bg;
@@ -79,16 +83,23 @@ _cold std::size_t width_(const std::string& text)
     return static_cast<std::size_t>(std::count_if(text.begin(), text.end(), [](char c) {return (static_cast<unsigned char>(c) & 0xC0) != 0x80;}));
 }
 
-_cold std::vector<std::string> wrap_(const std::string& text, const std::size_t width)
+_cold std::vector<std::string> wrap_(const std::string& text, const std::size_t width, std::vector<std::string>* joins = nullptr)
 {
+    // joins: what was between a line and the previous one ("\n", " " for a break on a space, "" else): copy back
     std::vector<std::string> lines;
     const std::size_t max = std::max<std::size_t>(width, 10);
     std::string line;
     std::size_t size = 0;
+    std::string join = "\n";
+    const std::function<void(std::string, const std::string&)> push = [&](std::string done, const std::string& next) {
+        lines.push_back(std::move(done));
+        if (joins) joins->push_back(join);
+        join = next;
+    };
 
     for (std::size_t i = 0; i <= text.size(); ++i) {
         if (i == text.size() || text[i] == '\n') {
-            lines.push_back(line);
+            push(line, "\n");
             line.clear();
             size = 0;
             continue;
@@ -103,11 +114,11 @@ _cold std::vector<std::string> wrap_(const std::string& text, const std::size_t 
             // break on the last space when there is one
             const std::size_t space = line.rfind(' ');
             if (space != std::string::npos && space > line.size() / 2) {
-                lines.push_back(line.substr(0, space));
+                push(line.substr(0, space), " ");
                 line = line.substr(space + 1);
                 size = width_(line);
             } else {
-                lines.push_back(line);
+                push(line, "");
                 line.clear();
                 size = 0;
             }
@@ -116,6 +127,38 @@ _cold std::vector<std::string> wrap_(const std::string& text, const std::size_t 
         if ((c & 0xC0) != 0x80) ++size;
     }
     return lines;
+}
+
+_cold char home_end_(const ftxui::Event& event)
+{
+    // Home / End as the terminals send them (xterm, VT220, tmux, application mode), Shift+: selection; 0: neither
+    static const std::map<std::string, char> keys = {{"\x1b[H", 'H'}, {"\x1bOH", 'H'}, {"\x1b[1~", 'H'}, {"\x1b[7~", 'H'}, {"\x1b[1;2H", 'H'}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b[F", 'F'}, {"\x1bOF", 'F'}, {"\x1b[4~", 'F'}, {"\x1b[8~", 'F'}, {"\x1b[1;2F", 'F'}}; // xstyle: ignore LU-ANSI (read)
+    auto it = keys.find(event.input());
+    return it == keys.end() ? 0 : it->second;
+}
+
+_cold std::vector<std::string> lines_(const std::string& text)
+{
+    std::vector<std::string> lines;
+    std::size_t start = 0;
+    for (std::size_t nl = text.find('\n'); nl != std::string::npos; nl = text.find('\n', start)) {
+        lines.push_back(text.substr(start, nl - start));
+        start = nl + 1;
+    }
+    lines.push_back(text.substr(start));
+    return lines;
+}
+
+_cold std::size_t byte_at_(const std::string& line, const int column)
+{
+    std::size_t at = 0;
+    for (int c = 0; at < line.size() && c < column; ++c) {
+        ++at;
+        while (at < line.size() && (static_cast<unsigned char>(line[at]) & 0xC0) == 0x80)
+            ++at;
+    }
+    return at;
 }
 
 _cold std::string key_name_(const ftxui::Event& event)
@@ -193,7 +236,7 @@ struct Preview {
 _cold std::vector<std::vector<Cell>> chafa_(const std::string& path, const int columns, const int rows)
 {
     // chafa: block / border / sextant symbols in true colors (a far finer preview than half blocks)
-    const cluster::Captured out = cluster::capture({"chafa", "--format", "symbols", "--colors", "full", "--animate", "off", "--polite", "on",
+    const cluster::Captured out = cluster::capture({"chafa", "--format", "symbols", "--colors", "full", "--animate", "off", "--polite", "on", "--work", "9",
         "--size", std::to_string(columns) + "x" + std::to_string(rows), path}, "", 10);
     std::vector<std::vector<Cell>> lines;
     if (out.code != 0) return lines;
@@ -245,15 +288,15 @@ _cold std::vector<std::vector<Cell>> chafa_(const std::string& path, const int c
     return lines;
 }
 
-_cold const Preview& preview_(const std::string& path, const int columns, const int rows)
+_cold const Preview& preview_(const std::string& path, const int columns, const int rows, const bool chafa)
 {
-    // image -> columns x rows characters: chafa when installed, else magick pixels drawn with half blocks
+    // image -> columns x rows characters: the pixels (magick) drawn with half blocks, or the symbols of chafa
     static std::map<std::string, Preview> cache;
-    const std::string key = path + "@" + std::to_string(columns) + "x" + std::to_string(rows);
+    const std::string key = path + "@" + std::to_string(columns) + "x" + std::to_string(rows) + (chafa ? "c" : "b");
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
     Preview preview;
-    preview.cells = chafa_(path, columns, rows);
+    if (chafa) preview.cells = chafa_(path, columns, rows);
     if (!preview.cells.empty()) return cache.emplace(key, preview).first->second;
     const cluster::Captured out = cluster::capture({"magick", path, "-resize", std::to_string(columns) + "x" + std::to_string(rows * 2), "-depth", "8", "ppm:-"}, "", 10);
     std::istringstream in(out.out);
@@ -297,10 +340,196 @@ class TtyUi {
         std::string _active = GLOBAL_ID;
         cluster::Editor _editor;                    // the prompt
         std::vector<std::string> _historyItems;     // Mode::History, filtered
-        std::vector<ftxui::Box> _imageBoxes;        // pasted images in the prompt bar (mouse hover)
-        int _hoverImage = -1;
+        std::vector<std::size_t> _chips;            // atoms of the prompt shown as chips (images, pasted texts)
+        std::vector<ftxui::Box> _chipBoxes;
+        int _hoverChip = -1;
+        struct PromptRow {
+            std::size_t from = 0;                   // first byte shown
+            std::size_t end = 0;
+            int offset = 3;                         // cells before the text (" › ", "…")
+        };
+        std::vector<PromptRow> _promptRows;         // the rows of the prompt drawn (mouse -> position)
+        ftxui::Box _promptBox;
+        struct View {
+            ftxui::Box box;
+            std::vector<std::string> lines;         // transcript lines shown (mouse selection)
+            std::vector<std::string> joins;
+        };
+        std::map<std::string, View> _views;         // per session
+        struct Selection {
+            std::string session;
+            int x0 = 0;                             // cells, from the top left of the transcript
+            int y0 = 0;
+            int x1 = 0;
+            int y1 = 0;
+        };
+        std::optional<Selection> _selection;        // mouse selection in a transcript (copied when released)
+        std::string _drag;                          // "prompt", a session id, or empty
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
         std::optional<std::string> _pasting;        // bracketed paste of the terminal: its text until ESC[201~
+        cluster::Worker _worker;                    // the sends / commands, in their order, out of the drawing thread
+        cluster::Reveal _reveal;                    // the answers typed as they come
+        std::atomic<bool> _animating{false};        // typing / spinner: drawn often
+        bool _expanded = false;                     // Ctrl+O: thinking and tool results in full
+        std::uint64_t _focusSeen = 0;               // last ui_focus applied
+        bool _machineStartup = false;               // the map of this computer asked at start (no: never asked again)
+        int _machineKind = 0;                       // 1 no map yet, 2 an old one (its sync proposed)
+        std::vector<cluster::ProfileQuestion> _questions;   // about the user, before a scan
+        std::size_t _question = 0;
+        std::string _answer;
+
+        void profileNext_(const bool save)
+        {
+            // the answer kept (config.toml [user]), the next question; after the last one: the scan
+            if (save) {
+                try {
+                    (void)cluster::settings_set(this->_manager.config(), "user", this->_questions[this->_question].key, cluster::trim(this->_answer));
+                } catch (const utils::exception::IException& e) {
+                    this->status_(e.info(), true);
+                }
+            }
+            if (++this->_question < this->_questions.size()) {
+                this->_answer = this->_questions[this->_question].value;
+                return;
+            }
+            (void)this->_manager.config().reload();
+            this->_manager.scanMachine();
+            this->status_("mapping this computer…");
+            this->_mode = this->_machineReturn == Mode::Machine || this->_machineReturn == Mode::Profile ? Mode::Normal : this->_machineReturn;
+        }
+        std::uint64_t _scanHidden = 0;              // the scan whose box was closed (Esc: it goes on)
+        std::uint64_t _scanReported = 0;            // the scan whose end was told in the status line
+
+        _nodiscard std::optional<cluster::MachineProgress> scanShown_(void) const
+        {
+            // the box of the scan: while it runs, then 4 s (unless closed)
+            const std::optional<std::pair<cluster::MachineProgress, std::int64_t>> scan = this->_manager.machineProgress();
+            if (!scan || scan->first.id == this->_scanHidden) return std::nullopt;
+            const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (scan->second != 0 && now - scan->second > 4000) return std::nullopt;
+            return scan->first;
+        }
+
+        _nodiscard ftxui::Element scanBox_(const cluster::MachineProgress& p) const
+        {
+            // the steps checked, the bar, the last lines done, the one running, the next one
+            const Theme& t = this->_theme;
+            // the steps on rows of 4, each one in a cell of its own (never glued to the one before)
+            ftxui::Elements rows;
+            ftxui::Elements row;
+            for (const auto &[name, state]: p.steps) {
+                const std::string mark = state == 2 ? "✓ " : state == 1 ? "◌ " : "· ";
+                row.push_back(ftxui::text(" " + mark + name) | ftxui::color(state == 2 ? t.ok : state == 1 ? t.accent : t.muted) | (state == 1 ? ftxui::bold : ftxui::nothing)
+                    | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 21));
+                if (row.size() == 4) {
+                    rows.push_back(ftxui::hbox(std::move(row)));
+                    row.clear();
+                }
+            }
+            if (!row.empty()) rows.push_back(ftxui::hbox(std::move(row)));
+            ftxui::Elements lines = {
+                ftxui::hbox({ftxui::text(p.done ? " This computer mapped" : " Mapping this computer") | ftxui::bold | ftxui::color(p.done ? t.ok : t.text), ftxui::filler(),
+                    ftxui::text(std::to_string(static_cast<int>(p.fraction * 100)) + "% ") | ftxui::color(t.accent)}),
+                ftxui::hbox({ftxui::text(" "), ftxui::gauge(static_cast<float>(p.fraction)) | ftxui::color(p.done ? t.ok : t.accent) | ftxui::flex, ftxui::text(" ")}),
+                ftxui::text(""), ftxui::vbox(std::move(rows)), ftxui::text("")};
+            for (const std::string& line: p.log)
+                lines.push_back(ftxui::text(" ✓ " + cluster::one_line(line, 80)) | ftxui::color(t.ok));
+            if (!p.now.empty()) lines.push_back(ftxui::text(" ◌ " + cluster::one_line(p.now, 80)) | ftxui::color(t.text));
+            if (!p.next.empty()) lines.push_back(ftxui::text(" · next: " + p.next) | ftxui::color(t.muted) | ftxui::dim);
+            lines.push_back(ftxui::text(""));
+            lines.push_back(ftxui::text(p.done ? " Esc: close" : " Esc: hide (the scan goes on)") | ftxui::color(t.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.border) | ftxui::bgcolor(t.surface)
+                | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 88) | ftxui::center;
+        }
+        Mode _machineReturn = Mode::Normal;         // where its question goes back to
+
+        void settingsAction_(const std::string& key)
+        {
+            // an action of the settings page: the map of this computer (asked first), the system prompt of the global session
+            if (key == "machine_sync") {
+                this->_machineReturn = this->_mode;
+                this->_mode = Mode::Machine;
+            } else if (key == "edit_prompt") {
+                const std::filesystem::path path = cluster::expand_home(this->_manager.config().globalPrompt);
+                std::error_code error;
+                const std::filesystem::file_time_type before = std::filesystem::last_write_time(path, error);
+                std::vector<std::string> command = this->editorCommand_();
+                command.push_back(path.string());
+                this->_screen.WithRestoredIO([&]() {
+                    utils::encapsulation::Process process;
+                    try {
+                        (void)process.spawn(command[0], std::vector<std::string>(command.begin() + 1, command.end()));
+                        (void)process.wait();
+                    } catch (const utils::exception::IException& e) {
+                        std::cerr << e.info() << std::endl;
+                    }
+                })();
+                if (std::filesystem::last_write_time(path, error) == before) {
+                    this->_note = "system prompt unchanged";
+                    return;
+                }
+                try {
+                    this->_manager.restartGlobal();
+                    this->_note = "system prompt saved: the global session started again (same conversation)";
+                } catch (const utils::exception::IException& e) {
+                    this->_note = std::string("system prompt saved, the global session not restarted: ") + e.info();
+                }
+            }
+        }
+        std::string _styleSeen;                     // style of the theme
+        int _historyAt = -1;                        // Up / Down: -1 the prompt being written, else an index of the history
+        std::vector<cluster::Draft> _historyList;   // the history when the browsing started (newest first)
+        std::map<int, std::string> _historyEdits;   // the texts changed while browsing (forgotten when a prompt is sent)
+
+        bool historyStep_(const int delta)
+        {
+            // +1 older, -1 newer, never looped; the text left (changed or not) is kept for when it comes back
+            if (this->_historyAt == -1 && delta > 0) this->_historyList = this->_manager.drafts();
+            const int to = this->_historyAt + delta;
+            if (to < -1 || to >= static_cast<int>(this->_historyList.size())) return false;
+            this->_historyEdits[this->_historyAt] = this->_editor.text();
+            this->_historyAt = to;
+            const auto edited = this->_historyEdits.find(to);
+            if (edited != this->_historyEdits.end()) this->_editor.setText(edited->second);
+            else this->_editor.load(this->_historyList[static_cast<std::size_t>(to)]); // its images and pasted texts as blocks
+            this->status_(to == -1 ? "back to the prompt being written" : "history " + std::to_string(to + 1) + "/" + std::to_string(this->_historyList.size()) + " (↓ newer)");
+            return true;
+        }
+
+        void rewind_(void)
+        {
+            // the last turn leaves the conversation (claude started again: in the worker), its prompt comes back
+            const std::string session = this->_active;
+            this->status_("taking the last prompt back…");
+            this->_worker.push([this, session]() {
+                std::optional<cluster::Queued> prompt;
+                std::string error;
+                try {
+                    prompt = this->_manager.rewind(session);
+                } catch (const utils::exception::IException& e) {
+                    error = e.info();
+                }
+                this->_screen.Post([this, prompt, error]() {
+                    if (!prompt) {
+                        this->status_(error, true);
+                        return;
+                    }
+                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.draft()); // typed meanwhile: kept
+                    this->_editor.load({prompt->text, prompt->images, {}});
+                    this->historyReset_();
+                    this->status_("the last prompt left the conversation: back here to edit (Esc Esc on an empty prompt: the one before)");
+                });
+                this->_screen.PostEvent(ftxui::Event::Custom);
+            });
+        }
+
+        void historyReset_(void)
+        {
+            // a prompt sent: the browsing and its changes are forgotten
+            this->_historyAt = -1;
+            this->_historyEdits.clear();
+            this->_historyList.clear();
+        }
 
         void vimSync_(void)
         {
@@ -407,10 +636,8 @@ class TtyUi {
             const std::filesystem::path path = cluster::data_dir() / "prompt-edit.md";
             std::error_code error;
             std::filesystem::create_directories(path.parent_path(), error);
-            std::ofstream(path) << this->_editor.plain();
-            const char* visual = std::getenv("VISUAL");
-            const char* editor = std::getenv("EDITOR");
-            std::vector<std::string> command = cluster::split(visual && *visual ? visual : editor && *editor ? editor : "vi", ' ');
+            std::ofstream(path) << this->_editor.plain(); // the pasted texts in full
+            std::vector<std::string> command = this->editorCommand_();
             command.push_back(path.string());
             this->_screen.WithRestoredIO([&]() {
                 utils::encapsulation::Process process;
@@ -424,7 +651,24 @@ class TtyUi {
             std::ifstream in(path);
             std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
-            this->_editor.setText(this->_editor.atomize(text));
+            this->_editor.setText(this->_editor.collapse(text)); // a pasted text left unchanged: its block again
+        }
+
+        _nodiscard std::vector<std::string> editorCommand_(void) const
+        {
+            // [ui] editor, else the first installed: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano
+            const std::string& chosen = this->_manager.config().editor;
+            if (!cluster::trim(chosen).empty()) return cluster::split(cluster::trim(chosen), ' ');
+            const std::string& main = this->_manager.config().user.editor; // the main editor of the user ([user])
+            if (!cluster::trim(main).empty() && cluster::has_command(cluster::split(cluster::trim(main), ' ')[0])) return cluster::split(cluster::trim(main), ' ');
+            for (const char* name: {"nvim", "vim", "vi"})
+                if (cluster::has_command(name)) return {name};
+            for (const char* variable: {"VISUAL", "EDITOR"}) {
+                const char* value = std::getenv(variable);
+                if (value && *value) return cluster::split(value, ' ');
+            }
+            if (cluster::has_command("emacs")) return {"emacs", "-nw"};
+            return {"nano"};
         }
 
         void historyFilter_(void)
@@ -448,10 +692,9 @@ class TtyUi {
                 if (image.code == 0 && !image.out.empty()) {
                     std::error_code error;
                     std::filesystem::create_directories(cluster::data_dir() / "images", error);
-                    const std::filesystem::path path = cluster::data_dir() / "images" / ("paste-" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch()).count()) + extension);
-                    std::ofstream(path, std::ios::binary) << image.out;
-                    this->_editor.addImage(path.string());
+                    const std::filesystem::path path = cluster::data_dir() / "images" / ("img-" + cluster::content_hash(image.out) + extension);
+                    if (!std::filesystem::exists(path, error)) std::ofstream(path, std::ios::binary) << image.out;
+                    if (!this->_editor.addImage(path.string())) this->status_("the same image: one more reference to it (sent once)");
                     return;
                 }
             }
@@ -462,30 +705,49 @@ class TtyUi {
 
         void submit_(void)
         {
+            // the prompt leaves at once (feedback), the send / the local command runs in the worker (it may start or stop
+            // a claude: seconds), its result comes back here; an error: the prompt back, nothing lost
             const std::string text = cluster::trim(this->_editor.plain());
             if (text.empty()) return;
-            const std::optional<cluster::ActionResult> local = cluster::run_slash(this->_manager, this->_active, text);
-            if (local) {
-                this->_manager.addHistory(text, this->_active);
-                this->_editor.clear();
-                if (!local->focus.empty()) this->_active = local->focus;
-                if (local->ui == "settings") this->openSettings_();
-                else if (local->ui == "restore_menu") this->openRestore_();
-                if (!local->message.empty()) this->status_(local->message, local->error);
-                return;
-            }
-            try {
-                this->_manager.send(this->_active, text, false, this->_editor.images());
-                this->_editor.clear();
-                this->_scroll[this->_active] = 0;
-            } catch (const utils::exception::IException& e) {
-                this->status_(e.info(), true);
-            }
+            const cluster::Draft draft = this->_editor.draft();
+            const std::vector<std::string> images = this->_editor.images();
+            const std::string session = this->_active;
+            this->_editor.clear();
+            this->historyReset_();
+            this->_scroll[session] = 0;
+            this->status_(text.starts_with("/") ? cluster::split(text, ' ')[0] + "…" : "sent");
+            this->_worker.push([this, text, draft, images, session]() {
+                std::optional<cluster::ActionResult> local;
+                std::string error;
+                try {
+                    local = cluster::run_slash(this->_manager, session, text);
+                    if (local) this->_manager.addHistory(draft, session);
+                    else this->_manager.send(session, text, false, images, draft.pastes);
+                } catch (const utils::exception::IException& e) {
+                    error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+                }
+                this->_screen.Post([this, local, error, draft]() {
+                    if (!error.empty()) {
+                        this->status_(error, true);
+                        if (cluster::trim(this->_editor.text()).empty()) this->_editor.load(draft);
+                        return;
+                    }
+                    if (!local) return;
+                    if (!local->focus.empty()) this->_active = local->focus;
+                    if (local->ui == "settings") this->openSettings_();
+                    else if (local->ui == "restore_menu") this->openRestore_();
+                    else if (local->ui == "rewind") this->rewind_();
+                    if (!local->message.empty()) this->status_(local->message, local->error);
+                    else if (local->ui.empty()) this->status_("done");
+                });
+                this->_screen.PostEvent(ftxui::Event::Custom);
+            });
         }
 
         _nodiscard ftxui::Element prompt_(const int width)
         {
             // the prompt (several lines: Alt+Enter / Shift+Enter): selection inverted, cursor, 8 lines around the cursor
+            this->_promptRows.clear();
             if (this->_mode == Mode::Search) {
                 return ftxui::hbox({ftxui::text(" find › ") | ftxui::color(this->_theme.warn) | ftxui::bold, ftxui::text(this->_search) | ftxui::color(this->_theme.text),
                     ftxui::text("▏") | ftxui::blink, ftxui::text("  " + (this->_matches.empty() ? std::string("no match") : std::to_string(this->_hit + 1) + "/" + std::to_string(this->_matches.size()))
@@ -514,6 +776,7 @@ class TtyUi {
                 if (le - ls > room && cursor > ls + room / 2 && i == current) from = std::min(cursor - room / 2, le - room);
                 while (from > ls && (static_cast<unsigned char>(text[from]) & 0xC0) == 0x80) --from;
                 if (from > ls) parts.push_back(ftxui::text("…") | ftxui::color(this->_theme.muted));
+                this->_promptRows.push_back({from, le, from > ls ? 4 : 3});
                 const std::function<void(std::size_t, std::size_t, bool)> piece = [&](std::size_t x, std::size_t y, bool selected) {
                     x = std::max(x, from);
                     y = std::min(y, le);
@@ -544,8 +807,16 @@ class TtyUi {
                         while (next < le && (static_cast<unsigned char>(text[next]) & 0xC0) == 0x80) ++next;
                         parts.push_back(ftxui::text(cursor < le ? this->_editor.shown(text.substr(cursor, next - cursor)) : " ") | ftxui::color(this->_theme.accent) | ftxui::inverted);
                         piece(next, le, false);
+                    } else if (this->_mode == Mode::Normal) {
+                        // the cursor of the terminal (a bar) on the character: no cell added in the text
+                        std::size_t next = cursor;
+                        if (next < le) next = this->_editor.atomAt(text, next) ? next + 4 : next + 1;
+                        while (next < le && (static_cast<unsigned char>(text[next]) & 0xC0) == 0x80) ++next;
+                        const bool atom = cursor < le && this->_editor.atomAt(text, cursor).has_value();
+                        parts.push_back(ftxui::text(cursor < le ? this->_editor.shown(text.substr(cursor, next - cursor)) : " ")
+                            | ftxui::color(atom ? this->_theme.accent : this->_theme.text) | ftxui::focusCursorBarBlinking);
+                        piece(next, le, false);
                     } else {
-                        if (this->_mode == Mode::Normal) parts.push_back(ftxui::text("▏") | ftxui::color(this->_theme.accent) | ftxui::blink);
                         piece(cursor, le, false);
                     }
                 } else {
@@ -566,7 +837,99 @@ class TtyUi {
                 rows.push_back(ftxui::hbox(std::move(parts)));
             }
             if (lines.size() > 8) rows.push_back(ftxui::text("   " + std::to_string(lines.size()) + " lines") | ftxui::color(this->_theme.muted) | ftxui::dim);
-            return ftxui::vbox(std::move(rows));
+            return ftxui::vbox(std::move(rows)) | ftxui::reflect(this->_promptBox);
+        }
+
+        _nodiscard std::optional<std::size_t> promptAt_(const int x, const int y) const
+        {
+            // a cell of the prompt -> its byte in the text (an atom is one block: its label)
+            if (this->_promptRows.empty()) return std::nullopt;
+            const PromptRow& row = this->_promptRows[static_cast<std::size_t>(std::clamp(y - this->_promptBox.y_min, 0, static_cast<int>(this->_promptRows.size()) - 1))];
+            const std::string& text = this->_editor.text();
+            int column = x - this->_promptBox.x_min - row.offset;
+            std::size_t at = row.from;
+            while (at < row.end && column > 0) {
+                const std::optional<std::size_t> atom = this->_editor.atomAt(text, at);
+                const int width = atom ? static_cast<int>(this->_editor.atom(*atom).label.size()) : 1;
+                if (column < width) {
+                    if (column * 2 >= width) at += 4; // the half after: after the block
+                    break;
+                }
+                column -= width;
+                at += atom ? 4 : 1;
+                while (at < row.end && (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80) ++at;
+            }
+            return std::min(at, row.end);
+        }
+
+        _nodiscard std::string selectedText_(void) const
+        {
+            // the cells selected in a transcript, its lines joined back as they were (wrapped or not)
+            if (!this->_selection || !this->_views.contains(this->_selection->session)) return "";
+            const View& view = this->_views.at(this->_selection->session);
+            const Selection& sel = *this->_selection;
+            const bool forward = sel.y0 < sel.y1 || (sel.y0 == sel.y1 && sel.x0 <= sel.x1);
+            const int ya = forward ? sel.y0 : sel.y1;
+            const int xa = forward ? sel.x0 : sel.x1;
+            const int yb = forward ? sel.y1 : sel.y0;
+            const int xb = forward ? sel.x1 : sel.x0;
+            std::string text;
+            for (int y = std::max(ya, 0); y <= yb && y < static_cast<int>(view.lines.size()); ++y) {
+                const std::string& line = view.lines[static_cast<std::size_t>(y)];
+                const std::size_t from = y == ya ? byte_at_(line, xa) : 0;
+                const std::size_t to = y == yb ? byte_at_(line, xb + 1) : line.size();
+                if (y != ya) text += view.joins[static_cast<std::size_t>(y)];
+                if (to > from) text += line.substr(from, to - from);
+            }
+            return text;
+        }
+
+        void mouseSelect_(const ftxui::Mouse& mouse)
+        {
+            // drag in the prompt: its selection; in a transcript: cells; released: copied to the clipboard (like Claude Code)
+            if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Left) {
+                this->_drag.clear();
+                this->_selection.reset();
+                if (this->_promptBox.Contain(mouse.x, mouse.y)) {
+                    const std::optional<std::size_t> at = this->promptAt_(mouse.x, mouse.y);
+                    if (at) {
+                        this->_editor.place(*at, false);
+                        this->_drag = "prompt";
+                    }
+                    return;
+                }
+                for (const auto &[id, view]: this->_views) {
+                    if (!view.box.Contain(mouse.x, mouse.y)) continue;
+                    const int x = mouse.x - view.box.x_min;
+                    const int y = mouse.y - view.box.y_min;
+                    this->_selection = Selection{id, x, y, x, y};
+                    this->_drag = id;
+                    return;
+                }
+                return;
+            }
+            if (this->_drag.empty()) return;
+            if (mouse.motion == ftxui::Mouse::Moved) {
+                if (this->_drag == "prompt") {
+                    const std::optional<std::size_t> at = this->promptAt_(mouse.x, mouse.y);
+                    if (at) this->_editor.place(*at, true);
+                } else if (this->_selection && this->_views.contains(this->_drag)) {
+                    const ftxui::Box& box = this->_views.at(this->_drag).box;
+                    this->_selection->x1 = std::clamp(mouse.x, box.x_min, box.x_max) - box.x_min;
+                    this->_selection->y1 = std::clamp(mouse.y, box.y_min, box.y_max) - box.y_min;
+                }
+                return;
+            }
+            if (mouse.motion == ftxui::Mouse::Released) {
+                const std::string text = this->_drag == "prompt" ? this->_editor.expand(this->_editor.selected()) : this->selectedText_();
+                const bool click = this->_drag != "prompt" && this->_selection && this->_selection->x0 == this->_selection->x1 && this->_selection->y0 == this->_selection->y1;
+                this->_drag.clear();
+                if (click) this->_selection.reset();
+                if (!text.empty() && !click) {
+                    cluster::detach({"wl-copy", "--", text});
+                    this->status_("copied (" + std::to_string(text.size()) + " characters)");
+                }
+            }
         }
 
         _nodiscard ftxui::Element completion_(void) const
@@ -588,23 +951,40 @@ class TtyUi {
 
         _nodiscard ftxui::Element images_(void)
         {
-            // pasted images: one chip each; the mouse over a chip shows the image (half blocks)
-            const std::vector<std::pair<std::string, std::string>> images = this->_editor.imagesIn(this->_editor.text());
-            this->_imageBoxes.resize(images.size());
-            if (images.empty()) return ftxui::emptyElement();
+            // the atoms of the prompt (images, pasted texts): one chip each, dim when out of the text; mouse over: the
+            // image (chafa) or the text, click: back in the prompt, right click: the image in the viewer of the desktop
+            this->_chips = this->_editor.promptAtoms();
+            this->_chipBoxes.resize(this->_chips.size());
+            if (this->_chips.empty()) return ftxui::emptyElement();
             ftxui::Elements chips = {ftxui::text(" ")};
-            for (std::size_t i = 0; i < images.size(); ++i) {
-                ftxui::Element chip = ftxui::text(" " + images[i].first + " " + std::filesystem::path(images[i].second).filename().string() + " ")
-                    | ftxui::color(this->_theme.text) | ftxui::bgcolor(static_cast<int>(i) == this->_hoverImage ? this->_theme.accent : this->_theme.surface);
-                chips.push_back(chip | ftxui::reflect(this->_imageBoxes[i]));
+            for (std::size_t i = 0; i < this->_chips.size(); ++i) {
+                const cluster::Atom& atom = this->_editor.atom(this->_chips[i]);
+                const bool in = this->_editor.contains(this->_chips[i]);
+                ftxui::Element chip = ftxui::text(" " + atom.label + (atom.image.empty() ? "" : " " + std::filesystem::path(atom.image).filename().string()) + " ")
+                    | ftxui::color(in ? this->_theme.text : this->_theme.muted) | ftxui::bgcolor(static_cast<int>(i) == this->_hoverChip ? this->_theme.accent : this->_theme.surface);
+                chips.push_back((in ? chip : chip | ftxui::dim) | ftxui::reflect(this->_chipBoxes[i]));
                 chips.push_back(ftxui::text(" "));
             }
-            chips.push_back(ftxui::text("(mouse over: preview)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            chips.push_back(ftxui::text("(mouse over: preview · click: in the prompt · right click: open)") | ftxui::color(this->_theme.muted) | ftxui::dim);
             ftxui::Element line = ftxui::hbox(std::move(chips));
-            if (this->_hoverImage < 0 || this->_hoverImage >= static_cast<int>(images.size())) return line;
+            if (this->_hoverChip < 0 || this->_hoverChip >= static_cast<int>(this->_chips.size())) return line;
+            const cluster::Atom& atom = this->_editor.atom(this->_chips[static_cast<std::size_t>(this->_hoverChip)]);
             const ftxui::Dimensions size = ftxui::Terminal::Size();
-            const Preview& image = preview_(images[static_cast<std::size_t>(this->_hoverImage)].second, std::clamp(size.dimx - 6, 20, 120), std::clamp(size.dimy / 2, 8, 30));
             ftxui::Elements rows;
+            if (atom.image.empty()) {
+                // a pasted text: its first lines
+                const std::vector<std::string> lines = wrap_(atom.content, static_cast<std::size_t>(std::max(20, size.dimx - 6)));
+                const std::size_t shown = std::min<std::size_t>(lines.size(), static_cast<std::size_t>(std::clamp(size.dimy / 2, 6, 30)));
+                for (std::size_t i = 0; i < shown; ++i)
+                    rows.push_back(ftxui::text("  " + lines[i]) | ftxui::color(this->_theme.text));
+                if (lines.size() > shown)
+                    rows.push_back(ftxui::text("  … " + std::to_string(lines.size() - shown) + " more line(s) (" + this->_manager.config().keys.at("edit") + ": the whole text)")
+                        | ftxui::color(this->_theme.muted) | ftxui::dim);
+                return ftxui::vbox({ftxui::vbox(std::move(rows)) | ftxui::bgcolor(this->_theme.surface), line});
+            }
+            const bool chafa = this->_manager.config().imagePreview == "chafa";
+            const Preview& image = chafa ? preview_(atom.image, std::clamp(size.dimx - 6, 20, 120), std::clamp(size.dimy / 2, 8, 30), true)
+                : preview_(atom.image, std::clamp(size.dimx - 6, 20, 96), std::clamp(size.dimy / 2, 8, 24), false);
             if (!image.cells.empty()) {
                 for (const std::vector<Cell>& cells: image.cells) {
                     ftxui::Elements parts = {ftxui::text("  ")};
@@ -619,7 +999,7 @@ class TtyUi {
                 rows.push_back(line);
                 return ftxui::vbox(std::move(rows));
             }
-            if (image.width == 0) return ftxui::vbox({ftxui::text(" (no preview: chafa or magick needed)") | ftxui::dim, line});
+            if (image.width == 0) return ftxui::vbox({ftxui::text(" (no preview: chafa or magick needed; right click: open it)") | ftxui::dim, line});
             for (int y = 0; y + 1 < image.height + 1; y += 2) {
                 ftxui::Elements cells = {ftxui::text("  ")};
                 for (int x = 0; x < image.width; ++x) {
@@ -658,6 +1038,9 @@ class TtyUi {
                 this->theme_();
             } else if (base == "settings") {
                 this->openSettings_();
+            } else if (base == "machine_sync" || base == "edit_global_prompt") {
+                this->settingsAction_(base == "machine_sync" ? "machine_sync" : "edit_prompt");
+                if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
             } else if (base == "restore_menu") {
                 this->openRestore_();
             } else if (base == "quit") {
@@ -699,7 +1082,10 @@ class TtyUi {
         bool shortcut_(const std::string& action)
         {
             if (action.empty()) return false;
-            if (action == "undo") {
+            if (action == "expand") {
+                this->_expanded = !this->_expanded;
+                this->status_(this->_expanded ? "thinking and tool results in full" : "thinking and tool results folded");
+            } else if (action == "undo") {
                 this->_editor.undo();
             } else if (action == "redo") {
                 this->_editor.redo();
@@ -709,17 +1095,18 @@ class TtyUi {
                 if (cluster::trim(this->_editor.text()).empty()) {
                     this->status_("nothing to stash");
                 } else {
-                    this->_manager.stashPush(this->_editor.plain());
+                    this->_manager.stashPush(this->_editor.draft());
                     this->_editor.clear();
+                    this->historyReset_();
                     this->status_("prompt stashed (" + std::to_string(this->_manager.stashSize()) + "), " + this->_manager.config().keys.at("unstash") + " to take it back");
                 }
             } else if (action == "unstash") {
-                const std::optional<std::string> text = this->_manager.stashPop();
+                const std::optional<cluster::Draft> text = this->_manager.stashPop();
                 if (!text) {
                     this->status_("the stash is empty");
                 } else {
-                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.plain()); // swapped, not lost
-                    this->_editor.setText(this->_editor.atomize(*text));
+                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.draft()); // swapped, not lost
+                    this->_editor.load(*text);
                 }
             } else if (action == "history") {
                 this->_filter.clear();
@@ -732,15 +1119,19 @@ class TtyUi {
                 const std::string text = this->_editor.expand(this->_editor.cut());
                 if (!text.empty()) cluster::detach({"wl-copy", "--", text});
             } else if (action == "interrupt") {
-                // a turn runs: stop it; else a selection: copy it; else: clear the prompt
+                // voice prompts waiting: dropped; else a turn runs: stop it; else a selection: copy it; else: clear the prompt
                 const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
-                if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) {
+                if (!this->_app.voice->pending().empty()) {
+                    this->_app.voice->cancel();
+                    this->status_("voice prompts dropped");
+                } else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) {
                     this->run_({"interrupt", "", "", "", false}, "");
                 } else if (!this->_editor.selected().empty()) {
                     cluster::detach({"wl-copy", "--", this->_editor.expand(this->_editor.selected())});
                     this->status_("copied");
                 } else {
                     this->_editor.clear();
+                    this->historyReset_();
                 }
             } else if (action == "mode_cycle") {
                 const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
@@ -919,6 +1310,10 @@ class TtyUi {
             } else if (count > 0 && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Return
                 || event == ftxui::Event::Character(' '))) {
                 const cluster::Setting& setting = page.settings[static_cast<std::size_t>(this->_item)];
+                if (setting.kind == cluster::SettingKind::Action) {
+                    if (event == ftxui::Event::Return || event == ftxui::Event::Character(' ')) this->settingsAction_(setting.key);
+                    return true;
+                }
                 const bool cycle = setting.kind == cluster::SettingKind::Bool || setting.kind == cluster::SettingKind::Choice;
                 const bool number = setting.kind == cluster::SettingKind::Int || setting.kind == cluster::SettingKind::Float;
                 if (event == ftxui::Event::Return && !cycle) {
@@ -952,6 +1347,7 @@ class TtyUi {
                 if (selected && this->_editing) value = this->_edit + "▏";
                 else if (setting.kind == cluster::SettingKind::Bool) value = value == "true" ? "Enabled" : "Disabled";
                 else if (setting.kind == cluster::SettingKind::Choice) value = "< " + (value.empty() ? std::string("(agent default)") : value) + " >";
+                else if (setting.kind == cluster::SettingKind::Action) value = "▶ " + value;
                 else if (value.empty()) value = "(empty)";
                 const std::string label = setting.label + " ";
                 const std::size_t dots = label.size() < 34 ? 34 - label.size() : 1;
@@ -1013,53 +1409,148 @@ class TtyUi {
 
         _nodiscard ftxui::Element transcript_(const cluster::Snapshot& s, const int width, const int height, const bool compact)
         {
-            // Wrapped lines of the transcript, the last ones (minus the scroll)
-            std::vector<ftxui::Element> lines;
+            // Wrapped lines of the transcript, the last ones (minus the scroll); kept as text for the mouse selection
+            struct Row {
+                std::string text;
+                ftxui::Decorator style;
+                std::string join;   // before it when copied
+            };
+            std::vector<Row> lines;
             const bool searching = this->_mode == Mode::Search && s.spec.id == this->_active && !this->_matches.empty();
             const std::size_t hitEntry = searching ? this->_matches[static_cast<std::size_t>(this->_hit)] : std::string::npos;
             int hitLine = -1;
             const std::size_t start = s.entries.size() > 300 && !searching ? s.entries.size() - 300 : 0;
-            for (std::size_t i = start; i < s.entries.size(); ++i) {
+            const cluster::Config& config = this->_manager.config();
+            const cluster::Frame frame = this->_reveal.step(s, config.typewriter, config.typewriterSpeed);
+            const std::size_t room = static_cast<std::size_t>(std::max(14, width - 2));
+            const std::string more = " (" + (config.keys.contains("expand") ? config.keys.at("expand") : std::string("Ctrl+O")) + " to expand)";
+            // a text on its lines: the first one after `first`, the next ones after `next` (its indent)
+            const std::function<void(const std::string&, const std::string&, const std::string&, const ftxui::Decorator&)> add =
+                [&](const std::string& text, const std::string& first, const std::string& next, const ftxui::Decorator& style) {
+                    std::vector<std::string> joins;
+                    const std::vector<std::string> wrapped = wrap_(text, room - std::min(room - 10, width_(first)), &joins);
+                    for (std::size_t k = 0; k < wrapped.size(); ++k)
+                        lines.push_back({(k == 0 ? first : next) + wrapped[k], style, joins[k]});
+                };
+            for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
                 const cluster::Entry& e = s.entries[i];
                 const bool matched = searching && std::find(this->_matches.begin(), this->_matches.end(), i) != this->_matches.end();
                 if (i == hitEntry) hitLine = static_cast<int>(lines.size());
-                std::string prefix;
-                ftxui::Color tint = this->_theme.text;
-                ftxui::Decorator deco = ftxui::nothing;
+                const ftxui::Decorator mark = i == hitEntry ? ftxui::inverted : matched ? ftxui::bgcolor(this->_theme.surface) : ftxui::nothing;
+                const std::string text = i == frame.typed ? e.text.substr(0, frame.typedBytes) : e.text;
+                const bool block = e.kind != cluster::EntryKind::ToolResult && e.kind != cluster::EntryKind::User && !(compact && e.kind == cluster::EntryKind::Thinking);
+                if (block && !lines.empty() && !lines.back().text.empty()) lines.push_back({"", ftxui::nothing, "\n"});
                 switch (e.kind) {
-                    case cluster::EntryKind::User: prefix = "› "; tint = this->_theme.accent; deco = ftxui::bold; break;
-                    case cluster::EntryKind::Assistant: prefix = ""; break;
-                    case cluster::EntryKind::Thinking: if (compact) continue; prefix = "∴ "; tint = this->_theme.muted; deco = ftxui::dim; break;
-                    case cluster::EntryKind::Tool: prefix = "⏺ " + e.tool + " "; tint = this->_theme.muted; break;
-                    case cluster::EntryKind::ToolResult: if (compact) continue; prefix = "  ⎿ "; tint = this->_theme.muted; deco = ftxui::dim; break;
-                    case cluster::EntryKind::System: prefix = "· "; tint = this->_theme.muted; deco = ftxui::dim; break;
-                    case cluster::EntryKind::Error: prefix = "✗ "; tint = this->_theme.error; break;
-                }
-                const std::string body = e.kind == cluster::EntryKind::Thinking ? cluster::one_line(e.text, 300) : e.text;
-                if (e.kind == cluster::EntryKind::User && !lines.empty()) lines.push_back(ftxui::text(""));
-                for (const std::string& line: wrap_(prefix + body, static_cast<std::size_t>(std::max(10, width - 2)))) {
-                    ftxui::Element element = ftxui::text(line) | ftxui::color(tint) | deco;
-                    if (i == hitEntry) element = element | ftxui::inverted;
-                    else if (matched) element = element | ftxui::bgcolor(this->_theme.surface);
-                    lines.push_back(element);
+                    case cluster::EntryKind::User:
+                        if (!lines.empty()) lines.push_back({"", ftxui::nothing, "\n"});
+                        add(text.starts_with("[voice] ") ? text.substr(8) : text, "› ", "  ", ftxui::color(this->_theme.accent) | ftxui::bold | mark);
+                        break;
+                    case cluster::EntryKind::Assistant:
+                        add(text, "⏺ ", "  ", ftxui::color(this->_theme.text) | mark);
+                        break;
+                    case cluster::EntryKind::Thinking:
+                        // like Claude Code: folded, Ctrl+O shows it
+                        if (compact) break;
+                        if (!this->_expanded) {
+                            lines.push_back({"∴ Thinking" + more, ftxui::color(this->_theme.muted) | ftxui::dim | ftxui::italic | mark, "\n"});
+                            break;
+                        }
+                        lines.push_back({"∴ Thinking…", ftxui::color(this->_theme.muted) | ftxui::italic | mark, "\n"});
+                        add(text, "  ", "  ", ftxui::color(this->_theme.muted) | ftxui::dim | ftxui::italic | mark);
+                        break;
+                    case cluster::EntryKind::Tool:
+                        if (e.tool == "TodoWrite") {
+                            lines.push_back({"⏺ Update Todos", ftxui::color(this->_theme.ok) | ftxui::bold | mark, "\n"});
+                            add(text, "  ⎿  ", "     ", ftxui::color(this->_theme.text) | mark);
+                        } else {
+                            add(e.tool + "(" + text + ")", "⏺ ", "  ", ftxui::color(this->_theme.ok) | ftxui::bold | mark);
+                        }
+                        break;
+                    case cluster::EntryKind::ToolResult: {
+                        // the first lines (Ctrl+O: all)
+                        if (compact) break;
+                        const std::vector<std::string> parts = lines_(text);
+                        const std::size_t keep = this->_expanded ? parts.size() : std::min<std::size_t>(parts.size(), 3);
+                        std::string shown;
+                        for (std::size_t k = 0; k < keep; ++k)
+                            shown += (k ? "\n" : "") + parts[k];
+                        add(cluster::trim(shown).empty() ? "(no output)" : shown, "  ⎿  ", "     ", ftxui::color(this->_theme.muted) | mark);
+                        if (parts.size() > keep)
+                            lines.push_back({"     … +" + std::to_string(parts.size() - keep) + " lines" + more, ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
+                        break;
+                    }
+                    case cluster::EntryKind::System:
+                        add(text, "· ", "  ", ftxui::color(this->_theme.muted) | ftxui::dim | mark);
+                        break;
+                    case cluster::EntryKind::Error:
+                        add(text, "✗ ", "  ", ftxui::color(this->_theme.error) | mark);
+                        break;
                 }
             }
-            if (!s.partial.empty())
-                for (const std::string& line: wrap_(s.partial, static_cast<std::size_t>(std::max(10, width - 2))))
-                    lines.push_back(ftxui::text(line) | ftxui::color(this->_theme.text) | ftxui::dim);
-            if (s.state == cluster::State::Working) lines.push_back(ftxui::text("… working" + (s.queued > 0 ? " (" + std::to_string(s.queued) + " queued)" : std::string())) | ftxui::color(this->_theme.muted) | ftxui::dim);
+            // the text streamed (typed), the live thinking, the state of the turn (like Claude Code)
+            if (!lines.empty() && !lines.back().text.empty() && ((frame.typed == static_cast<std::size_t>(-1) && frame.partialBytes > 0) || !s.thinking.empty()
+                || s.state == cluster::State::Working))
+                lines.push_back({"", ftxui::nothing, "\n"});
+            if (frame.typed == static_cast<std::size_t>(-1) && frame.partialBytes > 0) add(s.partial.substr(0, frame.partialBytes), "⏺ ", "  ", ftxui::color(this->_theme.text));
+            if (!s.thinking.empty() && !compact) {
+                if (this->_expanded) {
+                    add(s.thinking, "∴ ", "  ", ftxui::color(this->_theme.muted) | ftxui::dim | ftxui::italic);
+                } else {
+                    const std::vector<std::string> thought = lines_(cluster::trim(s.thinking));
+                    lines.push_back({"∴ " + cluster::one_line(thought.back(), room - 4), ftxui::color(this->_theme.muted) | ftxui::dim | ftxui::italic, "\n"});
+                }
+            }
+            if (s.state == cluster::State::Working) {
+                static const std::vector<std::string> spinner = {"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"};
+                const std::int64_t ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                std::int64_t since = 0;
+                for (auto it = s.entries.rbegin(); it != s.entries.rend() && since == 0; ++it)
+                    if (it->kind == cluster::EntryKind::User) since = it->time;
+                const bool tool = !s.entries.empty() && s.entries.back().kind == cluster::EntryKind::Tool;
+                const std::string verb = !s.thinking.empty() ? "Thinking" : (!s.partial.empty() || frame.typed != static_cast<std::size_t>(-1)) ? "Writing"
+                    : tool ? "Running " + s.entries.back().tool : "Working";
+                const std::int64_t output = s.metrics.current.output;
+                lines.push_back({spinner[static_cast<std::size_t>(ms / 120) % spinner.size()] + " " + verb + "… (" + (since > 0 ? std::to_string(cluster::now() - since) + "s" : std::string("…"))
+                    + (output > 0 ? " · ↓ " + cluster::human_tokens(output) + " tokens" : std::string()) + " · " + config.keys.at("interrupt") + " to interrupt)"
+                    + (s.queued > 0 ? "  " + std::to_string(s.queued) + " queued" : std::string()), ftxui::color(this->_theme.accent), "\n"});
+                this->_animating = true;
+            }
             for (const std::string& queued: s.queue)
-                lines.push_back(ftxui::text("⧗ queued: " + cluster::one_line(queued, static_cast<std::size_t>(std::max(10, width - 30))) + (compact ? "" : "  (Esc: edit)"))
-                    | ftxui::color(this->_theme.warn));
+                lines.push_back({"⧗ queued: " + cluster::one_line(queued, static_cast<std::size_t>(std::max(10, width - 30))) + (compact ? "" : "  (Esc: edit)"), ftxui::color(this->_theme.warn), "\n"});
 
             int& scroll = this->_scroll[s.spec.id];
             if (hitLine >= 0) scroll = std::max(0, static_cast<int>(lines.size()) - hitLine - height / 2);
             scroll = std::clamp(scroll, 0, std::max(0, static_cast<int>(lines.size()) - height));
             const int end = static_cast<int>(lines.size()) - scroll;
             const int begin = std::max(0, end - height);
-            ftxui::Elements shown(lines.begin() + begin, lines.begin() + end);
+            View& view = this->_views[s.spec.id];
+            view.lines.clear();
+            view.joins.clear();
+            // the mouse selection of this transcript: from (xa, ya) to (xb, yb), cells
+            const bool selecting = this->_selection && this->_selection->session == s.spec.id;
+            const Selection sel = selecting ? *this->_selection : Selection{};
+            const bool forward = sel.y0 < sel.y1 || (sel.y0 == sel.y1 && sel.x0 <= sel.x1);
+            const int ya = forward ? sel.y0 : sel.y1;
+            const int xa = forward ? sel.x0 : sel.x1;
+            const int yb = forward ? sel.y1 : sel.y0;
+            const int xb = forward ? sel.x1 : sel.x0;
+            ftxui::Elements shown;
+            for (int k = begin; k < end; ++k) {
+                const Row& row = lines[static_cast<std::size_t>(k)];
+                const int y = k - begin;
+                view.lines.push_back(row.text);
+                view.joins.push_back(row.join);
+                if (!selecting || y < ya || y > yb || (ya == yb && xa == xb)) {
+                    shown.push_back(ftxui::text(row.text) | row.style);
+                    continue;
+                }
+                const std::size_t from = y == ya ? byte_at_(row.text, xa) : 0;
+                const std::size_t to = std::max(from, y == yb ? byte_at_(row.text, xb + 1) : row.text.size());
+                shown.push_back(ftxui::hbox({ftxui::text(row.text.substr(0, from)) | row.style, ftxui::text(row.text.substr(from, to - from)) | row.style | ftxui::inverted,
+                    ftxui::text(row.text.substr(to)) | row.style}));
+            }
             if (scroll > 0) shown.push_back(ftxui::text("↓ " + std::to_string(scroll) + " more line(s) (PageDown)") | ftxui::color(this->_theme.accent) | ftxui::dim);
-            return ftxui::vbox(std::move(shown)) | ftxui::yflex;
+            return ftxui::vbox(std::move(shown)) | ftxui::yflex | ftxui::reflect(view.box);
         }
 
         _nodiscard ftxui::Element panels_(const cluster::Snapshot& s)
@@ -1075,9 +1566,14 @@ class TtyUi {
                 return ftxui::hbox({ftxui::text(left) | ftxui::color(this->_theme.muted), ftxui::filler(), ftxui::text(right) | ftxui::color(this->_theme.text)});
             };
 
-            if (s.spec.panels.contains("tokens"))
-                section("Tokens", {line("last prompt", cluster::human_tokens(m.last.total())), line("current", cluster::human_tokens(m.current.total())),
-                    line("total", cluster::human_tokens(m.total.total())), line("turns", std::to_string(m.turns))});
+            if (s.spec.panels.contains("tokens")) {
+                // the new tokens (in + written to the cache + out) apart from the ones read again from the cache at every step
+                const std::function<std::string(const cluster::Usage&)> split = [](const cluster::Usage& u) {
+                    return cluster::human_tokens(u.input + u.cacheCreation + u.output) + (u.cacheRead > 0 ? " +" + cluster::human_tokens(u.cacheRead) + " cache" : "");
+                };
+                section("Tokens", {line("last turn", split(m.last)), line("current", split(m.current)), line("total", split(m.total)),
+                    line("turns", std::to_string(m.turns))});
+            }
             if (s.spec.panels.contains("context")) {
                 const float ratio = m.contextWindow > 0 ? static_cast<float>(m.contextUsed) / static_cast<float>(m.contextWindow) : 0.0f;
                 section("Context", {line(cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow), std::to_string(static_cast<int>(ratio * 100)) + "%"),
@@ -1162,7 +1658,9 @@ class TtyUi {
             };
             ftxui::Element head = ftxui::hbox(std::move(left));
             if (!s.lastError.empty()) return ftxui::vbox({head, ftxui::text(" " + cluster::one_line(s.lastError, 200)) | ftxui::color(this->_theme.error)});
-            if (s.state == cluster::State::Remote) return ftxui::vbox({head, ftxui::text(" Remote Control: continue on claude.ai / the Claude app (session " + s.remoteId + ")") | ftxui::color(this->_theme.accent)});
+            if (!s.remoteUrl.empty() || !s.bridgeState.empty())
+                return ftxui::vbox({head, ftxui::text(" Remote Control " + (s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? std::string() : ": " + s.remoteUrl)
+                    + "  (live on claude.ai and here)") | ftxui::color(this->_theme.accent)});
             return head;
         }
 
@@ -1301,13 +1799,44 @@ class TtyUi {
                 lines.push_back(ftxui::text(" Escape / Enter: close") | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 100);
             }
+            if (this->_mode == Mode::Machine) {
+                const bool old = this->_machineStartup && this->_machineKind == 2;
+                const bool forced = this->_machineStartup && this->_machineKind == 3; // --rescan
+                const std::string title = old ? " The map of this computer is " + std::to_string(cluster::machine_days_old()) + " days old: sync it?"
+                    : forced && cluster::machine_days_old() >= 0 ? " Sync the map of this computer? (last " + cluster::machine_age() + ")" : " Map this computer?";
+                const std::string no = !this->_machineStartup || forced ? "" : old ? " (proposed again in " + std::to_string(this->_manager.config().machineDays) + " days)"
+                    : " (not asked again: settings > Global session)";
+                return box(ftxui::vbox({ftxui::text(title) | ftxui::bold, ftxui::text(""),
+                    ftxui::paragraph(cluster::machine_scope()) | ftxui::color(this->_theme.text), ftxui::text(""),
+                    ftxui::text(" [y] yes   [n] / Esc no" + no) | ftxui::color(this->_theme.accent)}), 90);
+            }
+            if (this->_mode == Mode::Profile && this->_question < this->_questions.size()) {
+                // one question about the user at a time, its suggestion ready (Enter keeps it)
+                const cluster::ProfileQuestion& q = this->_questions[this->_question];
+                ftxui::Elements lines = {ftxui::text(" About you (for the global session) - " + std::to_string(this->_question + 1) + "/" + std::to_string(this->_questions.size())) | ftxui::bold,
+                    ftxui::text(""), ftxui::text(" " + q.question) | ftxui::color(this->_theme.text),
+                    ftxui::hbox({ftxui::text(" › ") | ftxui::color(this->_theme.accent), ftxui::text(this->_answer + "▏") | ftxui::color(this->_theme.text) | ftxui::bold})};
+                if (!q.choices.empty()) {
+                    ftxui::Elements choices = {ftxui::text(" ← → ") | ftxui::color(this->_theme.muted)};
+                    for (const std::string& choice: q.choices)
+                        choices.push_back(ftxui::text(" " + (choice.empty() ? std::string("(none)") : choice) + " ") | (choice == this->_answer
+                            ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : ftxui::color(this->_theme.text)));
+                    lines.push_back(ftxui::hbox(std::move(choices)));
+                }
+                lines.push_back(ftxui::text(""));
+                lines.push_back(ftxui::text(" Enter: ok · Esc: skip it · Ctrl+S: skip the rest (config.toml [user], F9 > User)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                return box(ftxui::vbox(std::move(lines)), 90);
+            }
             if (this->_mode == Mode::Restore) {
                 const std::vector<cluster::SessionSpec> previous = this->_manager.previous();
-                ftxui::Elements lines = {ftxui::text(" Restore the previous sessions?") | ftxui::bold, ftxui::text("")};
+                ftxui::Elements lines = {ftxui::text(" Restore the previous run?") | ftxui::bold, ftxui::text("")};
                 for (const cluster::SessionSpec& spec: previous)
                     lines.push_back(ftxui::text("   " + spec.name + "  " + spec.backend + "  " + cluster::short_path(spec.cwd)) | ftxui::color(this->_theme.muted));
+                lines.push_back(ftxui::text("   global session: its conversation") | ftxui::color(this->_theme.muted));
                 lines.push_back(ftxui::text(""));
-                lines.push_back(ftxui::text(" [r] restore   [n] start clean (they stay in the trash " + std::to_string(this->_manager.config().trashDays) + " days)") | ftxui::color(this->_theme.accent));
+                lines.push_back(ftxui::text(" [r] / Enter / Esc  restore") | ftxui::color(this->_theme.accent));
+                lines.push_back(ftxui::text(" [n]  start new: the sessions to the trash (" + std::to_string(this->_manager.config().trashDays)
+                    + " days), a new global conversation") | ftxui::color(this->_theme.accent));
                 return box(ftxui::vbox(std::move(lines)), 90);
             }
             return ftxui::emptyElement();
@@ -1334,6 +1863,20 @@ class TtyUi {
                 ftxui::text(c.keys.at("palette") + " palette · " + c.keys.at("next_session") + "/" + c.keys.at("prev_session") + " session · "
                     + c.keys.at("global") + " global · " + c.keys.at("new_session") + " new · " + c.keys.at("quit") + " quit ") | ftxui::color(this->_theme.muted),
             });
+            // the global session asked to show a session (ui_focus); the style may have changed (ui_style)
+            const std::pair<std::uint64_t, std::string> focus = this->_manager.focusRequest();
+            if (focus.first != this->_focusSeen) {
+                this->_focusSeen = focus.first;
+                if (this->_manager.snapshot(focus.second)) this->_active = focus.second;
+            }
+            this->_manager.noteActive(this->_active);
+            if (this->_manager.ui("style", this->_manager.config().style) != this->_styleSeen) {
+                this->_styleSeen = this->_manager.ui("style", this->_manager.config().style);
+                this->theme_();
+            }
+            this->_views.clear(); // filled again by the transcripts drawn
+            this->_animating = false;
+            this->_reveal.frameStart();
             const int bodyHeight = size.dimy - 4 - (this->_app.voice->listening() || !this->_app.voice->pending().empty() ? 1 : 0);
             ftxui::Element input = this->prompt_(size.dimx);
             ftxui::Element document = ftxui::vbox({
@@ -1346,15 +1889,31 @@ class TtyUi {
                 input,
                 ftxui::text(" " + status) | ftxui::color(error ? this->_theme.error : this->_theme.muted),
             }) | ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg);
-            if (this->_mode == Mode::Settings) return this->settings_(size);
-            if (this->_mode == Mode::Normal) return document;
-            return ftxui::dbox({document, this->modal_()});
+            if (this->_reveal.active()) this->_animating = true;
+            // the box of the scan over any screen (started from the settings, the palette, the question at start); its end
+            // in the status line too
+            const std::optional<std::pair<cluster::MachineProgress, std::int64_t>> last = this->_manager.machineProgress();
+            if (last && last->first.done && last->first.id != this->_scanReported) {
+                this->_scanReported = last->first.id;
+                this->status_("map of this computer written: " + std::to_string(last->first.repos) + " repositories");
+                if (this->_note.starts_with("mapping")) this->_note = this->_status;
+            }
+            const std::optional<cluster::MachineProgress> scan = this->scanShown_();
+            ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : this->_mode == Mode::Normal ? document
+                : ftxui::dbox({document, this->modal_()});
+            if (!scan) return screen;
+            this->_animating = true;
+            return ftxui::dbox({screen, this->scanBox_(*scan)});
         }
 
         /* events */
         bool event_(ftxui::Event event)
         {
             if (event == ftxui::Event::Custom) return true;
+            if (event == ftxui::Event::Escape && this->_mode != Mode::Machine && this->_mode != Mode::Profile && this->scanShown_()) {
+                this->_scanHidden = this->scanShown_()->id; // the box of the scan closed (it goes on), on any screen
+                return true;
+            }
             // terminal paste (bracketed): one piece in the prompt, Enter of the text is not a send
             if (event.input() == "\x1b[200~") { // xstyle: ignore LU-ANSI (read, not written)
                 this->_pasting = std::string();
@@ -1378,21 +1937,97 @@ class TtyUi {
             }
             if (event.is_mouse()) {
                 const ftxui::Mouse& mouse = event.mouse();
-                this->_hoverImage = -1;
-                for (std::size_t i = 0; i < this->_imageBoxes.size(); ++i)
-                    if (this->_imageBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverImage = static_cast<int>(i);
-                if (mouse.button == ftxui::Mouse::WheelUp) this->_scroll[this->_active] += 3;
-                else if (mouse.button == ftxui::Mouse::WheelDown) this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 3);
+                this->_hoverChip = -1;
+                for (std::size_t i = 0; i < this->_chipBoxes.size(); ++i)
+                    if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);
+                if (mouse.button == ftxui::Mouse::WheelUp) {
+                    this->_scroll[this->_active] += 3;
+                    return true;
+                }
+                if (mouse.button == ftxui::Mouse::WheelDown) {
+                    this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 3);
+                    return true;
+                }
+                if (this->_mode != Mode::Normal) return true;
+                if (mouse.motion == ftxui::Mouse::Pressed && this->_hoverChip >= 0 && this->_hoverChip < static_cast<int>(this->_chips.size())) {
+                    // a chip: click puts it back in the prompt, right click opens the image (viewer of the desktop)
+                    const std::size_t index = this->_chips[static_cast<std::size_t>(this->_hoverChip)];
+                    const cluster::Atom& atom = this->_editor.atom(index);
+                    if (mouse.button == ftxui::Mouse::Right && !atom.image.empty()) {
+                        const std::string viewer = cluster::trim(this->_manager.config().imageViewer);
+                        std::vector<std::string> command = viewer.empty() ? std::vector<std::string>{"xdg-open"} : cluster::split(viewer, ' ');
+                        command.push_back(atom.image);
+                        cluster::detach(command);
+                        this->status_("opened " + std::filesystem::path(atom.image).filename().string());
+                    } else if (mouse.button == ftxui::Mouse::Left) {
+                        this->_editor.insertAtom(index); // an image already there: one more reference (sent once)
+                    }
+                    return true;
+                }
+                this->mouseSelect_(mouse);
                 return true;
             }
             const std::string key = key_name_(event);
+            this->_selection.reset(); // a key: the mouse selection (already copied) goes
 
             switch (this->_mode) {
                 case Mode::Restore:
-                    if (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R') || event == ftxui::Event::Return) this->_manager.restorePrevious(true);
-                    else if (event == ftxui::Event::Character('n') || event == ftxui::Event::Character('N') || event == ftxui::Event::Escape) this->_manager.restorePrevious(false);
+                    // Esc keeps everything (never a loss by mistake); n: a new start
+                    if (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R') || event == ftxui::Event::Return || event == ftxui::Event::Escape)
+                        this->_manager.answerRestore(true);
+                    else if (event == ftxui::Event::Character('n') || event == ftxui::Event::Character('N')) this->_manager.answerRestore(false);
                     else return true;
-                    this->_mode = Mode::Normal;
+                    this->_mode = this->_machineStartup ? Mode::Machine : Mode::Normal;
+                    return true;
+                case Mode::Profile: {
+                    if (this->_question >= this->_questions.size()) {
+                        this->_mode = Mode::Normal;
+                        return true;
+                    }
+                    const cluster::ProfileQuestion& q = this->_questions[this->_question];
+                    if (event == ftxui::Event::Return) {
+                        this->profileNext_(true);
+                    } else if (event == ftxui::Event::Escape) {
+                        this->profileNext_(false);
+                    } else if (event.input() == std::string(1, '\x13')) { // Ctrl+S: the rest skipped
+                        this->_question = this->_questions.size() - 1;
+                        this->profileNext_(false);
+                    } else if (!q.choices.empty() && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight)) {
+                        auto it = std::find(q.choices.begin(), q.choices.end(), this->_answer);
+                        const long at = it == q.choices.end() ? 0 : it - q.choices.begin();
+                        const long size = static_cast<long>(q.choices.size());
+                        this->_answer = q.choices[static_cast<std::size_t>((at + (event == ftxui::Event::ArrowLeft ? size - 1 : 1)) % size)];
+                    } else if (event == ftxui::Event::Backspace) {
+                        while (!this->_answer.empty() && (static_cast<unsigned char>(this->_answer.back()) & 0xC0) == 0x80) this->_answer.pop_back();
+                        if (!this->_answer.empty()) this->_answer.pop_back();
+                    } else if (event.is_character()) {
+                        this->_answer += event.character();
+                    }
+                    return true;
+                }
+                case Mode::Machine:
+                    // y: scanned (in the background), n / Esc: not (at start: never asked again)
+                    if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
+                        // the questions about the user still empty, then the scan
+                        this->_questions = cluster::machine_questions(this->_manager.config());
+                        this->_machineStartup = false;
+                        if (!this->_questions.empty()) {
+                            this->_question = 0;
+                            this->_answer = this->_questions[0].value;
+                            this->_mode = Mode::Profile;
+                            return true;
+                        }
+                        this->_manager.scanMachine();
+                        this->status_("mapping this computer…");
+                        this->_note = "mapping this computer…";
+                    } else if (event == ftxui::Event::Character('n') || event == ftxui::Event::Character('N') || event == ftxui::Event::Escape) {
+                        if (this->_machineStartup && this->_machineKind == 2) this->_manager.machineLater();
+                        else if (this->_machineStartup && this->_machineKind == 1) this->_manager.machineDecline(); // --rescan (3): nothing kept
+                    } else {
+                        return true;
+                    }
+                    this->_machineStartup = false;
+                    this->_mode = this->_machineReturn == Mode::Machine ? Mode::Normal : this->_machineReturn;
                     return true;
                 case Mode::Message:
                     if (event == ftxui::Event::Escape || event == ftxui::Event::Return) this->_mode = Mode::Normal;
@@ -1445,7 +2080,13 @@ class TtyUi {
                     } else if (event == ftxui::Event::ArrowUp || cluster::key_action(this->_manager.config(), key) == "history") {
                         this->_selected = std::max(0, this->_selected - 1);
                     } else if (event == ftxui::Event::Return) {
-                        if (!this->_historyItems.empty()) this->_editor.setText(this->_historyItems[static_cast<std::size_t>(this->_selected)]);
+                        if (!this->_historyItems.empty()) {
+                            const std::string chosen = this->_historyItems[static_cast<std::size_t>(this->_selected)];
+                            const std::vector<cluster::Draft> drafts = this->_manager.drafts();
+                            auto it = std::find_if(drafts.begin(), drafts.end(), [&](const cluster::Draft& d) {return d.text == chosen;});
+                            this->_editor.load(it != drafts.end() ? *it : cluster::Draft{chosen, {}, {}});
+                            this->historyReset_();
+                        }
                         this->_mode = Mode::Normal;
                     } else if (event == ftxui::Event::Backspace) {
                         if (!this->_filter.empty()) this->_filter.pop_back();
@@ -1487,6 +2128,11 @@ class TtyUi {
                     return true;
                 }
             }
+            if (event == ftxui::Event::Escape && !this->_app.voice->pending().empty()) {
+                this->_app.voice->cancelLast();
+                this->status_("voice prompt dropped (Ctrl+C: all of them)");
+                return true;
+            }
             this->vimSync_();
             if (this->vimKey_(event, key)) return true;
             const std::string& raw = event.input();
@@ -1505,13 +2151,18 @@ class TtyUi {
                 const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 const std::optional<cluster::Queued> queued = this->_manager.snapshot(this->_active) ? this->_manager.unqueue(this->_active) : std::nullopt;
                 if (queued) {
-                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.plain());
+                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.draft());
                     this->_editor.setText(queued->text);
                     this->_editor.setImages(queued->images);
                     this->status_("queued prompt back to edit (Enter: queue it again)");
                     this->_lastEscape = 0;
+                } else if (now - this->_lastEscape < 600 && cluster::trim(this->_editor.text()).empty()) {
+                    // Esc Esc on an empty prompt (like Claude Code): the last turn leaves the conversation, its prompt comes back
+                    this->_lastEscape = 0;
+                    this->rewind_();
                 } else if (now - this->_lastEscape < 600) {
                     this->_editor.clear();
+                    this->historyReset_();
                     this->_lastEscape = 0;
                 } else {
                     this->_lastEscape = now;
@@ -1525,9 +2176,15 @@ class TtyUi {
             else if (event == ftxui::Event::Return) this->submit_();
             else if (event == ftxui::Event::Backspace) this->_editor.backspace();
             else if (event == ftxui::Event::Delete) this->_editor.erase();
-            else if (event == ftxui::Event::Home || event.input() == "\x1b[1;2H") this->_editor.home(event != ftxui::Event::Home); // xstyle: ignore LU-ANSI (read)
-            else if (event == ftxui::Event::End || event.input() == "\x1b[1;2F") this->_editor.end(event != ftxui::Event::End); // xstyle: ignore LU-ANSI (read)
-            else if (arrow && arrow->dx != 0) {
+            else if (home_end_(event) == 'H') this->_editor.home(event.input() == "\x1b[1;2H"); // xstyle: ignore LU-ANSI (read)
+            else if (home_end_(event) == 'F') this->_editor.end(event.input() == "\x1b[1;2F"); // xstyle: ignore LU-ANSI (read)
+            else if (arrow && arrow->dy != 0 && !arrow->ctrl) {
+                // Up / Down: a line of the prompt; on its first / last line, the history
+                if (arrow->dy < 0 && !arrow->shift && this->_editor.onFirstLine()) (void)this->historyStep_(1);
+                else if (arrow->dy > 0 && !arrow->shift && this->_editor.onLastLine()) (void)this->historyStep_(-1);
+                else if (arrow->dy < 0) this->_editor.lineUp(arrow->shift);
+                else this->_editor.lineDown(arrow->shift);
+            } else if (arrow && arrow->dx != 0) {
                 if (arrow->ctrl) arrow->dx < 0 ? this->_editor.wordLeft(arrow->shift) : this->_editor.wordRight(arrow->shift);
                 else arrow->dx < 0 ? this->_editor.left(arrow->shift) : this->_editor.right(arrow->shift);
             } else if (event == ftxui::Event::Character(' ')) this->_editor.space();
@@ -1549,6 +2206,11 @@ class TtyUi {
                 this->submit_();
                 return true;
             }
+            // k / j (or the arrows) on the first / last line: the history, like the plain prompt
+            const bool up = key == "ArrowUp" || (key == "k" && this->_editor.vimPending().empty());
+            const bool down = key == "ArrowDown" || (key == "j" && this->_editor.vimPending().empty());
+            if (vim == cluster::VimMode::Normal && ((up && this->_editor.onFirstLine() && this->historyStep_(1)) || (down && this->_editor.onLastLine() && this->historyStep_(-1))))
+                return true;
             static const std::map<std::string, std::string> keys = {{"ArrowLeft", "h"}, {"ArrowRight", "l"}, {"ArrowUp", "k"}, {"ArrowDown", "j"},
                 {"Backspace", "h"}, {"Home", "0"}, {"End", "$"}, {"Delete", "x"}};
             if (key == "Ctrl+R") return this->_editor.vimKey("Ctrl+R");
@@ -1563,7 +2225,10 @@ class TtyUi {
         {
             this->theme_();
             this->vimSync_();
+            this->_machineStartup = this->_app.askMachine != 0;
+            this->_machineKind = this->_app.askMachine;
             if (this->_app.askRestore) this->_mode = Mode::Restore;
+            else if (this->_machineStartup) this->_mode = Mode::Machine;
             this->_editor.setProvider(cluster::completion_provider(this->_manager, [this]() {return this->_active;}));
             termios original{};
             const bool tty = ::tcgetattr(STDIN_FILENO, &original) == 0;
@@ -1582,9 +2247,10 @@ class TtyUi {
                 std::uint64_t last = 0;
                 int ticks = 0;
                 while (alive) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+                    // a change, the typing / the spinner (25 images / s), else once a second (timers)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(40));
                     const std::uint64_t version = this->_manager.version() + this->_app.voice->version();
-                    if (version != last || ++ticks >= 8) {
+                    if (version != last || this->_animating || ++ticks >= 25) {
                         last = version;
                         ticks = 0;
                         this->_screen.PostEvent(ftxui::Event::Custom);
@@ -1594,6 +2260,7 @@ class TtyUi {
             ftxui::Component root = ftxui::Renderer([this]() {return this->render_();});
             root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event);});
             this->_screen.Loop(root);
+            this->_worker.stop(); // the running job ends before the screen goes
             std::cout << "\x1b[?2004l" << std::flush; // xstyle: ignore LU-ANSI (bracketed paste off)
             if (tty) ::tcsetattr(STDIN_FILENO, TCSANOW, &original);
             alive = false;

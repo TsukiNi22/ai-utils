@@ -15,6 +15,9 @@ File Description:
 #define _Arguments
 #define _IOManip
 #include <utils/utils.hpp>
+#include "cluster/Settings.hpp"
+#include "cluster/Service.hpp"
+#include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Mcp.hpp"
@@ -22,6 +25,7 @@ File Description:
 #include <unordered_set>
 #include <iostream>
 #include <unistd.h>
+#include <fstream>
 #include <iomanip>
 #include <cstdlib>
 #include <csignal>
@@ -99,6 +103,13 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("noglobal", {"", "", "no-global", ""}, {}, "No global session for this run");
     this->_parser.setFlag("layout", {"", "", "layout", ""}, {{"layout", true, layouts}}, "list | grid | tabs");
     this->_parser.setFlag("style", {"", "", "style", ""}, {{"name", true, any}}, "Style of the interface (see the palette)");
+    this->_parser.setFlag("voice", {"", "", "voice", ""}, {{"mode", true, [](const std::string& v) {return choice_(v, {"auto", "wake", "push"});}}},
+        "Voice on for this run: auto (every sentence) | wake | push (the service opens claude-cluster with --voice auto)");
+    this->_parser.setFlag("verbose", {"v", "", "verbose", ""}, {}, "service run: the end of the text of every sound heard (tests)");
+    this->_parser.setFlag("yes", {"y", "", "yes", ""}, {}, "machine sync: no question (the scan accepted)");
+    this->_parser.setFlag("rescan", {"", "", "rescan", ""}, {}, "Ask at start to sync the map of this computer (even recent or refused)");
+    this->_parser.setFlag("every", {"", "", "every", ""}, {{"minutes", true, any}}, "schedule add: repeated every N minutes");
+    this->_parser.setFlag("notify", {"", "", "notify", ""}, {}, "schedule add: a desktop notification (not a prompt)");
 
     /* headless */
     this->_parser.setFlag("name", {"n", "", "name", ""}, {{"name", true, any}}, "spawn: name of the session");
@@ -122,7 +133,7 @@ _cold std::vector<std::string> cluster::Core::extract_(const int argc, char* arg
 {
     // ArgParser has no positional arguments: the command and its words are taken out before the parsing
     static const std::unordered_set<std::string> values = {"b", "backend", "layout", "style", "n", "name", "m", "mode", "p", "profile",
-        "prompt", "target", "after", "completion"};
+        "prompt", "target", "after", "completion", "voice", "every"};
     std::vector<std::string> arguments = {argc > 0 ? argv[0] : "claude-cluster"};
     bool rest = false;
 
@@ -193,6 +204,8 @@ _cold void cluster::Core::run(void)
     else if (cmd == "__complete") this->complete_(this->_words.size() > 1 ? this->_words[1] : "");
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
+    else if (cmd == "machine") this->_exit = this->machine_();
+    else if (cmd == "service") this->_exit = cluster::service_command(this->_words, this->_options.values.contains("verbose"));
     else if (cmd == "help") this->help_();
     else this->_exit = this->headless_();
 }
@@ -201,6 +214,7 @@ _cold int cluster::Core::ui_(const bool serve)
 {
     cluster::App app;
     app.options = this->_options;
+    if (this->_options.values.contains("voice")) app.config.voiceForce = this->_options.values.at("voice");
     app.config.load();
     if (!app.config.error().empty()) std::cerr << "claude-cluster: config error (defaults used): " << app.config.error() << std::endl;
     if (!this->_options.backend.empty()) app.config.backend = this->_options.backend;
@@ -234,13 +248,14 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!this->_options.layout.empty()) app.manager->setUi("layout", this->_options.layout);
     if (!this->_options.style.empty()) app.manager->setUi("style", this->_options.style);
     const std::string restore = this->_options.restore.empty() ? app.config.restore : this->_options.restore;
-    if (!app.manager->previous().empty()) {
+    if (app.manager->restorable()) {
         if (restore == "always") app.manager->restorePrevious(true);
         else if (restore == "never") app.manager->restorePrevious(false);
         else if (serve) app.manager->restorePrevious(true); // nobody to ask
         else app.askRestore = true;
     }
-    app.manager->startGlobal();
+    if (!app.askRestore) app.manager->startGlobal(); // asked: started by the answer (resumed or new)
+    app.askMachine = serve ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
     app.start();
 
@@ -317,6 +332,14 @@ _cold int cluster::Core::headless_(void)
         request.update({{"session", word(1, "session")}, {"path", w.size() > 2 ? w[2] : ""}});
     } else if (cmd == "remote") {
         request["on"] = word(1, "on|off") == "on";
+    } else if (cmd == "schedule") {
+        const std::string sub = word(1, "add|list|cancel");
+        shown = "schedule_" + sub;
+        request["cmd"] = shown;
+        if (sub == "add") request.update({{"when", word(2, "when")}, {"text", rest(3)}, {"session", value("target")},
+            {"action", this->_options.values.contains("notify") ? "notify" : "prompt"}, {"every", value("every").empty() ? 0 : std::stoi(value("every"))}});
+        else if (sub == "cancel") request["id"] = word(2, "schedule id");
+        else if (sub != "list") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "schedule " + sub + ": add | list | cancel");
     } else if (cmd == "task") {
         const std::string sub = word(1, "add|list|cancel");
         shown = "task_" + sub;
@@ -362,6 +385,12 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
             }
         }
         if (data.empty() && !rtk) std::cout << "no session" << "\n";
+    } else if (cmd == "schedule_list") {
+        for (const cluster::Json& w: data)
+            std::cout << w.value("id", "") << (rtk ? "|" : "  ") << w.value("at", "") << (rtk ? "|" : "  ") << w.value("action", "")
+                << (rtk ? "|" : " ") << w.value("session", "") << (w.value("every_minutes", 0) > 0 ? (rtk ? "|every " : "  every ") + std::to_string(w.value("every_minutes", 0)) + " min" : "")
+                << (rtk ? "|" : "  ") << w.value("text", "") << "\n";
+        if (data.empty() && !rtk) std::cout << "nothing scheduled" << "\n";
     } else if (cmd == "task_list") {
         for (const cluster::Json& t: data)
             std::cout << t.value("id", "") << (rtk ? "|" : "  ") << t.value("status", "") << (rtk ? "|" : "  ") << t.value("session", "-")
@@ -427,6 +456,61 @@ _cold int cluster::Core::auth_(void)
     return 0;
 }
 
+/* machine */
+_cold int cluster::Core::machine_(void)
+{
+    const std::string sub = this->_words.size() > 1 ? this->_words[1] : "show";
+    if (sub == "path") {
+        std::cout << cluster::machine_file().string() << std::endl;
+        return 0;
+    }
+    if (sub == "show") {
+        std::ifstream file(cluster::machine_file());
+        if (!file) {
+            std::cout << "no map of this computer yet: claude-cluster machine sync" << std::endl;
+            return 1;
+        }
+        std::cout << file.rdbuf();
+        return 0;
+    }
+    if (sub != "sync") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "machine sync [--yes] | show | path");
+    std::cout << cluster::machine_scope() << std::endl;
+    if (!this->_options.values.contains("yes")) {
+        if (!::isatty(STDIN_FILENO)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "machine sync: --yes (no terminal to ask)");
+        std::cout << "[y/N] " << std::flush;
+        std::string answer;
+        std::getline(std::cin, answer);
+        if (cluster::lower(cluster::trim(answer)) != "y" && cluster::lower(cluster::trim(answer)) != "yes") {
+            std::cout << "nothing scanned" << std::endl;
+            return 0;
+        }
+    }
+    // the questions about the user still empty (a terminal: asked, its suggestion kept with Enter)
+    cluster::Config config;
+    config.load();
+    if (!this->_options.values.contains("yes") && ::isatty(STDIN_FILENO)) {
+        for (const cluster::ProfileQuestion& q: cluster::machine_questions(config)) {
+            std::string choices;
+            for (const std::string& choice: q.choices)
+                choices += (choices.empty() ? "" : ", ") + (choice.empty() ? std::string("(none)") : choice);
+            std::cout << q.question << (choices.empty() ? "" : " (" + choices + ")") << " [" << q.value << "]: " << std::flush;
+            std::string answer;
+            std::getline(std::cin, answer);
+            answer = cluster::trim(answer).empty() ? q.value : cluster::trim(answer);
+            (void)cluster::settings_set(config, "user", q.key, answer);
+        }
+        (void)config.reload();
+    }
+    std::size_t shown = 0;
+    const std::size_t repos = cluster::machine_scan(config, [&shown](const cluster::MachineProgress& progress) {
+        // the lines of the log done since the last report (the log keeps the last 3)
+        for (; shown < progress.finished && !progress.log.empty(); ++shown)
+            std::cout << "✓ " << progress.log[progress.log.size() - std::min(progress.log.size(), progress.finished - shown)] << std::endl;
+    });
+    std::cout << "written: " << cluster::machine_file().string() << " (" << repos << " repositories)" << std::endl;
+    return 0;
+}
+
 /* help */
 _cold void cluster::Core::help_(void) const
 {
@@ -439,7 +523,8 @@ _cold void cluster::Core::help_(void) const
         << bold << "USAGE" << reset << "\n"
         << "    claude-cluster [--tty | --gui] [--backend B] [--restore | --fresh]   interface (terminal by default)\n"
         << "    claude-cluster <command> [args] [--rtk | --json]                    headless, on the running instance\n"
-        << "    claude-cluster auth list | login <provider> | logout <provider>      providers and credentials\n\n"
+        << "    claude-cluster auth list | login <provider> | logout <provider>      providers and credentials\n"
+        << "    claude-cluster service setup | enable | disable | status | remove     \"ok claude\" opens claude-cluster (background)\n\n"
         << bold << "COMMANDS" << reset << "\n";
     for (const cluster::Command& command: cluster::commands()) {
         const std::string usage = command.name + (command.usage.empty() ? "" : " " + command.usage);

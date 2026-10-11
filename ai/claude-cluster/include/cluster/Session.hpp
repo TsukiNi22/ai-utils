@@ -34,13 +34,14 @@ File Description:
     #include <vector>               // std::vector
     #include <mutex>                // std::mutex
     #include <deque>                // std::deque
+    #include <set>                  // std::set
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
 /* STRUCT */
 
 struct Event {
-    enum class Kind {Init, TurnDone, Permission, Exited};
+    enum class Kind {Init, TurnDone, Permission, Exited, Prompt}; // Prompt: one sent from elsewhere (claude.ai)
     Kind kind = Kind::Init;
     std::string session;
     std::string text;
@@ -61,6 +62,7 @@ struct Launch {
     std::vector<std::string> extraArgs;     // added by the manager (global session: MCP, system prompt)
     std::filesystem::path log;              // JSONL of the transcript
     std::function<void(const cluster::Event&)> listener;
+    std::string remoteName;                 // claude: Remote Control on at every start under this name (empty: off)
 };
 
 //----------------------------------------------------------------//
@@ -82,6 +84,8 @@ class Session {
         std::deque<cluster::Queued> _pending;   // prompts waiting for the end of the running turn (kept here: editable)
         std::string _stderr;                // tail of the error output
         std::string _lastText;              // last assistant text of the turn
+        cluster::Queued _lastPrompt;        // last prompt sent (rewind: back in the prompt with its images)
+        std::set<std::string> _sent;        // uuids of the prompts written here (their replay is not shown twice)
         cluster::Usage _turn;               // finished messages of the running turn
         cluster::Usage _live;               // message being streamed
         double _costBase = 0.0;             // cost before the current process (claude resets its total)
@@ -110,6 +114,7 @@ class Session {
     public:
         // ---------- Pre-Function -------- //
         _cold void start(void);
+        _cold void restart(void);                           // its reader done (process ended): started again
         _cold void send(const std::string& text, const std::vector<std::string>& images = {}); // images: [Image #N] of the text
         _cold void answer(const std::string& requestId, const std::string& behavior); // allow | always | deny
         _cold void setMode(const std::string& mode);
@@ -117,8 +122,12 @@ class Session {
         _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)
         _cold void stop(void);
         _cold void rename(const std::string& name);
+        _cold void setClaudeId(const std::string& id);     // the conversation goes on under this id
+        _cold void mark(const std::string& text);          // a line of the system in its transcript (and its log)
+        _cold void remoteControl(const bool on, const std::string& name); // claude: Remote Control of this session (claude.ai)
         _cold void togglePanel(const std::string& panel);
         _cold void loadHistory(const std::size_t max);     // last entries of the log (restored session)
+        _cold _nodiscard cluster::Queued rewind(void);      // claude: the last turn removed from the conversation, its prompt
 
         // ---------- Function -------- //
         _nodiscard cluster::Snapshot snapshot(void) const;

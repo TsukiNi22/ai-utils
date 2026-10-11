@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
+#include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Types.hpp"
 #include <algorithm>
@@ -109,14 +110,30 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return join_(cf.panels);}},
             {"ui", "restore", "Previous sessions at start", SettingKind::Choice, {"ask", "always", "never"}, "ask (like Firefox), always restore, never (to the trash)", true,
                 [](const cluster::Config& cf) {return cf.restore;}},
-            {"ui", "notify", "Desktop notifications", SettingKind::Bool, {}, "permission waiting, turn finished, error", false,
+            {"ui", "notify", "Desktop notifications", SettingKind::Bool, {}, "all of them (off: none, the global session's too)", false,
                 [](const cluster::Config& cf) {return cf.notify ? std::string("true") : std::string("false");}},
+            {"ui", "notify_global", "  when the global session answers", SettingKind::Bool, {}, "the end of its answers (its first words)", false,
+                [](const cluster::Config& cf) {return cf.notifyGlobal ? std::string("true") : std::string("false");}},
+            {"ui", "notify_done", "  when a session finishes", SettingKind::Bool, {}, "the end of a turn of a sub-session", false,
+                [](const cluster::Config& cf) {return cf.notifyDone ? std::string("true") : std::string("false");}},
+            {"ui", "notify_permission", "  when a permission waits", SettingKind::Bool, {}, "a session waits for your yes", false,
+                [](const cluster::Config& cf) {return cf.notifyPermission ? std::string("true") : std::string("false");}},
             {"ui", "vim", "Vim mode of the prompt", SettingKind::Bool, {}, "Esc: Normal mode (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o: Insert", false,
                 [](const cluster::Config& cf) {return cf.vim ? std::string("true") : std::string("false");}},
             {"ui", "paste_lines", "Paste collapsed above (lines)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N +L lines] in the prompt (0: never)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.pasteLines);}},
             {"ui", "paste_chars", "Paste collapsed above (characters)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N] in the prompt (0: never)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.pasteChars);}},
+            {"ui", "editor", "Editor of the prompt (Ctrl+E)", SettingKind::Text, {}, "empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano (the first installed)", false,
+                [](const cluster::Config& cf) {return cf.editor;}},
+            {"ui", "image_viewer", "Image viewer (right click on a chip)", SettingKind::Text, {}, "empty: xdg-open (the viewer of the desktop)", false,
+                [](const cluster::Config& cf) {return cf.imageViewer;}},
+            {"ui", "image_preview", "Image preview (terminal)", SettingKind::Choice, {"blocks", "chafa"}, "blocks: the pixels as half blocks; chafa: its symbols", false,
+                [](const cluster::Config& cf) {return cf.imagePreview;}},
+            {"ui", "typewriter", "Answers typed as they come", SettingKind::Bool, {}, "the text appears a few characters at a time, also when the agent sends it at once", false,
+                [](const cluster::Config& cf) {return cf.typewriter ? std::string("true") : std::string("false");}},
+            {"ui", "typewriter_speed", "Typing speed (characters / s)", SettingKind::Int, {}, "faster by itself when a long text is behind (never more than ~1.5 s late)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.typewriterSpeed);}},
         }},
         {"agent", "Agent", {
             {"agent", "default", "Backend of new sessions", SettingKind::Text, {}, "<provider>[/<model>]: claude, claude/opus, ollama/<model>, openai/<model>, opencode/<p>/<m>, codex", false,
@@ -144,6 +161,15 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.globalPrompt;}},
             {"global", "remote_name", "Remote Control name", SettingKind::Text, {}, "name of the Remote Control session", false,
                 [](const cluster::Config& cf) {return cf.remoteName;}},
+            {"global", "edit_prompt", "System prompt (edit)", SettingKind::Action, {},
+                "opens it in the editor ([ui] editor, else nvim, vim, vi, $VISUAL, $EDITOR...); saved: the global session restarted on the same conversation", false,
+                [](const cluster::Config& cf) {return cluster::short_path(cluster::expand_home(cf.globalPrompt).string());}},
+            {"global", "machine_sync", "Map of this computer (sync)", SettingKind::Action, {},
+                "scans again what the global session knows of this computer (asks first): OS, user, shell aliases, tools, git repositories", false,
+                [](const cluster::Config&) {
+                    const std::string age = cluster::machine_age();
+                    return age.empty() ? std::string("never: Enter to scan") : "last " + age;
+                }},
         }},
         {"sessions", "Sessions", {
             {"sessions", "trash_days", "Trash kept (days)", SettingKind::Int, {}, "a closed session stays restorable this long", false,
@@ -180,6 +206,32 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.voice.listenCommand;}},
             {"voice", "say_command", "Say command", SettingKind::Text, {}, "text to speech", false,
                 [](const cluster::Config& cf) {return cf.voice.sayCommand;}},
+        }},
+        {"user", "User", {
+            {"user", "nickname", "Nickname", SettingKind::Text, {}, "how the global session calls you", false,
+                [](const cluster::Config& cf) {return cf.user.nickname;}},
+            {"user", "email", "Contact email", SettingKind::Text, {}, "for commits, messages the global session writes for you", false,
+                [](const cluster::Config& cf) {return cf.user.email;}},
+            {"user", "editor", "Main editor", SettingKind::Text, {}, "nvim, vim, code... (Ctrl+E too when [ui] editor is empty)", false,
+                [](const cluster::Config& cf) {return cf.user.editor;}},
+            {"user", "language", "Language of the answers", SettingKind::Choice, {"", "fr", "en"}, "empty: the one of each message", false,
+                [](const cluster::Config& cf) {return cf.user.language;}},
+            {"user", "notes", "Notes", SettingKind::Text, {}, "anything the global session should know about you", false,
+                [](const cluster::Config& cf) {return cf.user.notes;}},
+            {"ui", "machine_days", "Map: sync proposed after (days)", SettingKind::Int, {}, "the map of this computer older: a sync proposed at start (0: never)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.machineDays);}},
+        }},
+        {"service", "Service", {
+            {"service", "frontend", "Opens", SettingKind::Choice, {"tty", "gui"}, "the wake phrase opens claude-cluster in a terminal or a window", false,
+                [](const cluster::Config& cf) {return cf.service.frontend;}},
+            {"service", "terminal", "Terminal", SettingKind::Text, {}, "with its option to run a command (kitty, alacritty -e...), empty: the first installed", false,
+                [](const cluster::Config& cf) {return cf.service.terminal;}},
+            {"service", "voice_mode", "Voice of the opened one", SettingKind::Choice, {"auto", "wake", "push"}, "auto: every sentence, at once", false,
+                [](const cluster::Config& cf) {return cf.service.voiceMode;}},
+            {"service", "wake_word", "Wake phrase", SettingKind::Text, {}, "empty: the one of the voice; variants separated by commas", false,
+                [](const cluster::Config& cf) {return cf.service.wakeWord;}},
+            {"service", "source", "Microphone", SettingKind::Text, {}, "PulseAudio / PipeWire source, empty: the default one", false,
+                [](const cluster::Config& cf) {return cf.service.source;}},
         }},
         {"keys", "Keys", {}},
     };
@@ -243,6 +295,18 @@ _cold std::string cluster::setting_check(const cluster::Setting& setting, const 
     if (setting.kind == cluster::SettingKind::Choice && std::find(setting.choices.begin(), setting.choices.end(), value) == setting.choices.end())
         return "one of the choices only";
     return "";
+}
+
+_cold bool cluster::settings_set(const cluster::Config& config, const std::string& section, const std::string& key, const std::string& value)
+{
+    // one option of the settings page by its section / key: written; true when applied at the next start only
+    for (const cluster::SettingsPage& page: cluster::settings_pages(config))
+        for (const cluster::Setting& setting: page.settings)
+            if (setting.section == section && setting.key == key && setting.kind != cluster::SettingKind::Action) {
+                cluster::settings_write(config, {{{section, key}, {setting, value}}});
+                return setting.restart;
+            }
+    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no option " + section + "." + key);
 }
 
 _cold void cluster::settings_write(const cluster::Config& config,

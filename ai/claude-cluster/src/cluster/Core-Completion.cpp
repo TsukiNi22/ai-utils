@@ -50,7 +50,13 @@ _cold static std::vector<std::pair<std::string, std::string>> values_(const std:
         {"behavior", {{"allow", "allow this time"}, {"always", "allow and keep the rule"}, {"deny", "refuse"}}},
         {"onoff", {{"on", "start"}, {"off", "stop"}}},
         {"task_sub", {{"add", "queue a task"}, {"list", "tasks and their status"}, {"cancel", "cancel a task"}}},
+        {"schedule_sub", {{"add", "<when> <text>: a prompt (--target, --every N) or --notify at a time"}, {"list", "what is scheduled"}, {"cancel", "cancel one"}}},
         {"auth_sub", {{"list", "every provider and its state"}, {"login", "log in / store an API key"}, {"logout", "log out / remove the key"}}},
+        {"service_sub", {{"setup", "write the systemd --user unit"}, {"enable", "set up, start now and with the session"}, {"disable", "stop, not at the next session"},
+            {"start", "start now"}, {"stop", "stop now"}, {"restart", "start again"}, {"status", "installed, active, an instance running"},
+            {"remove", "stop and delete the unit"}, {"run", "the service loop (what the unit runs; --verbose: tests)"}}},
+        {"machine_sub", {{"sync", "scan this computer again (asks first, --yes: not)"}, {"show", "the map"}, {"path", "where it is"}}},
+        {"voice", {{"auto", "every sentence heard"}, {"wake", "after the wake phrase"}, {"push", "push-to-talk key"}}},
         {"shell", {{"bash", "bash completion"}, {"zsh", "zsh completion"}, {"fish", "fish completion"}}},
     };
     auto it = fixed.find(kind);
@@ -75,6 +81,7 @@ _cold const std::vector<cluster::Command>& cluster::commands(void)
         {"restore", "<s>", "restore a closed session with its conversation", {"trash"}},
         {"purge", "[s|*]", "delete for good from the trash (default: the expired ones, *: all)", {"trash"}},
         {"task", "add|list|cancel", "task queue (add: --target, --after t1,t2)", {"task_sub", "task"}},
+        {"schedule", "add|list|cancel", "at a time: a prompt to a session (--target, --every N) or a notification (--notify)", {"schedule_sub"}},
         {"search", "<text>", "full-text search in every history", {"text"}},
         {"export", "<s> [file]", "conversation as Markdown", {"session", "file"}},
         {"remote", "on|off", "Remote Control of the global session", {"onoff"}},
@@ -82,6 +89,8 @@ _cold const std::vector<cluster::Command>& cluster::commands(void)
         {"notices", "", "last events", {}},
         {"auth", "list|login|logout <provider>", "providers and their credentials", {"auth_sub", "provider"}},
         {"serve", "", "run the cluster without interface (until Ctrl+C)", {}},
+        {"machine", "sync|show|path", "map of this computer for the global session (projects, aliases, system)", {"machine_sub"}},
+        {"service", "setup|enable|disable|start|stop|restart|status|remove|run", "background service: the wake phrase opens claude-cluster, voice on", {"service_sub"}},
         {"mcp", "", "MCP server of the global session (started by it)", {}},
         {"help", "", "this help", {}},
     };
@@ -92,7 +101,7 @@ _cold std::string cluster::Core::flagKind_(const std::string& id) const
 {
     static const std::map<std::string, std::string> kinds = {
         {"backend", "backend"}, {"mode", "mode"}, {"layout", "layout"}, {"style", "style"}, {"profile", "profile"},
-        {"completion", "shell"}, {"target", "session"}, {"after", "task"}, {"name", "text"}, {"prompt", "text"},
+        {"completion", "shell"}, {"voice", "voice"}, {"target", "session"}, {"after", "task"}, {"name", "text"}, {"prompt", "text"},
     };
     auto it = kinds.find(id);
     return it == kinds.end() ? "" : it->second;

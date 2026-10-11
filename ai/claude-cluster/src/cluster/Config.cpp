@@ -69,7 +69,7 @@ _cold void cluster::Config::defaults_(void)
         {"history", "Ctrl+R"}, {"paste", "Ctrl+V"}, {"cut", "Ctrl+X"},
         {"interrupt", "Ctrl+C"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"quit", "Ctrl+Q"},
         {"restore", "Ctrl+Shift+T|Ctrl+Shift+R|Alt+T"}, {"prefix", "Ctrl+B"},
-        {"mode_cycle", "Shift+Tab"}, {"search", "Ctrl+F"}, {"edit", "Ctrl+E"}, {"help", "F1"},
+        {"mode_cycle", "Shift+Tab"}, {"search", "Ctrl+F"}, {"edit", "Ctrl+E"}, {"expand", "Ctrl+O"}, {"help", "F1"},
     };
 }
 
@@ -101,9 +101,17 @@ _cold void cluster::Config::load(void)
     this->panels = strings_(table["ui"]["panels"], this->panels);
     this->restore = table["ui"]["restore"].value_or(this->restore);
     this->notify = table["ui"]["notify"].value_or(this->notify);
+    this->notifyGlobal = table["ui"]["notify_global"].value_or(this->notifyGlobal);
+    this->notifyDone = table["ui"]["notify_done"].value_or(this->notifyDone);
+    this->notifyPermission = table["ui"]["notify_permission"].value_or(this->notifyPermission);
     this->vim = table["ui"]["vim"].value_or(this->vim);
     this->pasteLines = table["ui"]["paste_lines"].value_or(this->pasteLines);
     this->pasteChars = table["ui"]["paste_chars"].value_or(this->pasteChars);
+    this->editor = table["ui"]["editor"].value_or(this->editor);
+    this->imageViewer = table["ui"]["image_viewer"].value_or(this->imageViewer);
+    this->imagePreview = table["ui"]["image_preview"].value_or(this->imagePreview);
+    this->typewriter = table["ui"]["typewriter"].value_or(this->typewriter);
+    this->typewriterSpeed = table["ui"]["typewriter_speed"].value_or(this->typewriterSpeed);
 
     /* agent */
     this->backend = table["agent"]["default"].value_or(this->backend);
@@ -143,6 +151,28 @@ _cold void cluster::Config::load(void)
     this->voice.sayCommand = v["say_command"].value_or(this->voice.sayCommand);
     this->voice.voiceFr = v["voice_fr"].value_or(this->voice.voiceFr);
     this->voice.voiceEn = v["voice_en"].value_or(this->voice.voiceEn);
+    if (!this->voiceForce.empty()) {
+        this->voice.enabled = true;
+        this->voice.mode = this->voiceForce;
+    }
+
+    /* user */
+    toml::node_view<const toml::node> us = std::as_const(table)["user"];
+    this->user.nickname = us["nickname"].value_or(this->user.nickname);
+    this->user.email = us["email"].value_or(this->user.email);
+    this->user.editor = us["editor"].value_or(this->user.editor);
+    this->user.language = us["language"].value_or(this->user.language);
+    this->user.notes = us["notes"].value_or(this->user.notes);
+    this->machineDays = table["ui"]["machine_days"].value_or(this->machineDays);
+
+    /* service */
+    toml::node_view<const toml::node> sv = std::as_const(table)["service"];
+    this->service.frontend = sv["frontend"].value_or(this->service.frontend);
+    this->service.terminal = sv["terminal"].value_or(this->service.terminal);
+    this->service.voiceMode = sv["voice_mode"].value_or(this->service.voiceMode);
+    this->service.wakeWord = sv["wake_word"].value_or(this->service.wakeWord);
+    this->service.python = sv["python"].value_or(this->service.python);
+    this->service.source = sv["source"].value_or(this->service.source);
 
     /* keys */
     if (const toml::table* keysTable = table["keys"].as_table())

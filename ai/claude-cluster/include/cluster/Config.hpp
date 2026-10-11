@@ -75,6 +75,25 @@ struct VoiceConf {
     std::string voiceEn = "en_GB-northern_english_male-medium";
 };
 
+// What the user tells about themselves (asked at the first map of this computer, the settings page: User)
+struct UserConf {
+    std::string nickname;
+    std::string email;
+    std::string editor;             // the main one (Ctrl+E too when [ui] editor is empty)
+    std::string language;           // of the answers: fr | en | empty (the one of the message)
+    std::string notes;              // anything the global session should know
+};
+
+// The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on
+struct ServiceConf {
+    std::string frontend = "tty";   // tty: in a terminal | gui: a window
+    std::string terminal;           // tty: the terminal and its option to run a command (empty: the first installed)
+    std::string voiceMode = "auto"; // the voice of the claude-cluster opened: auto (every sentence) | wake | push
+    std::string wakeWord;           // empty: [voice] wake_word
+    std::string python = "~/.local/share/voice/venv/bin/python"; // the python of voice-listen (sherpa-onnx)
+    std::string source;             // microphone (PulseAudio / PipeWire source), empty: the default one
+};
+
 //----------------------------------------------------------------//
 /* CLASS */
 
@@ -94,10 +113,18 @@ class Config {
         std::string style = "html-dark";
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "git"};
         std::string restore = "ask";
-        bool notify = true;
+        bool notify = true;                     // desktop notifications at all
+        bool notifyGlobal = true;               // the global session answered
+        bool notifyDone = true;                 // a sub-session finished its turn
+        bool notifyPermission = true;           // a permission waits
         bool vim = false;                       // vim mode of the prompt (Insert / Normal / Visual)
         int pasteLines = 3;                     // a paste of more lines becomes [Pasted text #N +L lines] (0: never)
         int pasteChars = 800;                   // or of more characters
+        std::string editor;                     // Ctrl+E (empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano)
+        std::string imageViewer;                // right click on an image chip (empty: xdg-open)
+        std::string imagePreview = "blocks";    // terminal preview: blocks (pixels as half blocks) | chafa (symbols)
+        bool typewriter = true;                 // the answers typed as they come (also when they arrive at once)
+        int typewriterSpeed = 400;              // characters per second (faster when a long text is behind)
 
         /* agent */
         std::string backend = "claude";
@@ -121,6 +148,10 @@ class Config {
         double budget = 0.0;
 
         cluster::VoiceConf voice;
+        cluster::ServiceConf service;
+        cluster::UserConf user;
+        int machineDays = 30;                   // the map of this computer older: a sync proposed at start (0: never)
+        std::string voiceForce;                 // --voice <mode>: the voice on in this mode for this run (over the file)
         std::map<std::string, std::string> keys;
         std::map<std::string, cluster::Style> styles;
         std::map<std::string, cluster::Profile> profiles;

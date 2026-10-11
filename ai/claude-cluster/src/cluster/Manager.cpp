@@ -14,18 +14,21 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Manager.hpp"
+#include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
 #include <filesystem>
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <thread>
+#include <chrono>
 #include <regex>
 
 /* tools */
 _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
 {
     return {
-        {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId},
+        {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId}, {"leaf", spec.leaf}, {"resume_at", spec.resumeAt},
         {"model", spec.model}, {"mode", spec.mode}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
         {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
     };
@@ -39,6 +42,8 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.cwd = json.value("cwd", std::string("~"));
     spec.backend = json.value("backend", std::string("claude"));
     spec.claudeId = json.value("claude_id", std::string());
+    spec.leaf = json.value("leaf", std::string());
+    spec.resumeAt = json.value("resume_at", std::string());
     spec.model = json.value("model", std::string());
     spec.mode = json.value("mode", std::string("default"));
     spec.profile = json.value("profile", std::string());
@@ -96,6 +101,7 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     if (spec.global) {
         const std::vector<std::string> global = this->globalArgs_();
         launch.extraArgs.insert(launch.extraArgs.end(), global.begin(), global.end());
+        if (this->remote() && launch.backend.provider.driver == "claude") launch.remoteName = this->_config.remoteName; // on again
     }
     spec.model = launch.backend.model;
     launch.spec = spec;
@@ -150,20 +156,59 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     return spec.id;
 }
 
-_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images)
+_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images,
+    const std::vector<std::string>& pastes)
 {
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     const cluster::Snapshot snap = session->snapshot();
 
-    if (snap.state == cluster::State::Remote)
-        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session is in Remote Control (toggle it off first)");
     if (!force && this->_config.budget > 0 && snap.metrics.costKnown && snap.metrics.cost >= this->_config.budget) {
         this->notice_(id, "budget reached (" + cluster::human_cost(snap.metrics.cost) + "): prompt refused", true);
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
             "budget of " + cluster::human_cost(this->_config.budget) + " reached for " + snap.spec.name + " (force it, or raise sessions.budget_usd)");
     }
     session->send(text, images);
-    this->addHistory(text, id);
+    this->addHistory({text, images, pastes}, id);
+}
+
+_cold void cluster::Manager::clear(const std::string& id)
+{
+    // a new conversation (like /clear of Claude Code): the session again without --resume; its transcript kept, marked
+    const std::shared_ptr<cluster::Session> old = this->get_(id);
+    old->stop();
+    cluster::SessionSpec spec = old->spec();
+    spec.claudeId.clear();
+    spec.leaf.clear();
+    spec.resumeAt.clear();
+    const std::shared_ptr<cluster::Session> session = this->make_(spec);
+    session->loadHistory(300);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_sessions[id] = session;
+    }
+    session->start();
+    this->markNew_(id);
+    this->notice_(id, spec.name + ": new conversation");
+    this->save();
+}
+
+_cold void cluster::Manager::setModel(const std::string& id, const std::string& model)
+{
+    // the same conversation (--resume) on another model: the session started again
+    const std::shared_ptr<cluster::Session> old = this->get_(id);
+    old->stop();
+    cluster::SessionSpec spec = old->spec();
+    spec.backend = spec.backend.substr(0, spec.backend.find('/')) + "/" + model;
+    spec.model = model;
+    const std::shared_ptr<cluster::Session> session = this->make_(spec);
+    session->loadHistory(300);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_sessions[id] = session;
+    }
+    session->start();
+    this->notice_(id, spec.name + ": model " + model);
+    this->save();
 }
 
 _cold void cluster::Manager::close(const std::string& id)
@@ -318,6 +363,21 @@ _cold void cluster::Manager::startGlobal(void)
         spec.backend = "claude";
         spec.claudeId.clear();
     }
+    // a background claude of the old Remote Control (claude --bg) still has the conversation: stopped (its conversation
+    // kept), Remote Control goes on in the session itself
+    if (!spec.claudeId.empty() && this->_auth.resolve(spec.backend).provider.driver == "claude") {
+        const std::string claude = this->_config.command("claude");
+        const cluster::Captured agents = cluster::capture({claude, "agents", "--json"}, "", 15);
+        const cluster::Json list = cluster::Json::parse(agents.out, nullptr, false);
+        if (list.is_array()) {
+            for (const cluster::Json& agent: list) {
+                if (!agent.is_object() || agent.value("sessionId", std::string()) != spec.claudeId || agent.value("id", std::string()).empty()) continue;
+                (void)cluster::capture({claude, "stop", agent.value("id", std::string())}, "", 30);
+                this->setUi("remote", "true");
+                this->notice_(GLOBAL_ID, "the background Remote Control session was stopped: Remote Control goes on in the global session itself");
+            }
+        }
+    }
     try {
         const std::shared_ptr<cluster::Session> session = this->make_(spec);
         session->loadHistory(200);
@@ -326,6 +386,10 @@ _cold void cluster::Manager::startGlobal(void)
             this->_sessions[GLOBAL_ID] = session;
         }
         session->start();
+        if (this->_globalNew) {
+            this->_globalNew = false;
+            this->markNew_(GLOBAL_ID);
+        }
     } catch (const utils::exception::IException& e) {
         this->notice_(GLOBAL_ID, std::string("global session: ") + e.what() + ": " + e.info(), true);
     }
@@ -368,49 +432,12 @@ _cold void trust_folder_(const std::filesystem::path& folder)
 
 _cold void cluster::Manager::setRemote(const bool on)
 {
+    // the global session itself on claude.ai (live both ways), on again at every start until it is turned off
     const std::shared_ptr<cluster::Session> session = this->get_(GLOBAL_ID);
-    const cluster::SessionSpec spec = session->spec();
-    const cluster::Backend backend = this->_auth.resolve(spec.backend);
-    const std::string command = this->_config.command("claude");
-
-    if (on) {
-        if (!this->_remoteId.empty()) return;
-        // Remote Control needs an interactive session: the conversation goes on in a background claude (claude --bg),
-        // which runs only in a trusted folder, never the home folder
-        if (std::filesystem::path(spec.cwd) == cluster::expand_home("~"))
-            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
-                "Remote Control: claude --bg never runs in the home folder; set global.cwd to another folder, or empty (a folder of its own), then restart");
-        if (this->_config.globalCwd.empty()) trust_folder_(spec.cwd);
-        session->stop();
-        std::vector<std::string> args = {command, "--bg", "--remote-control", this->_config.remoteName};
-        if (!spec.claudeId.empty()) args.insert(args.end(), {"--resume", spec.claudeId});
-        const std::vector<std::string> global = this->globalArgs_();
-        args.insert(args.end(), global.begin(), global.end());
-        std::vector<std::string> envArgs;
-        for (const auto &[name, value]: this->_auth.env(backend))
-            envArgs.push_back(name + "=" + value);
-        envArgs.insert(envArgs.end(), args.begin(), args.end()); // run by capture() through env: VAR=value then the command
-        const cluster::Captured started = cluster::capture(envArgs, spec.cwd, 60);
-        if (started.code != 0) {
-            session->start();
-            const bool trust = started.out.find("not trusted") != std::string::npos;
-            throw utils::exception::ErrorException(utils::exception::InternalCode::Process, trust
-                ? "Remote Control: " + spec.cwd + " is not trusted by claude: run `claude` there once and accept the trust prompt (or global.cwd empty)"
-                : "claude --bg failed: " + cluster::one_line(started.out, 300));
-        }
-        // The short id: "backgrounded · <id> (idle ...)" then "claude stop <id>" (colored: escape codes removed first)
-        const std::string plain = std::regex_replace(started.out, std::regex("\x1b\\[[0-9;]*[A-Za-z]"), "");
-        std::smatch match;
-        if (std::regex_search(plain, match, std::regex("claude stop ([0-9a-f]+)")) || std::regex_search(plain, match, std::regex("backgrounded\\D*([0-9a-f]{6,})")))
-            this->_remoteId = match[1];
-        this->notice_(GLOBAL_ID, "Remote Control on (" + this->_config.remoteName + ", background session " + this->_remoteId + ")");
-    } else {
-        if (this->_remoteId.empty()) return;
-        (void)cluster::capture({command, "stop", this->_remoteId}, spec.cwd, 30);
-        this->_remoteId.clear();
-        session->start();
-        this->notice_(GLOBAL_ID, "Remote Control off: the global session is back here");
-    }
+    if (on && this->_config.globalCwd.empty()) trust_folder_(session->spec().cwd);
+    session->remoteControl(on, this->_config.remoteName);
+    this->setUi("remote", on ? "true" : "false");
+    this->notice_(GLOBAL_ID, on ? "Remote Control: connecting (its claude.ai link in the global session)" : "Remote Control off");
     ++this->_version;
 }
 
@@ -422,26 +449,70 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
         name = this->get_(event.session)->spec().name;
     } catch (const utils::exception::IException&) {}
 
+    if (this->_closing && event.kind == cluster::Event::Kind::Exited) return;
     switch (event.kind) {
         case cluster::Event::Kind::Init:
             break;
+        case cluster::Event::Kind::Prompt:
+            this->addHistory({event.text, {}, {}}, event.session);
+            this->notice_(event.session, name + ": prompt from claude.ai");
+            break;
         case cluster::Event::Kind::Permission:
             this->notice_(event.session, name + " waits for a permission: " + event.text);
-            if (this->_config.notify) cluster::detach({"notify-send", "-a", "claude-cluster", "-u", "critical", name + ": permission", event.text});
+            if (this->_config.notifyPermission) (void)this->notifyDesktop(name + ": permission", event.text, true);
             break;
         case cluster::Event::Kind::TurnDone:
             if (event.session == GLOBAL_ID) {
                 if (this->onGlobalAnswer && !event.error) this->onGlobalAnswer(event.text);
+                if (this->_config.notifyGlobal) (void)this->notifyDesktop(event.error ? "global session: error" : "global session", event.text, event.error);
             } else {
+                // asked by the global session (session_send reply): its answer goes back to it, it wakes up on it
+                bool reply = false;
+                {
+                    std::lock_guard<std::mutex> lock(this->_mutex);
+                    auto it = this->_replies.find(event.session);
+                    if (it != this->_replies.end() && it->second > 0) {
+                        reply = true;
+                        if (--it->second == 0) this->_replies.erase(it);
+                    }
+                }
+                if (reply) {
+                    const std::string text = std::string(event.error ? "[error from " : "[reply from ") + name + " (" + event.session + ")]\n"
+                        + (event.text.size() > 6000 ? event.text.substr(0, 6000) + "\n[...]" : event.text);
+                    std::thread([this, text]() {
+                        try {
+                            this->send(GLOBAL_ID, text, true);
+                        } catch (const utils::exception::IException& e) {
+                            this->notice_(GLOBAL_ID, std::string("reply not given to the global session: ") + e.info(), true);
+                        }
+                    }).detach();
+                }
                 this->notice_(event.session, name + (event.error ? " failed: " : " done: ") + cluster::one_line(event.text, 120), event.error);
-                if (this->_config.notify) cluster::detach({"notify-send", "-a", "claude-cluster", name + (event.error ? ": error" : ": done"), cluster::one_line(event.text, 200)});
+                if (this->_config.notifyDone) (void)this->notifyDesktop(name + (event.error ? ": error" : ": done"), event.text);
             }
             this->taskDone_(event.session, event.error);
             break;
-        case cluster::Event::Kind::Exited:
+        case cluster::Event::Kind::Exited: {
+            // the global session must stay: its process ended by itself (not a stop) -> started again on its conversation
+            const std::int64_t now = cluster::now();
+            if (event.session == GLOBAL_ID && now - this->_globalRestart > 60) {
+                this->_globalRestart = now;
+                this->notice_(GLOBAL_ID, "global session: its process ended (" + event.text + "), started again");
+                std::thread([this]() {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    try {
+                        this->get_(GLOBAL_ID)->restart();
+                    } catch (const utils::exception::IException& e) {
+                        this->notice_(GLOBAL_ID, std::string("global session not started again: ") + e.info(), true);
+                    }
+                    ++this->_version;
+                }).detach();
+                break;
+            }
             this->notice_(event.session, name + ": " + event.text, true);
-            if (this->_config.notify) cluster::detach({"notify-send", "-a", "claude-cluster", "-u", "critical", name + ": stopped", event.text});
+            (void)this->notifyDesktop(name + ": stopped", event.text, true);
             break;
+        }
     }
     ++this->_version;
 }
@@ -466,6 +537,10 @@ _cold void cluster::Manager::load(void)
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_next = state->value("next", 1);
     this->_nextTask = state->value("next_task", 1);
+    this->_nextSchedule = state->value("next_schedule", 1);
+    for (const cluster::Json& w: state->value("schedules", cluster::Json::array()))
+        this->_schedules.push_back({w.value("id", std::string()), w.value("at", std::int64_t{0}), w.value("every", 0), w.value("action", std::string("prompt")),
+            w.value("session", std::string("g")), w.value("text", std::string())});
     for (const cluster::Json& spec: state->value("sessions", cluster::Json::array()))
         this->_previous.push_back(spec_from_json_(spec));
     for (const cluster::Json& spec: state->value("trash", cluster::Json::array()))
@@ -486,6 +561,10 @@ _cold void cluster::Manager::save(void) const
         std::lock_guard<std::mutex> lock(this->_mutex);
         state["next"] = this->_next;
         state["next_task"] = this->_nextTask;
+        state["next_schedule"] = this->_nextSchedule;
+        state["schedules"] = cluster::Json::array();
+        for (const cluster::Schedule& w: this->_schedules)
+            state["schedules"].push_back({{"id", w.id}, {"at", w.at}, {"every", w.every}, {"action", w.action}, {"session", w.session}, {"text", w.text}});
         state["sessions"] = cluster::Json::array();
         auto global = this->_sessions.find(GLOBAL_ID);
         if (global != this->_sessions.end()) state["sessions"].push_back(spec_to_json_(global->second->spec()));
@@ -541,6 +620,8 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
 
 _cold void cluster::Manager::shutdown(void)
 {
+    // closing: the agents that end now are not "stopped by themselves" (no notice, no restart)
+    this->_closing = true;
     std::vector<std::shared_ptr<cluster::Session>> sessions;
     this->save();
     {
@@ -560,6 +641,7 @@ _cold void cluster::Manager::tick(void)
         else this->notice_("", "config error (previous values kept): " + this->_config.error(), true);
     }
     this->schedule_();
+    this->fireSchedules_();
     if (++seconds % 300 == 1) this->purge();
 }
 
@@ -576,10 +658,6 @@ std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) con
     std::vector<cluster::Snapshot> snapshots;
     for (const std::shared_ptr<cluster::Session>& session: sessions) {
         snapshots.push_back(session->snapshot());
-        if (snapshots.back().spec.global && !this->_remoteId.empty()) {
-            snapshots.back().state = cluster::State::Remote;
-            snapshots.back().remoteId = this->_remoteId;
-        }
     }
     return snapshots;
 }
@@ -587,12 +665,7 @@ std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) con
 std::optional<cluster::Snapshot> cluster::Manager::snapshot(const std::string& id) const
 {
     try {
-        cluster::Snapshot snap = this->get_(id)->snapshot();
-        if (snap.spec.global && !this->_remoteId.empty()) {
-            snap.state = cluster::State::Remote;
-            snap.remoteId = this->_remoteId;
-        }
-        return snap;
+        return this->get_(id)->snapshot();
     } catch (const utils::exception::IException&) {
         return std::nullopt;
     }
@@ -602,6 +675,140 @@ std::vector<cluster::SessionSpec> cluster::Manager::trash(void) const
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->_trash;
+}
+
+_cold void cluster::Manager::scanMachine(void)
+{
+    // the home folder takes a few seconds: in the background, a notice when written
+    this->setUi("machine", "yes");
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (this->_scan && this->_scanEnd == 0) return; // one at a time
+        const std::uint64_t id = this->_scan ? this->_scan->id + 1 : 1;
+        this->_scan = cluster::MachineProgress{};
+        this->_scan->id = id;
+        this->_scanEnd = 0;
+    }
+    std::thread([this]() {
+        const std::function<void(const cluster::MachineProgress&)> report = [this](const cluster::MachineProgress& progress) {
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                const std::uint64_t id = this->_scan ? this->_scan->id : 1;
+                this->_scan = progress;
+                this->_scan->id = id;
+                if (progress.done) this->_scanEnd = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            }
+            ++this->_version;
+        };
+        try {
+            const std::size_t repos = cluster::machine_scan(this->_config, report);
+            this->notice_(GLOBAL_ID, "map of this computer written: " + std::to_string(repos) + " repositories (" + cluster::short_path(cluster::machine_file().string()) + ")");
+        } catch (const std::exception& e) {
+            this->notice_(GLOBAL_ID, std::string("map of this computer: ") + e.what(), true);
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (this->_scan) this->_scan->done = true;
+            this->_scanEnd = 1;
+        }
+        ++this->_version;
+    }).detach();
+}
+
+std::optional<std::pair<cluster::MachineProgress, std::int64_t>> cluster::Manager::machineProgress(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (!this->_scan) return std::nullopt;
+    return std::make_pair(*this->_scan, this->_scanEnd);
+}
+
+int cluster::Manager::machineAsk(void) const
+{
+    const int days = cluster::machine_days_old();
+    if (days < 0) return this->ui("machine", "") != "no" ? 1 : 0;
+    if (this->_config.machineDays <= 0 || days < this->_config.machineDays) return 0;
+    const std::string later = this->ui("machine_later", "0");
+    return cluster::now() - std::stoll(later.empty() ? "0" : later) > static_cast<std::int64_t>(this->_config.machineDays) * 86400 ? 2 : 0;
+}
+
+_cold void cluster::Manager::restartGlobal(void)
+{
+    const std::shared_ptr<cluster::Session> old = this->get_(GLOBAL_ID);
+    old->stop();
+    const std::shared_ptr<cluster::Session> session = this->make_(old->spec());
+    session->loadHistory(200);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_sessions[GLOBAL_ID] = session;
+    }
+    session->start();
+    this->notice_(GLOBAL_ID, "global session started again: its system prompt read again (same conversation)");
+}
+
+bool cluster::Manager::notifyDesktop(const std::string& title, const std::string& text, const bool urgent) const
+{
+    // failsafe: no notify-send, no desktop... nothing said (detach ignores the errors)
+    if (!this->_config.notify) return false;
+    std::vector<std::string> command = {"notify-send", "-a", "claude-cluster"};
+    if (urgent) command.insert(command.end(), {"-u", "critical"});
+    command.insert(command.end(), {title, cluster::one_line(text, 300)});
+    cluster::detach(command);
+    return true;
+}
+
+void cluster::Manager::markNew_(const std::string& id)
+{
+    try {
+        this->get_(id)->mark("── new conversation: the context of claude starts again (the transcript above is kept) ──");
+    } catch (const utils::exception::IException&) {}
+}
+
+void cluster::Manager::replyTo(const std::string& id)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    ++this->_replies[id];
+}
+
+void cluster::Manager::requestFocus(const std::string& id)
+{
+    const std::string resolved = this->resolve(id);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_focus = resolved;
+    }
+    ++this->_focusVersion;
+    ++this->_version;
+}
+
+_cold cluster::Queued cluster::Manager::rewind(const std::string& id)
+{
+    const cluster::Queued prompt = this->get_(id)->rewind();
+    this->save(); // the cut is kept over a restart (until the next prompt)
+    ++this->_version;
+    return prompt;
+}
+
+bool cluster::Manager::restorable(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    return std::any_of(this->_previous.begin(), this->_previous.end(), [](const cluster::SessionSpec& s) {return !s.global || !s.claudeId.empty();});
+}
+
+_cold void cluster::Manager::answerRestore(const bool restore)
+{
+    // "start clean": the sessions to the trash, the global session on a new conversation (its transcript kept, marked)
+    this->restorePrevious(restore);
+    if (!restore) {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        for (cluster::SessionSpec& spec: this->_previous) {
+            if (!spec.global) continue;
+            spec.claudeId.clear();
+            spec.leaf.clear();
+            spec.resumeAt.clear();
+            spec.cost = 0.0;
+            spec.tokens = 0;
+        }
+        this->_globalNew = true;
+    }
+    this->startGlobal();
 }
 
 std::vector<cluster::SessionSpec> cluster::Manager::previous(void) const

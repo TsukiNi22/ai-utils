@@ -24,6 +24,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     const std::optional<cluster::Snapshot> snap = session.empty() ? std::nullopt : manager.snapshot(session);
     std::vector<cluster::Action> list = {
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
+        {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
+        {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
         {"restore_menu", "Reopen a closed session (the trash)", "", "", true},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
@@ -203,6 +205,12 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"interrupt", "stop the running turn"},
         {"export", "[file]: conversation as Markdown"},
         {"restore", "<session>: reopen a closed session"},
+        {"clear", "a new conversation for the session (its transcript too)"},
+        {"model", "<model>: the session on this model (opus, sonnet, haiku, an id), same conversation"},
+        {"cost", "cost and tokens of the session"},
+        {"context", "the context window used"},
+        {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
+        {"exit", "close the session (= /close)"},
         {"settings", "the settings page"},
         {"vim", "vim mode of the prompt on / off"},
         {"help", "the local commands"},
@@ -224,7 +232,18 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
             items.push_back({value, value, description, false});
         };
         switch (kind) {
-            case cluster::CompletionKind::File: return cluster::complete_paths(cwd, query, false);
+            case cluster::CompletionKind::File:
+                if (snap && snap->spec.global && !query.starts_with("/") && !query.starts_with("~")) {
+                    // the global session: from the folder claude-cluster was started in, as ~/... paths (valid for it too)
+                    std::error_code error;
+                    const std::string base = cluster::short_path(std::filesystem::current_path(error).string());
+                    const std::string prefix = base == "~" ? "~/" : base + "/";
+                    std::vector<cluster::Candidate> list = cluster::complete_paths(cluster::expand_home(prefix).string(), query, false);
+                    for (cluster::Candidate& candidate: list)
+                        candidate.value = cluster::escape_path(prefix) + candidate.value;
+                    return list;
+                }
+                return cluster::complete_paths(cwd, query, false);
             case cluster::CompletionKind::Folder: return cluster::complete_paths(cwd, query, true);
             case cluster::CompletionKind::Mode:
                 for (const auto &[mode, description]: cluster::permission_modes())
@@ -278,7 +297,24 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             manager.setMode(session, arg);
         } else if (name == "rename") {
             manager.rename(session, arg);
-        } else if (name == "close") {
+        } else if (name == "clear") {
+            manager.clear(session);
+            result.message = "new conversation";
+        } else if (name == "model") {
+            const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+            if (arg.empty()) result.message = "model: " + (snap ? (snap->modelUsed.empty() ? snap->spec.backend : snap->modelUsed) : std::string("?")) + " (/model <name> to change)";
+            else manager.setModel(session, arg);
+        } else if (name == "cost" || name == "context") {
+            const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+            if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session");
+            const cluster::Metrics& m = snap->metrics;
+            if (name == "cost") result.message = "cost " + (m.costKnown ? cluster::human_cost(m.cost) + " (last turn " + cluster::human_cost(m.lastCost) + ")" : std::string("local / unknown"))
+                + " · tokens " + cluster::human_tokens(m.total.total()) + " in " + std::to_string(m.turns) + " turn(s)";
+            else result.message = "context " + cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow)
+                + (m.contextWindow > 0 ? " (" + std::to_string(100 * m.contextUsed / m.contextWindow) + "%)" : std::string());
+        } else if (name == "rewind") {
+            result.ui = "rewind";
+        } else if (name == "close" || name == "exit") {
             manager.close(session);
             result.focus = GLOBAL_ID;
             result.message = "closed (Ctrl+Shift+T / Alt+T to reopen)";
@@ -329,6 +365,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"undo", "undo"}, {"redo", "redo"}, {"select_all", "select all"}, {"cut", "cut"}, {"paste", "paste (text or image)"},
         {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
         {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},
+        {"expand", "thinking and tool results: in full / short"},
     };
     std::string text = "Keys (config [keys], settings page F9):";
     for (const auto &[action, description]: actions) {
@@ -339,7 +376,8 @@ _cold std::string cluster::help_text(const cluster::Config& config)
     text += "\nAlt+1..9                      session N"
         "\nAlt+Enter / Shift+Enter       new line in the prompt"
         "\nEsc                           queued prompt back in the prompt (to edit it)"
-        "\nEsc Esc                       clear the prompt"
+        "\nEsc Esc                       clear the prompt; empty: the last turn removed, its prompt back"
+        "\n↑ / ↓                         history (first / last line of the prompt)"
         "\nEnter                         send (/local commands run here)"
         "\n/vim                          vim mode: Esc Normal (hjkl w b e 0 ^ $ gg G f t x X s S D C dd cc yy d/c/y+motion"
         "\n                              p P u Ctrl+R ~ J r v V counts), i a I A o O Insert, Enter sends"

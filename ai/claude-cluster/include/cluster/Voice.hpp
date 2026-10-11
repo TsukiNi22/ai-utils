@@ -71,7 +71,8 @@ class Voice {
         _cold void toggle(void);            // push-to-talk key (press: listen, press again: stop)
         _cold void tick(void);              // sends the confirmed transcriptions
         _cold void confirm(void);           // send the pending transcription now
-        _cold void cancel(void);            // drop it
+        _cold void cancel(void);            // drop them all
+        _cold void cancelLast(void);        // drop the last one
         _cold void edit(const std::string& text);
         _cold void speak(const std::string& text);
         _cold void mute(void);

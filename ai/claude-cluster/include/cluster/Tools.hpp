@@ -55,6 +55,7 @@ _nodiscard std::string lower(std::string text);
 _nodiscard std::string one_line(const std::string& text, const std::size_t max);
 _nodiscard std::string language_of(const std::string& text);      // "fr" | "en"
 _nodiscard std::string summary_of(const std::string& text, const std::size_t max);
+_nodiscard std::string content_hash(const std::string& bytes);   // FNV-1a 64, hexadecimal (same content, same name)
 
 /* format */
 _nodiscard inline std::int64_t now(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();};

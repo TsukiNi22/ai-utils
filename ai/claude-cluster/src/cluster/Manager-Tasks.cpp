@@ -16,6 +16,9 @@ File Description:
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
+#include <ctime>
+#include <regex>
+#include <map>
 
 /* tasks */
 _cold std::string cluster::Manager::addTask(const std::string& prompt, const std::string& target, const std::vector<std::string>& after)
@@ -151,4 +154,117 @@ _cold void cluster::Manager::schedule_(void)
         }
     }
     if (!starts.empty() || !spawns.empty()) this->save();
+}
+
+/* schedules */
+namespace {
+
+_cold std::int64_t when_(const std::string& when)
+{
+    // +30m / +2h / +1d / +90s, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM, unix seconds
+    const std::string w = cluster::trim(when);
+    const std::int64_t now = cluster::now();
+    std::smatch match;
+    if (std::regex_match(w, match, std::regex(R"(\+?(\d+)\s*([smhd]))"))) {
+        static const std::map<std::string, std::int64_t> units = {{"s", 1}, {"m", 60}, {"h", 3600}, {"d", 86400}};
+        return now + std::stoll(match[1]) * units.at(match[2]);
+    }
+    if (std::regex_match(w, std::regex(R"(\d{9,})"))) return std::stoll(w);
+    std::tm local{};
+    const std::time_t current = static_cast<std::time_t>(now);
+    ::localtime_r(&current, &local);
+    if (std::regex_match(w, match, std::regex(R"((\d{1,2}):(\d{2}))"))) {
+        local.tm_hour = std::stoi(match[1]);
+        local.tm_min = std::stoi(match[2]);
+        local.tm_sec = 0;
+        std::int64_t at = static_cast<std::int64_t>(std::mktime(&local));
+        if (at <= now) at += 86400;
+        return at;
+    }
+    if (std::regex_match(w, match, std::regex(R"((\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2}))"))) {
+        local.tm_year = std::stoi(match[1]) - 1900;
+        local.tm_mon = std::stoi(match[2]) - 1;
+        local.tm_mday = std::stoi(match[3]);
+        local.tm_hour = std::stoi(match[4]);
+        local.tm_min = std::stoi(match[5]);
+        local.tm_sec = 0;
+        local.tm_isdst = -1;
+        return static_cast<std::int64_t>(std::mktime(&local));
+    }
+    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument,
+        "when: +30m, +2h, +1d, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM - not '" + when + "'");
+}
+
+} // namespace
+
+_cold std::string cluster::Manager::addSchedule(const std::string& when, const std::string& action, const std::string& session, const std::string& text, const int every)
+{
+    if (action != "prompt" && action != "notify")
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "action: prompt | notify");
+    if (cluster::trim(text).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "schedule: the text is empty");
+    const std::int64_t at = when_(when);
+    const std::string target = action == "prompt" ? this->resolve(session.empty() ? std::string(GLOBAL_ID) : session) : "";
+    std::string id;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        id = "w" + std::to_string(this->_nextSchedule++);
+        this->_schedules.push_back({id, at, std::max(every, 0), action, target, text});
+    }
+    this->save();
+    ++this->_version;
+    return id;
+}
+
+std::vector<cluster::Schedule> cluster::Manager::schedules(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    std::vector<cluster::Schedule> list = this->_schedules;
+    std::sort(list.begin(), list.end(), [](const cluster::Schedule& a, const cluster::Schedule& b) {return a.at < b.at;});
+    return list;
+}
+
+_cold void cluster::Manager::cancelSchedule(const std::string& id)
+{
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        const std::size_t before = this->_schedules.size();
+        std::erase_if(this->_schedules, [&](const cluster::Schedule& w) {return w.id == id;});
+        if (this->_schedules.size() == before) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no schedule " + id);
+    }
+    this->save();
+    ++this->_version;
+}
+
+_cold void cluster::Manager::fireSchedules_(void)
+{
+    // due: a prompt to its session (it wakes up on it) or a notification; then again (every) or removed
+    const std::int64_t now = cluster::now();
+    std::vector<cluster::Schedule> due;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        for (cluster::Schedule& w: this->_schedules) {
+            if (w.at > now) continue;
+            due.push_back(w);
+            if (w.every > 0)
+                while (w.at <= now) w.at += static_cast<std::int64_t>(w.every) * 60;
+        }
+        std::erase_if(this->_schedules, [now](const cluster::Schedule& w) {return w.at <= now;});
+    }
+    for (const cluster::Schedule& w: due) {
+        if (w.action == "notify") {
+            this->notice_(GLOBAL_ID, "scheduled " + w.id + ": " + w.text);
+            cluster::detach({"notify-send", "-a", "claude-cluster", "claude-cluster", w.text});
+            continue;
+        }
+        try {
+            this->send(w.session, "[scheduled " + w.id + "] " + w.text, true);
+            this->notice_(w.session, "scheduled " + w.id + " sent");
+        } catch (const utils::exception::IException& e) {
+            this->notice_(w.session, "scheduled " + w.id + " not sent: " + e.info(), true);
+        }
+    }
+    if (!due.empty()) {
+        this->save();
+        ++this->_version;
+    }
 }

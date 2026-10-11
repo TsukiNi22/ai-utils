@@ -166,6 +166,18 @@ std::string cluster::summary_of(const std::string& text, const std::size_t max)
     return clean.substr(0, cut + 1);
 }
 
+std::string cluster::content_hash(const std::string& bytes)
+{
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const char c: bytes) {
+        hash ^= static_cast<unsigned char>(c);
+        hash *= 1099511628211ULL;
+    }
+    std::ostringstream out;
+    out << std::hex << std::setw(16) << std::setfill('0') << hash;
+    return out.str();
+}
+
 /* format */
 std::string cluster::human_tokens(const std::int64_t tokens)
 {

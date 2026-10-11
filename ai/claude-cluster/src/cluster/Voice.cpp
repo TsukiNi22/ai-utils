@@ -110,7 +110,13 @@ _cold void cluster::Voice::toggle(void)
     if (conf.mode == "push") {
         if (!this->_listening) this->start();
         this->_open = !this->_open;
-        if (!this->_open) this->_graceUntil = now_ms_() + 2500;
+        if (!this->_open) {
+            // closed: what was said is sent after the end of the last sentence (grace) and the confirmation
+            this->_graceUntil = now_ms_() + 2500;
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            for (cluster::Pending& pending: this->_pending)
+                if (pending.deadline == 0) pending.deadline = this->_graceUntil + conf.confirmSeconds * 1000;
+        }
         ++this->_version;
         return;
     }
@@ -211,6 +217,7 @@ _cold void cluster::Voice::heard_(const std::string& heard)
     std::string text = cluster::trim(heard);
     if (text.empty()) return;
     if (conf.mode == "push" && !this->_open && now_ms_() > this->_graceUntil) return; // push-to-talk closed
+    const bool late = conf.mode == "push" && !this->_open; // the end of a sentence after F5: joins what is waiting
 
     // Wake mode: nothing is taken before the wake phrase; the phrase with a command sends it, the phrase alone
     // arms the listening for wake_seconds (the next sentence is the command)
@@ -233,25 +240,43 @@ _cold void cluster::Voice::heard_(const std::string& heard)
         this->_armedUntil = 0;
     }
 
-    // "session <name>: ..." / "<name>: ..." goes straight to that session, the rest to the global one
-    cluster::Pending pending{text, GLOBAL_ID, now_ms_() + conf.confirmSeconds * 1000};
-    // (speech recognition gives no punctuation: "session <name> ..." works without the colon)
+    // "session <name> ..." / "<name>: ..." goes straight to that session, the rest to the global one; push mode: sent
+    // when F5 closes the listening (deadline 0 until then)
+    const bool holding = conf.mode == "push" && this->_open;
+    cluster::Pending pending{text, GLOBAL_ID, holding ? 0 : now_ms_() + conf.confirmSeconds * 1000};
     static const std::regex keyword(R"(^session\s+([\w.-]+)[\s:,]+(.+)$)", std::regex::icase);
-    static const std::regex target(R"(^([\w.-]+)\s*[:,]\s*(.+)$)", std::regex::icase);
+    static const std::regex target(R"(^([\w.-]+)\s*:\s*(.+)$)", std::regex::icase);
     std::smatch match;
-    if (std::regex_match(text, match, keyword) || std::regex_match(text, match, target)) {
+    if (std::regex_match(text, match, keyword)) {
         try {
             pending.target = this->_manager.resolve(match[1].str());
             pending.text = match[2].str();
         } catch (const utils::exception::IException&) {} // not a session name: the whole sentence to the global session
+    } else if (std::regex_match(text, match, target)) {
+        // "<name>: ..." only for the exact id / name of a session (a first word of the sentence is not one)
+        const std::string word = cluster::lower(match[1].str());
+        try {
+            const std::string id = this->_manager.resolve(word);
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(id);
+            if (snap && (id == word || cluster::lower(snap->spec.name) == word)) {
+                pending.target = id;
+                pending.text = match[2].str();
+            }
+        } catch (const utils::exception::IException&) {}
     }
     {
+        // the next sentences of the same utterance (still waiting, same target) go in the same prompt
         std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_pending.push_back(pending);
+        if (!this->_pending.empty() && this->_pending.back().target == pending.target) {
+            this->_pending.back().text += " " + pending.text;
+            if (!late) this->_pending.back().deadline = pending.deadline;
+        } else {
+            this->_pending.push_back(pending);
+        }
         this->_partial.clear();
     }
     ++this->_version;
-    if (conf.confirmSeconds <= 0) this->confirm();
+    if (conf.confirmSeconds <= 0 && !holding) this->confirm();
 }
 
 /* pending transcriptions */
@@ -266,7 +291,7 @@ _cold void cluster::Voice::tick(void)
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::int64_t now = now_ms_();
         for (auto it = this->_pending.begin(); it != this->_pending.end();) {
-            if (it->deadline <= now) {
+            if (it->deadline != 0 && it->deadline <= now) { // 0: push-to-talk still open
                 ready.push_back(*it);
                 it = this->_pending.erase(it);
             } else {
@@ -305,6 +330,13 @@ _cold void cluster::Voice::cancel(void)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_pending.clear();
+    ++this->_version;
+}
+
+_cold void cluster::Voice::cancelLast(void)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (!this->_pending.empty()) this->_pending.pop_back();
     ++this->_version;
 }
 

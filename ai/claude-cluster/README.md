@@ -12,6 +12,7 @@ ones (Qwen Code), opencode and the OpenAI Codex CLI work too.
  - [Backends](#backends)
  - [Global session](#global-session)
  - [Voice](#voice)
+ - [Background service](#background-service)
  - [Configuration](#configuration)
  - [How it works](#how-it-works)
 
@@ -65,7 +66,8 @@ claude-cluster                          # terminal interface when in a terminal,
 claude-cluster --gui                    # window (fails when Qt6 is not built in or there is no display)
 claude-cluster --tty --layout grid      # terminal, sessions in a grid (list | grid | tabs)
 claude-cluster --backend ollama/qwen3-coder   # backend of the new sessions for this run
-claude-cluster --restore | --fresh      # previous sessions: restore / to the trash (default: asked)
+claude-cluster --restore | --fresh      # previous run: restore / start new (default: asked, Esc = restore)
+claude-cluster --rescan                 # ask at start to sync the map of this computer (even recent or refused)
 claude-cluster serve                    # no interface: driven by the commands below and the MCP server
 ```
 
@@ -82,8 +84,10 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `interrupt <s>`, `rename <s> <name>`, `cd <s> <folder>` | stop the turn, rename, move to another project |
 | `close <s>`, `trash`, `restore <s>`, `purge [s\|*]` | to the trash (kept `trash_days`), list, restore, delete for good (one, the expired ones, `*` all; palette: per session / empty the trash) |
 | `task add [--target T] [--after t1,t2] <prompt>`, `task list`, `task cancel <t>` | task queue |
+| `schedule add <when> <text> [--target s] [--every N] [--notify]`, `schedule list`, `schedule cancel <w>` | at a time (`+30m`, `+2h`, `HH:MM`, `YYYY-MM-DD HH:MM`), repeated every N minutes or once: a prompt to a session (the global one by default) or a desktop notification |
 | `search <text>`, `export <s> [file]` | full-text search in every history, Markdown export |
 | `remote on\|off` | Remote Control of the global session |
+| `machine sync [--yes]` / `show` / `path` | map of this computer for the global session (asks first, `--yes`: not) |
 | `providers`, `notices` | backends and their state, last events |
 
 Keys of the interfaces (every one set in `[keys]` / the settings page, alternatives with `|`):
@@ -106,6 +110,8 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+F | search in the transcript (Enter / ↑ older, ↓ newer, Esc close) |
 | F2 / F5 / F6 / Ctrl+Q | layout / push-to-talk / stop speaking / quit (the sessions are kept) |
 | PageUp / PageDown, wheel | scroll the transcript |
+| Ctrl+O | thinking and tool results in full / folded (like Claude Code) |
+| mouse drag (terminal) | select in the transcript or the prompt: copied when released (like Claude Code; the window: as any text) |
 
 > [!NOTE]
 > Most terminals keep Ctrl+Shift+<letter> for themselves (new tab) or send it as Ctrl+<letter>: the Alt+ alternatives
@@ -114,18 +120,21 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 
 ### Prompt
 
-Like Claude Code: **`@`** completes the files and folders of the project of the session, **`/`** the local commands,
+Like Claude Code: **`@`** completes the files and folders of the project of the session (the global session, whose
+folder is its own: of the folder claude-cluster was started in, inserted as `~/...` paths), **`/`** the local commands,
 the skills and the commands of the agent, then their arguments (`/cd` and `/new` folders, `/mode` modes, `/restore`
 closed sessions). In the list: **Tab** completes without validating (into a folder: its content), **Enter** accepts
 and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a space inside a name).
 
 | Key | Action |
 |---|---|
-| Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent); while a turn runs the prompt is **queued** (shown under the transcript) |
+| Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent); while a turn runs the prompt is **queued** (shown under the transcript); the prompt leaves at once ("sent", "/clear…"): the send and the commands run in the background in their order, an error puts the prompt back |
 | Alt+Enter / Shift+Enter | new line (prompt on several lines) |
 | Esc | the last queued prompt of the session back in the prompt, removed from the queue (to edit it) |
-| Esc Esc | clear the prompt |
-| Ctrl+E | edit the prompt in `$VISUAL` / `$EDITOR` (window: a multi-line dialog) |
+| Esc / Ctrl+C with voice prompts waiting | drop the last one / all of them (before anything else these keys do) |
+| Esc Esc | clear the prompt; on an empty prompt (like Claude Code): the last turn leaves the conversation (claude goes on from the message before it, `--resume-session-at`) and its prompt comes back to be edited (again: the one before) |
+| ↑ / ↓ | a line of the prompt; on its first / last line (or empty): the history of the prompts, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest |
+| Ctrl+E | edit the prompt in an editor: `[ui] editor`, else the first installed of nvim, vim, vi, `$VISUAL`, `$EDITOR`, emacs -nw, nano (window: a multi-line dialog); the pasted texts are there in full, the ones left unchanged are blocks again after |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
 | Ctrl+← → , Home / End | move by word, to the start / end |
@@ -135,9 +144,21 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 | Ctrl+R | history of the prompts sent (type to filter, Enter puts it in the prompt) |
 
 Local commands: `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
-`/export [file]`, `/restore [session]`, `/settings`, `/vim`, `/help`. A pasted image goes to Claude as an image block (to the
-other agents as `@path`); the mouse over its chip shows it (terminal: `chafa` symbols in true colors, else half blocks
-through `magick`; window: the image in a tooltip), and over `[Image: ...]` in the transcript of the window.
+`/export [file]`, `/restore [session]`, `/clear` (a new conversation, its transcript too), `/model <name>` (same
+conversation, another model), `/cost`, `/context`, `/rewind` (= Esc Esc on an empty prompt), `/exit` (= `/close`),
+`/settings`, `/vim`, `/help`; the commands of the agent (`/compact`, skills...) are completed too. A pasted image goes to Claude as an image block (to the
+other agents as `@path`). The images are saved by content (`img-<hash>.png`): the same image pasted again (or its chip
+clicked) is one more reference to the same `[Image #N]` ("here, here and here"), the image itself is sent once; the
+images are numbered in the order of the text when sent.
+
+**Chips** above the prompt, one per image / pasted text of the prompt (dim when removed from the text): mouse over shows
+the image (terminal: its pixels as half blocks through `magick`, or the symbols of `chafa` with `[ui] image_preview =
+"chafa"`; window: the image itself) or
+the pasted text; **click** puts it back in the prompt; **right click** opens the image in the viewer of the desktop
+(`[ui] image_viewer`, default `xdg-open`: the real image, outside of the terminal).
+
+**History and stash** keep the images and the pasted texts of a prompt: one taken back (↑, Ctrl+R, Ctrl+P) has its
+`[Image #N]` and its `[Pasted text #N]` blocks again.
 
 **Pasted text**: a paste of more than `[ui] paste_lines` lines (3) or `paste_chars` characters (800) is one
 `[Pasted text #N +L lines]` block in the prompt (0: never); it is sent, stashed, edited (Ctrl+E) as its full text. In
@@ -149,6 +170,16 @@ Normal (block cursor, `-- NORMAL --`): `h j k l` / arrows, `w b e`, `0 ^ $`, `gg
 `dd cc yy`, `d c y` + a motion, `p P`, `u` / `Ctrl+R`, `~`, `J`, `r<c>`, counts (`3w`, `2dd`), `v` / `V` visual
 (`d x c y ~`), `i a I A o O` back to Insert. In Normal: **Enter** sends, **Esc** with nothing pending does the Esc of the
 prompt (queued prompt back, Esc Esc clears), the Ctrl / Alt / F keys stay the shortcuts.
+
+**Transcript** like Claude Code: `⏺` the answers and the tool calls (`Bash(ls)`, `Update Todos` with its ☐ ◼ ☒ list),
+`⎿` the first 3 lines of a result (`… +N lines`), `∴ Thinking` folded, the live thinking, and a state line while a turn
+runs (`✻ Running Bash… (12s · ↓ 1.2k tokens · Ctrl+C to interrupt)`); **Ctrl+O** unfolds the thinking and the results.
+Blank lines between the blocks (prompt, thinking, tool, answer; a result stays with its tool). The **Tokens** panel
+tells the new tokens apart from the ones read again from the cache at every step of a turn (`3k +118k cache`: each
+tool call reads the whole context again, cheap from the cache). The answers are **typed as they come** (`[ui] typewriter`, `typewriter_speed` characters / s): the agents often send
+their tokens in bursts, the text still appears a few characters at a time (faster by itself when a long text is
+behind, never more than ~1.5 s late), only what comes while a session is shown: switching to a session shows what it
+has at once; `typewriter = false`: shown as received.
 
 Panels of a session (each one enabled per session from the palette): **tokens** (last prompt, current one, total),
 **context** (used / window), **cost** (session, last turn, budget, 5 h / 7 d limits), **skills** (loaded, available),
@@ -195,19 +226,49 @@ claude-cluster auth logout openrouter    # key removed (login providers: their o
 ## Global session
 
 A session of its own (`[global]`: folder, backend - a claude-driver one -, model) with:
-- its **system prompt** `~/.config/claude-cluster/global.md` (written once, customizable), added to the global `CLAUDE.md`;
+- its **system prompt** `~/.config/claude-cluster/global.md` (written once, customizable: settings page > Global session >
+  *System prompt (edit)* opens it in the editor - `[ui] editor`, else nvim, vim, vi... - and starts the session again on
+  the same conversation), added to the global `CLAUDE.md`;
+- the **map of this computer** `~/.config/claude-cluster/machine.md`: you (nickname, email, main editor, language of the
+  answers, notes: `[user]` of the config, asked at every sync with their current value ready - Enter keeps it - or a
+  suggestion: git identity, editors installed, `$LANG`),
+  the OS and the hardware (CPU, memory, GPU, disks), the tools and their versions, the shell (aliases: the dangerous
+  ones - locking the session, deleting files, powering off... - and the ones replacing a common command, with the
+  `\cmd` form to use; functions, PATH, names of the variables), packages, git / GitHub identity, Claude Code config
+  (skills, plugins, MCP servers), docker / podman images and containers, folders, language, keyboard, time zone, SSH
+  hosts, and the git repositories of the home folder (5 levels, hidden folders skipped: path, kind, branch, origin,
+  last activity). Asked at the first start (no: not asked again) and proposed again when older than
+  `[ui] machine_days` (30), each time with what is read and stored, y / n; synced from the settings page, the palette
+  or `claude-cluster machine sync` (`--rescan` at start: its question forced), its progress in a box in the middle of
+  the screen (over any page, Esc hides it) (~5 s: the slow commands run in
+  parallel). Local only; the global session reads it for a request about a local project, the user or the system;
+- the answer of a sub-session it asked (`session_send`) **comes back to it** as a message `[reply from <name> (<id>)]`
+  when the sub-session is done: no polling of `session_read` (each read costs a whole context);
+- **notifications** (`[ui] notify`, `notify_global` / `notify_done` / `notify_permission`): the end of its answers,
+  of the turns of the sub-sessions, a permission waiting; failsafe (no `notify-send`: nothing);
+- `/clear` and a new start (`n` at start) only start the context of claude again: the transcript stays, marked
+  "new conversation" (the sub-sessions go to the trash as before);
+- it **stays**: its process ending by itself (not a stop) starts it again on its conversation (once a minute at most,
+  told in the status line);
 - the **MCP server** `claude-cluster mcp`: `session_list`, `session_status`, `session_spawn`, `session_send`,
   `session_allow`, `session_set_mode`, `session_interrupt`, `session_close`, `session_restore`, `session_trash`,
   `session_rename`, `session_cd`, `task_add`, `task_list`, `task_cancel`, `search`, `export`, `providers`,
+  `session_wait` (until a session is done: its last answer only), `schedule_add` / `schedule_list` / `schedule_cancel`,
+  `notify` (a desktop notification), and for
+  the interface and itself: `ui_state`, `ui_focus` (show a sub-session while it goes on talking, `g` to come back),
+  `ui_layout`, `ui_style`, `ui_panel`, `remote_control` (its own Remote Control), `settings_get` / `settings_set`
+  (every option of the settings page),
   allowed without asking (`--allowedTools mcp__claude-cluster`);
 - autonomy (from its prompt): what the user asks explicitly is done without asking again; what it decides alone is
   proposed first;
-- **Remote Control** (`remote on` / palette): Remote Control needs an interactive Claude Code, so the conversation
-  goes on in a background session (`claude --bg --resume <id> --remote-control <name>`), reachable from claude.ai or
-  the app; `remote off` stops it and resumes the conversation here. `claude --bg` runs only in a **trusted** folder,
-  never the home folder: the global session has a folder of its own (`[global] cwd = ""`:
-  `~/.local/share/claude-cluster/global`), that claude-cluster marks trusted in `~/.claude.json`; with another
-  `global.cwd`, run `claude` there once and accept the trust prompt.
+- **Remote Control** (`remote on` / palette): the global session itself on claude.ai and the Claude app (the
+  `remote_control` request of Claude Code on its own process): the same claude for both sides, live both ways - what
+  is said on claude.ai appears here as it happens, a prompt typed here doesn't stop anything. Its link is shown in the
+  header of the global session; it is on again at every start (and after `/clear`, `/model`, a rewind) until
+  `remote off`. A background session of the old Remote Control (`claude --bg`) still holding the conversation is
+  stopped at start (its conversation kept) and Remote Control goes on in the session itself. A prompt sent from
+  claude.ai shows here like a typed one (and goes to the history): claude replays every prompt it gets
+  (`--replay-user-messages`), the ones written here carry their own uuid and are not shown twice.
 
 ## Voice
 
@@ -221,12 +282,45 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 
 - The speech model is loaded at the start (about 10 s, `… loading the speech model` in the status line), in every
   mode: F5 listens at once.
+- The sentences of one utterance are one prompt (push mode: everything said until F5 closes; auto / wake modes: the
+  sentences heard before the confirmation ends). `<session>: ...` goes to that session only for its exact id / name.
 - `only_me = true`: only the enrolled voice of the user (`voice-enroll`).
+- The prompts of the voice reach the global session marked `[voice]` (its system prompt asks again when a word looks
+  misheard); the mark is not shown in the transcript nor kept in the history.
 - The transcription is shown `confirm_seconds` before it is sent (palette: send now / drop / correct); the global
   session gets it as `[voice] ...` and asks when a word looks wrong or the request is ambiguous.
 - `session <name> <text>` (or `<name>: <text>`) goes straight to that session.
 - Answers of the global session are spoken as a short summary, in their language (`voice_fr`, `voice_en`); F6 stops.
 - The palette action **Voice: what is missing** lists what to set up (tools, enrollment, voices, English speech model).
+
+## Background service
+
+`claude-cluster service enable` installs and starts a systemd user unit (`~/.config/systemd/user/claude-cluster.service`,
+started with the graphical session): saying the wake phrase (`[service] wake_word`, else `[voice] wake_word`: "ok
+claude") opens claude-cluster - in a terminal (`[service] frontend = "tty"`, the first terminal installed or
+`[service] terminal`) or a window (`"gui"`) - with its voice on at once (`--voice auto`, `[service] voice_mode`).
+
+| Command | Effect |
+|---|---|
+| `service setup` | write the unit and the detector (`~/.local/share/claude-cluster/wake.py`) |
+| `service enable` / `disable` | set up and start now and at every session / stop and not at the next one |
+| `service start` / `stop` / `restart` | now only |
+| `service status` | installed, active, enabled, an instance running |
+| `service remove` | stop, delete the unit and the detector |
+| `service run [--verbose]` | the loop the unit runs (`--verbose`: the end of the text of every sound, for the tests) |
+
+- **Light**: the microphone is read all the time, but the speech recognition (the French model of `voice-listen`,
+  one thread) only runs on the sounds louder than the background: ~2 % of one core in a quiet room (`voice-listen`
+  itself: ~300 %), ~180 MB for the model kept loaded (so the phrase is caught at once).
+- The agents run in a session of their own (`setsid`): the signals of the terminal (its tab closed) never reach them,
+  claude-cluster stops them itself.
+- **One claude-cluster**: while an instance runs (opened by the service or by hand) the detector is stopped (no
+  microphone, no CPU); it starts again when the instance quits. The instance is started outside the unit
+  (`systemd-run --user`): stopping the service doesn't close it.
+- **Privacy**: nothing heard is kept longer than needed: the audio goes through one read buffer and a ring of 0.5 s,
+  written over in place and zeroed; the recognition sees at most 3 s at a time; of its text only the last characters
+  that can hold the phrase are compared (its length + 10); only the wake event leaves the detector, its buffer zeroed.
+- `--voice auto|wake|push` also works by hand: the voice on for this run, whatever the config says.
 
 ## Configuration
 

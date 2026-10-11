@@ -21,6 +21,7 @@ File Description:
     /* type */
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
+    #include "Types.hpp"            // cluster::Draft
     #include <functional>           // std::function
     #include <optional>             // std::optional
     #include <cstddef>              // std::size_t
@@ -68,6 +69,10 @@ struct Atom {
 
 using CompletionProvider = std::function<std::vector<cluster::Candidate>(const cluster::CompletionKind, const std::string&)>;
 
+constexpr char32_t ATOM_BASE = 0xF0000;    // an atom: one character of the Supplementary Private Use Area-A (never typed)
+
+_cold _nodiscard std::string atom_char(const std::size_t index);    // UTF-8 of U+F0000 + index
+
 //----------------------------------------------------------------//
 /* CLASS */
 
@@ -80,6 +85,7 @@ class Editor {
         std::vector<std::pair<std::string, std::size_t>> _redo;
         bool _typing = false;                       // consecutive characters: one undo step
         std::vector<cluster::Atom> _atoms;          // index i -> the character U+F0000 + i (kept: undo)
+        std::size_t _firstAtom = 0;                 // atoms of the current prompt: from this index (clear)
         int _imageCount = 0;                        // numbers of the labels since the last clear
         int _pasteCount = 0;
         int _pasteLines = 3;                        // a paste of more lines / characters becomes an atom (0: never)
@@ -129,11 +135,17 @@ class Editor {
         _cold _nodiscard std::string cut(void);     // selected text, removed
         _cold void setText(const std::string& text);
         _cold void clear(void);
-        _cold inline void addImage(const std::string& path) {this->insert(this->newImage(path) + " ");}; // [Image #N] at the cursor
+        _cold bool addImage(const std::string& path);    // [Image #N] at the cursor; false: this image is already in the prompt
+        _cold void insertAtom(const std::size_t index);   // an atom of the prompt back at the cursor (chip clicked)
+        _cold inline void lineUp(const bool select) {this->move_(this->motion_("k", 1).value_or(this->_cursor), select);};
+        _cold inline void lineDown(const bool select) {this->move_(this->motion_("j", 1).value_or(this->_cursor), select);};
+        _cold inline void place(const std::size_t to, const bool select) {this->move_(std::min(to, this->_text.size()), select);}; // mouse
         _cold inline void paste(const std::string& text) {this->insert(this->newPaste(text));};          // long: [Pasted text #N +L lines]
         _cold void setImages(const std::vector<std::string>& images);   // with setText: a queued prompt back, its labels atoms again
         _cold _nodiscard std::string newImage(const std::string& path); // the character of a new image atom
         _cold _nodiscard std::string newPaste(std::string text);        // the character of a new paste atom, or the text if short
+        _cold _nodiscard std::string pasteAtom(const std::string& text); // a paste atom whatever its size (a draft back)
+        _cold void load(const cluster::Draft& draft);                   // a prompt back: its images and pasted texts as blocks
         _cold inline void setPasteLimits(const int lines, const int chars) {this->_pasteLines = lines; this->_pasteChars = chars;};
 
         /* vim (Off: plain editor) */
@@ -152,6 +164,8 @@ class Editor {
         // ---------- Function -------- //
         _nodiscard inline const std::string& text(void) const {return this->_text;};
         _nodiscard inline std::size_t cursor(void) const {return this->_cursor;};
+        _nodiscard inline bool onFirstLine(void) const {return this->lineStart_(this->_cursor) == 0;};
+        _nodiscard inline bool onLastLine(void) const {return this->lineEnd_(this->_cursor) >= this->_text.size();};
         _nodiscard std::pair<std::size_t, std::size_t> selection(void) const;   // empty: from == to
         _nodiscard std::string selected(void) const;
         _nodiscard std::optional<std::size_t> atomAt(const std::string& text, const std::size_t at) const; // index of the atom there
@@ -159,10 +173,15 @@ class Editor {
         _nodiscard inline std::size_t atomCount(void) const {return this->_atoms.size();};
         _nodiscard std::string shown(const std::string& text) const;    // atoms -> labels (display, window)
         _nodiscard std::string atomize(const std::string& text) const;  // labels of the known atoms -> atoms
+        _nodiscard std::string collapse(const std::string& text) const; // + the unchanged pasted texts -> their atom again
+        _nodiscard std::vector<std::size_t> promptAtoms(void) const;    // atoms of the current prompt (chips)
+        _nodiscard inline bool contains(const std::size_t index) const {return index < this->_atoms.size() && this->_text.find(cluster::atom_char(index)) != std::string::npos;};
         _nodiscard std::string expand(const std::string& text) const;   // to send: images -> labels, pastes -> their text
         _nodiscard std::vector<std::pair<std::string, std::string>> imagesIn(const std::string& text) const; // <label, path>
         _nodiscard std::vector<std::string> images(void) const;         // paths of the images still in the text
         _nodiscard inline std::string plain(void) const {return this->expand(this->_text);};
+        _nodiscard cluster::Draft draftOf(const std::string& text) const;   // text (with atoms) -> its draft
+        _nodiscard inline cluster::Draft draft(void) const {return this->draftOf(this->_text);};
         _nodiscard inline bool completing(void) const {return !this->_items.empty();};
         _nodiscard inline const std::vector<cluster::Candidate>& items(void) const {return this->_items;};
         _nodiscard inline int selectedItem(void) const {return this->_selected;};

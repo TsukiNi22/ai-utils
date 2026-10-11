@@ -233,6 +233,7 @@ _cold void cluster::Editor::clear(void)
     this->_text.clear();
     this->_cursor = 0;
     this->_anchor.reset();
+    this->_firstAtom = this->_atoms.size();
     this->_imageCount = 0;
     this->_pasteCount = 0;
     this->_items.clear();
@@ -240,23 +241,20 @@ _cold void cluster::Editor::clear(void)
 }
 
 /* atoms */
-namespace {
-
-constexpr char32_t ATOM_BASE = 0xF0000; // Supplementary Private Use Area-A: never typed
-
-_cold std::string atom_char_(const std::size_t index)
+_cold std::string cluster::atom_char(const std::size_t index)
 {
-    const char32_t c = ATOM_BASE + static_cast<char32_t>(index);
+    const char32_t c = cluster::ATOM_BASE + static_cast<char32_t>(index);
     return {static_cast<char>(0xF0 | (c >> 18)), static_cast<char>(0x80 | ((c >> 12) & 0x3F)),
         static_cast<char>(0x80 | ((c >> 6) & 0x3F)), static_cast<char>(0x80 | (c & 0x3F))};
 }
 
-} // namespace
-
 _cold std::string cluster::Editor::newImage(const std::string& path)
 {
+    // the same image (same file: named by its content) pasted again in the prompt: the same atom
+    for (std::size_t i = this->_firstAtom; i < this->_atoms.size(); ++i)
+        if (this->_atoms[i].image == path) return cluster::atom_char(i);
     this->_atoms.push_back({"[Image #" + std::to_string(++this->_imageCount) + "]", "", path});
-    return atom_char_(this->_atoms.size() - 1);
+    return cluster::atom_char(this->_atoms.size() - 1);
 }
 
 _cold std::string cluster::Editor::newPaste(std::string text)
@@ -268,7 +266,76 @@ _cold std::string cluster::Editor::newPaste(std::string text)
     if (!lineLimit && !charLimit) return text;
     this->_atoms.push_back({"[Pasted text #" + std::to_string(++this->_pasteCount) + (lines > 1 ? " +" + std::to_string(lines) + " lines]"
         : " " + std::to_string(text.size()) + " chars]"), text, ""});
-    return atom_char_(this->_atoms.size() - 1);
+    return cluster::atom_char(this->_atoms.size() - 1);
+}
+
+_cold bool cluster::Editor::addImage(const std::string& path)
+{
+    // the same image again: one more reference to it ("here, here and here"), one image in memory and in the message
+    const std::string atom = this->newImage(path);
+    const bool known = this->_text.find(atom) != std::string::npos;
+    this->insert(atom + " ");
+    return !known;
+}
+
+_cold void cluster::Editor::insertAtom(const std::size_t index)
+{
+    if (index >= this->_atoms.size()) return;
+    this->insert(cluster::atom_char(index) + (this->_atoms[index].image.empty() ? "" : " "));
+}
+
+std::vector<std::size_t> cluster::Editor::promptAtoms(void) const
+{
+    std::vector<std::size_t> list;
+    for (std::size_t i = 0; i < this->_atoms.size(); ++i)
+        if (i >= this->_firstAtom || this->contains(i)) list.push_back(i);
+    return list;
+}
+
+std::string cluster::Editor::collapse(const std::string& text) const
+{
+    // after an edit outside (Ctrl+E): a pasted text found unchanged is its block again
+    std::string out = text;
+    for (std::size_t index = this->_atoms.size(); index-- > 0;) {
+        const std::string& content = this->_atoms[index].content;
+        if (content.empty()) continue;
+        for (std::size_t at = out.find(content); at != std::string::npos; at = out.find(content, at + 4))
+            out.replace(at, content.size(), cluster::atom_char(index));
+    }
+    return this->atomize(out);
+}
+
+_cold std::string cluster::Editor::pasteAtom(const std::string& text)
+{
+    const int lines = static_cast<int>(std::count(text.begin(), text.end(), '\n')) + 1;
+    this->_atoms.push_back({"[Pasted text #" + std::to_string(++this->_pasteCount) + (lines > 1 ? " +" + std::to_string(lines) + " lines]"
+        : " " + std::to_string(text.size()) + " chars]"), text, ""});
+    return cluster::atom_char(this->_atoms.size() - 1);
+}
+
+cluster::Draft cluster::Editor::draftOf(const std::string& text) const
+{
+    cluster::Draft draft{this->expand(text), {}, {}};
+    for (const auto &[label, path]: this->imagesIn(text))
+        draft.images.push_back(path);
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const std::optional<std::size_t> atom = this->atomAt(text, i);
+        if (!atom || this->_atoms[*atom].image.size() || this->_atoms[*atom].content.empty()) continue;
+        if (std::find(draft.pastes.begin(), draft.pastes.end(), this->_atoms[*atom].content) == draft.pastes.end()) draft.pastes.push_back(this->_atoms[*atom].content);
+    }
+    return draft;
+}
+
+_cold void cluster::Editor::load(const cluster::Draft& draft)
+{
+    // its [Image #N] and its pasted texts are blocks again (images: one per path, in the order of the text)
+    this->setText(draft.text);
+    this->setImages(draft.images);
+    for (const std::string& paste: draft.pastes) {
+        const std::size_t at = this->_text.find(paste);
+        if (at != std::string::npos) this->_text.replace(at, paste.size(), this->pasteAtom(paste));
+    }
+    this->_cursor = this->_text.size();
 }
 
 _cold void cluster::Editor::setImages(const std::vector<std::string>& images)
@@ -286,8 +353,8 @@ std::optional<std::size_t> cluster::Editor::atomAt(const std::string& text, cons
     if (at + 4 > text.size() || static_cast<unsigned char>(text[at]) != 0xF3) return std::nullopt;
     const char32_t c = (static_cast<char32_t>(static_cast<unsigned char>(text[at]) & 0x07) << 18) | (static_cast<char32_t>(static_cast<unsigned char>(text[at + 1]) & 0x3F) << 12)
         | (static_cast<char32_t>(static_cast<unsigned char>(text[at + 2]) & 0x3F) << 6) | static_cast<char32_t>(static_cast<unsigned char>(text[at + 3]) & 0x3F);
-    if (c < ATOM_BASE || c - ATOM_BASE >= this->_atoms.size()) return std::nullopt;
-    return static_cast<std::size_t>(c - ATOM_BASE);
+    if (c < cluster::ATOM_BASE || c - cluster::ATOM_BASE >= this->_atoms.size()) return std::nullopt;
+    return static_cast<std::size_t>(c - cluster::ATOM_BASE);
 }
 
 std::string cluster::Editor::shown(const std::string& text) const
@@ -311,19 +378,27 @@ std::string cluster::Editor::atomize(const std::string& text) const
     for (std::size_t index = this->_atoms.size(); index-- > 0;) {
         const std::string& label = this->_atoms[index].label;
         for (std::size_t at = out.find(label); at != std::string::npos; at = out.find(label, at + 4))
-            out.replace(at, label.size(), atom_char_(index));
+            out.replace(at, label.size(), cluster::atom_char(index));
     }
     return out;
 }
 
 std::string cluster::Editor::expand(const std::string& text) const
 {
+    // the images numbered in the order of the text, as imagesIn() lists them: [Image #1] is the first image sent
+    std::vector<std::size_t> order;
     std::string out;
     for (std::size_t i = 0; i < text.size();) {
         const std::optional<std::size_t> atom = this->atomAt(text, i);
         if (atom) {
             const cluster::Atom& a = this->_atoms[*atom];
-            out += a.image.empty() ? a.content : a.label;
+            if (a.image.empty()) {
+                out += a.content;
+            } else {
+                auto it = std::find(order.begin(), order.end(), *atom);
+                if (it == order.end()) it = order.insert(order.end(), *atom);
+                out += "[Image #" + std::to_string(it - order.begin() + 1) + "]";
+            }
             i += 4;
         } else {
             out += text[i++];
@@ -334,10 +409,13 @@ std::string cluster::Editor::expand(const std::string& text) const
 
 std::vector<std::pair<std::string, std::string>> cluster::Editor::imagesIn(const std::string& text) const
 {
+    // each image once, in the order of the text
     std::vector<std::pair<std::string, std::string>> list;
     for (std::size_t i = 0; i < text.size(); ++i) {
         const std::optional<std::size_t> atom = this->atomAt(text, i);
-        if (atom && !this->_atoms[*atom].image.empty()) list.emplace_back(this->_atoms[*atom].label, this->_atoms[*atom].image);
+        if (!atom || this->_atoms[*atom].image.empty()) continue;
+        const std::pair<std::string, std::string> item = {this->_atoms[*atom].label, this->_atoms[*atom].image};
+        if (std::find(list.begin(), list.end(), item) == list.end()) list.push_back(item);
     }
     return list;
 }

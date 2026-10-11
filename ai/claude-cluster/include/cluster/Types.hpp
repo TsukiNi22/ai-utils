@@ -82,6 +82,14 @@ struct Metrics {
     int turns = 0;
 };
 
+// A prompt as written: its text (images as [Image #N] in the order of the text, pastes in full), its images, its pasted
+// texts (blocks again when it comes back)
+struct Draft {
+    std::string text;
+    std::vector<std::string> images;
+    std::vector<std::string> pastes;
+};
+
 struct Entry {
     cluster::EntryKind kind = cluster::EntryKind::System;
     std::string text;
@@ -114,6 +122,8 @@ struct SessionSpec {
     std::string cwd;
     std::string backend = "claude"; // <provider>[/<model>]
     std::string claudeId;           // session id of the agent (--resume / -r / -s)
+    std::string leaf;               // claude: uuid of the last message of the conversation (its active branch)
+    std::string resumeAt;           // claude: after a rewind, the message the conversation goes on from (until a prompt)
     std::string model;              // model given to the agent (from the backend)
     std::string mode = "default";   // permission mode
     std::string profile;
@@ -136,6 +146,16 @@ struct Task {
     std::int64_t created = 0;
 };
 
+// Something to do at a time: a prompt to a session (the global one by default) or a notification, repeated or not
+struct Schedule {
+    std::string id;                 // w1, w2...
+    std::int64_t at = 0;            // next time (unix seconds)
+    int every = 0;                  // minutes between two (0: once)
+    std::string action = "prompt";  // prompt | notify
+    std::string session = "g";
+    std::string text;
+};
+
 // Copy of a session for the front-ends (taken under the lock of the session)
 struct Snapshot {
     cluster::SessionSpec spec;
@@ -149,9 +169,11 @@ struct Snapshot {
     std::vector<std::string> slashCommands;     // commands of the agent (/compact, skills...)
     std::vector<std::string> files;     // files modified by Edit / Write / NotebookEdit
     std::string partial;                // text being streamed
+    std::string thinking;               // thinking being streamed (cleared by the final block)
     std::string modelUsed;              // from the init message
     std::string lastError;
-    std::string remoteId;               // Remote Control: id of the background session
+    std::string remoteUrl;              // Remote Control on: the session on claude.ai
+    std::string bridgeState;            // Remote Control: ready | connected | disconnected... (empty: off)
     int queued = 0;                     // prompts waiting for the end of the running turn
     std::vector<std::string> queue;     // their text (Esc in the prompt: the last one back to edit)
 };
