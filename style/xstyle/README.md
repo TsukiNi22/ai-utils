@@ -192,7 +192,7 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `CPP-PRAGMA-ONCE` | minor | auto | cpp,c | #pragma once instead of the include guard NAME_H |
 | `CPP-GUARD-NAME` | minor | auto | cpp,c | Include guard not named after the file (Name.hpp -> NAME_H) |
 | `CPP-ENDIF-COMMENT` | negligible | auto | cpp,c | Guard #endif without its /* NAME_H */ comment |
-| `CPP-PREPRO-INDENT` | negligible | auto | cpp,c | Preprocessor directive nested in a #if / guard not indented by 4 per level |
+| `CPP-PREPRO-INDENT` | negligible | auto | cpp,c | #if block not at the indent of the code around with its content one level more (directives: 4 per #if / guard level) |
 | `CPP-HEADER` | minor | ask | cpp,c | Missing file header (cpp-class scripts/header.py) |
 | `CPP-HEADER-FILE` | negligible | auto | cpp,c | @file of the header is not the name of the file |
 | `CPP-NULL` | major | auto | cpp | NULL instead of nullptr |

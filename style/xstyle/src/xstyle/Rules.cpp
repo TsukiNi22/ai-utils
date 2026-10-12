@@ -39,7 +39,7 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
         {"CPP-PRAGMA-ONCE",    xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "cpp,c",        "#pragma once instead of the include guard NAME_H"},
         {"CPP-GUARD-NAME",     xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "cpp,c",        "Include guard not named after the file (Name.hpp -> NAME_H)"},
         {"CPP-ENDIF-COMMENT",  xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "Guard #endif without its /* NAME_H */ comment"},
-        {"CPP-PREPRO-INDENT",  xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "Preprocessor directive nested in a #if / guard not indented by 4 per level"},
+        {"CPP-PREPRO-INDENT",  xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "#if block not at the indent of the code around with its content one level more (directives: 4 per #if / guard level)"},
         {"CPP-HEADER",         xstyle::Severity::Minor,        xstyle::FixMode::Ask,    "cpp,c",        "Missing file header (cpp-class scripts/header.py)"},
         {"CPP-HEADER-FILE",    xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "@file of the header is not the name of the file"},
         {"CPP-NULL",           xstyle::Severity::Major,        xstyle::FixMode::Auto,   "cpp",          "NULL instead of nullptr"},

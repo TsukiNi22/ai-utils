@@ -661,24 +661,133 @@ _hot static void guard_(const xstyle::SourceFile& file, xstyle::check::Issues& i
     }
 }
 
+// Conditional block of the preprocessor (#if ... #endif)
+struct Conditional {
+    std::vector<std::size_t> directives; // #if, #elif, #else, #endif lines
+    std::size_t parent = NO_INDEX;
+    bool guard = false; // include guard of a header: not a level for the code
+    bool code = false; // holds code lines (not only directives)
+};
+
+// Indent of the code a block placed after this line belongs to (the line opens a scope: one level more)
+_hot _nodiscard static std::size_t surrounding_(const std::string& line, const std::string& code)
+{
+    static const std::regex label(R"(^\s*(public|private|protected|case\b.*|default)\s*:$)");
+    static const std::regex scope(R"(^\s*(namespace\b|extern\s+"C"))");
+    const std::size_t indent = xstyle::indentation(line).size();
+    const std::string text = rstrip_(code);
+    if (!text.empty() && text.back() == '{') return std::regex_search(text, scope) ? indent : indent + 4;
+    if (std::regex_search(text, label)) return indent + 4;
+    return indent;
+}
+
 _hot static void preprocessor_(const xstyle::SourceFile& file, xstyle::check::Issues& issues)
 {
     static const std::regex directive(R"(^(\s*)#\s*(\w+))");
     const std::vector<std::string>& lines = file.getLines();
+    const std::vector<std::string>& code = file.getCode();
     const std::vector<xstyle::LineInfo>& info = file.getInfo();
-    std::size_t depth = 0;
 
+    // Blocks & innermost block of each line
+    std::vector<Conditional> blocks;
+    std::vector<std::size_t> owner(lines.size(), NO_INDEX);
+    std::vector<std::string> words(lines.size());
+    std::vector<std::size_t> stack;
     for (std::size_t i = 0; i < lines.size(); ++i) {
         std::smatch match;
-        if (!info[i].preprocessor || !std::regex_search(file.getCode()[i], match, directive)) continue;
-        const std::string word = match[2].str();
+        owner[i] = stack.empty() ? NO_INDEX : stack.back();
+        if (!info[i].preprocessor || !std::regex_search(code[i], match, directive)) {
+            if (!info[i].preprocessor && !xstyle::is_blank(code[i]))
+                for (const std::size_t b: stack) blocks[b].code = true;
+            continue;
+        }
+        const std::string word = words[i] = match[2].str();
+        if (word == "if" || word == "ifdef" || word == "ifndef") {
+            blocks.push_back(Conditional{{i}, stack.empty() ? NO_INDEX : stack.back(), false, false});
+            stack.push_back(blocks.size() - 1);
+            owner[i] = stack.back();
+        } else if (!stack.empty() && (word == "elif" || word == "else" || word == "elifdef" || word == "elifndef" || word == "endif")) {
+            blocks[stack.back()].directives.push_back(i);
+            owner[i] = stack.back();
+            if (word == "endif") stack.pop_back();
+        }
+    }
+    if (!stack.empty()) return; // unbalanced: nothing reliable to say
+
+    // Include guard: #ifndef X / #define X around the whole header
+    if (file.isHeader() && !blocks.empty() && words[blocks[0].directives[0]] == "ifndef" && blocks[0].directives.size() == 2) {
+        std::size_t next = blocks[0].directives[0] + 1;
+        while (next < lines.size() && xstyle::is_blank(code[next])) ++next;
+        if (next < lines.size() && info[next].preprocessor && std::regex_search(xstyle::trim(code[next]), std::regex(R"(^#\s*define\b)"))) blocks[0].guard = true;
+    }
+
+    std::vector<std::size_t> reported; // blocks fixed as a whole (their content isn't checked again)
+
+    // Code blocks: directive at the indent of the code around it, content one level more
+    std::vector<std::size_t> target(blocks.size(), 0);
+    for (std::size_t b = 0; b < blocks.size(); ++b) {
+        Conditional& block = blocks[b];
+        if (block.guard || !block.code) continue;
+        bool skip = false;
+        for (std::size_t p = block.parent; p != NO_INDEX; p = blocks[p].parent)
+            for (const std::size_t r: reported) if (p == r) skip = true;
+        if (skip) continue;
+
+        // Indent around: previous line of the same level (code, comment or directive), else the content level of the parent block
+        const std::size_t first = block.directives.front();
+        const std::size_t parent = (block.parent != NO_INDEX && blocks[block.parent].guard) ? NO_INDEX : block.parent;
+        std::size_t expected = (parent != NO_INDEX && blocks[parent].code) ? target[parent] + 4 : 0;
+        for (std::size_t k = first; k-- > 0;) {
+            if (xstyle::is_blank(lines[k]) || owner[k] != block.parent || info[k].inComment) continue;
+            if (block.parent != NO_INDEX && k == blocks[block.parent].directives.front()) break; // first line of the parent: its content level
+            expected = surrounding_(lines[k], code[k]);
+            break;
+        }
+        target[b] = expected;
+
+        // Content: lowest indent of its code lines
+        const std::size_t last = block.directives.back();
+        std::size_t lowest = std::string::npos;
+        for (std::size_t k = first + 1; k < last; ++k)
+            if (!info[k].preprocessor && !xstyle::is_blank(code[k])) lowest = std::min(lowest, xstyle::indentation(lines[k]).size());
+        bool wrong = lowest != expected + 4;
+        for (const std::size_t d: block.directives) wrong |= xstyle::indentation(lines[d]).size() != expected;
+        for (std::size_t k = first + 1; k < last && !wrong; ++k) // directives directly inside: content level
+            if (owner[k] == b && words[k] != "" && std::find(block.directives.begin(), block.directives.end(), k) == block.directives.end())
+                wrong |= xstyle::indentation(lines[k]).size() != expected + 4;
+        if (!wrong) continue;
+
+        // Fix: directives at the level around, the content shifted to one level more
+        std::vector<std::string> fixed;
+        const long delta = static_cast<long>(expected + 4) - static_cast<long>(lowest);
+        for (std::size_t k = first; k <= last; ++k) {
+            const std::string body = xstyle::trim(lines[k]);
+            if (body.empty()) {fixed.push_back(""); continue;}
+            if (std::find(block.directives.begin(), block.directives.end(), k) != block.directives.end()) {fixed.push_back(std::string(expected, ' ') + body); continue;}
+            if (owner[k] == b && words[k] != "") {fixed.push_back(std::string(expected + 4, ' ') + body); continue;}
+            const long indent = static_cast<long>(xstyle::indentation(lines[k]).size()) + delta;
+            fixed.push_back(std::string(static_cast<std::size_t>(std::max(0L, indent)), ' ') + body);
+        }
+        issues.push_back(xstyle::check::make_issue(file, first, 0, "CPP-PREPRO-INDENT", "#" + words[first] + " block not at the indent of the code around (" + std::to_string(expected) + ") with its content one level more", "",
+            xstyle::check::replace_lines(first, last - first + 1, fixed)));
+        reported.push_back(b);
+    }
+
+    // Directives outside the code blocks: 4 per open #if (guard included), outside of any brace
+    std::size_t depth = 0;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        std::smatch match;
+        if (!info[i].preprocessor || !std::regex_search(code[i], match, directive)) continue;
+        const std::string& word = words[i];
         const bool closing = word == "endif" || word == "else" || word == "elif" || word == "elifdef" || word == "elifndef";
         if (word == "endif" && depth > 0) --depth;
         const std::size_t expected = (closing && word != "endif" && depth > 0 ? depth - 1 : depth) * 4;
         if (word == "if" || word == "ifdef" || word == "ifndef") ++depth;
 
-        // Only outside of any brace (the code indentation wins inside a function)
-        if (info[i].brace != NO_INDEX || match[1].length() == static_cast<std::ptrdiff_t>(expected)) continue;
+        // Code blocks have their own rule (above), the code indentation wins inside a brace
+        bool coded = false;
+        for (std::size_t b = owner[i]; b != NO_INDEX && !coded; b = blocks[b].parent) coded = blocks[b].code && !blocks[b].guard;
+        if (info[i].brace != NO_INDEX || coded || match[1].length() == static_cast<std::ptrdiff_t>(expected)) continue;
         issues.push_back(xstyle::check::make_issue(file, i, 0, "CPP-PREPRO-INDENT", "#" + word + " indented by " + std::to_string(match[1].length()) + " instead of " + std::to_string(expected), "",
             xstyle::check::replace_line(i, std::string(expected, ' ') + xstyle::trim(lines[i]))));
     }
