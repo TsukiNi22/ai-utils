@@ -119,6 +119,8 @@ done
   no panic/exit in libraries, constants named.
 - C: same layout as C++ (`cpp-class` sections, Epitech/Xartania header per `comments`), `snake_case`, functions
   returning `OK`/`KO` (or an error code) and checking their pointer arguments first.
+- C / C++ preprocessor: a conditional (`#if` / `#ifdef` / `#else` / `#endif`) at the indentation of the code around it,
+  its content one level more, one conditional per section of a header (`cpp-style` "Indentation & braces").
 
 ## YAML / JSON / config
 - YAML: 2 spaces (format constraint), keys `snake_case` or the tool's convention, GitHub workflows named

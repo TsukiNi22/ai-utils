@@ -21,6 +21,9 @@ struct {{NAME}}Entry {
     std::string description = "[None]";
 };
 
+//----------------------------------------------------------------//
+/* TYPEDEF */
+
 using {{NAME}}Entries = std::vector<{{NAMESPACE}}::{{NAME}}Entry>;
 
 } // namespace end

@@ -15,8 +15,11 @@ Section separator (64 `-`), then the section title in upper case:
     //----------------------------------------------------------------//
     /* INCLUDE */
 ```
-Titles: `INCLUDE`, `DEFINE`, `MACRO`, `TYPEDEF`, `TYPE`, `ENUM`, `STRUCT`, `PROTOTYPE`, `CLASS`, `MIGRATION`.
-Indented by 4 inside the include guard (INCLUDE/DEFINE), at column 0 after `namespace x {`.
+Titles: `INCLUDE`, `DEFINE`, `MACRO`, `TYPEDEF`, `ENUM`, `STRUCT`, `PROTOTYPE`, `CLASS`, `MIGRATION` (`TYPE` is
+the old name of `TYPEDEF`: rename it when editing a file). `TYPEDEF` holds the `using` / `typedef` aliases, `STRUCT`
+the `struct` / `union` (forward declarations included), never mixed (`cpp-class` `reference/layout.md`).
+Indented by 4 inside the include guard (INCLUDE/DEFINE), at column 0 after `namespace x {` (and for the types
+declared at column 0 before it).
 
 Class blocks (exact strings, aligned like this):
 ```cpp

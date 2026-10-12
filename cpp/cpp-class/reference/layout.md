@@ -67,10 +67,10 @@ Default description (when there is nothing meaningful to say, typically in a .cp
 
 namespace a::b { // namespace start
 //----------------------------------------------------------------//
-/* PROTOTYPE */          (only if needed: forward declarations, free functions)
+/* PROTOTYPE */          (only if needed: free functions, forward declarations of classes)
 
 //----------------------------------------------------------------//
-/* ENUM */ /* STRUCT */ /* CLASS */
+/* TYPEDEF */ /* ENUM */ /* STRUCT */ /* CLASS */
 
 } // namespace end
 
@@ -88,6 +88,47 @@ namespace a::b { // namespace start
   comment, **aligned** on the same column, listing what is used (`// std::mutex, std::unique_lock`).
 - Namespace: see the "Namespaces" section below.
 - Free functions in `/* PROTOTYPE */`, grouped under small `/* group */` comments.
+- **Each kind of declaration in its own section**, never mixed:
+  - `/* TYPEDEF */`: every `using X = ...;` / `typedef ... X;` alias (an alias template too), each one with its
+    trailing comment when the name isn't enough;
+  - `/* ENUM */`: the `enum class`;
+  - `/* STRUCT */`: every `struct` / `union` (data types, template specializations like `std::hash<X>`, forward
+    declarations `struct sockaddr;` included);
+  - `/* CLASS */`: the classes.
+
+  Default order `TYPEDEF`, `ENUM`, `STRUCT`, `CLASS`. An alias that names a struct / enum of the same file needs it
+  first: its `/* TYPEDEF */` section goes right **after** the section that defines that type (a section can be
+  written twice when the order requires it: `TYPEDEF` of the plain aliases, `STRUCT`, `TYPEDEF` of the aliases of
+  these structs). Types declared outside a namespace (ex: POSIX types provided on Windows) follow the same
+  sections, at column 0 before the `namespace` line.
+- **Preprocessor conditionals in the sections** (rule of `cpp-style`, "Indentation & braces"): the directive at the
+  indentation of the section content, the content one level more, and one conditional **per section** (never one
+  `#ifdef` spanning several sections):
+  ```cpp
+      //----------------------------------------------------------------//
+      /* DEFINE */
+
+      #ifdef UTILS_WINDOWS
+          #define EPOLLIN 0x001u
+      #endif
+
+  //----------------------------------------------------------------//
+  /* STRUCT */
+
+  #ifdef UTILS_WINDOWS
+      union epoll_data {
+          void* ptr;
+          int fd;
+      };
+  #endif
+
+  //----------------------------------------------------------------//
+  /* TYPEDEF */
+
+  #ifdef UTILS_WINDOWS
+      typedef union epoll_data epoll_data_t;
+  #endif
+  ```
 
 ## Namespaces (how to set them up)
 Rules observed on the ~90 headers of libutils:
@@ -196,7 +237,7 @@ Inside each visibility, in this order (a block with nothing linked to it is remo
 - `AName`: abstract base, `public IName`, implemented methods marked `final` (or `override` when a
   child may redefine), `protected` members.
 - `Name`: concrete class.
-- `NameType.hpp`: `/* STRUCT */` + `using` aliases. `NameDefine.hpp`: `/* DEFINE */` macros
+- `NameType.hpp`: `/* STRUCT */` + `/* TYPEDEF */` (the `using` aliases). `NameDefine.hpp`: `/* DEFINE */` macros
   + `/* ENUM */` `enum class`.
 - Template class: everything in the .hpp (no .cpp), bodies still empty.
 

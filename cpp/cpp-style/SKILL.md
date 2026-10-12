@@ -39,7 +39,49 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
 - Class, struct, enum, namespace, `if`, `else`, `for`, `while`, `switch`, `do`, lambda: brace **on the same line**.
 - `} else {` / `} else if (...) {` on the closing brace line.
 - Namespace content is **not** indented.
-- Preprocessor nested inside a guard is indented (`    #define X`, `    #include ...`, `        #define` in nested `#if`).
+- **Preprocessor conditionals** (`#if` / `#ifdef` / `#ifndef` / `#elif` / `#else` / `#endif`): the directive is at
+  the **indentation of the code around it**, and everything it contains (code and directives) is indented **one level
+  (4 spaces) more**. Never a directive at column 0 in the middle of indented code, never content left at the level of
+  its directive:
+  ```cpp
+  _cold int utils::platform::close(int fd)
+  {
+      #ifdef UTILS_WINDOWS
+          if (fd < 0) _unlikely {errno = EBADF; return -1;}
+          return ::_close(fd);
+      #else
+          return ::close(fd);
+      #endif
+  }
+
+  class SharedMemory {
+      private:
+          void* _ptr = nullptr;
+          #ifdef UTILS_WINDOWS
+              void* _handle = nullptr; // file mapping HANDLE
+          #else
+              int _fd = -1; // shm_open fd
+          #endif
+  };
+
+  #ifdef UTILS_WINDOWS
+      // Quote an argument for the command line (file level: the definitions are indented too)
+      _cold static std::string quote(const std::string& arg)
+      {
+          /* ... */
+      }
+  #endif
+  ```
+  - In a header, the include guard is **not** a level for the C++ code: `#ifndef X_H` at column 0, `#define X_H`,
+    the INCLUDE / DEFINE directives and their conditionals indented by 4 (`    #ifdef A` + `        #include ...`),
+    while the namespace, structs, classes and their conditionals stay at column 0 (`#ifdef A` + `    struct ...`).
+  - A conditional never spans several sections or mixes indentation levels: close it and **open one per section**
+    (one `#ifdef UTILS_WINDOWS` in DEFINE for the macros, another one in STRUCT for the structs, another one in
+    TYPEDEF for the aliases) rather than one block whose content jumps between column 0 and 4.
+  - A whole function that only exists on one platform: prefer one `#ifdef` **inside** the body of each function
+    (Unix / Windows implementations side by side) over one big file level block; a file that only builds on one
+    platform is selected in the CMake (`SRC_WINDOWS`) instead of being wrapped in an `#ifdef`.
+  - Multi-line macros (`\`): the continuation lines follow their `#define`, indented one level more.
 
 ## Spacing
 - `if (`, `for (`, `while (`, `switch (`: space after the keyword; no space inside the parentheses.
@@ -144,7 +186,9 @@ simplest last. A `#define` stays glued above its include and moves with it.
   (`auto it = this->_tasks.find(id);`), the structured bindings (`const auto &[a, b]`, mandatory syntax), or when
   the user explicitly asks for it.
 - **No `using`** except to name a **custom type** of the project (`using Payloads = std::vector<utils::network::Payload>;`,
-  `using ParsedUsages = ...;`, migration aliases), or when the user explicitly asks for it. Never `using std::...;`,
+  `using ParsedUsages = ...;`, migration aliases), or when the user explicitly asks for it. In a header, every
+  `using` / `typedef` alias goes in a `/* TYPEDEF */` section and every `struct` / `union` (forward declarations
+  included) in a `/* STRUCT */` section (`cpp-class` `reference/layout.md`). Never `using std::...;`,
   never a `using` to shorten a standard type in the code.
 - `const` everywhere it applies: by-value parameters too (`const bool safe_mode`, `const std::size_t i`),
   `const&` for objects, `const` methods, `mutable` for the mutex.

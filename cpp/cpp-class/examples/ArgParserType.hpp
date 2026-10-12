@@ -52,8 +52,6 @@ struct ParsedUsage {
     std::vector<std::tuple<std::string, bool, std::vector<std::string>>> arguments; // <id, option(true)|flag(false), {option}>
 };
 
-using ParsedUsages = std::vector<utils::arguments::ParsedUsage>;
-
 struct Usage {
     std::string name; // special name: default -> allow all flag (like no usage defined)
     bool ordered = false; // The order of the option will always matter, Raw option will be forced in mandatory
@@ -74,6 +72,11 @@ struct Flag {
     std::vector<std::tuple<std::string, bool, std::function<std::optional<std::string>(const std::string&)>>> options; // <name, mandatory, check>, the order matter
     std::string description = "[None]";
 };
+
+//----------------------------------------------------------------//
+/* TYPEDEF */
+
+using ParsedUsages = std::vector<utils::arguments::ParsedUsage>;
 
 } // namespace end
 #endif /* ARGPARSERTYPE_H */
