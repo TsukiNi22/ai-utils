@@ -42,13 +42,26 @@ File Description:
 #include <chrono>
 #include <regex>
 #include <cmath>
+#include <set>
 #include <map>
 
 namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question};
+
+// A question of an agent (AskUserQuestion) being answered: its questions one by one
+struct Ask {
+    std::string session;
+    std::string requestId;
+    cluster::Json questions;
+    std::size_t index = 0;          // the question shown
+    int cursor = 0;                 // its option (the last one: other, typed)
+    std::set<int> picked;           // multi choice: the options ticked
+    std::string other;              // the answer typed
+    cluster::Json answers = cluster::Json::object();
+};
 
 struct Theme {
     ftxui::Color bg;
@@ -407,6 +420,9 @@ class TtyUi {
         std::string _drag;                          // "prompt", a session id, or empty
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
+        std::optional<Ask> _ask;                    // Mode::Question: the question of an agent being answered
+        std::set<std::string> _asked;               // the questions opened once (declined: not again)
+        std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
         std::atomic<bool> _sendPending{false};      // Enter waits a few ms: a key right after it is a pasted line break
         std::int64_t _sendAt = 0;                   // ms of that Enter
         std::int64_t _lastKey = 0;                  // ms of the last key / character, and of the one before
@@ -501,11 +517,11 @@ class TtyUi {
             if (key == "machine_sync") {
                 this->_machineReturn = this->_mode;
                 this->_mode = Mode::Machine;
-            } else if (key == "edit_prompt" || key == "edit_sessions_prompt" || key == "edit_vocabulary") {
+            } else if (key == "edit_prompt" || key == "edit_sessions_prompt" || key == "edit_vocabulary" || key == "edit_words") {
                 const bool global = key == "edit_prompt";
-                const bool vocabulary = key == "edit_vocabulary";
+                const bool vocabulary = key == "edit_vocabulary" || key == "edit_words"; // a list of the voice: no restart
                 const cluster::Config& config = this->_manager.config();
-                const std::filesystem::path path = cluster::expand_home(global ? config.globalPrompt : vocabulary ? cluster::vocabulary_path(config.voice.vocabulary).string() : config.sessionsPrompt);
+                const std::filesystem::path path = cluster::expand_home(global ? config.globalPrompt : key == "edit_words" ? cluster::voice_words_path(config.voice.words).string() : vocabulary ? cluster::vocabulary_path(config.voice.vocabulary).string() : config.sessionsPrompt);
                 std::error_code error;
                 const std::filesystem::file_time_type before = std::filesystem::last_write_time(path, error);
                 std::vector<std::string> command = this->editorCommand_();
@@ -1123,7 +1139,7 @@ class TtyUi {
                 this->theme_();
             } else if (base == "settings") {
                 this->openSettings_();
-            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary") {
+            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
                 this->settingsAction_(base == "edit_global_prompt" ? "edit_prompt" : base);
                 if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
             } else if (base == "restore_menu") {
@@ -1208,10 +1224,14 @@ class TtyUi {
             } else if (action == "interrupt") {
                 // voice prompts waiting: dropped; else a turn runs: stop it; else a selection: copy it; else: clear the prompt
                 const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+                const bool working = snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting);
                 if (!this->_app.voice->pending().empty()) {
                     this->_app.voice->cancel();
                     this->status_("voice prompts dropped");
-                } else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) {
+                } else if (this->_app.voice->speaking() && !working) {
+                    this->_app.voice->mute(); // an answer read after its turn: stopped like a running one
+                    this->status_("reading stopped");
+                } else if (working) {
                     this->run_({"interrupt", "", "", "", false}, "");
                 } else if (!this->_editor.selected().empty()) {
                     cluster::detach({"wl-copy", "--", this->_editor.expand(this->_editor.selected())});
@@ -1770,6 +1790,10 @@ class TtyUi {
             if (s.permissions.empty()) return ftxui::emptyElement();
             const cluster::Permission& p = s.permissions.front();
             const cluster::Config& c = this->_manager.config();
+            if (p.tool == "AskUserQuestion")
+                return ftxui::hbox({ftxui::text(" question ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
+                    ftxui::text(" " + cluster::one_line(p.description, 100) + " ") | ftxui::color(this->_theme.text), ftxui::filler(),
+                    ftxui::text("its popup: shown on this session · " + c.keys.at("deny") + " decline ") | ftxui::color(this->_theme.muted)}) | ftxui::bgcolor(this->_theme.surface);
             return ftxui::hbox({
                 ftxui::text(" permission ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.warn),
                 ftxui::text(" " + p.tool + ": " + cluster::one_line(p.description, 80) + " ") | ftxui::color(this->_theme.text),
@@ -1932,6 +1956,31 @@ class TtyUi {
                 lines.push_back(ftxui::text(" Enter: ok · Esc: skip it · Ctrl+S: skip the rest (config.toml [user], F9 > User)") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 90);
             }
+            if (this->_mode == Mode::Question && this->_ask) {
+                // like the questions of Claude Code: one at a time, its options, other (typed)
+                const Ask& a = *this->_ask;
+                const cluster::Json& q = a.questions[a.index];
+                const cluster::Json options = q.value("options", cluster::Json::array());
+                const bool multi = q.value("multiSelect", false);
+                const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(a.session);
+                ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + (snap ? snap->spec.name : a.session) + " asks") | ftxui::bold,
+                    ftxui::text(a.questions.size() > 1 ? "  (" + std::to_string(a.index + 1) + "/" + std::to_string(a.questions.size()) + ")" : "") | ftxui::color(this->_theme.muted),
+                    ftxui::filler(), ftxui::text(q.value("header", std::string()) + " ") | ftxui::color(this->_theme.accent)}), ftxui::text(""),
+                    ftxui::paragraph(" " + q.value("question", std::string())) | ftxui::color(this->_theme.text), ftxui::text("")};
+                for (int i = 0; i <= static_cast<int>(options.size()); ++i) {
+                    const bool other = i == static_cast<int>(options.size());
+                    const std::string mark = multi ? (a.picked.contains(i) || (other && !a.other.empty()) ? "[x] " : "[ ] ") : (i == a.cursor ? "› " : "  ");
+                    const std::string label = other ? "Other: " + a.other + (i == a.cursor ? "▏" : "") : options[static_cast<std::size_t>(i)].value("label", std::string());
+                    const std::string description = other ? "" : options[static_cast<std::size_t>(i)].value("description", std::string());
+                    ftxui::Element row = ftxui::hbox({ftxui::text(" " + mark + std::to_string(i + 1) + ". " + label + " "),
+                        ftxui::text(description.empty() ? "" : "- " + cluster::one_line(description, 70)) | ftxui::color(this->_theme.muted)});
+                    lines.push_back(i == a.cursor ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row | ftxui::color(this->_theme.text));
+                }
+                lines.push_back(ftxui::text(""));
+                lines.push_back(ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space tick · " : "") + "Enter " + (a.index + 1 < a.questions.size() ? "next" : "answer")
+                    + " · type on Other · Esc decline") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                return box(ftxui::vbox(std::move(lines)), 96);
+            }
             if (this->_mode == Mode::Restore) {
                 const std::vector<cluster::SessionSpec> previous = this->_manager.previous();
                 ftxui::Elements lines = {ftxui::text(" Restore the previous run?") | ftxui::bold, ftxui::text("")};
@@ -1948,9 +1997,79 @@ class TtyUi {
             return ftxui::emptyElement();
         }
 
+        void askCheck_(void)
+        {
+            // a question of the agent of the session shown: its popup; answered elsewhere (MCP...): closed
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_ask ? this->_ask->session : this->_active);
+            if (this->_ask) {
+                const bool pending = snap && std::any_of(snap->permissions.begin(), snap->permissions.end(), [&](const cluster::Permission& p) {return p.requestId == this->_ask->requestId;});
+                if (!pending) {
+                    this->_ask.reset();
+                    if (this->_mode == Mode::Question) this->_mode = Mode::Normal;
+                }
+                return;
+            }
+            if (this->_mode != Mode::Normal) return;
+            if (this->_manager.machineRequest() != this->_machineSeen) { // the global session asked to map this computer again
+                this->_machineSeen = this->_manager.machineRequest();
+                this->settingsAction_("machine_sync");
+                return;
+            }
+            if (!snap) return;
+            for (const cluster::Permission& p: snap->permissions) {
+                if (p.tool != "AskUserQuestion" || this->_asked.contains(p.requestId) || !p.input.contains("questions") || !p.input["questions"].is_array()
+                    || p.input["questions"].empty()) continue;
+                this->_asked.insert(p.requestId);
+                this->_ask = Ask{snap->spec.id, p.requestId, p.input["questions"], 0, 0, {}, "", cluster::Json::object()};
+                this->_mode = Mode::Question;
+                return;
+            }
+        }
+
+        void askAnswer_(void)
+        {
+            // the answer of the question shown (labels of the options, several joined by ", "; other: the text typed)
+            Ask& a = *this->_ask;
+            const cluster::Json& q = a.questions[a.index];
+            const cluster::Json options = q.value("options", cluster::Json::array());
+            const int count = static_cast<int>(options.size());
+            std::string value;
+            const std::function<void(const std::string&)> add = [&](const std::string& part) {
+                if (!cluster::trim(part).empty()) value += (value.empty() ? "" : ", ") + cluster::trim(part);
+            };
+            if (q.value("multiSelect", false)) {
+                for (const int i: a.picked)
+                    if (i < count) add(options[static_cast<std::size_t>(i)].value("label", std::string()));
+                if (a.picked.contains(count) || (a.picked.empty() && a.cursor == count)) add(a.other);
+                if (value.empty() && a.cursor < count) add(options[static_cast<std::size_t>(a.cursor)].value("label", std::string()));
+            } else {
+                add(a.cursor < count ? options[static_cast<std::size_t>(a.cursor)].value("label", std::string()) : a.other);
+            }
+            if (value.empty()) {
+                this->status_("type the answer (other), or choose an option");
+                return;
+            }
+            a.answers[q.value("question", std::string())] = value;
+            if (++a.index < a.questions.size()) {
+                a.cursor = 0;
+                a.picked.clear();
+                a.other.clear();
+                return;
+            }
+            try {
+                this->_manager.answerQuestions(a.session, a.requestId, a.answers);
+                this->status_("answered");
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
+            }
+            this->_ask.reset();
+            this->_mode = Mode::Normal;
+        }
+
         _nodiscard ftxui::Element render_(void)
         {
             if (this->_manager.config().reload()) this->theme_();
+            this->askCheck_();
             const ftxui::Dimensions size = ftxui::Terminal::Size();
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
             const std::vector<cluster::Notice> notices = this->_manager.notices(1);
@@ -2169,6 +2288,47 @@ class TtyUi {
                 case Mode::Message:
                     if (event == ftxui::Event::Escape || event == ftxui::Event::Return) this->_mode = Mode::Normal;
                     return true;
+                case Mode::Question: {
+                    if (!this->_ask) {
+                        this->_mode = Mode::Normal;
+                        return true;
+                    }
+                    Ask& a = *this->_ask;
+                    const cluster::Json& q = a.questions[a.index];
+                    const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
+                    const bool multi = q.value("multiSelect", false);
+                    if (event == ftxui::Event::Escape) {
+                        try {
+                            this->_manager.answer(a.session, a.requestId, "deny");
+                            this->status_("question declined");
+                        } catch (const utils::exception::IException& e) {
+                            this->status_(e.info(), true);
+                        }
+                        this->_ask.reset();
+                        this->_mode = Mode::Normal;
+                    } else if (event == ftxui::Event::ArrowUp) {
+                        a.cursor = std::max(0, a.cursor - 1);
+                    } else if (event == ftxui::Event::ArrowDown || event == ftxui::Event::Tab) {
+                        a.cursor = std::min(count, a.cursor + 1);
+                    } else if (event == ftxui::Event::Return) {
+                        this->askAnswer_();
+                    } else if (a.cursor == count && event == ftxui::Event::Backspace) {
+                        while (!a.other.empty() && (static_cast<unsigned char>(a.other.back()) & 0xC0) == 0x80) a.other.pop_back();
+                        if (!a.other.empty()) a.other.pop_back();
+                    } else if (a.cursor == count && event.is_character()) {
+                        a.other += event.character(); // on Other: the answer typed (digits and spaces too)
+                    } else if (event.is_character() && event.character().size() == 1 && event.character()[0] >= '1' && event.character()[0] <= '9') {
+                        const int pick = event.character()[0] - '1';
+                        if (pick <= count) {
+                            a.cursor = pick;
+                            if (multi && pick < count) a.picked.contains(pick) ? (void)a.picked.erase(pick) : (void)a.picked.insert(pick);
+                            else if (!multi && pick < count) this->askAnswer_();
+                        }
+                    } else if (multi && event == ftxui::Event::Character(' ')) {
+                        a.picked.contains(a.cursor) ? (void)a.picked.erase(a.cursor) : (void)a.picked.insert(a.cursor);
+                    }
+                    return true;
+                }
                 case Mode::Palette:
                     if (event == ftxui::Event::Escape) this->_mode = Mode::Normal;
                     else if (event == ftxui::Event::ArrowDown) this->_selected = std::min(this->_selected + 1, std::max(0, static_cast<int>(this->_actions.size()) - 1));
@@ -2268,6 +2428,11 @@ class TtyUi {
                     this->_editor.dismiss();
                     return true;
                 }
+            }
+            if (event == ftxui::Event::Escape && this->_app.voice->speaking()) {
+                this->_app.voice->mute();
+                this->status_("reading stopped");
+                return true;
             }
             if (event == ftxui::Event::Escape && !this->_app.voice->pending().empty()) {
                 this->_app.voice->cancelLast();

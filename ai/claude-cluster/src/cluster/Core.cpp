@@ -160,6 +160,7 @@ _cold std::vector<std::string> cluster::Core::extract_(const int argc, char* arg
 
 _cold void cluster::Core::init(const int argc, char* argv[])
 {
+    cluster::complete_path(); // its agents found whoever started it
     this->setup_();
     const std::vector<std::string> arguments = this->extract_(argc, argv);
     const utils::arguments::ParsedUsages usages = this->_parser.parse(arguments);

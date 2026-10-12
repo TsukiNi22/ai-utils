@@ -4,7 +4,7 @@
 #   libutils = lib utils, lib you tils
 # Added by themselves: the names of the sessions, the projects of the map of this computer (machine.md) and your
 # names ([user] nickname, the login). A long name (7+ letters) is also found when heard with one or two letters off.
-libutils = lib utils, lib you tils, lib util, lib you tiles
+libutils = lib utils, lib you tils, lib util, lib you tiles, libuty, l'ibutti, libutti
 claude-cluster = claude cluster, cloud cluster, clod cluster
 xstyle = x style, ex style, iks style
 ai-utils = ai utils, a i utils, ai you tils

@@ -503,11 +503,28 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             this->notice_(event.session, name + ": prompt from claude.ai");
             break;
         case cluster::Event::Kind::Permission:
+            if (event.text.starts_with("AskUserQuestion: ")) { // a question of the agent: its popup in the interfaces
+                this->notice_(event.session, name + " asks: " + event.text.substr(17));
+                if (this->_config.notifyPermission) (void)this->notifyDesktop(name + ": question", event.text.substr(17), true);
+                break;
+            }
             this->notice_(event.session, name + " waits for a permission: " + event.text);
             if (this->_config.notifyPermission) (void)this->notifyDesktop(name + ": permission", event.text, true);
             break;
         case cluster::Event::Kind::TurnDone:
             this->recordUsage_(event.session);
+            if (event.session == GLOBAL_ID && this->_restartAfterTurn.exchange(false)) {
+                // it changed its own system prompt: started again on it, the same conversation, once its turn is over
+                std::thread([this]() {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    try {
+                        this->restartGlobal();
+                        this->notice_(GLOBAL_ID, "global session started again on its new system prompt");
+                    } catch (const utils::exception::IException& e) {
+                        this->notice_(GLOBAL_ID, std::string("global session not started again: ") + e.info(), true);
+                    }
+                }).detach();
+            }
             if (event.interrupted) {
                 // stopped on purpose (Ctrl+C, a prompt sent over it...): no answer to speak or notify, not an error
                 this->notice_(event.session, name + ": interrupted");

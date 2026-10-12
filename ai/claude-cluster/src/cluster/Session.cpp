@@ -59,8 +59,14 @@ _cold static void add_(cluster::Usage& to, const cluster::Usage& from)
 
 _cold static std::string tool_summary_(const std::string& name, const cluster::Json& input)
 {
-    // One line describing a tool call: the command, the file, the pattern...
+    // One line describing a tool call: the command, the file, the pattern...; a question of the agent: its questions
     if (!input.is_object()) return "";
+    if (name == "AskUserQuestion" && input.contains("questions") && input["questions"].is_array()) {
+        std::string questions;
+        for (const cluster::Json& q: input["questions"])
+            if (q.is_object()) questions += (questions.empty() ? "" : " / ") + q.value("question", std::string());
+        return cluster::one_line(questions, 160);
+    }
     for (const char* key: {"command", "file_path", "filePath", "notebook_path", "path", "pattern", "url", "query", "skill", "description", "prompt"})
         if (input.contains(key) && input[key].is_string()) return cluster::one_line(input[key].get<std::string>(), 120);
     return name == "TodoWrite" ? "todo list" : cluster::one_line(input.dump(), 120);
@@ -877,6 +883,9 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
         [&](const cluster::Permission& p) {return requestId.empty() || p.requestId == requestId;});
     if (it == this->_data.permissions.end())
         throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no pending permission '" + requestId + "' in " + this->_data.spec.id);
+    if (it->tool == "AskUserQuestion" && behavior != "deny") // allowed without its answers, the agent goes on blind
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
+            "a question of the agent: answer it in its popup (or session_allow with answers {question: answer})");
 
     cluster::Json response = {{"behavior", behavior == "deny" ? "deny" : "allow"}};
     if (behavior == "deny") response["message"] = "Denied by the user (claude-cluster)";
@@ -889,6 +898,28 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
     }
     this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", it->requestId}, {"response", response}}}});
     this->entry_(cluster::EntryKind::System, std::string(behavior == "deny" ? "denied " : behavior == "always" ? "always allowed " : "allowed ") + it->tool);
+    this->_data.permissions.erase(it);
+    if (this->_data.permissions.empty() && this->_data.state == cluster::State::Waiting) this->_data.state = cluster::State::Working;
+    this->touch_();
+}
+
+_cold void cluster::Session::answerQuestions(const std::string& requestId, const cluster::Json& answers)
+{
+    // AskUserQuestion: allowed with its input and the answers {question: label, or labels joined by ", "}
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    auto it = std::find_if(this->_data.permissions.begin(), this->_data.permissions.end(),
+        [&](const cluster::Permission& p) {return p.tool == "AskUserQuestion" && (requestId.empty() || p.requestId == requestId);});
+    if (it == this->_data.permissions.end())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no pending question '" + requestId + "' in " + this->_data.spec.id);
+    if (!answers.is_object()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "answers: {question: answer}");
+    cluster::Json input = it->input;
+    input["answers"] = answers;
+    this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", it->requestId},
+        {"response", {{"behavior", "allow"}, {"updatedInput", input}}}}}});
+    std::string said;
+    for (const auto &[question, answer]: answers.items())
+        said += (said.empty() ? "" : " · ") + question + " → " + (answer.is_string() ? answer.get<std::string>() : answer.dump());
+    this->entry_(cluster::EntryKind::System, "answered: " + said);
     this->_data.permissions.erase(it);
     if (this->_data.permissions.empty() && this->_data.state == cluster::State::Waiting) this->_data.state = cluster::State::Working;
     this->touch_();

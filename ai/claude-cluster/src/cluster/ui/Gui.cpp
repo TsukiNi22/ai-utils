@@ -35,6 +35,8 @@ File Description:
 #include <QKeySequence>
 #include <QInputDialog>
 #include <QProgressBar>
+#include <QRadioButton>
+#include <QButtonGroup>
 #include <QMainWindow>
 #include <QListWidget>
 #include <QPushButton>
@@ -349,7 +351,7 @@ class Window: public QMainWindow {
                 this->signature.clear();
             } else if (base == "settings") {
                 this->settings();
-            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary") {
+            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
                 this->settingAction(base == "edit_global_prompt" ? "edit_prompt" : base);
             } else if (base == "restore_menu") {
                 this->openRestore();
@@ -597,8 +599,12 @@ class Window: public QMainWindow {
             else if (action == "interrupt") {
                 // voice prompts waiting: dropped; else a turn runs: stop it; else clear the prompt
                 const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
+                const bool working = snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting);
                 if (!this->app.voice->pending().empty()) this->app.voice->cancel();
-                else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) this->run({"interrupt", "", "", "", false}, "");
+                else if (this->app.voice->speaking() && !working) {
+                    this->app.voice->mute(); // an answer read after its turn: stopped like a running one
+                    this->message("reading stopped", false);
+                } else if (working) this->run({"interrupt", "", "", "", false}, "");
                 else if (!this->input->text().isEmpty()) {
                     this->input->reset();
                     this->historyReset();
@@ -678,6 +684,11 @@ class Window: public QMainWindow {
 
         void escape(void)
         {
+            if (this->app.voice->speaking()) {
+                this->app.voice->mute();
+                this->message("reading stopped", false);
+                return;
+            }
             if (!this->app.voice->pending().empty()) {
                 this->app.voice->cancelLast(); // the last voice prompt waiting (Ctrl+C: all of them)
                 return;
@@ -1040,11 +1051,11 @@ class Window: public QMainWindow {
                 this->askMachine(0);
                 return;
             }
-            if (key != "edit_prompt" && key != "edit_sessions_prompt" && key != "edit_vocabulary") return;
+            if (key != "edit_prompt" && key != "edit_sessions_prompt" && key != "edit_vocabulary" && key != "edit_words") return;
             const bool global = key == "edit_prompt";
-            const bool vocabulary = key == "edit_vocabulary";
+            const bool vocabulary = key == "edit_vocabulary" || key == "edit_words"; // a list of the voice: no restart
             const cluster::Config& config = this->manager.config();
-            const std::filesystem::path path = cluster::expand_home(global ? config.globalPrompt : vocabulary ? cluster::vocabulary_path(config.voice.vocabulary).string() : config.sessionsPrompt);
+            const std::filesystem::path path = cluster::expand_home(global ? config.globalPrompt : key == "edit_words" ? cluster::voice_words_path(config.voice.words).string() : vocabulary ? cluster::vocabulary_path(config.voice.vocabulary).string() : config.sessionsPrompt);
             std::ifstream in(path);
             const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             bool ok = false;
@@ -1068,6 +1079,111 @@ class Window: public QMainWindow {
             }
         }
         std::string styleSeen;
+        std::set<std::string> asked;        // the questions of the agents opened once (declined: not again)
+        bool asking = false;                // a question dialog is open
+        std::uint64_t machineSeen = 0;      // the map of this computer asked by the global session (its question shown)
+
+        void askCheck(void)
+        {
+            // a question of the agent of the session shown (AskUserQuestion): its dialog, like Claude Code / Claude Desktop
+            if (this->asking) return;
+            if (this->manager.machineRequest() != this->machineSeen) { // the global session asked to map this computer again
+                this->machineSeen = this->manager.machineRequest();
+                this->asking = true;
+                QTimer::singleShot(0, this, [this]() {
+                    this->askMachine(0);
+                    this->asking = false;
+                });
+                return;
+            }
+            const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
+            if (!snap) return;
+            for (const cluster::Permission& p: snap->permissions) {
+                if (p.tool != "AskUserQuestion" || this->asked.contains(p.requestId) || !p.input.contains("questions") || !p.input["questions"].is_array()) continue;
+                this->asked.insert(p.requestId);
+                this->asking = true;
+                QTimer::singleShot(0, this, [this, id = snap->spec.id, name = snap->spec.name, request = p.requestId, questions = p.input["questions"]]() {
+                    this->askQuestions(id, name, request, questions);
+                    this->asking = false;
+                });
+                return;
+            }
+        }
+
+        void askQuestions(const std::string& id, const std::string& name, const std::string& request, const cluster::Json& questions)
+        {
+            // each question: its options (radio, or check boxes for a multi choice) and Other (typed); Decline: denied
+            struct Row {
+                cluster::Json question;
+                std::vector<QAbstractButton*> options;
+                QAbstractButton* other = nullptr;
+                QLineEdit* text = nullptr;
+            };
+            QDialog dialog(this);
+            dialog.setWindowTitle(q_(name + " asks"));
+            dialog.setMinimumWidth(560);
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+            std::vector<Row> rows;
+            for (const cluster::Json& q: questions) {
+                const bool multi = q.value("multiSelect", false);
+                QLabel* title = new QLabel(q_((q.value("header", std::string()).empty() ? "" : q.value("header", std::string()) + "  ·  ") + q.value("question", std::string())), &dialog);
+                title->setWordWrap(true);
+                title->setStyleSheet("font-weight: bold; margin-top: 8px;");
+                layout->addWidget(title);
+                QButtonGroup* group = new QButtonGroup(&dialog);
+                group->setExclusive(!multi);
+                Row row{q, {}, nullptr, nullptr};
+                for (const cluster::Json& option: q.value("options", cluster::Json::array())) {
+                    const std::string description = option.value("description", std::string());
+                    const QString label = q_(option.value("label", std::string()) + (description.empty() ? "" : "   -  " + description));
+                    QAbstractButton* button = multi ? static_cast<QAbstractButton*>(new QCheckBox(label, &dialog)) : new QRadioButton(label, &dialog);
+                    group->addButton(button);
+                    layout->addWidget(button);
+                    row.options.push_back(button);
+                }
+                QHBoxLayout* other = new QHBoxLayout();
+                row.other = multi ? static_cast<QAbstractButton*>(new QCheckBox("Other:", &dialog)) : new QRadioButton("Other:", &dialog);
+                row.text = new QLineEdit(&dialog);
+                group->addButton(row.other);
+                QObject::connect(row.text, &QLineEdit::textEdited, row.other, [button = row.other]() {button->setChecked(true);});
+                other->addWidget(row.other);
+                other->addWidget(row.text, 1);
+                layout->addLayout(other);
+                if (!multi && !row.options.empty()) row.options.front()->setChecked(true);
+                rows.push_back(row);
+            }
+            QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+            buttons->button(QDialogButtonBox::Ok)->setText("Answer");
+            buttons->button(QDialogButtonBox::Cancel)->setText("Decline");
+            QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+            QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+            layout->addWidget(buttons);
+            if (dialog.exec() != QDialog::Accepted) {
+                try {
+                    this->manager.answer(id, request, "deny");
+                    this->message("question declined", false);
+                } catch (const utils::exception::IException& e) {
+                    this->message(e.info(), true);
+                }
+                return;
+            }
+            cluster::Json answers = cluster::Json::object();
+            for (const Row& row: rows) {
+                std::string value;
+                const cluster::Json options = row.question.value("options", cluster::Json::array());
+                for (std::size_t i = 0; i < row.options.size(); ++i)
+                    if (row.options[i]->isChecked()) value += (value.empty() ? "" : ", ") + options[i].value("label", std::string());
+                const std::string typed = cluster::trim(row.text->text().toStdString());
+                if (row.other->isChecked() && !typed.empty()) value += (value.empty() ? "" : ", ") + typed;
+                answers[row.question.value("question", std::string())] = value;
+            }
+            try {
+                this->manager.answerQuestions(id, request, answers);
+                this->message("answered", false);
+            } catch (const utils::exception::IException& e) {
+                this->message(e.info(), true); // answered elsewhere meanwhile (MCP...)
+            }
+        }
         std::int64_t lastInterrupt = 0;     // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
 
         void tick(void)
@@ -1087,6 +1203,7 @@ class Window: public QMainWindow {
                 }
             }
             this->manager.noteActive(this->active);
+            this->askCheck();
             const std::string style = this->manager.ui("style", this->manager.config().style);
             if (style != this->styleSeen) {
                 this->styleSeen = style;

@@ -269,8 +269,17 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `notify` (a desktop notification), and for
   the interface and itself: `ui_state`, `ui_focus` (show a sub-session while it goes on talking, `g` to come back),
   `ui_layout`, `ui_style`, `ui_panel`, `remote_control` (its own Remote Control), `settings_get` / `settings_set`
-  (every option of the settings page),
+  (every option of the settings page), `config_files` / `config_read` / `config_write` (its own system prompt - it is
+  started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
+  config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
+  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`,
   allowed without asking (`--allowedTools mcp__claude-cluster`);
+- **questions of the agents** (AskUserQuestion of Claude Code, asked even in `bypassPermissions`): a popup on the
+  session shown, like Claude Code / Claude Desktop - the terminal: one question at a time, its options and their
+  description, ↑↓ / 1-9, Space ticks (multi choice), Other typed, Enter answers, Esc declines; the window: a dialog
+  (radio buttons or check boxes, Other, Answer / Decline); its notice and notification tell the question; the global
+  session sees them in `session_status` and answers with `session_allow` `answers` {question: label}; a plain allow
+  is refused (the agent would go on without its answer);
 - autonomy (from its prompt): what the user asks explicitly is done without asking again; what it decides alone is
   proposed first;
 - **Remote Control** (`remote on` / palette): the global session itself on claude.ai and the Claude app (the
@@ -302,11 +311,19 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 - The transcription is shown `confirm_seconds` before it is sent (palette: send now / drop / correct); the global
   session gets it as `[voice] ...` and asks when a word looks wrong or the request is ambiguous.
 - `session <name> <text>` (or `<name>: <text>`) goes straight to that session.
+- **Speech model** (`[voice] listen_model`, settings page > Voice; empty: the choice of `voice-models use`):
+  `parakeet` (NVIDIA Parakeet TDT 0.6B v3, int8, 640 MB: French, English and both mixed, the sentence recognized at
+  its end in ~1 s, "…" shown while speaking), `whisper` (Whisper small int8, 360 MB: slower, 3-6 s), `kroko-fr` (the
+  French streaming model: live text, the fastest, French only). `voice-models list | use <m> | install <m>`; changed
+  in the settings, voice-listen starts again on it.
 - **Said alone while a transcription waits** (compared without case, accent nor punctuation, no wake phrase needed):
-  a word of `cancel_words` ("annule", "stop", "laisse tomber", "cancel"...) drops it, a word of `send_words`
-  ("envoie", "valide", "vas-y", "go", "send"...) sends it at once. Nothing waiting, a cancel word stops the answer
-  being read and the turn of the global session (only heard while it speaks with `voice-listen --duplex`).
-- Interrupting a turn (Ctrl+C, the palette) also stops its reading.
+  a cancel word ("annule", "stop", "laisse tomber", "cancel"...) drops it, a send word ("envoie", "valide", "vas-y",
+  "go", "send"...) sends it at once; nothing waiting, a cancel word stops the answer being read and the turn of the
+  global session (only heard while it speaks with `voice-listen --duplex`). The words: `voice-words.txt` of the config
+  folder, edited in the editor (settings page > Voice > *Voice words (edit)*, palette *Voice words*), one per line under
+  `[cancel]` / `[send]` (`[voice] cancel_words` / `send_words` add more).
+- Ctrl+C or Esc stop the reading (an answer read after its turn too, the turn interrupted when it runs); the reading
+  stops with claude-cluster (voice-say and its piper | pacat in a group of their own).
 - **Vocabulary**: the proper names the recognition bends are written back in every sentence heard, before it is shown,
   routed and sent: the file `vocabulary.txt` of the config folder (`[voice] vocabulary`; settings page > Voice >
   *Vocabulary (edit)*, palette *Vocabulary of the voice*), one name per line with the ways it is heard

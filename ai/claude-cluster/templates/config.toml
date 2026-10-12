@@ -80,11 +80,12 @@ only_me = true             # voice-listen --only-me (needs voice-enroll)
 confirm_seconds = 3        # the transcription is shown this long before it is sent (0: sent at once)
 speak = true               # spoken summary of the answers of the global session
 summary_chars = 220
-cancel_words = ["annule", "annuler", "stop", "laisse tomber", "oublie", "cancel", "abort", "never mind"]
-                           # said alone while a transcription waits: dropped; nothing waits: the answer read stopped
-                           # (and the turn of the global session); compared without case, accents nor punctuation
-send_words = ["envoie", "envoyer", "envoie le", "valide", "valider", "vas-y", "go", "send", "send it"]
-                           # said alone while a transcription waits: sent at once
+listen_model = ""          # voice-listen --model: parakeet (French, English, mixed) | whisper (mixed in a sentence,
+                           # slower) | kroko-fr (French only, live text, the fastest); empty: its own (voice-models use)
+words = ""                 # the cancel / send words said alone while a transcription waits (settings page > Voice >
+                           # Voice words (edit)); empty: voice-words.txt of the config folder
+cancel_words = []          # more cancel words here, added to the file
+send_words = []            # more send words here, added to the file
 vocabulary = ""            # proper names written back in every sentence heard (+ the sessions, the projects of the map
                            # of this computer, your names); empty: vocabulary.txt of the config folder
 listen_command = "voice-listen"

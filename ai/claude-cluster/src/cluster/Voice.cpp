@@ -132,6 +132,8 @@ _cold void cluster::Voice::listen_(void)
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     std::vector<std::string> args = {"--json", "--partial"};
     if (conf.onlyMe) args.push_back("--only-me");
+    if (!conf.listenModel.empty()) args.insert(args.end(), {"--model", conf.listenModel}); // else its own choice (voice-models)
+    this->_model = conf.listenModel;
 
     // voice-listen: one JSON object per sentence on stdout, the partial hypothesis on stderr
     utils::encapsulation::Pipe out;
@@ -290,8 +292,11 @@ _cold bool cluster::Voice::command_(const std::string& text)
     // cancel with nothing waiting stops the answer being read and the turn of the global session
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     const std::string said = cluster::vocabulary_key(text);
-    const std::function<bool(const std::vector<std::string>&)> is = [&](const std::vector<std::string>& words) {
-        return std::any_of(words.begin(), words.end(), [&](const std::string& word) {return cluster::vocabulary_key(word) == said;});
+    cluster::VoiceWords words = cluster::voice_words(cluster::voice_words_path(conf.words)); // edited: taken at once
+    words.cancel.insert(words.cancel.end(), conf.cancelWords.begin(), conf.cancelWords.end());
+    words.send.insert(words.send.end(), conf.sendWords.begin(), conf.sendWords.end());
+    const std::function<bool(const std::vector<std::string>&)> is = [&](const std::vector<std::string>& list) {
+        return std::any_of(list.begin(), list.end(), [&](const std::string& word) {return cluster::vocabulary_key(word) == said;});
     };
     if (said.empty()) return false;
     bool waiting = false;
@@ -302,7 +307,7 @@ _cold bool cluster::Voice::command_(const std::string& text)
     const std::function<void(const std::string&)> notice = [&](const std::string& what) {
         this->_manager.notice(GLOBAL_ID, "voice: \"" + text + "\": " + what);
     };
-    if (is(conf.cancelWords)) {
+    if (is(words.cancel)) {
         if (waiting) {
             this->cancel();
             notice("the transcription waiting dropped");
@@ -320,7 +325,7 @@ _cold bool cluster::Voice::command_(const std::string& text)
         notice(working ? "the answer stopped" : "the reading stopped");
         return true;
     }
-    if (waiting && is(conf.sendWords)) {
+    if (waiting && is(words.send)) {
         this->confirm();
         notice("sent now");
         return true;
@@ -360,6 +365,10 @@ _cold void cluster::Voice::tick(void)
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     if (conf.enabled && !this->_listening && !this->_paused && now_ms_() - this->_lastStart > 10000) this->start();
     else if (!conf.enabled && this->_listening) this->stop();
+    else if (this->_listening && conf.listenModel != this->_model) { // another speech model: voice-listen again on it
+        this->stop();
+        this->start();
+    }
     std::vector<cluster::Pending> ready;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -450,7 +459,9 @@ _cold void cluster::Voice::say_(const std::string& text, const std::string& voic
                 process.dup(null, STDOUT_FILENO);
                 process.dup(null, STDERR_FILENO);
             }
-            this->_sayPid = process.spawn(command, {"-v", voice, text});
+            // setsid: voice-say leads a group of its own, its piper | pacat stopped with it (mute: the whole group)
+            if (cluster::has_command("setsid")) this->_sayPid = process.spawn("setsid", {command, "-v", voice, text});
+            else this->_sayPid = process.spawn(command, {"-v", voice, text});
             if (null != -1) ::close(null);
             ++this->_version;
             (void)process.wait();
@@ -462,8 +473,10 @@ _cold void cluster::Voice::say_(const std::string& text, const std::string& voic
 
 _cold void cluster::Voice::mute(void)
 {
+    // the group of voice-say (its piper | pacat): the reading stops at once, claude-cluster closed too
     const pid_t pid = this->_sayPid;
-    if (pid > 0) ::kill(pid, SIGTERM);
+    if (pid <= 0) return;
+    if (::kill(-pid, SIGTERM) != 0) ::kill(pid, SIGTERM);
 }
 
 _cold std::vector<std::string> cluster::Voice::setup(void) const
@@ -481,11 +494,11 @@ _cold std::vector<std::string> cluster::Voice::setup(void) const
         if (!std::filesystem::exists(home / "voices" / (file + ".onnx")))
             missing.push_back("voice " + voice + " not installed: `voice-voices set " + voice + "` (downloads it)");
     }
-    bool english = false;
-    std::error_code error;
-    for (const std::filesystem::directory_entry& model: std::filesystem::directory_iterator(home / "models", error))
-        english |= model.path().filename().string().find("streaming-zipformer-en") != std::string::npos;
-    if (!english) missing.push_back("no English speech model: English is only spoken back (French is recognized)");
+    // French, English and mixed: Parakeet (or Whisper); the French streaming model alone recognizes French only
+    const bool english = std::filesystem::exists(home / "models" / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
+        || std::filesystem::exists(home / "models" / "sherpa-onnx-whisper-small");
+    if (!english) missing.push_back("no English / mixed speech model (only French is recognized): `voice-models install parakeet`");
+    if (conf.listenModel == "kroko-fr") missing.push_back("[voice] listen_model = kroko-fr: French only (faster, live text)");
     return missing;
 }
 

@@ -1,0 +1,25 @@
+# Voice words of claude-cluster: said alone while a transcription waits (before it is sent). Compared without case,
+# accents nor punctuation; one word or phrase per line, under its section. Used from the next sentence heard.
+
+[cancel]
+# the transcription waiting dropped; nothing waiting: the answer being read stopped (and the turn of the global session)
+annule
+annuler
+stop
+laisse tomber
+oublie
+cancel
+abort
+never mind
+
+[send]
+# the transcription waiting sent now
+envoie
+envoyer
+envoie le
+valide
+valider
+vas-y
+go
+send
+send it

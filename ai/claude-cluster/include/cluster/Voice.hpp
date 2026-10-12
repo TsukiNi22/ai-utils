@@ -62,6 +62,7 @@ class Voice {
         std::vector<cluster::Term> _fileTerms;      // the vocabulary file and the projects of the map (read again when changed)
         std::filesystem::file_time_type _fileTime{};
         std::filesystem::file_time_type _machineTime{};
+        std::string _model;                         // the speech model voice-listen was started on ([voice] listen_model)
 
         // ---------- Pre-Function -------- //
         _cold void listen_(void);

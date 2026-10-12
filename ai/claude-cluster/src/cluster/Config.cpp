@@ -73,6 +73,16 @@ _cold void cluster::Config::defaults_(void)
     };
 }
 
+_cold std::string cluster::Config::check(const std::string& text)
+{
+    try {
+        (void)toml::parse(text);
+    } catch (const toml::parse_error& e) {
+        return std::string(e.description()) + " (line " + std::to_string(e.source().begin.line) + ")";
+    }
+    return "";
+}
+
 _cold void cluster::Config::load(void)
 {
     std::error_code error;
@@ -86,6 +96,8 @@ _cold void cluster::Config::load(void)
     if (!std::filesystem::exists(sessions)) std::ofstream(sessions) << cluster::templates::SESSIONS_PROMPT;
     const std::filesystem::path vocabulary = cluster::config_dir() / "vocabulary.txt";
     if (!std::filesystem::exists(vocabulary)) std::ofstream(vocabulary) << cluster::templates::VOCABULARY;
+    const std::filesystem::path words = cluster::config_dir() / "voice-words.txt";
+    if (!std::filesystem::exists(words)) std::ofstream(words) << cluster::templates::VOICE_WORDS;
     this->_mtime = std::filesystem::last_write_time(this->_path, error);
 
     toml::table table;
@@ -160,6 +172,8 @@ _cold void cluster::Config::load(void)
     this->voice.voiceEn = v["voice_en"].value_or(this->voice.voiceEn);
     this->voice.cancelWords = strings_(v["cancel_words"], this->voice.cancelWords);
     this->voice.sendWords = strings_(v["send_words"], this->voice.sendWords);
+    this->voice.words = v["words"].value_or(this->voice.words);
+    this->voice.listenModel = v["listen_model"].value_or(this->voice.listenModel);
     this->voice.vocabulary = v["vocabulary"].value_or(this->voice.vocabulary);
     if (!this->voiceForce.empty()) {
         this->voice.enabled = true;

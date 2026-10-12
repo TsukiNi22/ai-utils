@@ -24,6 +24,7 @@ File Description:
 #include <algorithm>
 #include <sys/un.h>
 #include <unistd.h>
+#include <iterator>
 #include <fstream>
 #include <cstring>
 #include <chrono>
@@ -193,6 +194,40 @@ _cold cluster::Json cluster::Control::request(const cluster::Json& request)
     return cluster::Json::parse(*line);
 }
 
+/* editable files */
+struct ConfigFile {
+    std::string name;
+    std::filesystem::path path;
+    std::string what;
+    std::string applied;            // when a change is taken
+    bool editable = true;
+};
+
+_cold static std::vector<ConfigFile> config_files_(cluster::Manager& manager)
+{
+    const cluster::Config& c = manager.config();
+    return {
+        {"global_prompt", cluster::expand_home(c.globalPrompt), "the system prompt of the global session (added to CLAUDE.md)",
+            "the global session is started again on it (same conversation) after its turn", true},
+        {"sessions_prompt", cluster::expand_home(c.sessionsPrompt), "the system prompt of every sub-session (claude driver; empty: none)",
+            "each sub-session takes it at its next start (/clear, /model...)", true},
+        {"vocabulary", cluster::vocabulary_path(c.voice.vocabulary), "proper names written back in what the voice hears: \"name = how it is heard, ...\"",
+            "the next sentence heard", true},
+        {"voice_words", cluster::voice_words_path(c.voice.words), "words said alone while a voice transcription waits: [cancel] / [send], one per line",
+            "the next sentence heard", true},
+        {"config", c.path(), "every option of claude-cluster (TOML)", "reloaded at once (the options marked at_next_start: at the next start)", true},
+        {"machine_map", cluster::config_dir() / "machine.md", "the map of this computer (written by its scan: machine_sync)", "read only", false},
+    };
+}
+
+_cold static ConfigFile config_file_(cluster::Manager& manager, const std::string& name)
+{
+    for (const ConfigFile& file: config_files_(manager))
+        if (file.name == name) return file;
+    throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId,
+        "no file '" + name + "' (global_prompt, sessions_prompt, vocabulary, voice_words, config, machine_map)");
+}
+
 /* commands */
 _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cluster::Json& request)
 {
@@ -270,8 +305,40 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data["models"].push_back({{"model", model}, {"description", description}});
         } else if (cmd == "usage") {
             data = manager.usageJson(arg_(request, "vendor"));
+        } else if (cmd == "config_files") {
+            data = cluster::Json::array();
+            for (const ConfigFile& file: config_files_(manager)) {
+                std::error_code error;
+                data.push_back({{"name", file.name}, {"path", file.path.string()}, {"what", file.what}, {"applied", file.applied},
+                    {"editable", file.editable}, {"exists", std::filesystem::exists(file.path, error)}});
+            }
+        } else if (cmd == "config_read") {
+            const ConfigFile file = config_file_(manager, arg_(request, "name"));
+            std::ifstream in(file.path);
+            std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (content.size() > 200000) content = content.substr(0, 200000) + "\n[... cut at 200 000 characters]";
+            data = {{"name", file.name}, {"path", file.path.string()}, {"content", content}};
+        } else if (cmd == "config_write") {
+            // the whole file replaced (read it first); config.toml checked before; the global prompt: started again after the turn
+            const ConfigFile file = config_file_(manager, arg_(request, "name"));
+            if (!file.editable) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, file.name + " is read only (" + file.what + ")");
+            const std::string content = arg_(request, "content");
+            if (file.name == "config") {
+                const std::string error = cluster::Config::check(content);
+                if (!error.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "config.toml not written, invalid TOML: " + error);
+            }
+            std::error_code error;
+            std::filesystem::create_directories(file.path.parent_path(), error);
+            std::ofstream(file.path) << content;
+            if (file.name == "global_prompt") manager.restartGlobalAfterTurn();
+            manager.notice(GLOBAL_ID, cluster::short_path(file.path.string()) + " written by the global session");
+            data = {{"name", file.name}, {"path", file.path.string()}, {"applied", file.applied}};
+        } else if (cmd == "machine_sync") {
+            manager.requestMachineSync();
+            data = {{"asked", "the question is shown in the interface: the user answers it (the scan then runs, its progress shown)"}};
         } else if (cmd == "allow") {
-            manager.answer(session(), arg_(request, "request_id"), arg_(request, "behavior", "allow"));
+            if (request.contains("answers") && request["answers"].is_object()) manager.answerQuestions(session(), arg_(request, "request_id"), request["answers"]);
+            else manager.answer(session(), arg_(request, "request_id"), arg_(request, "behavior", "allow"));
         } else if (cmd == "interrupt") {
             manager.interrupt(session());
         } else if (cmd == "cd") {

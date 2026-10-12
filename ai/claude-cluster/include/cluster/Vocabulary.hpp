@@ -29,6 +29,11 @@ namespace cluster { // namespace start
 //----------------------------------------------------------------//
 /* STRUCT */
 
+struct VoiceWords {
+    std::vector<std::string> cancel;    // said alone: the transcription waiting dropped (else the answer read stopped)
+    std::vector<std::string> send;      // said alone: the transcription waiting sent now
+};
+
 struct Term {
     std::string text;               // as it is written (libutils, claude-cluster)
     std::vector<std::string> keys;  // its key and the keys of the ways it is heard (vocabulary_key)
@@ -39,6 +44,12 @@ struct Term {
 
 // the vocabulary file: [voice] vocabulary, empty: vocabulary.txt of the config folder
 _cold _nodiscard inline std::filesystem::path vocabulary_path(const std::string& configured) {return cluster::trim(configured).empty() ? cluster::config_dir() / "vocabulary.txt" : cluster::expand_home(configured);};
+
+// the file of the voice words: [voice] words, empty: voice-words.txt of the config folder
+_cold _nodiscard inline std::filesystem::path voice_words_path(const std::string& configured) {return cluster::trim(configured).empty() ? cluster::config_dir() / "voice-words.txt" : cluster::expand_home(configured);};
+
+// its words: one per line under [cancel] / [send], # comments
+_cold _nodiscard cluster::VoiceWords voice_words(const std::filesystem::path& path);
 
 // lower case, no accent, letters and digits only: "Lib utils" and "libutils" -> "libutils"
 _cold _nodiscard std::string vocabulary_key(const std::string& text);

@@ -121,6 +121,7 @@ class Session {
         _cold void restart(void);                           // its reader done (process ended): started again
         _cold void send(const std::string& text, const std::vector<std::string>& images = {}); // images: [Image #N] of the text
         _cold void answer(const std::string& requestId, const std::string& behavior); // allow | always | deny
+        _cold void answerQuestions(const std::string& requestId, const cluster::Json& answers); // AskUserQuestion: {question: answer}
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);
         _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)

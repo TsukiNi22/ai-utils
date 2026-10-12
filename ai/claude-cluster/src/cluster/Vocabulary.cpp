@@ -75,6 +75,22 @@ _cold std::string cluster::vocabulary_key(const std::string& text)
     return key;
 }
 
+_cold cluster::VoiceWords cluster::voice_words(const std::filesystem::path& path)
+{
+    cluster::VoiceWords words;
+    std::ifstream in(path);
+    std::string line;
+    std::vector<std::string>* section = nullptr;
+    while (std::getline(in, line)) {
+        line = cluster::trim(line.substr(0, line.find('#')));
+        if (line == "[cancel]") section = &words.cancel;
+        else if (line == "[send]") section = &words.send;
+        else if (!line.empty() && line.front() == '[') section = nullptr;
+        else if (!line.empty() && section) section->push_back(line);
+    }
+    return words;
+}
+
 _cold std::vector<cluster::Term> cluster::vocabulary_file(const std::filesystem::path& path)
 {
     std::vector<cluster::Term> terms;

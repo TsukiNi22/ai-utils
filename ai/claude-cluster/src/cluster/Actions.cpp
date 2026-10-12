@@ -29,6 +29,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
         {"edit_sessions_prompt", "System prompt of the sub-sessions: edit it (empty: none)", "", "", true},
         {"edit_vocabulary", "Vocabulary of the voice: edit it (proper names heard)", "", "", true},
+        {"edit_words", "Voice words: edit them (cancel / send said alone)", "", "", true},
         {"restore_menu", "Reopen a closed session (the trash)", "", "", true},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},

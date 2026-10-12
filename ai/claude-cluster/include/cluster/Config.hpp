@@ -73,9 +73,12 @@ struct VoiceConf {
     std::string sayCommand = "voice-say";
     std::string voiceFr = "tom-medium";
     std::string voiceEn = "en_GB-northern_english_male-medium";
-    // said alone while a transcription waits: dropped / sent now (cancel: also stops the answer being read)
-    std::vector<std::string> cancelWords = {"annule", "annuler", "stop", "laisse tomber", "oublie", "cancel", "abort", "never mind"};
-    std::vector<std::string> sendWords = {"envoie", "envoyer", "envoie le", "valide", "valider", "vas-y", "go", "send", "send it"};
+    // said alone while a transcription waits: dropped / sent now (cancel: also stops the answer being read); the
+    // words of voice-words.txt (edited in the editor), these ones of config.toml added
+    std::vector<std::string> cancelWords;
+    std::vector<std::string> sendWords;
+    std::string words;              // the file of these words (empty: voice-words.txt of the config folder)
+    std::string listenModel;        // voice-listen --model: parakeet | whisper | kroko-fr (empty: its own choice, voice-models)
     std::string vocabulary;         // proper names written back in what is heard (empty: vocabulary.txt of the config folder)
 };
 
@@ -170,6 +173,7 @@ class Config {
         _cold _nodiscard bool reload(void);                 // true when the file changed and was loaded again
         _cold _nodiscard const cluster::Style& currentStyle(void) const;
         _cold _nodiscard std::string command(const std::string& driver) const;
+        _cold _nodiscard static std::string check(const std::string& text);   // a config.toml text: its parse error ("" valid)
 
         // ---------- Function -------- //
         _nodiscard inline const std::filesystem::path& path(void) const {return this->_path;};

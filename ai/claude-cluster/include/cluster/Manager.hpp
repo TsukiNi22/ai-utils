@@ -97,6 +97,8 @@ class Manager {
         int _next = 1;
         int _nextTask = 1;
         std::atomic<std::uint64_t> _version{1};
+        std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
+        std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
         std::vector<cluster::UsageRecord> _usage;       // the usage ledger (usage.jsonl), in time order
         std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows)
@@ -195,6 +197,9 @@ class Manager {
 
         // ---------- Function -------- //
         _cold inline void notice(const std::string& session, const std::string& text, const bool error = false) {this->notice_(session, text, error);}; // the notices of the interfaces
+        inline void requestMachineSync(void) {++this->_machineRequest; ++this->_version;};  // the interfaces ask the user (its popup)
+        _nodiscard inline std::uint64_t machineRequest(void) const {return this->_machineRequest;};
+        inline void restartGlobalAfterTurn(void) {this->_restartAfterTurn = true;};          // after the turn running (it asked it)
         inline void setFocused(const bool focused) {this->_focused = focused ? 1 : 0;}; // the window / terminal has the focus
         inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
         inline void machineDecline(void) {this->setUi("machine", "no");};
@@ -205,6 +210,7 @@ class Manager {
         _nodiscard inline cluster::Config& config(void) {return this->_config;};
         _nodiscard inline bool remote(void) const {return this->ui("remote", "false") == "true";}; // Remote Control of the global session
         _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};
+        _cold inline void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers) {this->get_(id)->answerQuestions(requestId, answers);};
         _cold inline void interrupt(const std::string& id) {this->get_(id)->interrupt();};
         _cold _nodiscard inline std::optional<cluster::Queued> unqueue(const std::string& id) {return this->get_(id)->unqueue();}; // last queued prompt, removed
 

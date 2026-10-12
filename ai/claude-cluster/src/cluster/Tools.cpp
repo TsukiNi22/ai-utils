@@ -281,6 +281,20 @@ _cold void cluster::detach(const std::vector<std::string>& args)
     }).detach();
 }
 
+_cold void cluster::complete_path(void)
+{
+    // started by systemd (the service), a desktop file...: PATH without the folders where claude, qwen, opencode live
+    const char* current = std::getenv("PATH");
+    std::string path = current ? current : "/usr/local/bin:/usr/bin:/bin";
+    for (const char* folder: {"~/.local/bin", "~/.npm-global/bin", "~/.opencode/bin", "~/.bun/bin", "~/.cargo/bin", "~/go/bin", "~/.deno/bin", "/usr/local/bin"}) {
+        const std::string dir = cluster::expand_home(folder).string();
+        const std::vector<std::string> parts = cluster::split(path, ':');
+        std::error_code error;
+        if (std::find(parts.begin(), parts.end(), dir) == parts.end() && std::filesystem::is_directory(dir, error)) path += ":" + dir;
+    }
+    ::setenv("PATH", path.c_str(), 1);
+}
+
 _cold void cluster::catch_quit_signals(void)
 {
     // only a flag here (async signal safe): the interface sees it and quits the normal way (terminal restored, saved)

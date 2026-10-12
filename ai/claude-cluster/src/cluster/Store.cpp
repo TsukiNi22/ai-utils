@@ -200,8 +200,11 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         {"cost_usd", m.costKnown ? cluster::Json(m.cost) : cluster::Json("local / unknown")},
     };
     json["permissions"] = cluster::Json::array();
-    for (const cluster::Permission& p: snap.permissions)
+    for (const cluster::Permission& p: snap.permissions) {
         json["permissions"].push_back({{"request_id", p.requestId}, {"tool", p.tool}, {"description", cluster::one_line(p.description, 200)}});
+        // a question of the agent: its questions and options (answered with session_allow answers {question: label})
+        if (p.tool == "AskUserQuestion" && p.input.contains("questions")) json["permissions"].back()["questions"] = p.input["questions"];
+    }
     if (!snap.lastError.empty()) json["error"] = snap.lastError;
     if (!snap.remoteUrl.empty()) json["remote"] = snap.remoteUrl;
     if (!full) return json;
