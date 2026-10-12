@@ -223,6 +223,7 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `CPP-INCLUDE-COMMENT` | minor | - | cpp,c | Include of a header without its trailing comment listing what is used |
 | `CPP-COMMENT-ALIGN` | negligible | auto | cpp,c | Trailing comments of an include block not aligned on one column |
 | `CPP-EMPTY-SECTION` | minor | auto | cpp,c | Section separator / class block with nothing linked to it |
+| `CPP-CLASS-BLOCK` | minor | - | cpp | Declaration in the wrong class block: Pre-Function = declared only (body in the .cpp), Function = defined in the header, Constructor / Destructor = theirs, data members before the blocks (Operator: free) |
 | `CPP-ORPHAN-GROUP` | negligible | auto | cpp,c | /* group */ label with nothing under it |
 | `CMAKE-SECTION-ORDER` | minor | - | cmake | Sections not in the cmake-style order |
 | `CMAKE-BANNER` | negligible | auto | cmake | Section banner not '# ' + 25 '=' |

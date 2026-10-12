@@ -28,7 +28,9 @@ Extracted from the user's real code: libutils / context-forge (C++, CMake, shell
 
 ## 2. C++ (`.cpp`, `.hpp`) - details in the `cpp-comments` skill
 - Separator + upper case title: `//` + 64 `-` + `//` then `/* INCLUDE */`, `/* DEFINE */`, `/* CLASS */`...
-- Class blocks: `// ---------- Pre-Function -------- //`, `// ------------ Function ---------- //`, ...
+- Class blocks: `// ---------- Pre-Function -------- //`, `// ------------ Function ---------- //`, ... and what they
+  hold: Pre-Function = declared only, Function = defined in the header, Constructor / Destructor = theirs
+  (`xstyle` `CPP-CLASS-BLOCK`; Operator free).
 - Group labels in lower case: `/* type */`, `/* getter */`, `/* setup */`.
 - Include comments aligned listing what is used: `#include <mutex>   // std::mutex`.
 - Block comments `// Uppercase start`, trailing `//` comments, `/* Nothing */` for an empty body.

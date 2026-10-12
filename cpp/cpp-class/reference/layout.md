@@ -138,6 +138,17 @@ Inside each visibility, in this order (a block with nothing linked to it is remo
         // ---------- Constructor --------- //
         // ----------- Destructor --------- //
 ```
+- **Each declaration in its block** (checked by `xstyle`, rule `CPP-CLASS-BLOCK`, in a class that uses the
+  blocks; a class without them, a plain struct, is free):
+  - `Pre-Function`: functions **declared only** (`T f(...);`, a pure `virtual ... = 0;`), their body in the
+    `.cpp`; never a body here, never a constructor / destructor / data member.
+  - `Function`: functions **defined in the header** (`{...};` one-liners and templates, `= default` /
+    `= delete` of a plain function); a bare declaration goes to `Pre-Function` instead.
+  - `Constructor` / `Destructor`: only `X(...)` / `~X()` (their `= default` / `= delete` included), never mixed
+    (a destructor gets its own `Destructor` block, even when it is the only line).
+  - Data members: first, before the blocks of their visibility, never under a block.
+  - `Operator`: free. `operator=`, `operator==`, a conversion `operator T()`... go there by default, but an
+    operator elsewhere or something else in it is only a hint of review, never an error (`xstyle` ignores it).
 - **No empty section**: a separator (class block `// --- X --- //` or file section `/* DEFINE */`,
   `/* PROTOTYPE */`, `/* ENUM */`...) is only written when at least one declaration is linked to it.
   No Pre-Function in `private` -> no `// ---------- Pre-Function -------- //` there; same for

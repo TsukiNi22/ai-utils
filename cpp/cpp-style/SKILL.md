@@ -71,6 +71,11 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
   ```
   Same when editing / reviewing existing code: such a .cpp definition is moved to the header. It stays in the
   .cpp only when the header would need an include it doesn't have otherwise (cycle, heavy dependency).
+- **Each declaration in its class block** (`reference/layout.md` of `cpp-class`, `xstyle` rule `CPP-CLASS-BLOCK`):
+  `Pre-Function` = declared only (body in the .cpp), `Function` = defined in the header (`{...};`, templates),
+  `Constructor` / `Destructor` = theirs (never mixed), data members before the blocks. Moving a function from the
+  .cpp to the header (or the other way) moves it between `Pre-Function` and `Function`. `Operator` is free: an
+  operator placed elsewhere is only worth a hint in a review, never a style error.
 - One empty line between functions and between logical blocks; never two.
 
 ## Statements

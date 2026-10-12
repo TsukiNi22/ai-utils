@@ -72,6 +72,7 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
         {"CPP-INCLUDE-COMMENT", xstyle::Severity::Minor,      xstyle::FixMode::Manual, "cpp,c",        "Include of a header without its trailing comment listing what is used"},
         {"CPP-COMMENT-ALIGN",  xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "Trailing comments of an include block not aligned on one column"},
         {"CPP-EMPTY-SECTION",  xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "cpp,c",        "Section separator / class block with nothing linked to it"},
+        {"CPP-CLASS-BLOCK",    xstyle::Severity::Minor,        xstyle::FixMode::Manual, "cpp",          "Declaration in the wrong class block: Pre-Function = declared only (body in the .cpp), Function = defined in the header, Constructor / Destructor = theirs, data members before the blocks (Operator: free)"},
         {"CPP-ORPHAN-GROUP",   xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp,c",        "/* group */ label with nothing under it"},
 
         // CMake (cmake-style)

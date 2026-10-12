@@ -27,6 +27,9 @@ Class blocks (exact strings, aligned like this):
         // ----------- Destructor --------- //
 ```
 A section separator or class block is only written when something is linked to it: never leave one empty.
+The blocks say what they hold (`xstyle` rule `CPP-CLASS-BLOCK`): `Pre-Function` = declarations only (body in the
+.cpp), `Function` = defined in the header, `Constructor` / `Destructor` = theirs, data members above the blocks;
+`Operator` is free (a hint, never an error). Details: `reference/layout.md` of `cpp-class`.
 
 Group labels, lower case, `/* ... */`, on their own line above the group:
 `/* type */`, `/* setup */`, `/* setter */`, `/* getter */`, `/* raw */`, `/* parsing */`, `/* tools */`,
