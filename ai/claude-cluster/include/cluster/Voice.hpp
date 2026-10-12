@@ -37,7 +37,14 @@ struct Pending {
     std::string text;
     std::string target;             // session id
     std::int64_t deadline = 0;      // unix ms: sent at this time
+    bool paused = false;            // the user speaks: its countdown stopped (full again after the new text)
 };
+
+//----------------------------------------------------------------//
+/* FUNCTION */
+
+// what is missing for the voice, with the command to fix it (tools, enrollment, voices, speech models)
+_cold _nodiscard std::vector<std::string> voice_missing(const cluster::VoiceConf& conf);
 
 //----------------------------------------------------------------//
 /* CLASS */
@@ -86,7 +93,6 @@ class Voice {
         _cold void edit(const std::string& text);
         _cold void speak(const std::string& text);
         _cold void mute(void);
-        _cold _nodiscard std::vector<std::string> setup(void) const;   // what is missing, with the command to fix it
         _nodiscard bool armed(void) const;                 // wake mode: the wake phrase was just heard
         _nodiscard std::vector<cluster::Pending> pending(void) const;
 
@@ -97,6 +103,7 @@ class Voice {
         _nodiscard inline bool running(void) const {return this->_listening;};
         _nodiscard inline bool speaking(void) const {return this->_sayPid > 0;};
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};
+        _cold _nodiscard inline std::vector<std::string> setup(void) const {return cluster::voice_missing(this->_manager.config().voice);}; // what is missing
 
         // ---------- Constructor -------- //
         _cold Voice(cluster::Manager& manager);

@@ -961,8 +961,11 @@ class Window: public QMainWindow {
             QString voiceText;
             if (voice.listening()) voiceText = span_(st.ok, conf.mode == "wake" ? (voice.armed() ? "◉ armed: say the command" : q_("○ waiting for \"" + conf.wakeWord + "\"")) : "◉ listening", true);
             if (voice.listening() && !voice.ready()) voiceText = span_(st.warn, "… loading the speech model (~10 s)", true);
-            for (const cluster::Pending& p: voice.pending())
-                voiceText += "  " + esc_((p.target.empty() ? "" : "→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ": ") + p.text);
+            const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            for (const cluster::Pending& p: voice.pending()) {
+                const std::string when = p.paused ? " (paused while you speak)" : p.deadline > 0 ? " (" + std::to_string(std::max<std::int64_t>(0, (p.deadline - now + 999) / 1000)) + "s)" : "";
+                voiceText += "  " + esc_((p.target.empty() ? "" : "→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ": ") + p.text + when);
+            }
             if (voice.speaking()) voiceText += "  " + span_(st.muted, "speaking (" + q_(conf.wakeWord.empty() ? "" : "") + q_(this->manager.config().keys.at("mute")) + " mute)");
             this->voiceLabel->setText(voiceText);
             this->voiceLabel->setVisible(!voiceText.isEmpty());

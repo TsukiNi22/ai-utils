@@ -17,6 +17,8 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Service.hpp"
+#include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -228,6 +230,79 @@ _cold static ConfigFile config_file_(cluster::Manager& manager, const std::strin
         "no file '" + name + "' (global_prompt, sessions_prompt, vocabulary, voice_words, config, machine_map)");
 }
 
+/* everything about this claude-cluster */
+_cold static std::string resolve_command_(const std::string& name)
+{
+    // a command: its file in PATH (completed at the start: ~/.local/bin...), "" not found
+    if (name.find('/') != std::string::npos) return std::filesystem::exists(cluster::expand_home(name)) ? cluster::expand_home(name).string() : "";
+    const char* path = std::getenv("PATH");
+    for (const std::string& dir: cluster::split(path ? path : "", ':'))
+        if (::access((std::filesystem::path(dir) / name).c_str(), X_OK) == 0) return (std::filesystem::path(dir) / name).string();
+    return "";
+}
+
+_cold static cluster::Json cluster_info_(cluster::Manager& manager)
+{
+    // what an assistant would otherwise look for in the files: where things are, how they are set, what is missing
+    const cluster::Config& c = manager.config();
+    const std::function<cluster::Json(const std::filesystem::path&)> file = [](const std::filesystem::path& path) {
+        std::error_code error;
+        return cluster::Json{{"path", path.string()}, {"exists", std::filesystem::exists(path, error)}};
+    };
+    cluster::Json info;
+    info["version"] = CLUSTER_VERSION;
+    info["binary"] = cluster::self_exe().string();
+    #ifdef CLUSTER_GUI
+        info["window_built"] = true;
+    #else
+        info["window_built"] = false;
+    #endif
+    info["paths"] = {{"config_dir", cluster::config_dir().string()}, {"config", file(c.path())}, {"data_dir", cluster::data_dir().string()},
+        {"session_logs", (cluster::data_dir() / "logs").string()}, {"archived_transcripts", (cluster::data_dir() / "logs" / "archive").string()},
+        {"history", file(cluster::data_dir() / "history.jsonl")}, {"usage_ledger", file(cluster::data_dir() / "usage.jsonl")},
+        {"state", file(cluster::data_dir() / "state.json")}, {"socket", cluster::socket_path().string()},
+        {"global_prompt", file(cluster::expand_home(c.globalPrompt))}, {"sessions_prompt", file(cluster::expand_home(c.sessionsPrompt))},
+        {"vocabulary", file(cluster::vocabulary_path(c.voice.vocabulary))}, {"voice_words", file(cluster::voice_words_path(c.voice.words))},
+        {"machine_map", file(cluster::config_dir() / "machine.md")}};
+    info["machine_map_age"] = cluster::machine_age();
+    info["config_error"] = c.error();
+    info["global"] = {{"enabled", c.globalEnabled}, {"backend", c.globalBackend}, {"model", c.globalModel}, {"permission_mode", c.globalMode},
+        {"effort", c.globalEffort}, {"cwd", c.globalCwd.empty() ? (cluster::data_dir() / "global").string() : c.globalCwd}, {"remote_control", manager.remote()}};
+    cluster::Json commands = cluster::Json::object();
+    for (const auto &[driver, command]: c.commands) {
+        const std::string found = resolve_command_(command);
+        commands[driver] = found.empty() ? command + " (not found)" : found;
+    }
+    info["agents"] = {{"default_backend", c.backend}, {"permission_mode", c.mode}, {"effort", c.effort}, {"commands", commands}};
+    // the voice: its config, the model voice-listen uses, the models installed, what is missing
+    const std::filesystem::path models = cluster::expand_home("~/.local/share/voice/models");
+    std::string chosen = c.voice.listenModel;
+    if (chosen.empty()) {
+        std::ifstream in(cluster::expand_home("~/.config/voice/listen-model"));
+        in >> chosen;
+    }
+    cluster::Json installed = cluster::Json::object();
+    for (const auto &[name, folder]: std::vector<std::pair<std::string, std::string>>{{"parakeet", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"},
+        {"whisper", "sherpa-onnx-whisper-small"}, {"kroko-fr", "sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06"}})
+        installed[name] = std::filesystem::exists(models / folder);
+    if (chosen.empty()) chosen = installed["parakeet"].get<bool>() ? "parakeet" : "kroko-fr";
+    info["voice"] = {{"enabled", c.voice.enabled}, {"mode", c.voice.mode}, {"wake_word", c.voice.wakeWord}, {"confirm_seconds", c.voice.confirmSeconds},
+        {"end_silence", c.voice.endSilence > 0.0 ? c.voice.endSilence : 1.0}, {"only_me", c.voice.onlyMe}, {"speech_model", chosen},
+        {"models_installed", installed}, {"listen_command", resolve_command_(c.voice.listenCommand)}, {"say_command", resolve_command_(c.voice.sayCommand)},
+        {"missing", cluster::voice_missing(c.voice)}};
+    // the background service
+    std::ifstream unit(cluster::service_unit());
+    const std::string text((std::istreambuf_iterator<char>(unit)), std::istreambuf_iterator<char>());
+    info["service"] = {{"unit", file(cluster::service_unit())}, {"active", cluster::trim(cluster::capture({"systemctl", "--user", "is-active", "claude-cluster.service"}, "", 5).out)},
+        {"enabled", cluster::trim(cluster::capture({"systemctl", "--user", "is-enabled", "claude-cluster.service"}, "", 5).out)},
+        {"debug", text.find("service run --debug") != std::string::npos}, {"opens", c.service.frontend}, {"voice_mode", c.service.voiceMode},
+        {"logs", "claude-cluster service logs (journalctl --user -u claude-cluster.service)"}};
+    info["interface"] = {{"frontend", c.frontend}, {"layout", manager.ui("layout", c.layout)}, {"style", manager.ui("style", c.style)}, {"keys", c.keys}};
+    info["sessions"] = manager.list(false).size();
+    info["trash"] = manager.trash().size();
+    return info;
+}
+
 /* commands */
 _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cluster::Json& request)
 {
@@ -305,6 +380,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data["models"].push_back({{"model", model}, {"description", description}});
         } else if (cmd == "usage") {
             data = manager.usageJson(arg_(request, "vendor"));
+        } else if (cmd == "cluster_info") {
+            data = cluster_info_(manager);
         } else if (cmd == "config_files") {
             data = cluster::Json::array();
             for (const ConfigFile& file: config_files_(manager)) {

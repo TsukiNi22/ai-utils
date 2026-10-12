@@ -67,6 +67,24 @@ _cold static std::optional<std::string> wake_rest_(const std::string& text, cons
     return std::nullopt;
 }
 
+_cold static bool only_punctuation_(const std::string& text)
+{
+    // ".", "…", "?!" heard alone (a breath, a noise): no letter nor digit, nothing to send
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c < 0x80) {
+            if (std::isalnum(c)) return false;
+        } else if (c == 0xE2 && i + 2 < text.size() && static_cast<unsigned char>(text[i + 1]) == 0x80) {
+            i += 2; // general punctuation: … – — ’ “ ”
+        } else if (c == 0xC2 && i + 1 < text.size()) {
+            i += 1; // « » ¡ ¿, the no-break space
+        } else {
+            return false; // a letter (é, ç...)
+        }
+    }
+    return true;
+}
+
 /* constructor */
 _cold cluster::Voice::Voice(cluster::Manager& manager)
     : _manager(manager)
@@ -222,7 +240,7 @@ _cold void cluster::Voice::heard_(const std::string& heard)
 {
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     std::string text = cluster::trim(heard);
-    if (text.empty()) return;
+    if (text.empty() || only_punctuation_(text)) return; // "." alone: ignored
     if (conf.mode == "push" && !this->_open && now_ms_() > this->_graceUntil) return; // push-to-talk closed
     if (this->command_(text)) return; // "annule" / "envoie" said alone: on what waits (no wake phrase needed)
     text = cluster::vocabulary_correct(text, this->terms_()); // the proper names the recognition bent
@@ -278,7 +296,8 @@ _cold void cluster::Voice::heard_(const std::string& heard)
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (!this->_pending.empty() && this->_pending.back().target == pending.target) {
             this->_pending.back().text += " " + pending.text;
-            if (!late) this->_pending.back().deadline = pending.deadline;
+            if (!late) this->_pending.back().deadline = pending.deadline; // its countdown full again
+            this->_pending.back().paused = false;
         } else {
             this->_pending.push_back(pending);
         }
@@ -376,9 +395,15 @@ _cold void cluster::Voice::tick(void)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::int64_t now = now_ms_();
-        // the user speaks ("…" / live text), or stopped less than 2 s ago (the end of the sentence still decoded): held,
-        // the next sentences join it
+        // the user speaks ("…" / live text), or stopped less than 2 s ago (the end of the sentence still decoded): its
+        // countdown stopped and full again (confirm_seconds) once the new text is added - or sent / dropped by a word
         const bool speaking = !cluster::trim(this->_partial).empty() || now - this->_lastSound < 2000;
+        for (cluster::Pending& pending: this->_pending) {
+            if (pending.deadline == 0) continue; // push-to-talk still open
+            if (speaking) pending.deadline = now + conf.confirmSeconds * 1000;
+            if (pending.paused != speaking) ++this->_version;
+            pending.paused = speaking;
+        }
         for (auto it = this->_pending.begin(); it != this->_pending.end();) {
             if (it->deadline != 0 && it->deadline <= now && !speaking) { // 0: push-to-talk still open
                 ready.push_back(*it);
@@ -485,9 +510,8 @@ _cold void cluster::Voice::mute(void)
     if (::kill(-pid, SIGTERM) != 0) ::kill(pid, SIGTERM);
 }
 
-_cold std::vector<std::string> cluster::Voice::setup(void) const
+_cold std::vector<std::string> cluster::voice_missing(const cluster::VoiceConf& conf)
 {
-    const cluster::VoiceConf& conf = this->_manager.config().voice;
     const std::filesystem::path home = cluster::expand_home("~/.local/share/voice");
     std::vector<std::string> missing;
 

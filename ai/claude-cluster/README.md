@@ -269,7 +269,9 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `notify` (a desktop notification), and for
   the interface and itself: `ui_state`, `ui_focus` (show a sub-session while it goes on talking, `g` to come back),
   `ui_layout`, `ui_style`, `ui_panel`, `remote_control` (its own Remote Control), `settings_get` / `settings_set`
-  (every option of the settings page), `config_files` / `config_read` / `config_write` (its own system prompt - it is
+  (every option of the settings page), `cluster_info` (version, paths of its files, global session, agents and their
+  commands, voice - speech model, models installed, what is missing -, service, interface: no search in its files),
+  `config_files` / `config_read` / `config_write` (its own system prompt - it is
   started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
   config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
   "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`,
@@ -320,7 +322,8 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `[voice] end_silence` of silence after the last voice (default 1.0 s: a short pause, two sentences said in a row are
   one sentence; the cut just after the last voice, never in a word), recognized piece by piece between its pauses (each
   piece its own language: French and English mixed), a speech longer than 30 s cut at a pause. While the user speaks
-  ("…", and 2 s after for the end of the sentence) a transcription waiting is never sent: the next sentences join it.
+  ("…", and 2 s after for the end of the sentence) the countdown of a transcription waiting is paused ("paused while you
+  speak"), then full again once the new text is added - or sent / dropped at once by a send / cancel word.
 - **Said alone while a transcription waits** (compared without case, accent nor punctuation, no wake phrase needed):
   a cancel word ("annule", "stop", "laisse tomber", "cancel"...) drops it, a send word ("envoie", "valide", "vas-y",
   "go", "send"...) sends it at once; nothing waiting, a cancel word stops the answer being read and the turn of the

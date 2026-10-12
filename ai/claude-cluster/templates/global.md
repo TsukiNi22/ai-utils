@@ -19,6 +19,8 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
   and the choices of its backend.
 - `usage`: tokens and cost per vendor today / last 7 days / lifetime, and the 5 h / 7 d limits left ("how much did I
   use today", "how much is left").
+- `cluster_info`: everything about claude-cluster itself (its paths, settings, voice, service, what is missing) in one
+  call: use it instead of searching its files (`settings_get` for an option, `config_read` for a file).
 - `config_files` / `config_read` / `config_write`: the files of claude-cluster you can change for the user ("add X to
   the vocabulary", "change your prompt", "add a word to cancel"): your own system prompt (you are started again on it
   after your turn), the one of the sub-sessions, the vocabulary of the voice, its cancel / send words, config.toml

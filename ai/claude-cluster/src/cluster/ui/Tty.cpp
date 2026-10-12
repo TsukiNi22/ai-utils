@@ -1830,7 +1830,8 @@ class TtyUi {
                 const std::int64_t left = p.deadline == 0 ? -1 : std::max<std::int64_t>(0, (p.deadline - std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count() + 999) / 1000);
                 const std::string target = p.target.empty() ? "" : (p.target == GLOBAL_ID ? "global" : p.target);
-                row.push_back(ftxui::text(" " + (target.empty() ? "" : "→ " + target + ": ") + cluster::one_line(p.text, 90) + (left >= 0 ? " (" + std::to_string(left) + "s, palette: send / drop / correct)" : "")) | ftxui::color(this->_theme.text));
+                const std::string when = p.paused ? " (paused while you speak)" : left >= 0 ? " (" + std::to_string(left) + "s, palette: send / drop / correct)" : "";
+                row.push_back(ftxui::text(" " + (target.empty() ? "" : "→ " + target + ": ") + cluster::one_line(p.text, 90) + when) | ftxui::color(this->_theme.text));
             }
             if (voice.speaking()) row.push_back(ftxui::text("  speaking (" + this->_manager.config().keys.at("mute") + " mute)") | ftxui::color(this->_theme.muted));
             return ftxui::hbox(std::move(row)) | ftxui::bgcolor(this->_theme.surface);

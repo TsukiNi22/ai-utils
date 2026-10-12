@@ -61,6 +61,9 @@ _cold cluster::Json cluster::mcp_tools(void)
             {"effort", str_("default | low | medium | high | xhigh | max (claude); minimal... (codex, opencode)")}}, {"session"}),
         tool_("usage", "Tokens and cost used per vendor (anthropic, ollama, openai...) over every session: today, the last 7 days, lifetime; "
             "the 5 h / 7 d limits left when the vendor tells them.", {{"vendor", str_("one vendor (empty: all)")}}, {}),
+        tool_("cluster_info", "Everything about this claude-cluster in one call, instead of searching its files: version, binary, the paths "
+            "of its files (config, logs, history, usage, prompts, vocabulary, voice words, map of this computer), the global session, the "
+            "agents and their commands, the voice (speech model, models installed, what is missing), the service, the interface, counts.", {}, {}),
         tool_("config_files", "The editable files of claude-cluster: your own system prompt, the one of the sub-sessions, the vocabulary and the "
             "words of the voice, config.toml, the map of this computer (read only); their path, what they hold, when a change is taken.", {}, {}),
         tool_("config_read", "The content of one of them (config_files).", {{"name", str_("global_prompt | sessions_prompt | vocabulary | voice_words | config | machine_map")}}, {"name"}),
@@ -115,7 +118,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
 {
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
-        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
+        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
