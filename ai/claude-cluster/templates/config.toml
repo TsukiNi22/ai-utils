@@ -82,6 +82,8 @@ speak = true               # spoken summary of the answers of the global session
 summary_chars = 220
 listen_model = ""          # voice-listen --model: parakeet (French, English, mixed) | whisper (mixed in a sentence,
                            # slower) | kroko-fr (French only, live text, the fastest); empty: its own (voice-models use)
+end_silence = 0.0          # seconds of silence ending a sentence (0: the one of voice-listen, 1.0): a shorter pause
+                           # goes on the same sentence, two sentences said in a row are one prompt
 words = ""                 # the cancel / send words said alone while a transcription waits (settings page > Voice >
                            # Voice words (edit)); empty: voice-words.txt of the config folder
 cancel_words = []          # more cancel words here, added to the file

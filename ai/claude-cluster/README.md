@@ -316,6 +316,11 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   its end in ~1 s, "…" shown while speaking), `whisper` (Whisper small int8, 360 MB: slower, 3-6 s), `kroko-fr` (the
   French streaming model: live text, the fastest, French only). `voice-models list | use <m> | install <m>`; changed
   in the settings, voice-listen starts again on it.
+- **Sentences** (parakeet / whisper): from 0.6 s before the speech is detected (its soft first syllable kept) to
+  `[voice] end_silence` of silence after the last voice (default 1.0 s: a short pause, two sentences said in a row are
+  one sentence; the cut just after the last voice, never in a word), recognized piece by piece between its pauses (each
+  piece its own language: French and English mixed), a speech longer than 30 s cut at a pause. While the user speaks
+  ("…", and 2 s after for the end of the sentence) a transcription waiting is never sent: the next sentences join it.
 - **Said alone while a transcription waits** (compared without case, accent nor punctuation, no wake phrase needed):
   a cancel word ("annule", "stop", "laisse tomber", "cancel"...) drops it, a send word ("envoie", "valide", "vas-y",
   "go", "send"...) sends it at once; nothing waiting, a cancel word stops the answer being read and the turn of the

@@ -220,6 +220,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"voice", "listen_model", "Speech model", SettingKind::Choice, {"", "parakeet", "whisper", "kroko-fr"},
                 "parakeet: French, English, mixed; whisper: mixed in a sentence, slower; kroko-fr: French only, live; empty: voice-models use", false,
                 [](const cluster::Config& cf) {return cf.voice.listenModel;}},
+            {"voice", "end_silence", "End of a sentence (seconds)", SettingKind::Float, {}, "the silence that ends a sentence (0: 1.0); a short pause goes on the same one", false,
+                [](const cluster::Config& cf) {return number_(cf.voice.endSilence);}},
             {"voice", "words", "Voice words file", SettingKind::Text, {}, "the cancel / send words said alone while a transcription waits; empty: voice-words.txt", false,
                 [](const cluster::Config& cf) {return cf.voice.words;}},
             {"voice", "edit_words", "Voice words (edit)", SettingKind::Action, {}, "opens it in the editor: one word per line under [cancel] / [send]", false,

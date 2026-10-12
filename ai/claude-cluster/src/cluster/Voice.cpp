@@ -133,7 +133,9 @@ _cold void cluster::Voice::listen_(void)
     std::vector<std::string> args = {"--json", "--partial"};
     if (conf.onlyMe) args.push_back("--only-me");
     if (!conf.listenModel.empty()) args.insert(args.end(), {"--model", conf.listenModel}); // else its own choice (voice-models)
+    if (conf.endSilence > 0.0) args.insert(args.end(), {"--end-silence", std::to_string(conf.endSilence)});
     this->_model = conf.listenModel;
+    this->_endSilence = conf.endSilence;
 
     // voice-listen: one JSON object per sentence on stdout, the partial hypothesis on stderr
     utils::encapsulation::Pipe out;
@@ -199,6 +201,7 @@ _cold void cluster::Voice::listen_(void)
                     std::lock_guard<std::mutex> lock(this->_mutex);
                     this->_partial = cluster::one_line(partial, 200);
                 }
+                if (!cluster::trim(partial).empty()) this->_lastSound = now_ms_(); // the user speaks: what waits is held
                 if (errBuffer.size() > 8192) errBuffer.erase(0, errBuffer.size() - 1024);
                 ++this->_version;
             }
@@ -365,7 +368,7 @@ _cold void cluster::Voice::tick(void)
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     if (conf.enabled && !this->_listening && !this->_paused && now_ms_() - this->_lastStart > 10000) this->start();
     else if (!conf.enabled && this->_listening) this->stop();
-    else if (this->_listening && conf.listenModel != this->_model) { // another speech model: voice-listen again on it
+    else if (this->_listening && (conf.listenModel != this->_model || conf.endSilence != this->_endSilence)) { // voice-listen again on them
         this->stop();
         this->start();
     }
@@ -373,8 +376,11 @@ _cold void cluster::Voice::tick(void)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::int64_t now = now_ms_();
+        // the user speaks ("…" / live text), or stopped less than 2 s ago (the end of the sentence still decoded): held,
+        // the next sentences join it
+        const bool speaking = !cluster::trim(this->_partial).empty() || now - this->_lastSound < 2000;
         for (auto it = this->_pending.begin(); it != this->_pending.end();) {
-            if (it->deadline != 0 && it->deadline <= now) { // 0: push-to-talk still open
+            if (it->deadline != 0 && it->deadline <= now && !speaking) { // 0: push-to-talk still open
                 ready.push_back(*it);
                 it = this->_pending.erase(it);
             } else {

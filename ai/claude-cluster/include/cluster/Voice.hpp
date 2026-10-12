@@ -63,6 +63,8 @@ class Voice {
         std::filesystem::file_time_type _fileTime{};
         std::filesystem::file_time_type _machineTime{};
         std::string _model;                         // the speech model voice-listen was started on ([voice] listen_model)
+        double _endSilence = 0.0;                   // and its end of a sentence ([voice] end_silence)
+        std::atomic<std::int64_t> _lastSound{0};    // unix ms of the last "…" / live text: the user speaks (nothing sent)
 
         // ---------- Pre-Function -------- //
         _cold void listen_(void);

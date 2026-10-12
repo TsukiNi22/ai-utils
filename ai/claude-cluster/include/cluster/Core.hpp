@@ -120,7 +120,7 @@ class Core {
 _cold _nodiscard const std::vector<cluster::Command>& commands(void);  // Core-Completion.cpp
 _cold int run_tty(cluster::App& app);
 #ifdef CLUSTER_GUI
-_cold int run_gui(cluster::App& app);
+    _cold int run_gui(cluster::App& app);
 #endif
 
 } // namespace end

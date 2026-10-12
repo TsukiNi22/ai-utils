@@ -195,13 +195,13 @@ _cold void launch_(const cluster::Config& config)
     const std::string frontend = config.service.frontend;
     std::vector<bool> tries = {false};
     if (frontend == "gui" || frontend == "auto") {
-#ifdef CLUSTER_GUI
-        const bool display = std::getenv("WAYLAND_DISPLAY") || std::getenv("DISPLAY");
-        if (display) tries = {true, false};
-        else std::cerr << "service: no window: no WAYLAND_DISPLAY / DISPLAY in the environment of the service (systemctl --user import-environment)" << std::endl;
-#else
-        std::cerr << "service: no window: this claude-cluster is built without its window (Qt6), a terminal instead" << std::endl;
-#endif
+        #ifdef CLUSTER_GUI
+            const bool display = std::getenv("WAYLAND_DISPLAY") || std::getenv("DISPLAY");
+            if (display) tries = {true, false};
+            else std::cerr << "service: no window: no WAYLAND_DISPLAY / DISPLAY in the environment of the service (systemctl --user import-environment)" << std::endl;
+        #else
+            std::cerr << "service: no window: this claude-cluster is built without its window (Qt6), a terminal instead" << std::endl;
+        #endif
     }
     std::cerr << "service: wake phrase heard" << std::endl;
     std::string failures;

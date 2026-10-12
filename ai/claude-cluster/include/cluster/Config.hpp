@@ -79,6 +79,7 @@ struct VoiceConf {
     std::vector<std::string> sendWords;
     std::string words;              // the file of these words (empty: voice-words.txt of the config folder)
     std::string listenModel;        // voice-listen --model: parakeet | whisper | kroko-fr (empty: its own choice, voice-models)
+    double endSilence = 0.0;        // voice-listen --end-silence: seconds of silence ending a sentence (0: its own, 1.0)
     std::string vocabulary;         // proper names written back in what is heard (empty: vocabulary.txt of the config folder)
 };
 

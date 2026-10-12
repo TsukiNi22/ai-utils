@@ -174,6 +174,7 @@ _cold void cluster::Config::load(void)
     this->voice.sendWords = strings_(v["send_words"], this->voice.sendWords);
     this->voice.words = v["words"].value_or(this->voice.words);
     this->voice.listenModel = v["listen_model"].value_or(this->voice.listenModel);
+    this->voice.endSilence = v["end_silence"].value_or(this->voice.endSilence);
     this->voice.vocabulary = v["vocabulary"].value_or(this->voice.vocabulary);
     if (!this->voiceForce.empty()) {
         this->voice.enabled = true;

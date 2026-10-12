@@ -227,11 +227,11 @@ _cold int cluster::Core::ui_(const bool serve)
 
     // Front-end: forced (fails when impossible) or auto (terminal first, then window)
     std::string frontend = this->_options.frontend.empty() ? app.config.frontend : this->_options.frontend;
-#ifdef CLUSTER_GUI
-    const bool gui = true;
-#else
-    const bool gui = false;
-#endif
+    #ifdef CLUSTER_GUI
+        const bool gui = true;
+    #else
+        const bool gui = false;
+    #endif
     if (!serve && frontend == "tty" && !tty_())
         throw utils::exception::ErrorException(utils::exception::InternalCode::CliTTY, "--tty: stdin / stdout are not a terminal");
     if (!serve && frontend == "gui" && !gui)
@@ -274,11 +274,11 @@ _cold int cluster::Core::ui_(const bool serve)
         return 0;
     }
     try {
-#ifdef CLUSTER_GUI
-        code = frontend == "gui" ? cluster::run_gui(app) : cluster::run_tty(app);
-#else
-        code = cluster::run_tty(app);
-#endif
+        #ifdef CLUSTER_GUI
+            code = frontend == "gui" ? cluster::run_gui(app) : cluster::run_tty(app);
+        #else
+            code = cluster::run_tty(app);
+        #endif
     } catch (...) {
         app.stop();
         throw;
