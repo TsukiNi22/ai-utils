@@ -60,6 +60,7 @@ _nodiscard std::string content_hash(const std::string& bytes);   // FNV-1a 64, h
 
 /* format */
 _nodiscard inline std::int64_t now(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
+_nodiscard std::string tail_utf8(const std::string& text, const std::size_t max); // its last max bytes (whole characters, "…" before)
 _nodiscard std::string human_tokens(const std::int64_t tokens);   // 12.3k, 1.2M
 _nodiscard std::string human_cost(const double usd);              // $0.0123
 _nodiscard std::string human_age(const std::int64_t time);        // 3m, 2h, 5d

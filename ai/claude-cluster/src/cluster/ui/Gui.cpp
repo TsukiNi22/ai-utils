@@ -964,7 +964,8 @@ class Window: public QMainWindow {
             const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             for (const cluster::Pending& p: voice.pending()) {
                 const std::string when = p.paused ? " (paused while you speak)" : p.deadline > 0 ? " (" + std::to_string(std::max<std::int64_t>(0, (p.deadline - now + 999) / 1000)) + "s)" : "";
-                voiceText += "  " + esc_((p.target.empty() ? "" : "→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ": ") + p.text + when);
+                const std::string said = p.target.empty() ? cluster::tail_utf8(p.text, 160) : p.text; // live: its end
+                voiceText += "  " + esc_((p.target.empty() ? "" : "→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ": ") + said + when);
             }
             if (voice.speaking()) voiceText += "  " + span_(st.muted, "speaking (" + q_(conf.wakeWord.empty() ? "" : "") + q_(this->manager.config().keys.at("mute")) + " mute)");
             this->voiceLabel->setText(voiceText);

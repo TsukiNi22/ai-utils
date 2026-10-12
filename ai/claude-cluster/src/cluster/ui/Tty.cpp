@@ -1831,7 +1831,8 @@ class TtyUi {
                     std::chrono::system_clock::now().time_since_epoch()).count() + 999) / 1000);
                 const std::string target = p.target.empty() ? "" : (p.target == GLOBAL_ID ? "global" : p.target);
                 const std::string when = p.paused ? " (paused while you speak)" : left >= 0 ? " (" + std::to_string(left) + "s, palette: send / drop / correct)" : "";
-                row.push_back(ftxui::text(" " + (target.empty() ? "" : "→ " + target + ": ") + cluster::one_line(p.text, 90) + when) | ftxui::color(this->_theme.text));
+                const std::string said = target.empty() ? cluster::tail_utf8(p.text, 110) : cluster::one_line(p.text, 90); // live: its end
+                row.push_back(ftxui::text(" " + (target.empty() ? "" : "→ " + target + ": ") + said + when) | ftxui::color(this->_theme.text));
             }
             if (voice.speaking()) row.push_back(ftxui::text("  speaking (" + this->_manager.config().keys.at("mute") + " mute)") | ftxui::color(this->_theme.muted));
             return ftxui::hbox(std::move(row)) | ftxui::bgcolor(this->_theme.surface);

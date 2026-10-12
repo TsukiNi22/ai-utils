@@ -271,6 +271,15 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     return result;
 }
 
+std::string cluster::tail_utf8(const std::string& text, const std::size_t max)
+{
+    // the end of a text (the live speech: what is being said), cut on a character
+    if (text.size() <= max) return text;
+    std::size_t from = text.size() - max;
+    while (from < text.size() && (static_cast<unsigned char>(text[from]) & 0xC0) == 0x80) ++from;
+    return "…" + text.substr(from);
+}
+
 _cold void cluster::detach(const std::vector<std::string>& args)
 {
     if (args.empty() || !cluster::has_command(args[0])) return;

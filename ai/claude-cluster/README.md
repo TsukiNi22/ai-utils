@@ -314,8 +314,9 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   session gets it as `[voice] ...` and asks when a word looks wrong or the request is ambiguous.
 - `session <name> <text>` (or `<name>: <text>`) goes straight to that session.
 - **Speech model** (`[voice] listen_model`, settings page > Voice; empty: the choice of `voice-models use`):
-  `parakeet` (NVIDIA Parakeet TDT 0.6B v3, int8, 640 MB: French, English and both mixed, the sentence recognized at
-  its end in ~1 s, "…" shown while speaking), `whisper` (Whisper small int8, 360 MB: slower, 3-6 s), `kroko-fr` (the
+  `parakeet` (NVIDIA Parakeet TDT 0.6B v3, int8, 640 MB: French, English and both mixed, the text live while speaking -
+  the piece being said decoded again every second or so -, the sentence final ~1 s after its end), `whisper` (Whisper
+  small int8, 360 MB: slower, 3-6 s, its live text every 3 s or more), `kroko-fr` (the
   French streaming model: live text, the fastest, French only). `voice-models list | use <m> | install <m>`; changed
   in the settings, voice-listen starts again on it.
 - **Sentences** (parakeet / whisper): from 0.6 s before the speech is detected (its soft first syllable kept) to

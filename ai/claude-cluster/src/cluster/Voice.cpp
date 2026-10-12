@@ -217,7 +217,7 @@ _cold void cluster::Voice::listen_(void)
                 partial = std::regex_replace(partial, std::regex("\x1b\\[[0-9;]*[A-Za-z]"), "");
                 {
                     std::lock_guard<std::mutex> lock(this->_mutex);
-                    this->_partial = cluster::one_line(partial, 200);
+                    this->_partial = cluster::tail_utf8(cluster::one_line(partial, 100000), 300); // its end: what is being said
                 }
                 if (!cluster::trim(partial).empty()) this->_lastSound = now_ms_(); // the user speaks: what waits is held
                 if (errBuffer.size() > 8192) errBuffer.erase(0, errBuffer.size() - 1024);
