@@ -43,8 +43,8 @@ struct Pending {
 //----------------------------------------------------------------//
 /* FUNCTION */
 
-// what is missing for the voice, with the command to fix it (tools, enrollment, voices, speech models)
-_cold _nodiscard std::vector<std::string> voice_missing(const cluster::VoiceConf& conf);
+// what is missing for the voice, with the command to fix it (tools, enrollment, voices, speech models, engines, API keys)
+_cold _nodiscard std::vector<std::string> voice_missing(const cluster::Config& config);
 
 //----------------------------------------------------------------//
 /* CLASS */
@@ -71,13 +71,14 @@ class Voice {
         std::filesystem::file_time_type _machineTime{};
         std::string _model;                         // the speech model voice-listen was started on ([voice] listen_model)
         double _endSilence = 0.0;                   // and its end of a sentence ([voice] end_silence)
+        std::string _language;                      // and the language spoken ([voice] listen_language)
         std::atomic<std::int64_t> _lastSound{0};    // unix ms of the last "…" / live text: the user speaks (nothing sent)
 
         // ---------- Pre-Function -------- //
         _cold void listen_(void);
         _cold void heard_(const std::string& text);
         _cold void dispatch_(const cluster::Pending& pending);
-        _cold void say_(const std::string& text, const std::string& voice = "");
+        _cold void say_(const std::string& text);
         _cold _nodiscard bool command_(const std::string& text);    // cancel / send words said alone: done (true)
         _cold _nodiscard std::vector<cluster::Term> terms_(void);   // the vocabulary now (file, projects, sessions, user)
 
@@ -103,7 +104,7 @@ class Voice {
         _nodiscard inline bool running(void) const {return this->_listening;};
         _nodiscard inline bool speaking(void) const {return this->_sayPid > 0;};
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};
-        _cold _nodiscard inline std::vector<std::string> setup(void) const {return cluster::voice_missing(this->_manager.config().voice);}; // what is missing
+        _cold _nodiscard inline std::vector<std::string> setup(void) const {return cluster::voice_missing(this->_manager.config());}; // what is missing
 
         // ---------- Constructor -------- //
         _cold Voice(cluster::Manager& manager);

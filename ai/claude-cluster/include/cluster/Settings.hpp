@@ -52,6 +52,7 @@ struct Setting {
     std::string description;
     bool restart = false;               // applied at the next start only
     std::function<std::string(const cluster::Config&)> value;   // current value, as shown
+    std::function<std::string(const std::string&)> choiceHelp{}; // Choice: the help of a value (shown with the description)
 };
 
 struct SettingsPage {

@@ -1451,6 +1451,7 @@ class TtyUi {
             const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
             ftxui::Elements rows;
             std::string help;
+            std::string choiceHelp; // a choice of engine: what it handles, its limits, its link
             bool restart = false;
             for (std::size_t i = 0; i < page.settings.size(); ++i) {
                 const cluster::Setting& setting = page.settings[i];
@@ -1473,21 +1474,27 @@ class TtyUi {
                 rows.push_back(line);
                 if (selected) {
                     help = setting.description;
+                    if (setting.choiceHelp) choiceHelp = setting.choiceHelp(this->settingValue_(setting));
                     restart = setting.restart;
                 }
             }
             if (rows.empty()) rows.push_back(ftxui::text("   nothing here") | ftxui::color(t.muted));
             std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)" : this->_note;
+            ftxui::Elements choice;
+            for (const std::string& line: cluster::split(choiceHelp, '\n'))
+                choice.push_back(ftxui::paragraph(line) | (choice.empty() ? ftxui::bold | ftxui::color(t.accent) : ftxui::color(t.text)));
+            if (!choice.empty()) choice.insert(choice.begin(), ftxui::separatorLight() | ftxui::color(t.border));
             ftxui::Element helpBox = ftxui::vbox({
                 ftxui::text(" Item Specific Help") | ftxui::bold | ftxui::color(t.accent),
                 ftxui::separatorLight() | ftxui::color(t.border),
                 ftxui::paragraph(help) | ftxui::color(t.text),
+                ftxui::vbox(std::move(choice)),
                 ftxui::text(""),
                 restart ? ftxui::paragraph("Applied at the next start of claude-cluster") | ftxui::color(t.warn) : ftxui::emptyElement(),
                 ftxui::filler(),
                 ftxui::text(std::to_string(this->_changes.size()) + " change(s) not saved") | ftxui::color(this->_changes.empty() ? t.muted : t.warn),
                 ftxui::paragraph(cluster::short_path(this->_manager.config().path().string())) | ftxui::color(t.muted) | ftxui::dim,
-            }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 38);
+            }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, choiceHelp.empty() ? 38 : 64);
             return ftxui::vbox({
                 ftxui::hbox({ftxui::text(" claude-cluster setup ") | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent), ftxui::filler(),
                     ftxui::text(" config.toml ") | ftxui::color(t.muted)}),

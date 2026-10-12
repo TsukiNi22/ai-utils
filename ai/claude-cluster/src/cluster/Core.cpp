@@ -15,6 +15,7 @@ File Description:
 #define _Arguments
 #define _IOManip
 #include <utils/utils.hpp>
+#include "cluster/VoiceEngines.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
@@ -207,6 +208,7 @@ _cold void cluster::Core::run(void)
     else if (cmd == "__complete") this->complete_(this->_words.size() > 1 ? this->_words[1] : "");
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
+    else if (cmd == "engines") this->_exit = this->engines_();
     else if (cmd == "machine") this->_exit = this->machine_();
     else if (cmd == "service") this->_exit = cluster::service_command(this->_words, {this->_options.values.contains("verbose"),
         this->_options.values.contains("debug"), this->_options.values.contains("follow")});
@@ -440,6 +442,36 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
 }
 
 /* auth */
+_cold int cluster::Core::engines_(void)
+{
+    // the engines of the voice: speech to text, text to speech; what each one handles, its limits, its free use, its links
+    cluster::Config config;
+    config.load();
+    const cluster::Json engines = cluster::voice_engines_json(config);
+    const bool rtk = this->_options.rtk;
+    std::string kind;
+
+    for (const cluster::Json& e: engines) {
+        if (rtk) {
+            std::cout << e["id"].get<std::string>() << "|" << e["kind"].get<std::string>() << "|" << (e["local"].get<bool>() ? "local" : "api")
+                << "|" << (e["ready"].get<bool>() ? "ready" : "--") << (e["used"].get<bool>() ? "|used" : "") << "|" << e["state"].get<std::string>()
+                << "|" << e["languages"].get<std::string>() << "|+ " << e["strengths"].get<std::string>() << "|- " << e["limits"].get<std::string>()
+                << "|free: " << e["free"].get<std::string>() << "|" << e["link"].get<std::string>() << "\n";
+            continue;
+        }
+        if (e["kind"].get<std::string>() != kind) {
+            kind = e["kind"].get<std::string>();
+            std::cout << (kind == "speech to text" ? "" : "\n") << "== " << kind << " (" << (kind == "speech to text" ? "[voice] listen_model" : "[voice] say_engine") << ")\n";
+        }
+        std::cout << (e["used"].get<bool>() ? "* " : "  ") << std::left << std::setw(11) << e["id"].get<std::string>()
+            << (e["ready"].get<bool>() ? "ready  " : "--     ") << e["state"].get<std::string>() << "\n";
+        for (const std::string& line: cluster::voice_engine_lines(*cluster::voice_engine(kind == "speech to text" ? "listen" : "say", e["id"].get<std::string>())))
+            std::cout << "      " << line << "\n";
+    }
+    if (!rtk) std::cout << "\n* used   change: settings page > Voice (F9), or config.toml   a key: claude-cluster auth login <provider>\n";
+    return 0;
+}
+
 _cold int cluster::Core::auth_(void)
 {
     cluster::Config config;

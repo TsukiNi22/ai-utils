@@ -14,8 +14,10 @@ File Description:
 #define _Attribute
 #define _Encapsulation
 #include <utils/utils.hpp>
+#include "cluster/VoiceEngines.hpp"
 #include "cluster/Voice.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Auth.hpp"
 #include <sys/epoll.h>
 #include <functional>
 #include <algorithm>
@@ -32,6 +34,16 @@ File Description:
 _cold static std::int64_t now_ms_(void)
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+_cold static std::string engine_voice_(const std::string& voices, const std::string& language)
+{
+    // [voice] say_voices "fr=ff_siwis, en=bf_emma, es=kokoro:ef_dora": the one of the language, empty: none
+    for (const std::string& entry: cluster::split(voices, ',')) {
+        const std::size_t equal = entry.find('=');
+        if (equal != std::string::npos && cluster::lower(cluster::trim(entry.substr(0, equal))) == language) return cluster::trim(entry.substr(equal + 1));
+    }
+    return "";
 }
 
 _cold static std::string normalize_(const std::string& text)
@@ -152,8 +164,10 @@ _cold void cluster::Voice::listen_(void)
     if (conf.onlyMe) args.push_back("--only-me");
     if (!conf.listenModel.empty()) args.insert(args.end(), {"--model", conf.listenModel}); // else its own choice (voice-models)
     if (conf.endSilence > 0.0) args.insert(args.end(), {"--end-silence", std::to_string(conf.endSilence)});
+    if (!cluster::trim(conf.listenLanguage).empty()) args.insert(args.end(), {"--language", cluster::trim(conf.listenLanguage)});
     this->_model = conf.listenModel;
     this->_endSilence = conf.endSilence;
+    this->_language = conf.listenLanguage;
 
     // voice-listen: one JSON object per sentence on stdout, the partial hypothesis on stderr
     utils::encapsulation::Pipe out;
@@ -387,7 +401,8 @@ _cold void cluster::Voice::tick(void)
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     if (conf.enabled && !this->_listening && !this->_paused && now_ms_() - this->_lastStart > 10000) this->start();
     else if (!conf.enabled && this->_listening) this->stop();
-    else if (this->_listening && (conf.listenModel != this->_model || conf.endSilence != this->_endSilence)) { // voice-listen again on them
+    else if (this->_listening && (conf.listenModel != this->_model || conf.endSilence != this->_endSilence || conf.listenLanguage != this->_language)) {
+        // voice-listen again on them
         this->stop();
         this->start();
     }
@@ -471,18 +486,26 @@ _cold void cluster::Voice::speak(const std::string& text)
     if (!conf.enabled || !conf.speak || text.empty()) return;
     const std::string summary = cluster::summary_of(text, conf.summaryChars);
     if (summary.empty()) return;
-    const std::string voice = cluster::language_of(text) == "en" ? conf.voiceEn : conf.voiceFr;
 
     this->mute(); // a new answer replaces the one being read
-    this->say_(summary, voice);
+    this->say_(summary);
 }
 
-_cold void cluster::Voice::say_(const std::string& text, const std::string& voiceName)
+_cold void cluster::Voice::say_(const std::string& text)
 {
+    // the engine and its voice for the language of the text ([voice] say_voices, else its default one); the Piper voice
+    // of the language: the engine piper, the fallback of the others (no key, quota, model missing)
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     const std::string command = cluster::expand_home(conf.sayCommand).string();
-    const std::string voice = !voiceName.empty() ? voiceName : cluster::language_of(text) == "en" ? conf.voiceEn : conf.voiceFr;
-    std::thread([this, command, voice, text]() {
+    const std::string language = cluster::language_of(text);
+    const std::string engine = cluster::trim(conf.sayEngine).empty() ? std::string("piper") : cluster::trim(conf.sayEngine);
+    const std::string piper = language == "en" ? conf.voiceEn : language == "fr" ? conf.voiceFr : "";
+    std::string voice = engine_voice_(conf.sayVoices, language);
+    if (voice.empty() && engine == "piper") voice = piper;
+    std::vector<std::string> args = {command, "-e", engine, "-l", language, "-f", piper};
+    if (!voice.empty()) args.insert(args.end(), {"-v", voice});
+    args.push_back(text);
+    std::thread([this, args]() {
         utils::encapsulation::Process process;
         try {
             const int null = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
@@ -491,8 +514,8 @@ _cold void cluster::Voice::say_(const std::string& text, const std::string& voic
                 process.dup(null, STDERR_FILENO);
             }
             // setsid: voice-say leads a group of its own, its piper | pacat stopped with it (mute: the whole group)
-            if (cluster::has_command("setsid")) this->_sayPid = process.spawn("setsid", {command, "-v", voice, text});
-            else this->_sayPid = process.spawn(command, {"-v", voice, text});
+            if (cluster::has_command("setsid")) this->_sayPid = process.spawn("setsid", args);
+            else this->_sayPid = process.spawn(args[0], std::vector<std::string>(args.begin() + 1, args.end()));
             if (null != -1) ::close(null);
             ++this->_version;
             (void)process.wait();
@@ -510,9 +533,11 @@ _cold void cluster::Voice::mute(void)
     if (::kill(-pid, SIGTERM) != 0) ::kill(pid, SIGTERM);
 }
 
-_cold std::vector<std::string> cluster::voice_missing(const cluster::VoiceConf& conf)
+_cold std::vector<std::string> cluster::voice_missing(const cluster::Config& config)
 {
+    const cluster::VoiceConf& conf = config.voice;
     const std::filesystem::path home = cluster::expand_home("~/.local/share/voice");
+    const cluster::Auth auth(config);
     std::vector<std::string> missing;
 
     if (!cluster::has_command(conf.listenCommand)) missing.push_back("`" + conf.listenCommand + "` not found (voice-text tools: ~/testing/voice-text)");
@@ -529,6 +554,23 @@ _cold std::vector<std::string> cluster::voice_missing(const cluster::VoiceConf& 
         || std::filesystem::exists(home / "models" / "sherpa-onnx-whisper-small");
     if (!english) missing.push_back("no English / mixed speech model (only French is recognized): `voice-models install parakeet`");
     if (conf.listenModel == "kroko-fr") missing.push_back("[voice] listen_model = kroko-fr: French only (faster, live text)");
+    // the engines chosen: their model, their API key (the local model / Piper meanwhile)
+    const std::array<std::pair<std::string, std::string>, 2> chosen = {{{"listen", conf.listenModel}, {"say", conf.sayEngine}}};
+    for (const auto &[kind, id]: chosen) {
+        const cluster::VoiceEngine* engine = cluster::voice_engine(kind, id);
+        if (engine == nullptr) {
+            if (!id.empty()) missing.push_back("[voice] " + std::string(kind == "listen" ? "listen_model" : "say_engine") + " = " + id + ": unknown engine (claude-cluster engines)");
+            continue;
+        }
+        const std::string instead = kind == "listen" ? "the local model meanwhile" : "Piper meanwhile";
+        if (engine->local && !cluster::voice_engine_installed(*engine) && !engine->install.empty())
+            missing.push_back(engine->id + " not installed: `" + engine->install + "` (" + instead + ")");
+        const std::optional<cluster::Provider> provider = engine->provider.empty() ? std::nullopt : auth.find(engine->provider);
+        if (provider && !auth.status(*provider).first)
+            missing.push_back("no " + engine->id + " API key: `claude-cluster auth login " + engine->id + "` (made on " + engine->keyLink + "; " + instead + ")");
+    }
+    if (cluster::trim(conf.sayEngine) != "piper" && !cluster::trim(conf.sayEngine).empty() && !std::filesystem::exists(home / "bin" / "voice-tts"))
+        missing.push_back("voice-tts not found (" + (home / "bin").string() + "): the engine " + conf.sayEngine + " needs it (Piper meanwhile)");
     return missing;
 }
 

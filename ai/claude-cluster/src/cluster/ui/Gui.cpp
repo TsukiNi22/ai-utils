@@ -92,6 +92,17 @@ _cold QString esc_(const std::string& text)
     return QString::fromStdString(text).toHtmlEscaped().replace("\n", "<br>");
 }
 
+_cold QString engine_html_(const std::string& help)
+{
+    // the help of an engine: its name in bold, its links clickable
+    std::string html;
+    for (const std::string& line: cluster::split(help, '\n')) {
+        const std::string text = std::regex_replace(esc_(line).toStdString(), std::regex(R"((https?://[^\s<]+))"), "<a href=\"$1\">$1</a>");
+        html += html.empty() ? "<b>" + text + "</b>" : "<br>" + text;
+    }
+    return QString::fromStdString("<small>" + html + "</small>");
+}
+
 // xstyle: ignore-next CPP-SINGLE-STATEMENT (helper of this file only)
 _cold QString span_(const std::string& color, const QString& text, const bool bold = false)
 {
@@ -459,6 +470,7 @@ class Window: public QMainWindow {
                     const std::string current = setting.value(config);
                     const QString tip = q_(setting.description + (setting.restart ? "\n(applied at the next start)" : ""));
                     QWidget* widget = nullptr;
+                    QLabel* info = nullptr;     // a choice of engine: what it handles, its limits, its links
                     std::function<std::string()> read;
                     if (setting.kind == cluster::SettingKind::Bool) {
                         QCheckBox* box = new QCheckBox(tab);
@@ -472,6 +484,18 @@ class Window: public QMainWindow {
                         box->setCurrentIndex(std::max(0, box->findData(q_(current))));
                         read = [box]() {return box->currentData().toString().toStdString();};
                         widget = box;
+                        if (setting.choiceHelp) {
+                            for (int i = 0; i < box->count(); ++i)
+                                box->setItemData(i, q_(setting.choiceHelp(box->itemData(i).toString().toStdString())), Qt::ToolTipRole);
+                            info = new QLabel(tab);
+                            info->setWordWrap(true);
+                            info->setOpenExternalLinks(true);
+                            info->setTextInteractionFlags(Qt::TextBrowserInteraction);
+                            const std::function<std::string(const std::string&)> help = setting.choiceHelp;
+                            const std::function<void()> show = [info, box, help]() {info->setText(engine_html_(help(box->currentData().toString().toStdString())));};
+                            show();
+                            QObject::connect(box, &QComboBox::currentIndexChanged, info, show);
+                        }
                     } else if (setting.kind == cluster::SettingKind::Int) {
                         QSpinBox* box = new QSpinBox(tab);
                         box->setRange(0, 1000000);
@@ -500,6 +524,7 @@ class Window: public QMainWindow {
                     QLabel* label = new QLabel(q_(setting.label + (setting.restart ? " *" : "")), tab);
                     label->setToolTip(tip);
                     form->addRow(label, widget);
+                    if (info != nullptr) form->addRow(info);
                     fields.emplace_back(setting, read);
                 }
                 sections->addTab(tab, q_(page.title));

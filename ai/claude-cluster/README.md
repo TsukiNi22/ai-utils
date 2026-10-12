@@ -91,6 +91,7 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `remote on\|off` | Remote Control of the global session |
 | `machine sync [--yes]` / `show` / `path` | map of this computer for the global session (asks first, `--yes`: not) |
 | `providers`, `notices` | backends and their state, last events |
+| `engines` | the engines of the voice: what each one handles, its limits, its free use, its links, ready or not (no running instance needed) |
 
 Keys of the interfaces (every one set in `[keys]` / the settings page, alternatives with `|`):
 
@@ -212,6 +213,7 @@ global session (`session_set_model`). Effort: claude `--effort` (low, medium, hi
 | `opencode` | opencode | opencode and its providers (`opencode/<provider>/<model>`) | `opencode auth login` |
 | `codex` | codex | OpenAI Codex CLI | `codex login` |
 | own `[providers.<name>]` | claude / qwen | any Anthropic- or OpenAI-compatible endpoint (LM Studio, vLLM...) | optional key |
+| `groq`, `deepgram`, `elevenlabs`, `cartesia` | voice | the engines of the voice (see [Voice](#voice)), not agent backends | key |
 
 ```bash
 claude-cluster auth list                 # every provider: ready or not, and why
@@ -274,7 +276,8 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `config_files` / `config_read` / `config_write` (its own system prompt - it is
   started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
   config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
-  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`,
+  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `voice_engines` (the
+  engines of the voice, local and free-tier APIs: languages, strengths, limits, free use, links, ready, used),
   allowed without asking (`--allowedTools mcp__claude-cluster`);
 - **questions of the agents** (AskUserQuestion of Claude Code, asked even in `bypassPermissions`): a popup on the
   session shown, like Claude Code / Claude Desktop - the terminal: one question at a time, its options and their
@@ -317,8 +320,32 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `parakeet` (NVIDIA Parakeet TDT 0.6B v3, int8, 640 MB: French, English and both mixed, the text live while speaking -
   the piece being said decoded again every second or so -, the sentence final ~1 s after its end), `whisper` (Whisper
   small int8, 360 MB: slower, 3-6 s, its live text every 3 s or more), `kroko-fr` (the
-  French streaming model: live text, the fastest, French only). `voice-models list | use <m> | install <m>`; changed
-  in the settings, voice-listen starts again on it.
+  French streaming model: live text, the fastest, French only), or the free-tier APIs `groq` / `deepgram` (below).
+  `voice-models list | use <m> | install <m>`; changed in the settings, voice-listen starts again on it.
+- **Engines** (free or free-tier only; the settings page > Voice shows, for the value chosen with ←→, what it handles,
+  its strengths and limits against the others, its free use, its voices and its links; `claude-cluster engines`, MCP
+  tool `voice_engines`):
+
+  | Engine | Kind | Where | Languages | Strengths | Limits | Free |
+  |---|---|---|---|---|---|---|
+  | `parakeet` | speech to text | local | 25 European | best local accuracy, French / English mixed, live text | ~1 s after a sentence, 640 MB | unlimited |
+  | `whisper` | speech to text | local | 99 | widest coverage offline | 3-6 s a sentence | unlimited |
+  | `kroko-fr` | speech to text | local | French | streaming, fastest, 68 MB | French only | unlimited |
+  | `groq` | speech to text | API | 99 | Whisper large-v3-turbo: best accuracy, ~0.5 s | audio sent, no live text | 8 h of audio a day |
+  | `deepgram` | speech to text | API | 40+, `multi` mixes 10 | language switched inside a sentence | audio sent, no live text | $200 of credit once |
+  | `piper` | text to speech | local | ~40 | instant, light; the fallback of the others | synthetic voices | unlimited |
+  | `kokoro` | text to speech | local | 8 (fr: 1 voice) | natural, read sentence by sentence | ~1 s a sentence on CPU, ~600 MB loaded | unlimited |
+  | `elevenlabs` | text to speech | API | 32 | very natural, largest voice library | text sent, small quota, non-commercial | ~20k characters a month |
+  | `cartesia` | text to speech | API | 42 | fastest (~0.2 s), speed / emotion controls | text sent, credits once, non-commercial | 20k characters once |
+
+  `[voice] listen_model` picks the speech to text, `listen_language` the language spoken (whisper and the APIs; empty:
+  found by the model), `say_engine` the text to speech and `say_voices` its voice per language (`fr=ff_siwis,
+  en=bf_emma`; `es=kokoro:ef_dora` another engine for a language; missing: the engine's default for it). The language
+  of an answer is found from its words (French, English, Spanish, Italian, German, Portuguese, Dutch). The APIs: their
+  key by `claude-cluster auth login <groq|deepgram|elevenlabs|cartesia>` (read by voice-listen / voice-tts from the
+  keyring or credentials.json, never on a command line, or `$GROQ_API_KEY`...); a failing API (no key, network, quota):
+  the sentence recognized by the local model, the answer read by Piper (`voice_fr` / `voice_en`). Kokoro:
+  `voice-models install kokoro`; its server (`voice-tts --serve`) keeps the model loaded and ends after 15 min unused.
 - **Sentences** (parakeet / whisper): from 0.6 s before the speech is detected (its soft first syllable kept) to
   `[voice] end_silence` of silence after the last voice (default 1.0 s: a short pause, two sentences said in a row are
   one sentence; the cut just after the last voice, never in a word), recognized piece by piece between its pauses (each
@@ -339,8 +366,10 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   (`libutils = lib utils, lib you tils`), plus by themselves the names of the sessions, the projects of the map of this
   computer and your names (`[user] nickname`, the login). A long name (7+ letters) is also found one or two letters off;
   a common word is never replaced.
-- Answers of the global session are spoken as a short summary, in their language (`voice_fr`, `voice_en`); F6 stops.
-- The palette action **Voice: what is missing** lists what to set up (tools, enrollment, voices, English speech model).
+- Answers of the global session are spoken as a short summary, in their language (`say_engine`, `say_voices`; Piper:
+  `voice_fr`, `voice_en`); F6 stops.
+- The palette action **Voice: what is missing** lists what to set up (tools, enrollment, voices, English speech model,
+  the model or the API key of the engines chosen).
 
 ## Background service
 

@@ -168,12 +168,15 @@ _cold void cluster::Config::load(void)
     this->voice.summaryChars = v["summary_chars"].value_or(this->voice.summaryChars);
     this->voice.listenCommand = v["listen_command"].value_or(this->voice.listenCommand);
     this->voice.sayCommand = v["say_command"].value_or(this->voice.sayCommand);
+    this->voice.sayEngine = v["say_engine"].value_or(this->voice.sayEngine);
+    this->voice.sayVoices = v["say_voices"].value_or(this->voice.sayVoices);
     this->voice.voiceFr = v["voice_fr"].value_or(this->voice.voiceFr);
     this->voice.voiceEn = v["voice_en"].value_or(this->voice.voiceEn);
     this->voice.cancelWords = strings_(v["cancel_words"], this->voice.cancelWords);
     this->voice.sendWords = strings_(v["send_words"], this->voice.sendWords);
     this->voice.words = v["words"].value_or(this->voice.words);
     this->voice.listenModel = v["listen_model"].value_or(this->voice.listenModel);
+    this->voice.listenLanguage = v["listen_language"].value_or(this->voice.listenLanguage);
     this->voice.endSilence = v["end_silence"].value_or(this->voice.endSilence);
     this->voice.vocabulary = v["vocabulary"].value_or(this->voice.vocabulary);
     if (!this->voiceForce.empty()) {

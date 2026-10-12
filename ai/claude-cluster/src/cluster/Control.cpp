@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #define _Encapsulation
 #include <utils/utils.hpp>
+#include "cluster/VoiceEngines.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
@@ -289,7 +290,8 @@ _cold static cluster::Json cluster_info_(cluster::Manager& manager)
     info["voice"] = {{"enabled", c.voice.enabled}, {"mode", c.voice.mode}, {"wake_word", c.voice.wakeWord}, {"confirm_seconds", c.voice.confirmSeconds},
         {"end_silence", c.voice.endSilence > 0.0 ? c.voice.endSilence : 1.0}, {"only_me", c.voice.onlyMe}, {"speech_model", chosen},
         {"models_installed", installed}, {"listen_command", resolve_command_(c.voice.listenCommand)}, {"say_command", resolve_command_(c.voice.sayCommand)},
-        {"missing", cluster::voice_missing(c.voice)}};
+        {"say_engine", c.voice.sayEngine}, {"say_voices", c.voice.sayVoices}, {"listen_language", c.voice.listenLanguage},
+        {"missing", cluster::voice_missing(c)}};
     // the background service
     std::ifstream unit(cluster::service_unit());
     const std::string text((std::istreambuf_iterator<char>(unit)), std::istreambuf_iterator<char>());
@@ -505,6 +507,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = cluster::Json::array();
             for (const cluster::Notice& n: manager.notices(30))
                 data.push_back({{"time", n.time}, {"session", n.session}, {"text", n.text}, {"error", n.error}});
+        } else if (cmd == "voice_engines") {
+            // the engines of the voice: what each one handles, its limits, its free use, its links, ready, used
+            data = cluster::voice_engines_json(manager.config());
         } else if (cmd == "providers") {
             data = cluster::Json::array();
             for (const cluster::Provider& p: manager.auth().providers()) {

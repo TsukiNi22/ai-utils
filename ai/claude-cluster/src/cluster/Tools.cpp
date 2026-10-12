@@ -126,23 +126,40 @@ std::string cluster::one_line(const std::string& text, const std::size_t max)
 
 std::string cluster::language_of(const std::string& text)
 {
-    // Count of frequent words + accents: enough to pick the voice of an answer
-    static const std::array<const char*, 24> fr = {"le", "la", "les", "des", "est", "une", "un", "et", "pour", "pas", "que", "qui",
-        "dans", "sur", "avec", "je", "tu", "vous", "nous", "ce", "c'est", "du", "au", "mais"};
-    static const std::array<const char*, 24> en = {"the", "is", "are", "and", "for", "not", "that", "which", "in", "on", "with",
-        "i", "you", "we", "this", "it's", "of", "to", "a", "an", "but", "was", "be", "has"};
-    int scoreFr = 0;
-    int scoreEn = 0;
+    // Count of frequent words + accents: enough to pick the voice of an answer; French unless another one is clear (its
+    // own words only: "de", "la", "que"... shared by the Romance languages are not counted for the others)
+    struct Language {
+        const char* code;
+        std::vector<std::string> words;
+        std::vector<std::string> marks;
+    };
+    static const std::vector<Language> languages = {
+        {"fr", {"le", "la", "les", "des", "est", "une", "un", "et", "pour", "pas", "que", "qui", "dans", "sur", "avec", "je", "tu", "vous",
+            "nous", "ce", "c'est", "du", "au", "mais"}, {"é", "è", "à", "ç", "ê", "ù"}},
+        {"en", {"the", "is", "are", "and", "for", "not", "that", "which", "in", "on", "with", "i", "you", "we", "this", "it's", "of", "to",
+            "a", "an", "but", "was", "be", "has"}, {}},
+        {"es", {"el", "los", "las", "es", "está", "pero", "por", "para", "y", "muy", "también", "como", "qué", "hay", "son", "del"}, {"ñ", "¿", "¡"}},
+        {"it", {"il", "gli", "è", "che", "non", "sono", "della", "per", "anche", "questo", "perché", "ho", "hai", "molto", "sei"}, {"ò", "ì"}},
+        {"de", {"der", "die", "das", "und", "ist", "nicht", "ich", "sie", "mit", "auf", "ein", "eine", "auch", "es", "wir", "zu"}, {"ß", "ü", "ö", "ä"}},
+        {"pt", {"não", "você", "os", "uma", "com", "também", "muito", "são", "isso", "está", "mas", "em"}, {"ã", "õ", "ção"}},
+        {"nl", {"het", "een", "niet", "van", "zijn", "dat", "ik", "je", "wel", "ook", "naar", "maar", "wij"}, {"ij"}},
+    };
+    std::vector<int> scores(languages.size(), 0);
 
     for (const std::string& word: cluster::split(cluster::lower(text), ' ')) {
         std::string w = word;
         w.erase(std::remove_if(w.begin(), w.end(), [](char c) {return c == ',' || c == '.' || c == '!' || c == '?' || c == ':';}), w.end());
-        scoreFr += std::find_if(fr.begin(), fr.end(), [&](const char* f) {return w == f;}) != fr.end();
-        scoreEn += std::find_if(en.begin(), en.end(), [&](const char* e) {return w == e;}) != en.end();
+        for (std::size_t i = 0; i < languages.size(); ++i)
+            scores[i] += std::find(languages[i].words.begin(), languages[i].words.end(), w) != languages[i].words.end();
     }
-    for (const char* accent: {"é", "è", "à", "ç", "ê", "ù"})
-        if (text.find(accent) != std::string::npos) scoreFr += 2;
-    return scoreEn > scoreFr ? "en" : "fr";
+    for (std::size_t i = 0; i < languages.size(); ++i)
+        for (const std::string& mark: languages[i].marks)
+            if (text.find(mark) != std::string::npos) scores[i] += 2;
+    // English against French as before; another language: clearly ahead of both (3 hits at least)
+    std::size_t best = scores[1] > scores[0] ? 1 : 0;
+    for (std::size_t i = 2; i < languages.size(); ++i)
+        if (scores[i] >= 3 && scores[i] > scores[best] && scores[i] > scores[0] && scores[i] > scores[1]) best = i;
+    return languages[best].code;
 }
 
 std::string cluster::summary_of(const std::string& text, const std::size_t max)

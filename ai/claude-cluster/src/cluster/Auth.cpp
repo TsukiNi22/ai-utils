@@ -41,6 +41,11 @@ _cold static std::vector<cluster::Provider> builtin_providers_(void)
         {"ollama-openai", "qwen", AuthKind::None, "http://localhost:11434/v1", "", "Qwen Code on a local Ollama model (OpenAI API)", true},
         {"opencode", "opencode", AuthKind::Login, "", "opencode/big-pickle", "opencode with its own providers (opencode auth login)", false},
         {"codex", "codex", AuthKind::Login, "", "", "OpenAI Codex CLI (codex login)", false},
+        // the voice ([voice] listen_model / say_engine): their key read by voice-listen / voice-tts, not agent backends
+        {"groq", "voice", AuthKind::Key, "https://api.groq.com", "whisper-large-v3-turbo", "speech to text on Groq (free: 8 h a day)", false},
+        {"deepgram", "voice", AuthKind::Key, "https://api.deepgram.com", "nova-3", "speech to text, Deepgram Nova-3 (free: $200 of credit)", false},
+        {"elevenlabs", "voice", AuthKind::Key, "https://api.elevenlabs.io", "eleven_flash_v2_5", "text to speech, ElevenLabs (free: ~20k characters a month)", false},
+        {"cartesia", "voice", AuthKind::Key, "https://api.cartesia.ai", "sonic-3.5", "text to speech, Cartesia, the fastest (free: 20k characters once)", false},
     };
 }
 
@@ -109,6 +114,8 @@ _cold cluster::Backend cluster::Auth::resolve(const std::string& backend) const
 
     if (!provider) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument,
         "unknown provider '" + name + "' (claude-cluster auth list)");
+    if (provider->driver == "voice") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument,
+        "'" + name + "' is a voice provider ([voice] listen_model / say_engine), not an agent backend");
     return {*provider, slash == std::string::npos ? provider->model : backend.substr(slash + 1)};
 }
 
@@ -117,7 +124,7 @@ _cold std::pair<bool, std::string> cluster::Auth::status(const cluster::Provider
 {
     const std::string command = this->_config.command(provider.driver);
 
-    if (!cluster::has_command(command)) return {false, "`" + command + "` is not installed"};
+    if (provider.driver != "voice" && !cluster::has_command(command)) return {false, "`" + command + "` is not installed"};
     if (provider.auth == cluster::AuthKind::Key) {
         if (this->secret_(provider.name)) return {true, std::string("API key stored (") + (keyring_() ? "keyring" : "credentials.json") + ")"};
         return {false, "no API key: claude-cluster auth login " + provider.name};

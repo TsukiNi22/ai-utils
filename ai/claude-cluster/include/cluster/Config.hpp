@@ -71,14 +71,17 @@ struct VoiceConf {
     std::size_t summaryChars = 220;
     std::string listenCommand = "voice-listen";
     std::string sayCommand = "voice-say";
-    std::string voiceFr = "tom-medium";
+    std::string sayEngine = "piper";    // voice-say -e: piper | kokoro | elevenlabs | cartesia (failing: Piper)
+    std::string sayVoices;              // the voice of that engine per language: "fr=ff_siwis, en=bf_emma, es=kokoro:ef_dora"
+    std::string voiceFr = "tom-medium"; // Piper voices: the engine piper, the fallback of the others
     std::string voiceEn = "en_GB-northern_english_male-medium";
     // said alone while a transcription waits: dropped / sent now (cancel: also stops the answer being read); the
     // words of voice-words.txt (edited in the editor), these ones of config.toml added
     std::vector<std::string> cancelWords;
     std::vector<std::string> sendWords;
     std::string words;              // the file of these words (empty: voice-words.txt of the config folder)
-    std::string listenModel;        // voice-listen --model: parakeet | whisper | kroko-fr (empty: its own choice, voice-models)
+    std::string listenModel;        // voice-listen --model: parakeet | whisper | kroko-fr | groq | deepgram (empty: voice-models)
+    std::string listenLanguage;     // voice-listen --language (whisper, the APIs): fr, en... (empty: found by the model)
     double endSilence = 0.0;        // voice-listen --end-silence: seconds of silence ending a sentence (0: its own, 1.0)
     std::string vocabulary;         // proper names written back in what is heard (empty: vocabulary.txt of the config folder)
 };

@@ -94,6 +94,7 @@ _cold const std::vector<cluster::Command>& cluster::commands(void)
         {"providers", "", "backends and their state", {}},
         {"notices", "", "last events", {}},
         {"auth", "list|login|logout <provider>", "providers and their credentials", {"auth_sub", "provider"}},
+        {"engines", "", "the engines of the voice: what each one handles, its limits, its free use, its link", {}},
         {"serve", "", "run the cluster without interface (until Ctrl+C)", {}},
         {"machine", "sync|show|path", "map of this computer for the global session (projects, aliases, system)", {"machine_sub"}},
         {"service", "setup|enable|disable|start|stop|restart|status|remove|run", "background service: the wake phrase opens claude-cluster, voice on", {"service_sub"}},
@@ -152,7 +153,7 @@ _cold void cluster::Core::complete_(const std::string& kind) const
         } else {
             const cluster::Auth auth(config);
             for (const cluster::Provider& p: auth.providers())
-                out.emplace_back(p.name, p.driver + ": " + p.description);
+                if (kind != "backend" || p.driver != "voice") out.emplace_back(p.name, p.driver + ": " + p.description);
         }
         if (kind == "backend") {
             // the models known on this computer: Claude aliases, local Ollama models, opencode models

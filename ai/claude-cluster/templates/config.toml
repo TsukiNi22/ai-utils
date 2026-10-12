@@ -80,8 +80,12 @@ only_me = true             # voice-listen --only-me (needs voice-enroll)
 confirm_seconds = 3        # the transcription is shown this long before it is sent (0: sent at once)
 speak = true               # spoken summary of the answers of the global session
 summary_chars = 220
-listen_model = ""          # voice-listen --model: parakeet (French, English, mixed) | whisper (mixed in a sentence,
-                           # slower) | kroko-fr (French only, live text, the fastest); empty: its own (voice-models use)
+# The engines (settings page > Voice: what each one handles, its limits, its free use, its link; claude-cluster engines)
+listen_model = ""          # speech to text, voice-listen --model: local parakeet (French, English, mixed) | whisper (99
+                           # languages, slower) | kroko-fr (French only, live text, the fastest); free-tier APIs groq
+                           # (Whisper large, 8 h a day) | deepgram (Nova-3, $200 of credit), their key: claude-cluster
+                           # auth login groq; empty: the choice of voice-models
+listen_language = ""       # the language spoken, for whisper / groq / deepgram (fr, en...); empty: found by the model
 end_silence = 0.0          # seconds of silence ending a sentence (0: the one of voice-listen, 1.0): a shorter pause
                            # goes on the same sentence, two sentences said in a row are one prompt
 words = ""                 # the cancel / send words said alone while a transcription waits (settings page > Voice >
@@ -92,7 +96,12 @@ vocabulary = ""            # proper names written back in every sentence heard (
                            # of this computer, your names); empty: vocabulary.txt of the config folder
 listen_command = "voice-listen"
 say_command = "voice-say"
-voice_fr = "tom-medium"
+say_engine = "piper"       # text to speech: local piper (instant, synthetic) | kokoro (natural, ~1 s a sentence: voice-models
+                           # install kokoro); free-tier APIs elevenlabs | cartesia (claude-cluster auth login cartesia);
+                           # an engine failing (no key, quota, model missing): Piper
+say_voices = ""            # the voice of that engine per language: "fr=ff_siwis, en=bf_emma" (voice-tts --list kokoro);
+                           # another engine for a language: "es=kokoro:ef_dora"; a language missing: the engine's default
+voice_fr = "tom-medium"    # the Piper voices (say_engine = piper, and the fallback of the others)
 voice_en = "en_GB-northern_english_male-medium"
 
 [user]                     # about you, for the global session (asked at the first map of this computer, F9 > User)

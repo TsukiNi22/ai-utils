@@ -81,6 +81,7 @@ set(SRC
     src/cluster/Models.cpp
     src/cluster/Voice.cpp
     src/cluster/Vocabulary.cpp
+    src/cluster/VoiceEngines.cpp
 
     # Core (sub-part: control)
     src/cluster/Control.cpp

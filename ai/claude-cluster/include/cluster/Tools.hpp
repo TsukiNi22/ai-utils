@@ -54,7 +54,7 @@ _nodiscard std::vector<std::string> split(const std::string& text, const char se
 _nodiscard std::string trim(const std::string& text);
 _nodiscard std::string lower(std::string text);
 _nodiscard std::string one_line(const std::string& text, const std::size_t max);
-_nodiscard std::string language_of(const std::string& text);      // "fr" | "en"
+_nodiscard std::string language_of(const std::string& text);      // "fr" | "en" | "es" | "it" | "de" | "pt" | "nl"
 _nodiscard std::string summary_of(const std::string& text, const std::size_t max);
 _nodiscard std::string content_hash(const std::string& bytes);   // FNV-1a 64, hexadecimal (same content, same name)
 

@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/VoiceEngines.hpp"
 #include "cluster/Vocabulary.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Machine.hpp"
@@ -209,17 +210,27 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.voice.speak ? std::string("true") : std::string("false");}},
             {"voice", "summary_chars", "Summary length", SettingKind::Int, {}, "characters of the spoken summary", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.voice.summaryChars);}},
-            {"voice", "voice_fr", "French voice", SettingKind::Text, {}, "Piper voice of the French answers", false,
+            {"voice", "say_engine", "Speech engine", SettingKind::Choice, {"piper", "kokoro", "elevenlabs", "cartesia"},
+                "text to speech of the answers (←→: what each one handles); an engine failing (no key, quota, model missing): Piper", false,
+                [](const cluster::Config& cf) {return cf.voice.sayEngine;}},
+            {"voice", "say_voices", "Voices of the engine", SettingKind::Text, {},
+                "its voice per language: fr=ff_siwis, en=bf_emma (voice-tts --list <engine>); another engine for a language: "
+                "es=kokoro:ef_dora; a language missing: the default voice of the engine", false,
+                [](const cluster::Config& cf) {return cf.voice.sayVoices;}},
+            {"voice", "voice_fr", "French voice (Piper)", SettingKind::Text, {}, "Piper voice of the French answers (engine piper, the fallback of the others)", false,
                 [](const cluster::Config& cf) {return cf.voice.voiceFr;}},
-            {"voice", "voice_en", "English voice", SettingKind::Text, {}, "Piper voice of the English answers", false,
+            {"voice", "voice_en", "English voice (Piper)", SettingKind::Text, {}, "Piper voice of the English answers (engine piper, the fallback of the others)", false,
                 [](const cluster::Config& cf) {return cf.voice.voiceEn;}},
             {"voice", "listen_command", "Listen command", SettingKind::Text, {}, "speech to text (one JSON per sentence)", true,
                 [](const cluster::Config& cf) {return cf.voice.listenCommand;}},
             {"voice", "say_command", "Say command", SettingKind::Text, {}, "text to speech", false,
                 [](const cluster::Config& cf) {return cf.voice.sayCommand;}},
-            {"voice", "listen_model", "Speech model", SettingKind::Choice, {"", "parakeet", "whisper", "kroko-fr"},
-                "parakeet: French, English, mixed; whisper: mixed in a sentence, slower; kroko-fr: French only, live; empty: voice-models use", false,
+            {"voice", "listen_model", "Speech recognition", SettingKind::Choice, {"", "parakeet", "whisper", "kroko-fr", "groq", "deepgram"},
+                "speech to text (←→: what each one handles): local models, or the free-tier APIs groq / deepgram (their key: "
+                "claude-cluster auth login groq); an API failing: the local model", false,
                 [](const cluster::Config& cf) {return cf.voice.listenModel;}},
+            {"voice", "listen_language", "Language spoken", SettingKind::Text, {}, "for whisper / groq / deepgram: fr, en...; empty: found by the model (deepgram: multi, languages mixed)", false,
+                [](const cluster::Config& cf) {return cf.voice.listenLanguage;}},
             {"voice", "end_silence", "End of a sentence (seconds)", SettingKind::Float, {}, "the silence that ends a sentence (0: 1.0); a short pause goes on the same one", false,
                 [](const cluster::Config& cf) {return number_(cf.voice.endSilence);}},
             {"voice", "words", "Voice words file", SettingKind::Text, {}, "the cancel / send words said alone while a transcription waits; empty: voice-words.txt", false,
@@ -259,6 +270,14 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         }},
         {"keys", "Keys", {}},
     };
+
+    // the engines of the voice: what the value chosen handles
+    for (cluster::SettingsPage& page: pages)
+        for (cluster::Setting& setting: page.settings)
+            if (setting.section == "voice" && (setting.key == "listen_model" || setting.key == "say_engine")) {
+                const std::string kind = setting.key == "listen_model" ? "listen" : "say";
+                setting.choiceHelp = [kind](const std::string& value) {return cluster::voice_engine_help(kind, value);};
+            }
 
     // pages built from the config itself
     for (const auto &[driver, command]: c.commands) {
