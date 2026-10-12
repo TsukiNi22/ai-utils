@@ -302,6 +302,17 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 - The transcription is shown `confirm_seconds` before it is sent (palette: send now / drop / correct); the global
   session gets it as `[voice] ...` and asks when a word looks wrong or the request is ambiguous.
 - `session <name> <text>` (or `<name>: <text>`) goes straight to that session.
+- **Said alone while a transcription waits** (compared without case, accent nor punctuation, no wake phrase needed):
+  a word of `cancel_words` ("annule", "stop", "laisse tomber", "cancel"...) drops it, a word of `send_words`
+  ("envoie", "valide", "vas-y", "go", "send"...) sends it at once. Nothing waiting, a cancel word stops the answer
+  being read and the turn of the global session (only heard while it speaks with `voice-listen --duplex`).
+- Interrupting a turn (Ctrl+C, the palette) also stops its reading.
+- **Vocabulary**: the proper names the recognition bends are written back in every sentence heard, before it is shown,
+  routed and sent: the file `vocabulary.txt` of the config folder (`[voice] vocabulary`; settings page > Voice >
+  *Vocabulary (edit)*, palette *Vocabulary of the voice*), one name per line with the ways it is heard
+  (`libutils = lib utils, lib you tils`), plus by themselves the names of the sessions, the projects of the map of this
+  computer and your names (`[user] nickname`, the login). A long name (7+ letters) is also found one or two letters off;
+  a common word is never replaced.
 - Answers of the global session are spoken as a short summary, in their language (`voice_fr`, `voice_en`); F6 stops.
 - The palette action **Voice: what is missing** lists what to set up (tools, enrollment, voices, English speech model).
 
@@ -309,8 +320,11 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 
 `claude-cluster service enable` installs and starts a systemd user unit (`~/.config/systemd/user/claude-cluster.service`,
 started with the graphical session): saying the wake phrase (`[service] wake_word`, else `[voice] wake_word`: "ok
-claude") opens claude-cluster - in a terminal (`[service] frontend = "tty"`, the first terminal installed or
-`[service] terminal`) or a window (`"gui"`) - with its voice on at once (`--voice auto`, `[service] voice_mode`).
+claude") opens claude-cluster with its voice on at once (`--voice auto`, `[service] voice_mode`): `[service] frontend =
+"auto"` (default) opens its window when it can (built with Qt6, a display), else - or when the window fails to start -
+a terminal (the first installed or `[service] terminal`); `"gui"` the window then a terminal on its failure; `"tty"` a
+terminal only. Every try and its failure is in the journal (`service logs`); all of them failed: `FAILED to open`.
+(The terminal that has the focus can't be used: GNOME on Wayland tells no one which window it is.)
 
 | Command | Effect |
 |---|---|

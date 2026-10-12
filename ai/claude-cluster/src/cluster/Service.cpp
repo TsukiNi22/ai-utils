@@ -121,14 +121,14 @@ _cold std::string join_(const std::vector<std::string>& words)
     return line;
 }
 
-_cold std::vector<std::string> launcher_(const cluster::Config& config, const std::string& unit)
+_cold std::vector<std::string> launcher_(const cluster::Config& config, const std::string& unit, const bool gui)
 {
     // claude-cluster with its voice on, in a window or in a terminal (outside the unit: it lives on when the service stops)
     const cluster::ServiceConf& s = config.service;
-    const std::vector<std::string> app = {cluster::self_exe().string(), s.frontend == "gui" ? "--gui" : "--tty", "--voice", s.voiceMode};
+    const std::vector<std::string> app = {cluster::self_exe().string(), gui ? "--gui" : "--tty", "--voice", s.voiceMode};
     const std::string line = join_(app);
     std::vector<std::string> command;
-    if (s.frontend == "gui") {
+    if (gui) {
         command = app;
     } else if (!cluster::trim(s.terminal).empty()) {
         command = cluster::split(cluster::trim(s.terminal), ' ');
@@ -152,37 +152,66 @@ _cold std::vector<std::string> launcher_(const cluster::Config& config, const st
     return command;
 }
 
-_cold void launch_(const cluster::Config& config)
+_cold std::string attempt_(const cluster::Config& config, const bool gui)
 {
     // claude-cluster in a unit of its own (its output: journalctl --user -u <unit>); started when its control socket
-    // answers, failed when its unit fails or nothing answers in 20 s
+    // answers (""), failed when its unit fails or nothing answers in 20 s (why)
     static int launches = 0;
     const std::string unit = "claude-cluster-app-" + std::to_string(cluster::now()) + "-" + std::to_string(++launches) + ".service";
-    const std::vector<std::string> command = launcher_(config, unit);
-    const bool transient = command.front() == "systemd-run";
-    std::cerr << "service: wake phrase heard, opening claude-cluster: " << join_(command) << std::endl;
-    const cluster::Captured out = cluster::capture(command, "", 20);
-    if (out.code != 0) {
-        std::cerr << "service: the launch failed (exit " << out.code << "): " << cluster::one_line(out.out, 400) << std::endl;
-        return;
+    std::vector<std::string> command;
+    try {
+        command = launcher_(config, unit, gui);
+    } catch (const utils::exception::IException& e) {
+        return e.info();
     }
+    const bool transient = command.front() == "systemd-run";
+    std::cerr << "service: opening claude-cluster in " << (gui ? "a window" : "a terminal") << ": " << join_(command) << std::endl;
+    const cluster::Captured out = cluster::capture(command, "", 20);
+    if (out.code != 0) return "the launch failed (" + (out.code < 0 ? std::string("killed / timed out") : "exit " + std::to_string(out.code)) + ")"
+        + (cluster::trim(out.out).empty() ? std::string() : ": " + cluster::one_line(out.out, 400));
     const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     for (int i = 0; i < 40 && !stopping_; ++i) {
         if (cluster::Control::alive()) {
-            std::cerr << "service: claude-cluster started (" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count()
+            std::cerr << "service: claude-cluster started in " << (gui ? "a window" : "a terminal") << " ("
+                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count()
                 << " ms" << (transient ? ", its output: journalctl --user -u " + unit : std::string()) << ")" << std::endl;
-            return;
+            return "";
         }
         // its unit failed (--collect unloads it at once: its journal tells it)
         const std::string journal = transient && i % 4 == 3 ? cluster::capture({"journalctl", "--user", "-u", unit, "-n", "20", "--no-pager", "-o", "cat"}, "", 10).out : "";
         if (journal.find("Failed with result") != std::string::npos) {
             std::cerr << "service: claude-cluster failed at its start (unit " << unit << "), its last lines:\n" << journal << std::flush;
-            return;
+            return "failed at its start (journalctl --user -u " + unit + ")";
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
-    if (!stopping_) std::cerr << "service: claude-cluster did not answer on its control socket in 20 s (still starting, or failed"
-        << (transient ? ": journalctl --user -u " + unit : std::string()) << ")" << std::endl;
+    return stopping_ ? "the service stopped" : "no answer on its control socket in 20 s" + (transient ? std::string(" (journalctl --user -u ") + unit + ")" : std::string());
+}
+
+_cold void launch_(const cluster::Config& config)
+{
+    // [service] frontend: auto = the window when it can open (built with it, a display), else / on its failure a
+    // terminal; gui = the window, a terminal on its failure; tty = a terminal only; every failure logged
+    const std::string frontend = config.service.frontend;
+    std::vector<bool> tries = {false};
+    if (frontend == "gui" || frontend == "auto") {
+#ifdef CLUSTER_GUI
+        const bool display = std::getenv("WAYLAND_DISPLAY") || std::getenv("DISPLAY");
+        if (display) tries = {true, false};
+        else std::cerr << "service: no window: no WAYLAND_DISPLAY / DISPLAY in the environment of the service (systemctl --user import-environment)" << std::endl;
+#else
+        std::cerr << "service: no window: this claude-cluster is built without its window (Qt6), a terminal instead" << std::endl;
+#endif
+    }
+    std::cerr << "service: wake phrase heard" << std::endl;
+    std::string failures;
+    for (const bool gui: tries) {
+        const std::string why = attempt_(config, gui);
+        if (why.empty() || stopping_) return;
+        std::cerr << "service: " << (gui ? "the window" : "the terminal") << " did not open: " << why << (gui ? ", trying a terminal" : "") << std::endl;
+        failures += std::string(failures.empty() ? "" : "; ") + (gui ? "window: " : "terminal: ") + why;
+    }
+    std::cerr << "service: FAILED to open claude-cluster (" << failures << ")" << std::endl;
 }
 
 // The detector: wake.py, its stdout read here (one line per wake event)
@@ -276,7 +305,7 @@ _cold int run_(const bool verbose, const bool debug)
     int failures = 0;
     bool instance = false;
     std::cerr << "service: started (" << cluster::self_exe().string() << "), wake phrase \"" << (config.service.wakeWord.empty() ? config.voice.wakeWord : config.service.wakeWord)
-        << "\", opens " << (config.service.frontend == "gui" ? "a window" : "a terminal") << " with the voice " << config.service.voiceMode
+        << "\", opens " << (config.service.frontend == "tty" ? "a terminal" : "a window, else a terminal") << " with the voice " << config.service.voiceMode
         << (debug ? ", DEBUG: the text heard is written here" : "") << std::endl;
     while (!stopping_) {
         if (config.reload()) std::cerr << "service: config reloaded" << std::endl;

@@ -1,0 +1,10 @@
+# Vocabulary of the voice of claude-cluster: the proper names the speech recognition bends, written back in every
+# sentence heard (before it is shown, routed and sent).
+# One name per line, as it must be written; after "=", the ways it is heard, comma separated (optional):
+#   libutils = lib utils, lib you tils
+# Added by themselves: the names of the sessions, the projects of the map of this computer (machine.md) and your
+# names ([user] nickname, the login). A long name (7+ letters) is also found when heard with one or two letters off.
+libutils = lib utils, lib you tils, lib util, lib you tiles
+claude-cluster = claude cluster, cloud cluster, clod cluster
+xstyle = x style, ex style, iks style
+ai-utils = ai utils, a i utils, ai you tils

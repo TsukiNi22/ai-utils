@@ -501,9 +501,11 @@ class TtyUi {
             if (key == "machine_sync") {
                 this->_machineReturn = this->_mode;
                 this->_mode = Mode::Machine;
-            } else if (key == "edit_prompt" || key == "edit_sessions_prompt") {
+            } else if (key == "edit_prompt" || key == "edit_sessions_prompt" || key == "edit_vocabulary") {
                 const bool global = key == "edit_prompt";
-                const std::filesystem::path path = cluster::expand_home(global ? this->_manager.config().globalPrompt : this->_manager.config().sessionsPrompt);
+                const bool vocabulary = key == "edit_vocabulary";
+                const cluster::Config& config = this->_manager.config();
+                const std::filesystem::path path = cluster::expand_home(global ? config.globalPrompt : vocabulary ? cluster::vocabulary_path(config.voice.vocabulary).string() : config.sessionsPrompt);
                 std::error_code error;
                 const std::filesystem::file_time_type before = std::filesystem::last_write_time(path, error);
                 std::vector<std::string> command = this->editorCommand_();
@@ -519,7 +521,11 @@ class TtyUi {
                 })();
                 this->terminalModes_();
                 if (std::filesystem::last_write_time(path, error) == before) {
-                    this->_note = "system prompt unchanged";
+                    this->_note = vocabulary ? "vocabulary unchanged" : "system prompt unchanged";
+                    return;
+                }
+                if (vocabulary) {
+                    this->_note = "vocabulary saved: used from the next sentence heard";
                     return;
                 }
                 if (!global) {
@@ -1117,7 +1123,7 @@ class TtyUi {
                 this->theme_();
             } else if (base == "settings") {
                 this->openSettings_();
-            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt") {
+            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary") {
                 this->settingsAction_(base == "edit_global_prompt" ? "edit_prompt" : base);
                 if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
             } else if (base == "restore_menu") {
@@ -2402,8 +2408,11 @@ class TtyUi {
             root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event);});
             this->_screen.Loop(root);
             this->_worker.stop(); // the running job ends before the screen goes
-            std::cout << "\x1b[?1004l\x1b[?2004l" << std::flush; // xstyle: ignore LU-ANSI (focus reporting, bracketed paste off)
+            // the terminal as it was: the frames buffer out first (it hides the cursor), then the modes off, the cursor
+            // shown, the synchronized update closed
+            std::cout << std::flush;
             std::cout.rdbuf(previous);
+            std::cout << "\x1b[?2026l\x1b[?1004l\x1b[?2004l\x1b[?25h" << std::flush; // xstyle: ignore LU-ANSI (modes of the terminal, no color)
             if (tty) ::tcsetattr(STDIN_FILENO, TCSANOW, &original);
             alive = false;
             refresher.join();

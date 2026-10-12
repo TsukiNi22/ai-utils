@@ -17,6 +17,8 @@ File Description:
 #include "cluster/Voice.hpp"
 #include "cluster/Tools.hpp"
 #include <sys/epoll.h>
+#include <functional>
+#include <algorithm>
 #include <unistd.h>
 #include <signal.h>
 #include <optional>
@@ -217,6 +219,8 @@ _cold void cluster::Voice::heard_(const std::string& heard)
     std::string text = cluster::trim(heard);
     if (text.empty()) return;
     if (conf.mode == "push" && !this->_open && now_ms_() > this->_graceUntil) return; // push-to-talk closed
+    if (this->command_(text)) return; // "annule" / "envoie" said alone: on what waits (no wake phrase needed)
+    text = cluster::vocabulary_correct(text, this->terms_()); // the proper names the recognition bent
     const bool late = conf.mode == "push" && !this->_open; // the end of a sentence after F5: joins what is waiting
 
     // Wake mode: nothing is taken before the wake phrase; the phrase with a command sends it, the phrase alone
@@ -279,6 +283,76 @@ _cold void cluster::Voice::heard_(const std::string& heard)
     if (conf.confirmSeconds <= 0 && !holding) this->confirm();
 }
 
+/* voice commands and vocabulary */
+_cold bool cluster::Voice::command_(const std::string& text)
+{
+    // a sentence that is only a cancel / send word (no case, accent nor punctuation): on the transcriptions waiting;
+    // cancel with nothing waiting stops the answer being read and the turn of the global session
+    const cluster::VoiceConf& conf = this->_manager.config().voice;
+    const std::string said = cluster::vocabulary_key(text);
+    const std::function<bool(const std::vector<std::string>&)> is = [&](const std::vector<std::string>& words) {
+        return std::any_of(words.begin(), words.end(), [&](const std::string& word) {return cluster::vocabulary_key(word) == said;});
+    };
+    if (said.empty()) return false;
+    bool waiting = false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        waiting = !this->_pending.empty();
+    }
+    const std::function<void(const std::string&)> notice = [&](const std::string& what) {
+        this->_manager.notice(GLOBAL_ID, "voice: \"" + text + "\": " + what);
+    };
+    if (is(conf.cancelWords)) {
+        if (waiting) {
+            this->cancel();
+            notice("the transcription waiting dropped");
+            return true;
+        }
+        const std::optional<cluster::Snapshot> global = this->_manager.snapshot(GLOBAL_ID);
+        const bool working = global && (global->state == cluster::State::Working || global->state == cluster::State::Waiting);
+        if (!this->speaking() && !working) return false; // nothing to stop: a prompt like the others
+        this->mute();
+        if (working) {
+            try {
+                this->_manager.interrupt(GLOBAL_ID);
+            } catch (const utils::exception::IException&) {}
+        }
+        notice(working ? "the answer stopped" : "the reading stopped");
+        return true;
+    }
+    if (waiting && is(conf.sendWords)) {
+        this->confirm();
+        notice("sent now");
+        return true;
+    }
+    return false;
+}
+
+_cold std::vector<cluster::Term> cluster::Voice::terms_(void)
+{
+    // the file and the map of this computer read again when they changed; the sessions and the user every time
+    const cluster::Config& config = this->_manager.config();
+    const std::filesystem::path file = cluster::vocabulary_path(config.voice.vocabulary);
+    const std::filesystem::path machine = cluster::config_dir() / "machine.md";
+    std::error_code error;
+    const std::filesystem::file_time_type fileTime = std::filesystem::last_write_time(file, error);
+    const std::filesystem::file_time_type machineTime = std::filesystem::last_write_time(machine, error);
+    if (fileTime != this->_fileTime || machineTime != this->_machineTime || this->_fileTerms.empty()) {
+        this->_fileTerms = cluster::vocabulary_file(file);
+        for (const cluster::Term& term: cluster::vocabulary_projects(machine))
+            if (std::none_of(this->_fileTerms.begin(), this->_fileTerms.end(), [&](const cluster::Term& t) {return t.keys.front() == term.keys.front();}))
+                this->_fileTerms.push_back(term);
+        this->_fileTime = fileTime;
+        this->_machineTime = machineTime;
+    }
+    std::vector<cluster::Term> terms = this->_fileTerms;
+    for (const cluster::Snapshot& snap: this->_manager.list(false))
+        cluster::vocabulary_add(terms, snap.spec.name);
+    cluster::vocabulary_add(terms, config.user.nickname);
+    if (const char* login = std::getenv("USER")) cluster::vocabulary_add(terms, login);
+    return terms;
+}
+
 /* pending transcriptions */
 _cold void cluster::Voice::tick(void)
 {
@@ -311,7 +385,7 @@ _cold void cluster::Voice::dispatch_(const cluster::Pending& pending)
         this->_manager.send(pending.target, pending.target == GLOBAL_ID ? "[voice] " + pending.text : pending.text);
         this->_manager.addHistory({pending.text, {}, {}}, pending.target); // said by the user: in the history
     } catch (const utils::exception::IException& e) {
-        if (this->_manager.onNotice) this->_manager.onNotice({cluster::now(), pending.target, std::string("voice: ") + e.info(), true});
+        this->_manager.notice(pending.target, std::string("voice: ") + e.info(), true);
     }
 }
 

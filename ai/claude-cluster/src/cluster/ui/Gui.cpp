@@ -349,7 +349,7 @@ class Window: public QMainWindow {
                 this->signature.clear();
             } else if (base == "settings") {
                 this->settings();
-            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt") {
+            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary") {
                 this->settingAction(base == "edit_global_prompt" ? "edit_prompt" : base);
             } else if (base == "restore_menu") {
                 this->openRestore();
@@ -1040,16 +1040,22 @@ class Window: public QMainWindow {
                 this->askMachine(0);
                 return;
             }
-            if (key != "edit_prompt" && key != "edit_sessions_prompt") return;
+            if (key != "edit_prompt" && key != "edit_sessions_prompt" && key != "edit_vocabulary") return;
             const bool global = key == "edit_prompt";
-            const std::filesystem::path path = cluster::expand_home(global ? this->manager.config().globalPrompt : this->manager.config().sessionsPrompt);
+            const bool vocabulary = key == "edit_vocabulary";
+            const cluster::Config& config = this->manager.config();
+            const std::filesystem::path path = cluster::expand_home(global ? config.globalPrompt : vocabulary ? cluster::vocabulary_path(config.voice.vocabulary).string() : config.sessionsPrompt);
             std::ifstream in(path);
             const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             bool ok = false;
-            const QString edited = QInputDialog::getMultiLineText(this, global ? "System prompt of the global session" : "System prompt of the sub-sessions",
-                q_(cluster::short_path(path.string()) + " (empty: none)"), q_(text), &ok);
+            const QString edited = QInputDialog::getMultiLineText(this, global ? "System prompt of the global session" : vocabulary ? "Vocabulary of the voice"
+                : "System prompt of the sub-sessions", q_(cluster::short_path(path.string()) + (vocabulary ? " (name = how it is heard, ...)" : " (empty: none)")), q_(text), &ok);
             if (!ok || edited.toStdString() == text) return;
             std::ofstream(path) << edited.toStdString();
+            if (vocabulary) {
+                this->message("vocabulary saved: used from the next sentence heard", false);
+                return;
+            }
             if (!global) {
                 this->message("system prompt of the sub-sessions saved: taken by each one at its next start (/clear, /model...)", false);
                 return;

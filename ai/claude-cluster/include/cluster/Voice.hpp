@@ -20,7 +20,9 @@ File Description:
     /* type */
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
+    #include "Vocabulary.hpp"       // cluster::Term
     #include "Manager.hpp"          // cluster::Manager
+    #include <filesystem>           // std::filesystem::file_time_type
     #include <atomic>               // std::atomic
     #include <thread>               // std::thread
     #include <string>               // std::string
@@ -57,12 +59,17 @@ class Voice {
         std::string _partial;
         std::atomic<std::uint64_t> _version{0};
         std::atomic<std::int64_t> _armedUntil{0};  // wake mode: unix ms until which the next sentence is the command
+        std::vector<cluster::Term> _fileTerms;      // the vocabulary file and the projects of the map (read again when changed)
+        std::filesystem::file_time_type _fileTime{};
+        std::filesystem::file_time_type _machineTime{};
 
         // ---------- Pre-Function -------- //
         _cold void listen_(void);
         _cold void heard_(const std::string& text);
         _cold void dispatch_(const cluster::Pending& pending);
         _cold void say_(const std::string& text, const std::string& voice = "");
+        _cold _nodiscard bool command_(const std::string& text);    // cancel / send words said alone: done (true)
+        _cold _nodiscard std::vector<cluster::Term> terms_(void);   // the vocabulary now (file, projects, sessions, user)
 
     public:
         // ---------- Pre-Function -------- //

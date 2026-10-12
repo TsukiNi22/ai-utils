@@ -80,6 +80,13 @@ only_me = true             # voice-listen --only-me (needs voice-enroll)
 confirm_seconds = 3        # the transcription is shown this long before it is sent (0: sent at once)
 speak = true               # spoken summary of the answers of the global session
 summary_chars = 220
+cancel_words = ["annule", "annuler", "stop", "laisse tomber", "oublie", "cancel", "abort", "never mind"]
+                           # said alone while a transcription waits: dropped; nothing waits: the answer read stopped
+                           # (and the turn of the global session); compared without case, accents nor punctuation
+send_words = ["envoie", "envoyer", "envoie le", "valide", "valider", "vas-y", "go", "send", "send it"]
+                           # said alone while a transcription waits: sent at once
+vocabulary = ""            # proper names written back in every sentence heard (+ the sessions, the projects of the map
+                           # of this computer, your names); empty: vocabulary.txt of the config folder
 listen_command = "voice-listen"
 say_command = "voice-say"
 voice_fr = "tom-medium"
@@ -93,7 +100,8 @@ language = ""              # of the answers: fr | en | empty (the one of the mes
 notes = ""                 # anything the global session should know
 
 [service]                  # claude-cluster service enable: "ok claude" opens claude-cluster (voice on) when none runs
-frontend = "tty"           # tty: in a terminal | gui: a window
+frontend = "auto"          # auto: a window (when built with it and a display), else / on its failure a terminal
+                           # gui: a window, a terminal on its failure | tty: a terminal only; every failure logged
 terminal = ""              # tty: the terminal with its option to run a command ("kitty", "alacritty -e"...), empty: the first installed
 voice_mode = "auto"        # the voice of the claude-cluster opened: auto (every sentence) | wake | push
 wake_word = ""             # empty: [voice] wake_word

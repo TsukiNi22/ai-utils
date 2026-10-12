@@ -28,6 +28,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
         {"edit_sessions_prompt", "System prompt of the sub-sessions: edit it (empty: none)", "", "", true},
+        {"edit_vocabulary", "Vocabulary of the voice: edit it (proper names heard)", "", "", true},
         {"restore_menu", "Reopen a closed session (the trash)", "", "", true},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
@@ -126,6 +127,7 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             result.message = base == "deny" ? "denied" : "allowed";
         } else if (base == "interrupt") {
             manager.interrupt(session);
+            voice.mute(); // the answer stopped: its reading too
         } else if (base == "rename") {
             manager.rename(session, input);
         } else if (base == "mode") {

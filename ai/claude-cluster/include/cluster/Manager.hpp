@@ -194,6 +194,7 @@ class Manager {
         _cold void restartGlobal(void);                     // its system prompt read again, the same conversation
 
         // ---------- Function -------- //
+        _cold inline void notice(const std::string& session, const std::string& text, const bool error = false) {this->notice_(session, text, error);}; // the notices of the interfaces
         inline void setFocused(const bool focused) {this->_focused = focused ? 1 : 0;}; // the window / terminal has the focus
         inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
         inline void machineDecline(void) {this->setUi("machine", "no");};

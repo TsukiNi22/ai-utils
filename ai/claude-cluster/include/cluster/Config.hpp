@@ -73,6 +73,10 @@ struct VoiceConf {
     std::string sayCommand = "voice-say";
     std::string voiceFr = "tom-medium";
     std::string voiceEn = "en_GB-northern_english_male-medium";
+    // said alone while a transcription waits: dropped / sent now (cancel: also stops the answer being read)
+    std::vector<std::string> cancelWords = {"annule", "annuler", "stop", "laisse tomber", "oublie", "cancel", "abort", "never mind"};
+    std::vector<std::string> sendWords = {"envoie", "envoyer", "envoie le", "valide", "valider", "vas-y", "go", "send", "send it"};
+    std::string vocabulary;         // proper names written back in what is heard (empty: vocabulary.txt of the config folder)
 };
 
 // What the user tells about themselves (asked at the first map of this computer, the settings page: User)
@@ -86,7 +90,7 @@ struct UserConf {
 
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on
 struct ServiceConf {
-    std::string frontend = "tty";   // tty: in a terminal | gui: a window
+    std::string frontend = "auto";  // auto: a window, else a terminal | gui: a window (a terminal on its failure) | tty: a terminal
     std::string terminal;           // tty: the terminal and its option to run a command (empty: the first installed)
     std::string voiceMode = "auto"; // the voice of the claude-cluster opened: auto (every sentence) | wake | push
     std::string wakeWord;           // empty: [voice] wake_word

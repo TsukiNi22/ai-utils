@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Vocabulary.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
@@ -216,6 +217,14 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.voice.listenCommand;}},
             {"voice", "say_command", "Say command", SettingKind::Text, {}, "text to speech", false,
                 [](const cluster::Config& cf) {return cf.voice.sayCommand;}},
+            {"voice", "cancel_words", "Words: cancel", SettingKind::List, {}, "said alone while a transcription waits: dropped (else: the answer read stopped)", false,
+                [](const cluster::Config& cf) {return join_(cf.voice.cancelWords);}},
+            {"voice", "send_words", "Words: send now", SettingKind::List, {}, "said alone while a transcription waits: sent at once", false,
+                [](const cluster::Config& cf) {return join_(cf.voice.sendWords);}},
+            {"voice", "vocabulary", "Vocabulary file", SettingKind::Text, {}, "proper names written back in what is heard (+ sessions, projects, your names); empty: vocabulary.txt of the config folder", false,
+                [](const cluster::Config& cf) {return cf.voice.vocabulary;}},
+            {"voice", "edit_vocabulary", "Vocabulary (edit)", SettingKind::Action, {}, "opens it in the editor: one name per line, \"name = how it is heard, ...\"", false,
+                [](const cluster::Config& cf) {return cluster::short_path(cluster::vocabulary_path(cf.voice.vocabulary).string());}},
         }},
         {"user", "User", {
             {"user", "nickname", "Nickname", SettingKind::Text, {}, "how the global session calls you", false,
@@ -232,7 +241,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.machineDays);}},
         }},
         {"service", "Service", {
-            {"service", "frontend", "Opens", SettingKind::Choice, {"tty", "gui"}, "the wake phrase opens claude-cluster in a terminal or a window", false,
+            {"service", "frontend", "Opens", SettingKind::Choice, {"auto", "gui", "tty"}, "auto: a window, else / on its failure a terminal; gui: a window (a terminal on its failure); tty: a terminal", false,
                 [](const cluster::Config& cf) {return cf.service.frontend;}},
             {"service", "terminal", "Terminal", SettingKind::Text, {}, "with its option to run a command (kitty, alacritty -e...), empty: the first installed", false,
                 [](const cluster::Config& cf) {return cf.service.terminal;}},

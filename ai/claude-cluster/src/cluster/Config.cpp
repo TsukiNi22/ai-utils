@@ -84,6 +84,8 @@ _cold void cluster::Config::load(void)
     if (!std::filesystem::exists(prompt)) std::ofstream(prompt) << cluster::templates::GLOBAL_PROMPT;
     const std::filesystem::path sessions = cluster::config_dir() / "sessions.md";
     if (!std::filesystem::exists(sessions)) std::ofstream(sessions) << cluster::templates::SESSIONS_PROMPT;
+    const std::filesystem::path vocabulary = cluster::config_dir() / "vocabulary.txt";
+    if (!std::filesystem::exists(vocabulary)) std::ofstream(vocabulary) << cluster::templates::VOCABULARY;
     this->_mtime = std::filesystem::last_write_time(this->_path, error);
 
     toml::table table;
@@ -156,6 +158,9 @@ _cold void cluster::Config::load(void)
     this->voice.sayCommand = v["say_command"].value_or(this->voice.sayCommand);
     this->voice.voiceFr = v["voice_fr"].value_or(this->voice.voiceFr);
     this->voice.voiceEn = v["voice_en"].value_or(this->voice.voiceEn);
+    this->voice.cancelWords = strings_(v["cancel_words"], this->voice.cancelWords);
+    this->voice.sendWords = strings_(v["send_words"], this->voice.sendWords);
+    this->voice.vocabulary = v["vocabulary"].value_or(this->voice.vocabulary);
     if (!this->voiceForce.empty()) {
         this->voice.enabled = true;
         this->voice.mode = this->voiceForce;
