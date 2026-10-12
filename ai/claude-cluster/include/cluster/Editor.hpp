@@ -39,6 +39,8 @@ enum class CompletionKind {
     Folder,     // argument of /cd, /new
     Command,    // /command: local commands, skills, commands of the agent
     Mode,       // argument of /mode
+    Model,      // argument of /model
+    Effort,     // argument of /effort
     Trash,      // argument of /restore
 };
 
@@ -123,12 +125,8 @@ class Editor {
         _cold void insert(const std::string& text);
         _cold void backspace(void);
         _cold void erase(void);                     // Delete key
-        _cold inline void left(const bool select) {this->move_(this->prev_(this->_cursor), select);};
-        _cold inline void right(const bool select) {this->move_(this->next_(this->_cursor), select);};
         _cold void wordLeft(const bool select);
         _cold void wordRight(const bool select);
-        _cold inline void home(const bool select) {this->move_(0, select);};
-        _cold inline void end(const bool select) {this->move_(this->_text.size(), select);};
         _cold void selectAll(void);
         _cold void undo(void);
         _cold void redo(void);
@@ -137,23 +135,17 @@ class Editor {
         _cold void clear(void);
         _cold bool addImage(const std::string& path);    // [Image #N] at the cursor; false: this image is already in the prompt
         _cold void insertAtom(const std::size_t index);   // an atom of the prompt back at the cursor (chip clicked)
-        _cold inline void lineUp(const bool select) {this->move_(this->motion_("k", 1).value_or(this->_cursor), select);};
-        _cold inline void lineDown(const bool select) {this->move_(this->motion_("j", 1).value_or(this->_cursor), select);};
-        _cold inline void place(const std::size_t to, const bool select) {this->move_(std::min(to, this->_text.size()), select);}; // mouse
-        _cold inline void paste(const std::string& text) {this->insert(this->newPaste(text));};          // long: [Pasted text #N +L lines]
         _cold void setImages(const std::vector<std::string>& images);   // with setText: a queued prompt back, its labels atoms again
         _cold _nodiscard std::string newImage(const std::string& path); // the character of a new image atom
         _cold _nodiscard std::string newPaste(std::string text);        // the character of a new paste atom, or the text if short
         _cold _nodiscard std::string pasteAtom(const std::string& text); // a paste atom whatever its size (a draft back)
         _cold void load(const cluster::Draft& draft);                   // a prompt back: its images and pasted texts as blocks
-        _cold inline void setPasteLimits(const int lines, const int chars) {this->_pasteLines = lines; this->_pasteChars = chars;};
 
         /* vim (Off: plain editor) */
         _cold void setVim(const bool on);           // on: Insert mode first (like Claude Code)
         _cold _nodiscard bool vimKey(const std::string& key);  // a key of the Normal / Visual modes, Escape of Insert; true: used
 
         /* completion */
-        _cold inline void setProvider(cluster::CompletionProvider provider) {this->_provider = std::move(provider);};
         _cold void tab(void);                       // complete with the selected item, the list stays
         _cold void accept(void);                    // complete and close the list
         _cold void space(void);                     // closes the list unless the character before is a backslash
@@ -161,26 +153,28 @@ class Editor {
         _cold void select(const int delta);
         _cold void sync(const std::string& text, const std::size_t cursor);  // text edited elsewhere (window): completion only
 
+        /* text */
+        _nodiscard std::pair<std::size_t, std::size_t> selection(void) const;   // empty: from == to
+        _nodiscard std::string selected(void) const;
+        _nodiscard std::optional<std::size_t> atomAt(const std::string& text, const std::size_t at) const; // index of the atom there
+        _nodiscard std::string shown(const std::string& text) const;    // atoms -> labels (display, window)
+        _nodiscard std::string atomize(const std::string& text) const;  // labels of the known atoms -> atoms
+        _nodiscard std::string collapse(const std::string& text) const; // + the unchanged pasted texts -> their atom again
+        _nodiscard std::vector<std::size_t> promptAtoms(void) const;    // atoms of the current prompt (chips)
+        _nodiscard std::string expand(const std::string& text) const;   // to send: images -> labels, pastes -> their text
+        _nodiscard std::vector<std::pair<std::string, std::string>> imagesIn(const std::string& text) const; // <label, path>
+        _nodiscard std::vector<std::string> images(void) const;         // paths of the images still in the text
+        _nodiscard cluster::Draft draftOf(const std::string& text) const;   // text (with atoms) -> its draft
+
         // ---------- Function -------- //
         _nodiscard inline const std::string& text(void) const {return this->_text;};
         _nodiscard inline std::size_t cursor(void) const {return this->_cursor;};
         _nodiscard inline bool onFirstLine(void) const {return this->lineStart_(this->_cursor) == 0;};
         _nodiscard inline bool onLastLine(void) const {return this->lineEnd_(this->_cursor) >= this->_text.size();};
-        _nodiscard std::pair<std::size_t, std::size_t> selection(void) const;   // empty: from == to
-        _nodiscard std::string selected(void) const;
-        _nodiscard std::optional<std::size_t> atomAt(const std::string& text, const std::size_t at) const; // index of the atom there
         _nodiscard inline const cluster::Atom& atom(const std::size_t index) const {return this->_atoms[index];};
         _nodiscard inline std::size_t atomCount(void) const {return this->_atoms.size();};
-        _nodiscard std::string shown(const std::string& text) const;    // atoms -> labels (display, window)
-        _nodiscard std::string atomize(const std::string& text) const;  // labels of the known atoms -> atoms
-        _nodiscard std::string collapse(const std::string& text) const; // + the unchanged pasted texts -> their atom again
-        _nodiscard std::vector<std::size_t> promptAtoms(void) const;    // atoms of the current prompt (chips)
         _nodiscard inline bool contains(const std::size_t index) const {return index < this->_atoms.size() && this->_text.find(cluster::atom_char(index)) != std::string::npos;};
-        _nodiscard std::string expand(const std::string& text) const;   // to send: images -> labels, pastes -> their text
-        _nodiscard std::vector<std::pair<std::string, std::string>> imagesIn(const std::string& text) const; // <label, path>
-        _nodiscard std::vector<std::string> images(void) const;         // paths of the images still in the text
         _nodiscard inline std::string plain(void) const {return this->expand(this->_text);};
-        _nodiscard cluster::Draft draftOf(const std::string& text) const;   // text (with atoms) -> its draft
         _nodiscard inline cluster::Draft draft(void) const {return this->draftOf(this->_text);};
         _nodiscard inline bool completing(void) const {return !this->_items.empty();};
         _nodiscard inline const std::vector<cluster::Candidate>& items(void) const {return this->_items;};
@@ -189,9 +183,21 @@ class Editor {
         _nodiscard inline std::size_t completionStart(void) const {return this->_start;};
         _nodiscard inline cluster::VimMode vim(void) const {return this->_vim;};
         _nodiscard inline const std::string& vimPending(void) const {return this->_pending;};
+        _cold inline void left(const bool select) {this->move_(this->prev_(this->_cursor), select);};
+        _cold inline void right(const bool select) {this->move_(this->next_(this->_cursor), select);};
+        _cold inline void home(const bool select) {this->move_(0, select);};
+        _cold inline void end(const bool select) {this->move_(this->_text.size(), select);};
+        _cold inline void lineUp(const bool select) {this->move_(this->motion_("k", 1).value_or(this->_cursor), select);};
+        _cold inline void lineDown(const bool select) {this->move_(this->motion_("j", 1).value_or(this->_cursor), select);};
+        _cold inline void place(const std::size_t to, const bool select) {this->move_(std::min(to, this->_text.size()), select);}; // mouse
+        _cold inline void paste(const std::string& text) {this->insert(this->newPaste(text));};          // long: [Pasted text #N +L lines]
+        _cold inline void setPasteLimits(const int lines, const int chars) {this->_pasteLines = lines; this->_pasteChars = chars;};
+        _cold inline void setProvider(cluster::CompletionProvider provider) {this->_provider = std::move(provider);};
 
         // ---------- Constructor -------- //
         Editor(void) = default;
+
+        // ----------- Destructor --------- //
         ~Editor() = default;
 };
 

@@ -48,6 +48,8 @@ class Worker {
 
         // ---------- Constructor -------- //
         Worker(void);
+
+        // ----------- Destructor --------- //
         ~Worker();
 };
 

@@ -79,7 +79,42 @@ struct Metrics {
     bool costKnown = true;          // false: local / non Anthropic provider (the cost of claude is a guess)
     double limit5h = -1.0;          // utilization of the 5 hour window (0..1, -1 unknown)
     double limit7d = -1.0;          // utilization of the 7 day window
+    std::int64_t reset5h = 0;       // unix seconds of the reset of the 5 hour window (0 unknown)
+    std::int64_t reset7d = 0;
     int turns = 0;
+};
+
+// A finished turn in the usage ledger (usage.jsonl): what a vendor was used for, over every session and run
+struct UsageRecord {
+    std::int64_t time = 0;          // unix seconds
+    std::string vendor;             // provider (anthropic, ollama, openai, opencode...)
+    std::string model;
+    std::string session;
+    std::int64_t tokens = 0;        // new tokens: input + written to the cache + output
+    std::int64_t cache = 0;         // read again from the cache
+    double cost = 0.0;              // USD (0: local / unknown)
+    bool costKnown = true;
+};
+
+struct UsageSum {
+    std::int64_t tokens = 0;
+    std::int64_t cache = 0;
+    double cost = 0.0;
+    bool costKnown = true;          // false: some turns of a local / unknown price
+    int turns = 0;
+};
+
+// The usage of a vendor: today (since midnight), the last 7 days, its whole life; its limits when it tells them
+struct UsageReport {
+    std::string vendor;
+    cluster::UsageSum today;
+    cluster::UsageSum week;
+    cluster::UsageSum total;
+    std::int64_t since = 0;         // first turn of the ledger
+    double limit5h = -1.0;          // utilization 0..1 (-1 unknown), the last one seen in one of its sessions
+    double limit7d = -1.0;
+    std::int64_t reset5h = 0;
+    std::int64_t reset7d = 0;
 };
 
 // A prompt as written: its text (images as [Image #N] in the order of the text, pastes in full), its images, its pasted
@@ -126,6 +161,7 @@ struct SessionSpec {
     std::string resumeAt;           // claude: after a rewind, the message the conversation goes on from (until a prompt)
     std::string model;              // model given to the agent (from the backend)
     std::string mode = "default";   // permission mode
+    std::string effort;             // thinking / reasoning effort (empty: the default of the agent)
     std::string profile;
     std::vector<std::string> extraArgs;
     std::set<std::string> panels;

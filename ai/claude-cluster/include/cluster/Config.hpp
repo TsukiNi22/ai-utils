@@ -111,7 +111,7 @@ class Config {
         std::string frontend = "auto";
         std::string layout = "list";
         std::string style = "html-dark";
-        std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "git"};
+        std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "usage", "git"};
         std::string restore = "ask";
         bool notify = true;                     // desktop notifications at all
         bool notifyGlobal = true;               // the global session answered
@@ -129,6 +129,8 @@ class Config {
         /* agent */
         std::string backend = "claude";
         std::string mode = "auto";      // permission mode of the new sessions (empty: the default of the agent)
+        std::string effort;             // thinking / reasoning effort of the new sessions (empty: the default of the agent)
+        std::map<std::string, std::vector<std::string>> models; // [models] <provider> = [...]: offered in the palette, /model
         bool allowBypass = true;
         std::vector<std::string> extraArgs;
         std::map<std::string, std::string> commands = {{"claude", "claude"}, {"qwen", "qwen"}, {"opencode", "opencode"}, {"codex", "codex"}};
@@ -139,6 +141,7 @@ class Config {
         std::string globalCwd;                  // empty: a folder of its own (<data>/global, trusted for Remote Control)
         std::string globalModel;
         std::string globalMode = "bypassPermissions"; // never asked (empty: the mode of [agent])
+        std::string globalEffort;               // empty: the one of [agent]
         std::string globalPrompt = "~/.config/claude-cluster/global.md";
         std::string remoteName = "claude-cluster";
 
@@ -146,6 +149,7 @@ class Config {
         int trashDays = 14;
         int maxParallel = 4;
         double budget = 0.0;
+        std::string sessionsPrompt = "~/.config/claude-cluster/sessions.md"; // system prompt of the sub-sessions (empty: none)
 
         cluster::VoiceConf voice;
         cluster::ServiceConf service;
@@ -169,6 +173,8 @@ class Config {
 
         // ---------- Constructor -------- //
         _cold Config(void);
+
+        // ----------- Destructor --------- //
         _cold ~Config() = default;
 };
 

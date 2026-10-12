@@ -37,6 +37,15 @@ struct Action {
     bool ui = false;        // handled by the front-end (layout, style, focus, quit...)
 };
 
+// The model and the effort of a session, and the choices of its backend
+struct ModelInfo {
+    std::string driver;
+    std::string model;      // the one asked (empty: the default of the provider), else the one answering
+    std::string effort;     // empty / default: the one of the agent
+    std::vector<std::pair<std::string, std::string>> models;    // <model, description>
+    std::vector<std::string> efforts;                           // empty: the driver has none
+};
+
 struct ActionResult {
     std::string message;    // shown to the user
     bool error = false;
@@ -56,6 +65,7 @@ _cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager
 _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_commands(void);  // local /commands <usage, description>
 _cold _nodiscard std::string next_mode(const std::string& mode);    // Shift+Tab: auto, acceptEdits, plan, bypassPermissions, manual
 _cold _nodiscard std::string help_text(const cluster::Config& config);   // F1: every key
+_cold _nodiscard cluster::ModelInfo model_info(cluster::Manager& manager, const std::string& session); // throws: no session
 
 } // namespace end
 

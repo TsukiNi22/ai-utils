@@ -5,7 +5,8 @@
 frontend = "auto"          # auto | tty | gui (the --tty / --gui flags win)
 layout = "list"            # list (list + active panel) | grid | tabs
 style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized-light | mono, or a [styles.<name>] below
-panels = ["skills", "tokens", "context", "cost", "git"]   # default panels of a new session (+ "diff", "tools")
+panels = ["skills", "tokens", "context", "cost", "usage", "git"] # default panels of a new session (+ "diff", "tools", "files")
+                           # usage: the vendor of the session today / 7 days / lifetime (tokens, cost), limits left
 restore = "ask"            # ask | always | never: sessions of the previous run at start (like Firefox)
 notify = true              # desktop notifications at all (the ones of the global session too)
 notify_global = true       # when the global session answers
@@ -30,6 +31,9 @@ typewriter_speed = 400     # characters per second (faster by itself when a long
 #   codex driver: codex[/<model>] (OpenAI Codex CLI, `codex login`)
 default = "claude"
 permission_mode = "auto"   # auto | manual | acceptEdits | plan | dontAsk | bypassPermissions (empty: the default of claude -p, manual)
+effort = ""                # thinking / reasoning effort of the new sessions (empty: the default of the agent):
+                           #   claude low | medium | high | xhigh | max, codex / opencode minimal | low | medium | high...
+                           #   per session: /effort <level>, the palette (Effort), `claude-cluster effort <s> <level>`
 allow_bypass = true        # claude: launched with --allow-dangerously-skip-permissions, so bypassPermissions can be chosen
 extra_args = []
 
@@ -39,6 +43,12 @@ qwen = "qwen"
 opencode = "opencode"
 codex = "codex"
 
+[models]                   # models offered per provider (palette "Model: ...", /model completion), added to the known
+                           # ones (Claude aliases and ids, `ollama list`, `opencode models`); any id works with /model <id>
+# anthropic = ["claude-opus-5-1"]
+# openai = ["gpt-5", "gpt-5-mini"]
+# codex = ["gpt-5-codex"]
+
 [global]
 enabled = true
 backend = "claude"         # must be a claude-driver provider (the MCP control needs it)
@@ -46,6 +56,7 @@ cwd = ""                   # working folder of the global session; empty: a fold
                            #   (~/.local/share/claude-cluster/global, trusted by claude-cluster for Remote Control:
                            #   claude --bg never runs in the home folder)
 model = ""
+effort = ""                # of the global session at every start (empty: its own /effort, else the one of [agent])
 permission_mode = "bypassPermissions" # of the global session, applied at every start: it can do anything without
                            # asking (empty: the mode of [agent])
 prompt = "~/.config/claude-cluster/global.md"   # its own system prompt (added to the global CLAUDE.md)
@@ -55,6 +66,8 @@ remote_name = "claude-cluster"                  # name of the Remote Control ses
 trash_days = 14            # a closed session stays restorable this many days
 max_parallel = 4           # task queue: sessions working at the same time
 budget_usd = 0.0           # 0 = no budget; reached: the session refuses new prompts (notified)
+prompt = "~/.config/claude-cluster/sessions.md" # system prompt of every sub-session (claude driver, added to the global
+                           # CLAUDE.md; an empty file: none), taken at the next start of each session
 
 [voice]
 enabled = false

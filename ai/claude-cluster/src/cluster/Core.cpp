@@ -106,6 +106,8 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("voice", {"", "", "voice", ""}, {{"mode", true, [](const std::string& v) {return choice_(v, {"auto", "wake", "push"});}}},
         "Voice on for this run: auto (every sentence) | wake | push (the service opens claude-cluster with --voice auto)");
     this->_parser.setFlag("verbose", {"v", "", "verbose", ""}, {}, "service run: the end of the text of every sound heard (tests)");
+    this->_parser.setFlag("debug", {"", "", "debug", ""}, {}, "service setup / enable / run: the whole text heard in the journal (tests only)");
+    this->_parser.setFlag("follow", {"", "", "follow", ""}, {}, "service logs: the new lines as they come");
     this->_parser.setFlag("yes", {"y", "", "yes", ""}, {}, "machine sync: no question (the scan accepted)");
     this->_parser.setFlag("rescan", {"", "", "rescan", ""}, {}, "Ask at start to sync the map of this computer (even recent or refused)");
     this->_parser.setFlag("every", {"", "", "every", ""}, {{"minutes", true, any}}, "schedule add: repeated every N minutes");
@@ -205,7 +207,8 @@ _cold void cluster::Core::run(void)
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
     else if (cmd == "machine") this->_exit = this->machine_();
-    else if (cmd == "service") this->_exit = cluster::service_command(this->_words, this->_options.values.contains("verbose"));
+    else if (cmd == "service") this->_exit = cluster::service_command(this->_words, {this->_options.values.contains("verbose"),
+        this->_options.values.contains("debug"), this->_options.values.contains("follow")});
     else if (cmd == "help") this->help_();
     else this->_exit = this->headless_();
 }
@@ -260,13 +263,11 @@ _cold int cluster::Core::ui_(const bool serve)
     app.start();
 
     int code = 0;
+    cluster::catch_quit_signals(); // Ctrl+C, kill, the terminal closed: a normal quit (sessions saved, terminal restored)
     if (serve) {
-        // Headless instance: the commands and the MCP server drive it, until SIGINT / SIGTERM (handlers: reset by exec in the agents)
-        static std::atomic<bool> stop{false};
-        std::signal(SIGINT, [](int) {stop = true;});
-        std::signal(SIGTERM, [](int) {stop = true;});
+        // Headless instance: the commands and the MCP server drive it, until a quit signal
         std::cerr << "claude-cluster: serving on " << cluster::socket_path().string() << " (Ctrl+C to stop)" << std::endl;
-        while (!stop)
+        while (!cluster::quit_requested())
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         app.stop();
         return 0;
@@ -322,6 +323,12 @@ _cold int cluster::Core::headless_(void)
         request.update({{"session", word(1, "session")}, {"name", rest(2)}});
     } else if (cmd == "mode") {
         request.update({{"session", word(1, "session")}, {"mode", word(2, "mode")}});
+    } else if (cmd == "model") {
+        request.update({{"session", word(1, "session")}, {"model", w.size() > 2 ? w[2] : ""}});
+    } else if (cmd == "effort") {
+        request.update({{"cmd", "model"}, {"session", word(1, "session")}, {"effort", word(2, "level")}});
+    } else if (cmd == "usage") {
+        request["vendor"] = w.size() > 1 ? w[1] : "";
     } else if (cmd == "allow") {
         request.update({{"session", word(1, "session")}, {"behavior", w.size() > 2 ? w[2] : "allow"}, {"request_id", w.size() > 3 ? w[3] : ""}});
     } else if (cmd == "cd") {

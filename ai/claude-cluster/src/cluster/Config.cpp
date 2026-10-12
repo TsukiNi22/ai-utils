@@ -82,6 +82,8 @@ _cold void cluster::Config::load(void)
     if (!std::filesystem::exists(this->_path)) std::ofstream(this->_path) << cluster::templates::CONFIG;
     const std::filesystem::path prompt = cluster::config_dir() / "global.md";
     if (!std::filesystem::exists(prompt)) std::ofstream(prompt) << cluster::templates::GLOBAL_PROMPT;
+    const std::filesystem::path sessions = cluster::config_dir() / "sessions.md";
+    if (!std::filesystem::exists(sessions)) std::ofstream(sessions) << cluster::templates::SESSIONS_PROMPT;
     this->_mtime = std::filesystem::last_write_time(this->_path, error);
 
     toml::table table;
@@ -116,6 +118,7 @@ _cold void cluster::Config::load(void)
     /* agent */
     this->backend = table["agent"]["default"].value_or(this->backend);
     this->mode = table["agent"]["permission_mode"].value_or(this->mode);
+    this->effort = table["agent"]["effort"].value_or(this->effort);
     this->allowBypass = table["agent"]["allow_bypass"].value_or(this->allowBypass);
     this->extraArgs = strings_(table["agent"]["extra_args"], {});
     if (const toml::table* commandsTable = table["commands"].as_table())
@@ -128,6 +131,7 @@ _cold void cluster::Config::load(void)
     this->globalCwd = table["global"]["cwd"].value_or(this->globalCwd);
     this->globalModel = table["global"]["model"].value_or(this->globalModel);
     this->globalMode = table["global"]["permission_mode"].value_or(this->globalMode);
+    this->globalEffort = table["global"]["effort"].value_or(this->globalEffort);
     this->globalPrompt = table["global"]["prompt"].value_or(this->globalPrompt);
     this->remoteName = table["global"]["remote_name"].value_or(this->remoteName);
 
@@ -135,6 +139,7 @@ _cold void cluster::Config::load(void)
     this->trashDays = table["sessions"]["trash_days"].value_or(this->trashDays);
     this->maxParallel = table["sessions"]["max_parallel"].value_or(this->maxParallel);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
+    this->sessionsPrompt = table["sessions"]["prompt"].value_or(this->sessionsPrompt);
 
     /* voice */
     toml::node_view<const toml::node> v = std::as_const(table)["voice"];
@@ -199,6 +204,12 @@ _cold void cluster::Config::load(void)
             this->styles[custom.name] = custom;
         }
     }
+
+    /* models offered per provider */
+    this->models.clear();
+    if (const toml::table* modelsTable = table["models"].as_table())
+        for (const auto &[name, node]: *modelsTable)
+            this->models[std::string(name.str())] = strings_(std::as_const(*modelsTable)[name.str()], {});
 
     /* profiles */
     this->profiles.clear();

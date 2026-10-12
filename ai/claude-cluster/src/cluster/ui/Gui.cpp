@@ -110,7 +110,7 @@ class PromptEdit: public QPlainTextEdit {
 
     public:
         QString text(void) const {return this->toPlainText();};
-        void setText(const QString& text) {this->setPlainText(text); this->moveCursor(QTextCursor::End);};
+        void setText(const QString& text);  // put here (history, stash...): no completion opened by it
         int cursorPosition(void) const {return this->textCursor().position();};
         bool hasSelectedText(void) const {return this->textCursor().hasSelection();};
         void insert(const QString& text) {this->textCursor().insertText(text);};
@@ -209,12 +209,21 @@ class Window: public QMainWindow {
         bool expanded = false;                  // Ctrl+O: thinking and tool results in full
         int historyAt = -1;                     // Up / Down: -1 the prompt being written, else an index of the history
         std::vector<cluster::Draft> historyList;
+        std::string historySession;             // the session of that list
         std::map<int, QString> historyEdits;    // the texts changed while browsing (forgotten when a prompt is sent)
 
         bool historyStep(const int delta)
         {
-            // +1 older, -1 newer, never looped; the text left (changed or not) is kept for when it comes back
-            if (this->historyAt == -1 && delta > 0) this->historyList = this->manager.drafts();
+            // +1 older, -1 newer, never looped; the text left (changed or not) is kept for when it comes back; the prompts
+            // of the session shown only (Ctrl+R: every session), from the newest again when it changed
+            if (this->historySession != this->active) {
+                this->historyAt = -1;
+                this->historyEdits.clear();
+            }
+            if (this->historyAt == -1 && delta > 0) {
+                this->historyList = this->manager.drafts(500, this->active);
+                this->historySession = this->active;
+            }
             const int to = this->historyAt + delta;
             if (to < -1 || to >= static_cast<int>(this->historyList.size())) return false;
             this->historyEdits[this->historyAt] = this->input->text();
@@ -340,8 +349,8 @@ class Window: public QMainWindow {
                 this->signature.clear();
             } else if (base == "settings") {
                 this->settings();
-            } else if (base == "machine_sync" || base == "edit_global_prompt") {
-                this->settingAction(base == "machine_sync" ? "machine_sync" : "edit_prompt");
+            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt") {
+                this->settingAction(base == "edit_global_prompt" ? "edit_prompt" : base);
             } else if (base == "restore_menu") {
                 this->openRestore();
             } else if (base == "quit") {
@@ -590,9 +599,15 @@ class Window: public QMainWindow {
                 const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
                 if (!this->app.voice->pending().empty()) this->app.voice->cancel();
                 else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) this->run({"interrupt", "", "", "", false}, "");
-                else {
+                else if (!this->input->text().isEmpty()) {
                     this->input->reset();
                     this->historyReset();
+                } else {
+                    // nothing to stop or clear: twice within 2 s quits (like Claude Code)
+                    const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    if (now - this->lastInterrupt < 2000) this->close();
+                    else this->message(this->manager.config().keys.at("interrupt") + " again to quit", false);
+                    this->lastInterrupt = now;
                 }
             } else if (action == "mode_cycle") {
                 const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
@@ -633,15 +648,24 @@ class Window: public QMainWindow {
                     this->input->loadDraft(*text);
                 }
             } else if (action == "history") {
+                // the prompts of the session shown; its last entry: every session
+                static const QString every = "[every session…]";
                 QStringList items;
-                for (const std::string& text: this->manager.history())
+                for (const std::string& text: this->manager.history(500, this->active))
                     items << q_(text);
+                items << every;
+                bool ok = false;
+                QString item = QInputDialog::getItem(this, "History", q_("Prompt of " + this->active + " (type to filter)"), items, 0, true, &ok);
+                if (ok && item == every) {
+                    items.clear();
+                    for (const std::string& text: this->manager.history())
+                        items << q_(text);
+                    item = items.isEmpty() ? QString() : QInputDialog::getItem(this, "History", "Prompt of every session (type to filter)", items, 0, true, &ok);
+                }
                 if (items.isEmpty()) {
                     this->message("no prompt yet", false);
                 } else {
-                    bool ok = false;
-                    const QString item = QInputDialog::getItem(this, "History", "Prompt (type to filter)", items, 0, true, &ok);
-                    if (ok) {
+                    if (ok && !item.isEmpty()) {
                         const std::vector<cluster::Draft> drafts = this->manager.drafts();
                         auto it = std::find_if(drafts.begin(), drafts.end(), [&](const cluster::Draft& d) {return d.text == item.toStdString();});
                         this->input->loadDraft(it != drafts.end() ? *it : cluster::Draft{item.toStdString(), {}, {}});
@@ -741,8 +765,8 @@ class Window: public QMainWindow {
                 std::string error;
                 try {
                     local = cluster::run_slash(this->manager, session, text);
-                    if (local) this->manager.addHistory(draft, session);
-                    else this->manager.send(session, text, false, images, draft.pastes);
+                    if (!local) this->manager.send(session, text, false, images);
+                    this->manager.addHistory(draft, session); // typed here: in the history (not the ones of the global session / MCP)
                 } catch (const utils::exception::IException& e) {
                     error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
                 }
@@ -1010,19 +1034,26 @@ class Window: public QMainWindow {
 
         void settingAction(const std::string& key)
         {
-            // an action of the settings: the map of this computer, the system prompt of the global session (edited here)
+            // an action of the settings: the map of this computer, the system prompt of the global session or of the
+            // sub-sessions (edited here)
             if (key == "machine_sync") {
                 this->askMachine(0);
                 return;
             }
-            if (key != "edit_prompt") return;
-            const std::filesystem::path path = cluster::expand_home(this->manager.config().globalPrompt);
+            if (key != "edit_prompt" && key != "edit_sessions_prompt") return;
+            const bool global = key == "edit_prompt";
+            const std::filesystem::path path = cluster::expand_home(global ? this->manager.config().globalPrompt : this->manager.config().sessionsPrompt);
             std::ifstream in(path);
             const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             bool ok = false;
-            const QString edited = QInputDialog::getMultiLineText(this, "System prompt of the global session", q_(cluster::short_path(path.string())), q_(text), &ok);
+            const QString edited = QInputDialog::getMultiLineText(this, global ? "System prompt of the global session" : "System prompt of the sub-sessions",
+                q_(cluster::short_path(path.string()) + " (empty: none)"), q_(text), &ok);
             if (!ok || edited.toStdString() == text) return;
             std::ofstream(path) << edited.toStdString();
+            if (!global) {
+                this->message("system prompt of the sub-sessions saved: taken by each one at its next start (/clear, /model...)", false);
+                return;
+            }
             try {
                 this->manager.restartGlobal();
                 this->message("system prompt saved: the global session started again (same conversation)", false);
@@ -1031,9 +1062,14 @@ class Window: public QMainWindow {
             }
         }
         std::string styleSeen;
+        std::int64_t lastInterrupt = 0;     // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
 
         void tick(void)
         {
+            if (cluster::quit_requested()) { // Ctrl+C in the terminal, kill, the terminal closed: the normal quit
+                this->close();
+                return;
+            }
             this->scanProgress();
             // the global session asked to show a session (ui_focus) or another style (ui_style)
             const std::pair<std::uint64_t, std::string> focus = this->manager.focusRequest();
@@ -1212,6 +1248,14 @@ void PromptEdit::refreshChips(void)
     }
     static_cast<QHBoxLayout*>(this->chipsBar->layout())->addStretch(1);
     this->chipsBar->setVisible(!atoms.empty());
+}
+
+void PromptEdit::setText(const QString& text)
+{
+    this->setPlainText(text);
+    this->moveCursor(QTextCursor::End);
+    this->completion.dismiss(); // the arrows go on browsing; it opens again when the word is changed
+    if (this->popup) this->popup->setVisible(false);
 }
 
 void PromptEdit::loadDraft(const cluster::Draft& draft)
@@ -1467,7 +1511,8 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     // header
     const std::string model = s.modelUsed.empty() ? s.spec.backend : s.spec.backend.substr(0, s.spec.backend.find('/')) + "/" + s.modelUsed;
     QString head = span_(st.accent, esc_(s.spec.name), true) + "  " + span_(s.state == cluster::State::Error ? st.error : st.text, cluster::state_name(s.state))
-        + "  " + span_(st.muted, esc_(model + "  ·  mode " + s.spec.mode + (compact ? "" : "  ·  " + cluster::short_path(s.spec.cwd))));
+        + "  " + span_(st.muted, esc_(model + "  ·  mode " + s.spec.mode
+        + (s.spec.effort.empty() || s.spec.effort == "default" ? "" : "  ·  effort " + s.spec.effort) + (compact ? "" : "  ·  " + cluster::short_path(s.spec.cwd))));
     if (!s.lastError.empty()) head += "<br>" + span_(st.error, esc_(cluster::one_line(s.lastError, 200)));
     if (!s.remoteUrl.empty() || !s.bridgeState.empty())
         head += "<br>" + span_(st.accent, "Remote Control " + esc_(s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? QString()
@@ -1588,6 +1633,13 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         if (m.limit7d >= 0) p += line("7d limit", std::to_string(static_cast<int>(m.limit7d * 100)) + "%");
         p += "</table>";
     }
+    if (s.spec.panels.contains("usage")) {
+        // the vendor of the session over every session and run: today, 7 days, lifetime, its limits left
+        p += title("Usage") + "<table width=\"100%\">";
+        for (const auto &[left, right]: manager.usageLines(s))
+            p += line(left, right);
+        p += "</table>";
+    }
     if (s.spec.panels.contains("skills")) {
         p += title("Skills");
         for (const std::string& skill: s.skillsLoaded)
@@ -1646,16 +1698,25 @@ _cold int cluster::run_gui(cluster::App& app)
     QApplication::setApplicationName("claude-cluster");
     Window window(app);
     window.show();
+    // the end of a prompt of the global session is notified only when the window is not the active one
+    app.manager->setFocused(QGuiApplication::applicationState() == Qt::ApplicationActive);
+    QObject::connect(&application, &QGuiApplication::applicationStateChanged, [&app](const Qt::ApplicationState state) {
+        app.manager->setFocused(state == Qt::ApplicationActive);
+    });
     if (app.askRestore) {
         const std::vector<cluster::SessionSpec> previous = app.manager->previous();
         std::string list;
         for (const cluster::SessionSpec& spec: previous)
             list += "\n  " + spec.name + "  (" + spec.backend + ", " + cluster::short_path(spec.cwd) + ")";
         QMessageBox box(QMessageBox::Question, "claude-cluster", q_("Restore the previous run?" + list + "\n  global session: its conversation\n\nNo: start new (the sessions to the trash "
-            + std::to_string(app.manager->config().trashDays) + " days, a new global conversation)."), QMessageBox::Yes | QMessageBox::No, &window);
+            + std::to_string(app.manager->config().trashDays) + " days, a new global conversation).\nQuit: asked again at the next start."),
+            QMessageBox::Yes | QMessageBox::No | QMessageBox::Close, &window);
+        box.button(QMessageBox::Close)->setText("Quit");
         box.setDefaultButton(QMessageBox::Yes);
         box.setEscapeButton(QMessageBox::Yes); // closed: everything kept
-        app.manager->answerRestore(box.exec() == QMessageBox::Yes);
+        const int answer = box.exec();
+        if (answer == QMessageBox::Close || cluster::quit_requested()) return 0; // out without answering: the previous run kept
+        app.manager->answerRestore(answer == QMessageBox::Yes);
         window.refresh(true);
     }
     if (app.askMachine != 0 && !std::getenv("CLAUDE_CLUSTER_SCREENSHOT")) window.askMachine(app.askMachine);

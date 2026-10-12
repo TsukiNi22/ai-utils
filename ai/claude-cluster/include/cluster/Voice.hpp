@@ -77,6 +77,8 @@ class Voice {
         _cold void speak(const std::string& text);
         _cold void mute(void);
         _cold _nodiscard std::vector<std::string> setup(void) const;   // what is missing, with the command to fix it
+        _nodiscard bool armed(void) const;                 // wake mode: the wake phrase was just heard
+        _nodiscard std::vector<cluster::Pending> pending(void) const;
 
         // ---------- Function -------- //
         // push mode: F5 pressed; other modes: voice-listen runs
@@ -84,12 +86,12 @@ class Voice {
         _nodiscard inline bool ready(void) const {return this->_ready;};
         _nodiscard inline bool running(void) const {return this->_listening;};
         _nodiscard inline bool speaking(void) const {return this->_sayPid > 0;};
-        _nodiscard bool armed(void) const;                 // wake mode: the wake phrase was just heard
-        _nodiscard std::vector<cluster::Pending> pending(void) const;
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};
 
         // ---------- Constructor -------- //
         _cold Voice(cluster::Manager& manager);
+
+        // ----------- Destructor --------- //
         _cold ~Voice();
 };
 

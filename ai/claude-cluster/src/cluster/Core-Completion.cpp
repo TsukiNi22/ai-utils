@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Control.hpp"
+#include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Auth.hpp"
 #include "cluster/Core.hpp"
@@ -54,10 +55,12 @@ _cold static std::vector<std::pair<std::string, std::string>> values_(const std:
         {"auth_sub", {{"list", "every provider and its state"}, {"login", "log in / store an API key"}, {"logout", "log out / remove the key"}}},
         {"service_sub", {{"setup", "write the systemd --user unit"}, {"enable", "set up, start now and with the session"}, {"disable", "stop, not at the next session"},
             {"start", "start now"}, {"stop", "stop now"}, {"restart", "start again"}, {"status", "installed, active, an instance running"},
-            {"remove", "stop and delete the unit"}, {"run", "the service loop (what the unit runs; --verbose: tests)"}}},
+            {"remove", "stop and delete the unit"}, {"logs", "its journal (--follow: the new lines)"},
+            {"run", "the service loop (what the unit runs; --verbose / --debug: tests)"}}},
         {"machine_sub", {{"sync", "scan this computer again (asks first, --yes: not)"}, {"show", "the map"}, {"path", "where it is"}}},
         {"voice", {{"auto", "every sentence heard"}, {"wake", "after the wake phrase"}, {"push", "push-to-talk key"}}},
         {"shell", {{"bash", "bash completion"}, {"zsh", "zsh completion"}, {"fish", "fish completion"}}},
+        {"effort", {{"default", "the one of the agent"}, {"low", ""}, {"medium", ""}, {"high", ""}, {"xhigh", ""}, {"max", ""}, {"minimal", "codex, opencode"}}},
     };
     auto it = fixed.find(kind);
     return it == fixed.end() ? std::vector<std::pair<std::string, std::string>>{} : it->second;
@@ -73,6 +76,9 @@ _cold const std::vector<cluster::Command>& cluster::commands(void)
         {"send", "<s> <text...>", "prompt to a session (queued when working, --force: ignore the budget)", {"session", "text"}},
         {"allow", "<s> [allow|always|deny]", "answer the pending permission", {"session", "behavior"}},
         {"mode", "<s> <mode>", "permission mode: auto | manual | acceptEdits | plan | dontAsk | bypassPermissions", {"session", "mode"}},
+        {"model", "<s> [model]", "model of a session, same conversation (none: the current one and the choices)", {"session"}},
+        {"effort", "<s> <level>", "thinking effort: default | low | medium | high | xhigh | max (codex, opencode: minimal...)", {"session", "effort"}},
+        {"usage", "[vendor]", "tokens and cost per vendor: today, last 7 days, lifetime; limits left", {}},
         {"interrupt", "<s>", "stop the running turn", {"session"}},
         {"rename", "<s> <name>", "rename a session", {"session", "text"}},
         {"cd", "<s> <folder>", "move a session to another project", {"session", "folder"}},
@@ -150,8 +156,9 @@ _cold void cluster::Core::complete_(const std::string& kind) const
         }
         if (kind == "backend") {
             // the models known on this computer: Claude aliases, local Ollama models, opencode models
-            for (const char* model: {"opus", "sonnet", "haiku"})
-                out.emplace_back(std::string("claude/") + model, std::string("Claude Code, model ") + model);
+            if (const std::optional<cluster::Provider> anthropic = cluster::Auth(config).find("anthropic"))
+                for (const auto &[model, description]: cluster::model_choices(config, *anthropic))
+                    out.emplace_back("claude/" + model, "Claude Code, " + description);
             if (cluster::has_command("ollama")) {
                 const std::vector<std::string> lines = cluster::split(cluster::capture({"ollama", "list"}, "", 3).out, '\n');
                 for (std::size_t i = 1; i < lines.size(); ++i) {

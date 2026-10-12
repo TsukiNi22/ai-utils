@@ -54,10 +54,14 @@ class Git {
         // ---------- Pre-Function -------- //
         _cold _nodiscard cluster::GitInfo info(const std::string& cwd, const bool withDiff, const int maxAge = 5) const;
         _cold _nodiscard static cluster::GitInfo read(const std::string& cwd, const bool withDiff);
+
+        // ------------ Function ---------- //
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};   // changes when a refresh ends (redraw)
 
         // ---------- Constructor -------- //
         Git(void) = default;
+
+        // ----------- Destructor --------- //
         ~Git() = default;
 };
 

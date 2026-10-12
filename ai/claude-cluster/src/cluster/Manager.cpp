@@ -15,6 +15,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Manager.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
 #include <filesystem>
 #include <algorithm>
@@ -29,7 +30,7 @@ _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
 {
     return {
         {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId}, {"leaf", spec.leaf}, {"resume_at", spec.resumeAt},
-        {"model", spec.model}, {"mode", spec.mode}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
+        {"model", spec.model}, {"mode", spec.mode}, {"effort", spec.effort}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
         {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
     };
 }
@@ -46,6 +47,7 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.resumeAt = json.value("resume_at", std::string());
     spec.model = json.value("model", std::string());
     spec.mode = json.value("mode", std::string("default"));
+    spec.effort = json.value("effort", std::string());
     spec.profile = json.value("profile", std::string());
     spec.extraArgs = json.value("extra_args", std::vector<std::string>());
     spec.panels = json.value("panels", std::set<std::string>());
@@ -67,10 +69,21 @@ _cold static std::filesystem::path log_file_(const std::string& id)
     return cluster::data_dir() / "logs" / (id + ".jsonl");
 }
 
+_cold static std::vector<std::string> prompt_args_(const std::string& file)
+{
+    // a system prompt file added to the one of claude (CLAUDE.md kept); missing, empty or blank: none
+    std::ifstream in(cluster::expand_home(file));
+    std::stringstream prompt;
+    prompt << in.rdbuf();
+    if (cluster::trim(prompt.str()).empty()) return {};
+    return {"--append-system-prompt", prompt.str()};
+}
+
 /* constructor */
 _cold cluster::Manager::Manager(cluster::Config& config)
     : _config(config), _auth(config)
 {
+    this->loadUsage_();
 }
 
 _cold cluster::Manager::~Manager()
@@ -97,7 +110,13 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     if (!cluster::has_command(launch.command))
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument,
             "`" + launch.command + "` is not installed (backend " + spec.backend + ")");
-    if (launch.backend.provider.driver == "claude") launch.extraArgs = this->_config.extraArgs;
+    if (launch.backend.provider.driver == "claude") {
+        launch.extraArgs = this->_config.extraArgs;
+        if (!spec.global) {
+            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt);
+            launch.extraArgs.insert(launch.extraArgs.end(), prompt.begin(), prompt.end());
+        }
+    }
     if (spec.global) {
         const std::vector<std::string> global = this->globalArgs_();
         launch.extraArgs.insert(launch.extraArgs.end(), global.begin(), global.end());
@@ -138,6 +157,7 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     spec.cwd = cwd.string();
     spec.backend = req.backend.empty() ? this->_config.backend : req.backend;
     spec.mode = req.mode.empty() ? this->_config.mode : req.mode;
+    spec.effort = req.effort.empty() ? this->_config.effort : req.effort;
     spec.profile = req.profile;
     spec.panels = std::set<std::string>(this->_config.panels.begin(), this->_config.panels.end());
     spec.created = cluster::now();
@@ -156,8 +176,7 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     return spec.id;
 }
 
-_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images,
-    const std::vector<std::string>& pastes)
+_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images)
 {
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     const cluster::Snapshot snap = session->snapshot();
@@ -168,18 +187,19 @@ _cold void cluster::Manager::send(const std::string& id, const std::string& text
             "budget of " + cluster::human_cost(this->_config.budget) + " reached for " + snap.spec.name + " (force it, or raise sessions.budget_usd)");
     }
     session->send(text, images);
-    this->addHistory({text, images, pastes}, id);
 }
 
 _cold void cluster::Manager::clear(const std::string& id)
 {
-    // a new conversation (like /clear of Claude Code): the session again without --resume; its transcript kept, marked
+    // a new conversation (like /clear of Claude Code): the session again without --resume, an empty transcript (the old
+    // one archived: found by the search, not shown)
     const std::shared_ptr<cluster::Session> old = this->get_(id);
     old->stop();
     cluster::SessionSpec spec = old->spec();
     spec.claudeId.clear();
     spec.leaf.clear();
     spec.resumeAt.clear();
+    this->archive_(id);
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
     session->loadHistory(300);
     {
@@ -187,19 +207,42 @@ _cold void cluster::Manager::clear(const std::string& id)
         this->_sessions[id] = session;
     }
     session->start();
-    this->markNew_(id);
-    this->notice_(id, spec.name + ": new conversation");
+    this->notice_(id, spec.name + ": new conversation (the transcript before archived)");
     this->save();
 }
 
 _cold void cluster::Manager::setModel(const std::string& id, const std::string& model)
 {
     // the same conversation (--resume) on another model: the session started again
-    const std::shared_ptr<cluster::Session> old = this->get_(id);
-    old->stop();
-    cluster::SessionSpec spec = old->spec();
+    cluster::SessionSpec spec = this->get_(id)->spec();
     spec.backend = spec.backend.substr(0, spec.backend.find('/')) + "/" + model;
     spec.model = model;
+    this->relaunch_(id, spec);
+    this->notice_(id, spec.name + ": model " + model);
+}
+
+_cold void cluster::Manager::setEffort(const std::string& id, const std::string& effort)
+{
+    // thinking / reasoning effort (default: the one of the agent): the same conversation started again
+    cluster::SessionSpec spec = this->get_(id)->spec();
+    const std::string driver = this->_auth.resolve(spec.backend).provider.driver;
+    const std::vector<std::string>& levels = cluster::effort_levels(driver);
+    if (levels.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no effort level for the " + driver + " driver");
+    if (effort != "default" && std::find(levels.begin(), levels.end(), effort) == levels.end()) {
+        std::string list = "default";
+        for (const std::string& level: levels)
+            list += ", " + level;
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "effort '" + effort + "': " + list);
+    }
+    spec.effort = effort;
+    this->relaunch_(id, spec);
+    this->notice_(id, spec.name + ": effort " + effort);
+}
+
+_cold void cluster::Manager::relaunch_(const std::string& id, const cluster::SessionSpec& spec)
+{
+    // the session started again with this spec (its conversation: --resume), its transcript kept
+    this->get_(id)->stop();
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
     session->loadHistory(300);
     {
@@ -207,7 +250,6 @@ _cold void cluster::Manager::setModel(const std::string& id, const std::string& 
         this->_sessions[id] = session;
     }
     session->start();
-    this->notice_(id, spec.name + ": model " + model);
     this->save();
 }
 
@@ -268,8 +310,11 @@ _cold void cluster::Manager::purge(const std::string& id)
     }
     if (!id.empty() && id != "*" && removed.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + id + "' in the trash");
     std::error_code error;
-    for (const std::string& gone: removed)
+    for (const std::string& gone: removed) {
         std::filesystem::remove(log_file_(gone), error);
+        for (const std::filesystem::directory_entry& file: std::filesystem::directory_iterator(log_file_(gone).parent_path() / "archive", error))
+            if (file.path().stem().string().starts_with(gone + "-")) std::filesystem::remove(file.path(), error); // its old conversations
+    }
     if (!removed.empty()) this->save();
 }
 
@@ -318,11 +363,9 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
 /* global session */
 _cold std::vector<std::string> cluster::Manager::globalArgs_(void) const
 {
-    std::ifstream file(cluster::expand_home(this->_config.globalPrompt));
-    std::stringstream prompt;
-    prompt << file.rdbuf();
     std::vector<std::string> args = {"--mcp-config", (cluster::runtime_dir() / "mcp.json").string(), "--allowedTools", "mcp__claude-cluster"};
-    if (!prompt.str().empty()) args.insert(args.end(), {"--append-system-prompt", prompt.str()});
+    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt);
+    args.insert(args.end(), prompt.begin(), prompt.end());
     return args;
 }
 
@@ -356,8 +399,10 @@ _cold void cluster::Manager::startGlobal(void)
     spec.cwd = cwd;
     spec.backend = this->_config.globalBackend + (this->_config.globalModel.empty() ? "" : "/" + this->_config.globalModel);
     if (spec.created == 0) spec.created = cluster::now();
-    if (spec.panels.empty()) spec.panels = {"tokens", "context", "cost"};
+    if (spec.panels.empty()) spec.panels = {"tokens", "context", "cost", "usage"};
     spec.mode = !this->_config.globalMode.empty() ? this->_config.globalMode : spec.mode.empty() ? this->_config.mode : spec.mode;
+    if (!this->_config.globalEffort.empty()) spec.effort = this->_config.globalEffort; // else its own (/effort), first: [agent]
+    else if (spec.effort.empty()) spec.effort = this->_config.effort;
     if (this->_auth.resolve(spec.backend).provider.driver != "claude") {
         this->notice_(GLOBAL_ID, "global.backend must use the claude driver (MCP control): '" + spec.backend + "' replaced by claude", true);
         spec.backend = "claude";
@@ -379,6 +424,10 @@ _cold void cluster::Manager::startGlobal(void)
         }
     }
     try {
+        if (this->_globalNew) { // "start new": its transcript archived, the new conversation shown alone
+            this->_globalNew = false;
+            this->archive_(GLOBAL_ID);
+        }
         const std::shared_ptr<cluster::Session> session = this->make_(spec);
         session->loadHistory(200);
         {
@@ -386,10 +435,6 @@ _cold void cluster::Manager::startGlobal(void)
             this->_sessions[GLOBAL_ID] = session;
         }
         session->start();
-        if (this->_globalNew) {
-            this->_globalNew = false;
-            this->markNew_(GLOBAL_ID);
-        }
     } catch (const utils::exception::IException& e) {
         this->notice_(GLOBAL_ID, std::string("global session: ") + e.what() + ": " + e.info(), true);
     }
@@ -462,9 +507,14 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             if (this->_config.notifyPermission) (void)this->notifyDesktop(name + ": permission", event.text, true);
             break;
         case cluster::Event::Kind::TurnDone:
-            if (event.session == GLOBAL_ID) {
+            this->recordUsage_(event.session);
+            if (event.interrupted) {
+                // stopped on purpose (Ctrl+C, a prompt sent over it...): no answer to speak or notify, not an error
+                this->notice_(event.session, name + ": interrupted");
+            } else if (event.session == GLOBAL_ID) {
                 if (this->onGlobalAnswer && !event.error) this->onGlobalAnswer(event.text);
-                if (this->_config.notifyGlobal) (void)this->notifyDesktop(event.error ? "global session: error" : "global session", event.text, event.error);
+                // notified only when claude-cluster has not the focus (the answer is in front of the user otherwise)
+                if (this->_config.notifyGlobal && this->_focused != 1) (void)this->notifyDesktop(event.error ? "global session: error" : "global session", event.text, event.error);
             } else {
                 // asked by the global session (session_send reply): its answer goes back to it, it wakes up on it
                 bool reply = false;
@@ -754,11 +804,16 @@ bool cluster::Manager::notifyDesktop(const std::string& title, const std::string
     return true;
 }
 
-void cluster::Manager::markNew_(const std::string& id)
+void cluster::Manager::archive_(const std::string& id)
 {
-    try {
-        this->get_(id)->mark("── new conversation: the context of claude starts again (the transcript above is kept) ──");
-    } catch (const utils::exception::IException&) {}
+    // the transcript of a conversation that ends: out of the display, kept for the search (purged with the session)
+    const std::filesystem::path log = log_file_(id);
+    std::error_code error;
+    if (std::filesystem::file_size(log, error) == 0 || error) return;
+    const std::filesystem::path archive = log.parent_path() / "archive";
+    std::filesystem::create_directories(archive, error);
+    std::filesystem::rename(log, archive / (id + "-" + std::to_string(cluster::now()) + ".jsonl"), error);
+    if (error) this->notice_(id, "transcript not archived: " + error.message(), true);
 }
 
 void cluster::Manager::replyTo(const std::string& id)
@@ -794,7 +849,7 @@ bool cluster::Manager::restorable(void) const
 
 _cold void cluster::Manager::answerRestore(const bool restore)
 {
-    // "start clean": the sessions to the trash, the global session on a new conversation (its transcript kept, marked)
+    // "start clean": the sessions to the trash, the global session on a new conversation (its transcript archived)
     this->restorePrevious(restore);
     if (!restore) {
         std::lock_guard<std::mutex> lock(this->_mutex);

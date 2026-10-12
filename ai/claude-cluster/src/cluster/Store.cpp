@@ -47,9 +47,16 @@ _cold std::vector<cluster::Hit> cluster::Manager::search(const std::string& text
     std::vector<cluster::Hit> hits;
     std::error_code error;
 
-    for (const std::filesystem::directory_entry& file: std::filesystem::directory_iterator(cluster::data_dir() / "logs", error)) {
-        const std::string id = file.path().stem().string();
-        std::ifstream in(file.path());
+    // the logs of the sessions, then the conversations archived by /clear ("<id>-<time>.jsonl")
+    std::vector<std::filesystem::path> files;
+    for (const char* folder: {"logs", "logs/archive"})
+        for (const std::filesystem::directory_entry& file: std::filesystem::directory_iterator(cluster::data_dir() / folder, error))
+            if (file.is_regular_file(error)) files.push_back(file.path());
+    for (const std::filesystem::path& path: files) {
+        const std::string stem = path.stem().string();
+        const bool archived = path.parent_path().filename() == "archive";
+        const std::string id = archived ? stem.substr(0, stem.find('-')) : stem;
+        std::ifstream in(path);
         std::string line;
         while (std::getline(in, line)) {
             if (cluster::lower(line).find(wanted) == std::string::npos) continue;
@@ -57,7 +64,8 @@ _cold std::vector<cluster::Hit> cluster::Manager::search(const std::string& text
                 const cluster::Json json = cluster::Json::parse(line);
                 const std::string body = json.value("text", std::string());
                 if (cluster::lower(body).find(wanted) == std::string::npos) continue;
-                hits.push_back({id, names.contains(id) ? names[id] : id + " (deleted)", json.value("time", std::int64_t{0}), cluster::one_line(body, 200)});
+                const std::string name = names.contains(id) ? names[id] : id + " (deleted)";
+                hits.push_back({id, archived ? name + " (archive)" : name, json.value("time", std::int64_t{0}), cluster::one_line(body, 200)});
             } catch (const cluster::Json::exception&) {}
         }
     }
@@ -122,15 +130,15 @@ _cold void cluster::Manager::addHistory(const cluster::Draft& draft, const std::
         {"images", draft.images}, {"pastes", draft.pastes}}.dump() << "\n";
 }
 
-_cold std::vector<std::string> cluster::Manager::history(const std::size_t max) const
+_cold std::vector<std::string> cluster::Manager::history(const std::size_t max, const std::string& session) const
 {
     std::vector<std::string> texts;
-    for (const cluster::Draft& draft: this->drafts(max))
+    for (const cluster::Draft& draft: this->drafts(max, session))
         texts.push_back(draft.text);
     return texts;
 }
 
-_cold std::vector<cluster::Draft> cluster::Manager::drafts(const std::size_t max) const
+_cold std::vector<cluster::Draft> cluster::Manager::drafts(const std::size_t max, const std::string& session) const
 {
     std::vector<std::string> lines;
     {
@@ -143,7 +151,7 @@ _cold std::vector<cluster::Draft> cluster::Manager::drafts(const std::size_t max
     std::vector<cluster::Draft> list;
     for (auto it = lines.rbegin(); it != lines.rend() && list.size() < max; ++it) {
         const cluster::Json json = cluster::Json::parse(*it, nullptr, false);
-        if (json.is_discarded()) continue;
+        if (json.is_discarded() || (!session.empty() && json.value("session", std::string()) != session)) continue;
         const cluster::Draft draft{json.value("text", std::string()), json.value("images", std::vector<std::string>()), json.value("pastes", std::vector<std::string>())};
         if (!draft.text.empty() && std::none_of(list.begin(), list.end(), [&](const cluster::Draft& d) {return d.text == draft.text;})) list.push_back(draft);
     }

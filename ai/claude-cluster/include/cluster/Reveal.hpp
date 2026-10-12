@@ -66,6 +66,8 @@ class Reveal {
 
         // ---------- Constructor -------- //
         Reveal(void) = default;
+
+        // ----------- Destructor --------- //
         ~Reveal() = default;
 };
 

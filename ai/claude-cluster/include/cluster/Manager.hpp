@@ -51,6 +51,7 @@ struct SpawnRequest {
     std::string mode;           // empty: config / profile
     std::string profile;
     std::string prompt;         // first prompt (optional)
+    std::string effort;         // empty: config
 };
 
 struct Notice {
@@ -96,6 +97,9 @@ class Manager {
         int _next = 1;
         int _nextTask = 1;
         std::atomic<std::uint64_t> _version{1};
+        std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
+        std::vector<cluster::UsageRecord> _usage;       // the usage ledger (usage.jsonl), in time order
+        std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows)
 
         // ---------- Pre-Function -------- //
         _cold _nodiscard std::shared_ptr<cluster::Session> get_(const std::string& id) const;
@@ -108,6 +112,10 @@ class Manager {
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
         _cold void schedule_(void);                         // Manager-Tasks.cpp
         _cold void taskDone_(const std::string& session, const bool error);
+        _cold void loadUsage_(void);                        // Manager-Usage.cpp
+        _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
+        void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)
+        _cold void relaunch_(const std::string& id, const cluster::SessionSpec& spec); // started again with this spec (same conversation)
 
     public:
         std::function<void(const std::string&)> onGlobalAnswer;   // voice: text of an answer of the global session
@@ -115,6 +123,13 @@ class Manager {
 
         // ---------- Pre-Function -------- //
         _cold void load(void);                              // state.json: trash, tasks, previous sessions, ui choices
+
+        /* usage (Manager-Usage.cpp) */
+        _cold _nodiscard std::string vendorOf(const std::string& backend) const;   // its provider ("" unknown)
+        _cold _nodiscard cluster::UsageReport usage(const std::string& vendor) const;
+        _cold _nodiscard std::vector<std::string> usageVendors(void) const;         // the ones in the ledger
+        _cold _nodiscard std::vector<std::pair<std::string, std::string>> usageLines(const cluster::Snapshot& snap) const; // panel "usage"
+        _cold _nodiscard cluster::Json usageJson(const std::string& vendor) const;  // every vendor when empty
         _cold void save(void) const;
         _cold void restorePrevious(const bool restore);     // restore the previous sessions, or move them to the trash
         _cold void answerRestore(const bool restore);       // the question at start: + the global session (resumed or new)
@@ -125,18 +140,16 @@ class Manager {
 
         /* sessions */
         _cold _nodiscard std::string spawn(const cluster::SpawnRequest& request);
-        _cold void send(const std::string& id, const std::string& text, const bool force = false, const std::vector<std::string>& images = {},
-            const std::vector<std::string>& pastes = {});             // pastes: kept with it in the history (blocks when it comes back)
-        _cold void clear(const std::string& id);                         // /clear: a new conversation (the transcript too)
+        _cold void send(const std::string& id, const std::string& text, const bool force = false,
+            const std::vector<std::string>& images = {});               // not in the history: the prompts typed by the user only (addHistory)
+        _cold void clear(const std::string& id);                         // /clear: a new conversation, the transcript archived (empty)
         _cold void setModel(const std::string& id, const std::string& model);   // /model: the session again on this model (same conversation)
+        _cold void setEffort(const std::string& id, const std::string& effort); // /effort: thinking / reasoning (default, low... max)
         _cold void close(const std::string& id);
         _cold _nodiscard std::string restore(const std::string& id);
         _cold void purge(const std::string& id = "");       // delete for good from the trash (empty: the expired ones, "*": all)
         _cold void rename(const std::string& id, const std::string& name);
         _cold void setMode(const std::string& id, const std::string& mode);
-        _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};
-        _cold inline void interrupt(const std::string& id) {this->get_(id)->interrupt();};
-        _cold _nodiscard inline std::optional<cluster::Queued> unqueue(const std::string& id) {return this->get_(id)->unqueue();}; // last queued prompt, removed
         _cold _nodiscard cluster::Queued rewind(const std::string& id); // the last turn removed, its prompt back (Esc Esc)
         _cold void cd(const std::string& id, const std::string& cwd);
         _cold void togglePanel(const std::string& id, const std::string& panel);
@@ -155,13 +168,14 @@ class Manager {
         _cold _nodiscard std::string exportMarkdown(const std::string& id) const;
         _cold _nodiscard cluster::Json toJson(const cluster::Snapshot& snapshot, const bool full) const;
         _cold void addHistory(const cluster::Draft& draft, const std::string& session); // prompts sent (history.jsonl)
-        _cold _nodiscard std::vector<cluster::Draft> drafts(const std::size_t max = 500) const;  // newest first, no duplicate
-        _cold _nodiscard std::vector<std::string> history(const std::size_t max = 500) const;    // their texts
+        _cold _nodiscard std::vector<cluster::Draft> drafts(const std::size_t max = 500, const std::string& session = "") const; // newest first, no
+                                                            // duplicate; a session: its prompts only (the arrows), none: every one (Ctrl+R)
+        _cold _nodiscard std::vector<std::string> history(const std::size_t max = 500, const std::string& session = "") const; // their texts
         _cold void stashPush(const cluster::Draft& draft);                              // prompt put aside (stash.json)
         _cold _nodiscard std::optional<cluster::Draft> stashPop(void);
         _cold _nodiscard std::size_t stashSize(void) const;
 
-        // ---------- Function -------- //
+        /* state */
         _nodiscard std::vector<cluster::Snapshot> list(const bool withGlobal = true) const;
         _nodiscard std::optional<cluster::Snapshot> snapshot(const std::string& id) const;
         _nodiscard std::vector<cluster::SessionSpec> trash(void) const;
@@ -174,22 +188,29 @@ class Manager {
         void requestFocus(const std::string& id);           // the interfaces show this session (the global session asks it)
         void replyTo(const std::string& id);                // the end of the next turn of this session sent to the global session
         bool notifyDesktop(const std::string& title, const std::string& text, const bool urgent = false) const; // false: notifications off
-        void markNew_(const std::string& id);               // "new conversation" in its transcript (the one before kept above)
         _cold void scanMachine(void);                       // the map of this computer written again (in the background, a notice)
         _nodiscard int machineAsk(void) const;              // asked at start: 0 no, 1 no map yet (not refused), 2 an old map (sync proposed)
-        inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
         _nodiscard std::optional<std::pair<cluster::MachineProgress, std::int64_t>> machineProgress(void) const; // the last scan, ms of its end (0: running)
-        inline void machineDecline(void) {this->setUi("machine", "no");};
         _cold void restartGlobal(void);                     // its system prompt read again, the same conversation
+
+        // ---------- Function -------- //
+        inline void setFocused(const bool focused) {this->_focused = focused ? 1 : 0;}; // the window / terminal has the focus
+        inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
+        inline void machineDecline(void) {this->setUi("machine", "no");};
         _nodiscard inline std::pair<std::uint64_t, std::string> focusRequest(void) const {return {this->_focusVersion, this->_focus};};
         inline void noteActive(const std::string& id) {this->_active = id;};   // the session shown (ui_state)
         _nodiscard inline std::string active(void) const {return this->_active;};
         _nodiscard inline cluster::Auth& auth(void) {return this->_auth;};
         _nodiscard inline cluster::Config& config(void) {return this->_config;};
         _nodiscard inline bool remote(void) const {return this->ui("remote", "false") == "true";}; // Remote Control of the global session
+        _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};
+        _cold inline void interrupt(const std::string& id) {this->get_(id)->interrupt();};
+        _cold _nodiscard inline std::optional<cluster::Queued> unqueue(const std::string& id) {return this->get_(id)->unqueue();}; // last queued prompt, removed
 
         // ---------- Constructor -------- //
         _cold Manager(cluster::Config& config);
+
+        // ----------- Destructor --------- //
         _cold ~Manager();
 };
 

@@ -78,8 +78,10 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `list` | sessions: state, backend, tokens, context %, cost, pending permissions |
 | `status <s>` | details and the last 20 messages (`<s>`: id, name or name prefix) |
 | `spawn [folder]` | new session (`--name`, `--backend`, `--mode`, `--profile`, `--prompt`) |
-| `send <s> <text...>` | prompt (queued when the session works; `--force` ignores the budget) |
+| `send <s> <text...>` | prompt (queued when the session works; `--force` ignores the budget); a local command (`/clear`, `/model`, `/mode`...) runs as typed in the prompt; not in the prompt history |
 | `allow <s> [allow\|always\|deny]` | answer the pending permission |
+| `model <s> [model]`, `effort <s> <level>` | model / thinking effort of a session, same conversation (`model <s>` alone: the current one and the choices of its backend) |
+| `usage [vendor]` | tokens and cost per vendor (anthropic, ollama, openai...) today / last 7 days / lifetime, the 5 h / 7 d limits left |
 | `mode <s> <mode>` | `auto`, `manual` (= `default`), `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions` |
 | `interrupt <s>`, `rename <s> <name>`, `cd <s> <folder>` | stop the turn, rename, move to another project |
 | `close <s>`, `trash`, `restore <s>`, `purge [s\|*]` | to the trash (kept `trash_days`), list, restore, delete for good (one, the expired ones, `*` all; palette: per session / empty the trash) |
@@ -105,7 +107,8 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+W | close the session (to the trash) |
 | Ctrl+Shift+T, Ctrl+Shift+R (terminal: Alt+T) | reopen a closed session (list of the trash) |
 | Alt+Y / Alt+A / Alt+D | allow / always allow / deny the permission |
-| Ctrl+C | stop the running turn; none: clear the prompt (copy when text is selected) |
+| Ctrl+C | stop the running turn; none: clear the prompt (copy when text is selected); twice within 2 s on an empty prompt: quit |
+| Ctrl+Q | quit, from anywhere (a dialog open too); the questions at start (restore, map of this computer) also quit with `q` / Ctrl+C / Ctrl+D / Ctrl+Z, asked again at the next start. SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: the same clean quit (sessions saved, terminal restored) |
 | Shift+Tab | next permission mode (auto, acceptEdits, plan, bypassPermissions, manual) |
 | Ctrl+F | search in the transcript (Enter / ↑ older, ↓ newer, Esc close) |
 | F2 / F5 / F6 / Ctrl+Q | layout / push-to-talk / stop speaking / quit (the sessions are kept) |
@@ -133,7 +136,7 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 | Esc | the last queued prompt of the session back in the prompt, removed from the queue (to edit it) |
 | Esc / Ctrl+C with voice prompts waiting | drop the last one / all of them (before anything else these keys do) |
 | Esc Esc | clear the prompt; on an empty prompt (like Claude Code): the last turn leaves the conversation (claude goes on from the message before it, `--resume-session-at`) and its prompt comes back to be edited (again: the one before) |
-| ↑ / ↓ | a line of the prompt; on its first / last line (or empty): the history of the prompts, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest |
+| ↑ / ↓ | a line of the prompt; on its first / last line (or empty): the history of the prompts of the session shown, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest |
 | Ctrl+E | edit the prompt in an editor: `[ui] editor`, else the first installed of nvim, vim, vi, `$VISUAL`, `$EDITOR`, emacs -nw, nano (window: a multi-line dialog); the pasted texts are there in full, the ones left unchanged are blocks again after |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
@@ -141,10 +144,10 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 | Ctrl+X / Ctrl+C / Ctrl+V | cut / copy (with a selection) / paste: text, or an **image** of the clipboard as `[Image #N]` |
 | Backspace / Delete / ← → on `[Image #N]`, `[Pasted text #N]` | the whole block at once (one character for the editor, like Claude Code) |
 | Ctrl+S / Ctrl+P | stash the prompt / take the last one back (kept over the runs) |
-| Ctrl+R | history of the prompts sent (type to filter, Enter puts it in the prompt) |
+| Ctrl+R | history of the prompts sent to the session shown (type to filter, Enter puts it in the prompt; Tab: every session) |
 
 Local commands: `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
-`/export [file]`, `/restore [session]`, `/clear` (a new conversation, its transcript too), `/model <name>` (same
+`/export [file]`, `/restore [session]`, `/clear` (a new conversation: the transcript emptied, archived in `logs/archive/` for `search`), `/model <name>` (same
 conversation, another model), `/cost`, `/context`, `/rewind` (= Esc Esc on an empty prompt), `/exit` (= `/close`),
 `/settings`, `/vim`, `/help`; the commands of the agent (`/compact`, skills...) are completed too. A pasted image goes to Claude as an image block (to the
 other agents as `@path`). The images are saved by content (`img-<hash>.png`): the same image pasted again (or its chip
@@ -182,8 +185,17 @@ behind, never more than ~1.5 s late), only what comes while a session is shown: 
 has at once; `typewriter = false`: shown as received.
 
 Panels of a session (each one enabled per session from the palette): **tokens** (last prompt, current one, total),
-**context** (used / window), **cost** (session, last turn, budget, 5 h / 7 d limits), **skills** (loaded, available),
-**git** (branch, graph of the commits), **diff** (`git diff --stat` + diff), **tools** (timeline), **files** (modified).
+**context** (used / window), **cost** (session, last turn, budget, 5 h / 7 d limits), **usage** (the vendor of the
+session over every session and run: tokens and cost today, the last 7 days, lifetime - ledger
+`~/.local/share/claude-cluster/usage.jsonl` -; the 5 h / 7 d limits left and their reset when the vendor tells them; the
+budget left), **skills** (loaded, available), **git** (branch, graph of the commits), **diff** (`git diff --stat` +
+diff), **tools** (timeline), **files** (modified).
+
+Model and thinking effort of a session (the same conversation goes on, the session started again): the palette
+(*Model: ...* - the Claude aliases and ids, `ollama list`, `opencode models`, the `[models]` of the config - and
+*Effort (thinking): ...*), `/model [id]` and `/effort [level]` (completed), `claude-cluster model / effort`, or the
+global session (`session_set_model`). Effort: claude `--effort` (low, medium, high, xhigh, max), codex
+`model_reasoning_effort`, opencode `--variant`; the default of new sessions is `[agent] effort`.
 
 ## Backends
 
@@ -228,7 +240,7 @@ claude-cluster auth logout openrouter    # key removed (login providers: their o
 A session of its own (`[global]`: folder, backend - a claude-driver one -, model) with:
 - its **system prompt** `~/.config/claude-cluster/global.md` (written once, customizable: settings page > Global session >
   *System prompt (edit)* opens it in the editor - `[ui] editor`, else nvim, vim, vi... - and starts the session again on
-  the same conversation), added to the global `CLAUDE.md`;
+  the same conversation), added to the global `CLAUDE.md` (an empty file: none);
 - the **map of this computer** `~/.config/claude-cluster/machine.md`: you (nickname, email, main editor, language of the
   answers, notes: `[user]` of the config, asked at every sync with their current value ready - Enter keeps it - or a
   suggestion: git identity, editors installed, `$LANG`),
@@ -302,12 +314,19 @@ claude") opens claude-cluster - in a terminal (`[service] frontend = "tty"`, the
 
 | Command | Effect |
 |---|---|
-| `service setup` | write the unit and the detector (`~/.local/share/claude-cluster/wake.py`) |
-| `service enable` / `disable` | set up and start now and at every session / stop and not at the next one |
+| `service setup [--debug]` | write the unit and the detector (`~/.local/share/claude-cluster/wake.py`); `--debug`: the unit runs `service run --debug` (setup again without it to stop) |
+| `service enable [--debug]` / `disable` | set up and start now (a running one restarted on the new unit) and at every session / stop and not at the next one |
 | `service start` / `stop` / `restart` | now only |
-| `service status` | installed, active, enabled, an instance running |
+| `service status` | installed, active, enabled, DEBUG when it is, an instance running |
+| `service logs [--follow]` | its journal (`journalctl --user -u claude-cluster.service`): start, detector, launches and their failures |
 | `service remove` | stop, delete the unit and the detector |
-| `service run [--verbose]` | the loop the unit runs (`--verbose`: the end of the text of every sound, for the tests) |
+| `service run [--verbose] [--debug]` | the loop the unit runs (`--verbose`: the end of the text of every sound; `--debug`: the whole text heard, the levels and the wake events - for the tests only) |
+
+The journal always tells what the service does: its start (wake phrase, front-end, voice), the detector started /
+ended by itself (its exit code) and the next try, the detector paused while an instance runs, every wake with the
+exact command run, then `claude-cluster started (N ms)`, `failed at its start` with the last lines of its unit
+(`claude-cluster-app-<time>-<n>.service`: `journalctl --user -u <unit>`) or `did not answer on its control socket
+in 20 s`. Nothing heard is written there out of `--debug`.
 
 - **Light**: the microphone is read all the time, but the speech recognition (the French model of `voice-listen`,
   one thread) only runs on the sounds louder than the background: ~2 % of one core in a quiet room (`voice-listen`
@@ -336,7 +355,8 @@ stay in the file.
 `~/.config/claude-cluster/config.toml` (written commented on the first run, reloaded when saved): interface
 (`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never`, `notify`), `[agent]` default backend
 and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel` of the task
-queue, `budget_usd`), `[voice]`, `[keys]`, own `[styles.<name>]` (built-in: `html-light`, `html-dark`, `nord`,
+queue, `budget_usd`, `prompt`: the system prompt of every sub-session, `~/.config/claude-cluster/sessions.md`, an
+empty file: none, edited from the settings page or the palette, taken at the next start of each session), `[voice]`, `[keys]`, own `[styles.<name>]` (built-in: `html-light`, `html-dark`, `nord`,
 `gruvbox`, `solarized-light`, `mono`), `[profiles.<name>]` (folder, backend, mode, first prompt, extra arguments) and
 own `[providers.<name>]`. See [`templates/config.toml`](templates/config.toml).
 

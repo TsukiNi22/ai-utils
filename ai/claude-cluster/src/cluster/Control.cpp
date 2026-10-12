@@ -16,6 +16,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
 #include "cluster/Control.hpp"
+#include "cluster/Actions.hpp"
 #include "cluster/Tools.hpp"
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -209,12 +210,23 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (snap) data = manager.toJson(*snap, true);
         } else if (cmd == "spawn") {
             data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), arg_(request, "backend"),
-                arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt")})}};
+                arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), arg_(request, "effort")})}};
         } else if (cmd == "send") {
+            // a local /command (/clear, /model, /mode...) runs here like typed in the prompt, the others go to the agent
             const std::string id = session();
+            const std::string text = arg_(request, "text");
+            const std::optional<cluster::ActionResult> local = cluster::run_slash(manager, id, cluster::trim(text));
+            if (local) {
+                if (local->error) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, local->message);
+                std::string message = local->message.empty() ? "done" : local->message;
+                if (!local->ui.empty()) message += " (" + local->ui + ": only in the interface, not run)";
+                return {{"ok", true}, {"data", {{"id", id}, {"local", true}, {"message", message}}}};
+            }
             const bool reply = request.value("reply", false) && id != GLOBAL_ID;
             if (reply) manager.replyTo(id); // before: a short turn could end before it is known
-            manager.send(id, arg_(request, "text"), request.value("force", false));
+            // from the global session (MCP): marked, the sub-session answers it compact (sessions.md), not for a human
+            const bool global = request.value("from", std::string()) == "global" && id != GLOBAL_ID;
+            manager.send(id, global ? "[from the global session] " + text : text, request.value("force", false));
             data = {{"id", id}, {"queued", true}, {"reply", reply ? "its answer comes back to you as a message [reply from ...] when done: no need to poll it" : "no"}};
         } else if (cmd == "wait") {
             // until the session is done (idle, nothing queued) or the time is over: its last answer only, not its context
@@ -246,6 +258,18 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.rename(session(), arg_(request, "name"));
         } else if (cmd == "mode") {
             manager.setMode(session(), arg_(request, "mode"));
+        } else if (cmd == "model") {
+            // the model and / or the effort of a session (the same conversation started again); none: the current ones and the choices
+            const std::string id = session();
+            if (!arg_(request, "model").empty()) manager.setModel(id, arg_(request, "model"));
+            if (!arg_(request, "effort").empty()) manager.setEffort(id, arg_(request, "effort"));
+            const cluster::ModelInfo info = cluster::model_info(manager, id);
+            data = {{"id", id}, {"driver", info.driver}, {"model", info.model}, {"effort", info.effort.empty() ? "default" : info.effort},
+                {"models", cluster::Json::array()}, {"efforts", info.efforts}};
+            for (const auto &[model, description]: info.models)
+                data["models"].push_back({{"model", model}, {"description", description}});
+        } else if (cmd == "usage") {
+            data = manager.usageJson(arg_(request, "vendor"));
         } else if (cmd == "allow") {
             manager.answer(session(), arg_(request, "request_id"), arg_(request, "behavior", "allow"));
         } else if (cmd == "interrupt") {
@@ -298,7 +322,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const cluster::Config& config = manager.config();
             data = {{"shown", manager.active()}, {"layout", manager.ui("layout", config.layout)}, {"style", manager.ui("style", config.style)},
                 {"remote", manager.remote()}, {"vim", manager.ui("vim", config.vim ? "true" : "false") == "true"},
-                {"layouts", {"list", "grid", "tabs"}}, {"panels", {"skills", "tokens", "context", "cost", "git", "diff", "tools", "files"}}};
+                {"layouts", {"list", "grid", "tabs"}}, {"panels", {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files"}}};
             data["styles"] = cluster::Json::array();
             for (const auto &[name, style]: config.styles)
                 data["styles"].push_back(name);

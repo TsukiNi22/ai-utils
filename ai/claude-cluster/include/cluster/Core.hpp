@@ -109,6 +109,8 @@ class Core {
 
         // ---------- Constructor -------- //
         _cold Core(void) = default;
+
+        // ----------- Destructor --------- //
         _cold ~Core() = default;
 };
 

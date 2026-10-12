@@ -18,11 +18,13 @@ File Description:
 #include <sys/epoll.h>
 #include <algorithm>
 #include <unistd.h>
+#include <csignal>
 #include <fcntl.h>
 #include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <atomic>
 #include <thread>
 #include <chrono>
 #include <array>
@@ -277,6 +279,13 @@ _cold void cluster::detach(const std::vector<std::string>& args)
             (void)cluster::capture(args, "", 30);
         } catch (...) {} // a notification that fails is not an error of the tool
     }).detach();
+}
+
+_cold void cluster::catch_quit_signals(void)
+{
+    // only a flag here (async signal safe): the interface sees it and quits the normal way (terminal restored, saved)
+    for (const int signal: {SIGINT, SIGTERM, SIGHUP, SIGQUIT})
+        (void)std::signal(signal, [](int) {cluster::quit_signal = true;});
 }
 
 /* json files */

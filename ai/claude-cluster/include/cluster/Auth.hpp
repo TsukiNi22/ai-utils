@@ -81,6 +81,8 @@ class Auth {
 
         // ---------- Constructor -------- //
         _cold Auth(const cluster::Config& config);
+
+        // ----------- Destructor --------- //
         _cold ~Auth() = default;
 };
 

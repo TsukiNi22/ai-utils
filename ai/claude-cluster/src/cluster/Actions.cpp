@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Actions.hpp"
+#include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
 #include <fstream>
 
@@ -26,6 +27,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
+        {"edit_sessions_prompt", "System prompt of the sub-sessions: edit it (empty: none)", "", "", true},
         {"restore_menu", "Reopen a closed session (the trash)", "", "", true},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
@@ -42,7 +44,16 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"rename", "Rename the session", "name", snap->spec.name, false});
         for (const auto &[mode, description]: cluster::permission_modes())
             list.push_back({"mode:" + mode, "Permission mode: " + mode + " - " + description + (snap->spec.mode == mode ? " (current)" : ""), "", "", false});
-        for (const char* panel: {"skills", "tokens", "context", "cost", "git", "diff", "tools", "files"})
+        try {
+            const cluster::ModelInfo info = cluster::model_info(manager, session);
+            for (const auto &[model, description]: info.models)
+                list.push_back({"model:" + model, "Model: " + model + " - " + description + (info.model == model ? " (current)" : ""), "", "", false});
+            list.push_back({"model", "Model: another one (any id of the provider)", "model", info.model, false});
+            if (!info.efforts.empty()) list.push_back({"effort:default", std::string("Effort (thinking): default of the agent") + (info.effort.empty() || info.effort == "default" ? " (current)" : ""), "", "", false});
+            for (const std::string& level: info.efforts)
+                list.push_back({"effort:" + level, "Effort (thinking): " + level + (info.effort == level ? " (current)" : ""), "", "", false});
+        } catch (const utils::exception::IException&) {} // an unknown provider: no choice
+        for (const char* panel: {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files"})
             list.push_back({std::string("panel:") + panel, std::string("Panel ") + panel + (snap->spec.panels.contains(panel) ? ": hide" : ": show"), "", "", false});
         if (!snap->spec.global) {
             list.push_back({"cd", "Move the session to another folder", "folder", snap->spec.cwd, false});
@@ -98,10 +109,14 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
     try {
         if (base == "new_session") {
             const std::vector<std::string> parts = cluster::split(input, ' ');
-            result.focus = manager.spawn({parts.empty() ? "." : parts[0], "", parts.size() > 1 ? parts[1] : "", "", "", ""});
+            result.focus = manager.spawn({parts.empty() ? "." : parts[0], "", parts.size() > 1 ? parts[1] : "", "", "", "", ""});
             result.message = "session " + result.focus + " started";
         } else if (base == "send") {
-            manager.send(session, input);
+            // a local /command runs like typed in the prompt, the others go to the agent
+            const std::optional<cluster::ActionResult> local = cluster::run_slash(manager, session, cluster::trim(input));
+            if (local) result = *local;
+            else manager.send(session, input);
+            manager.addHistory({input, {}, {}}, session);
         } else if (base == "vim") {
             const bool on = manager.ui("vim", manager.config().vim ? "true" : "false") != "true";
             manager.setUi("vim", on ? "true" : "false");
@@ -116,6 +131,12 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
         } else if (base == "mode") {
             manager.setMode(session, arg);
             result.message = "mode " + arg;
+        } else if (base == "model") {
+            manager.setModel(session, arg.empty() ? cluster::trim(input) : arg);
+            result.message = "model " + (arg.empty() ? cluster::trim(input) : arg) + " (same conversation)";
+        } else if (base == "effort") {
+            manager.setEffort(session, arg);
+            result.message = "effort " + arg + " (same conversation)";
         } else if (base == "panel") {
             manager.togglePanel(session, arg);
         } else if (base == "cd") {
@@ -133,7 +154,7 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             result.focus = manager.restore(arg);
             result.message = "restored";
         } else if (base == "profile") {
-            result.focus = manager.spawn({"", "", "", "", arg, ""});
+            result.focus = manager.spawn({"", "", "", "", arg, "", ""});
         } else if (base == "task_add") {
             // "target | prompt" or just the prompt
             const std::size_t bar = input.find('|');
@@ -181,7 +202,8 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             manager.purge("*");
             result.message = "trash emptied";
         } else if (base == "config") {
-            result.message = manager.config().path().string() + " (reloaded when saved), system prompt: " + manager.config().globalPrompt;
+            result.message = manager.config().path().string() + " (reloaded when saved), system prompts: " + manager.config().globalPrompt
+                + " (global session), " + manager.config().sessionsPrompt + " (sub-sessions)";
         } else {
             result.message = "unknown action " + id;
             result.error = true;
@@ -205,8 +227,9 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"interrupt", "stop the running turn"},
         {"export", "[file]: conversation as Markdown"},
         {"restore", "<session>: reopen a closed session"},
-        {"clear", "a new conversation for the session (its transcript too)"},
-        {"model", "<model>: the session on this model (opus, sonnet, haiku, an id), same conversation"},
+        {"clear", "a new conversation for the session (the context again from 0; the transcript emptied, archived for the search)"},
+        {"model", "[model]: the session on this model (opus, sonnet, an id, an Ollama model...), same conversation; none: the choices"},
+        {"effort", "[level]: thinking / reasoning effort (default, low, medium, high, xhigh, max: per agent), same conversation"},
         {"cost", "cost and tokens of the session"},
         {"context", "the context window used"},
         {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
@@ -248,6 +271,20 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
             case cluster::CompletionKind::Mode:
                 for (const auto &[mode, description]: cluster::permission_modes())
                     add(mode, description);
+                break;
+            case cluster::CompletionKind::Model:
+            case cluster::CompletionKind::Effort:
+                try {
+                    const cluster::ModelInfo info = cluster::model_info(manager, session());
+                    if (kind == cluster::CompletionKind::Model) {
+                        for (const auto &[model, description]: info.models)
+                            add(model, description + (info.model == model ? " (current)" : ""));
+                    } else if (!info.efforts.empty()) {
+                        add("default", "the one of the agent");
+                        for (const std::string& level: info.efforts)
+                            add(level, info.effort == level ? "current" : "");
+                    }
+                } catch (const utils::exception::IException&) {}
                 break;
             case cluster::CompletionKind::Trash:
                 for (const cluster::SessionSpec& spec: manager.trash())
@@ -291,7 +328,7 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             result.message = "moved to " + cluster::short_path(arg);
         } else if (name == "new") {
             const std::vector<std::string> parts = cluster::split(arg, ' ');
-            result.focus = manager.spawn({parts.empty() ? "." : parts[0], "", parts.size() > 1 ? parts[1] : "", "", "", ""});
+            result.focus = manager.spawn({parts.empty() ? "." : parts[0], "", parts.size() > 1 ? parts[1] : "", "", "", "", ""});
             result.message = "session " + result.focus + " started";
         } else if (name == "mode") {
             manager.setMode(session, arg);
@@ -301,9 +338,27 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             manager.clear(session);
             result.message = "new conversation";
         } else if (name == "model") {
-            const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
-            if (arg.empty()) result.message = "model: " + (snap ? (snap->modelUsed.empty() ? snap->spec.backend : snap->modelUsed) : std::string("?")) + " (/model <name> to change)";
-            else manager.setModel(session, arg);
+            if (arg.empty()) {
+                const cluster::ModelInfo info = cluster::model_info(manager, session);
+                result.message = "model: " + (info.model.empty() ? std::string("default of the provider") : info.model) + " (/model <name> to change):";
+                for (const auto &[model, description]: info.models)
+                    result.message += "\n  " + model + "  " + description;
+            } else {
+                manager.setModel(session, arg);
+                result.message = "model " + arg + " (same conversation)";
+            }
+        } else if (name == "effort") {
+            if (arg.empty()) {
+                const cluster::ModelInfo info = cluster::model_info(manager, session);
+                std::string levels = "default";
+                for (const std::string& level: info.efforts)
+                    levels += ", " + level;
+                result.message = info.efforts.empty() ? "no effort level for the " + info.driver + " driver"
+                    : "effort: " + (info.effort.empty() ? std::string("default") : info.effort) + " (/effort <level>: " + levels + ")";
+            } else {
+                manager.setEffort(session, arg);
+                result.message = "effort " + arg + " (same conversation)";
+            }
         } else if (name == "cost" || name == "context") {
             const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
             if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session");
@@ -360,7 +415,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"next_session", "next session"}, {"prev_session", "previous session"}, {"prefix", "then an arrow: session on the left / right / above / below"},
         {"global", "the global session"}, {"new_session", "new session"}, {"close_session", "close the session (trash)"},
         {"restore", "reopen a closed session"}, {"allow", "allow the permission"}, {"always", "always allow (rule)"}, {"deny", "deny the permission"},
-        {"interrupt", "stop the running turn, else clear the prompt (copy with a selection)"}, {"mode_cycle", "next permission mode"},
+        {"interrupt", "stop the running turn, else clear the prompt (copy with a selection); twice on an empty prompt: quit"}, {"mode_cycle", "next permission mode"},
         {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
         {"undo", "undo"}, {"redo", "redo"}, {"select_all", "select all"}, {"cut", "cut"}, {"paste", "paste (text or image)"},
         {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
@@ -394,4 +449,20 @@ _cold std::string cluster::key_action(const cluster::Config& config, const std::
         for (const std::string& alternative: cluster::split(bound, '|'))
             if (cluster::lower(alternative) == cluster::lower(key)) return action;
     return "";
+}
+
+/* model and effort */
+_cold cluster::ModelInfo cluster::model_info(cluster::Manager& manager, const std::string& session)
+{
+    const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+    if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + session + "'");
+    const cluster::Auth auth(manager.config());
+    const cluster::Backend backend = auth.resolve(snap->spec.backend);
+    cluster::ModelInfo info;
+    info.driver = backend.provider.driver;
+    info.model = !backend.model.empty() ? backend.model : snap->modelUsed;
+    info.effort = snap->spec.effort;
+    info.models = cluster::model_choices(manager.config(), backend.provider);
+    info.efforts = cluster::effort_levels(info.driver);
+    return info;
 }

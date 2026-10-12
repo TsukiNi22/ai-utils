@@ -5,14 +5,18 @@ The microphone is read all the time (parecord) but the speech recognition (the m
 only runs on the sounds louder than the background: silent, it costs almost nothing.
 
 Privacy: nothing heard is kept longer than needed. The audio goes through one read buffer and a ring of 0.5 s,
-both written over in place and zeroed when done; the recognition sees at most 3 s at a time (then starts again);
-of its text only the last characters that can hold the phrase are compared (its length + 10), nothing is written
-out but the wake event (--verbose, for the tests only, shows these characters on stderr).
+both written over in place and zeroed when done; the recognition sees at most 3 s at a time (then starts again from
+the ring, the last characters of its text carried: a phrase cut there is still found); of its text only the last
+characters that can hold the phrase are compared (its length + 10), nothing is written
+out but the wake event (--verbose, for the tests only, shows these characters on stderr; --debug, set by
+`claude-cluster service setup --debug` for the tests only, writes the whole text of every sound on stderr: the journal
+of the service).
   --listen P   voice-listen (its model is used)
   --phrase P   a wake phrase (repeat: variants), compared without accents, case, punctuation and spaces
   --source S   PulseAudio / PipeWire source (default: the system one)
   --wav F      a 16 kHz mono wav instead of the microphone (tests)
   --verbose    the end of the text of every sound on stderr (tests)
+  --debug      the whole text of every sound, its level and the wake events on stderr (tests: in the journal)
 """
 import argparse
 import collections.abc
@@ -84,6 +88,7 @@ def main() -> int:
     parser.add_argument("--source", default="")
     parser.add_argument("--wav", default="")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
     phrases = [p for p in (normalize(p) for p in args.phrase) if p]
     if not phrases:
@@ -97,8 +102,14 @@ def main() -> int:
         joiner=f"{model}/joiner.onnx", num_threads=1, sample_rate=RATE, enable_endpoint_detection=True,
         rule1_min_trailing_silence=0.8, rule2_min_trailing_silence=0.4, rule3_min_utterance_length=8,
         decoding_method="greedy_search")
-    sys.stderr.write("wake: ready\n")
+    sys.stderr.write(f"wake: ready (phrases {', '.join(phrases)}{', DEBUG: every text heard written here' if args.debug else ''})\n")
     sys.stderr.flush()
+
+    def debug(text: str) -> None:
+        """--debug only: a line in the journal of the service."""
+        if args.debug:
+            sys.stderr.write(f"wake: {text}\n")
+            sys.stderr.flush()
 
     raw = bytearray(CHUNK * 2)                                  # the read buffer, written over
     samples = np.frombuffer(raw, dtype=np.int16)                # a view on it (no copy)
@@ -107,6 +118,7 @@ def main() -> int:
     noise = None                                                # level of the background (adapts slowly)
     stream = None
     quiet = length = 0
+    carry = ""                                                  # the end of the text before a restart (a cut phrase)
 
     def restart() -> "sherpa_onnx.OnlineStream":
         """A new recognition from the ring (the last 0.5 s): the previous one is dropped."""
@@ -126,6 +138,7 @@ def main() -> int:
                 continue
             stream = restart()                                  # a sound: the recognition starts (with its start)
             quiet = length = 0
+            debug(f"sound (level {level:.4f}, background {noise:.4f})")
         else:
             stream.accept_waveform(RATE, audio)
         length += 1
@@ -133,20 +146,26 @@ def main() -> int:
         while recognizer.is_ready(stream):
             recognizer.decode_stream(stream)
         tail = normalize(recognizer.get_result(stream))[-window:]   # only what can hold the phrase
-        if tail and any(p in tail for p in phrases):
+        joined = (carry + tail)[-2 * window:]                   # with the end of the text before a restart
+        if joined and any(p in joined for p in phrases):
+            debug(f"WAKE in: {recognizer.get_result(stream)!r}")
             print(json.dumps({"wake": True}), flush=True)
         elif length >= MAX_SOUND and not (recognizer.is_endpoint(stream) or quiet >= QUIET_END):
+            debug(f"heard (3 s, goes on): {recognizer.get_result(stream)!r}")
+            carry = tail                                        # its last characters: a phrase cut here
             stream = restart()                                  # a long sound: 3 s at most in memory
             length = 0
             tail = ""
             continue
         elif not (recognizer.is_endpoint(stream) or quiet >= QUIET_END):
             continue
+        elif args.debug:
+            debug(f"heard: {recognizer.get_result(stream)!r} (no wake phrase)")
         elif args.verbose and tail:
             sys.stderr.write(f"wake: ...{tail}\n")
             sys.stderr.flush()
         stream = None
-        tail = ""
+        tail = carry = joined = ""
         ring.fill(0.0)
     ring.fill(0.0)
     return 0

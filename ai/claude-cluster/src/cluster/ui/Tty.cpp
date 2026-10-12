@@ -37,6 +37,7 @@ File Description:
 #include <optional>
 #include <fstream>
 #include <sstream>
+#include <cerrno>
 #include <atomic>
 #include <chrono>
 #include <regex>
@@ -149,6 +150,44 @@ _cold std::vector<std::string> lines_(const std::string& text)
     lines.push_back(text.substr(start));
     return lines;
 }
+
+// The output of the interface: every frame of ftxui (and its other writes) sent in one write, inside a synchronized
+// update (DEC 2026: the terminal shows it at once) with the cursor hidden while it is drawn (shown again by the frame
+// at its place): no flicker, no cursor running over the screen
+class FrameOut: public std::streambuf {
+    private:
+        std::string _buffer;
+
+    protected:
+        int overflow(const int c) override
+        {
+            if (c != traits_type::eof()) this->_buffer.push_back(static_cast<char>(c));
+            return c;
+        }
+
+        std::streamsize xsputn(const char* data, const std::streamsize size) override
+        {
+            this->_buffer.append(data, static_cast<std::size_t>(size));
+            return size;
+        }
+
+        int sync(void) override
+        {
+            if (this->_buffer.empty()) return 0;
+            const std::string out = "\x1b[?2026h\x1b[?25l" + this->_buffer + "\x1b[?2026l"; // xstyle: ignore LU-ANSI (modes, no color)
+            this->_buffer.clear();
+            for (std::size_t sent = 0; sent < out.size();) {
+                const ssize_t n = ::write(STDOUT_FILENO, out.data() + sent, out.size() - sent);
+                if (n <= 0) return n < 0 && errno == EINTR ? 0 : -1;
+                sent += static_cast<std::size_t>(n);
+            }
+            return 0;
+        }
+};
+
+static constexpr std::int64_t PASTE_GAP_MS = 30; // keys closer than this after an Enter: a paste, not typing
+
+_nodiscard inline std::int64_t now_ms_(void) {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();};
 
 _cold std::size_t byte_at_(const std::string& line, const int column)
 {
@@ -340,6 +379,7 @@ class TtyUi {
         std::string _active = GLOBAL_ID;
         cluster::Editor _editor;                    // the prompt
         std::vector<std::string> _historyItems;     // Mode::History, filtered
+        bool _historyAll = false;                   // Mode::History: every session (Tab), else the one shown
         std::vector<std::size_t> _chips;            // atoms of the prompt shown as chips (images, pasted texts)
         std::vector<ftxui::Box> _chipBoxes;
         int _hoverChip = -1;
@@ -366,6 +406,11 @@ class TtyUi {
         std::optional<Selection> _selection;        // mouse selection in a transcript (copied when released)
         std::string _drag;                          // "prompt", a session id, or empty
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
+        std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
+        std::atomic<bool> _sendPending{false};      // Enter waits a few ms: a key right after it is a pasted line break
+        std::int64_t _sendAt = 0;                   // ms of that Enter
+        std::int64_t _lastKey = 0;                  // ms of the last key / character, and of the one before
+        std::int64_t _keyBefore = 0;
         std::optional<std::string> _pasting;        // bracketed paste of the terminal: its text until ESC[201~
         cluster::Worker _worker;                    // the sends / commands, in their order, out of the drawing thread
         cluster::Reveal _reveal;                    // the answers typed as they come
@@ -443,14 +488,22 @@ class TtyUi {
         }
         Mode _machineReturn = Mode::Normal;         // where its question goes back to
 
+        void terminalModes_(void)
+        {
+            // bracketed paste, focus reporting: at start and after a program in the foreground (an editor turns them off)
+            std::cout << "\x1b[?2004h\x1b[?1004h" << std::flush; // xstyle: ignore LU-ANSI (modes of the terminal, no color)
+        }
+
         void settingsAction_(const std::string& key)
         {
-            // an action of the settings page: the map of this computer (asked first), the system prompt of the global session
+            // an action of the settings page: the map of this computer (asked first), the system prompt of the global
+            // session or of the sub-sessions
             if (key == "machine_sync") {
                 this->_machineReturn = this->_mode;
                 this->_mode = Mode::Machine;
-            } else if (key == "edit_prompt") {
-                const std::filesystem::path path = cluster::expand_home(this->_manager.config().globalPrompt);
+            } else if (key == "edit_prompt" || key == "edit_sessions_prompt") {
+                const bool global = key == "edit_prompt";
+                const std::filesystem::path path = cluster::expand_home(global ? this->_manager.config().globalPrompt : this->_manager.config().sessionsPrompt);
                 std::error_code error;
                 const std::filesystem::file_time_type before = std::filesystem::last_write_time(path, error);
                 std::vector<std::string> command = this->editorCommand_();
@@ -464,8 +517,13 @@ class TtyUi {
                         std::cerr << e.info() << std::endl;
                     }
                 })();
+                this->terminalModes_();
                 if (std::filesystem::last_write_time(path, error) == before) {
                     this->_note = "system prompt unchanged";
+                    return;
+                }
+                if (!global) {
+                    this->_note = "system prompt of the sub-sessions saved: taken by each one at its next start (/clear, /model...)";
                     return;
                 }
                 try {
@@ -479,12 +537,21 @@ class TtyUi {
         std::string _styleSeen;                     // style of the theme
         int _historyAt = -1;                        // Up / Down: -1 the prompt being written, else an index of the history
         std::vector<cluster::Draft> _historyList;   // the history when the browsing started (newest first)
+        std::string _historySession;                // the session of that list
         std::map<int, std::string> _historyEdits;   // the texts changed while browsing (forgotten when a prompt is sent)
 
         bool historyStep_(const int delta)
         {
-            // +1 older, -1 newer, never looped; the text left (changed or not) is kept for when it comes back
-            if (this->_historyAt == -1 && delta > 0) this->_historyList = this->_manager.drafts();
+            // +1 older, -1 newer, never looped; the text left (changed or not) is kept for when it comes back; the prompts
+            // of the session shown only (Ctrl+R: every session), from the newest again when it changed
+            if (this->_historySession != this->_active) {
+                this->_historyAt = -1;
+                this->_historyEdits.clear();
+            }
+            if (this->_historyAt == -1 && delta > 0) {
+                this->_historyList = this->_manager.drafts(500, this->_active);
+                this->_historySession = this->_active;
+            }
             const int to = this->_historyAt + delta;
             if (to < -1 || to >= static_cast<int>(this->_historyList.size())) return false;
             this->_historyEdits[this->_historyAt] = this->_editor.text();
@@ -648,6 +715,7 @@ class TtyUi {
                     std::cerr << e.info() << std::endl;
                 }
             })();
+            this->terminalModes_();
             std::ifstream in(path);
             std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
@@ -675,7 +743,7 @@ class TtyUi {
         {
             const std::string wanted = cluster::lower(this->_filter);
             this->_historyItems.clear();
-            for (const std::string& text: this->_manager.history())
+            for (const std::string& text: this->_manager.history(500, this->_historyAll ? "" : this->_active))
                 if (wanted.empty() || cluster::lower(text).find(wanted) != std::string::npos) this->_historyItems.push_back(text);
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_historyItems.size()) - 1));
         }
@@ -703,6 +771,17 @@ class TtyUi {
             else this->status_("clipboard unreadable (wl-paste)", true);
         }
 
+        void enter_(void)
+        {
+            // Enter right after a key (a paste without brackets): a new line; else sent when no key follows (Custom event)
+            if (this->_keyBefore > 0 && this->_lastKey - this->_keyBefore < PASTE_GAP_MS / 3) {
+                this->_editor.insert("\n");
+                return;
+            }
+            this->_sendAt = this->_lastKey;
+            this->_sendPending = true;
+        }
+
         void submit_(void)
         {
             // the prompt leaves at once (feedback), the send / the local command runs in the worker (it may start or stop
@@ -721,8 +800,8 @@ class TtyUi {
                 std::string error;
                 try {
                     local = cluster::run_slash(this->_manager, session, text);
-                    if (local) this->_manager.addHistory(draft, session);
-                    else this->_manager.send(session, text, false, images, draft.pastes);
+                    if (!local) this->_manager.send(session, text, false, images);
+                    this->_manager.addHistory(draft, session); // typed here: in the history (not the ones of the global session / MCP)
                 } catch (const utils::exception::IException& e) {
                     error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
                 }
@@ -1038,8 +1117,8 @@ class TtyUi {
                 this->theme_();
             } else if (base == "settings") {
                 this->openSettings_();
-            } else if (base == "machine_sync" || base == "edit_global_prompt") {
-                this->settingsAction_(base == "machine_sync" ? "machine_sync" : "edit_prompt");
+            } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt") {
+                this->settingsAction_(base == "edit_global_prompt" ? "edit_prompt" : base);
                 if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
             } else if (base == "restore_menu") {
                 this->openRestore_();
@@ -1058,6 +1137,7 @@ class TtyUi {
                     std::string line;
                     std::getline(std::cin, line);
                 })();
+                this->terminalModes_();
             } else {
                 const cluster::ActionResult result = cluster::run_action(this->_manager, *this->_app.voice, action.id, this->_active, input);
                 if (!result.focus.empty()) this->_active = result.focus;
@@ -1111,6 +1191,7 @@ class TtyUi {
             } else if (action == "history") {
                 this->_filter.clear();
                 this->_selected = 0;
+                this->_historyAll = false; // the prompts of this session first (Tab: every session)
                 this->historyFilter_();
                 this->_mode = Mode::History;
             } else if (action == "paste") {
@@ -1129,9 +1210,15 @@ class TtyUi {
                 } else if (!this->_editor.selected().empty()) {
                     cluster::detach({"wl-copy", "--", this->_editor.expand(this->_editor.selected())});
                     this->status_("copied");
-                } else {
+                } else if (!this->_editor.text().empty()) {
                     this->_editor.clear();
                     this->historyReset_();
+                } else {
+                    // nothing to stop or clear: twice within 2 s quits (like Claude Code)
+                    const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    if (now - this->_lastInterrupt < 2000) this->_screen.Exit();
+                    else this->status_(this->_manager.config().keys.at("interrupt") + " again to quit");
+                    this->_lastInterrupt = now;
                 }
             } else if (action == "mode_cycle") {
                 const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
@@ -1587,6 +1674,13 @@ class TtyUi {
                 if (m.limit7d >= 0) body.push_back(line("7d limit", std::to_string(static_cast<int>(m.limit7d * 100)) + "%"));
                 section("Cost", std::move(body));
             }
+            if (s.spec.panels.contains("usage")) {
+                // the vendor of the session over every session and run: today, 7 days, lifetime, its limits left
+                ftxui::Elements body;
+                for (const auto &[left, right]: this->_manager.usageLines(s))
+                    body.push_back(line(left, right));
+                section("Usage", std::move(body));
+            }
             if (s.spec.panels.contains("skills")) {
                 ftxui::Elements body;
                 for (const std::string& skill: s.skillsLoaded)
@@ -1653,6 +1747,7 @@ class TtyUi {
                 ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
                 ftxui::text(model) | ftxui::color(this->_theme.muted),
                 ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted),
+                ftxui::text(s.spec.effort.empty() || s.spec.effort == "default" ? "" : "  effort " + s.spec.effort) | ftxui::color(this->_theme.muted),
                 ftxui::filler(),
                 ftxui::text(cluster::short_path(s.spec.cwd) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
             };
@@ -1783,9 +1878,11 @@ class TtyUi {
                     ftxui::Element item = ftxui::text(" " + cluster::one_line(this->_historyItems[static_cast<std::size_t>(i)], 110) + " ");
                     items.push_back(i == this->_selected ? item | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : item | ftxui::color(this->_theme.text));
                 }
-                if (items.empty()) items.push_back(ftxui::text(" no prompt yet") | ftxui::color(this->_theme.muted));
-                return box(ftxui::vbox({ftxui::hbox({ftxui::text(" history > ") | ftxui::color(this->_theme.accent), ftxui::text(this->_filter), ftxui::text("▏") | ftxui::blink}),
-                    ftxui::separatorLight(), ftxui::vbox(std::move(items)), ftxui::text(" Enter: put in the prompt · Esc: close") | ftxui::dim}), 120);
+                if (items.empty()) items.push_back(ftxui::text(this->_historyAll ? " no prompt yet" : " no prompt in this session yet (Tab: every session)") | ftxui::color(this->_theme.muted));
+                const std::string scope = this->_historyAll ? " history (every session) > " : " history (" + this->_active + ") > ";
+                return box(ftxui::vbox({ftxui::hbox({ftxui::text(scope) | ftxui::color(this->_theme.accent), ftxui::text(this->_filter), ftxui::text("▏") | ftxui::blink}),
+                    ftxui::separatorLight(), ftxui::vbox(std::move(items)), ftxui::text(std::string(" Enter: put in the prompt · Tab: ")
+                    + (this->_historyAll ? "this session only" : "every session") + " · Esc: close") | ftxui::dim}), 120);
             }
             if (this->_mode == Mode::Prompt) {
                 const std::string shown = this->_password ? std::string(width_(this->_prompt), '*') : this->_prompt;
@@ -1808,7 +1905,9 @@ class TtyUi {
                     : " (not asked again: settings > Global session)";
                 return box(ftxui::vbox({ftxui::text(title) | ftxui::bold, ftxui::text(""),
                     ftxui::paragraph(cluster::machine_scope()) | ftxui::color(this->_theme.text), ftxui::text(""),
-                    ftxui::text(" [y] yes   [n] / Esc no" + no) | ftxui::color(this->_theme.accent)}), 90);
+                    ftxui::text(" [y] yes   [n] / Esc no" + no) | ftxui::color(this->_theme.accent),
+                    this->_machineStartup ? ftxui::text(" [q] / Ctrl+C / " + this->_manager.config().keys.at("quit") + "  quit (asked again at the next start)")
+                        | ftxui::color(this->_theme.muted) : ftxui::emptyElement()}), 90);
             }
             if (this->_mode == Mode::Profile && this->_question < this->_questions.size()) {
                 // one question about the user at a time, its suggestion ready (Enter keeps it)
@@ -1837,6 +1936,7 @@ class TtyUi {
                 lines.push_back(ftxui::text(" [r] / Enter / Esc  restore") | ftxui::color(this->_theme.accent));
                 lines.push_back(ftxui::text(" [n]  start new: the sessions to the trash (" + std::to_string(this->_manager.config().trashDays)
                     + " days), a new global conversation") | ftxui::color(this->_theme.accent));
+                lines.push_back(ftxui::text(" [q] / Ctrl+C / " + this->_manager.config().keys.at("quit") + "  quit (asked again at the next start)") | ftxui::color(this->_theme.muted));
                 return box(ftxui::vbox(std::move(lines)), 90);
             }
             return ftxui::emptyElement();
@@ -1909,7 +2009,19 @@ class TtyUi {
         /* events */
         bool event_(ftxui::Event event)
         {
-            if (event == ftxui::Event::Custom) return true;
+            if (event == ftxui::Event::Custom) {
+                // an Enter with no key right after: a real one, sent
+                if (this->_sendPending && now_ms_() - this->_sendAt >= PASTE_GAP_MS) {
+                    this->_sendPending = false;
+                    this->submit_();
+                }
+                return true;
+            }
+            // focus reporting of the terminal (?1004): in / out
+            if (event.input() == "\x1b[I" || event.input() == "\x1b[O") { // xstyle: ignore LU-ANSI (input of the terminal, no color)
+                this->_manager.setFocused(event.input() == "\x1b[I"); // xstyle: ignore LU-ANSI (focus in)
+                return true;
+            }
             if (event == ftxui::Event::Escape && this->_mode != Mode::Machine && this->_mode != Mode::Profile && this->scanShown_()) {
                 this->_scanHidden = this->scanShown_()->id; // the box of the scan closed (it goes on), on any screen
                 return true;
@@ -1934,6 +2046,17 @@ class TtyUi {
                         if (c != '\n') (void)this->event_(ftxui::Event::Character(c));
                 }
                 return true;
+            }
+            if (event.is_character() || event == ftxui::Event::Return) {
+                // a paste without its brackets (the mode lost): keys closer than any typing, the Enter waiting is a line
+                const std::int64_t now = now_ms_();
+                if (this->_sendPending) {
+                    this->_sendPending = false;
+                    if (now - this->_sendAt < PASTE_GAP_MS) this->_editor.insert("\n");
+                    else this->submit_();
+                }
+                this->_keyBefore = this->_lastKey;
+                this->_lastKey = now;
             }
             if (event.is_mouse()) {
                 const ftxui::Mouse& mouse = event.mouse();
@@ -1970,6 +2093,14 @@ class TtyUi {
             const std::string key = key_name_(event);
             this->_selection.reset(); // a key: the mouse selection (already copied) goes
 
+            // the quit key works everywhere (a dialog open too); a question at start (restore, map of this computer): q /
+            // Ctrl+C / Ctrl+D / Ctrl+Z quit too, without answering (asked again at the next start)
+            const bool startup = this->_mode == Mode::Restore || (this->_mode == Mode::Machine && this->_machineStartup);
+            if (key == this->_manager.config().keys.at("quit") || (startup && (event == ftxui::Event::Character('q') || event == ftxui::Event::Character('Q')
+                || key == "Ctrl+C" || key == "Ctrl+D" || key == "Ctrl+Z"))) {
+                this->_screen.Exit();
+                return true;
+            }
             switch (this->_mode) {
                 case Mode::Restore:
                     // Esc keeps everything (never a loss by mistake); n: a new start
@@ -2075,6 +2206,10 @@ class TtyUi {
                 case Mode::History:
                     if (event == ftxui::Event::Escape) {
                         this->_mode = Mode::Normal;
+                    } else if (event == ftxui::Event::Tab) {
+                        this->_historyAll = !this->_historyAll;
+                        this->_selected = 0;
+                        this->historyFilter_();
                     } else if (event == ftxui::Event::ArrowDown) {
                         this->_selected = std::min(this->_selected + 1, std::max(0, static_cast<int>(this->_historyItems.size()) - 1));
                     } else if (event == ftxui::Event::ArrowUp || cluster::key_action(this->_manager.config(), key) == "history") {
@@ -2173,7 +2308,7 @@ class TtyUi {
             const std::optional<Arrow> arrow = arrow_(event);
             if (event == ftxui::Event::PageUp) this->_scroll[this->_active] += 10;
             else if (event == ftxui::Event::PageDown) this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 10);
-            else if (event == ftxui::Event::Return) this->submit_();
+            else if (event == ftxui::Event::Return) this->enter_();
             else if (event == ftxui::Event::Backspace) this->_editor.backspace();
             else if (event == ftxui::Event::Delete) this->_editor.erase();
             else if (home_end_(event) == 'H') this->_editor.home(event.input() == "\x1b[1;2H"); // xstyle: ignore LU-ANSI (read)
@@ -2237,7 +2372,9 @@ class TtyUi {
                 raw.c_iflag &= ~static_cast<tcflag_t>(IXON);
                 ::tcsetattr(STDIN_FILENO, TCSANOW, &raw);
             }
-            std::cout << "\x1b[?2004h" << std::flush; // xstyle: ignore LU-ANSI (bracketed paste: a mode of the terminal, no color)
+            FrameOut frames;
+            std::streambuf* const previous = std::cout.rdbuf(&frames);
+            this->terminalModes_();
             this->_screen.ForceHandleCtrlC(false);
             this->_screen.ForceHandleCtrlZ(false);
 
@@ -2247,10 +2384,14 @@ class TtyUi {
                 std::uint64_t last = 0;
                 int ticks = 0;
                 while (alive) {
-                    // a change, the typing / the spinner (25 images / s), else once a second (timers)
+                    // a change, the typing / the spinner (25 images / s), else once a second (timers); a quit signal: out
                     std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                    if (cluster::quit_requested()) {
+                        this->_screen.Exit();
+                        break;
+                    }
                     const std::uint64_t version = this->_manager.version() + this->_app.voice->version();
-                    if (version != last || this->_animating || ++ticks >= 25) {
+                    if (version != last || this->_animating || this->_sendPending || ++ticks >= 25) {
                         last = version;
                         ticks = 0;
                         this->_screen.PostEvent(ftxui::Event::Custom);
@@ -2261,7 +2402,8 @@ class TtyUi {
             root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event);});
             this->_screen.Loop(root);
             this->_worker.stop(); // the running job ends before the screen goes
-            std::cout << "\x1b[?2004l" << std::flush; // xstyle: ignore LU-ANSI (bracketed paste off)
+            std::cout << "\x1b[?1004l\x1b[?2004l" << std::flush; // xstyle: ignore LU-ANSI (focus reporting, bracketed paste off)
+            std::cout.rdbuf(previous);
             if (tty) ::tcsetattr(STDIN_FILENO, TCSANOW, &original);
             alive = false;
             refresher.join();

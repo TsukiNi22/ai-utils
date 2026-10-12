@@ -23,6 +23,7 @@ File Description:
     #include <filesystem>           // std::filesystem::path
     #include <optional>             // std::optional
     #include <cstdint>              // std::int64_t
+    #include <atomic>               // std::atomic
     #include <chrono>               // std::chrono
     #include <string>               // std::string
     #include <vector>               // std::vector
@@ -68,6 +69,9 @@ _nodiscard std::string clock_time(const std::int64_t time);       // 14:03
 _cold _nodiscard bool has_command(const std::string& name);
 _cold _nodiscard cluster::Captured capture(const std::vector<std::string>& args, const std::string& cwd = "", const int timeout = 10);
 _cold void detach(const std::vector<std::string>& args);            // run without waiting (notify-send...)
+inline std::atomic<bool> quit_signal{false}; // set by catch_quit_signals
+_cold void catch_quit_signals(void);    // SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: quit_requested() (reset by exec)
+_nodiscard inline bool quit_requested(void) {return quit_signal;}; // a signal asked to quit: the interface closes as with its quit key
 
 /* json files */
 _cold _nodiscard std::optional<cluster::Json> read_json(const std::filesystem::path& path);

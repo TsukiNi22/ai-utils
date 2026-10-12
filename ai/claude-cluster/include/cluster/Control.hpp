@@ -52,6 +52,8 @@ class Control {
 
         // ---------- Constructor -------- //
         _cold Control(cluster::Manager& manager);
+
+        // ----------- Destructor --------- //
         _cold ~Control();
 };
 

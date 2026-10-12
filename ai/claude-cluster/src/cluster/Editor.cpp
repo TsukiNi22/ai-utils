@@ -219,12 +219,13 @@ _cold std::string cluster::Editor::cut(void)
 
 _cold void cluster::Editor::setText(const std::string& text)
 {
+    // a text put here (history, stash, a queued prompt...): no completion opened by it (the arrows go on browsing),
+    // it opens again when the word is changed
     this->save_();
     this->_text = text;
     this->_cursor = text.size();
     this->_anchor.reset();
-    this->_dismissed.clear();
-    this->refresh_();
+    this->dismiss();
 }
 
 _cold void cluster::Editor::clear(void)
@@ -336,6 +337,7 @@ _cold void cluster::Editor::load(const cluster::Draft& draft)
         if (at != std::string::npos) this->_text.replace(at, paste.size(), this->pasteAtom(paste));
     }
     this->_cursor = this->_text.size();
+    this->dismiss();
 }
 
 _cold void cluster::Editor::setImages(const std::vector<std::string>& images)
@@ -456,6 +458,8 @@ _cold void cluster::Editor::refresh_(void)
         query = cluster::unescape_path(word);
         if (words[0] == "/cd" || words[0] == "/new") kind = cluster::CompletionKind::Folder;
         else if (words[0] == "/mode") kind = cluster::CompletionKind::Mode;
+        else if (words[0] == "/model") kind = cluster::CompletionKind::Model;
+        else if (words[0] == "/effort") kind = cluster::CompletionKind::Effort;
         else if (words[0] == "/restore") kind = cluster::CompletionKind::Trash;
     }
     this->_kind = kind;

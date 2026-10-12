@@ -124,7 +124,7 @@ _cold void cluster::Manager::schedule_(void)
     }
     for (const auto &[taskId, folder]: spawns) {
         try {
-            const std::string id = this->spawn({folder, "task-" + taskId, "", "", "", ""});
+            const std::string id = this->spawn({folder, "task-" + taskId, "", "", "", "", ""});
             std::lock_guard<std::mutex> lock(this->_mutex);
             for (cluster::Task& task: this->_tasks)
                 if (task.id == taskId) {

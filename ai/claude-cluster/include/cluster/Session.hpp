@@ -46,6 +46,7 @@ struct Event {
     std::string session;
     std::string text;
     bool error = false;
+    bool interrupted = false;   // TurnDone: stopped by an interrupt (not an error, nothing to notify)
 };
 
 struct Queued {
@@ -84,6 +85,7 @@ class Session {
         std::deque<cluster::Queued> _pending;   // prompts waiting for the end of the running turn (kept here: editable)
         std::string _stderr;                // tail of the error output
         std::string _lastText;              // last assistant text of the turn
+        bool _interrupted = false;          // an interrupt was asked: the end of the turn is not an error
         cluster::Queued _lastPrompt;        // last prompt sent (rewind: back in the prompt with its images)
         std::set<std::string> _sent;        // uuids of the prompts written here (their replay is not shown twice)
         cluster::Usage _turn;               // finished messages of the running turn
@@ -108,8 +110,10 @@ class Session {
         _cold void turnDone_(const std::string& text, const bool error);
         _cold void dispatch_(const cluster::Queued& prompt);  // claude: written now (lock held)
         _cold void queue_(void);                                // snapshot of the queue
+        _cold void emit_(const cluster::Event::Kind kind, const std::string& text = "", const bool error = false, const bool interrupted = false);
+
+        // ------------ Function ---------- //
         _cold inline void touch_(void) {++this->_version;};
-        _cold void emit_(const cluster::Event::Kind kind, const std::string& text = "", const bool error = false);
 
     public:
         // ---------- Pre-Function -------- //
@@ -128,20 +132,24 @@ class Session {
         _cold void togglePanel(const std::string& panel);
         _cold void loadHistory(const std::size_t max);     // last entries of the log (restored session)
         _cold _nodiscard cluster::Queued rewind(void);      // claude: the last turn removed from the conversation, its prompt
-
-        // ---------- Function -------- //
         _nodiscard cluster::Snapshot snapshot(void) const;
         _nodiscard cluster::SessionSpec spec(void) const;
         _nodiscard cluster::State state(void) const;
+
+        // ---------- Function -------- //
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};
         _nodiscard inline bool persistent(void) const {return this->_launch.backend.provider.driver == "claude";};   // claude driver: one process for the whole session
         _nodiscard inline const std::string& id(void) const {return this->_launch.spec.id;};
 
+        // ------------ Operator ---------- //
+        Session& operator=(const Session&) = delete;
+
         // ---------- Constructor -------- //
         _cold Session(cluster::Launch launch);
-        _cold ~Session();
         Session(const Session&) = delete;
-        Session& operator=(const Session&) = delete;
+
+        // ----------- Destructor --------- //
+        _cold ~Session();
 };
 
 } // namespace end

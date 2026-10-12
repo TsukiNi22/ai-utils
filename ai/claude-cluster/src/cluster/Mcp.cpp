@@ -40,9 +40,12 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("session_read", "Same as session_status: the last messages of a session.", {{"session", session}}, {"session"}),
         tool_("session_spawn", "Start a new session in a project folder. backend: <provider>[/<model>] (claude, ollama/<model>, openai/<model>, opencode/<provider>/<model>, codex...).",
             {{"cwd", str_("project folder (~ allowed)")}, {"name", str_("name of the session (default: the folder name)")}, {"backend", str_("provider[/model], default from the config")},
-             {"mode", str_("auto | manual | acceptEdits | plan | dontAsk | bypassPermissions")}, {"profile", str_("profile of the config")}, {"prompt", str_("first prompt")}}, {"cwd"}),
+             {"mode", str_("auto | manual | acceptEdits | plan | dontAsk | bypassPermissions")}, {"profile", str_("profile of the config")}, {"prompt", str_("first prompt")},
+             {"effort", str_("thinking effort: default | low | medium | high | xhigh | max")}}, {"cwd"}),
         tool_("session_send", "Send a prompt to a session (queued when it is working). By default (reply: true) its answer comes back to you as a message "
-            "\"[reply from <name> (<id>)] ...\" when it is done: go on with something else or end your turn, never poll it with session_read / session_status.",
+            "\"[reply from <name> (<id>)] ...\" when it is done: go on with something else or end your turn, never poll it with session_read / session_status. "
+            "A local command of claude-cluster (/clear, /model <m>, /mode <m>, /rename, /cd, /close, /cost, /context, /export...) runs at once, as typed "
+            "in its prompt (no reply): /clear starts a new conversation for the session.",
             {{"session", session}, {"text", str_("the prompt")}, {"reply", {{"type", "boolean"}, {"description", "its answer sent back to you when done (default true)"}}}},
             {"session", "text"}),
         tool_("session_wait", "Wait until a session is done (up to timeout seconds, 110 max) and get only its last answer (not its context): when you need "
@@ -51,6 +54,11 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("session_allow", "Answer a pending permission of a session.",
             {{"session", session}, {"request_id", str_("request id (empty: the oldest one)")}, {"behavior", str_("allow | always | deny")}}, {"session", "behavior"}),
         tool_("session_set_mode", "Permission mode of a session.", {{"session", session}, {"mode", str_("auto | manual | acceptEdits | plan | dontAsk | bypassPermissions")}}, {"session", "mode"}),
+        tool_("session_set_model", "Model and / or thinking effort of a session (the same conversation goes on); none given: its current ones and the "
+            "choices of its backend.", {{"session", session}, {"model", str_("a model of its provider (opus, sonnet, claude-opus-5-5, an Ollama model...)")},
+            {"effort", str_("default | low | medium | high | xhigh | max (claude); minimal... (codex, opencode)")}}, {"session"}),
+        tool_("usage", "Tokens and cost used per vendor (anthropic, ollama, openai...) over every session: today, the last 7 days, lifetime; "
+            "the 5 h / 7 d limits left when the vendor tells them.", {{"vendor", str_("one vendor (empty: all)")}}, {}),
         tool_("session_interrupt", "Stop the running turn of a session.", {{"session", session}}, {"session"}),
         tool_("session_close", "Close a session: it goes to the trash, restorable with session_restore.", {{"session", session}}, {"session"}),
         tool_("session_restore", "Restore a closed session from the trash (with its conversation).", {{"session", str_("id or name in the trash")}}, {"session"}),
@@ -97,7 +105,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
 {
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
-        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
+        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
@@ -110,6 +118,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     request["cmd"] = it->second;
     if (name == "session_list") request["global"] = false; // the global session lists the others
     if (name == "session_send" && !request.contains("reply")) request["reply"] = true; // its answer comes back (no polling)
+    if (name == "session_send") request["from"] = "global"; // marked for the sub-session: a compact answer, for a model
     cluster::Json response;
     try {
         response = cluster::Control::request(request);

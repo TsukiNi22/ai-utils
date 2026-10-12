@@ -91,6 +91,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
 {
     using cluster::SettingKind;
     std::vector<std::string> modes = {""};
+    const std::vector<std::string> efforts = {"", "low", "medium", "high", "xhigh", "max", "minimal"}; // claude; codex / opencode: minimal...
     for (const auto &[mode, description]: cluster::permission_modes())
         modes.push_back(mode);
     std::vector<std::string> styles;
@@ -140,6 +141,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.backend;}},
             {"agent", "permission_mode", "Permission mode", SettingKind::Choice, modes, "mode of the new sessions (empty: the default of the agent)", false,
                 [](const cluster::Config& cf) {return cf.mode;}},
+            {"agent", "effort", "Thinking effort", SettingKind::Choice, efforts, "of the new sessions (empty: the default of the agent; per session: /effort, the palette)", false,
+                [](const cluster::Config& cf) {return cf.effort;}},
             {"agent", "allow_bypass", "bypassPermissions possible", SettingKind::Bool, {}, "claude launched with --allow-dangerously-skip-permissions (needed to switch to bypass)", true,
                 [](const cluster::Config& cf) {return cf.allowBypass ? std::string("true") : std::string("false");}},
             {"agent", "extra_args", "Extra arguments (claude)", SettingKind::List, {}, "added to every claude session, comma separated", true,
@@ -155,6 +158,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.globalModel;}},
             {"global", "permission_mode", "Permission mode", SettingKind::Choice, modes, "applied at every start (bypassPermissions: it never asks)", true,
                 [](const cluster::Config& cf) {return cf.globalMode;}},
+            {"global", "effort", "Thinking effort", SettingKind::Choice, efforts, "applied at every start (empty: its own, /effort, else the one of [agent])", true,
+                [](const cluster::Config& cf) {return cf.globalEffort;}},
             {"global", "cwd", "Folder", SettingKind::Text, {}, "working folder of the global session", true,
                 [](const cluster::Config& cf) {return cf.globalCwd;}},
             {"global", "prompt", "System prompt file", SettingKind::Text, {}, "its own system prompt, added to CLAUDE.md", true,
@@ -178,6 +183,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.maxParallel);}},
             {"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts", false,
                 [](const cluster::Config& cf) {return number_(cf.budget);}},
+            {"sessions", "prompt", "System prompt file", SettingKind::Text, {}, "system prompt of every sub-session (claude driver), added to CLAUDE.md; empty file: none", false,
+                [](const cluster::Config& cf) {return cf.sessionsPrompt;}},
+            {"sessions", "edit_sessions_prompt", "System prompt (edit)", SettingKind::Action, {},
+                "opens it in the editor ([ui] editor, else nvim, vim, vi, $VISUAL, $EDITOR...); taken by each sub-session at its next start", false,
+                [](const cluster::Config& cf) {return cluster::short_path(cluster::expand_home(cf.sessionsPrompt).string());}},
         }},
         {"voice", "Voice", {
             {"voice", "enabled", "Enabled", SettingKind::Bool, {}, "voice of the global session (voice-listen / voice-say)", true,

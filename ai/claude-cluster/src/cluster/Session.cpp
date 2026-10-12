@@ -16,6 +16,7 @@ File Description:
 #define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Session.hpp"
+#include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
 #include <sys/epoll.h>
 #include <filesystem>
@@ -178,6 +179,7 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
     const std::string& driver = this->_launch.backend.provider.driver;
     const std::string& model = this->_launch.backend.model;
     const std::string& mode = spec.mode;
+    const std::vector<std::string> effort = cluster::effort_args(driver, spec.effort); // thinking / reasoning
     std::vector<std::string> args = {this->_launch.command};
 
     if (driver == "claude") {
@@ -187,6 +189,7 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
         if (this->_launch.allowBypass) args.push_back("--allow-dangerously-skip-permissions");
         if (!mode.empty()) args.insert(args.end(), {"--permission-mode", mode});
         if (!model.empty()) args.insert(args.end(), {"--model", model});
+        args.insert(args.end(), effort.begin(), effort.end());
         if (!spec.claudeId.empty()) args.insert(args.end(), {"--resume", spec.claudeId});
         if (!spec.claudeId.empty() && !spec.resumeAt.empty()) args.insert(args.end(), {"--resume-session-at", spec.resumeAt}); // after a rewind
     } else if (driver == "qwen") {
@@ -199,6 +202,7 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
     } else if (driver == "opencode") {
         args.insert(args.end(), {"run", "--format", "json"});
         if (!model.empty()) args.insert(args.end(), {"-m", model});
+        args.insert(args.end(), effort.begin(), effort.end());
         if (!spec.claudeId.empty()) args.insert(args.end(), {"-s", spec.claudeId});
         if (mode == "bypassPermissions") args.push_back("--auto");
         args.insert(args.end(), {"--", prompt});
@@ -207,6 +211,7 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
         if (mode == "bypassPermissions") args.push_back("--dangerously-bypass-approvals-and-sandbox");
         else args.insert(args.end(), {"--sandbox", mode == "acceptEdits" || mode == "auto" ? "workspace-write" : "read-only"});
         if (!model.empty()) args.insert(args.end(), {"-m", model});
+        args.insert(args.end(), effort.begin(), effort.end());
         if (!spec.claudeId.empty()) args.insert(args.end(), {"resume", spec.claudeId});
         args.push_back(prompt);
     }
@@ -363,6 +368,7 @@ _cold void cluster::Session::runTurns_(void)
             this->queue_();
             this->_data.state = cluster::State::Working;
             this->_turn = {};
+            this->_data.metrics.lastCost = 0.0; // a process per turn: its cost added step by step
             this->_lastText.clear();
         }
         this->touch_();
@@ -392,7 +398,8 @@ _cold void cluster::Session::finished_(int code)
             }
         } else {
             // per-turn driver: the end of the process is the end of the turn
-            const bool failed = code != 0 && !this->_stopping;
+            const bool interrupted = std::exchange(this->_interrupted, false);
+            const bool failed = code != 0 && !this->_stopping && !interrupted;
             if (failed) this->_data.lastError = "exit " + std::to_string(code) + (error.empty() ? "" : ": " + cluster::one_line(error, 300));
             add_(this->_data.metrics.total, this->_turn);
             this->_data.metrics.last = this->_turn;
@@ -403,7 +410,7 @@ _cold void cluster::Session::finished_(int code)
                 cluster::Entry entry{cluster::EntryKind::Error, this->_data.lastError, "", cluster::now()};
                 this->_data.entries.push_back(entry);
             }
-            events.push_back({cluster::Event::Kind::TurnDone, this->_data.spec.id, failed ? this->_data.lastError : this->_lastText, failed});
+            events.push_back({cluster::Event::Kind::TurnDone, this->_data.spec.id, failed ? this->_data.lastError : this->_lastText, failed, interrupted});
         }
     }
     this->touch_();
@@ -582,8 +589,23 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         if (this->_data.permissions.empty() && this->_data.state == cluster::State::Waiting) this->_data.state = cluster::State::Working;
     } else if (type == "rate_limit_event" && event.contains("rate_limit_info")) {
         const cluster::Json windows = event["rate_limit_info"].value("unifiedWindows", cluster::Json::object());
-        if (windows.contains("five_hour")) metrics.limit5h = windows["five_hour"].value("utilization", -1.0);
-        if (windows.contains("seven_day")) metrics.limit7d = windows["seven_day"].value("utilization", -1.0);
+        // utilization 0..1 and the reset (unix seconds, or milliseconds) when it is told
+        const std::function<std::int64_t(const cluster::Json&)> reset = [](const cluster::Json& window) -> std::int64_t {
+            for (const char* key: {"resets_at", "resetsAt", "reset_at"}) {
+                if (!window.contains(key) || !window[key].is_number()) continue;
+                const std::int64_t value = window[key].get<std::int64_t>();
+                return value > 100000000000 ? value / 1000 : value;
+            }
+            return 0;
+        };
+        if (windows.contains("five_hour")) {
+            metrics.limit5h = windows["five_hour"].value("utilization", -1.0);
+            if (const std::int64_t at = reset(windows["five_hour"]); at > 0) metrics.reset5h = at;
+        }
+        if (windows.contains("seven_day")) {
+            metrics.limit7d = windows["seven_day"].value("utilization", -1.0);
+            if (const std::int64_t at = reset(windows["seven_day"]); at > 0) metrics.reset7d = at;
+        }
     } else if (type == "result") {
         const cluster::Usage usage = usage_of_(event.value("usage", cluster::Json::object()));
         metrics.last = usage.total() > 0 ? usage : this->_turn;
@@ -601,13 +623,14 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         if (event.contains("modelUsage") && event["modelUsage"].is_object())
             for (const auto &[model, data]: event["modelUsage"].items())
                 metrics.contextWindow = std::max<std::int64_t>(data.value("contextWindow", std::int64_t{0}), 1000);
-        const bool error = event.value("is_error", false);
+        const bool interrupted = std::exchange(this->_interrupted, false); // its end is not an error
+        const bool error = event.value("is_error", false) && !interrupted;
         const std::string text = event.contains("result") && event["result"].is_string() ? event["result"].get<std::string>() : this->_lastText;
         if (error) this->entry_(cluster::EntryKind::Error, text.empty() ? subtype : text);
         this->_data.partial.clear();
         if (this->persistent()) {
             this->_data.state = this->_data.permissions.empty() ? cluster::State::Idle : cluster::State::Waiting;
-            this->emit_(cluster::Event::Kind::TurnDone, text, error);
+            this->emit_(cluster::Event::Kind::TurnDone, text, error, interrupted);
             if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) {
                 const cluster::Queued next = this->_pending.front();
                 this->_pending.pop_front();
@@ -656,7 +679,7 @@ _cold void cluster::Session::opencode_(const cluster::Json& event)
         const double cost = part.value("cost", 0.0);
         if (cost > 0) this->_data.metrics.costKnown = true; // a paid provider of opencode gives its real cost
         this->_data.metrics.cost += cost;
-        this->_data.metrics.lastCost = cost;
+        this->_data.metrics.lastCost += cost;
     } else if (type == "error") {
         const cluster::Json error = event.value("error", cluster::Json::object());
         const std::string message = error.contains("data") ? error["data"].value("message", error.dump()) : error.dump();
@@ -750,9 +773,9 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
     }
 }
 
-_cold void cluster::Session::emit_(const cluster::Event::Kind kind, const std::string& text, const bool error)
+_cold void cluster::Session::emit_(const cluster::Event::Kind kind, const std::string& text, const bool error, const bool interrupted)
 {
-    pending_events_.push_back({kind, this->_data.spec.id, text, error});
+    pending_events_.push_back({kind, this->_data.spec.id, text, error, interrupted});
 }
 
 /* actions */
@@ -896,6 +919,7 @@ _cold void cluster::Session::interrupt(void)
         this->_pending.clear();
         if (this->_process && this->_process->is()) ::kill(this->_process->getPid(), SIGINT);
     }
+    if (this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting) this->_interrupted = true;
     this->entry_(cluster::EntryKind::System, "interrupted");
     this->touch_();
 }

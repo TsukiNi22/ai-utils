@@ -309,6 +309,7 @@ _cold void cluster::Voice::dispatch_(const cluster::Pending& pending)
     try {
         // The global session knows a voice message can hold misheard words (global.md)
         this->_manager.send(pending.target, pending.target == GLOBAL_ID ? "[voice] " + pending.text : pending.text);
+        this->_manager.addHistory({pending.text, {}, {}}, pending.target); // said by the user: in the history
     } catch (const utils::exception::IException& e) {
         if (this->_manager.onNotice) this->_manager.onNotice({cluster::now(), pending.target, std::string("voice: ") + e.info(), true});
     }
