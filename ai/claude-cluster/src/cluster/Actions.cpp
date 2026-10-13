@@ -123,6 +123,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             list.push_back({"web_show", "Web access: address and code (" + status.url + ", " + status.pin + ")", "", "", false});
             list.push_back({"web_pin", "Web access: a new code", "", "", false});
             list.push_back({"web_devices", "Web devices: the devices connected and trusted (kick, remove the trust)", "", "", true});
+            if (status.https) list.push_back({"web_trust_ca", "Web access: trust its certificate on this computer (no browser warning; asks the password)", "", "", false});
             for (const cluster::WebDevice& d: status.devices) {
                 if (d.state == "waiting") {
                     list.push_back({"web_approve:" + d.id + ":allow", "Web: allow " + d.name + " (" + d.address + ")", "", "", false});
@@ -208,6 +209,14 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             manager.close(session);
             result.message = "closed (restorable from the palette)";
             result.focus = GLOBAL_ID;
+        } else if (base == "web_trust_ca") {
+            // claude-cluster web trust-ca in the background (the window of the password), its end told
+            std::thread([&manager]() {
+                const cluster::Captured done = cluster::capture({cluster::self_exe().string(), "web", "trust-ca"}, "", 300);
+                manager.notice(GLOBAL_ID, done.code == 0 ? "web: its certificate trusted by this computer (restart the browser: no warning)"
+                    : "web: certificate not trusted (" + cluster::one_line(done.out, 160) + ")", done.code != 0);
+            }).detach();
+            result.message = "web: the password asked by its window...";
         } else if (base == "web_approve" || base == "web_untrust" || (base == "web_kick" && !arg.empty())) {
             cluster::Web* web = manager.web();
             if (web == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access here");

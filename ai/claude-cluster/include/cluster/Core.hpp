@@ -100,6 +100,7 @@ class Core {
         _cold int auth_(void);
         _cold int engines_(void);                   // the engines of the voice, their state
         _cold int icon_(void);                      // the SVG of a face (happy, grin, attentive, waiting, idle, working) and its badge
+        _cold int trustCa_(void);                   // web trust-ca / untrust-ca: the authority of the web access in the system store
         _cold int machine_(void);                   // machine sync [--yes] | show | path
         _cold void print_(const std::string& cmd, const cluster::Json& data) const;
 

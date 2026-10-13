@@ -217,6 +217,7 @@ _cold void cluster::Core::run(void)
     else if (cmd == "auth") this->_exit = this->auth_();
     else if (cmd == "engines") this->_exit = this->engines_();
     else if (cmd == "icon") this->_exit = this->icon_();
+    else if (cmd == "web" && this->_words.size() > 1 && (this->_words[1] == "trust-ca" || this->_words[1] == "untrust-ca")) this->_exit = this->trustCa_();
     else if (cmd == "machine") this->_exit = this->machine_();
     else if (cmd == "service") this->_exit = cluster::service_command(this->_words, {this->_options.values.contains("verbose"),
         this->_options.values.contains("debug"), this->_options.values.contains("follow")});
@@ -506,6 +507,43 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         std::cout << "ok" << "\n";
     }
     std::cout << std::flush;
+}
+
+_cold int cluster::Core::trustCa_(void)
+{
+    // the authority of the web access trusted by this computer (Firefox, Chrome, curl read the system store through
+    // p11-kit): the password asked by its window (sudo -A, else pkexec)
+    const bool remove = this->_words[1] == "untrust-ca";
+    const std::filesystem::path ca = cluster::config_dir() / "web" / "ca.pem";
+    if (!std::filesystem::exists(ca)) {
+        std::cerr << "no authority yet: open the web access once with https (claude-cluster web on)" << std::endl;
+        return 1;
+    }
+    if (!cluster::has_command("trust")) {
+        std::cerr << "no 'trust' command (p11-kit): import " << ca.string() << " in the browser (Settings > Certificates > Authorities)" << std::endl;
+        return 1;
+    }
+    const std::vector<std::string> trust = remove ? std::vector<std::string>{"trust", "anchor", "--remove", ca.string()}
+        : std::vector<std::string>{"trust", "anchor", "--store", ca.string()};
+    const std::filesystem::path askpass = cluster::expand_home("~/.local/bin/sudo-askpass");
+    std::vector<std::string> command;
+    if (std::filesystem::exists(askpass) && cluster::has_command("sudo")) {
+        ::setenv("SUDO_ASKPASS", askpass.c_str(), 1);
+        command = {"sudo", "-A"};
+    } else if (cluster::has_command("pkexec")) {
+        command = {"pkexec"};
+    } else {
+        command = {"sudo"};
+    }
+    command.insert(command.end(), trust.begin(), trust.end());
+    const cluster::Captured done = cluster::capture(command, "", 300);
+    if (done.code != 0) {
+        std::cerr << "not done: " << cluster::one_line(done.out, 300) << std::endl;
+        return 1;
+    }
+    std::cout << (remove ? "the authority of claude-cluster is trusted no more by this computer"
+        : "the authority of claude-cluster is trusted by this computer: its web page opens without warning (restart the browser)") << std::endl;
+    return 0;
 }
 
 _cold int cluster::Core::icon_(void)

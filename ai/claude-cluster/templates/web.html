@@ -37,6 +37,14 @@ label.field input { color: var(--text); font-size: 15px; }
 #login button { width: 100%; }
 #loginError { color: var(--error); min-height: 20px; margin-top: 10px; font-size: 14px; }
 #deviceName { width: 100%; margin-bottom: 14px; padding: 8px 10px; box-sizing: border-box; }
+.ca-link { display: block; margin-top: 14px; font-size: 13px; color: var(--muted); }
+#caSteps { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; width: 100%; max-width: 460px; box-sizing: border-box; }
+#caSteps h2 { font-size: 18px; margin: 0 0 8px; }
+#caSteps p { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+#caSteps .button { display: block; text-align: center; padding: 10px; border-radius: 10px; text-decoration: none; margin-bottom: 12px; }
+#caSteps details { margin: 6px 0; font-size: 14px; } #caSteps summary { cursor: pointer; font-weight: 600; }
+#caSteps ol { margin: 6px 0 6px 18px; padding: 0; } #caSteps li { margin: 3px 0; }
+#caBack { margin-top: 12px; }
 #loginWait { color: var(--muted); font-size: 14px; margin-top: 12px; line-height: 1.5; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -1px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -144,7 +152,18 @@ header .muted { color: var(--muted); font-size: 13px; }
         <button class="primary" type="submit">Connect</button>
         <div id="loginWait" class="hidden"><span class="spin"></span> Waiting for the approval on the computer…<br><small>its popup there: Allow, or Allow and trust (no code next time)</small></div>
         <div id="loginError"></div>
+        <a href="#" id="caHelp" class="ca-link">No browser warning on this device: trust this computer once</a>
     </form>
+    <div id="caSteps" class="hidden">
+        <h2>Trust this computer once</h2>
+        <p>The browser warns because this computer made its own certificate (a local network has no public one). Install its authority once on this device: its pages open without warning, and stay encrypted.</p>
+        <a class="primary button" href="/ca.crt" download>Download the certificate</a>
+        <details open><summary>Android</summary><ol><li>Download it (above).</li><li>Settings › Security › More security settings › Encryption &amp; credentials › Install a certificate › CA certificate.</li><li>Pick <code>claude-cluster-ca.crt</code>, then reload this page.</li></ol></details>
+        <details><summary>iPhone / iPad</summary><ol><li>Download it (above), then Settings › Profile downloaded › Install.</li><li>Settings › General › About › Certificate Trust Settings: turn on <i>claude-cluster</i>.</li></ol></details>
+        <details><summary>Firefox (any system)</summary><ol><li>Download it, then Settings › Privacy &amp; Security › Certificates › View Certificates › Authorities › Import.</li><li>Tick <i>Trust this CA to identify websites</i>.</li></ol></details>
+        <details><summary>Windows / macOS / Linux (Chrome, Edge, Safari)</summary><ol><li>Windows: open the file › Install › Local machine › Trusted Root Certification Authorities.</li><li>macOS: open it in Keychain Access › System › Always trust.</li><li>Linux: <code>sudo trust anchor --store claude-cluster-ca.crt</code> (on the computer of claude-cluster itself: its palette, <i>Web access: trust its certificate</i>).</li></ol></details>
+        <button type="button" id="caBack">Back</button>
+    </div>
 </div>
 <div id="app" class="hidden">
     <header>
@@ -283,6 +302,9 @@ $("pin").addEventListener("input", (e) => {
     const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
     e.target.value = digits.length > 3 ? digits.slice(0, 3) + " " + digits.slice(3) : digits;
 });
+
+$("caHelp").addEventListener("click", (e) => { e.preventDefault(); $("loginForm").classList.add("hidden"); $("caSteps").classList.remove("hidden"); });
+$("caBack").addEventListener("click", () => { $("caSteps").classList.add("hidden"); $("loginForm").classList.remove("hidden"); });
 
 function deviceName() {
     try { return localStorage.getItem("cc-device-name") || ""; } catch (error) { return ""; }

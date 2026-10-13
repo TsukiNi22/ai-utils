@@ -524,11 +524,14 @@ the agents, a new session, a session closed.
   the name of this computer (a public name pointed at the LAN refused) and the requests of another site are refused.
 - From the page: the commands of the sessions only (list, read, send, allow, interrupt, spawn, close, rename, mode,
   model, tasks, trash, restore); never the configuration nor the web access itself.
-- **HTTPS** (`[web] https`, on by default; built with OpenSSL): a certificate of its own, made once in
-  `~/.config/claude-cluster/web/` (its key 0600). The browser warns the first time (self-signed): accept it after
-  comparing its SHA-256 with the one of the palette (*Web access: address and code*). The code and the conversation
-  are encrypted, and the microphone of the page is allowed (browsers refuse it on plain http). A plain `http://`
-  request is sent to `https://`. Off: plain HTTP, no microphone.
+- **HTTPS** (`[web] https`, on by default; built with OpenSSL): an authority of this computer made once in
+  `~/.config/claude-cluster/web/` (`ca.pem`, its key 0600), and the certificate of the server signed by it, naming every
+  address of this computer (made again when they change, and 30 days before its end). **No browser warning** once the
+  authority is trusted by a device: this computer with `claude-cluster web trust-ca` (the palette: *Web access: trust
+  its certificate*; the system store, read by Firefox, Chrome and curl; `web untrust-ca` undoes it), the other ones
+  from the login page (*trust this computer once*: `/ca.crt` and the steps for Android, iPhone, Firefox, Windows,
+  macOS). The code and the conversation are encrypted, and the microphone of the page is allowed (browsers refuse it
+  on plain http). A plain `http://` request is sent to `https://`. Off: plain HTTP, no microphone.
 - A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`; the Fedora
   Workstation zone already lets 1025-65535 in).
 

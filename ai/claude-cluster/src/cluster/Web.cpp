@@ -40,6 +40,7 @@ File Description:
 #include <iterator>
 #include <cstring>
 #include <sstream>
+#include <fstream>
 #include <random>
 #include <chrono>
 #include <array>
@@ -243,6 +244,24 @@ _cold static std::string lan_address_(void)
     return best.empty() ? "127.0.0.1" : best;
 }
 
+_cold static std::vector<std::string> lan_addresses_(void)
+{
+    // every IPv4 address of this computer (the certificate names them all)
+    std::vector<std::string> addresses;
+    ifaddrs* list = nullptr;
+    if (::getifaddrs(&list) == -1) return addresses;
+    for (const ifaddrs* it = list; it != nullptr; it = it->ifa_next) {
+        if (it->ifa_addr == nullptr || it->ifa_addr->sa_family != AF_INET || !(it->ifa_flags & IFF_UP) || (it->ifa_flags & IFF_LOOPBACK)) continue;
+        std::array<char, INET_ADDRSTRLEN> text{};
+        // xstyle: ignore-next LU-SOCKET (the addresses of the interfaces read, no socket)
+        ::inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in*>(it->ifa_addr)->sin_addr, text.data(), text.size());
+        if (std::find(addresses.begin(), addresses.end(), text.data()) == addresses.end()) addresses.emplace_back(text.data());
+    }
+    ::freeifaddrs(list);
+    std::sort(addresses.begin(), addresses.end());
+    return addresses;
+}
+
 _cold static bool host_ok_(const std::string& host)
 {
     // an address, localhost or the name of this computer: a public name pointed at the LAN (DNS rebinding) refused
@@ -415,24 +434,53 @@ _cold std::string cluster::Web::tls_(void)
         const std::filesystem::path dir = cluster::config_dir() / "web";
         const std::filesystem::path cert = dir / "cert.pem";
         const std::filesystem::path key = dir / "key.pem";
+        const std::filesystem::path ca = dir / "ca.pem";
+        const std::filesystem::path caKey = dir / "ca-key.pem";
+        const std::filesystem::path names = dir / "cert-names.txt"; // the names the certificate was made for
         std::error_code error;
-        if (!std::filesystem::exists(cert) || !std::filesystem::exists(key)) {
-            std::filesystem::create_directories(dir, error);
-            ::chmod(dir.c_str(), S_IRWXU);
+        std::filesystem::create_directories(dir, error);
+        ::chmod(dir.c_str(), S_IRWXU);
+        // the authority of this computer: made once (trusted once per device, it stays)
+        if (!std::filesystem::exists(ca) || !std::filesystem::exists(caKey)) {
             std::array<char, 256> own{};
             (void)::gethostname(own.data(), own.size() - 1);
-            std::string names = "subjectAltName=IP:127.0.0.1,DNS:localhost";
-            if (lan_address_() != "127.0.0.1") names += ",IP:" + lan_address_();
-            if (own[0] != '\0') names += ",DNS:" + std::string(own.data()) + ",DNS:" + std::string(own.data()) + ".local";
             const cluster::Captured made = cluster::capture({"openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
-                "-days", "3650", "-subj", "/CN=claude-cluster", "-addext", names, "-keyout", key.string(), "-out", cert.string()}, "", 30);
+                "-days", "7300", "-subj", "/O=claude-cluster/CN=claude-cluster on " + std::string(own[0] != '\0' ? own.data() : "this computer"),
+                "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0", "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-keyout", caKey.string(),
+                "-out", ca.string()}, "", 30);
+            ::chmod(caKey.c_str(), S_IRUSR | S_IWUSR);
+            if (made.code != 0) return "openssl could not make its authority: " + cluster::one_line(made.out, 160);
+            std::filesystem::remove(cert, error); // the old self-signed one: signed by the authority now
+        }
+        // the certificate of the server: every address of this computer, signed by the authority; made again when they
+        // change or 30 days before its end (397 days: what the browsers accept)
+        std::array<char, 256> own{};
+        (void)::gethostname(own.data(), own.size() - 1);
+        std::string wanted = "IP:127.0.0.1,DNS:localhost";
+        for (const std::string& address: lan_addresses_())
+            wanted += ",IP:" + address;
+        if (own[0] != '\0') wanted += ",DNS:" + std::string(own.data()) + ",DNS:" + std::string(own.data()) + ".local";
+        std::ifstream in(names);
+        const std::string made((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const bool ending = cluster::capture({"openssl", "x509", "-checkend", std::to_string(30 * 86400), "-noout", "-in", cert.string()}, "", 10).code != 0;
+        if (!std::filesystem::exists(cert) || !std::filesystem::exists(key) || made != wanted || ending) {
+            const std::filesystem::path request = dir / "cert.csr";
+            const std::filesystem::path extensions = dir / "cert.ext";
+            std::ofstream(extensions) << "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=" << wanted << "\n";
+            const cluster::Captured req = cluster::capture({"openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
+                "-subj", "/O=claude-cluster/CN=" + std::string(own[0] != '\0' ? own.data() : "claude-cluster"), "-keyout", key.string(), "-out", request.string()}, "", 30);
             ::chmod(key.c_str(), S_IRUSR | S_IWUSR);
-            if (made.code != 0) return "openssl could not make its certificate: " + cluster::one_line(made.out, 160);
+            const cluster::Captured sign = req.code != 0 ? req : cluster::capture({"openssl", "x509", "-req", "-in", request.string(), "-CA", ca.string(), "-CAkey",
+                caKey.string(), "-CAcreateserial", "-days", "397", "-sha256", "-extfile", extensions.string(), "-out", cert.string()}, "", 30);
+            std::filesystem::remove(request, error);
+            std::filesystem::remove(extensions, error);
+            if (sign.code != 0) return "openssl could not make its certificate: " + cluster::one_line(sign.out, 160);
+            std::ofstream(names) << wanted;
         }
         SSL_CTX* context = ::SSL_CTX_new(::TLS_server_method());
         if (context == nullptr) return "OpenSSL";
         (void)::SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION);
-        if (::SSL_CTX_use_certificate_file(context, cert.c_str(), SSL_FILETYPE_PEM) != 1 || ::SSL_CTX_use_PrivateKey_file(context, key.c_str(), SSL_FILETYPE_PEM) != 1) {
+        if (::SSL_CTX_use_certificate_chain_file(context, cert.c_str()) != 1 || ::SSL_CTX_use_PrivateKey_file(context, key.c_str(), SSL_FILETYPE_PEM) != 1) {
             ::SSL_CTX_free(context);
             std::filesystem::remove(cert, error);   // made again at the next opening
             std::filesystem::remove(key, error);
@@ -706,6 +754,14 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     }
     if (request.path == "/api/login") {
         this->login_(connection, &request, peer, secure);
+        return;
+    }
+    if (request.method == "GET" && request.path == "/ca.crt") {
+        // the authority of this computer: installed once on a device, the browser trusts its pages (no warning)
+        std::ifstream in(cluster::config_dir() / "web" / "ca.pem");
+        const std::string pem((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (pem.empty()) respond_(conn, 404, "text/plain", "no authority (plain http)\n");
+        else respond_(conn, 200, "application/x-x509-ca-cert", pem, "Content-Disposition: attachment; filename=\"claude-cluster-ca.crt\"\r\n");
         return;
     }
     if (request.method == "GET" && request.path == "/api/version") { // the app: is it still served, a newer one
