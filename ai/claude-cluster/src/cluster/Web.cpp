@@ -829,6 +829,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         cluster::Json sessions = cluster::Json::array();
         for (const cluster::Snapshot& snap: this->_manager.list(true)) {
             cluster::Json item = this->_manager.toJson(snap, false);
+            item["origin"] = this->_manager.origin(snap.spec.id); // who is notified for it: this device or not
             cluster::Json recent = cluster::Json::array();
             for (auto it = snap.entries.rbegin(); it != snap.entries.rend() && recent.size() < 6; ++it) {
                 if (it->kind != cluster::EntryKind::User && it->kind != cluster::EntryKind::Assistant && it->kind != cluster::EntryKind::Tool
@@ -851,7 +852,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         json_(conn, 200, {{"version", version()}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
-            {"client", peer}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
+            {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
     } else if (request.method == "GET" && request.path == "/api/display") {
         // a display whole (its picture): the page asks it once
@@ -869,8 +870,15 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
             const std::string cwd = cluster::trim(command["cwd"].get<std::string>());
             if (!cwd.starts_with("/") && !cwd.starts_with("~")) command["cwd"] = "~/" + cwd;
         }
-        if (!allowed.contains(cmd)) json_(conn, 400, {{"ok", false}, {"error", "command not allowed from the web: '" + cmd + "'"}});
-        else json_(conn, 200, cluster::Control::handle(this->_manager, command));
+        if (!allowed.contains(cmd)) {
+            json_(conn, 400, {{"ok", false}, {"error", "command not allowed from the web: '" + cmd + "'"}});
+        } else {
+            const cluster::Json answer = cluster::Control::handle(this->_manager, command);
+            // a prompt of this device: it is the one notified for this session (not the desktop here)
+            if ((cmd == "send" || cmd == "allow" || cmd == "ask") && answer.value("ok", false) && command.contains("session") && command["session"].is_string())
+                this->_manager.setOrigin(command["session"].get<std::string>(), "web:" + cookie_(request, "cc_dev"));
+            json_(conn, 200, answer);
+        }
     } else if (post && request.path == "/api/complete") {
         // the completion of the prompt (@file, /command, /cd, /mode, /model...) and of the folder of a new session
         const std::string session = field("session");

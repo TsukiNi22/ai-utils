@@ -107,6 +107,7 @@ class Manager {
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::map<std::string, std::string> _notifyIds;  // the notification shown per session (replaced by the next one)
+        std::map<std::string, std::string> _origin;     // who sent the last prompt of a session: "host" or "web:<device>" (notified)
         std::pair<cluster::Face, std::int64_t> _moment{cluster::Face::Idle, 0};   // a finished turn / a global answer: shown a moment
         std::map<std::string, int> _limitLevel;         // a limit close: the level already told (80, 95, 100)
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
@@ -220,6 +221,8 @@ class Manager {
         // reminder (its setting, [ui] notify_when); false: not shown
         bool notify(const cluster::Notification& notification, const std::string& kind = "");
         _nodiscard cluster::AppFace appFace(const bool listening) const;   // the face of the app now, its badge
+        void setOrigin(const std::string& id, const std::string& origin);  // its last prompt from a web device: "web:<device>"
+        _nodiscard std::string origin(const std::string& id) const;         // "host" (default) or "web:<device>"
         _cold void scanMachine(void);                       // the map of this computer written again (in the background, a notice)
         _nodiscard int machineAsk(void) const;              // asked at start: 0 no, 1 no map yet (not refused), 2 an old map (sync proposed)
         _nodiscard std::optional<std::pair<cluster::MachineProgress, std::int64_t>> machineProgress(void) const; // the last scan, ms of its end (0: running)

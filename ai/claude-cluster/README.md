@@ -352,7 +352,9 @@ page, the dock (the number of the sessions waiting on you, else running: the Uni
 | `-_-` idle | nothing running | a limit reached (the usage, the budget): until its reset |
 | `>_<` squint | something running | |
 
-One notification per session (the next one replaces it), urgent when it waits on you, its buttons answered from the
+Never twice: the one who sent the last prompt of a session is notified for it - the desktop here (terminal, window,
+voice, the global session) or the web device that sent it (its page, its app), even on this same computer; a device
+asking to connect is always notified here. One notification per session (the next one replaces it), urgent when it waits on you, its buttons answered from the
 notification (Open shows the session), a short sound of the desktop theme per kind (`[ui] notify_sound`).
 
 ## Voice

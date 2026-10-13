@@ -1927,11 +1927,13 @@ function applyStyle(style) {
 let alertsPrev = null;
 function watchAlerts(state) {
     const now = {};
-    for (const s of state.sessions || []) now[s.id] = {state: s.state, perms: (s.permissions || []).length, name: shortName(s), last: (s.recent || []).slice(-1)[0]};
+    // only the sessions whose last prompt came from this device: the computer (or another device) notifies the others
+    for (const s of state.sessions || [])
+        now[s.id] = {state: s.state, perms: (s.permissions || []).length, name: shortName(s), last: (s.recent || []).slice(-1)[0], mine: s.origin === "web:" + state.device};
     if (alertsPrev) {
         for (const [id, s] of Object.entries(now)) {
             const before = alertsPrev[id];
-            if (!before) continue;
+            if (!before || !s.mine) continue;
             if (s.perms > before.perms) browserNotify(s.name + " waits for you", "a permission or a question", id);
             else if ((before.state === "working") && s.state === "idle") browserNotify(s.name + " finished", s.last ? s.last.text : "", id);
             else if (before.state !== "error" && s.state === "error") browserNotify(s.name + ": error", s.last ? s.last.text : "", id);

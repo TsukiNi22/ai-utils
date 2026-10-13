@@ -182,9 +182,27 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     return spec.id;
 }
 
+void cluster::Manager::setOrigin(const std::string& id, const std::string& origin)
+{
+    const std::string resolved = this->resolve(id); // before the lock (it takes it)
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_origin[resolved] = origin;
+}
+
+std::string cluster::Manager::origin(const std::string& id) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    auto it = this->_origin.find(id);
+    return it == this->_origin.end() ? std::string("host") : it->second;
+}
+
 _cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images)
 {
     const std::shared_ptr<cluster::Session> session = this->get_(id);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_origin[session->id()] = "host"; // a web device marks it after (Web: setOrigin)
+    }
     const cluster::Snapshot snap = session->snapshot();
 
     if (!force && this->_config.budget > 0 && snap.metrics.costKnown && snap.metrics.cost >= this->_config.budget) {
@@ -895,6 +913,8 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     const std::map<std::string, bool> kinds = {{"global", c.notifyGlobal}, {"done", c.notifyDone}, {"permission", c.notifyPermission}, {"question", c.notifyQuestion},
         {"error", c.notifyError}, {"limit", c.notifyLimits}, {"web", c.notifyWeb}, {"task", c.notifyTasks}, {"reminder", c.notifyReminders}};
     if (kinds.contains(kind) && !kinds.at(kind)) return false;
+    // the last prompt of this session came from a web device: its page (or its app) notifies, not the desktop here
+    if (kind != "web" && !n.session.empty() && this->origin(n.session).starts_with("web:")) return false;
     if (c.notifyWhen != "always" && this->_focused == 1) return false; // in front of the user: its popups there
     const std::string key = n.session.empty() ? "-" : n.session;
     std::vector<std::string> args = {"notify-send", "-a", "claude-cluster", "-i", cluster::face_file(n.face).string(), "-h", "string:desktop-entry:claude-cluster",
