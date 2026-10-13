@@ -94,6 +94,10 @@ class Voice {
         _cold void edit(const std::string& text);
         _cold void speak(const std::string& text);
         _cold void mute(void);
+        // the web access: a sentence recorded by the browser - the voice word it is (cancel / send / empty), its proper
+        // names written back; voice-say and its arguments for a text (engine, voice of its language, Piper fallback)
+        _cold _nodiscard std::string voiceWord(const std::string& text) const;
+        _cold _nodiscard std::vector<std::string> sayArgs(const std::string& text) const;
         _nodiscard bool armed(void) const;                 // wake mode: the wake phrase was just heard
         _nodiscard std::vector<cluster::Pending> pending(void) const;
 
@@ -104,6 +108,7 @@ class Voice {
         _nodiscard inline bool running(void) const {return this->_listening;};
         _nodiscard inline bool speaking(void) const {return this->_sayPid > 0;};
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};
+        _cold _nodiscard inline std::string correct(const std::string& text) {return cluster::vocabulary_correct(text, this->terms_());}; // the proper names written back
         _cold _nodiscard inline std::vector<std::string> setup(void) const {return cluster::voice_missing(this->_manager.config());}; // what is missing
 
         // ---------- Constructor -------- //

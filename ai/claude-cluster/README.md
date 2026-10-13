@@ -379,6 +379,14 @@ A browser of the same network (a phone, a tablet, another computer of the LAN) d
 their state, the transcript, a message sent to any session, Stop, the permissions (Allow / Deny) and the questions of
 the agents, a new session, a session closed.
 
+- **Completion** like in the terminal: `@file`, `/command`, the argument of `/cd` `/new` `/mode` `/model` `/effort`
+  `/restore`, and the folder of a new session (from the home folder); ↑↓, Tab / Enter, Esc.
+- **Voice** (⚙ of the page): the microphone of the browser, *tap to talk* or *hands-free* (each sentence cut by its
+  silence, `[voice] end_silence`); each sentence recognized by the speech model of the settings (`listen_model`: a
+  voice-listen kept loaded, ~10 s the first time) with the vocabulary; it waits `confirm_seconds` (paused while you
+  speak, Send now / Cancel / Edit), the cancel / send words act on it. The answers read aloud by the voice of
+  claude-cluster (`say_engine`, `say_voices`: a wav from voice-say) or by the voice of the device.
+
 - Open: settings page > Web (`[web] enabled`, opened at every start), the palette *Web access: open*, `claude-cluster
   web on` (this run), `claude-cluster --web`. Its address and its code are shown at the top of the interface:
   `web http://192.168.1.12:8787 · code 123 456 · free`.
@@ -391,8 +399,13 @@ the agents, a new session, a session closed.
   the name of this computer (a public name pointed at the LAN refused) and the requests of another site are refused.
 - From the page: the commands of the sessions only (list, read, send, allow, interrupt, spawn, close, rename, mode,
   model, tasks, trash, restore); never the configuration nor the web access itself.
-- Plain HTTP: the code and the conversation cross the network in clear; a network you trust only (home, not a public
-  Wi-Fi). A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`).
+- **HTTPS** (`[web] https`, on by default; built with OpenSSL): a certificate of its own, made once in
+  `~/.config/claude-cluster/web/` (its key 0600). The browser warns the first time (self-signed): accept it after
+  comparing its SHA-256 with the one of the palette (*Web access: address and code*). The code and the conversation
+  are encrypted, and the microphone of the page is allowed (browsers refuse it on plain http). A plain `http://`
+  request is sent to `https://`. Off: plain HTTP, no microphone.
+- A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`; the Fedora
+  Workstation zone already lets 1025-65535 in).
 
 ## Background service
 

@@ -322,10 +322,9 @@ _cold void cluster::Voice::heard_(const std::string& heard)
 }
 
 /* voice commands and vocabulary */
-_cold bool cluster::Voice::command_(const std::string& text)
+_cold std::string cluster::Voice::voiceWord(const std::string& text) const
 {
-    // a sentence that is only a cancel / send word (no case, accent nor punctuation): on the transcriptions waiting;
-    // cancel with nothing waiting stops the answer being read and the turn of the global session
+    // a sentence that is only a cancel / send word (no case, accent nor punctuation): "cancel" / "send", else empty
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     const std::string said = cluster::vocabulary_key(text);
     cluster::VoiceWords words = cluster::voice_words(cluster::voice_words_path(conf.words)); // edited: taken at once
@@ -334,7 +333,16 @@ _cold bool cluster::Voice::command_(const std::string& text)
     const std::function<bool(const std::vector<std::string>&)> is = [&](const std::vector<std::string>& list) {
         return std::any_of(list.begin(), list.end(), [&](const std::string& word) {return cluster::vocabulary_key(word) == said;});
     };
-    if (said.empty()) return false;
+    if (said.empty()) return "";
+    return is(words.cancel) ? "cancel" : is(words.send) ? "send" : "";
+}
+
+_cold bool cluster::Voice::command_(const std::string& text)
+{
+    // a sentence that is only a cancel / send word: on the transcriptions waiting; cancel with nothing waiting stops the
+    // answer being read and the turn of the global session
+    const std::string word = this->voiceWord(text);
+    if (word.empty()) return false;
     bool waiting = false;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -343,7 +351,7 @@ _cold bool cluster::Voice::command_(const std::string& text)
     const std::function<void(const std::string&)> notice = [&](const std::string& what) {
         this->_manager.notice(GLOBAL_ID, "voice: \"" + text + "\": " + what);
     };
-    if (is(words.cancel)) {
+    if (word == "cancel") {
         if (waiting) {
             this->cancel();
             notice("the transcription waiting dropped");
@@ -361,7 +369,7 @@ _cold bool cluster::Voice::command_(const std::string& text)
         notice(working ? "the answer stopped" : "the reading stopped");
         return true;
     }
-    if (waiting && is(words.send)) {
+    if (waiting && word == "send") {
         this->confirm();
         notice("sent now");
         return true;
@@ -491,7 +499,7 @@ _cold void cluster::Voice::speak(const std::string& text)
     this->say_(summary);
 }
 
-_cold void cluster::Voice::say_(const std::string& text)
+_cold std::vector<std::string> cluster::Voice::sayArgs(const std::string& text) const
 {
     // the engine and its voice for the language of the text ([voice] say_voices, else its default one); the Piper voice
     // of the language: the engine piper, the fallback of the others (no key, quota, model missing)
@@ -505,6 +513,12 @@ _cold void cluster::Voice::say_(const std::string& text)
     std::vector<std::string> args = {command, "-e", engine, "-l", language, "-f", piper};
     if (!voice.empty()) args.insert(args.end(), {"-v", voice});
     args.push_back(text);
+    return args;
+}
+
+_cold void cluster::Voice::say_(const std::string& text)
+{
+    const std::vector<std::string> args = this->sayArgs(text);
     std::thread([this, args]() {
         utils::encapsulation::Process process;
         try {

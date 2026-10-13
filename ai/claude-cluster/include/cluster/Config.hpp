@@ -99,6 +99,7 @@ struct UserConf {
 struct WebConf {
     bool enabled = false;           // opened at the start (else: web on, the palette, --web)
     int port = 8787;
+    bool https = true;              // TLS, self-signed certificate (the microphone of the page needs it; the browser asks once)
 };
 
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on

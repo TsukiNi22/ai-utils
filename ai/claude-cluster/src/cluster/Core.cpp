@@ -77,9 +77,9 @@ _cold void cluster::App::stop(void)
 {
     this->running = false;
     if (this->ticker.joinable()) this->ticker.join();
-    this->voice.reset();
     if (this->manager) this->manager->setWeb(nullptr);
-    this->web.reset();
+    this->web.reset();      // before the voice: a request of the page may still use it
+    this->voice.reset();
     if (this->control) this->control->stop();
     if (this->manager) this->manager->shutdown();
 }
@@ -267,7 +267,7 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!app.askRestore) app.manager->startGlobal(); // asked: started by the answer (resumed or new)
     app.askMachine = serve ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
-    app.web = std::make_unique<cluster::Web>(*app.manager, this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);
+    app.web = std::make_unique<cluster::Web>(*app.manager, app.voice.get(), this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);
     app.manager->setWeb(app.web.get());
     app.start();
 

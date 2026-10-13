@@ -21,6 +21,7 @@ find_package(utils 3.0.0 CONFIG REQUIRED) # Check utils dependencies existance
 find_package(nlohmann_json 3.10 CONFIG REQUIRED) # stream-json of claude, MCP, state files
 find_package(tomlplusplus 3.0 CONFIG REQUIRED) # config.toml
 find_package(Threads REQUIRED)
+find_package(OpenSSL QUIET) # https of the web access (the microphone of the page needs it), optional
 option(CLUSTER_GUI "Build the Qt6 window front-end (when Qt6 Widgets is found)" ON)
 if(CLUSTER_GUI)
     find_package(Qt6 6.2 COMPONENTS Widgets QUIET) # window front-end, optional
@@ -83,6 +84,7 @@ set(SRC
     src/cluster/Vocabulary.cpp
     src/cluster/VoiceEngines.cpp
     src/cluster/Web.cpp
+    src/cluster/WebVoice.cpp
 
     # Core (sub-part: control)
     src/cluster/Control.cpp
@@ -126,6 +128,10 @@ file(WRITE ${CMAKE_BINARY_DIR}/generated/cluster/Templates.hpp "${TEMPLATES_HEAD
 # =========================
 target_include_directories(${TARGET} PRIVATE include ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(${TARGET} PRIVATE CLUSTER_VERSION="${PROJECT_VERSION}")
+if(OpenSSL_FOUND)
+    target_link_libraries(${TARGET} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_compile_definitions(${TARGET} PRIVATE CLUSTER_TLS)
+endif()
 target_link_libraries(${TARGET} PRIVATE
     utils::utils
     nlohmann_json::nlohmann_json

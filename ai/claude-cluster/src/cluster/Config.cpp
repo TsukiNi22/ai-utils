@@ -196,6 +196,7 @@ _cold void cluster::Config::load(void)
     /* web */
     this->web.enabled = table["web"]["enabled"].value_or(this->web.enabled);
     this->web.port = table["web"]["port"].value_or(this->web.port);
+    this->web.https = table["web"]["https"].value_or(this->web.https);
 
     /* service */
     toml::node_view<const toml::node> sv = std::as_const(table)["service"];

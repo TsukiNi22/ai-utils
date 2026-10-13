@@ -167,7 +167,9 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             if (base == "web_kick") web->kick();
             const cluster::WebStatus status = web->status();
             result.message = status.on ? "open " + status.url + " on a device of this network, code " + status.pin
-                + (status.client.empty() ? "" : " (" + status.client + " connected)") : status.error.empty() ? "web access closed" : "web access: " + status.error;
+                + (status.client.empty() ? "" : " (" + status.client + " connected)")
+                + (status.https ? "; certificate SHA-256 " + status.fingerprint.substr(0, 23) + "... (the browser shows it)" : "")
+                : status.error.empty() ? "web access closed" : "web access: " + status.error;
         } else if (base == "remote_on" || base == "remote_off") {
             manager.setRemote(base == "remote_on");
         } else if (base == "export") {
