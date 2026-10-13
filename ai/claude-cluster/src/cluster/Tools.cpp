@@ -71,8 +71,10 @@ _cold std::filesystem::path cluster::socket_path(void)
 _cold std::filesystem::path cluster::self_exe(void)
 {
     std::error_code error;
-    const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", error);
-    return error ? std::filesystem::path("claude-cluster") : exe;
+    std::string exe = std::filesystem::read_symlink("/proc/self/exe", error).string();
+    // replaced while running (reinstalled): "<path> (deleted)", the new binary is at <path>
+    if (exe.ends_with(" (deleted)")) exe.erase(exe.size() - 10);
+    return error ? std::filesystem::path("claude-cluster") : std::filesystem::path(exe);
 }
 
 _cold std::string cluster::short_path(const std::string& path)

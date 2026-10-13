@@ -385,6 +385,30 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         return;
     }
     const bool rtk = this->_options.rtk;
+    if (cmd == "web") {
+        // open: its address, its code, the browser connected; closed: how to open it
+        const std::string action = data.value("action", std::string());
+        if (rtk) {
+            std::cout << (data.value("on", false) ? "on|" + data.value("url", std::string()) + "|" + data.value("pin", std::string()) + "|"
+                + data.value("client", std::string()) : "off|" + data.value("error", std::string())) << "\n";
+            return;
+        }
+        if (!data.value("on", false)) {
+            std::cout << "web access closed" << (data.value("error", std::string()).empty() ? "" : " (" + data.value("error", std::string()) + ")")
+                << (action == "off" ? "" : "   open it: claude-cluster web on") << "\n";
+            return;
+        }
+        if (action == "kick") std::cout << (data.value("kicked", false) ? "the browser disconnected, a new code" : "no browser connected, a new code") << "\n";
+        if (action == "pin") std::cout << "a new code" << "\n";
+        std::cout << "web access open   " << data.value("url", std::string()) << "   code " << data.value("pin", std::string()) << "\n"
+            << (data.value("client", std::string()).empty() ? std::string("free: one browser of this network at a time")
+                : data.value("client", std::string()) + " connected (claude-cluster web kick: out)") << "\n";
+        if (data.value("https", false))
+            std::cout << "certificate SHA-256 " << data.value("fingerprint", std::string()) << " (the browser asks to accept it once: compare)" << "\n";
+        else
+            std::cout << "plain http: no microphone in the page ([web] https = true, then claude-cluster web off / on)" << "\n";
+        return;
+    }
     if (cmd == "list") {
         if (rtk) std::cout << "id|name|state|backend|mode|tok_total|ctx%|cost|perm|cwd" << "\n";
         for (const cluster::Json& s: data) {

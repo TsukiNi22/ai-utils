@@ -363,7 +363,7 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
 /* global session */
 _cold std::vector<std::string> cluster::Manager::globalArgs_(void) const
 {
-    std::vector<std::string> args = {"--mcp-config", (cluster::runtime_dir() / "mcp.json").string(), "--allowedTools", "mcp__claude-cluster"};
+    std::vector<std::string> args = {"--mcp-config", cluster::mcp_config_path().string(), "--allowedTools", "mcp__claude-cluster"};
     const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt);
     args.insert(args.end(), prompt.begin(), prompt.end());
     return args;
@@ -375,7 +375,7 @@ _cold void cluster::Manager::writeMcpConfig_(void) const
         {"type", "stdio"}, {"command", cluster::self_exe().string()}, {"args", {"mcp"}},
         {"env", {{"CLAUDE_CLUSTER_SOCKET", cluster::socket_path().string()}}},
     }}}}};
-    cluster::write_json(cluster::runtime_dir() / "mcp.json", config);
+    cluster::write_json(cluster::mcp_config_path(), config);
 }
 
 _cold void cluster::Manager::startGlobal(void)

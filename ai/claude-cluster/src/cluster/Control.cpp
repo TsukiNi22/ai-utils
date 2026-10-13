@@ -513,14 +513,18 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             cluster::Web* web = manager.web();
             if (web == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access in this instance");
             const std::string action = arg_(request, "action");
+            if (!action.empty() && action != "on" && action != "off" && action != "kick" && action != "pin")
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown action '" + action + "' (web [on|off|kick|pin])");
+            if ((action == "kick" || action == "pin") && !web->status().on)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the web access is closed: claude-cluster web on");
+            const bool kicked = action == "kick" && !web->status().client.empty();
             if (action == "on" || action == "off") web->setOn(action == "on");
             else if (action == "kick") web->kick();
             else if (action == "pin") web->renewPin();
-            else if (!action.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "web [on|off|kick|pin]");
             if (action == "on" || action == "off") web->tick(); // applied now, not at the next second
             const cluster::WebStatus status = web->status();
             data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
-                {"note", "this network only, one browser at a time ([web] port, enabled)"}};
+                {"https", status.https}, {"fingerprint", status.fingerprint}, {"action", action}, {"kicked", kicked}};
         } else if (cmd == "voice_engines") {
             // the engines of the voice: what each one handles, its limits, its free use, its links, ready, used
             data = cluster::voice_engines_json(manager.config());

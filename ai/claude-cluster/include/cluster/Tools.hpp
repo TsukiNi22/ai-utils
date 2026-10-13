@@ -46,6 +46,9 @@ _cold _nodiscard std::filesystem::path config_dir(void);     // ~/.config/claude
 _cold _nodiscard std::filesystem::path data_dir(void);       // ~/.local/share/claude-cluster
 _cold _nodiscard std::filesystem::path runtime_dir(void);    // $XDG_RUNTIME_DIR/claude-cluster (or /tmp)
 _cold _nodiscard std::filesystem::path socket_path(void);
+// the MCP config of the global session, next to the socket: an instance of its own (CLAUDE_CLUSTER_SOCKET) never
+// overwrites the one of another
+_cold _nodiscard inline std::filesystem::path mcp_config_path(void) {return cluster::socket_path().parent_path() / "mcp.json";};
 _cold _nodiscard std::filesystem::path self_exe(void);
 _cold _nodiscard std::string short_path(const std::string& path); // ~ for the home
 
