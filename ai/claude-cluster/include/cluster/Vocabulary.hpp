@@ -30,8 +30,11 @@ namespace cluster { // namespace start
 /* STRUCT */
 
 struct VoiceWords {
-    std::vector<std::string> cancel;    // said alone: the transcription waiting dropped (else the answer read stopped)
-    std::vector<std::string> send;      // said alone: the transcription waiting sent now
+    std::vector<std::string> cancel;    // said alone: the transcription waiting dropped (else the answer read stopped); a question: declined
+    std::vector<std::string> send;      // said alone: the transcription waiting sent now; a question: its answer validated
+    std::vector<std::string> next;      // a question of an agent: its answer validated, the next one
+    std::vector<std::string> back;      // a question: the previous one
+    std::vector<std::string> other;     // a question: "<word> <the answer>" typed as Other
 };
 
 struct Term {

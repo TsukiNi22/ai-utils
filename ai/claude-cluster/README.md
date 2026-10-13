@@ -294,7 +294,13 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   description, ↑↓ / 1-9, Space ticks (multi choice), Other typed, Enter answers, Esc declines; the window: a dialog
   (radio buttons or check boxes, Other, Answer / Decline); its notice and notification tell the question; the global
   session sees them in `session_status` and answers with `session_allow` `answers` {question: label}; a plain allow
-  is refused (the agent would go on without its answer);
+  is refused (the agent would go on without its answer). One question at a time for the whole cluster, shared by the
+  keys, the mouse, the voice and the web page: the question of a sub-session is shown on the global session
+  (`[sessions] questions_to_global`, on), its own view greyed (*waits for your answer: Ctrl+G*); the voice answers it
+  (read aloud with its options when `speak` is on): a number or the label of an option chooses it, a word of `[send]` /
+  `[next]` validates it (the next question; the last one: all sent), `[back]` the previous one, `[other] <answer>`
+  types it, `[cancel]` declines (`voice-words.txt`). `[sessions] global_answers` (off): the global session is told those
+  questions and may choose their answer when it knows what you want;
 - **the safety check of Claude Code** (a removal it cannot resolve, `rm -f $O/*.png`...): only a person may approve it.
   A sub-session in `bypassPermissions` asks for it: the global session decides (`[sessions] bypass_to_global`, on; it
   asks you when unsure), you can answer it too. In `auto` mode Claude Code denies it at once without asking: it is then

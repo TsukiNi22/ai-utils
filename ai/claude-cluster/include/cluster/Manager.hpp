@@ -23,6 +23,7 @@ File Description:
     #include "Machine.hpp"          // cluster::MachineProgress
     #include "Session.hpp"          // cluster::Session, cluster::Event
     #include "Config.hpp"           // cluster::Config
+    #include "Asking.hpp"           // cluster::Asking
     #include "Types.hpp"            // cluster::Snapshot, cluster::Task
     #include "Auth.hpp"             // cluster::Auth
     #include <functional>           // std::function
@@ -106,6 +107,7 @@ class Manager {
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
         cluster::Web* _web = nullptr;                   // the web access of this instance (owned by the App)
+        std::unique_ptr<cluster::Asking> _asking;       // the question of an agent being answered (the interfaces, the voice)
         std::vector<cluster::UsageRecord> _usage;       // the usage ledger (usage.jsonl), in time order
         std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows)
 
@@ -224,6 +226,7 @@ class Manager {
         _nodiscard inline cluster::Config& config(void) {return this->_config;};
         _nodiscard inline bool remote(void) const {return this->ui("remote", "false") == "true";}; // Remote Control of the global session
         inline void setWeb(cluster::Web* web) {this->_web = web;};
+        _nodiscard inline cluster::Asking& asking(void) {return *this->_asking;};
         _nodiscard inline cluster::Web* web(void) const {return this->_web;};
         _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};
         _cold inline void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers) {this->get_(id)->answerQuestions(requestId, answers);};

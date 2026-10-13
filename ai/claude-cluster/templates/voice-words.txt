@@ -1,5 +1,6 @@
-# Voice words of claude-cluster: said alone while a transcription waits (before it is sent). Compared without case,
-# accents nor punctuation; one word or phrase per line, under its section. Used from the next sentence heard.
+# Voice words of claude-cluster: said alone while a transcription waits (before it is sent), or while a question of an
+# agent is shown. Compared without case, accents nor punctuation; one word or phrase per line, under its section. Used
+# from the next sentence heard. A question: say a number ("deux", "option 3") or the label of an option to choose it.
 
 [cancel]
 # the transcription waiting dropped; nothing waiting: the answer being read stopped (and the turn of the global session)
@@ -23,3 +24,31 @@ vas-y
 go
 send
 send it
+
+[next]
+# a question of an agent: its answer validated, the next question ([send] too; the last one: all sent)
+suivant
+suivante
+continue
+continuer
+next
+skip
+
+[back]
+# a question: back to the previous one (its answer changed)
+retour
+reviens
+precedent
+en arriere
+back
+previous
+go back
+
+[other]
+# a question: "<word> <the answer>": the answer typed as Other ("autre on garde les deux")
+autre
+ecris
+reponds
+other
+write
+answer

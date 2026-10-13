@@ -72,6 +72,7 @@ class Voice {
         std::string _model;                         // the speech model voice-listen was started on ([voice] listen_model)
         double _endSilence = 0.0;                   // and its end of a sentence ([voice] end_silence)
         std::string _language;                      // and the language spoken ([voice] listen_language)
+        std::string _askSpoken;                     // the question of an agent read aloud (request:index)
         std::atomic<std::int64_t> _lastSound{0};    // unix ms of the last "…" / live text: the user speaks (nothing sent)
 
         // ---------- Pre-Function -------- //

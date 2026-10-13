@@ -51,18 +51,6 @@ namespace {
 
 enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question};
 
-// A question of an agent (AskUserQuestion) being answered: its questions one by one
-struct Ask {
-    std::string session;
-    std::string requestId;
-    cluster::Json questions;
-    std::size_t index = 0;          // the question shown
-    int cursor = 0;                 // its option (the last one: other, typed)
-    std::set<int> picked;           // multi choice: the options ticked
-    std::string other;              // the answer typed
-    cluster::Json answers = cluster::Json::object();
-};
-
 struct Theme {
     ftxui::Color bg;
     ftxui::Color surface;
@@ -420,8 +408,6 @@ class TtyUi {
         std::string _drag;                          // "prompt", a session id, or empty
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
-        std::optional<Ask> _ask;                    // Mode::Question: the question of an agent being answered
-        std::set<std::string> _asked;               // the questions opened once (declined: not again)
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
         std::atomic<bool> _sendPending{false};      // Enter waits a few ms: a key right after it is a pasted line break
         std::int64_t _sendAt = 0;                   // ms of that Enter
@@ -1800,7 +1786,8 @@ class TtyUi {
             if (p.tool == "AskUserQuestion")
                 return ftxui::hbox({ftxui::text(" question ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                     ftxui::text(" " + cluster::one_line(p.description, 100) + " ") | ftxui::color(this->_theme.text), ftxui::filler(),
-                    ftxui::text("its popup: shown on this session · " + c.keys.at("deny") + " decline ") | ftxui::color(this->_theme.muted)}) | ftxui::bgcolor(this->_theme.surface);
+                    ftxui::text((c.questionsToGlobal && s.spec.id != GLOBAL_ID ? "answer it on the global session (" + c.keys.at("global") + ")"
+                        : std::string("its popup: shown on this session")) + " · " + c.keys.at("deny") + " decline ") | ftxui::color(this->_theme.muted)}) | ftxui::bgcolor(this->_theme.surface);
             ftxui::Element bar = ftxui::hbox({
                 ftxui::text(p.safety ? " safety check " : " permission ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(p.safety ? this->_theme.error : this->_theme.warn),
                 ftxui::text(" " + p.tool + ": " + cluster::one_line(p.description, 80) + " ") | ftxui::color(this->_theme.text),
@@ -1968,15 +1955,16 @@ class TtyUi {
                 lines.push_back(ftxui::text(" Enter: ok · Esc: skip it · Ctrl+S: skip the rest (config.toml [user], F9 > User)") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 90);
             }
-            if (this->_mode == Mode::Question && this->_ask) {
-                // like the questions of Claude Code: one at a time, its options, other (typed)
-                const Ask& a = *this->_ask;
+            const std::optional<cluster::Ask> asked = this->_manager.asking().current();
+            if (this->_mode == Mode::Question && asked) {
+                // like the questions of Claude Code: one at a time, its options, other (typed); the keys, the mouse and the voice
+                const cluster::Ask& a = *asked;
                 const cluster::Json& q = a.questions[a.index];
                 const cluster::Json options = q.value("options", cluster::Json::array());
                 const bool multi = q.value("multiSelect", false);
-                const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(a.session);
-                ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + (snap ? snap->spec.name : a.session) + " asks") | ftxui::bold,
+                ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + a.name + " asks") | ftxui::bold,
                     ftxui::text(a.questions.size() > 1 ? "  (" + std::to_string(a.index + 1) + "/" + std::to_string(a.questions.size()) + ")" : "") | ftxui::color(this->_theme.muted),
+                    ftxui::text(a.session != this->_active ? "  (it waits for your answer)" : "") | ftxui::color(this->_theme.warn),
                     ftxui::filler(), ftxui::text(q.value("header", std::string()) + " ") | ftxui::color(this->_theme.accent)}), ftxui::text(""),
                     ftxui::paragraph(" " + q.value("question", std::string())) | ftxui::color(this->_theme.text), ftxui::text("")};
                 for (int i = 0; i <= static_cast<int>(options.size()); ++i) {
@@ -1990,8 +1978,17 @@ class TtyUi {
                 }
                 lines.push_back(ftxui::text(""));
                 lines.push_back(ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space tick · " : "") + "Enter " + (a.index + 1 < a.questions.size() ? "next" : "answer")
-                    + " · type on Other · Esc decline") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    + (a.index > 0 ? " · ← back" : "") + " · type on Other · Esc decline") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                if (this->_manager.config().voice.enabled)
+                    lines.push_back(ftxui::text(" voice: a number or an option · valide / suivant · retour · autre <answer> · annule") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 96);
+            }
+            if (this->_mode == Mode::Normal && asked && asked->session == this->_active && !this->askShown_(*asked)) {
+                const cluster::Json& q = asked->questions[asked->index];
+                return box(ftxui::vbox({ftxui::text(" " + asked->name + " waits for your answer") | ftxui::bold, ftxui::text(""),
+                    ftxui::paragraph(" " + q.value("question", std::string())) | ftxui::color(this->_theme.muted), ftxui::text(""),
+                    ftxui::text(" its question is on the global session: " + this->_manager.config().keys.at("global") + " to answer it") | ftxui::color(this->_theme.warn)})
+                    | ftxui::dim, 80);
             }
             if (this->_mode == Mode::Restore) {
                 const std::vector<cluster::SessionSpec> previous = this->_manager.previous();
@@ -2009,73 +2006,36 @@ class TtyUi {
             return ftxui::emptyElement();
         }
 
+        _nodiscard bool askShown_(const cluster::Ask& ask) const
+        {
+            // the question of a sub-session: on the global session ([sessions] questions_to_global), else on its own one
+            if (this->_manager.config().questionsToGlobal) return this->_active == GLOBAL_ID || ask.session == GLOBAL_ID;
+            return this->_active == ask.session;
+        }
+
         void askCheck_(void)
         {
-            // a question of the agent of the session shown: its popup; answered elsewhere (MCP...): closed
-            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_ask ? this->_ask->session : this->_active);
-            if (this->_ask) {
-                const bool pending = snap && std::any_of(snap->permissions.begin(), snap->permissions.end(), [&](const cluster::Permission& p) {return p.requestId == this->_ask->requestId;});
-                if (!pending) {
-                    this->_ask.reset();
-                    if (this->_mode == Mode::Question) this->_mode = Mode::Normal;
-                }
-                return;
-            }
+            // the question waiting (any session): its popup where it is shown; answered elsewhere (voice, MCP, web): closed
+            cluster::Asking& asking = this->_manager.asking();
+            (void)asking.check();
+            const std::optional<cluster::Ask> ask = asking.current();
+            const bool show = ask && this->askShown_(*ask);
+            if (this->_mode == Mode::Question && !show) this->_mode = Mode::Normal;
             if (this->_mode != Mode::Normal) return;
             if (this->_manager.machineRequest() != this->_machineSeen) { // the global session asked to map this computer again
                 this->_machineSeen = this->_manager.machineRequest();
                 this->settingsAction_("machine_sync");
                 return;
             }
-            if (!snap) return;
-            for (const cluster::Permission& p: snap->permissions) {
-                if (p.tool != "AskUserQuestion" || this->_asked.contains(p.requestId) || !p.input.contains("questions") || !p.input["questions"].is_array()
-                    || p.input["questions"].empty()) continue;
-                this->_asked.insert(p.requestId);
-                this->_ask = Ask{snap->spec.id, p.requestId, p.input["questions"], 0, 0, {}, "", cluster::Json::object()};
-                this->_mode = Mode::Question;
-                return;
-            }
+            if (show) this->_mode = Mode::Question;
         }
 
-        void askAnswer_(void)
+        void askNext_(void)
         {
-            // the answer of the question shown (labels of the options, several joined by ", "; other: the text typed)
-            Ask& a = *this->_ask;
-            const cluster::Json& q = a.questions[a.index];
-            const cluster::Json options = q.value("options", cluster::Json::array());
-            const int count = static_cast<int>(options.size());
-            std::string value;
-            const std::function<void(const std::string&)> add = [&](const std::string& part) {
-                if (!cluster::trim(part).empty()) value += (value.empty() ? "" : ", ") + cluster::trim(part);
-            };
-            if (q.value("multiSelect", false)) {
-                for (const int i: a.picked)
-                    if (i < count) add(options[static_cast<std::size_t>(i)].value("label", std::string()));
-                if (a.picked.contains(count) || (a.picked.empty() && a.cursor == count)) add(a.other);
-                if (value.empty() && a.cursor < count) add(options[static_cast<std::size_t>(a.cursor)].value("label", std::string()));
-            } else {
-                add(a.cursor < count ? options[static_cast<std::size_t>(a.cursor)].value("label", std::string()) : a.other);
-            }
-            if (value.empty()) {
-                this->status_("type the answer (other), or choose an option");
-                return;
-            }
-            a.answers[q.value("question", std::string())] = value;
-            if (++a.index < a.questions.size()) {
-                a.cursor = 0;
-                a.picked.clear();
-                a.other.clear();
-                return;
-            }
-            try {
-                this->_manager.answerQuestions(a.session, a.requestId, a.answers);
-                this->status_("answered");
-            } catch (const utils::exception::IException& e) {
-                this->status_(e.info(), true);
-            }
-            this->_ask.reset();
-            this->_mode = Mode::Normal;
+            // the answer recorded: the next question, or all sent
+            const std::string why = this->_manager.asking().next();
+            if (!why.empty()) this->status_(why, why != "type the answer (other), or choose an option");
+            else if (!this->_manager.asking().current()) this->status_("answered");
         }
 
         _nodiscard ftxui::Element render_(void)
@@ -2138,8 +2098,8 @@ class TtyUi {
                 if (this->_note.starts_with("mapping")) this->_note = this->_status;
             }
             const std::optional<cluster::MachineProgress> scan = this->scanShown_();
-            ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : this->_mode == Mode::Normal ? document
-                : ftxui::dbox({document, this->modal_()});
+            // Normal: the note of a sub-session whose question waits on the global session (modal_, empty else)
+            ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : ftxui::dbox({document, this->modal_()});
             if (!scan) return screen;
             this->_animating = true;
             return ftxui::dbox({screen, this->scanBox_(*scan)});
@@ -2303,43 +2263,39 @@ class TtyUi {
                     if (event == ftxui::Event::Escape || event == ftxui::Event::Return) this->_mode = Mode::Normal;
                     return true;
                 case Mode::Question: {
-                    if (!this->_ask) {
+                    cluster::Asking& asking = this->_manager.asking();
+                    const std::optional<cluster::Ask> ask = asking.current();
+                    if (!ask) {
                         this->_mode = Mode::Normal;
                         return true;
                     }
-                    Ask& a = *this->_ask;
-                    const cluster::Json& q = a.questions[a.index];
+                    const cluster::Json& q = ask->questions[ask->index];
                     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
                     const bool multi = q.value("multiSelect", false);
                     if (event == ftxui::Event::Escape) {
-                        try {
-                            this->_manager.answer(a.session, a.requestId, "deny");
-                            this->status_("question declined");
-                        } catch (const utils::exception::IException& e) {
-                            this->status_(e.info(), true);
-                        }
-                        this->_ask.reset();
+                        asking.decline();
+                        this->status_("question declined");
                         this->_mode = Mode::Normal;
                     } else if (event == ftxui::Event::ArrowUp) {
-                        a.cursor = std::max(0, a.cursor - 1);
+                        asking.move(-1);
                     } else if (event == ftxui::Event::ArrowDown || event == ftxui::Event::Tab) {
-                        a.cursor = std::min(count, a.cursor + 1);
+                        asking.move(1);
+                    } else if (event == ftxui::Event::ArrowLeft && ask->cursor != count) {
+                        asking.back();
                     } else if (event == ftxui::Event::Return) {
-                        this->askAnswer_();
-                    } else if (a.cursor == count && event == ftxui::Event::Backspace) {
-                        while (!a.other.empty() && (static_cast<unsigned char>(a.other.back()) & 0xC0) == 0x80) a.other.pop_back();
-                        if (!a.other.empty()) a.other.pop_back();
-                    } else if (a.cursor == count && event.is_character()) {
-                        a.other += event.character(); // on Other: the answer typed (digits and spaces too)
+                        this->askNext_();
+                    } else if (ask->cursor == count && event == ftxui::Event::Backspace) {
+                        asking.erase();
+                    } else if (ask->cursor == count && event.is_character()) {
+                        asking.type(event.character()); // on Other: the answer typed (digits and spaces too)
                     } else if (event.is_character() && event.character().size() == 1 && event.character()[0] >= '1' && event.character()[0] <= '9') {
                         const int pick = event.character()[0] - '1';
                         if (pick <= count) {
-                            a.cursor = pick;
-                            if (multi && pick < count) a.picked.contains(pick) ? (void)a.picked.erase(pick) : (void)a.picked.insert(pick);
-                            else if (!multi && pick < count) this->askAnswer_();
+                            asking.choose(pick);
+                            if (!multi && pick < count) this->askNext_();
                         }
                     } else if (multi && event == ftxui::Event::Character(' ')) {
-                        a.picked.contains(a.cursor) ? (void)a.picked.erase(a.cursor) : (void)a.picked.insert(a.cursor);
+                        asking.toggle();
                     }
                     return true;
                 }

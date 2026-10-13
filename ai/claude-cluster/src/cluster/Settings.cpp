@@ -185,6 +185,13 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.maxParallel);}},
             {"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts", false,
                 [](const cluster::Config& cf) {return number_(cf.budget);}},
+            {"sessions", "questions_to_global", "Questions on the global session", SettingKind::Bool, {}, "a question of the agent of a "
+                "sub-session (AskUserQuestion) shown on the global session, its own one greyed while it waits; answered with the keys, the mouse "
+                "or the voice (a number or an option, valide / suivant, retour, autre <answer>, annule); off: on its own session only", false,
+                [](const cluster::Config& cf) {return cf.questionsToGlobal ? std::string("true") : std::string("false");}},
+            {"sessions", "global_answers", "Global session answers questions", SettingKind::Bool, {}, "the global session is told the questions "
+                "of the sub-sessions and may choose their answer (MCP session_allow answers) when it knows what you want; you can answer first", false,
+                [](const cluster::Config& cf) {return cf.globalAnswers ? std::string("true") : std::string("false");}},
             {"sessions", "bypass_to_global", "Bypass: global decides", SettingKind::Bool, {}, "a sub-session in bypassPermissions still asks for "
                 "some commands (the safety check of Claude Code: a removal it cannot resolve...): the global session decides them (it asks you when "
                 "unsure); off: you answer them. In the other modes such a command is asked to you (auto mode: after the check stopped it)", false,

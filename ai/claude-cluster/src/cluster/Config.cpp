@@ -156,6 +156,8 @@ _cold void cluster::Config::load(void)
     this->sessionsPrompt = table["sessions"]["prompt"].value_or(this->sessionsPrompt);
     this->globalFork = table["sessions"]["global_fork"].value_or(this->globalFork);
     this->bypassToGlobal = table["sessions"]["bypass_to_global"].value_or(this->bypassToGlobal);
+    this->questionsToGlobal = table["sessions"]["questions_to_global"].value_or(this->questionsToGlobal);
+    this->globalAnswers = table["sessions"]["global_answers"].value_or(this->globalAnswers);
     this->globalEdit = table["sessions"]["global_edit"].value_or(this->globalEdit);
 
     /* voice */

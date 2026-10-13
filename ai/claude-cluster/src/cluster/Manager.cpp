@@ -82,7 +82,7 @@ _cold static std::vector<std::string> prompt_args_(const std::string& file)
 
 /* constructor */
 _cold cluster::Manager::Manager(cluster::Config& config)
-    : _config(config), _auth(config)
+    : _config(config), _auth(config), _asking(std::make_unique<cluster::Asking>(*this))
 {
     this->loadUsage_();
 }
@@ -511,6 +511,16 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             if (event.text.starts_with("AskUserQuestion: ")) { // a question of the agent: its popup in the interfaces
                 this->notice_(event.session, name + " asks: " + event.text.substr(17));
                 if (this->_config.notifyPermission) (void)this->notifyDesktop(name + ": question", event.text.substr(17), true);
+                const std::optional<cluster::Snapshot> snap = this->snapshot(event.session);
+                if (this->_config.globalAnswers && event.session != GLOBAL_ID && snap && !snap->permissions.empty() && this->snapshot(GLOBAL_ID)) {
+                    // the global session may choose the answer (the user may answer it first: its popup)
+                    const cluster::Permission& p = snap->permissions.back();
+                    try {
+                        this->send(GLOBAL_ID, "[question from " + name + " (" + event.session + ")] " + p.input.value("questions", cluster::Json::array()).dump()
+                            + "\nAnswer it with session_allow {session: \"" + event.session + "\", request_id: \"" + p.requestId + "\", answers: {question: label}} "
+                            "when you know what the user wants; else leave it to the user (its popup is shown to them).");
+                    } catch (const utils::exception::IException&) {}
+                }
                 break;
             }
             this->notice_(event.session, name + " waits for a permission: " + event.text);

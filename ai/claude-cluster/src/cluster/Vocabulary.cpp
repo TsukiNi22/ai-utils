@@ -85,9 +85,16 @@ _cold cluster::VoiceWords cluster::voice_words(const std::filesystem::path& path
         line = cluster::trim(line.substr(0, line.find('#')));
         if (line == "[cancel]") section = &words.cancel;
         else if (line == "[send]") section = &words.send;
+        else if (line == "[next]") section = &words.next;
+        else if (line == "[back]") section = &words.back;
+        else if (line == "[other]") section = &words.other;
         else if (!line.empty() && line.front() == '[') section = nullptr;
         else if (!line.empty() && section) section->push_back(line);
     }
+    // the sections of the questions missing (a file of a previous version): their words of the template
+    if (words.next.empty()) words.next = {"suivant", "suivante", "continue", "continuer", "next", "skip"};
+    if (words.back.empty()) words.back = {"retour", "reviens", "precedent", "precedente", "en arriere", "back", "previous", "go back"};
+    if (words.other.empty()) words.other = {"autre", "ecris", "reponds", "reponse", "other", "write", "answer"};
     return words;
 }
 

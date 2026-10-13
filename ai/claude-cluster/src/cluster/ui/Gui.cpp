@@ -1128,23 +1128,26 @@ class Window: public QMainWindow {
                 });
                 return;
             }
-            const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
-            if (!snap) return;
-            for (const cluster::Permission& p: snap->permissions) {
-                if (p.tool != "AskUserQuestion" || this->asked.contains(p.requestId) || !p.input.contains("questions") || !p.input["questions"].is_array()) continue;
-                this->asked.insert(p.requestId);
-                this->asking = true;
-                QTimer::singleShot(0, this, [this, id = snap->spec.id, name = snap->spec.name, request = p.requestId, questions = p.input["questions"]]() {
-                    this->askQuestions(id, name, request, questions);
-                    this->asking = false;
-                });
-                return;
-            }
+            // the question waiting (any session): on the global session ([sessions] questions_to_global), else on its own
+            cluster::Asking& questions = this->manager.asking();
+            (void)questions.check();
+            const std::optional<cluster::Ask> ask = questions.current();
+            if (!ask || this->asked.contains(ask->requestId)) return;
+            const bool show = this->manager.config().questionsToGlobal ? this->active == GLOBAL_ID || ask->session == GLOBAL_ID : this->active == ask->session;
+            if (!show) return;
+            this->asked.insert(ask->requestId);
+            this->asking = true;
+            QTimer::singleShot(0, this, [this, question = *ask]() {
+                this->askQuestions(question);
+                this->asking = false;
+            });
         }
 
-        void askQuestions(const std::string& id, const std::string& name, const std::string& request, const cluster::Json& questions)
+        void askQuestions(const cluster::Ask& ask)
         {
-            // each question: its options (radio, or check boxes for a multi choice) and Other (typed); Decline: denied
+            // each question: its options (radio, or check boxes for a multi choice) and Other (typed); Decline: denied; the
+            // one being answered follows the shared model both ways (the voice: a number, valide, retour...); answered
+            // elsewhere (voice, web, MCP): closed
             struct Row {
                 cluster::Json question;
                 std::vector<QAbstractButton*> options;
@@ -1152,11 +1155,12 @@ class Window: public QMainWindow {
                 QLineEdit* text = nullptr;
             };
             QDialog dialog(this);
-            dialog.setWindowTitle(q_(name + " asks"));
+            dialog.setWindowTitle(q_(ask.name + " asks"));
             dialog.setMinimumWidth(560);
             QVBoxLayout* layout = new QVBoxLayout(&dialog);
             std::vector<Row> rows;
-            for (const cluster::Json& q: questions) {
+            bool syncing = false;
+            for (const cluster::Json& q: ask.questions) {
                 const bool multi = q.value("multiSelect", false);
                 QLabel* title = new QLabel(q_((q.value("header", std::string()).empty() ? "" : q.value("header", std::string()) + "  ·  ") + q.value("question", std::string())), &dialog);
                 title->setWordWrap(true);
@@ -1184,19 +1188,70 @@ class Window: public QMainWindow {
                 if (!multi && !row.options.empty()) row.options.front()->setChecked(true);
                 rows.push_back(row);
             }
+            // a click on the question being answered: the shared model too (the voice goes on from it)
+            for (std::size_t k = 0; k < rows.size(); ++k) {
+                for (std::size_t i = 0; i < rows[k].options.size(); ++i)
+                    QObject::connect(rows[k].options[i], &QAbstractButton::toggled, &dialog, [this, k, i, &syncing](const bool on) {
+                        const std::optional<cluster::Ask> now = this->manager.asking().current();
+                        if (syncing || !now || now->index != k) return;
+                        const bool multi = now->questions[k].value("multiSelect", false);
+                        if (multi ? now->picked.contains(static_cast<int>(i)) != on : on && now->cursor != static_cast<int>(i)) this->manager.asking().choose(static_cast<int>(i));
+                    });
+                QObject::connect(rows[k].text, &QLineEdit::textEdited, &dialog, [this, k, &syncing](const QString& text) {
+                    const std::optional<cluster::Ask> now = this->manager.asking().current();
+                    if (!syncing && now && now->index == k) this->manager.asking().setOther(text.toStdString());
+                });
+            }
+            QLabel* voice = new QLabel(this->manager.config().voice.enabled ? "voice: a number or an option · valide / suivant · retour · autre <answer> · annule" : "", &dialog);
+            voice->setStyleSheet("color: gray;");
+            layout->addWidget(voice);
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
             buttons->button(QDialogButtonBox::Ok)->setText("Answer");
             buttons->button(QDialogButtonBox::Cancel)->setText("Decline");
             QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
             layout->addWidget(buttons);
-            if (dialog.exec() != QDialog::Accepted) {
-                try {
-                    this->manager.answer(id, request, "deny");
-                    this->message("question declined", false);
-                } catch (const utils::exception::IException& e) {
-                    this->message(e.info(), true);
+            // the shared model -> the boxes (the voice); answered or declined elsewhere: closed
+            std::uint64_t seen = 0;
+            QTimer timer(&dialog);
+            QObject::connect(&timer, &QTimer::timeout, &dialog, [&]() {
+                cluster::Asking& model = this->manager.asking();
+                (void)model.check();
+                const std::optional<cluster::Ask> now = model.current();
+                if (!now || now->requestId != ask.requestId) {
+                    dialog.done(2);
+                    return;
                 }
+                if (model.version() == seen) return;
+                seen = model.version();
+                syncing = true;
+                for (std::size_t k = 0; k < rows.size() && k <= now->index; ++k) {
+                    const std::string question = rows[k].question.value("question", std::string());
+                    const std::string recorded = now->answers.value(question, std::string());
+                    const int count = static_cast<int>(rows[k].options.size());
+                    for (int i = 0; i < count; ++i) {
+                        const std::string label = rows[k].question["options"][static_cast<std::size_t>(i)].value("label", std::string());
+                        const bool on = k < now->index ? recorded == label || recorded.find(label + ", ") != std::string::npos || recorded.ends_with(", " + label)
+                            : rows[k].question.value("multiSelect", false) ? now->picked.contains(i) : now->cursor == i;
+                        rows[k].options[static_cast<std::size_t>(i)]->setChecked(on);
+                    }
+                    if (k == now->index) {
+                        if (now->cursor == count) rows[k].other->setChecked(true);
+                        if (rows[k].text->text().toStdString() != now->other) rows[k].text->setText(q_(now->other));
+                    }
+                }
+                syncing = false;
+            });
+            timer.start(200);
+            const int result = dialog.exec();
+            timer.stop();
+            if (result == 2) {
+                this->message("question answered", false);
+                return;
+            }
+            if (result != QDialog::Accepted) {
+                this->manager.asking().decline();
+                this->message("question declined", false);
                 return;
             }
             cluster::Json answers = cluster::Json::object();
@@ -1210,7 +1265,7 @@ class Window: public QMainWindow {
                 answers[row.question.value("question", std::string())] = value;
             }
             try {
-                this->manager.answerQuestions(id, request, answers);
+                this->manager.answerQuestions(ask.session, ask.requestId, answers);
                 this->message("answered", false);
             } catch (const utils::exception::IException& e) {
                 this->message(e.info(), true); // answered elsewhere meanwhile (MCP...)
@@ -1753,9 +1808,13 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         bar->setValue(bottom ? bar->maximum() : value);
     }
 
-    // permission bar
+    // permission bar (a question of this sub-session shown on the global session: it waits there)
     this->permBar->setVisible(!s.permissions.empty());
-    if (!s.permissions.empty()) {
+    const std::optional<cluster::Ask> asked = manager.asking().current();
+    if (asked && asked->session == s.spec.id && s.spec.id != GLOBAL_ID && manager.config().questionsToGlobal) {
+        this->permLabel->setText(span_(st.muted, q_(s.spec.name + " waits for your answer: its question is on the global session ("
+            + manager.config().keys.at("global") + ")"), true));
+    } else if (!s.permissions.empty()) {
         const cluster::Permission& p = s.permissions.front();
         this->permLabel->setText(span_(p.safety ? st.error : st.warn, p.safety ? "safety check" : "permission", true) + "  " + esc_(p.tool + ": " + cluster::one_line(p.description, 140))
             + (p.reason.empty() ? QString() : "<br>" + span_(st.muted, esc_("why: " + cluster::one_line(p.reason, 240)))));

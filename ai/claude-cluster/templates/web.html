@@ -315,7 +315,8 @@ function render(state) {
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
     renderTranscript(s.messages || [], s.error);
-    renderAsk(s);
+    if (state.ask && (current === "g" || state.ask.session === current)) renderQuestion(state.ask);
+    else renderAsk(s);
     readAnswer(s);
 }
 
@@ -365,9 +366,62 @@ function renderTranscript(messages, error) {
     if (atBottom || first) box.scrollTop = box.scrollHeight;
 }
 
+function renderQuestion(a) {
+    // the question of an agent (one at a time, shared with the computer and its voice): choose, Other, next / answer, back, decline
+    const box = $("ask");
+    shownAsk = "";
+    box.textContent = "";
+    box.classList.remove("hidden");
+    const q = a.questions[a.index];
+    const options = q.options || [];
+    const multi = !!q.multiSelect;
+    const what = document.createElement("div");
+    what.className = "what";
+    what.textContent = a.name + " asks" + (a.questions.length > 1 ? " (" + (a.index + 1) + "/" + a.questions.length + ")" : "")
+        + (a.session !== current ? " - it waits for your answer" : "");
+    const question = document.createElement("div");
+    question.textContent = q.question;
+    question.style.fontWeight = "600";
+    box.append(what, question);
+    options.forEach((o, i) => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = multi ? "checkbox" : "radio";
+        input.name = "question";
+        input.checked = multi ? (a.picked || []).includes(i) : a.cursor === i;
+        input.addEventListener("change", () => act({cmd: "ask", action: "choose", option: i}));
+        label.append(input, document.createTextNode(" " + (i + 1) + ". " + o.label + " "));
+        if (o.description) { const d = document.createElement("small"); d.textContent = o.description; label.append(d); }
+        box.append(label);
+    });
+    const other = document.createElement("input");
+    other.placeholder = "Other (typed)";
+    other.value = a.other || "";
+    other.addEventListener("change", () => act({cmd: "ask", action: "other", text: other.value}));
+    box.append(other);
+    const row = document.createElement("div");
+    row.className = "row";
+    const button = (text, cls, request) => {
+        const b = document.createElement("button");
+        b.textContent = text;
+        if (cls) b.className = cls;
+        b.addEventListener("click", request);
+        return b;
+    };
+    if (a.index > 0) row.append(button("Back", "", () => act({cmd: "ask", action: "back"})));
+    row.append(button(a.index + 1 < a.questions.length ? "Next" : "Answer", "primary", async () => {
+        if (other.value && other.value !== (a.other || "")) await cmd({cmd: "ask", action: "other", text: other.value});
+        act({cmd: "ask", action: "next"});
+    }), button("Decline", "danger", () => act({cmd: "ask", action: "decline"})));
+    const hint = document.createElement("small");
+    hint.textContent = "voice: a number or an option · valide / suivant · retour · autre <answer> · annule";
+    hint.style.color = "var(--muted)";
+    box.append(row, hint);
+}
+
 function renderAsk(s) {
     const box = $("ask");
-    const p = s.permissions && s.permissions[0];
+    const p = (s.permissions || []).find((x) => x.tool !== "AskUserQuestion");
     if (!p) { box.classList.add("hidden"); box.textContent = ""; shownAsk = ""; return; }
     if (shownAsk === s.id + p.request_id) return;
     shownAsk = s.id + p.request_id;
@@ -736,7 +790,8 @@ function utterance(chunks) {
             const response = await fetch("/api/listen", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "audio/wav"}, body: body});
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data.error || response.statusText);
-            heard(data.text || "", data.word || "");
+            if (data.question) { toast(data.question); refresh(); }
+            else heard(data.text || "", data.word || "");
         } catch (error) {
             toast("Not recognized: " + error.message);
             pausePending(false);

@@ -510,6 +510,24 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = cluster::Json::array();
             for (const cluster::Notice& n: manager.notices(30))
                 data.push_back({{"time", n.time}, {"session", n.session}, {"text", n.text}, {"error", n.error}});
+        } else if (cmd == "ask") {
+            // the question of an agent being answered (shared by the interfaces and the voice): choose, toggle, other, next, back, decline
+            cluster::Asking& asking = manager.asking();
+            (void)asking.check();
+            const std::string action = arg_(request, "action");
+            if (action == "choose") asking.choose(request.value("option", 0));
+            else if (action == "toggle") asking.toggle();
+            else if (action == "other") asking.setOther(arg_(request, "text"));
+            else if (action == "back") asking.back();
+            else if (action == "decline") asking.decline();
+            else if (action == "say") data = {{"done", asking.spoken(arg_(request, "text"))}}; // as said to the voice
+            else if (action == "next") {
+                const std::string why = asking.next();
+                if (!why.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, why);
+            } else if (!action.empty()) {
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "ask: choose | toggle | other | next | back | decline");
+            }
+            if (action != "say") data = asking.json();
         } else if (cmd == "external") {
             // the conversations of the agents opened outside claude-cluster, not the ones opened here
             data = cluster::Json::array();

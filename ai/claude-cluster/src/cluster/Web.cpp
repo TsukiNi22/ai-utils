@@ -541,7 +541,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
 {
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "mode",
-        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript"};
+        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask"};
     Conn& conn = *static_cast<Conn*>(connection);
     Request request;
     if (!read_request_(conn, request)) return;
@@ -608,14 +608,19 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
             seen = request.query.contains("v") ? std::stoull(request.query.at("v")) : 0;
         } catch (const std::exception&) {}
         const std::int64_t end = now_ms_() + 15000;
-        while (this->_running && this->_manager.version() == seen && now_ms_() < end)
+        // the version of the cluster and of the question being answered (both only grow)
+        const std::function<std::uint64_t(void)> version = [this]() {
+            (void)this->_manager.asking().check();
+            return this->_manager.version() + this->_manager.asking().version();
+        };
+        while (this->_running && version() == seen && now_ms_() < end)
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         const std::string wanted = request.query.contains("session") && !request.query.at("session").empty() ? request.query.at("session") : GLOBAL_ID;
         cluster::Json sessions = cluster::Json::array();
         for (const cluster::Snapshot& snap: this->_manager.list(true))
             sessions.push_back(this->_manager.toJson(snap, false));
         const cluster::VoiceConf& voice = this->_manager.config().voice;
-        json_(conn, 200, {{"version", this->_manager.version()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
+        json_(conn, 200, {{"version", version()}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"client", peer}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
     } else if (post && request.path == "/api/cmd") {
@@ -644,6 +649,10 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
             return;
         }
         const std::string text = cluster::trim(this->_speech->transcribe(request.body));
+        if (const std::string done = this->_manager.asking().spoken(text); !done.empty()) { // a question shown: its words
+            json_(conn, 200, {{"text", text}, {"word", ""}, {"question", done}});
+            return;
+        }
         const std::string word = this->_voice->voiceWord(text);
         json_(conn, 200, {{"text", word.empty() ? this->_voice->correct(text) : text}, {"word", word}});
     } else if (post && request.path == "/api/say") {

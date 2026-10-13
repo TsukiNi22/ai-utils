@@ -256,6 +256,11 @@ _cold void cluster::Voice::heard_(const std::string& heard)
     std::string text = cluster::trim(heard);
     if (text.empty() || only_punctuation_(text)) return; // "." alone: ignored
     if (conf.mode == "push" && !this->_open && now_ms_() > this->_graceUntil) return; // push-to-talk closed
+    if (const std::string done = this->_manager.asking().spoken(text); !done.empty()) { // a question shown: its words
+        this->_manager.notice(GLOBAL_ID, "voice: \"" + text + "\": " + done);
+        ++this->_version;
+        return;
+    }
     if (this->command_(text)) return; // "annule" / "envoie" said alone: on what waits (no wake phrase needed)
     text = cluster::vocabulary_correct(text, this->terms_()); // the proper names the recognition bent
     const bool late = conf.mode == "push" && !this->_open; // the end of a sentence after F5: joins what is waiting
@@ -407,6 +412,19 @@ _cold void cluster::Voice::tick(void)
 {
     // voice-listen follows the config: started when the voice is enabled (again 10 s after a crash), stopped when not
     const cluster::VoiceConf& conf = this->_manager.config().voice;
+    // a new question of an agent: read aloud with its options (answered by voice: a number, valide, retour...)
+    (void)this->_manager.asking().check();
+    if (const std::optional<cluster::Ask> ask = this->_manager.asking().current(); ask && conf.enabled && conf.speak
+        && ask->requestId + ":" + std::to_string(ask->index) != this->_askSpoken) {
+        this->_askSpoken = ask->requestId + ":" + std::to_string(ask->index);
+        const cluster::Json& q = ask->questions[ask->index];
+        std::string said = ask->name + " : " + q.value("question", std::string());
+        int n = 0;
+        for (const cluster::Json& option: q.value("options", cluster::Json::array()))
+            said += " " + std::to_string(++n) + ", " + option.value("label", std::string()) + ".";
+        this->mute();
+        this->say_(said);
+    }
     if (conf.enabled && !this->_listening && !this->_paused && now_ms_() - this->_lastStart > 10000) this->start();
     else if (!conf.enabled && this->_listening) this->stop();
     else if (this->_listening && (conf.listenModel != this->_model || conf.endSilence != this->_endSilence || conf.listenLanguage != this->_language)) {
