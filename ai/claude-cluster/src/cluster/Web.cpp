@@ -270,6 +270,7 @@ _cold static std::string kind_name_(const cluster::EntryKind kind)
         case cluster::EntryKind::Tool: return "tool";
         case cluster::EntryKind::ToolResult: return "tool_result";
         case cluster::EntryKind::System: return "system";
+        case cluster::EntryKind::Display: return "display";
         default: return "error";
     }
 }
@@ -285,6 +286,15 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
     for (std::size_t i = start; i < snap->entries.size(); ++i) {
         const cluster::Entry& e = snap->entries[i];
         if (e.kind == cluster::EntryKind::Thinking) continue;
+        if (e.kind == cluster::EntryKind::Display) {
+            // its pictures left out (asked once by the page: /api/display), the rest whole
+            cluster::Json light = cluster::Json::parse(e.text, nullptr, false);
+            if (!light.is_object()) continue;
+            for (const char* heavy: {"data", "svg", "png"})
+                if (light.erase(heavy) > 0) light["heavy"] = true;
+            json["messages"].push_back({{"kind", "display"}, {"text", light.dump()}, {"tool", ""}, {"time", e.time}, {"index", i}});
+            continue;
+        }
         const bool long_text = e.kind == cluster::EntryKind::Assistant || e.kind == cluster::EntryKind::User;
         std::string text = e.text.size() > (long_text ? 30000 : 600) ? e.text.substr(0, long_text ? 30000 : 600) + " [...]" : e.text;
         json["messages"].push_back({{"kind", kind_name_(e.kind)}, {"text", text}, {"tool", e.tool}, {"time", e.time}});
@@ -623,6 +633,15 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         json_(conn, 200, {{"version", version()}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"client", peer}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
+    } else if (request.method == "GET" && request.path == "/api/display") {
+        // a display whole (its picture): the page asks it once
+        const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(request.query.contains("session") ? request.query.at("session") : GLOBAL_ID);
+        std::size_t index = 0;
+        try {
+            index = request.query.contains("index") ? std::stoul(request.query.at("index")) : 0;
+        } catch (const std::exception&) {}
+        if (!snap || index >= snap->entries.size() || snap->entries[index].kind != cluster::EntryKind::Display) json_(conn, 404, {{"error", "no display"}});
+        else respond_(conn, 200, "application/json; charset=utf-8", snap->entries[index].text, "Cache-Control: private, max-age=86400\r\n");
     } else if (post && request.path == "/api/cmd") {
         cluster::Json command = body.is_object() ? body : cluster::Json::object();
         const std::string cmd = command.value("cmd", std::string());

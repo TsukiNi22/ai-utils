@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Display.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
@@ -30,6 +31,7 @@ _cold static const char* kind_name_(const cluster::EntryKind kind)
         case cluster::EntryKind::ToolResult: return "result";
         case cluster::EntryKind::System: return "system";
         case cluster::EntryKind::Error: return "error";
+        case cluster::EntryKind::Display: return "display";
     }
     return "?";
 }
@@ -62,7 +64,8 @@ _cold std::vector<cluster::Hit> cluster::Manager::search(const std::string& text
             if (cluster::lower(line).find(wanted) == std::string::npos) continue;
             try {
                 const cluster::Json json = cluster::Json::parse(line);
-                const std::string body = json.value("text", std::string());
+                std::string body = json.value("text", std::string());
+                if (json.value("kind", 0) == static_cast<int>(cluster::EntryKind::Display)) body = cluster::display_text(cluster::Json::parse(body, nullptr, false));
                 if (cluster::lower(body).find(wanted) == std::string::npos) continue;
                 const std::string name = names.contains(id) ? names[id] : id + " (deleted)";
                 hits.push_back({id, archived ? name + " (archive)" : name, json.value("time", std::int64_t{0}), cluster::one_line(body, 200)});
@@ -111,6 +114,7 @@ _cold std::string cluster::Manager::exportMarkdown(const std::string& id) const
             case cluster::EntryKind::Tool: md << "\n- `" << json.value("tool", std::string()) << "` " << text << "\n"; break;
             case cluster::EntryKind::Error: md << "\n> [!WARNING]\n> " << cluster::one_line(text, 400) << "\n"; break;
             case cluster::EntryKind::System: md << "\n*" << text << "*\n"; break;
+            case cluster::EntryKind::Display: md << "\n" << cluster::display_text(cluster::Json::parse(text, nullptr, false)) << "\n"; break;
             default: break;
         }
     }

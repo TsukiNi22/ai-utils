@@ -184,6 +184,7 @@ class Manager {
         _cold void loadContext(const std::string& id, const std::string& source);  // session:<id> | <agent>:<id> | a file
         _cold _nodiscard cluster::Json conversationMessages(const std::string& id) const;
         _cold _nodiscard std::string editConversation(const std::string& id, const cluster::Json& edits);
+        _cold void display(const std::string& id, const cluster::Json& display);   // a rich display in its transcript, no prompt
         _cold _nodiscard cluster::Json toJson(const cluster::Snapshot& snapshot, const bool full) const;
         _cold void addHistory(const cluster::Draft& draft, const std::string& session); // prompts sent (history.jsonl)
         _cold _nodiscard std::vector<cluster::Draft> drafts(const std::size_t max = 500, const std::string& session = "") const; // newest first, no

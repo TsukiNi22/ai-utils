@@ -70,6 +70,16 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.tool, .msg.tool_result { color: var(--muted); font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
 .msg.system { color: var(--muted); font-size: 13px; font-style: italic; }
 .msg.error { color: var(--error); }
+.msg.display { border-left: 3px solid var(--line); padding-left: 10px; white-space: normal; }
+.msg.display h4 { margin: 0 0 6px; color: var(--accent); }
+.msg.display table { border-collapse: collapse; margin: 4px 0; font-size: 14px; }
+.msg.display th, .msg.display td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.msg.display th { color: var(--accent); }
+.msg.display img, .msg.display svg { max-width: 100%; height: auto; background: var(--surface); border-radius: 6px; }
+.msg.display .callout { padding: 8px 10px; border-left: 3px solid; border-radius: 4px; background: var(--surface); }
+.msg.display .bar { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; max-width: 420px; }
+.msg.display .bar div { height: 100%; background: var(--accent); }
+.msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
 .msg pre { background: var(--code); padding: 8px 10px; border-radius: 8px; overflow-x: auto; font: 13px/1.4 ui-monospace, Menlo, monospace; white-space: pre; }
 #ask, #pending { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
 #ask .what { font-weight: 600; }
@@ -343,6 +353,161 @@ function renderText(container, text) {
     });
 }
 
+// ---- the rich displays (MCP session_display): markdown, tables, charts (SVG), pictures (data: URLs, no script) ----
+const displays = new Map();     // session:index:time -> the display whole (its picture asked once)
+
+function inlineMarkdown(text) {
+    // escaped, then **bold**, *italic*, `code`, [text](http...)
+    const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return esc.replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/\*([^*]+)\*/g, "<i>$1</i>")
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function markdown(text) {
+    let html = "";
+    let list = false;
+    let code = null;
+    for (const line of text.split("\n")) {
+        if (line.startsWith("```")) {
+            if (code === null) { code = []; continue; }
+            const pre = document.createElement("pre");
+            pre.textContent = code.join("\n");
+            html += pre.outerHTML;
+            code = null;
+            continue;
+        }
+        if (code !== null) { code.push(line); continue; }
+        const item = /^\s*[-*] (.*)/.exec(line);
+        if (item && !list) { html += "<ul>"; list = true; }
+        if (!item && list) { html += "</ul>"; list = false; }
+        const heading = /^(#{1,4}) (.*)/.exec(line);
+        if (item) html += "<li>" + inlineMarkdown(item[1]) + "</li>";
+        else if (heading) html += "<h4>" + inlineMarkdown(heading[2]) + "</h4>";
+        else if (line.trim()) html += "<p>" + inlineMarkdown(line) + "</p>";
+    }
+    if (list) html += "</ul>";
+    return html;
+}
+
+function svgOf(tag, attrs) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    return node;
+}
+
+function chart(d) {
+    // bars (grouped), lines, or a pie (the first series)
+    const colors = ["var(--accent)", "var(--ok)", "var(--warn)", "var(--error)", "var(--text)"];
+    const series = d.series || [];
+    const labels = d.labels || [];
+    const W = 640, H = 270, L = 46, B = 28, T = series.length > 1 ? 26 : 10, R = 10;
+    const svg = svgOf("svg", {viewBox: `0 0 ${W} ${H}`, width: W, height: H});
+    const text = (x, y, s, anchor) => { const t = svgOf("text", {x, y, "font-size": 11, fill: "var(--muted)", "text-anchor": anchor || "middle"}); t.textContent = s; svg.append(t); };
+    if (d.kind === "pie") {
+        const values = (series[0] && series[0].values) || [];
+        const total = values.reduce((a, v) => a + Math.max(0, +v || 0), 0) || 1;
+        let angle = -Math.PI / 2;
+        values.forEach((v, i) => {
+            const share = Math.max(0, +v || 0) / total;
+            const end = angle + share * 2 * Math.PI;
+            const [x1, y1, x2, y2] = [130 + 110 * Math.cos(angle), 130 + 110 * Math.sin(angle), 130 + 110 * Math.cos(end), 130 + 110 * Math.sin(end)];
+            svg.append(svgOf("path", {d: `M130,130 L${x1},${y1} A110,110 0 ${share > 0.5 ? 1 : 0},1 ${x2},${y2} Z`, fill: colors[i % colors.length]}));
+            svg.append(svgOf("rect", {x: 270, y: 20 + i * 22, width: 12, height: 12, fill: colors[i % colors.length]}));
+            text(290, 31 + i * 22, `${labels[i] !== undefined ? labels[i] : i + 1}  ${(share * 100).toFixed(1)}%`, "start");
+            angle = end;
+        });
+        return svg;
+    }
+    let low = 0, high = 0;
+    for (const s of series) for (const v of s.values || []) { low = Math.min(low, +v || 0); high = Math.max(high, +v || 0); }
+    if (high <= low) high = low + 1;
+    const count = Math.max(...series.map((s) => (s.values || []).length), 1);
+    const slot = (W - L - R) / count;
+    const y = (v) => T + (H - T - B) * (1 - ((+v || 0) - low) / (high - low));
+    svg.append(svgOf("line", {x1: L, y1: H - B, x2: W - R, y2: H - B, stroke: "var(--line)"}));
+    text(L - 6, T + 8, String(+high.toPrecision(4)), "end");
+    text(L - 6, H - B, String(+low.toPrecision(4)), "end");
+    series.forEach((s, k) => {
+        const values = s.values || [];
+        if (d.kind === "line") {
+            const points = values.map((v, i) => `${L + slot * (i + 0.5)},${y(v)}`).join(" ");
+            svg.append(svgOf("polyline", {points, fill: "none", stroke: colors[k % colors.length], "stroke-width": 2}));
+        } else {
+            const width = slot * 0.8 / series.length;
+            values.forEach((v, i) => {
+                const top = y(Math.max(0, +v || 0)), bottom = y(Math.min(0, +v || 0));
+                svg.append(svgOf("rect", {x: L + slot * i + slot * 0.1 + width * k, y: top, width: Math.max(1, width - 2), height: Math.max(0, bottom - top), fill: colors[k % colors.length]}));
+            });
+        }
+        if (series.length > 1) {
+            svg.append(svgOf("rect", {x: L + k * 110, y: 4, width: 10, height: 10, fill: colors[k % colors.length]}));
+            text(L + 15 + k * 110, 13, s.name || "", "start");
+        }
+    });
+    labels.slice(0, count).forEach((l, i) => text(L + slot * (i + 0.5), H - B + 16, String(l)));
+    return svg;
+}
+
+function picture(d) {
+    const img = document.createElement("img");
+    if (d.type === "image") img.src = `data:${d.mime || "image/png"};base64,${d.data || ""}`;
+    else img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(d.svg || "")));
+    img.alt = d.alt || d.type;
+    return img;
+}
+
+function drawDisplay(div, d) {
+    div.textContent = "";
+    if (d.title) { const h = document.createElement("h4"); h.textContent = d.title; div.append(h); }
+    const cell = (v) => (typeof v === "string" ? v : JSON.stringify(v));
+    if (d.type === "markdown") div.insertAdjacentHTML("beforeend", markdown(d.text || ""));
+    else if (d.type === "code") { const pre = document.createElement("pre"); pre.textContent = d.code || ""; div.append(pre); }
+    else if (d.type === "callout") {
+        const colors = {success: "var(--ok)", warning: "var(--warn)", error: "var(--error)"};
+        const icons = {success: "✔ ", warning: "⚠ ", error: "✗ "};
+        const box = document.createElement("div");
+        box.className = "callout";
+        box.style.borderColor = colors[d.level] || "var(--accent)";
+        box.textContent = (icons[d.level] || "ℹ ") + (d.text || "");
+        div.append(box);
+    } else if (d.type === "progress") {
+        const ratio = Math.max(0, Math.min(1, (+d.value || 0) / (+d.max || 100)));
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const fill = document.createElement("div");
+        fill.style.width = (ratio * 100).toFixed(1) + "%";
+        bar.append(fill);
+        const label = document.createElement("small");
+        label.textContent = Math.round(ratio * 100) + "%  " + (d.label || "");
+        div.append(bar, label);
+    } else if (d.type === "table") {
+        const table = document.createElement("table");
+        if (d.columns) { const tr = table.insertRow(); for (const c of d.columns) { const th = document.createElement("th"); th.textContent = cell(c); tr.append(th); } }
+        for (const r of d.rows || []) { const tr = table.insertRow(); for (const c of Array.isArray(r) ? r : [r]) tr.insertCell().textContent = cell(c); }
+        div.append(table);
+    } else if (d.type === "chart") div.append(chart(d));
+    else div.append(picture(d));
+    const caption = d.alt || d.caption;
+    if (caption && (d.type === "image" || d.type === "diagram" || d.type === "svg")) {
+        const c = document.createElement("div");
+        c.className = "caption";
+        c.textContent = caption;
+        div.append(c);
+    }
+}
+
+function renderDisplay(div, m) {
+    let d;
+    try { d = JSON.parse(m.text); } catch (error) { div.textContent = "[display]"; return; }
+    const key = current + ":" + m.index + ":" + m.time;
+    if (!d.heavy) { drawDisplay(div, d); return; }
+    if (displays.has(key)) { drawDisplay(div, displays.get(key)); return; }
+    div.textContent = "…";
+    fetch(`/api/display?session=${encodeURIComponent(current)}&index=${m.index}`, {credentials: "same-origin"})
+        .then((r) => r.json()).then((full) => { displays.set(key, full); drawDisplay(div, full); })
+        .catch(() => { div.textContent = "[" + d.type + " not loaded]"; });
+}
+
 function renderTranscript(messages, error) {
     const box = $("transcript");
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
@@ -354,7 +519,8 @@ function renderTranscript(messages, error) {
     for (const m of messages) {
         const div = document.createElement("div");
         div.className = "msg " + m.kind;
-        renderText(div, m.kind === "tool" ? "▸ " + (m.tool ? m.tool + " " : "") + m.text : m.text);
+        if (m.kind === "display") renderDisplay(div, m);
+        else renderText(div, m.kind === "tool" ? "▸ " + (m.tool ? m.tool + " " : "") + m.text : m.text);
         box.append(div);
     }
     if (error) {

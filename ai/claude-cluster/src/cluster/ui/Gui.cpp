@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Machine.hpp"
@@ -30,6 +31,7 @@ File Description:
 #include <QPlainTextEdit>
 #include <QFontDatabase>
 #include <QTextDocument>
+#include <QPainterPath>
 #include <QApplication>
 #include <QTextBrowser>
 #include <QKeySequence>
@@ -57,6 +59,7 @@ File Description:
 #include <QComboBox>
 #include <QKeyEvent>
 #include <QMimeData>
+#include <QPainter>
 #include <QPalette>
 #include <QToolTip>
 #include <QSpinBox>
@@ -193,8 +196,10 @@ class SessionView: public QFrame {
         QWidget* permBar = nullptr;
         QLabel* permLabel = nullptr;
         std::string lastKey;
+        std::map<QString, QImage> pictures;     // the pictures of the displays (display:<entry>), given to the transcript
 
         SessionView(Window* window, const std::string& sessionId, const bool compact);
+        QString displayHtml(const cluster::Json& display, const std::string& key, const cluster::Style& style);
         void update(const cluster::Snapshot& s, const cluster::Style& style, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded);
 };
 
@@ -1663,6 +1668,149 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
     QPlainTextEdit::keyPressEvent(event);
 }
 
+_cold static QImage chart_(const cluster::Json& d, const cluster::Style& st)
+{
+    // bars (grouped by label), lines, or a pie (the first series), with their legend
+    QImage image(680, 280, QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor(q_(st.surface)));
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing);
+    const std::vector<QColor> colors = {QColor(q_(st.accent)), QColor(q_(st.ok)), QColor(q_(st.warn)), QColor(q_(st.error)), QColor(q_(st.text))};
+    const std::string kind = d.value("kind", std::string("bar"));
+    const cluster::Json labels = d.value("labels", cluster::Json::array());
+    const cluster::Json& series = d["series"];
+    const std::function<double(const cluster::Json&)> number = [](const cluster::Json& v) {return v.is_number() ? v.get<double>() : 0.0;};
+    const std::function<QString(const cluster::Json&)> label = [](const cluster::Json& v) {return v.is_string() ? q_(v.get<std::string>()) : q_(v.dump());};
+    p.setPen(QColor(q_(st.text)));
+    QFont font = p.font();
+    font.setPointSize(8);
+    p.setFont(font);
+    const std::size_t count = series[0]["values"].size();
+    if (kind == "pie") {
+        double total = 0.0;
+        for (const cluster::Json& v: series[0]["values"])
+            total += std::max(0.0, number(v));
+        double angle = 90.0 * 16;
+        const QRectF circle(20, 20, 240, 240);
+        for (std::size_t i = 0; i < count; ++i) {
+            const double share = total > 0 ? std::max(0.0, number(series[0]["values"][i])) / total : 0.0;
+            p.setBrush(colors[i % colors.size()]);
+            p.setPen(QColor(q_(st.surface)));
+            p.drawPie(circle, static_cast<int>(angle), static_cast<int>(-share * 360.0 * 16));
+            angle -= share * 360.0 * 16;
+            p.setPen(QColor(q_(st.text)));
+            p.fillRect(QRectF(290, 30 + static_cast<double>(i) * 22, 12, 12), colors[i % colors.size()]);
+            p.drawText(QPointF(310, 41 + static_cast<double>(i) * 22), (i < labels.size() ? label(labels[i]) : QString::number(i + 1)) + "  " + QString::number(share * 100, 'f', 1) + "%");
+        }
+        return image;
+    }
+    double low = 0.0;
+    double high = 0.0;
+    for (const cluster::Json& s: series)
+        for (const cluster::Json& v: s["values"]) {
+            low = std::min(low, number(v));
+            high = std::max(high, number(v));
+        }
+    if (high <= low) high = low + 1.0;
+    const QRectF area(50, series.size() > 1 ? 30 : 16, 600, series.size() > 1 ? 206 : 220);
+    p.setPen(QColor(q_(st.muted)));
+    p.drawLine(area.bottomLeft(), area.bottomRight());
+    p.drawLine(area.bottomLeft(), area.topLeft());
+    p.drawText(QPointF(4, area.top() + 8), QString::number(high, 'g', 4));
+    p.drawText(QPointF(4, area.bottom()), QString::number(low, 'g', 4));
+    const std::function<double(double)> y = [&](const double v) {return area.bottom() - (v - low) / (high - low) * area.height();};
+    const double slot = area.width() / static_cast<double>(std::max<std::size_t>(1, count));
+    for (std::size_t k = 0; k < series.size(); ++k) {
+        const cluster::Json& values = series[k]["values"];
+        p.setPen(QPen(colors[k % colors.size()], 2));
+        p.setBrush(colors[k % colors.size()]);
+        if (kind == "line") {
+            QPainterPath path;
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                const QPointF at(area.left() + slot * (static_cast<double>(i) + 0.5), y(number(values[i])));
+                if (i == 0) path.moveTo(at);
+                else path.lineTo(at);
+            }
+            p.setBrush(Qt::NoBrush);
+            p.drawPath(path);
+        } else {
+            const double width = slot * 0.8 / static_cast<double>(series.size());
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                const double x = area.left() + slot * static_cast<double>(i) + slot * 0.1 + width * static_cast<double>(k);
+                p.drawRect(QRectF(x, y(std::max(0.0, number(values[i]))), width - 2, y(std::min(0.0, number(values[i]))) - y(std::max(0.0, number(values[i])))));
+            }
+        }
+        if (series.size() > 1) {
+            p.fillRect(QRectF(area.left() + static_cast<double>(k) * 110, 6, 10, 10), colors[k % colors.size()]);
+            p.setPen(QColor(q_(st.text)));
+            p.drawText(QPointF(area.left() + 15 + static_cast<double>(k) * 110, 15), q_(series[k].value("name", std::string())));
+        }
+    }
+    p.setPen(QColor(q_(st.text)));
+    for (std::size_t i = 0; i < count && i < labels.size(); ++i)
+        p.drawText(QRectF(area.left() + slot * static_cast<double>(i), area.bottom() + 4, slot, 18), Qt::AlignHCenter, label(labels[i]));
+    return image;
+}
+
+QString SessionView::displayHtml(const cluster::Json& d, const std::string& key, const cluster::Style& st)
+{
+    // a rich display: markdown by Qt, a table, a chart drawn, a picture as it is (image, diagram, SVG), a callout, a progress
+    const std::string type = d.value("type", std::string());
+    QString html = "<div style=\"margin-top:10px; margin-left:12px\">";
+    if (!d.value("title", std::string()).empty()) html += "<p>" + span_(st.accent, "▣ <b>" + esc_(d.value("title", std::string())) + "</b>") + "</p>";
+    const std::function<QString(const cluster::Json&)> cell = [](const cluster::Json& v) {return esc_(v.is_string() ? v.get<std::string>() : v.dump());};
+    if (type == "markdown") {
+        QTextDocument doc;
+        doc.setMarkdown(q_(d.value("text", std::string())));
+        const QString full = doc.toHtml();
+        const qsizetype from = full.indexOf("<body");
+        html += from < 0 ? full : full.mid(full.indexOf('>', from) + 1).replace("</body></html>", "");
+    } else if (type == "code") {
+        html += "<pre style=\"color:" + q_(st.muted) + "\">" + esc_(d.value("code", std::string())) + "</pre>";
+    } else if (type == "callout") {
+        const std::string level = d.value("level", std::string("info"));
+        const std::string color = level == "success" ? st.ok : level == "warning" ? st.warn : level == "error" ? st.error : st.accent;
+        const std::string icon = level == "success" ? "✔ " : level == "warning" ? "⚠ " : level == "error" ? "✗ " : "ℹ ";
+        html += "<table width=\"100%\" cellpadding=\"8\" style=\"border-left: 3px solid " + q_(color) + "\"><tr><td>" + span_(color, esc_(icon + d.value("text", std::string()))) + "</td></tr></table>";
+    } else if (type == "progress") {
+        const double max = std::max(1e-9, d.value("max", 100.0));
+        const int percent = static_cast<int>(std::clamp(d.value("value", 0.0) / max, 0.0, 1.0) * 100 + 0.5);
+        html += "<table width=\"420\" cellspacing=\"0\" cellpadding=\"0\"><tr><td width=\"" + QString::number(std::max(1, percent)) + "%\" bgcolor=\"" + q_(st.accent)
+            + "\">&nbsp;</td><td bgcolor=\"" + q_(st.border) + "\">&nbsp;</td></tr></table>" + span_(st.muted, QString::number(percent) + "%  " + esc_(d.value("label", std::string())));
+    } else if (type == "table") {
+        html += "<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\" style=\"border-color:" + q_(st.border) + "\">";
+        if (d.contains("columns") && d["columns"].is_array()) {
+            html += "<tr>";
+            for (const cluster::Json& c: d["columns"])
+                html += "<th style=\"color:" + q_(st.accent) + "\">" + cell(c) + "</th>";
+            html += "</tr>";
+        }
+        for (const cluster::Json& r: d["rows"]) {
+            html += "<tr>";
+            if (r.is_array())
+                for (const cluster::Json& c: r)
+                    html += "<td>" + cell(c) + "</td>";
+            else html += "<td>" + cell(r) + "</td>";
+            html += "</tr>";
+        }
+        html += "</table>";
+    } else {
+        // a chart drawn here; an image / a diagram / an SVG read as they are; given to the transcript as display:<entry>
+        const QString name = q_("display:" + key);
+        if (!this->pictures.contains(name)) {
+            QImage image = type == "chart" ? chart_(d, st) : QImage::fromData(QByteArray::fromStdString(cluster::display_bytes(d)));
+            if (image.width() > 680) image = image.scaledToWidth(680, Qt::SmoothTransformation);
+            this->pictures[name] = image;
+        }
+        const QImage& image = this->pictures[name];
+        if (image.isNull()) html += span_(st.muted, esc_("[" + type + " not readable] " + d.value("alt", std::string())));
+        else html += "<img src=\"" + name + "\" width=\"" + QString::number(image.width()) + "\" height=\"" + QString::number(image.height()) + "\">";
+        const std::string caption = d.value("alt", d.value("caption", std::string()));
+        if (!caption.empty()) html += "<br>" + span_(st.muted, "<i>" + esc_(caption) + "</i>");
+    }
+    return html + "</div>";
+}
+
 SessionView::SessionView(Window* window, const std::string& sessionId, const bool compact)
     : QFrame(window), id(sessionId)
 {
@@ -1674,6 +1822,11 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     this->log->setOpenLinks(false);
     QObject::connect(this->log, &QTextBrowser::anchorClicked, [](const QUrl& url) {QDesktopServices::openUrl(url);});
+    // the pictures of the displays: display:<entry> in the transcript
+    this->log->document()->setResourceProvider([this](const QUrl& url) -> QVariant {
+        const std::map<QString, QImage>::const_iterator it = this->pictures.find(url.toString());
+        return it == this->pictures.end() ? QVariant() : QVariant(it->second);
+    });
     QObject::connect(this->log, &QTextBrowser::highlighted, [](const QUrl& url) {
         if (url.isLocalFile() && !QImage(url.toLocalFile()).isNull()) QToolTip::showText(QCursor::pos(), "<img src=\"" + url.toLocalFile() + "\" width=\"420\">");
         else QToolTip::hideText();
@@ -1784,6 +1937,11 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                 }
                 case cluster::EntryKind::System: html += "<div style=\"margin-top:10px\">" + span_(st.muted, "· " + esc_(text)) + "</div>"; break;
                 case cluster::EntryKind::Error: html += "<div style=\"margin-top:10px\">" + span_(st.error, "✗ " + esc_(text)) + "</div>"; break;
+                case cluster::EntryKind::Display: {
+                    const cluster::Json d = cluster::Json::parse(e.text, nullptr, false);
+                    if (d.is_object()) html += this->displayHtml(d, s.spec.id + "-" + std::to_string(e.time) + "-" + std::to_string(i), st);
+                    break;
+                }
             }
         }
         // the text streamed (typed), the live thinking, the state of the turn (like Claude Code)

@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Machine.hpp"
@@ -632,6 +633,7 @@ class TtyUi {
         cluster::Action _pending;                   // action waiting for its input
         std::vector<cluster::Action> _actions;      // palette, filtered
         std::map<std::string, int> _scroll;         // lines scrolled up, per session
+        std::map<std::string, std::vector<std::vector<cluster::Cell>>> _pictures;   // the pictures of the displays (chafa), per entry and width
         bool _password = false;
         std::string _status;
         bool _statusError = false;
@@ -1520,6 +1522,7 @@ class TtyUi {
                 std::string text;
                 ftxui::Decorator style;
                 std::string join;   // before it when copied
+                std::vector<cluster::Cell> cells{};     // a line of a picture: its runs of colors (text: what is copied)
             };
             std::vector<Row> lines;
             const bool searching = this->_mode == Mode::Search && s.spec.id == this->_active && !this->_matches.empty();
@@ -1538,6 +1541,178 @@ class TtyUi {
                     for (std::size_t k = 0; k < wrapped.size(); ++k)
                         lines.push_back({(k == 0 ? first : next) + wrapped[k], style, joins[k]});
                 };
+            // a rich display (MCP session_display): text, boxed tables, bars, sparklines, pictures in colored blocks (chafa)
+            const std::function<void(const cluster::Json&, const std::string&)> display = [&](const cluster::Json& d, const std::string& key) {
+                const Theme& th = this->_theme;
+                const std::string type = d.value("type", std::string());
+                const std::string title = d.value("title", std::string());
+                const std::vector<ftxui::Color> palette = {th.accent, th.ok, th.warn, th.error, th.text};
+                const std::function<std::string(const cluster::Json&)> cell = [](const cluster::Json& v) {return v.is_string() ? v.get<std::string>() : v.dump();};
+                const std::function<std::string(const std::string&, const std::size_t)> pad = [](const std::string& text, const std::size_t size) {
+                    const std::string cut = width_(text) > size ? cluster::one_line(text, size) : text;
+                    return cut + std::string(size > width_(cut) ? size - width_(cut) : 0, ' ');
+                };
+                if (!title.empty()) lines.push_back({"▣ " + title, ftxui::color(th.accent) | ftxui::bold, "\n"});
+                if (type == "markdown" || type == "code") {
+                    bool code = type == "code";
+                    for (const std::string& line: lines_(d.value(type == "code" ? "code" : "text", std::string()))) {
+                        if (type == "markdown" && line.starts_with("```")) {
+                            code = !code;
+                            continue;
+                        }
+                        // its marks out of the text: **bold**, `code`, [text](link) -> text (link)
+                        const std::string plain = code ? line : std::regex_replace(std::regex_replace(line, std::regex(R"(\*\*|__|`)"), ""),
+                            std::regex(R"(\[([^\]]+)\]\(([^)]+)\))"), "$1 ($2)");
+                        if (code) add(line, "  │ ", "  │ ", ftxui::color(th.muted));
+                        else if (plain.starts_with("#")) add(cluster::trim(plain.substr(plain.find_first_not_of('#'))), "  ", "  ", ftxui::color(th.accent) | ftxui::bold);
+                        else if (plain.starts_with("- ") || plain.starts_with("* ")) add(plain.substr(2), "  • ", "    ", ftxui::color(th.text));
+                        else add(plain, "  ", "  ", ftxui::color(th.text));
+                    }
+                } else if (type == "callout") {
+                    const std::string level = d.value("level", std::string("info"));
+                    const ftxui::Color color = level == "success" ? th.ok : level == "warning" ? th.warn : level == "error" ? th.error : th.accent;
+                    const std::string icon = level == "success" ? "✔ " : level == "warning" ? "⚠ " : level == "error" ? "✗ " : "ℹ ";
+                    add(d.value("text", std::string()), "  " + icon, "    ", ftxui::color(color));
+                } else if (type == "progress") {
+                    const double max = std::max(1e-9, d.value("max", 100.0));
+                    const double ratio = std::clamp(d.value("value", 0.0) / max, 0.0, 1.0);
+                    const std::size_t size = std::min<std::size_t>(40, room > 20 ? room - 20 : 10);
+                    const std::size_t full = static_cast<std::size_t>(ratio * static_cast<double>(size) + 0.5);
+                    std::string bar;
+                    for (std::size_t k = 0; k < size; ++k)
+                        bar += k < full ? "█" : "░";
+                    lines.push_back({"  " + bar + " " + std::to_string(static_cast<int>(ratio * 100 + 0.5)) + "%  " + d.value("label", std::string()),
+                        ftxui::color(ratio >= 1.0 ? th.ok : th.accent), "\n"});
+                } else if (type == "table") {
+                    // boxed, its columns as wide as their texts (the widest ones cut to the room)
+                    std::vector<std::vector<std::string>> rows;
+                    if (d.contains("columns") && d["columns"].is_array()) {
+                        rows.emplace_back();
+                        for (const cluster::Json& c: d["columns"])
+                            rows.back().push_back(cell(c));
+                    }
+                    for (const cluster::Json& r: d["rows"]) {
+                        rows.emplace_back();
+                        if (r.is_array())
+                            for (const cluster::Json& c: r)
+                                rows.back().push_back(cell(c));
+                        else rows.back().push_back(cell(r));
+                    }
+                    std::size_t columns = 0;
+                    for (const std::vector<std::string>& r: rows)
+                        columns = std::max(columns, r.size());
+                    std::vector<std::size_t> widths(columns, 1);
+                    for (const std::vector<std::string>& r: rows)
+                        for (std::size_t c = 0; c < r.size(); ++c)
+                            widths[c] = std::max(widths[c], width_(r[c]));
+                    while (columns > 0 && std::accumulate(widths.begin(), widths.end(), std::size_t{0}) + 3 * columns + 3 > room) {
+                        std::size_t& widest = *std::max_element(widths.begin(), widths.end());
+                        if (widest <= 4) break;
+                        --widest;
+                    }
+                    const std::function<std::string(const char*, const char*, const char*)> rule = [&](const char* left, const char* middle, const char* right) {
+                        std::string line = std::string("  ") + left;
+                        for (std::size_t c = 0; c < columns; ++c) {
+                            for (std::size_t k = 0; k < widths[c] + 2; ++k)
+                                line += "─";
+                            line += c + 1 < columns ? middle : right;
+                        }
+                        return line;
+                    };
+                    const bool header = d.contains("columns");
+                    lines.push_back({rule("┌", "┬", "┐"), ftxui::color(th.border), "\n"});
+                    for (std::size_t r = 0; r < rows.size(); ++r) {
+                        std::string line = "  │";
+                        for (std::size_t c = 0; c < columns; ++c)
+                            line += " " + pad(c < rows[r].size() ? rows[r][c] : "", widths[c]) + " │";
+                        lines.push_back({line, header && r == 0 ? ftxui::color(th.accent) | ftxui::bold : ftxui::color(th.text), "\n"});
+                        if (header && r == 0) lines.push_back({rule("├", "┼", "┤"), ftxui::color(th.border), "\n"});
+                    }
+                    lines.push_back({rule("└", "┴", "┘"), ftxui::color(th.border), "\n"});
+                } else if (type == "chart") {
+                    const std::string kind = d.value("kind", std::string("bar"));
+                    const cluster::Json labels = d.value("labels", cluster::Json::array());
+                    const cluster::Json& series = d["series"];
+                    double low = 0.0;
+                    double high = 0.0;
+                    for (const cluster::Json& s: series)
+                        for (const cluster::Json& v: s["values"])
+                            if (v.is_number()) {
+                                low = std::min(low, v.get<double>());
+                                high = std::max(high, v.get<double>());
+                            }
+                    const std::function<std::string(double)> number = [](const double v) {
+                        std::ostringstream out;
+                        out << std::setprecision(4) << v;
+                        return out.str();
+                    };
+                    if (kind == "line") {
+                        // a sparkline per series
+                        static const std::array<const char*, 8> levels = {"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
+                        for (std::size_t k = 0; k < series.size(); ++k) {
+                            const cluster::Json& values = series[k]["values"];
+                            double a = 1e300;
+                            double b = -1e300;
+                            for (const cluster::Json& v: values)
+                                if (v.is_number()) {
+                                    a = std::min(a, v.get<double>());
+                                    b = std::max(b, v.get<double>());
+                                }
+                            std::string spark;
+                            const std::size_t step = std::max<std::size_t>(1, (values.size() + room - 30) / std::max<std::size_t>(1, room > 30 ? room - 30 : 10));
+                            for (std::size_t v = 0; v < values.size(); v += step)
+                                spark += levels[values[v].is_number() && b > a ? static_cast<std::size_t>((values[v].get<double>() - a) / (b - a) * 7.0 + 0.5) : 0];
+                            lines.push_back({"  " + pad(series[k].value("name", std::string("series")), 12) + " " + spark + "  " + number(a) + " .. " + number(b),
+                                ftxui::color(palette[k % palette.size()]), "\n"});
+                        }
+                    } else {
+                        // bars (pie: the shares of the first series)
+                        double total = 0.0;
+                        if (kind == "pie")
+                            for (const cluster::Json& v: series[0]["values"])
+                                total += v.is_number() ? v.get<double>() : 0.0;
+                        std::size_t labelWidth = 4;
+                        for (const cluster::Json& l: labels)
+                            labelWidth = std::min<std::size_t>(24, std::max(labelWidth, width_(cell(l))));
+                        const std::size_t size = room > labelWidth + 24 ? room - labelWidth - 24 : 10;
+                        const std::size_t count = series[0]["values"].size();
+                        for (std::size_t i = 0; i < count; ++i)
+                            for (std::size_t k = 0; k < (kind == "pie" ? 1 : series.size()); ++k) {
+                                const cluster::Json& v = series[k]["values"].size() > i ? series[k]["values"][i] : cluster::Json(0);
+                                const double value = v.is_number() ? v.get<double>() : 0.0;
+                                const double ratio = kind == "pie" ? (total > 0 ? value / total : 0.0) : (high > 0 ? std::max(0.0, value) / high : 0.0);
+                                std::string bar;
+                                for (std::size_t n = 0; n < static_cast<std::size_t>(ratio * static_cast<double>(size) + 0.5); ++n)
+                                    bar += "█";
+                                const std::string label = k == 0 ? (i < labels.size() ? cell(labels[i]) : std::to_string(i + 1)) : "";
+                                lines.push_back({"  " + pad(label, labelWidth) + " " + bar + " " + (kind == "pie" ? std::to_string(static_cast<int>(ratio * 100 + 0.5)) + "%"
+                                    : number(value)) + (series.size() > 1 && kind != "pie" ? "  " + series[k].value("name", std::string()) : ""),
+                                    ftxui::color(palette[(kind == "pie" ? i : k) % palette.size()]), "\n"});
+                            }
+                    }
+                } else {
+                    // image, diagram, svg: in blocks of colors (chafa), made once for a width
+                    const std::string at = key + ":" + std::to_string(room);
+                    if (!this->_pictures.contains(at)) {
+                        if (this->_pictures.size() > 40) this->_pictures.clear();
+                        this->_pictures[at] = cluster::display_cells(cluster::display_bytes(d), static_cast<int>(std::min<std::size_t>(room > 4 ? room - 4 : 10, 100)),
+                            std::clamp(height * 2 / 3, 8, 30));
+                    }
+                    const std::vector<std::vector<cluster::Cell>>& picture = this->_pictures[at];
+                    if (picture.empty()) lines.push_back({"  [" + type + "] " + d.value("alt", std::string()) + " (chafa not installed: the window or the web page shows it)",
+                        ftxui::color(th.muted), "\n"});
+                    for (const std::vector<cluster::Cell>& row: picture) {
+                        std::string text = "  ";
+                        for (const cluster::Cell& c: row)
+                            text += c.text;
+                        std::vector<cluster::Cell> cells = {{"  ", 0, 0, false, false}};
+                        cells.insert(cells.end(), row.begin(), row.end());
+                        lines.push_back({text, ftxui::nothing, "\n", cells});
+                    }
+                    const std::string caption = d.value("alt", d.value("caption", std::string()));
+                    if (!caption.empty()) add(caption, "  ", "  ", ftxui::color(th.muted) | ftxui::italic);
+                }
+            };
             for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
                 const cluster::Entry& e = s.entries[i];
                 const bool matched = searching && std::find(this->_matches.begin(), this->_matches.end(), i) != this->_matches.end();
@@ -1591,6 +1766,11 @@ class TtyUi {
                     case cluster::EntryKind::Error:
                         add(text, "✗ ", "  ", ftxui::color(this->_theme.error) | mark);
                         break;
+                    case cluster::EntryKind::Display: {
+                        const cluster::Json d = cluster::Json::parse(e.text, nullptr, false);
+                        if (d.is_object()) display(d, s.spec.id + ":" + std::to_string(e.time) + ":" + std::to_string(i));
+                        break;
+                    }
                 }
             }
             // the text streamed (typed), the live thinking, the state of the turn (like Claude Code)
@@ -1646,6 +1826,14 @@ class TtyUi {
                 const int y = k - begin;
                 view.lines.push_back(row.text);
                 view.joins.push_back(row.join);
+                if (!row.cells.empty()) { // a line of a picture: its colors
+                    ftxui::Elements runs;
+                    for (const cluster::Cell& c: row.cells)
+                        runs.push_back(ftxui::text(c.text) | (c.hasFg ? ftxui::color(ftxui::Color::RGB((c.fg >> 16) & 255, (c.fg >> 8) & 255, c.fg & 255)) : ftxui::nothing)
+                            | (c.hasBg ? ftxui::bgcolor(ftxui::Color::RGB((c.bg >> 16) & 255, (c.bg >> 8) & 255, c.bg & 255)) : ftxui::nothing));
+                    shown.push_back(ftxui::hbox(std::move(runs)));
+                    continue;
+                }
                 if (!selecting || y < ya || y > yb || (ya == yb && xa == xb)) {
                     shown.push_back(ftxui::text(row.text) | row.style);
                     continue;

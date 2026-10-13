@@ -510,6 +510,13 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = cluster::Json::array();
             for (const cluster::Notice& n: manager.notices(30))
                 data.push_back({{"time", n.time}, {"session", n.session}, {"text", n.text}, {"error", n.error}});
+        } else if (cmd == "display") {
+            // a rich display put in the transcript of a session (no prompt): {type, ...} or a text (markdown)
+            cluster::Json display = request.contains("display") && request["display"].is_object() ? request["display"]
+                : cluster::Json{{"type", "markdown"}, {"text", arg_(request, "text")}};
+            if (request.contains("title") && !display.contains("title")) display["title"] = arg_(request, "title");
+            manager.display(session(), display);
+            data = {{"shown", true}};
         } else if (cmd == "ask") {
             // the question of an agent being answered (shared by the interfaces and the voice): choose, toggle, other, next, back, decline
             cluster::Asking& asking = manager.asking();

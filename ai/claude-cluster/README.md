@@ -280,7 +280,8 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `config_files` / `config_read` / `config_write` (its own system prompt - it is
   started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
   config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
-  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `external_conversations` / `session_import` (the
+  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `session_display` (a rich display in a transcript,
+  below), `external_conversations` / `session_import` (the
   conversations of the other agents of this computer, opened here), `session_transcript` (whole entries of a transcript),
   `session_context` (a context given to a session: another session, a conversation of an agent, a file),
   `session_messages` / `session_edit` (the real conversation of a sub-session of Claude Code rewritten: texts replaced,
@@ -391,6 +392,26 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `voice_fr`, `voice_en`); F6 stops.
 - The palette action **Voice: what is missing** lists what to set up (tools, enrollment, voices, English speech model,
   the model or the API key of the engines chosen).
+
+## Rich displays
+
+The global session puts a display in the transcript of a session (a sub-session, or its own) without a prompt (MCP
+`session_display`, control command `display`): its agent never sees it, the user does. `{type, title?, ...}`:
+
+| Type | Fields | Terminal | Window | Web page |
+|---|---|---|---|---|
+| `markdown` | `text` | headings, bullets, code (its marks out) | rendered by Qt | rendered |
+| `table` | `columns`, `rows` | a box, its columns cut to the room | an HTML table | a table |
+| `chart` | `kind` (bar, line, pie), `labels`, `series` [{name, values}] | bars, sparklines, shares in % | drawn (QPainter) | SVG |
+| `image` | `path` (read here, 4 MB) or `data` + `mime`, `alt` | colored blocks (chafa) | the image | the image |
+| `diagram` | `dot` (Graphviz) | colored blocks | its PNG | its SVG |
+| `svg` | `svg` (a drawing, a logo) | colored blocks | the drawing (Qt SVG) | the drawing (an image: no script) |
+| `callout` | `level` (info, success, warning, error), `text` | colored, an icon | a colored box | a colored box |
+| `progress` | `value`, `max`, `label` | a bar of blocks | a bar | a bar |
+| `code` | `code`, `language` | framed lines | preformatted | preformatted |
+
+The pictures of the terminal need `chafa`, the diagrams `dot` (Graphviz); a display is kept in the log of the session
+(searched and exported as text), the web page gets its picture once (`/api/display`).
 
 ## Conversations of the other agents
 

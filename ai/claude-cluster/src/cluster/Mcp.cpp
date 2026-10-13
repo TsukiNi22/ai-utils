@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Display.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Mcp.hpp"
 #include <iostream>
@@ -124,6 +125,11 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"session", session}, {"replace", {{"type", "array"}, {"description", "[{index, text}]"}}},
              {"delete", {{"type", "array"}, {"description", "[index, ...]"}}}, {"keep", {{"type", "integer"}, {"description", "keep the first N messages"}}}},
             {"session"}),
+        tool_("session_display", "Show something in the transcript of a session (any sub-session, or g: yours) without a prompt: its agent "
+            "never sees it, the user does (terminal, window, web page). display = {type, title?, ...}: " + cluster::display_help() + ". Or only "
+            "text (markdown). For the user: a summary table, a chart of numbers, a diagram of an architecture, an image file, a drawing (SVG), "
+            "a callout, a progress bar.", {{"session", session}, {"display", {{"type", "object"}, {"description", "{type, ...}"}}},
+            {"text", str_("markdown (when no display)")}, {"title", str_("its title")}}, {"session"}),
         tool_("voice_engines", "The engines of the voice: speech to text ([voice] listen_model) and text to speech ([voice] say_engine), "
             "local or free-tier APIs: what each one handles (languages), its strengths and limits against the others, its free use, its "
             "voices, its links, ready (installed / API key stored), used. To change one: settings_set; a key: the user runs "
@@ -153,7 +159,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
-        {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
+        {"session_display", "display"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
         {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
         {"ui_style", "ui_style"}, {"ui_panel", "ui_panel"}, {"settings_get", "settings_get"}, {"settings_set", "settings_set"},
     };

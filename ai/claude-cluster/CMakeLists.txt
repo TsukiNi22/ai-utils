@@ -79,6 +79,7 @@ set(SRC
     src/cluster/Manager-Usage.cpp
     src/cluster/Manager-External.cpp
     src/cluster/Asking.cpp
+    src/cluster/Display.cpp
     src/cluster/External.cpp
     src/cluster/Store.cpp
     src/cluster/Git.cpp

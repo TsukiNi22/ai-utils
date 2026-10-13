@@ -53,6 +53,7 @@ enum class EntryKind {
     ToolResult,
     System,
     Error,
+    Display,    // a rich display put in by the global session (MCP session_display): its JSON (Display.hpp)
 };
 
 //----------------------------------------------------------------//

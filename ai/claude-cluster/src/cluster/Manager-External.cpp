@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/External.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
@@ -358,4 +359,13 @@ _cold std::string cluster::Manager::editConversation(const std::string& id, cons
     spec.fork = false;
     this->relaunch_(id, spec);
     return std::to_string(changes) + " change(s), " + std::to_string(left) + " message(s) left; conversation " + conversation.substr(0, 8);
+}
+
+/* displays */
+_cold void cluster::Manager::display(const std::string& id, const cluster::Json& display)
+{
+    // checked and made ready (a file read, a diagram drawn), shown in the transcript; the agent of the session never sees it
+    const cluster::Json ready = cluster::display_prepare(display);
+    this->get_(id)->append({{cluster::EntryKind::Display, ready.dump(-1, ' ', false, cluster::Json::error_handler_t::replace), "", cluster::now()}});
+    ++this->_version;
 }
