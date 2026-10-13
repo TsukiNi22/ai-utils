@@ -318,6 +318,13 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   claude.ai shows here like a typed one (and goes to the history): claude replays every prompt it gets
   (`--replay-user-messages`), the ones written here carry their own uuid and are not shown twice.
 
+### The MCP page of the settings
+
+`F9 > MCP` (the window: its MCP tab): every tool of the global session with what it does, each one on or off
+(`[mcp_tools] <tool> = false`: refused at once with a message for the user, left out of its tool list at its next
+start), and the custom MCP servers it gets too (`[mcp] servers`: `"name: command args"` for a local program, or
+`"name: https://url"` for an HTTP one; written in its MCP config next to the one of claude-cluster at its next start).
+
 ## Voice
 
 `[voice] enabled = true`, then one of three listening modes:

@@ -48,6 +48,7 @@ File Description:
 #include <QMessageBox>
 #include <QFormLayout>
 #include <QTextCursor>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <functional>
 #include <QTabWidget>
@@ -533,7 +534,11 @@ class Window: public QMainWindow {
                     if (info != nullptr) form->addRow(info);
                     fields.emplace_back(setting, read);
                 }
-                sections->addTab(tab, q_(page.title));
+                QScrollArea* scroll = new QScrollArea(sections);
+                scroll->setWidget(tab);
+                scroll->setWidgetResizable(true);
+                scroll->setFrameShape(QFrame::NoFrame);
+                sections->addTab(scroll, q_(page.title));
             }
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
             QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);

@@ -174,6 +174,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     cluster::Json request = arguments.is_object() ? arguments : cluster::Json::object();
     request["cmd"] = it->second;
     request["origin"] = "mcp"; // the global session: the limits the user set for it
+    request["tool"] = name;    // off in the settings (MCP page): refused
     if (name == "session_list") request["global"] = false; // the global session lists the others
     if (name == "session_send" && !request.contains("reply")) request["reply"] = true; // its answer comes back (no polling)
     if (name == "session_send") request["from"] = "global"; // marked for the sub-session: a compact answer, for a model
@@ -186,6 +187,45 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     const bool ok = response.value("ok", false);
     const std::string text = ok ? (response["data"].is_null() ? "done" : response["data"].dump(1)) : response.value("error", std::string("error"));
     return {{"content", {{{"type", "text"}, {"text", text}}}}, {"isError", !ok}};
+}
+
+_cold cluster::Json cluster::mcp_servers(const std::vector<std::string>& servers)
+{
+    cluster::Json out = cluster::Json::object();
+    for (const std::string& entry: servers) {
+        const std::size_t colon = entry.find(':');
+        if (colon == std::string::npos) continue;
+        const std::string name = cluster::trim(entry.substr(0, colon));
+        const std::string rest = cluster::trim(entry.substr(colon + 1));
+        if (name.empty() || rest.empty() || name == "claude-cluster") continue;
+        if (rest.starts_with("http://") || rest.starts_with("https://")) {
+            out[name] = {{"type", "http"}, {"url", rest}};
+            continue;
+        }
+        // a command and its arguments (words; "quoted words" kept as one)
+        std::vector<std::string> words;
+        std::string word;
+        char quote = 0;
+        for (const char c: rest) {
+            if (quote) {
+                if (c == quote) quote = 0;
+                else word += c;
+            } else if (c == '"' || c == '\'') {
+                quote = c;
+            } else if (c == ' ' || c == '\t') {
+                if (!word.empty()) words.push_back(word);
+                word.clear();
+            } else {
+                word += c;
+            }
+        }
+        if (!word.empty()) words.push_back(word);
+        cluster::Json server = {{"type", "stdio"}, {"command", cluster::expand_home(words[0]).string()}, {"args", cluster::Json::array()}};
+        for (std::size_t i = 1; i < words.size(); ++i)
+            server["args"].push_back(words[i]);
+        out[name] = server;
+    }
+    return out;
 }
 
 _cold int cluster::mcp_serve(void)
@@ -211,7 +251,18 @@ _cold int cluster::mcp_serve(void)
                 {"instructions", "Tools of claude-cluster: manage the other Claude Code / agent sessions of the user (list, spawn, send, permissions, modes, tasks), its interface (session shown, layout, style, panels), its settings and the Remote Control of the global session."},
             };
         } else if (method == "tools/list") {
-            response["result"] = {{"tools", cluster::mcp_tools()}};
+            // the ones off in the settings (MCP page) left out
+            cluster::Json tools = cluster::mcp_tools();
+            try {
+                const cluster::Json off = cluster::Control::request({{"cmd", "mcp_off"}}).value("data", cluster::Json::array());
+                cluster::Json kept = cluster::Json::array();
+                for (const cluster::Json& tool: tools)
+                    if (std::find(off.begin(), off.end(), tool.value("name", std::string())) == off.end()) kept.push_back(tool);
+                tools = kept;
+            } catch (const utils::exception::IException&) {
+                // claude-cluster not reached: every tool listed (each call says it)
+            }
+            response["result"] = {{"tools", tools}};
         } else if (method == "tools/call") {
             response["result"] = cluster::mcp_call(params.value("name", std::string()), params.value("arguments", cluster::Json::object()));
         } else if (method == "ping") {

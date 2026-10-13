@@ -17,6 +17,7 @@ File Description:
 #include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Mcp.hpp"
 #include <filesystem>
 #include <algorithm>
 #include <fstream>
@@ -376,10 +377,11 @@ _cold std::vector<std::string> cluster::Manager::globalArgs_(void) const
 
 _cold void cluster::Manager::writeMcpConfig_(void) const
 {
-    const cluster::Json config = {{"mcpServers", {{"claude-cluster", {
+    cluster::Json config = {{"mcpServers", cluster::mcp_servers(this->_config.mcpServers)}}; // the custom ones ([mcp] servers)
+    config["mcpServers"]["claude-cluster"] = {
         {"type", "stdio"}, {"command", cluster::self_exe().string()}, {"args", {"mcp"}},
         {"env", {{"CLAUDE_CLUSTER_SOCKET", cluster::socket_path().string()}}},
-    }}}}};
+    };
     cluster::write_json(cluster::mcp_config_path(), config);
 }
 

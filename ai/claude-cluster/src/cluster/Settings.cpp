@@ -19,6 +19,7 @@ File Description:
 #include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Types.hpp"
+#include "cluster/Mcp.hpp"
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -296,6 +297,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "the conversation and the code encrypted, the microphone of the page allowed; off: plain http, no microphone", false,
                 [](const cluster::Config& cf) {return cf.web.https ? std::string("true") : std::string("false");}},
         }},
+        {"mcp", "MCP", {
+            {"mcp", "servers", "Custom MCP servers", SettingKind::List, {}, "MCP servers given to the global session, comma separated: "
+                "\"name: command args\" (a local program, stdio; env VAR=value command... for its variables) or \"name: https://url\" "
+                "(HTTP); its tools are mcp__<name>__*", true,
+                [](const cluster::Config& cf) {return join_(cf.mcpServers);}},
+        }},
         {"keys", "Keys", {}},
     };
 
@@ -312,6 +319,20 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         const std::string name = driver;
         pages[2].settings.push_back({"commands", name, name, SettingKind::Text, {}, "program of the " + name + " driver", true,
             [name](const cluster::Config& cf) {return cf.command(name);}});
+    }
+    // the tools of the global session (claude-cluster MCP): each one on / off
+    for (cluster::SettingsPage& page: pages) {
+        if (page.section != "mcp") continue;
+        for (const cluster::Json& tool: cluster::mcp_tools()) {
+            const std::string name = tool.value("name", std::string());
+            std::string description = tool.value("description", std::string());
+            if (const std::size_t end = description.find(". "); end != std::string::npos && end < 220) description = description.substr(0, end + 1);
+            if (name == "session_fork" || name == "session_edit")
+                description += std::string(" Also needs Sessions > Global session can ") + (name == "session_fork" ? "fork." : "edit.");
+            page.settings.push_back({"mcp_tools", name, name, SettingKind::Bool, {}, description + " Off: refused at once, out of its tool list at its "
+                "next start (mcp__claude-cluster__" + name + ")", false,
+                [name](const cluster::Config& cf) {return cf.mcpTool(name) ? std::string("true") : std::string("false");}});
+        }
     }
     for (const auto &[action, key]: c.keys) {
         const std::string name = action;

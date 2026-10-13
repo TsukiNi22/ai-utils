@@ -27,7 +27,9 @@ namespace cluster { // namespace start
 
 _cold _nodiscard cluster::Json mcp_tools(void);                             // tools/list
 _cold _nodiscard cluster::Json mcp_call(const std::string& name, const cluster::Json& arguments);   // tools/call -> control request
-_cold int mcp_serve(void);                                                  // loop on stdin / stdout until the end of stdin
+_cold int mcp_serve(void);
+// the custom servers of [mcp] servers as entries of an mcpServers object ("name: command args" -> stdio, "name: https://..." -> http)
+_cold _nodiscard cluster::Json mcp_servers(const std::vector<std::string>& servers);                                                  // loop on stdin / stdout until the end of stdin
 
 } // namespace end
 

@@ -316,7 +316,14 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
     cluster::Json data;
 
     try {
-        if (cmd == "list") {
+        if (from_global && request.contains("tool") && !manager.config().mcpTool(request.value("tool", std::string())))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the tool " + request.value("tool", std::string())
+                + " is off in the settings of claude-cluster (MCP page): tell the user, they turn it on there if they want");
+        if (cmd == "mcp_off") {
+            data = cluster::Json::array();
+            for (const auto &[tool, on]: manager.config().mcpTools)
+                if (!on) data.push_back(tool);
+        } else if (cmd == "list") {
             data = cluster::Json::array();
             for (const cluster::Snapshot& snap: manager.list(request.value("global", true)))
                 data.push_back(manager.toJson(snap, false));

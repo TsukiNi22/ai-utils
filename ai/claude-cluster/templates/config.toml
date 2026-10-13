@@ -118,6 +118,13 @@ port = 8787                # one browser at a time (the others refused while it 
 https = true               # TLS, certificate of its own (~/.config/claude-cluster/web, the browser asks to accept it once):
                            # encrypted, and the microphone of the page allowed (off: plain http, no microphone)
 
+[mcp]                      # MCP of the global session (F9 > MCP)
+servers = []               # custom servers it gets too: "name: command args" (stdio; env VAR=value command... for its
+                           # variables) | "name: https://url" (HTTP); its tools: mcp__<name>__*; at its next start
+
+[mcp_tools]                # a tool of claude-cluster off for the global session: <tool> = false (refused at once, out of
+                           # its list at its next start); every tool on when missing
+
 [user]                     # about you, for the global session (asked at the first map of this computer, F9 > User)
 nickname = ""
 email = ""

@@ -174,6 +174,10 @@ class Config {
         bool globalEdit = false;                // the global session may rewrite the conversation of a sub-session (MCP session_edit)
         std::string sessionsPrompt = "~/.config/claude-cluster/sessions.md"; // system prompt of the sub-sessions (empty: none)
 
+        /* mcp */
+        std::map<std::string, bool> mcpTools;   // [mcp_tools] <tool> = false: a tool of the global session off (missing: on)
+        std::vector<std::string> mcpServers;    // [mcp] servers: "name: command args" | "name: https://url", given to the global session
+
         cluster::VoiceConf voice;
         cluster::ServiceConf service;
         cluster::WebConf web;
@@ -195,6 +199,7 @@ class Config {
         // ---------- Function -------- //
         _nodiscard inline const std::filesystem::path& path(void) const {return this->_path;};
         _nodiscard inline const std::string& error(void) const {return this->_error;};   // last parse error (the previous values are kept)
+        _nodiscard inline bool mcpTool(const std::string& tool) const {return !this->mcpTools.contains(tool) || this->mcpTools.at(tool);};  // on for the global session
 
         // ---------- Constructor -------- //
         _cold Config(void);

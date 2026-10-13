@@ -212,6 +212,13 @@ _cold void cluster::Config::load(void)
     this->service.python = sv["python"].value_or(this->service.python);
     this->service.source = sv["source"].value_or(this->service.source);
 
+    /* mcp */
+    this->mcpServers = strings_(table["mcp"]["servers"], {});
+    this->mcpTools.clear();
+    if (const toml::table* toolsTable = table["mcp_tools"].as_table())
+        for (const auto &[tool, on]: *toolsTable)
+            if (const std::optional<bool> value = on.value<bool>()) this->mcpTools[std::string(tool.str())] = *value;
+
     /* keys */
     if (const toml::table* keysTable = table["keys"].as_table())
         for (const auto &[action, key]: *keysTable)
