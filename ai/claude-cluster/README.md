@@ -118,7 +118,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+F | search in the transcript (Enter / ↑ older, ↓ newer, Esc close) |
 | F2 / F5 / F6 / Ctrl+Q | layout / push-to-talk / stop speaking / quit (the sessions are kept) |
 | PageUp / PageDown, wheel | scroll the transcript |
-| Ctrl+O | thinking and tool results in full / folded (like Claude Code) |
+| Ctrl+O | thinking and tool results in full / folded (like Claude Code); a turn running: every step so far (thinking, writing, tools, the model awaited) and all its tools running (folded: its step and how long, 4 tools with their input, the tokens as they come) |
 | mouse drag (terminal) | select in the transcript or the prompt: copied when released (like Claude Code; the window: as any text) |
 | mouse click (terminal) | a session (list, tab, grid cell), the keys of the top bar, the answers of a permission, the items of the palette / history / question / dialogs, the settings (tab, line, its value: changed), a display (a checklist item ticked, a button, play, the form, details); the wheel: the item above / below in the lists |
 
@@ -308,6 +308,9 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   asks you when unsure), you can answer it too. In `auto` mode Claude Code denies it at once without asking: it is then
   shown to you as *safety check* (its reason under it); allowed, the session leaves `auto` for that turn, runs the same
   command again (allowed at once) and goes back to `auto`. The reason of every permission is shown with it;
+- **the classifier of the `auto` mode giving no verdict** (a failure on its side, not a refusal): one short line counted
+  (×N) instead of its long message each time; two in a row, the session goes to manual mode for the rest of the turn
+  (its tools asked to you instead of failing again), then back to `auto`;
 - autonomy (from its prompt): what the user asks explicitly is done without asking again; what it decides alone is
   proposed first;
 - **Remote Control** (`remote on` / palette): the global session itself on claude.ai and the Claude app (the

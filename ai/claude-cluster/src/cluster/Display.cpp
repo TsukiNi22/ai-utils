@@ -26,6 +26,7 @@ File Description:
 #include <sstream>
 #include <iomanip>
 #include <atomic>
+#include <chrono>
 #include <regex>
 #include <ctime>
 #include <array>
@@ -617,4 +618,37 @@ _cold std::vector<std::pair<std::string, char>> cluster::display_tree_lines(cons
     };
     if (root.contains("children")) walk(root["children"], "");
     return lines;
+}
+
+_cold std::string cluster::took(const std::int64_t ms)
+{
+    const std::int64_t sec = std::max<std::int64_t>(0, ms / 1000);
+    if (sec < 60) return std::to_string(sec) + "s";
+    if (sec < 3600) return std::to_string(sec / 60) + "m " + std::to_string(sec % 60) + "s";
+    return std::to_string(sec / 3600) + "h " + std::to_string(sec / 60 % 60) + "m";
+}
+
+_cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
+{
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    cluster::Json tools = cluster::Json::array();
+    for (const cluster::ToolRun& run: s.tools)
+        if (!run.done && run.time * 1000 >= s.turnSince - 2000) tools.push_back({{"name", run.name}, {"summary", run.summary}, {"ms", (cluster::now() - run.time) * 1000}});
+    const std::string step = s.step;
+    std::string verb = "Waiting for the model";
+    if (step == "thinking" || !s.thinking.empty()) verb = "Thinking";
+    else if (step == "writing" || !s.partial.empty()) verb = "Writing";
+    else if (step == "tools") verb = tools.size() > 1 ? "Running " + std::to_string(tools.size()) + " tools" : tools.size() == 1 ? "Running " + tools[0].value("name", std::string()) : "Running a tool";
+    else if (!step.empty() && step != "model") verb = "Writing the input of " + step;
+    const std::int64_t output = s.metrics.current.output;
+    const std::int64_t estimate = static_cast<std::int64_t>(s.streamed / 4);
+    std::string tokens;
+    if (std::max(output, estimate) > 0)
+        tokens = std::string(estimate > output ? "~" : "") + cluster::human_tokens(std::max(output, estimate)) + " tokens"
+            + (s.thinkingTokens > 0 ? " (" + cluster::human_tokens(s.thinkingTokens) + " thinking)" : std::string());
+    cluster::Json steps = cluster::Json::array();
+    for (const auto &[name, duration]: s.steps)
+        steps.push_back({{"name", name}, {"ms", duration}});
+    return {{"verb", verb}, {"step", step}, {"step_ms", s.stepSince > 0 ? now - s.stepSince : 0}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
+        {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"hidden_thinking", (step == "thinking") && s.thinking.empty()}};
 }

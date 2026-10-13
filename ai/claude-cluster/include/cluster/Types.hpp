@@ -210,6 +210,12 @@ struct Snapshot {
     std::vector<std::string> files;     // files modified by Edit / Write / NotebookEdit
     std::string partial;                // text being streamed
     std::string thinking;               // thinking being streamed (cleared by the final block)
+    std::string step;                   // what the turn does now: thinking | writing | tools | model (awaited) | a tool being written
+    std::int64_t stepSince = 0;         // its start (ms)
+    std::int64_t turnSince = 0;         // the start of the turn (ms)
+    std::size_t streamed = 0;           // characters streamed this turn (text, thinking, tool inputs): ~4 per token
+    std::int64_t thinkingTokens = 0;    // thinking tokens of the turn (its text may be hidden by the model)
+    std::vector<std::pair<std::string, std::int64_t>> steps;   // the steps done this turn, their duration (ms)
     std::string modelUsed;              // from the init message
     std::string lastError;
     std::string remoteUrl;              // Remote Control on: the session on claude.ai

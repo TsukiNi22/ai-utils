@@ -375,6 +375,7 @@ _cold void cluster::Session::runTurns_(void)
             this->queue_();
             this->_data.state = cluster::State::Working;
             this->_turn = {};
+            this->turnStart_();
             this->_data.metrics.lastCost = 0.0; // a process per turn: its cost added step by step
             this->_lastText.clear();
         }
@@ -495,11 +496,26 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         } else if (kind == "message_stop") {
             add_(this->_turn, this->_live);
             this->_live = {};
+            const bool running = std::any_of(this->_data.tools.begin(), this->_data.tools.end(), [](const cluster::ToolRun& t) {return !t.done;});
+            this->step_(running ? "tools" : "model");
+        } else if (kind == "content_block_start" && e.contains("content_block")) {
+            // the step of the turn: thinking, writing, a tool being written
+            const cluster::Json& block = e["content_block"];
+            const std::string block_type = block.value("type", std::string());
+            if (block_type == "thinking" || block_type == "redacted_thinking") this->step_("thinking");
+            else if (block_type == "text") this->step_("writing");
+            else if (block_type == "tool_use" || block_type == "server_tool_use") this->step_(block.value("name", std::string("tool")));
         } else if (kind == "content_block_delta" && e.contains("delta") && e["delta"].value("type", std::string()) == "text_delta") {
             this->_data.partial += e["delta"].value("text", std::string());
+            this->_data.streamed += e["delta"].value("text", std::string()).size();
         } else if (kind == "content_block_delta" && e.contains("delta") && e["delta"].value("type", std::string()) == "thinking_delta") {
             this->_data.thinking += e["delta"].value("thinking", std::string());
+            this->_data.streamed += e["delta"].value("thinking", std::string()).size();
+        } else if (kind == "content_block_delta" && e.contains("delta") && e["delta"].value("type", std::string()) == "input_json_delta") {
+            this->_data.streamed += e["delta"].value("partial_json", std::string()).size();
         }
+        if (kind == "message_delta" && e.contains("usage") && e["usage"].contains("output_tokens_details"))
+            this->_data.thinkingTokens += e["usage"]["output_tokens_details"].value("thinking_tokens", static_cast<std::int64_t>(0));
         metrics.current = this->_turn;
         add_(metrics.current, this->_live);
     } else if (type == "assistant" && event.contains("message")) {
@@ -516,6 +532,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 this->_data.thinking.clear();
             } else if (kind == "tool_use") {
                 this->tool_(block.value("id", std::string()), block.value("name", std::string()), block.value("input", cluster::Json::object()));
+                this->step_("tools");
                 if (this->_inputs.size() > 200) this->_inputs.erase(this->_inputs.begin());
                 this->_inputs[block.value("id", std::string())] = {{"name", block.value("name", std::string())}, {"input", block.value("input", cluster::Json::object())}};
             }
@@ -545,6 +562,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 this->entry_(cluster::EntryKind::User, text);
                 this->_data.state = cluster::State::Working;
                 this->_turn = {};
+                this->turnStart_();
                 this->emit_(cluster::Event::Kind::Prompt, text); // the history of the prompts too
             }
             return;
@@ -559,11 +577,18 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                     run.done = true;
                     run.error = error;
                 }
+            if (std::none_of(this->_data.tools.begin(), this->_data.tools.end(), [](const cluster::ToolRun& t) {return !t.done;}) && this->_data.step == "tools")
+                this->step_("model");
             std::string text;
             if (block.contains("content") && block["content"].is_string()) text = block["content"].get<std::string>();
             else if (block.contains("content") && block["content"].is_array())
                 for (const cluster::Json& part: block["content"])
                     text += part.value("text", std::string());
+            if (error && text.find("auto mode classifier gave no verdict") != std::string::npos) {
+                this->noVerdict_(this->_inputs.contains(id) ? this->_inputs[id].value("name", std::string("a tool")) : std::string("a tool"));
+                continue;
+            }
+            if (!error) this->_noVerdict = 0;
             this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(text, 6000));
             if (error && text.find("denied by a built-in Claude Code safety check") != std::string::npos && this->_inputs.contains(id)) {
                 // a mode that never asks (auto, dontAsk): the safety check denied it at once; asked here instead, allowed it runs again
@@ -649,6 +674,8 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->_turn = this->persistent() ? cluster::Usage{} : this->_turn;
         this->_live = {};
         metrics.turns += this->persistent() ? 1 : 0;
+        this->step_("");
+        this->_noVerdict = 0;
         if (!this->_modeBack.empty() && metrics.turns >= this->_restoreAfter) {
             // the command allowed after the safety check ran (or was not asked again): its mode back
             this->write_({{"type", "control_request"}, {"request_id", "mode-back-" + std::to_string(cluster::now())},
@@ -817,6 +844,51 @@ _cold void cluster::Session::append(const std::vector<cluster::Entry>& entries)
     this->touch_();
 }
 
+static std::int64_t ms_(void)
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+void cluster::Session::step_(const std::string& name)
+{
+    if (name == this->_data.step) return;
+    const std::int64_t now = ms_();
+    if (!this->_data.step.empty() && !(this->_data.step == "tools" && now - this->_data.stepSince < 300)) { // between two tools of a message: left out
+        this->_data.steps.emplace_back(this->_data.step, now - this->_data.stepSince);
+        if (this->_data.steps.size() > 60) this->_data.steps.erase(this->_data.steps.begin());
+    }
+    this->_data.step = name;
+    this->_data.stepSince = now;
+}
+
+void cluster::Session::noVerdict_(const std::string& tool)
+{
+    // the classifier of the auto mode answered nothing (a failure on its side, not a refusal): one line counted; two in a
+    // row: the rest of the turn in manual mode (the tool asked to the user instead of failing again), auto put back after
+    ++this->_noVerdict;
+    const std::string line = "auto mode: the safety classifier gave no verdict for " + tool + " (a transient failure on its side, retried)";
+    if (!this->_data.entries.empty() && this->_data.entries.back().kind == cluster::EntryKind::Error && this->_data.entries.back().text.starts_with(line))
+        this->_data.entries.back().text = line + " ×" + std::to_string(this->_noVerdict);
+    else
+        this->entry_(cluster::EntryKind::Error, line);
+    if (this->_noVerdict < 2 || !this->_modeBack.empty() || this->_data.spec.mode != "auto") return;
+    this->_modeBack = "auto";
+    this->_restoreAfter = this->_data.metrics.turns + 1;
+    this->write_({{"type", "control_request"}, {"request_id", "mode-verdict-" + std::to_string(cluster::now())},
+        {"request", {{"subtype", "set_permission_mode"}, {"mode", "default"}}}});
+    this->entry_(cluster::EntryKind::System, "the classifier of the auto mode does not answer: manual mode for the rest of this turn (its tools asked to "
+        "you instead of failing), auto put back after it");
+}
+
+void cluster::Session::turnStart_(void)
+{
+    this->_data.steps.clear();
+    this->_data.streamed = 0;
+    this->_data.thinkingTokens = 0;
+    this->_data.step = "model";
+    this->_data.stepSince = this->_data.turnSince = ms_();
+}
+
 _cold void cluster::Session::updateDisplay(const std::string& displayId, const std::string& text)
 {
     // the last display of this id replaced; the log written again with it (the next start shows it so)
@@ -938,6 +1010,7 @@ _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
     this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prompt.text) : prepared.content}}}});
     this->_data.state = cluster::State::Working;
     this->_turn = {};
+    this->turnStart_();
 }
 
 _cold void cluster::Session::queue_(void)

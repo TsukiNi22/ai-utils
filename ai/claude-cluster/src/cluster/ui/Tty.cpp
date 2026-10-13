@@ -2094,13 +2094,35 @@ class TtyUi {
                 std::int64_t since = 0;
                 for (auto it = s.entries.rbegin(); it != s.entries.rend() && since == 0; ++it)
                     if (it->kind == cluster::EntryKind::User) since = it->time;
-                const bool tool = !s.entries.empty() && s.entries.back().kind == cluster::EntryKind::Tool;
-                const std::string verb = !s.thinking.empty() ? "Thinking" : (!s.partial.empty() || frame.typed != static_cast<std::size_t>(-1)) ? "Writing"
-                    : tool ? "Running " + s.entries.back().tool : "Working";
-                const std::int64_t output = s.metrics.current.output;
-                lines.push_back({spinner[static_cast<std::size_t>(ms / 120) % spinner.size()] + " " + verb + "… (" + (since > 0 ? std::to_string(cluster::now() - since) + "s" : std::string("…"))
-                    + (output > 0 ? " · ↓ " + cluster::human_tokens(output) + " tokens" : std::string()) + " · " + config.keys.at("interrupt") + " to interrupt)"
+                // its step (thinking, writing, a tool written, the tools running, the model awaited), the tokens as they come
+                const cluster::Json turn = cluster::turn_state(s);
+                const std::string tokens = turn.value("tokens", std::string());
+                const std::string expand = config.keys.contains("expand") ? config.keys.at("expand") : std::string("Ctrl+O");
+                lines.push_back({spinner[static_cast<std::size_t>(ms / 120) % spinner.size()] + " " + turn.value("verb", std::string()) + "… "
+                    + cluster::took(turn.value("step_ms", 0LL)) + "  (turn " + cluster::took(turn.value("turn_ms", since > 0 ? (cluster::now() - since) * 1000 : 0LL))
+                    + (tokens.empty() ? "" : " · ↓ " + tokens) + " · " + config.keys.at("interrupt") + " to interrupt" + (this->_expanded ? "" : " · " + expand + " details") + ")"
                     + (s.queued > 0 ? "  " + std::to_string(s.queued) + " queued" : std::string()), ftxui::color(this->_theme.accent), "\n"});
+                // the tools running: their input, how long
+                const cluster::Json& tools = turn["tools"];
+                const std::size_t most = this->_expanded ? 20 : 4;
+                for (std::size_t k = 0; k < tools.size() && k < most; ++k) {
+                    const std::string head = "  ⎿ " + tools[k].value("name", std::string()) + "  ";
+                    const std::string age = "  " + cluster::took(tools[k].value("ms", 0LL));
+                    const std::size_t left = room > width_(head) + width_(age) + 4 ? room - width_(head) - width_(age) : 10;
+                    lines.push_back({head + cluster::one_line(tools[k].value("summary", std::string()), left) + age, ftxui::color(this->_theme.muted), "\n"});
+                }
+                if (tools.size() > most) lines.push_back({"  ⎿ … " + std::to_string(tools.size() - most) + " more", ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
+                if (this->_expanded) {
+                    // every step of the turn so far
+                    std::string done;
+                    for (const cluster::Json& step: turn["steps"])
+                        done += (done.empty() ? "" : " → ") + step.value("name", std::string()) + " " + cluster::took(step.value("ms", 0LL));
+                    if (!turn.value("step", std::string()).empty())
+                        done += (done.empty() ? "" : " → ") + turn.value("step", std::string()) + " " + cluster::took(turn.value("step_ms", 0LL)) + "…";
+                    if (!done.empty()) add(done, "  steps: ", "         ", ftxui::color(this->_theme.muted) | ftxui::dim);
+                    if (turn.value("hidden_thinking", false))
+                        lines.push_back({"  (the text of its thinking is not sent by the model: its tokens only)", ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
+                }
                 this->_animating = true;
             }
             for (const std::string& queued: s.queue)

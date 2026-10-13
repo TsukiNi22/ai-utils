@@ -17,6 +17,7 @@ File Description:
 #include "cluster/Templates.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
 #ifdef CLUSTER_TLS
@@ -281,6 +282,7 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
     const std::optional<cluster::Snapshot> snap = manager.snapshot(id);
     if (!snap) return nullptr;
     cluster::Json json = manager.toJson(*snap, false);
+    if (snap->state == cluster::State::Working) json["turn"] = cluster::turn_state(*snap); // its step, the tools running, the tokens
     json["messages"] = cluster::Json::array();
     const std::size_t start = snap->entries.size() > 150 ? snap->entries.size() - 150 : 0;
     for (std::size_t i = start; i < snap->entries.size(); ++i) {

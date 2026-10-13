@@ -80,6 +80,8 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .bar { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; max-width: 420px; }
 .msg.display .bar div { height: 100%; background: var(--accent); }
 .msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
+.msg.turn { color: var(--accent); font-size: 14px; } .msg.turn .turn-tool, .msg.turn details { color: var(--muted); font-size: 13px; margin-left: 12px; }
+.msg.turn summary { cursor: pointer; }
 .msg.display pre.term { background: #1e1e1e; color: #e5e5e5; }
 .msg.display .diff-add { color: var(--ok); } .msg.display .diff-del { color: var(--error); } .msg.display .diff-hunk { color: var(--accent); }
 .msg.display .steps div { padding: 2px 0; } .msg.display .done { color: var(--ok); } .msg.display .current { color: var(--accent); font-weight: 600; }
@@ -341,6 +343,7 @@ function render(state) {
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
     renderTranscript(s.messages || [], s.error);
+    renderTurn(s.turn);
     if (state.ask && (current === "g" || state.ask.session === current)) renderQuestion(state.ask);
     else renderAsk(s);
     readAnswer(s);
@@ -815,6 +818,45 @@ function renderDisplay(div, m) {
         .catch(() => { div.textContent = "[" + d.type + " not loaded]"; });
 }
 
+let turnOpen = false;    // the steps of the turn unfolded (kept from one refresh to the next)
+const took = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : Math.floor(s / 3600) + "h " + (Math.floor(s / 60) % 60) + "m"; };
+
+function renderTurn(turn) {
+    // a turn running: its step and how long, the tools running with their input, the tokens; its steps folded
+    const box = $("transcript");
+    const old = $("turnState");
+    if (old) old.remove();
+    if (!turn) return;
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    const div = document.createElement("div");
+    div.id = "turnState";
+    div.className = "msg turn";
+    const head = document.createElement("div");
+    head.className = "turn-head";
+    head.textContent = `✻ ${turn.verb}… ${took(turn.step_ms)}  (turn ${took(turn.turn_ms)}${turn.tokens ? " · ↓ " + turn.tokens : ""})`;
+    div.append(head);
+    for (const tool of turn.tools || []) {
+        const line = document.createElement("div");
+        line.className = "turn-tool";
+        line.textContent = `⎿ ${tool.name}  ${tool.summary}  ${took(tool.ms)}`;
+        div.append(line);
+    }
+    const steps = (turn.steps || []).map((s) => `${s.name} ${took(s.ms)}`).concat(turn.step ? [`${turn.step} ${took(turn.step_ms)}…`] : []);
+    if (steps.length) {
+        const details = document.createElement("details");
+        details.open = turnOpen;
+        details.addEventListener("toggle", () => { turnOpen = details.open; });
+        const summary = document.createElement("summary");
+        summary.textContent = "details";
+        const body = document.createElement("div");
+        body.textContent = "steps: " + steps.join(" → ") + (turn.hidden_thinking ? "  (the text of its thinking is not sent by the model: its tokens only)" : "");
+        details.append(summary, body);
+        div.append(details);
+    }
+    box.append(div);
+    if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
 function renderTranscript(messages, error) {
     const box = $("transcript");
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
@@ -823,7 +865,7 @@ function renderTranscript(messages, error) {
     if (key === lastKey) return;
     const first = lastKey === -1;
     lastKey = key;
-    box.textContent = "";
+    box.textContent = "";   // the state of the turn too (drawn again after)
     for (const m of messages) {
         const div = document.createElement("div");
         div.className = "msg " + m.kind;

@@ -92,6 +92,7 @@ class Session {
         std::string _approved;              // a command the user allowed after the safety check stopped it: allowed when asked again
         std::string _modeBack;              // the mode it is run out of (auto: never asks), put back after
         std::int64_t _restoreAfter = 0;     // that mode put back once the turns reach this count
+        int _noVerdict = 0;                 // the auto mode classifier without a verdict, in a row
         cluster::Usage _turn;               // finished messages of the running turn
         cluster::Usage _live;               // message being streamed
         double _costBase = 0.0;             // cost before the current process (claude resets its total)
@@ -134,7 +135,10 @@ class Session {
         _cold void setClaudeId(const std::string& id);     // the conversation goes on under this id
         _cold void mark(const std::string& text);          // a line of the system in its transcript (and its log)
         _cold void append(const std::vector<cluster::Entry>& entries); // a transcript from elsewhere, shown and logged
-        _cold void updateDisplay(const std::string& displayId, const std::string& text);  // a display replaced (its log written again)
+        _cold void updateDisplay(const std::string& displayId, const std::string& text);
+        void step_(const std::string& name);    // the turn goes to this step (under the lock)
+        void turnStart_(void);                  // its steps from zero
+        void noVerdict_(const std::string& tool);   // the auto mode classifier answered nothing for this tool (under the lock)  // a display replaced (its log written again)
         _cold void remoteControl(const bool on, const std::string& name); // claude: Remote Control of this session (claude.ai)
         _cold void togglePanel(const std::string& panel);
         _cold void loadHistory(const std::size_t max);     // last entries of the log (restored session)

@@ -2204,12 +2204,23 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             std::int64_t since = 0;
             for (auto it = s.entries.rbegin(); it != s.entries.rend() && since == 0; ++it)
                 if (it->kind == cluster::EntryKind::User) since = it->time;
-            const bool tool = !s.entries.empty() && s.entries.back().kind == cluster::EntryKind::Tool;
-            const std::string verb = !s.thinking.empty() ? "Thinking" : (!s.partial.empty() || frame.typed != static_cast<std::size_t>(-1)) ? "Writing"
-                : tool ? "Running " + s.entries.back().tool : "Working";
-            const std::int64_t output = s.metrics.current.output;
-            html += "<p>" + span_(st.accent, esc_(spinner[static_cast<std::size_t>(ms / 120) % spinner.size()] + " " + verb + "… (" + (since > 0 ? std::to_string(cluster::now() - since) + "s" : std::string("…"))
-                + (output > 0 ? " · ↓ " + cluster::human_tokens(output) + " tokens" : std::string()) + " · " + config.keys.at("interrupt") + " to interrupt)")) + "</p>";
+            // its step and how long, the tools running, the tokens as they come (Ctrl+O: every step)
+            const cluster::Json turn = cluster::turn_state(s);
+            const std::string tokens = turn.value("tokens", std::string());
+            html += "<p>" + span_(st.accent, esc_(spinner[static_cast<std::size_t>(ms / 120) % spinner.size()] + " " + turn.value("verb", std::string()) + "… "
+                + cluster::took(turn.value("step_ms", 0LL)) + "  (turn " + cluster::took(turn.value("turn_ms", since > 0 ? (cluster::now() - since) * 1000 : 0LL))
+                + (tokens.empty() ? "" : " · ↓ " + tokens) + " · " + config.keys.at("interrupt") + " to interrupt" + (expanded ? "" : " · Ctrl+O details") + ")"));
+            for (const cluster::Json& tool: turn["tools"])
+                html += "<br>" + span_(st.muted, esc_("  ⎿ " + tool.value("name", std::string()) + "  " + cluster::one_line(tool.value("summary", std::string()), 110)
+                    + "  " + cluster::took(tool.value("ms", 0LL))));
+            if (expanded) {
+                std::string done;
+                for (const cluster::Json& step: turn["steps"])
+                    done += (done.empty() ? "" : " → ") + step.value("name", std::string()) + " " + cluster::took(step.value("ms", 0LL));
+                if (!done.empty()) html += "<br>" + span_(st.muted, esc_("steps: " + done));
+                if (turn.value("hidden_thinking", false)) html += "<br>" + span_(st.muted, "<i>the text of its thinking is not sent by the model: its tokens only</i>");
+            }
+            html += "</p>";
         }
         QScrollBar* bar = this->log->verticalScrollBar();
         const bool bottom = bar->value() >= bar->maximum() - 4;

@@ -70,6 +70,11 @@ _cold _nodiscard std::vector<std::pair<std::string, char>> display_json_lines(co
 // a tree of files as lines "├── name" (folders end with /, its git state after), and its kind (d: folder, f: file, m: changed, n: new)
 _cold _nodiscard std::vector<std::pair<std::string, char>> display_tree_lines(const cluster::Json& root);
 
+// a turn running: its verb (Thinking, Running 3 tools, Waiting for the model...), how long its step and the turn, the
+// tokens as they come, the tools running (name, input, ms), the steps done; "took" of milliseconds: 12s, 4m 41s
+_cold _nodiscard cluster::Json turn_state(const cluster::Snapshot& snap);
+_cold _nodiscard std::string took(const std::int64_t ms);
+
 // the types and their fields, for the MCP tool and the help
 _cold _nodiscard std::string display_help(void);
 
