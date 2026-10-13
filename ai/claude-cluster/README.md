@@ -120,6 +120,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | PageUp / PageDown, wheel | scroll the transcript |
 | Ctrl+O | thinking and tool results in full / folded (like Claude Code) |
 | mouse drag (terminal) | select in the transcript or the prompt: copied when released (like Claude Code; the window: as any text) |
+| mouse click (terminal) | a session (list, tab, grid cell), the keys of the top bar, the answers of a permission, the items of the palette / history / question / dialogs, the settings (tab, line, its value: changed), a display (a checklist item ticked, a button, play, the form, details); the wheel: the item above / below in the lists |
 
 > [!NOTE]
 > Most terminals keep Ctrl+Shift+<letter> for themselves (new tab) or send it as Ctrl+<letter>: the Alt+ alternatives

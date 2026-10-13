@@ -41,6 +41,7 @@ File Description:
 #include <cerrno>
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <regex>
 #include <cmath>
 #include <set>
@@ -392,10 +393,12 @@ class TtyUi {
         };
         std::vector<PromptRow> _promptRows;         // the rows of the prompt drawn (mouse -> position)
         ftxui::Box _promptBox;
+        using Hit = std::tuple<int, int, std::function<void(void)>>;   // the cells [from, to] of a line clicked: what it does
         struct View {
             ftxui::Box box;
             std::vector<std::string> lines;         // transcript lines shown (mouse selection)
             std::vector<std::string> joins;
+            std::vector<std::vector<Hit>> hits;     // per line: its parts clicked (a display: tick, a button, play...)
         };
         std::map<std::string, View> _views;         // per session
         struct Selection {
@@ -407,6 +410,13 @@ class TtyUi {
         };
         std::optional<Selection> _selection;        // mouse selection in a transcript (copied when released)
         std::string _drag;                          // "prompt", a session id, or empty
+        struct Click {
+            ftxui::Box box{-1, -1, -1, -1};
+            int layer = 0;                          // 0: the screen, 1: a dialog over it, 2: the settings page
+            int clip = -1;                          // the box it must be in too (a list that scrolls): its index
+            std::function<bool(void)> act{};        // false: not for it (the mouse selection goes on); none: a dialog that stops the click
+        };
+        std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
@@ -973,6 +983,79 @@ class TtyUi {
             return text;
         }
 
+        /* mouse clicks */
+        ftxui::Element click_(ftxui::Element element, const int layer, const std::function<bool(void)>& act, const int clip = -1)
+        {
+            // drawn: its box kept, a click in it runs act (the last drawn first: what is over the rest)
+            this->_clicks.push_back({ftxui::Box{-1, -1, -1, -1}, layer, clip, act});
+            return element | ftxui::reflect(this->_clicks.back().box);
+        }
+
+        ftxui::Element tap_(ftxui::Element element, const int layer, const std::function<void(void)>& act, const int clip = -1)
+        {
+            return this->click_(std::move(element), layer, [act]() {
+                act();
+                return true;
+            }, clip);
+        }
+
+        _nodiscard int clip_(void)
+        {
+            // the box of a list that scrolls: its lines clicked inside it only
+            this->_clicks.push_back({ftxui::Box{-1, -1, -1, -1}, -1, -1, nullptr});
+            return static_cast<int>(this->_clicks.size()) - 1;
+        }
+
+        _nodiscard ftxui::Decorator clipBox_(const int clip)
+        {
+            return ftxui::reflect(this->_clicks[static_cast<std::size_t>(clip)].box);
+        }
+
+        bool clickAt_(const ftxui::Mouse& mouse)
+        {
+            // a left click: the target under it on the layer shown (a dialog: its own targets only, outside it closes the lists)
+            if (this->_mode == Mode::Message) {
+                this->event_(ftxui::Event::Escape);
+                return true;
+            }
+            const int layer = this->_mode == Mode::Settings ? 2 : this->_mode == Mode::Normal ? 0 : 1;
+            for (std::size_t i = this->_clicks.size(); i-- > 0;) {
+                const Click& c = this->_clicks[i];
+                if (c.layer != layer || !c.act || !c.box.Contain(mouse.x, mouse.y)) continue;
+                if (c.clip >= 0 && !this->_clicks[static_cast<std::size_t>(c.clip)].box.Contain(mouse.x, mouse.y)) continue;
+                const std::function<bool(void)> act = c.act;
+                if (act()) return true;
+            }
+            if (layer == 0) {
+                // a display of a transcript: its line, its cells
+                for (const auto &[id, view]: this->_views) {
+                    if (!view.box.Contain(mouse.x, mouse.y)) continue;
+                    const std::size_t y = static_cast<std::size_t>(mouse.y - view.box.y_min);
+                    const int x = mouse.x - view.box.x_min;
+                    if (y >= view.hits.size()) return false;
+                    for (const auto &[from, to, act]: view.hits[y])
+                        if (x >= from && x <= to) {
+                            const std::function<void(void)> run = act;
+                            run();
+                            return true;
+                        }
+                    return false;
+                }
+                return false;
+            }
+            for (const Click& c: this->_clicks)
+                if (c.layer == layer && !c.act && c.box.Contain(mouse.x, mouse.y)) return true; // in the dialog: nothing there
+            if (this->_mode == Mode::Palette || this->_mode == Mode::History) this->event_(ftxui::Event::Escape); // outside: closed
+            return true;
+        }
+
+        ftxui::Element block_(ftxui::Element element, const int layer)
+        {
+            // a dialog: a click in it that hits nothing stops there
+            this->_clicks.push_back({ftxui::Box{-1, -1, -1, -1}, layer, -1, nullptr});
+            return element | ftxui::reflect(this->_clicks.back().box);
+        }
+
         void mouseSelect_(const ftxui::Mouse& mouse)
         {
             // drag in the prompt: its selection; in a transcript: cells; released: copied to the clipboard (like Claude Code)
@@ -1430,17 +1513,26 @@ class TtyUi {
         _nodiscard ftxui::Element settings_(const ftxui::Dimensions& size)
         {
             const Theme& t = this->_theme;
+            const std::function<ftxui::Element(const std::string&, const ftxui::Event&)> keyed = [this](const std::string& label, const ftxui::Event& key) {
+                return this->tap_(ftxui::text(label), 2, [this, key]() {(void)this->event_(key);});
+            };
             ftxui::Elements tabs;
             for (std::size_t i = 0; i < this->_pages.size(); ++i) {
                 const bool active = static_cast<int>(i) == this->_page;
                 ftxui::Element tab = ftxui::text("  " + this->_pages[i].title + "  ");
-                tabs.push_back(active ? tab | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : tab | ftxui::color(t.text));
+                const int index = static_cast<int>(i);
+                tabs.push_back(this->tap_(active ? tab | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : tab | ftxui::color(t.text), 2, [this, index]() {
+                    if (this->_editing) (void)this->event_(ftxui::Event::Return);
+                    this->_page = index;
+                    this->_item = 0;
+                }));
             }
             const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
             ftxui::Elements rows;
             std::string help;
             std::string choiceHelp; // a choice of engine: what it handles, its limits, its link
             bool restart = false;
+            const int clip = this->clip_();
             for (std::size_t i = 0; i < page.settings.size(); ++i) {
                 const cluster::Setting& setting = page.settings[i];
                 const bool selected = static_cast<int>(i) == this->_item;
@@ -1453,13 +1545,21 @@ class TtyUi {
                 else if (value.empty()) value = "(empty)";
                 const std::string label = setting.label + " ";
                 const std::size_t dots = label.size() < 34 ? 34 - label.size() : 1;
+                const int index = static_cast<int>(i);
+                // clicked: selected; its value clicked: changed (a switch, a choice), edited (a text), run (an action)
+                const std::function<void(bool)> pick = [this, index](const bool change) {
+                    if (this->_editing && this->_item != index) (void)this->event_(ftxui::Event::Return);
+                    this->_item = index;
+                    if (change && !this->_editing) (void)this->event_(ftxui::Event::Return);
+                };
                 ftxui::Element line = ftxui::hbox({
-                    ftxui::text(changed ? " * " : "   ") | ftxui::color(t.warn) | ftxui::bold,
-                    ftxui::text(label + std::string(dots, '.') + " ") | ftxui::color(t.muted),
-                    ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
+                    this->tap_(ftxui::text(changed ? " * " : "   ") | ftxui::color(t.warn) | ftxui::bold, 2, [pick]() {pick(false);}, clip),
+                    this->tap_(ftxui::text(label + std::string(dots, '.') + " ") | ftxui::color(t.muted), 2, [pick]() {pick(false);}, clip),
+                    this->tap_(ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
+                        2, [pick]() {pick(true);}, clip),
                     ftxui::filler(),
                 });
-                rows.push_back(line);
+                rows.push_back(selected ? line | ftxui::focus : line);
                 if (selected) {
                     help = setting.description;
                     if (setting.choiceHelp) choiceHelp = setting.choiceHelp(this->settingValue_(setting));
@@ -1488,16 +1588,18 @@ class TtyUi {
                     ftxui::text(" config.toml ") | ftxui::color(t.muted)}),
                 ftxui::hbox(std::move(tabs)) | ftxui::bgcolor(t.surface),
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
-                ftxui::hbox({ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::flex, ftxui::separatorLight() | ftxui::color(t.border), helpBox}) | ftxui::flex,
+                ftxui::hbox({ftxui::vbox(std::move(rows)) | ftxui::yframe | this->clipBox_(clip) | ftxui::flex, ftxui::separatorLight() | ftxui::color(t.border), helpBox}) | ftxui::flex,
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
-                ftxui::text(" " + note) | ftxui::color(t.warn),
-                ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   Ctrl+S save   F10 save & exit   Esc exit (asks to save) ")
+                this->_note == "confirm" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn), keyed(" [y] save ", ftxui::Event::Character('y')) | ftxui::color(t.accent),
+                    keyed(" [n] drop ", ftxui::Event::Character('n')) | ftxui::color(t.accent)}) : ftxui::text(" " + note) | ftxui::color(t.warn),
+                ftxui::hbox({ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   "), keyed("Ctrl+S save", ftxui::Event::Special(std::string(1, '\x13'))),
+                    ftxui::text("   "), keyed("F10 save & exit", ftxui::Event::F10), ftxui::text("   "), keyed("Esc exit (asks to save) ", ftxui::Event::Escape)})
                     | ftxui::color(t.bg) | ftxui::bgcolor(t.muted), ftxui::filler()}) | ftxui::bgcolor(t.muted),
             }) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, size.dimy) | ftxui::color(t.text) | ftxui::bgcolor(t.bg);
         }
 
         /* rendering */
-        _nodiscard ftxui::Element sessionRow_(const cluster::Snapshot& s, const bool active) const
+        _nodiscard ftxui::Element sessionRow_(const cluster::Snapshot& s, const bool active, const int clip)
         {
             const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error
                 : s.state == cluster::State::Working ? this->_theme.ok : this->_theme.muted;
@@ -1511,8 +1613,9 @@ class TtyUi {
             ftxui::Element line = ftxui::hbox(std::move(row));
             const std::string backend = s.spec.backend.substr(0, s.spec.backend.find('/'));
             ftxui::Element sub = ftxui::text("  " + cluster::one_line(backend + " · " + cluster::short_path(s.spec.cwd), 26)) | ftxui::color(this->_theme.muted) | ftxui::dim;
-            ftxui::Element block = ftxui::vbox({line, sub});
-            return active ? block | ftxui::bgcolor(this->_theme.surface) : block;
+            const std::string id = s.spec.id;
+            ftxui::Element block = this->tap_(ftxui::vbox({line, sub}), 0, [this, id]() {this->_active = id;}, clip); // clicked: shown
+            return active ? block | ftxui::bgcolor(this->_theme.surface) | ftxui::focus : block;
         }
 
         _nodiscard ftxui::Element transcript_(const cluster::Snapshot& s, const int width, const int height, const bool compact)
@@ -1523,6 +1626,7 @@ class TtyUi {
                 ftxui::Decorator style;
                 std::string join;   // before it when copied
                 std::vector<cluster::Cell> cells{};     // a line of a picture: its runs of colors (text: what is copied)
+                std::vector<Hit> hits{};                // its parts clicked
             };
             std::vector<Row> lines;
             const bool searching = this->_mode == Mode::Search && s.spec.id == this->_active && !this->_matches.empty();
@@ -1542,8 +1646,24 @@ class TtyUi {
                         lines.push_back({(k == 0 ? first : next) + wrapped[k], style, joins[k]});
                 };
             // a rich display (MCP session_display): text, boxed tables, bars, sparklines, pictures in colored blocks (chafa)
+            const std::string sid = s.spec.id;
+            // a display acted on (ticked, clicked, played): what it did in the status line
+            const std::function<std::function<void(void)>(const std::string&, const cluster::Json&)> act = [this, sid](const std::string& displayId, const cluster::Json& what) {
+                return [this, sid, displayId, what]() {
+                    try {
+                        this->status_(this->_manager.displayAct(sid, displayId, what));
+                    } catch (const utils::exception::IException& e) {
+                        this->status_(e.info(), true);
+                    }
+                };
+            };
+            const std::function<void(std::size_t, const std::function<void(void)>&)> clickable = [&](const std::size_t from, const std::function<void(void)>& run) {
+                for (std::size_t k = from; k < lines.size(); ++k)
+                    lines[k].hits.emplace_back(0, 100000, run);
+            };
             const std::function<void(const cluster::Json&, const std::string&)> display = [&](const cluster::Json& d, const std::string& key) {
                 const Theme& th = this->_theme;
+                const std::string displayId = d.value("id", std::string());
                 const std::string type = d.value("type", std::string());
                 const std::string title = d.value("title", std::string());
                 const std::vector<ftxui::Color> palette = {th.accent, th.ok, th.warn, th.error, th.text};
@@ -1724,12 +1844,15 @@ class TtyUi {
                     }
                 } else if (type == "checklist") {
                     std::size_t ticked = 0;
-                    for (const cluster::Json& item: d["items"]) {
+                    for (std::size_t k = 0; k < d["items"].size(); ++k) {
+                        const cluster::Json& item = d["items"][k];
                         const bool done = item.value("done", false);
                         ticked += done ? 1 : 0;
+                        const std::size_t from = lines.size();
                         add(item.value("text", std::string()), done ? "  ☑ " : "  ☐ ", "    ", done ? ftxui::color(th.muted) | ftxui::dim : ftxui::color(th.text));
+                        clickable(from, act(displayId, {{"item", k}}));
                     }
-                    lines.push_back({"  " + std::to_string(ticked) + "/" + std::to_string(d["items"].size()) + " done · palette: Tick", ftxui::color(th.muted) | ftxui::dim, "\n"});
+                    lines.push_back({"  " + std::to_string(ticked) + "/" + std::to_string(d["items"].size()) + " done · a click or the palette: Tick", ftxui::color(th.muted) | ftxui::dim, "\n"});
                 } else if (type == "steps") {
                     for (const cluster::Json& step: d["steps"]) {
                         const std::string state = step.value("state", std::string("todo"));
@@ -1778,11 +1901,17 @@ class TtyUi {
                         lines.push_back({row, ftxui::color(th.text), "\n"});
                     }
                 } else if (type == "actions") {
-                    std::string row = "  ";
-                    for (const cluster::Json& button: d["buttons"])
-                        row += (button.contains("clicked") ? "[✓ " : "[ ") + button.value("label", std::string()) + " ]  ";
-                    add(row, "", "  ", ftxui::color(th.accent) | ftxui::bold);
-                    lines.push_back({"  palette: Action" + std::string(this->_manager.config().voice.enabled ? " · voice: say its label" : ""), ftxui::color(th.muted) | ftxui::dim, "\n"});
+                    // the buttons on one line, each one its cells clicked
+                    Row row{"  ", ftxui::color(th.accent) | ftxui::bold, "\n"};
+                    for (std::size_t k = 0; k < d["buttons"].size(); ++k) {
+                        const std::string button = (d["buttons"][k].contains("clicked") ? "[✓ " : "[ ") + d["buttons"][k].value("label", std::string()) + " ]";
+                        const int from = static_cast<int>(width_(row.text));
+                        row.text += button;
+                        row.hits.emplace_back(from, static_cast<int>(width_(row.text)) - 1, act(displayId, {{"item", k}}));
+                        row.text += "  ";
+                    }
+                    lines.push_back(row);
+                    lines.push_back({"  a click, the palette: Action" + std::string(this->_manager.config().voice.enabled ? " · voice: say its label" : ""), ftxui::color(th.muted) | ftxui::dim, "\n"});
                 } else if (type == "form") {
                     const cluster::Json values = d.value("values", cluster::Json::object());
                     for (const cluster::Json& field: d["fields"]) {
@@ -1795,9 +1924,26 @@ class TtyUi {
                                 hint += (hint.empty() ? "" : " | ") + cell(o);
                         add(field.value("label", field_name) + ": " + value + "  (" + hint + ")", "  ", "    ", ftxui::color(th.text));
                     }
-                    lines.push_back({d.value("submitted", false) ? "  ✓ sent" : "  palette: Fill the form", ftxui::color(d.value("submitted", false) ? th.ok : th.muted) | ftxui::dim, "\n"});
+                    if (d.value("submitted", false)) {
+                        lines.push_back({"  ✓ sent", ftxui::color(th.ok) | ftxui::dim, "\n"});
+                    } else {
+                        // clicked: its fields asked (name=value; ...), like the palette
+                        std::string fill;
+                        for (const cluster::Json& field: d["fields"])
+                            fill += (fill.empty() ? "" : "; ") + field.value("name", std::string()) + "=" + (field.contains("value") ? cell(field["value"]) : "");
+                        const std::string name = title.empty() ? std::string("the form") : title;
+                        lines.push_back({"  ▶ Fill the form (a click, the palette)", ftxui::color(th.accent), "\n"});
+                        clickable(lines.size() - 1, [this, displayId, name, fill]() {
+                            this->_pending = {"display_form:" + displayId, "Fill the form: " + name, "name=value; ...", fill, false};
+                            this->_prompt = fill;
+                            this->_password = false;
+                            this->_mode = Mode::Prompt;
+                        });
+                    }
                 } else if (type == "details") {
+                    const std::size_t from = lines.size();
                     add(d.value("summary", std::string()), this->_expanded ? "  ▾ " : "  ▸ ", "    ", ftxui::color(th.text) | ftxui::bold);
+                    clickable(from, [this]() {this->_expanded = !this->_expanded;}); // clicked: opened / folded (every one, like Ctrl+O)
                     if (this->_expanded)
                         for (const std::string& line: lines_(d.value("text", std::string())))
                             add(line, "    ", "    ", ftxui::color(th.text));
@@ -1842,7 +1988,8 @@ class TtyUi {
                         lines.push_back({text, ftxui::nothing, "\n", cells});
                     }
                 } else if (type == "audio") {
-                    lines.push_back({"  ♪ " + d.value("alt", d.value("text", std::string("audio"))).substr(0, room) + "  (palette: Play)", ftxui::color(th.accent), "\n"});
+                    lines.push_back({"  ▶ ♪ " + d.value("alt", d.value("text", std::string("audio"))).substr(0, room) + "  (a click, the palette: Play)", ftxui::color(th.accent), "\n"});
+                    clickable(lines.size() - 1, act(displayId, cluster::Json::object()));
                 } else if (type == "math") {
                     add(d.value("unicode", std::string()), "  ", "  ", ftxui::color(th.text) | ftxui::bold);
                 } else {
@@ -1967,6 +2114,7 @@ class TtyUi {
             View& view = this->_views[s.spec.id];
             view.lines.clear();
             view.joins.clear();
+            view.hits.clear();
             // the mouse selection of this transcript: from (xa, ya) to (xb, yb), cells
             const bool selecting = this->_selection && this->_selection->session == s.spec.id;
             const Selection sel = selecting ? *this->_selection : Selection{};
@@ -1981,6 +2129,7 @@ class TtyUi {
                 const int y = k - begin;
                 view.lines.push_back(row.text);
                 view.joins.push_back(row.join);
+                view.hits.push_back(row.hits);
                 if (!row.cells.empty()) { // a line of a picture: its colors
                     ftxui::Elements runs;
                     for (const cluster::Cell& c: row.cells)
@@ -2121,22 +2270,34 @@ class TtyUi {
             return head;
         }
 
-        _nodiscard ftxui::Element permission_(const cluster::Snapshot& s) const
+        _nodiscard ftxui::Element permission_(const cluster::Snapshot& s)
         {
             if (s.permissions.empty()) return ftxui::emptyElement();
             const cluster::Permission& p = s.permissions.front();
             const cluster::Config& c = this->_manager.config();
+            const std::string id = s.spec.id;
+            // its answers clicked (on this session, the one shown or not)
+            const std::function<ftxui::Element(const std::string&, const std::string&)> answer = [&](const std::string& label, const std::string& action) {
+                return this->tap_(ftxui::text(label) | ftxui::color(this->_theme.muted), 0, [this, id, action]() {
+                    this->_active = id;
+                    if (action == "global") (void)this->shortcut_("global");
+                    else this->run_({action, "", "", "", false}, "");
+                });
+            };
+            const std::function<ftxui::Element(void)> dot = [this]() {return ftxui::text(" · ") | ftxui::color(this->_theme.muted);}; // new each time: drawn once
             if (p.tool == "AskUserQuestion")
                 return ftxui::hbox({ftxui::text(" question ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                     ftxui::text(" " + cluster::one_line(p.description, 100) + " ") | ftxui::color(this->_theme.text), ftxui::filler(),
-                    ftxui::text((c.questionsToGlobal && s.spec.id != GLOBAL_ID ? "answer it on the global session (" + c.keys.at("global") + ")"
-                        : std::string("its popup: shown on this session")) + " · " + c.keys.at("deny") + " decline ") | ftxui::color(this->_theme.muted)}) | ftxui::bgcolor(this->_theme.surface);
+                    c.questionsToGlobal && s.spec.id != GLOBAL_ID ? answer("answer it on the global session (" + c.keys.at("global") + ")", "global")
+                        : ftxui::text("its popup: shown on this session") | ftxui::color(this->_theme.muted), dot(),
+                    answer(c.keys.at("deny") + " decline ", "deny")}) | ftxui::bgcolor(this->_theme.surface);
             ftxui::Element bar = ftxui::hbox({
                 ftxui::text(p.safety ? " safety check " : " permission ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(p.safety ? this->_theme.error : this->_theme.warn),
                 ftxui::text(" " + p.tool + ": " + cluster::one_line(p.description, 80) + " ") | ftxui::color(this->_theme.text),
                 ftxui::filler(),
-                ftxui::text(c.keys.at("allow") + (p.safety ? " run it anyway · " : " allow · ") + c.keys.at("deny") + (p.safety ? " leave it " : " deny · palette: always "))
-                    | ftxui::color(this->_theme.muted),
+                answer(c.keys.at("allow") + (p.safety ? " run it anyway" : " allow"), "allow"), dot(),
+                answer(c.keys.at("deny") + (p.safety ? " leave it " : " deny"), "deny"),
+                p.safety ? ftxui::emptyElement() : ftxui::hbox({dot(), answer("always ", "always")}),
             }) | ftxui::bgcolor(this->_theme.surface);
             if (p.reason.empty()) return bar;
             return ftxui::vbox({bar, ftxui::text("  why: " + cluster::one_line(p.reason, 200)) | ftxui::color(this->_theme.muted) | ftxui::bgcolor(this->_theme.surface)});
@@ -2198,8 +2359,14 @@ class TtyUi {
                 for (std::size_t i = 0; i < list.size(); ++i) {
                     if (i % static_cast<std::size_t>(columns) == 0) grid.emplace_back();
                     const bool active = list[i].spec.id == this->_active;
-                    grid.back().push_back(this->session_(list[i], cellWidth, cellHeight, true) | ftxui::borderStyled(active ? ftxui::HEAVY : ftxui::ROUNDED)
-                        | ftxui::color(active ? this->_theme.accent : this->_theme.border) | ftxui::flex);
+                    const std::string id = list[i].spec.id;
+                    // clicked: shown (the one shown: its text selected as usual)
+                    grid.back().push_back(this->click_(this->session_(list[i], cellWidth, cellHeight, true) | ftxui::borderStyled(active ? ftxui::HEAVY : ftxui::ROUNDED)
+                        | ftxui::color(active ? this->_theme.accent : this->_theme.border), 0, [this, id]() {
+                            if (this->_active == id) return false;
+                            this->_active = id;
+                            return true;
+                        }) | ftxui::flex);
                 }
                 while (grid.back().size() < static_cast<std::size_t>(columns)) grid.back().push_back(ftxui::filler());
                 return ftxui::gridbox(grid) | ftxui::flex;
@@ -2209,19 +2376,22 @@ class TtyUi {
                 for (const cluster::Snapshot& s: list) {
                     const bool active = s.spec.id == this->_active;
                     ftxui::Element tab = ftxui::text(" " + state_mark_(s.state) + " " + cluster::one_line(s.spec.name, 14) + (s.permissions.empty() ? "" : " !") + " ");
-                    tabs.push_back(active ? tab | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : tab | ftxui::color(this->_theme.muted));
+                    const std::string id = s.spec.id;
+                    tabs.push_back(this->tap_(active ? tab | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : tab | ftxui::color(this->_theme.muted),
+                        0, [this, id]() {this->_active = id;}));
                 }
                 return ftxui::vbox({ftxui::hbox(std::move(tabs)), this->session_(*it, width, height - 1, false) | ftxui::flex});
             }
             // list + active panel
             ftxui::Elements rows = {ftxui::text(" Sessions") | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text("")};
+            const int clip = this->clip_();
             for (const cluster::Snapshot& s: list)
-                rows.push_back(this->sessionRow_(s, s.spec.id == this->_active));
+                rows.push_back(this->sessionRow_(s, s.spec.id == this->_active, clip));
             const std::vector<cluster::Task> tasks = this->_manager.tasks();
             const auto open = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued" || t.status == "running";});
             if (open > 0) rows.push_back(ftxui::text(" " + std::to_string(open) + " task(s) in the queue") | ftxui::color(this->_theme.muted));
             return ftxui::hbox({
-                ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 30) | ftxui::yframe,
+                ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 30) | ftxui::yframe | this->clipBox_(clip),
                 ftxui::separatorLight() | ftxui::color(this->_theme.border),
                 this->session_(*it, width - 31, height, false) | ftxui::flex,
             });
@@ -2230,14 +2400,23 @@ class TtyUi {
         _nodiscard ftxui::Element modal_(void)
         {
             const std::function<ftxui::Element(ftxui::Element, const int)> box = [&](ftxui::Element content, const int width) {
-                return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) | ftxui::borderRounded | ftxui::color(this->_theme.accent) | ftxui::bgcolor(this->_theme.surface) | ftxui::clear_under | ftxui::center;
+                return this->block_(content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) | ftxui::borderRounded | ftxui::color(this->_theme.accent)
+                    | ftxui::bgcolor(this->_theme.surface) | ftxui::clear_under, 1) | ftxui::center;
+            };
+            // a key of the dialog clicked: the same as typed
+            const std::function<ftxui::Element(ftxui::Element, const ftxui::Event&)> press = [&](ftxui::Element element, const ftxui::Event& key) {
+                return this->tap_(std::move(element), 1, [this, key]() {(void)this->event_(key);});
             };
             if (this->_mode == Mode::Palette) {
                 ftxui::Elements items;
                 const int start = std::max(0, this->_selected - 12);
                 for (int i = start; i < static_cast<int>(this->_actions.size()) && i < start + 24; ++i) {
                     ftxui::Element item = ftxui::text(" " + this->_actions[static_cast<std::size_t>(i)].title + " ");
-                    items.push_back(i == this->_selected ? item | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : item | ftxui::color(this->_theme.text));
+                    items.push_back(this->tap_(i == this->_selected ? item | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent)
+                        : item | ftxui::color(this->_theme.text), 1, [this, i]() {
+                            this->_selected = i;
+                            this->choose_();
+                        }));
                 }
                 if (items.empty()) items.push_back(ftxui::text(" nothing matches") | ftxui::color(this->_theme.muted));
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), ftxui::text(this->_filter) | ftxui::color(this->_theme.text), ftxui::text("▏") | ftxui::blink}),
@@ -2248,7 +2427,11 @@ class TtyUi {
                 const int start = std::max(0, this->_selected - 12);
                 for (int i = start; i < static_cast<int>(this->_historyItems.size()) && i < start + 24; ++i) {
                     ftxui::Element item = ftxui::text(" " + cluster::one_line(this->_historyItems[static_cast<std::size_t>(i)], 110) + " ");
-                    items.push_back(i == this->_selected ? item | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : item | ftxui::color(this->_theme.text));
+                    items.push_back(this->tap_(i == this->_selected ? item | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent)
+                        : item | ftxui::color(this->_theme.text), 1, [this, i]() {
+                            this->_selected = i;
+                            (void)this->event_(ftxui::Event::Return);
+                        }));
                 }
                 if (items.empty()) items.push_back(ftxui::text(this->_historyAll ? " no prompt yet" : " no prompt in this session yet (Tab: every session)") | ftxui::color(this->_theme.muted));
                 const std::string scope = this->_historyAll ? " history (every session) > " : " history (" + this->_active + ") > ";
@@ -2259,7 +2442,8 @@ class TtyUi {
             if (this->_mode == Mode::Prompt) {
                 const std::string shown = this->_password ? std::string(width_(this->_prompt), '*') : this->_prompt;
                 return box(ftxui::vbox({ftxui::text(" " + this->_pending.title) | ftxui::bold, ftxui::text(" " + this->_pending.input + ":") | ftxui::color(this->_theme.muted),
-                    ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), ftxui::text(shown), ftxui::text("▏") | ftxui::blink}), ftxui::text(" Enter: run · Escape: cancel") | ftxui::dim}), 80);
+                    ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), ftxui::text(shown), ftxui::text("▏") | ftxui::blink}),
+                    ftxui::hbox({press(ftxui::text(" Enter: run"), ftxui::Event::Return), ftxui::text(" · "), press(ftxui::text("Escape: cancel"), ftxui::Event::Escape)}) | ftxui::dim}), 80);
             }
             if (this->_mode == Mode::Message) {
                 ftxui::Elements lines;
@@ -2277,7 +2461,8 @@ class TtyUi {
                     : " (not asked again: settings > Global session)";
                 return box(ftxui::vbox({ftxui::text(title) | ftxui::bold, ftxui::text(""),
                     ftxui::paragraph(cluster::machine_scope()) | ftxui::color(this->_theme.text), ftxui::text(""),
-                    ftxui::text(" [y] yes   [n] / Esc no" + no) | ftxui::color(this->_theme.accent),
+                    ftxui::hbox({press(ftxui::text(" [y] yes"), ftxui::Event::Character('y')), ftxui::text("   "), press(ftxui::text("[n] / Esc no" + no), ftxui::Event::Character('n'))})
+                        | ftxui::color(this->_theme.accent),
                     this->_machineStartup ? ftxui::text(" [q] / Ctrl+C / " + this->_manager.config().keys.at("quit") + "  quit (asked again at the next start)")
                         | ftxui::color(this->_theme.muted) : ftxui::emptyElement()}), 90);
             }
@@ -2290,12 +2475,16 @@ class TtyUi {
                 if (!q.choices.empty()) {
                     ftxui::Elements choices = {ftxui::text(" ← → ") | ftxui::color(this->_theme.muted)};
                     for (const std::string& choice: q.choices)
-                        choices.push_back(ftxui::text(" " + (choice.empty() ? std::string("(none)") : choice) + " ") | (choice == this->_answer
-                            ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : ftxui::color(this->_theme.text)));
+                        choices.push_back(this->tap_(ftxui::text(" " + (choice.empty() ? std::string("(none)") : choice) + " ") | (choice == this->_answer
+                            ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : ftxui::color(this->_theme.text)), 1, [this, choice]() {
+                                if (this->_answer == choice) (void)this->event_(ftxui::Event::Return); // clicked again: ok
+                                else this->_answer = choice;
+                            }));
                     lines.push_back(ftxui::hbox(std::move(choices)));
                 }
                 lines.push_back(ftxui::text(""));
-                lines.push_back(ftxui::text(" Enter: ok · Esc: skip it · Ctrl+S: skip the rest (config.toml [user], F9 > User)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                lines.push_back(ftxui::hbox({press(ftxui::text(" Enter: ok"), ftxui::Event::Return), ftxui::text(" · "), press(ftxui::text("Esc: skip it"), ftxui::Event::Escape),
+                    ftxui::text(" · Ctrl+S: skip the rest (config.toml [user], F9 > User)")}) | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 90);
             }
             const std::optional<cluster::Ask> asked = this->_manager.asking().current();
@@ -2317,21 +2506,29 @@ class TtyUi {
                     const std::string description = other ? "" : options[static_cast<std::size_t>(i)].value("description", std::string());
                     ftxui::Element row = ftxui::hbox({ftxui::text(" " + mark + std::to_string(i + 1) + ". " + label + " "),
                         ftxui::text(description.empty() ? "" : "- " + cluster::one_line(description, 70)) | ftxui::color(this->_theme.muted)});
-                    lines.push_back(i == a.cursor ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row | ftxui::color(this->_theme.text));
+                    const int count = static_cast<int>(options.size());
+                    // clicked: chosen (one choice: answered; several: ticked; Other: typed on)
+                    lines.push_back(this->tap_(i == a.cursor ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row | ftxui::color(this->_theme.text), 1,
+                        [this, i, count, multi]() {
+                            this->_manager.asking().choose(i);
+                            if (!multi && i < count) this->askNext_();
+                        }));
                 }
                 lines.push_back(ftxui::text(""));
-                lines.push_back(ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space tick · " : "") + "Enter " + (a.index + 1 < a.questions.size() ? "next" : "answer")
-                    + (a.index > 0 ? " · ← back" : "") + " · type on Other · Esc decline") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                lines.push_back(ftxui::hbox({ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space tick · " : "")),
+                    press(ftxui::text(std::string("Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")), ftxui::Event::Return),
+                    a.index > 0 ? press(ftxui::text(" · ← back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
+                    press(ftxui::text("Esc decline"), ftxui::Event::Escape)}) | ftxui::color(this->_theme.muted) | ftxui::dim);
                 if (this->_manager.config().voice.enabled)
                     lines.push_back(ftxui::text(" voice: a number or an option · valide / suivant · retour · autre <answer> · annule") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 96);
             }
             if (this->_mode == Mode::Normal && asked && asked->session == this->_active && !this->askShown_(*asked)) {
                 const cluster::Json& q = asked->questions[asked->index];
-                return box(ftxui::vbox({ftxui::text(" " + asked->name + " waits for your answer") | ftxui::bold, ftxui::text(""),
+                return box(this->tap_(ftxui::vbox({ftxui::text(" " + asked->name + " waits for your answer") | ftxui::bold, ftxui::text(""),
                     ftxui::paragraph(" " + q.value("question", std::string())) | ftxui::color(this->_theme.muted), ftxui::text(""),
-                    ftxui::text(" its question is on the global session: " + this->_manager.config().keys.at("global") + " to answer it") | ftxui::color(this->_theme.warn)})
-                    | ftxui::dim, 80);
+                    ftxui::text(" its question is on the global session: " + this->_manager.config().keys.at("global") + " (or a click) to answer it") | ftxui::color(this->_theme.warn)})
+                    | ftxui::dim, 0, [this]() {(void)this->shortcut_("global");}), 80);
             }
             if (this->_mode == Mode::Restore) {
                 const std::vector<cluster::SessionSpec> previous = this->_manager.previous();
@@ -2340,9 +2537,9 @@ class TtyUi {
                     lines.push_back(ftxui::text("   " + spec.name + "  " + spec.backend + "  " + cluster::short_path(spec.cwd)) | ftxui::color(this->_theme.muted));
                 lines.push_back(ftxui::text("   global session: its conversation") | ftxui::color(this->_theme.muted));
                 lines.push_back(ftxui::text(""));
-                lines.push_back(ftxui::text(" [r] / Enter / Esc  restore") | ftxui::color(this->_theme.accent));
-                lines.push_back(ftxui::text(" [n]  start new: the sessions to the trash (" + std::to_string(this->_manager.config().trashDays)
-                    + " days), a new global conversation") | ftxui::color(this->_theme.accent));
+                lines.push_back(press(ftxui::text(" [r] / Enter / Esc  restore") | ftxui::color(this->_theme.accent), ftxui::Event::Character('r')));
+                lines.push_back(press(ftxui::text(" [n]  start new: the sessions to the trash (" + std::to_string(this->_manager.config().trashDays)
+                    + " days), a new global conversation") | ftxui::color(this->_theme.accent), ftxui::Event::Character('n')));
                 lines.push_back(ftxui::text(" [q] / Ctrl+C / " + this->_manager.config().keys.at("quit") + "  quit (asked again at the next start)") | ftxui::color(this->_theme.muted));
                 return box(ftxui::vbox(std::move(lines)), 90);
             }
@@ -2385,6 +2582,7 @@ class TtyUi {
         {
             if (this->_manager.config().reload()) this->theme_();
             this->askCheck_();
+            this->_clicks.clear();  // made again by this drawing
             const ftxui::Dimensions size = ftxui::Terminal::Size();
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
             const std::vector<cluster::Notice> notices = this->_manager.notices(1);
@@ -2397,13 +2595,21 @@ class TtyUi {
             const cluster::Config& c = this->_manager.config();
             const std::string web = this->_app.web ? cluster::web_line(this->_app.web->status()) : "";
 
+            // its keys clicked too
+            const std::function<ftxui::Element(const std::string&, const std::string&)> key = [&](const std::string& label, const std::string& action) {
+                return this->tap_(ftxui::text(label) | ftxui::color(this->_theme.muted), 0, [this, action]() {(void)this->shortcut_(action);});
+            };
+            const std::function<ftxui::Element(void)> dot = [this]() {return ftxui::text(" · ") | ftxui::color(this->_theme.muted);}; // new each time: drawn once
             ftxui::Element top = ftxui::hbox({
-                ftxui::text(" claude-cluster ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
-                ftxui::text(" " + layout + " · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
+                this->tap_(ftxui::text(" claude-cluster ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent), 0,
+                    [this]() {(void)this->shortcut_("settings");}),
+                key(" " + layout, "layout"),
+                ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
                 web.empty() ? ftxui::emptyElement() : ftxui::text("  " + web + " ") | ftxui::bold | ftxui::color(this->_theme.accent),
                 ftxui::filler(),
-                ftxui::text(c.keys.at("palette") + " palette · " + c.keys.at("next_session") + "/" + c.keys.at("prev_session") + " session · "
-                    + c.keys.at("global") + " global · " + c.keys.at("new_session") + " new · " + c.keys.at("quit") + " quit ") | ftxui::color(this->_theme.muted),
+                key(c.keys.at("palette") + " palette", "palette"), dot(), key(c.keys.at("settings") + " settings", "settings"), dot(),
+                key(c.keys.at("next_session") + "/" + c.keys.at("prev_session") + " session", "next_session"), dot(), key(c.keys.at("global") + " global", "global"), dot(),
+                key(c.keys.at("new_session") + " new", "new_session"), dot(), ftxui::text(c.keys.at("quit") + " quit ") | ftxui::color(this->_theme.muted),
             });
             // the global session asked to show a session (ui_focus); the style may have changed (ui_style)
             const std::pair<std::uint64_t, std::string> focus = this->_manager.focusRequest();
@@ -2505,12 +2711,19 @@ class TtyUi {
                 this->_hoverChip = -1;
                 for (std::size_t i = 0; i < this->_chipBoxes.size(); ++i)
                     if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);
+                const bool list = this->_mode == Mode::Settings || this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Question;
                 if (mouse.button == ftxui::Mouse::WheelUp) {
+                    if (list) return this->event_(ftxui::Event::ArrowUp);   // the item above
                     this->_scroll[this->_active] += 3;
                     return true;
                 }
                 if (mouse.button == ftxui::Mouse::WheelDown) {
+                    if (list) return this->event_(ftxui::Event::ArrowDown);
                     this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 3);
+                    return true;
+                }
+                if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Left && this->clickAt_(mouse)) {
+                    this->_selection.reset();
                     return true;
                 }
                 if (this->_mode != Mode::Normal) return true;
