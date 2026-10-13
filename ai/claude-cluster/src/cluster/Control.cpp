@@ -508,7 +508,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 for (const cluster::Setting& setting: page.settings)
                     if (section.empty() || section == setting.section)
                         data.push_back({{"section", setting.section}, {"key", setting.key}, {"label", setting.label}, {"value", setting.value(manager.config())},
-                            {"choices", setting.choices}, {"help", setting.description}, {"at_next_start", setting.restart}});
+                            {"choices", setting.choices}, {"help", setting.description}, {"at_next_start", setting.restart}, {"page", page.title},
+                            {"kind", setting.kind == cluster::SettingKind::Bool ? "bool" : setting.kind == cluster::SettingKind::Int ? "int"
+                                : setting.kind == cluster::SettingKind::Float ? "float" : setting.kind == cluster::SettingKind::Choice ? "choice"
+                                : setting.kind == cluster::SettingKind::List ? "list" : setting.kind == cluster::SettingKind::Action ? "action" : "text"}});
         } else if (cmd == "settings_set") {
             // one option written in config.toml (its comments kept), loaded again; the live ones of the interface follow
             const std::string section = arg_(request, "section");

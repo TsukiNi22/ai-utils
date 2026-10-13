@@ -132,6 +132,83 @@ header .muted { color: var(--muted); font-size: 13px; }
 .complete div small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
 .complete div.selected { background: var(--pick); }
 #toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; max-width: 90%; z-index: 40; }
+/* ---- views, panels, cards: one technical look, the colors of the style of claude-cluster ---- */
+:root { --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace; --radius: 10px; }
+.face { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-left: 10px; }
+.segmented button { border: none; border-radius: 0; padding: 6px 12px; background: transparent; font-size: 13px; }
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button.on { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); font-weight: 600; }
+#bell { position: relative; }
+.count { position: absolute; top: -6px; right: -6px; background: var(--warn); color: #000; font-size: 11px; border-radius: 9px; padding: 0 5px; font-weight: 700; }
+#app.wide { grid-template-columns: 1fr; }
+#app.wide #side, #app.wide #main { display: none; }
+#viewPane { grid-column: 1 / -1; overflow: auto; padding: 16px; min-width: 0; min-height: 0; }
+.label { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; align-items: start; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.card.working { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.card.waiting { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn) inset; }
+.card.error { border-color: var(--error); }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.card-head .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta { padding: 6px 12px 0; font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-body { padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; min-height: 60px; }
+.line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.line.user { color: var(--accent); } .line.tool { color: var(--muted); font-family: var(--mono); font-size: 12px; } .line.error { color: var(--error); }
+.turnline { font-family: var(--mono); font-size: 12px; color: var(--ok); }
+.card-foot { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 50%, var(--surface)); }
+.card-foot input { flex: 1; min-width: 0; padding: 6px 9px; font-size: 13.5px; }
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-flow: dense; gap: 12px; }
+.board .card.m { grid-column: span 2; } .board .card.l { grid-column: span 2; grid-row: span 2; }
+.board .card.dragging { opacity: .45; } .board .card.over { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.tile-tools { display: flex; gap: 4px; margin-left: auto; }
+.tile-tools button { padding: 2px 7px; font-size: 12px; font-family: var(--mono); }
+.grip { cursor: grab; color: var(--muted); font-family: var(--mono); user-select: none; }
+.hiddenTiles { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.hub svg { width: 100%; height: auto; max-height: calc(100vh - 140px); }
+.hub .node { cursor: pointer; } .hub .node:hover circle { stroke-width: 3; }
+.tree { font-size: 14px; } .tree ul { list-style: none; margin: 0; padding-left: 20px; border-left: 1px dashed var(--line); }
+.tree > ul { border-left: none; padding-left: 0; }
+.tree li { margin: 4px 0; } .tree .row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; min-width: 0; }
+.tree .row:hover { background: var(--surface); } .tree .folder { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.tree .last { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); background: var(--surface); border-left: 1px solid var(--line); z-index: 50;
+    display: flex; flex-direction: column; box-shadow: -10px 0 40px rgba(0,0,0,.22); }
+.panel-head, .panel-foot { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.panel-foot { border-top: 1px solid var(--line); border-bottom: none; }
+.grow { flex: 1; }
+.tabs { display: flex; gap: 4px; overflow-x: auto; padding: 8px 10px; border-bottom: 1px solid var(--line); scrollbar-width: thin; scrollbar-color: var(--line) transparent; flex: none; }
+#drawerBody, #alertsList, #viewPane { scrollbar-color: var(--line) transparent; }
+.tabs button { white-space: nowrap; font-size: 13px; padding: 5px 10px; border-radius: 8px; }
+.tabs button.on { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: var(--accent); color: var(--accent); }
+#drawerBody { flex: 1; overflow-y: auto; padding: 8px 14px 18px; }
+.setting { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.setting .help { grid-column: 1 / 3; color: var(--muted); font-size: 12.5px; }
+.setting .help.next { color: var(--warn); }
+.setting input[type=text], .setting input[type=number], .setting select { max-width: 210px; }
+.setting.changed { box-shadow: inset 3px 0 0 var(--accent); padding-left: 8px; }
+.switch { appearance: none; width: 38px; height: 22px; border-radius: 11px; background: var(--line); position: relative; cursor: pointer; border: none; padding: 0; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left .15s; }
+.switch:checked { background: var(--accent); } .switch:checked::after { left: 19px; }
+#alertsList { overflow-y: auto; flex: 1; padding: 6px 14px 18px; }
+.alert { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; } .alert.error { color: var(--error); }
+.alert .when { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-right: 6px; } .alert.unseen { font-weight: 600; }
+.alerts-actions { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::after { content: "copy"; position: absolute; top: 6px; right: 8px; font: 11px var(--mono); color: var(--muted); }
+#tabbar { display: none; }
+@media (prefers-reduced-motion: reduce) { .switch::after { transition: none; } }
+@media (max-width: 760px) {
+    #views { display: none; }
+    #tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--surface); border-top: 1px solid var(--line);
+        padding-bottom: env(safe-area-inset-bottom, 0px); }
+    #tabbar button { flex: 1; border: none; border-radius: 0; background: transparent; display: flex; flex-direction: column; align-items: center; gap: 1px;
+        font-size: 10.5px; padding: 7px 0; color: var(--muted); }
+    #tabbar button span { font-size: 16px; font-family: var(--mono); } #tabbar button.on { color: var(--accent); }
+    #app { padding-bottom: 58px; } #viewPane { padding: 10px 10px 70px; }
+    .board .card.m, .board .card.l { grid-column: auto; grid-row: auto; }
+    .cards, .board { grid-template-columns: 1fr; }
+    #settingsButton, #bell, #logout { display: none; }
 @media (max-width: 760px) {
     #app { grid-template-columns: 1fr; }
     header { grid-column: 1; }
@@ -139,6 +216,7 @@ header .muted { color: var(--muted); font-size: 13px; }
     #side.open { display: flex; position: fixed; top: 52px; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 5; }
     #picker { display: inline-block; }
     #who { display: none; }
+}
 }
 </style>
 </head>
@@ -168,10 +246,18 @@ header .muted { color: var(--muted); font-size: 13px; }
 <div id="app" class="hidden">
     <header>
         <button id="picker" title="Sessions">☰</button>
-        <span class="title">claude-cluster</span>
+        <span class="title"><span id="brandFace" class="face">^_^</span> claude-cluster</span>
+        <nav id="views" class="segmented" aria-label="View">
+            <button data-view="chat" title="One session and its conversation">Chat</button>
+            <button data-view="grid" title="Every session as a card">Grid</button>
+            <button data-view="board" title="Your dashboard: tiles ordered and sized as you want">Board</button>
+            <button data-view="hub" title="The global session and the sessions around it">Hub</button>
+            <button data-view="tree" title="The sessions by project folder">Tree</button>
+        </nav>
         <span class="grow"></span>
         <span class="muted" id="who"></span>
-        <button id="settingsButton" title="Voice settings">⚙</button>
+        <button id="bell" title="Notifications" aria-label="Notifications">🔔<span id="bellCount" class="count hidden"></span></button>
+        <button id="settingsButton" title="Settings">⚙</button>
         <button id="logout">Log out</button>
         <div id="settings" class="hidden">
             <label class="field">Microphone
@@ -233,7 +319,27 @@ header .muted { color: var(--muted); font-size: 13px; }
             <button class="primary" type="submit">Send</button>
         </form>
     </main>
+    <section id="viewPane" class="hidden"></section>
 </div>
+<aside id="drawer" class="panel hidden" aria-label="Settings">
+    <div class="panel-head"><b>Settings</b><span class="grow"></span><button id="drawerClose" aria-label="Close">✕</button></div>
+    <div id="drawerTabs" class="tabs"></div>
+    <div id="drawerBody"></div>
+    <div class="panel-foot"><span id="drawerNote" class="muted"></span><span class="grow"></span><button id="drawerSave" class="primary">Save</button></div>
+</aside>
+<aside id="alerts" class="panel hidden" aria-label="Notifications">
+    <div class="panel-head"><b>Notifications</b><span class="grow"></span><button id="alertsClose" aria-label="Close">✕</button></div>
+    <div class="alerts-actions"><button id="browserNotify">Notify me in this browser</button></div>
+    <div id="alertsList"></div>
+</aside>
+<nav id="tabbar" aria-label="Sections">
+    <button data-tab="sessions"><span>☰</span>Sessions</button>
+    <button data-tab="chat"><span>›_</span>Chat</button>
+    <button data-tab="board"><span>▦</span>Board</button>
+    <button data-tab="hub"><span>◎</span>Hub</button>
+    <button data-tab="alerts"><span>🔔</span>Alerts</button>
+    <button data-tab="settings"><span>⚙</span>Settings</button>
+</nav>
 <div id="toast" class="hidden"></div>
 <script>
 "use strict";
@@ -373,6 +479,11 @@ function stateClass(state) {
 }
 
 function render(state) {
+    lastState = state;
+    applyStyle(state.style);
+    watchAlerts(state);
+    if (state.face) $("brandFace").textContent = state.face.text;
+    if (view !== "chat") renderView(state);
     const list = $("sessions");
     list.textContent = "";
     for (const s of state.sessions) {
@@ -429,6 +540,8 @@ function renderText(container, text) {
         if (i % 2) {
             const pre = document.createElement("pre");
             pre.textContent = part.replace(/\n$/, "");
+            pre.className = "copyable";
+            pre.title = "Click: copied";
             container.append(pre);
         } else {
             container.append(document.createTextNode(part));
@@ -455,6 +568,7 @@ function markdown(text) {
             if (code === null) { code = []; continue; }
             const pre = document.createElement("pre");
             pre.textContent = code.join("\n");
+            pre.className = "copyable";
             html += pre.outerHTML;
             code = null;
             continue;
@@ -1535,15 +1649,459 @@ $("sayMode").addEventListener("change", (e) => {
     store.set("sayMode", e.target.value);
     if (e.target.value !== "off") speak({session: current}, e.target.value); // a sample: the last answer
 });
-$("settingsButton").addEventListener("click", () => {
-    $("settings").classList.toggle("hidden");
-    $("voiceNote").textContent = (window.isSecureContext ? "" : "Microphone: needs https (settings page > Web > HTTPS). ")
-        + "Speech recognition: " + (voiceInfo.listen || "the default model") + "; voice: " + (voiceInfo.say || "piper")
-        + " (settings of claude-cluster > Voice). Cancel / send words work here too.";
+$("settingsButton").addEventListener("click", () => openDrawer());
+
+// ---- the views: chat, grid, board (arranged per device), hub, tree ----
+let view = store.get("cc-view", "chat");
+let lastState = null;
+const shortName = (s) => (s.id === "g" ? "global" : s.name || s.id);
+const faceOf = (s) => (s.permissions && s.permissions.length ? "•_•" : s.state === "working" || s.state === "starting" ? ">_<" : s.state === "error" ? "o_o" : "-_-");
+const shortPath = (p) => (p || "").replace(/^\/home\/[^/]+/, "~");
+
+function setView(next) {
+    view = next;
+    store.set("cc-view", next);
+    for (const b of document.querySelectorAll("#views button")) b.classList.toggle("on", b.dataset.view === next);
+    for (const b of document.querySelectorAll("#tabbar button")) b.classList.toggle("on", b.dataset.tab === next);
+    $("app").classList.toggle("wide", next !== "chat");
+    $("viewPane").classList.toggle("hidden", next === "chat");
+    $("viewPane").classList.toggle("shown", next !== "chat");
+    if (next !== "chat" && lastState) renderView(lastState);
+}
+for (const b of document.querySelectorAll("#views button")) b.addEventListener("click", () => setView(b.dataset.view));
+for (const b of document.querySelectorAll("#tabbar button"))
+    b.addEventListener("click", () => {
+        const tab = b.dataset.tab;
+        if (tab === "sessions") { setView("chat"); $("side").classList.add("open"); }
+        else if (tab === "alerts") openAlerts();
+        else if (tab === "settings") openDrawer();
+        else setView(tab);
+    });
+
+function openSession(id) {
+    setView("chat");
+    select(id);
+}
+
+function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+}
+
+function card(s, tools) {
+    // a session: its state, its model and folder, its last messages, its turn, a prompt sent to it from here
+    const c = el("article", "card " + stateClass(s.state) + (s.permissions && s.permissions.length ? " waiting" : ""));
+    c.dataset.id = s.id;
+    const head = el("div", "card-head");
+    const dot = el("span", "dot " + stateClass(s.state));
+    head.append(dot, el("span", "name", shortName(s)), el("span", "face", faceOf(s)));
+    if (s.permissions && s.permissions.length) head.append(el("span", "badge", String(s.permissions.length)));
+    if (tools) head.append(tools);
+    head.addEventListener("click", (e) => { if (!e.target.closest(".tile-tools")) openSession(s.id); });
+    c.append(head, el("div", "card-meta", [s.model, s.mode, shortPath(s.cwd)].filter(Boolean).join(" · ")));
+    const body = el("div", "card-body");
+    const recent = (s.recent || []).slice(-4);
+    if (!recent.length) body.append(el("div", "line tool", "nothing yet"));
+    for (const m of recent) body.append(el("div", "line " + m.kind, (m.kind === "user" ? "› " : m.kind === "tool" ? "▸ " + (m.tool || "") + " " : "") + m.text));
+    if (s.turn) body.append(el("div", "turnline", "✻ " + s.turn.verb + "… " + took(s.turn.step_ms) + (s.turn.detail ? "  ⎿ " + s.turn.detail : "")));
+    c.append(body);
+    const foot = el("form", "card-foot");
+    const input = el("input");
+    input.placeholder = "Message to " + shortName(s);
+    input.setAttribute("aria-label", input.placeholder);
+    const send = el("button", "primary", "Send");
+    send.type = "submit";
+    foot.append(input, send);
+    foot.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        try { await cmd({cmd: "send", session: s.id, text}); input.value = ""; toast("sent to " + shortName(s)); } catch (error) { toast(error.message); }
+    });
+    c.append(foot);
+    return c;
+}
+
+function renderView(state) {
+    const pane = $("viewPane");
+    // a field being typed in: not drawn again under the fingers
+    if (pane.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+    pane.textContent = "";
+    const sessions = state.sessions || [];
+    if (view === "grid") {
+        const grid = el("div", "cards");
+        for (const s of sessions) grid.append(card(s));
+        pane.append(grid);
+    } else if (view === "board") {
+        renderBoard(pane, sessions);
+    } else if (view === "hub") {
+        renderHub(pane, sessions);
+    } else if (view === "tree") {
+        renderTree(pane, sessions);
+    }
+}
+
+function boardState() {
+    try { return JSON.parse(store.get("cc-board", "{}")); } catch (e) { return {}; }
+}
+
+function renderBoard(pane, sessions) {
+    // your tiles: their order, their size (S / M / L), the hidden ones; kept in this browser
+    const board = Object.assign({order: [], size: {}, hidden: []}, boardState());
+    const save = () => { store.set("cc-board", JSON.stringify(board)); renderView(lastState); };
+    const ids = sessions.map((s) => s.id);
+    board.order = board.order.filter((id) => ids.includes(id)).concat(ids.filter((id) => !board.order.includes(id)));
+    const grid = el("div", "board");
+    for (const id of board.order) {
+        if (board.hidden.includes(id)) continue;
+        const s = sessions.find((x) => x.id === id);
+        const tools = el("span", "tile-tools");
+        const grip = el("span", "grip", "⠿");
+        grip.title = "Drag to move";
+        const size = board.size[id] || "s";
+        const left = el("button", "", "◀"); left.title = "Move before"; left.type = "button";
+        const right = el("button", "", "▶"); right.title = "Move after"; right.type = "button";
+        const resize = el("button", "", size.toUpperCase()); resize.title = "Size: S, M, L"; resize.type = "button";
+        const hide = el("button", "", "✕"); hide.title = "Hide this tile"; hide.type = "button";
+        const move = (delta) => {
+            const i = board.order.indexOf(id);
+            const j = Math.max(0, Math.min(board.order.length - 1, i + delta));
+            board.order.splice(i, 1);
+            board.order.splice(j, 0, id);
+            save();
+        };
+        left.addEventListener("click", () => move(-1));
+        right.addEventListener("click", () => move(1));
+        resize.addEventListener("click", () => { board.size[id] = {s: "m", m: "l", l: "s"}[size]; save(); });
+        hide.addEventListener("click", () => { board.hidden.push(id); save(); });
+        tools.append(grip, left, right, resize, hide);
+        const c = card(s, tools);
+        c.classList.add(size);
+        c.draggable = true;
+        c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", id); c.classList.add("dragging"); });
+        c.addEventListener("dragend", () => c.classList.remove("dragging"));
+        c.addEventListener("dragover", (e) => { e.preventDefault(); c.classList.add("over"); });
+        c.addEventListener("dragleave", () => c.classList.remove("over"));
+        c.addEventListener("drop", (e) => {
+            e.preventDefault();
+            const from = e.dataTransfer.getData("text/plain");
+            if (!from || from === id) return;
+            board.order.splice(board.order.indexOf(from), 1);
+            board.order.splice(board.order.indexOf(id), 0, from);
+            save();
+        });
+        grid.append(c);
+    }
+    pane.append(grid);
+    if (board.hidden.length) {
+        const row = el("div", "hiddenTiles");
+        row.append(el("span", "label", "Hidden"));
+        for (const id of board.hidden) {
+            const s = sessions.find((x) => x.id === id);
+            if (!s) continue;
+            const b = el("button", "", "+ " + shortName(s));
+            b.addEventListener("click", () => { board.hidden = board.hidden.filter((x) => x !== id); save(); });
+            row.append(b);
+        }
+        pane.append(row);
+    }
+}
+
+function renderHub(pane, sessions) {
+    // the global session in the middle, the sessions around it; the line and the ring colored by their state
+    const W = 900, H = 620, cx = W / 2, cy = H / 2;
+    const global = sessions.find((s) => s.id === "g");
+    const others = sessions.filter((s) => s.id !== "g");
+    const svg = svgOf("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "The sessions around the global session"});
+    const color = (s) => (s.permissions && s.permissions.length ? "var(--warn)" : s.state === "working" || s.state === "starting" ? "var(--ok)"
+        : s.state === "error" ? "var(--error)" : "var(--muted)");
+    const radius = Math.min(250, 120 + others.length * 12);
+    const node = (s, x, y, r) => {
+        const g = svgOf("g", {class: "node", transform: `translate(${x},${y})`});
+        g.append(svgOf("circle", {r, fill: "var(--surface)", stroke: color(s), "stroke-width": 2}));
+        const face = svgOf("text", {"text-anchor": "middle", y: 5, "font-family": "var(--mono)", "font-size": r > 40 ? 16 : 13, fill: color(s)});
+        face.textContent = faceOf(s);
+        const name = svgOf("text", {"text-anchor": "middle", y: r + 18, "font-size": 13, fill: "var(--text)", "font-weight": 600});
+        name.textContent = shortName(s).slice(0, 22);
+        const sub = svgOf("text", {"text-anchor": "middle", y: r + 34, "font-size": 11, fill: "var(--muted)"});
+        sub.textContent = s.turn ? s.turn.verb : s.state;
+        const title = svgOf("title", {});
+        title.textContent = shortName(s) + " · " + s.state + " · " + shortPath(s.cwd);
+        g.append(face, name, sub, title);
+        g.addEventListener("click", () => openSession(s.id));
+        return g;
+    };
+    others.forEach((s, i) => {
+        const a = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
+        const x = cx + Math.cos(a) * radius, y = cy + Math.sin(a) * radius * 0.78;
+        svg.append(svgOf("line", {x1: cx, y1: cy, x2: x, y2: y, stroke: color(s), "stroke-width": s.state === "working" ? 2.5 : 1.5,
+            "stroke-dasharray": s.state === "working" ? "" : "4 5", opacity: 0.8}));
+    });
+    others.forEach((s, i) => {
+        const a = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
+        svg.append(node(s, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius * 0.78, 30));
+    });
+    if (global) {
+        svg.append(node(global, cx, cy, 46));
+    } else { // no global session: claude-cluster itself in the middle
+        const g = svgOf("g", {transform: `translate(${cx},${cy})`});
+        g.append(svgOf("circle", {r: 40, fill: "var(--surface)", stroke: "var(--accent)", "stroke-width": 2, "stroke-dasharray": "3 4"}));
+        const face = svgOf("text", {"text-anchor": "middle", y: 5, "font-family": "var(--mono)", "font-size": 15, fill: "var(--accent)"});
+        face.textContent = lastState && lastState.face ? lastState.face.text : "^_^";
+        const name = svgOf("text", {"text-anchor": "middle", y: 58, "font-size": 12, fill: "var(--muted)"});
+        name.textContent = "claude-cluster (no global session)";
+        g.append(face, name);
+        svg.append(g);
+    }
+    const box = el("div", "hub");
+    box.append(svg);
+    if (!others.length) box.append(el("p", "label", "No sub-session yet: ask the global session, or create one (Chat › New session)"));
+    pane.append(box);
+}
+
+function renderTree(pane, sessions) {
+    // the global session, then the project folders and their sessions
+    const tree = el("div", "tree");
+    const root = el("ul");
+    const row = (s) => {
+        const r = el("div", "row");
+        r.append(el("span", "dot " + stateClass(s.state)), el("b", "", shortName(s)), el("span", "face", faceOf(s)));
+        const last = (s.recent || []).slice(-1)[0];
+        r.append(el("span", "last", s.turn ? s.turn.verb + "…" : last ? last.text : s.state));
+        r.addEventListener("click", () => openSession(s.id));
+        return r;
+    };
+    const global = sessions.find((s) => s.id === "g");
+    const top = el("li");
+    if (global) top.append(row(global));
+    const folders = new Map();
+    for (const s of sessions.filter((x) => x.id !== "g")) {
+        const key = shortPath(s.cwd) || "?";
+        if (!folders.has(key)) folders.set(key, []);
+        folders.get(key).push(s);
+    }
+    const sub = el("ul");
+    for (const [folder, list] of folders) {
+        const li = el("li");
+        li.append(el("div", "row folder", "▾ " + folder + "  (" + list.length + ")"));
+        const inner = el("ul");
+        for (const s of list) { const i = el("li"); i.append(row(s)); inner.append(i); }
+        li.append(inner);
+        sub.append(li);
+    }
+    top.append(sub);
+    root.append(top);
+    tree.append(root);
+    pane.append(tree);
+}
+
+// ---- the theme: the colors of the style of claude-cluster (this device may keep its own light / dark) ----
+let styleShown = "";
+function applyStyle(style) {
+    const mode = store.get("cc-theme", "cluster");
+    const key = mode + JSON.stringify(style || {});
+    if (key === styleShown) return;
+    styleShown = key;
+    const root = document.documentElement.style;
+    const names = ["bg", "surface", "text", "muted", "accent", "ok", "warn", "error"];
+    if (mode !== "cluster" || !style) {
+        for (const n of names.concat(["line", "user", "code", "pick"])) root.removeProperty("--" + n);
+        document.documentElement.style.colorScheme = mode === "light" ? "light" : mode === "dark" ? "dark" : "";
+        document.documentElement.dataset.theme = mode === "cluster" ? "" : mode;
+        return;
+    }
+    for (const n of names) if (style[n]) root.setProperty("--" + n, style[n]);
+    root.setProperty("--line", style.border || "");
+    root.setProperty("--user", "color-mix(in srgb, " + style.accent + " 10%, " + style.surface + ")");
+    root.setProperty("--code", "color-mix(in srgb, " + style.text + " 6%, " + style.bg + ")");
+    root.setProperty("--pick", "color-mix(in srgb, " + style.accent + " 20%, " + style.surface + ")");
+    document.documentElement.style.colorScheme = style.dark ? "dark" : "light";
+}
+
+// ---- notifications: a center, and the browser ones while this page is not in front ----
+let alertsPrev = null;
+function watchAlerts(state) {
+    const now = {};
+    for (const s of state.sessions || []) now[s.id] = {state: s.state, perms: (s.permissions || []).length, name: shortName(s), last: (s.recent || []).slice(-1)[0]};
+    if (alertsPrev) {
+        for (const [id, s] of Object.entries(now)) {
+            const before = alertsPrev[id];
+            if (!before) continue;
+            if (s.perms > before.perms) browserNotify(s.name + " waits for you", "a permission or a question", id);
+            else if ((before.state === "working") && s.state === "idle") browserNotify(s.name + " finished", s.last ? s.last.text : "", id);
+            else if (before.state !== "error" && s.state === "error") browserNotify(s.name + ": error", s.last ? s.last.text : "", id);
+        }
+    }
+    alertsPrev = now;
+    loadAlerts(false);
+}
+function browserNotify(title, body, id) {
+    if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+        const n = new Notification(title, {body: (body || "").slice(0, 180), tag: "cc-" + id, icon: lastState && lastState.face ? "data:image/svg+xml," + encodeURIComponent(lastState.face.svg) : undefined});
+        n.onclick = () => { window.focus(); openSession(id); n.close(); };
+        if (navigator.vibrate) navigator.vibrate(120);
+    } catch (e) { /* not allowed here */ }
+}
+let alertsLoading = false;
+async function loadAlerts(show) {
+    if (alertsLoading) return;
+    alertsLoading = true;
+    try {
+        const notices = await cmd({cmd: "notices"});
+        const seen = Number(store.get("cc-alerts-seen", "0"));
+        const unseen = notices.filter((n) => n.time > seen).length;
+        $("bellCount").textContent = unseen > 99 ? "99+" : String(unseen);
+        $("bellCount").classList.toggle("hidden", unseen === 0 || !$("alerts").classList.contains("hidden") && !show);
+        if (show || !$("alerts").classList.contains("hidden")) {
+            const list = $("alertsList");
+            list.textContent = "";
+            for (const n of notices.slice().reverse()) {
+                const row = el("div", "alert" + (n.error ? " error" : "") + (n.time > seen ? " unseen" : ""));
+                row.append(el("span", "when", new Date(n.time * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})), document.createTextNode(n.text));
+                if (n.session) { row.style.cursor = "pointer"; row.addEventListener("click", () => { closePanels(); openSession(n.session); }); }
+                list.append(row);
+            }
+            if (!notices.length) list.append(el("p", "label", "Nothing yet"));
+        }
+    } catch (e) { /* offline */ }
+    alertsLoading = false;
+}
+function openAlerts() {
+    closePanels();
+    $("alerts").classList.remove("hidden");
+    loadAlerts(true).then(() => store.set("cc-alerts-seen", String(Math.floor(Date.now() / 1000))));
+    $("bellCount").classList.add("hidden");
+    $("browserNotify").textContent = !("Notification" in window) ? "This browser has no notifications"
+        : Notification.permission === "granted" ? "Browser notifications: on" : "Notify me in this browser";
+}
+$("bell").addEventListener("click", openAlerts);
+$("alertsClose").addEventListener("click", closePanels);
+$("browserNotify").addEventListener("click", async () => {
+    if (!("Notification" in window)) return;
+    const answer = await Notification.requestPermission();
+    $("browserNotify").textContent = answer === "granted" ? "Browser notifications: on" : "Refused by the browser (its site settings)";
 });
-document.addEventListener("click", (e) => {
-    if (!$("settings").contains(e.target) && e.target !== $("settingsButton")) $("settings").classList.add("hidden");
+function closePanels() {
+    $("alerts").classList.add("hidden");
+    $("drawer").classList.add("hidden");
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanels(); });
+
+// ---- the settings: every page of claude-cluster, and this device ----
+let settingsData = [];
+let settingsTab = store.get("cc-settings-tab", "This device");
+const settingsChanged = new Map();
+async function openDrawer() {
+    closePanels();
+    $("drawer").classList.remove("hidden");
+    $("drawerNote").textContent = "loading…";
+    try { settingsData = await cmd({cmd: "settings_get"}); } catch (e) { settingsData = []; }
+    settingsChanged.clear();
+    drawDrawer();
+}
+function drawDrawer() {
+    const pages = ["This device"].concat([...new Set(settingsData.map((s) => s.page))]);
+    const tabs = $("drawerTabs");
+    tabs.textContent = "";
+    for (const p of pages) {
+        const b = el("button", p === settingsTab ? "on" : "", p);
+        b.type = "button";
+        b.addEventListener("click", () => { settingsTab = p; store.set("cc-settings-tab", p); drawDrawer(); });
+        tabs.append(b);
+    }
+    const body = $("drawerBody");
+    body.textContent = "";
+    $("drawerNote").textContent = settingsChanged.size ? settingsChanged.size + " change(s) not saved" : "";
+    if (settingsTab === "This device") return drawDevice(body);
+    for (const s of settingsData.filter((x) => x.page === settingsTab)) {
+        if (s.kind === "action") continue;
+        const key = s.section + "." + s.key;
+        const row = el("div", "setting" + (settingsChanged.has(key) ? " changed" : ""));
+        const id = "set-" + key.replace(/[^a-z0-9]/gi, "-");
+        const label = el("label", "", s.label.trim());
+        label.htmlFor = id;
+        let input;
+        const value = settingsChanged.has(key) ? settingsChanged.get(key) : s.value;
+        if (s.kind === "bool") {
+            input = el("input", "switch"); input.type = "checkbox"; input.checked = value === "true";
+            input.addEventListener("change", () => { settingsChanged.set(key, input.checked ? "true" : "false"); drawDrawer(); });
+        } else if (s.kind === "choice") {
+            input = el("select");
+            for (const c of s.choices) { const o = el("option", "", c === "" ? "(default)" : c); o.value = c; input.append(o); }
+            input.value = value;
+            input.addEventListener("change", () => { settingsChanged.set(key, input.value); drawDrawer(); });
+        } else {
+            input = el("input");
+            input.type = s.kind === "int" || s.kind === "float" ? "number" : "text";
+            if (s.kind === "float") input.step = "0.1";
+            input.value = value;
+            input.addEventListener("change", () => { settingsChanged.set(key, input.value); drawDrawer(); });
+        }
+        input.id = id;
+        row.append(label, input, el("div", "help" + (s.at_next_start ? " next" : ""), s.help + (s.at_next_start ? " · applied at the next start" : "")));
+        body.append(row);
+    }
+}
+function drawDevice(body) {
+    // what this browser keeps: its name, its theme, its view, its voice, its notifications
+    const field = (title, help, input) => {
+        const row = el("div", "setting");
+        const label = el("label", "", title);
+        row.append(label, input, el("div", "help", help));
+        body.append(row);
+    };
+    const name = el("input"); name.value = deviceName(); name.maxLength = 40;
+    name.addEventListener("change", () => store.set("cc-device-name", name.value.trim()));
+    field("Name of this device", "shown on the computer when it connects", name);
+    const theme = el("select");
+    for (const [v, t] of [["cluster", "The style of claude-cluster"], ["light", "Light"], ["dark", "Dark"]]) { const o = el("option", "", t); o.value = v; theme.append(o); }
+    theme.value = store.get("cc-theme", "cluster");
+    theme.addEventListener("change", () => { store.set("cc-theme", theme.value); styleShown = ""; applyStyle(lastState && lastState.style); });
+    field("Theme", "its colors: the style chosen in claude-cluster (the same as the terminal and the window), or this page's own", theme);
+    const start = el("select");
+    for (const v of ["chat", "grid", "board", "hub", "tree"]) { const o = el("option", "", v); o.value = v; start.append(o); }
+    start.value = view;
+    start.addEventListener("change", () => setView(start.value));
+    field("View", "chat, grid of cards, your board, the hub, the tree of the folders", start);
+    const voice = $("settings");
+    voice.classList.remove("hidden");
+    voice.style.position = "static"; voice.style.boxShadow = "none"; voice.style.width = "auto"; voice.style.border = "none"; voice.style.padding = "10px 0";
+    $("voiceNote").textContent = (window.isSecureContext ? "" : "Microphone: needs https. ") + "Speech recognition: " + (voiceInfo.listen || "the default model")
+        + "; voice: " + (voiceInfo.say || "piper") + " (settings of claude-cluster › Voice).";
+    body.append(el("div", "label", "Voice"), voice);
+}
+$("drawerClose").addEventListener("click", closePanels);
+$("drawerSave").addEventListener("click", async () => {
+    let next = 0;
+    for (const [key, value] of settingsChanged) {
+        const dot = key.indexOf(".");
+        try {
+            const data = await cmd({cmd: "settings_set", section: key.slice(0, dot), key: key.slice(dot + 1), value});
+            if (data && data.at_next_start) next++;
+        } catch (error) { toast(key + ": " + error.message); return; }
+    }
+    const count = settingsChanged.size;
+    settingsChanged.clear();
+    try { settingsData = await cmd({cmd: "settings_get"}); } catch (e) { /* kept */ }
+    drawDrawer();
+    $("drawerNote").textContent = count ? "saved" + (next ? " (" + next + " at the next start)" : "") : "nothing changed";
 });
+
+// ---- a code block clicked: copied ----
+document.addEventListener("click", async (e) => {
+    const pre = e.target.closest("#transcript pre");
+    if (!pre || window.getSelection().toString()) return;
+    try { await navigator.clipboard.writeText(pre.textContent); toast("copied"); }
+    catch (error) {
+        const range = document.createRange(); range.selectNodeContents(pre);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        toast("selected: Ctrl+C");
+    }
+});
+setView(view);
 if (!window.isSecureContext) $("mic").title = "The microphone needs https (settings page > Web > HTTPS)";
 
 // already connected (the cookie of this browser): straight to the sessions; a trusted device: in at once (no code)

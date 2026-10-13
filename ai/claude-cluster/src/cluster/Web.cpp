@@ -724,7 +724,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
 {
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "mode",
-        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get"};
+        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "settings_get", "settings_set", "ui_state"};
     Conn& conn = *static_cast<Conn*>(connection);
     Request request;
     if (!read_request_(conn, request)) return;
@@ -813,15 +813,33 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         while (this->_running && version() == seen && now_ms_() < end)
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         const std::string wanted = request.query.contains("session") && !request.query.at("session").empty() ? request.query.at("session") : GLOBAL_ID;
+        // each session: its state, its last messages (the cards of the grid and the board), its turn
         cluster::Json sessions = cluster::Json::array();
-        for (const cluster::Snapshot& snap: this->_manager.list(true))
-            sessions.push_back(this->_manager.toJson(snap, false));
+        for (const cluster::Snapshot& snap: this->_manager.list(true)) {
+            cluster::Json item = this->_manager.toJson(snap, false);
+            cluster::Json recent = cluster::Json::array();
+            for (auto it = snap.entries.rbegin(); it != snap.entries.rend() && recent.size() < 6; ++it) {
+                if (it->kind != cluster::EntryKind::User && it->kind != cluster::EntryKind::Assistant && it->kind != cluster::EntryKind::Tool
+                    && it->kind != cluster::EntryKind::Error) continue;
+                recent.insert(recent.begin(), cluster::Json{{"kind", it->kind == cluster::EntryKind::User ? "user" : it->kind == cluster::EntryKind::Assistant ? "assistant"
+                    : it->kind == cluster::EntryKind::Tool ? "tool" : "error"}, {"text", cluster::one_line(it->text, 220)}, {"tool", it->tool}});
+            }
+            item["recent"] = recent;
+            if (snap.state == cluster::State::Working) item["turn"] = cluster::turn_state(snap);
+            sessions.push_back(item);
+        }
+        // the colors of the style of claude-cluster: the page takes them (the same look as the terminal and the window)
+        const cluster::Config& config = this->_manager.config();
+        const std::string styleName = this->_manager.ui("style", config.style);
+        const cluster::Style& st = config.styles.contains(styleName) ? config.styles.at(styleName) : config.currentStyle();
+        const cluster::Json style = {{"name", st.name}, {"dark", st.dark}, {"bg", st.bg}, {"surface", st.surface}, {"text", st.text}, {"muted", st.muted},
+            {"accent", st.accent}, {"border", st.border}, {"ok", st.ok}, {"warn", st.warn}, {"error", st.error}};
         const cluster::VoiceConf& voice = this->_manager.config().voice;
         const cluster::AppFace face = this->_manager.appFace(false);
         json_(conn, 200, {{"version", version()}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
-            {"client", peer}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
+            {"client", peer}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
     } else if (request.method == "GET" && request.path == "/api/display") {
         // a display whole (its picture): the page asks it once

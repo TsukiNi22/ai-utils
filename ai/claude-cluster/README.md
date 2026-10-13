@@ -498,6 +498,15 @@ A browser of the same network (a phone, a tablet, another computer of the LAN) d
 their state, the transcript, a message sent to any session, Stop, the permissions (Allow / Deny) and the questions of
 the agents, a new session, a session closed.
 
+- **Views** (its header; a tab bar on a phone): *Chat* (a session and its conversation), *Grid* (every session as a
+  card: its state and face, its model and folder, its last messages, its turn, a message sent to it from the card),
+  *Board* (your dashboard: tiles moved by drag and drop or ◀ ▶, sized S / M / L, hidden; kept in this browser), *Hub*
+  (the global session in the middle, the sessions around it, colored by their state), *Tree* (the sessions by project
+  folder). Its colors are the ones of the style of claude-cluster (*This device* may keep its own light / dark).
+- **Notifications**: a center (🔔, the notices, unseen ones counted; a click opens the session) and the notifications
+  of the browser while the page is not in front (a session finished, waiting for you, an error).
+- **Settings** (⚙): every page of the settings of claude-cluster (saved in its config.toml) and *This device* (its
+  name, its theme, its view, its voice). A code block clicked: copied.
 - **Completion** like in the terminal: `@file`, `/command`, the argument of `/cd` `/new` `/mode` `/model` `/effort`
   `/restore`, and the folder of a new session (from the home folder); ↑↓, Tab / Enter, Esc.
 - **Voice** (⚙ of the page): the microphone of the browser, *tap to talk* or *hands-free* (each sentence cut by its
@@ -522,8 +531,9 @@ the agents, a new session, a session closed.
 - **This network only**: the browser must have a private address (10/8, 172.16/12, 192.168/16, 169.254/16) of the
   subnet of one of the interfaces of this computer (or be on this computer); the page answers only by the address or
   the name of this computer (a public name pointed at the LAN refused) and the requests of another site are refused.
-- From the page: the commands of the sessions only (list, read, send, allow, interrupt, spawn, close, rename, mode,
-  model, tasks, trash, restore); never the configuration nor the web access itself.
+- From the page: the commands of the sessions (list, read, send, allow, interrupt, spawn, close, rename, mode, model,
+  tasks, trash, restore...) and the settings (its settings page); never the web access itself (its devices, its
+  trust: here only).
 - **HTTPS** (`[web] https`, on by default; built with OpenSSL): an authority of this computer made once in
   `~/.config/claude-cluster/web/` (`ca.pem`, its key 0600), and the certificate of the server signed by it, naming every
   address of this computer (made again when they change, and 30 days before its end). **No browser warning** once the
