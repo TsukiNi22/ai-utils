@@ -128,6 +128,7 @@ _cold void cluster::Config::load(void)
     this->notifyWeb = table["ui"]["notify_web"].value_or(this->notifyWeb);
     this->notifyTasks = table["ui"]["notify_tasks"].value_or(this->notifyTasks);
     this->notifyReminders = table["ui"]["notify_reminders"].value_or(this->notifyReminders);
+    this->notifyReady = table["ui"]["notify_ready"].value_or(this->notifyReady);
     this->vim = table["ui"]["vim"].value_or(this->vim);
     this->pasteLines = table["ui"]["paste_lines"].value_or(this->pasteLines);
     this->pasteChars = table["ui"]["paste_chars"].value_or(this->pasteChars);

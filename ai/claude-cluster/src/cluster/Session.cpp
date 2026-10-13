@@ -345,6 +345,9 @@ _cold void cluster::Session::start(void)
         // claude waits for the first message before its init: ready as soon as it runs
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (this->_data.state == cluster::State::Starting) this->_data.state = cluster::State::Idle;
+        // its initialize answered once it is loaded (its tools, MCP): "ready" (claude-cluster ready, its notification)
+        if (this->_launch.backend.provider.driver == "claude" && this->_in != -1)
+            this->write_({{"type", "control_request"}, {"request_id", "init-" + std::to_string(cluster::now())}, {"request", {{"subtype", "initialize"}}}});
         if (!this->_launch.remoteName.empty() && this->_launch.backend.provider.driver == "claude" && this->_in != -1)
             this->write_({{"type", "control_request"}, {"request_id", "rc-on-" + std::to_string(cluster::now())},
                 {"request", {{"subtype", "remote_control"}, {"enabled", true}, {"name", this->_launch.remoteName}}}});
@@ -662,6 +665,10 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->emit_(cluster::Event::Kind::Permission, permission.tool + ": " + cluster::one_line(permission.description, 120));
     } else if (type == "control_response" && event.contains("response")) {
         const cluster::Json& response = event["response"];
+        if (response.value("request_id", std::string()).starts_with("init-")) {
+            if (response.value("subtype", std::string()) != "error") this->emit_(cluster::Event::Kind::Init);
+            return;
+        }
         if (response.value("subtype", std::string()) == "error") {
             this->entry_(cluster::EntryKind::Error, response.value("error", std::string("request refused by the agent")));
             if (response.value("request_id", std::string()).starts_with("rc-on-")) this->_launch.remoteName.clear();

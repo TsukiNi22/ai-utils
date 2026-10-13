@@ -110,6 +110,8 @@ class Manager {
         std::map<std::string, std::string> _origin;     // who sent the last prompt of a session: "host" or "web:<device>" (notified)
         std::pair<cluster::Face, std::int64_t> _moment{cluster::Face::Idle, 0};   // a finished turn / a global answer: shown a moment
         std::map<std::string, int> _limitLevel;         // a limit close: the level already told (80, 95, 100)
+        std::atomic<bool> _readyTold{false};            // "claude-cluster is ready" told (once a run)
+        std::int64_t _startedAt = cluster::now();       // the start of this run
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
         cluster::Web* _web = nullptr;                   // the web access of this instance (owned by the App)
         std::unique_ptr<cluster::Asking> _asking;       // the question of an agent being answered (the interfaces, the voice)

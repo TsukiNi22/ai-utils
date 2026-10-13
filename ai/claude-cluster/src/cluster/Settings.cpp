@@ -155,6 +155,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.notifyTasks ? std::string("true") : std::string("false");}},
             {"ui", "notify_reminders", "Reminders", SettingKind::Bool, {}, "•_• schedule add --notify, at its time", false,
                 [](const cluster::Config& cf) {return cf.notifyReminders ? std::string("true") : std::string("false");}},
+            {"ui", "notify_ready", "Something slow is ready", SettingKind::Bool, {}, "^_^ claude-cluster started (its global session), the speech "
+                "model loaded, the map of this computer written: come back when it is there", false,
+                [](const cluster::Config& cf) {return cf.notifyReady ? std::string("true") : std::string("false");}},
             {"ui", "notify_sound", "With a sound", SettingKind::Bool, {}, "a short sound of the desktop theme, one per kind (done, question, error, web)", false,
                 [](const cluster::Config& cf) {return cf.notifySound ? std::string("true") : std::string("false");}},
         }},

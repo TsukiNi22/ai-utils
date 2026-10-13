@@ -522,6 +522,14 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
     if (this->_closing && event.kind == cluster::Event::Kind::Exited) return;
     switch (event.kind) {
         case cluster::Event::Kind::Init:
+            // claude-cluster ready: its global session started (the first time of this run), and how long it took
+            if (event.session == GLOBAL_ID && !this->_readyTold.exchange(true)) {
+                const std::string took = std::to_string(cluster::now() - this->_startedAt) + " s";
+                this->notice_(GLOBAL_ID, "claude-cluster ready (" + took + ")");
+                std::thread([this, took]() {
+                    (void)this->notify({"ready", "claude-cluster is ready", "its global session started (" + took + ")", cluster::Face::Happy, false, "service-login"}, "ready");
+                }).detach();
+            }
             break;
         case cluster::Event::Kind::Prompt:
             this->addHistory({event.text, {}, {}}, event.session);
@@ -850,6 +858,8 @@ _cold void cluster::Manager::scanMachine(void)
         try {
             const std::size_t repos = cluster::machine_scan(this->_config, report);
             this->notice_(GLOBAL_ID, "map of this computer written: " + std::to_string(repos) + " repositories (" + cluster::short_path(cluster::machine_file().string()) + ")");
+            (void)this->notify({"map", "the map of this computer is written", std::to_string(repos) + " repositories: the global session knows them",
+                cluster::Face::Happy, false, "complete"}, "ready");
         } catch (const std::exception& e) {
             this->notice_(GLOBAL_ID, std::string("map of this computer: ") + e.what(), true);
             std::lock_guard<std::mutex> lock(this->_mutex);
@@ -911,10 +921,11 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     if (!this->_config.notify) return false;
     const cluster::Config& c = this->_config;
     const std::map<std::string, bool> kinds = {{"global", c.notifyGlobal}, {"done", c.notifyDone}, {"permission", c.notifyPermission}, {"question", c.notifyQuestion},
-        {"error", c.notifyError}, {"limit", c.notifyLimits}, {"web", c.notifyWeb}, {"task", c.notifyTasks}, {"reminder", c.notifyReminders}};
+        {"error", c.notifyError}, {"limit", c.notifyLimits}, {"web", c.notifyWeb}, {"task", c.notifyTasks}, {"reminder", c.notifyReminders},
+        {"ready", c.notifyReady}};
     if (kinds.contains(kind) && !kinds.at(kind)) return false;
     // the last prompt of this session came from a web device: its page (or its app) notifies, not the desktop here
-    if (kind != "web" && !n.session.empty() && this->origin(n.session).starts_with("web:")) return false;
+    if (kind != "web" && kind != "ready" && !n.session.empty() && this->origin(n.session).starts_with("web:")) return false;
     if (c.notifyWhen != "always" && this->_focused == 1) return false; // in front of the user: its popups there
     const std::string key = n.session.empty() ? "-" : n.session;
     std::vector<std::string> args = {"notify-send", "-a", "claude-cluster", "-i", cluster::face_file(n.face).string(), "-h", "string:desktop-entry:claude-cluster",

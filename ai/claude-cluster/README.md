@@ -334,8 +334,8 @@ start), and the custom MCP servers it gets too (`[mcp] servers`: `"name: command
 
 The settings have a **Notifications** page: all of them on / off, *when* (`unfocused`, default: only when
 claude-cluster is not in front, its own popups are; `always`), each kind on / off (the global session, a session
-finished, a permission, a question, an error, the limits, the web devices, the task queue, the reminders) and the
-sound.
+finished, a permission, a question, an error, the limits, the web devices, the task queue, the reminders, something
+slow ready: claude-cluster started, the speech model loaded, the map of this computer written) and the sound.
 
 The icon is a stack of terminals whose front one has a face made of prompt characters; the app is `^_^`, and the face
 follows what claude-cluster does: the title of the terminal and its bar, the icon of the window, the tab of the web

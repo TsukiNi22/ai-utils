@@ -20,6 +20,7 @@ notify_limits = true       # a limit close (80 / 95 %) or reached
 notify_web = true          # a device asks to connect / connected (web access)
 notify_tasks = true        # the task queue done
 notify_reminders = true    # a reminder (schedule add --notify)
+notify_ready = true        # something slow ready: claude-cluster started, the speech model loaded, the map written
 vim = false                # vim mode of the prompt: Esc Normal (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o Insert
 paste_lines = 3            # a paste of more lines is one [Pasted text #N +L lines] in the prompt (0: never)
 paste_chars = 800          # or of more characters (0: never)

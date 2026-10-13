@@ -56,6 +56,7 @@ class Voice {
         std::thread _listener;
         std::atomic<bool> _listening{false};       // voice-listen runs (its model is loaded once: ~10 s)
         std::atomic<bool> _ready{false};           // its model is loaded ("voice-listen: ready")
+        std::int64_t _loadStart = cluster::now();   // voice-listen started: its model loading since
         std::atomic<bool> _open{false};            // push mode: F5 opened the listening
         std::atomic<bool> _paused{false};          // auto / wake modes: listening stopped by the key
         std::atomic<std::int64_t> _graceUntil{0};  // push mode: a sentence ending just after F5 is kept

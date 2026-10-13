@@ -120,6 +120,7 @@ _cold void cluster::Voice::start(void)
     if (this->_listener.joinable()) this->_listener.join();
     this->_listening = true;
     this->_ready = false;
+    this->_loadStart = cluster::now();
     this->_lastStart = now_ms_();
     this->_listener = std::thread(&cluster::Voice::listen_, this);
     ++this->_version;
@@ -217,7 +218,15 @@ _cold void cluster::Voice::listen_(void)
                 // partial hypothesis: "\r\033[K<text>" without new line ("voice-listen: ready" once the model is loaded)
                 errBuffer.append(chunk.data(), static_cast<std::size_t>(size));
                 if (errBuffer.find("voice-listen:") != std::string::npos) { // its own messages ("ready"), not a partial text
-                    if (errBuffer.find("ready") != std::string::npos) this->_ready = true;
+                    if (errBuffer.find("ready") != std::string::npos && !this->_ready) {
+                        // the speech model loaded (~10 s): told, its notification when it took long
+                        this->_ready = true;
+                        const std::int64_t took = cluster::now() - this->_loadStart;
+                        this->_manager.notice(GLOBAL_ID, "voice ready: the speech model is loaded (" + std::to_string(took) + " s)");
+                        if (took >= 3)
+                            (void)this->_manager.notify({"voice", "the voice is ready", "its speech model is loaded (" + std::to_string(took) + " s): speak",
+                                cluster::Face::Attentive, false, "message"}, "ready");
+                    }
                     errBuffer.clear();
                     ++this->_version;
                     continue;
