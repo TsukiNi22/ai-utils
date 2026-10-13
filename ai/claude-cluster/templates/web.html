@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>claude-cluster</title>
+<style>
+:root {
+    --bg: #f6f6f4; --surface: #ffffff; --line: #deddd8; --text: #1d1d1b; --muted: #6d6c66; --accent: #c4632f;
+    --ok: #2f8a4b; --warn: #b7791f; --error: #c0392b; --user: #eef1f6; --code: #f0efea;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #171715; --surface: #21201d; --line: #34332e; --text: #ecebe6; --muted: #9b9a92; --accent: #e08a55;
+        --ok: #5cc27a; --warn: #e2b04a; --error: #ef6b5b; --user: #2a2c33; --code: #2b2a26;
+    }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--error); }
+input, textarea, select { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hidden { display: none !important; }
+#login { display: flex; align-items: center; justify-content: center; height: 100%; padding: 16px; }
+#login form { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 28px; width: 100%; max-width: 340px; text-align: center; }
+#login h1 { font-size: 20px; margin: 0 0 6px; }
+#login p { color: var(--muted); margin: 0 0 18px; font-size: 14px; }
+#pin { width: 100%; text-align: center; font-size: 28px; letter-spacing: 6px; padding: 10px; margin-bottom: 14px; }
+#login button { width: 100%; }
+#loginError { color: var(--error); min-height: 20px; margin-top: 10px; font-size: 14px; }
+#app { display: grid; grid-template-columns: 250px 1fr; grid-template-rows: auto 1fr; height: 100%; }
+header { grid-column: 1 / 3; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
+header .title { font-weight: 600; }
+header .grow { flex: 1; }
+header .muted { color: var(--muted); font-size: 13px; }
+#side { border-right: 1px solid var(--line); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.session { padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.session:hover { background: var(--surface); }
+.session.active { background: var(--surface); border-color: var(--line); }
+.session .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.session .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.working { background: var(--ok); } .dot.waiting { background: var(--warn); } .dot.error { background: var(--error); }
+.badge { background: var(--warn); color: #000; border-radius: 9px; font-size: 11px; padding: 0 6px; }
+#newSession { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
+#main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+#sessionBar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+#sessionBar .grow { flex: 1; }
+#sessionBar .muted { color: var(--muted); font-size: 13px; }
+#picker { display: none; }
+#transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 900px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: var(--user); padding: 8px 12px; border-radius: 12px; }
+.msg.assistant { padding: 2px 0; }
+.msg.tool, .msg.tool_result { color: var(--muted); font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
+.msg.system { color: var(--muted); font-size: 13px; font-style: italic; }
+.msg.error { color: var(--error); }
+.msg pre { background: var(--code); padding: 8px 10px; border-radius: 8px; overflow-x: auto; font: 13px/1.4 ui-monospace, Menlo, monospace; white-space: pre; }
+#ask { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+#ask .what { font-weight: 600; }
+#ask .desc { color: var(--muted); font-size: 13px; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+#ask .row { display: flex; gap: 8px; flex-wrap: wrap; }
+#ask label { display: block; padding: 4px 0; }
+#ask label small { color: var(--muted); }
+#composer { display: flex; gap: 8px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); align-items: flex-end; }
+#prompt { flex: 1; resize: none; min-height: 42px; max-height: 40vh; }
+#toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; max-width: 90%; }
+@media (max-width: 760px) {
+    #app { grid-template-columns: 1fr; }
+    header { grid-column: 1; }
+    #side { display: none; }
+    #side.open { display: flex; position: fixed; top: 48px; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 5; }
+    #picker { display: inline-block; }
+}
+</style>
+</head>
+<body>
+<div id="login">
+    <form id="loginForm" autocomplete="off">
+        <h1>claude-cluster</h1>
+        <p>The 6-digit code shown by claude-cluster on the computer</p>
+        <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000" autofocus>
+        <button class="primary" type="submit">Connect</button>
+        <div id="loginError"></div>
+    </form>
+</div>
+<div id="app" class="hidden">
+    <header>
+        <button id="picker" title="Sessions">☰</button>
+        <span class="title">claude-cluster</span>
+        <span class="grow"></span>
+        <span class="muted" id="who"></span>
+        <button id="logout">Log out</button>
+    </header>
+    <nav id="side">
+        <div id="sessions"></div>
+        <form id="newSession">
+            <input id="newCwd" placeholder="Folder (~/project)">
+            <input id="newName" placeholder="Name (optional)">
+            <button type="submit">New session</button>
+        </form>
+    </nav>
+    <main id="main">
+        <div id="sessionBar">
+            <strong id="sessionName"></strong>
+            <span class="muted" id="sessionInfo"></span>
+            <span class="grow"></span>
+            <button id="interrupt" title="Stop the turn">Stop</button>
+            <button id="closeSession" class="danger" title="Close the session (to the trash)">Close</button>
+        </div>
+        <div id="transcript"></div>
+        <div id="ask" class="hidden"></div>
+        <form id="composer">
+            <textarea id="prompt" rows="1" placeholder="Message (Enter sends, Shift+Enter: new line)"></textarea>
+            <button class="primary" type="submit">Send</button>
+        </form>
+    </main>
+</div>
+<div id="toast" class="hidden"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let current = "g";
+let version = 0;
+let loop = 0;           // the loop of the state: a new one replaces the previous
+let shownAsk = "";      // the permission shown (not rebuilt while it stays the same)
+let lastCount = -1;
+
+function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.remove("hidden");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.add("hidden"), 3500);
+}
+
+async function api(path, body) {
+    const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
+    const response = await fetch(path, Object.assign({credentials: "same-origin", cache: "no-store"}, options));
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401 && path !== "/api/login") { showLogin(); throw new Error("not connected"); }
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    return data;
+}
+
+async function cmd(request) {
+    const data = await api("/api/cmd", request);
+    if (data.ok === false) throw new Error(data.error || "failed");
+    return data.data;
+}
+
+function showLogin(message) {
+    loop++;
+    $("app").classList.add("hidden");
+    $("login").classList.remove("hidden");
+    $("loginError").textContent = message || "";
+    $("pin").focus();
+}
+
+function showApp() {
+    $("login").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    version = 0;
+    run(++loop);
+}
+
+$("pin").addEventListener("input", (e) => {
+    const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+    e.target.value = digits.length > 3 ? digits.slice(0, 3) + " " + digits.slice(3) : digits;
+});
+
+$("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("loginError").textContent = "";
+    try {
+        await api("/api/login", {pin: $("pin").value});
+        $("pin").value = "";
+        showApp();
+    } catch (error) {
+        $("loginError").textContent = error.message;
+    }
+});
+
+$("logout").addEventListener("click", async () => {
+    try { await api("/api/logout", {}); } catch (error) { /* already out */ }
+    showLogin("Logged out");
+});
+
+async function run(id) {
+    // the state, waited for by the server until something changes (15 s at most)
+    while (id === loop) {
+        try {
+            const state = await api("/api/state?v=" + version + "&session=" + encodeURIComponent(current));
+            if (id !== loop) return;
+            version = state.version;
+            $("who").textContent = "from " + state.client;
+            render(state);
+        } catch (error) {
+            if (id !== loop) return;
+            await new Promise((r) => setTimeout(r, 2000));
+        }
+    }
+}
+
+function refresh() {
+    version = 0;
+    run(++loop);
+}
+
+function stateClass(state) {
+    return state === "working" || state === "starting" ? "working" : state === "waiting" ? "waiting" : state === "error" ? "error" : "";
+}
+
+function render(state) {
+    const list = $("sessions");
+    list.textContent = "";
+    for (const s of state.sessions) {
+        const item = document.createElement("div");
+        item.className = "session" + (s.id === current ? " active" : "");
+        const name = document.createElement("div");
+        name.className = "name";
+        const dot = document.createElement("span");
+        dot.className = "dot " + stateClass(s.state);
+        name.append(dot, document.createTextNode(s.id === "g" ? "global" : s.name || s.id));
+        if (s.permissions && s.permissions.length) {
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = s.permissions.length;
+            name.append(badge);
+        }
+        const sub = document.createElement("div");
+        sub.className = "sub";
+        sub.textContent = s.state + " · " + (s.cwd || "");
+        item.append(name, sub);
+        item.addEventListener("click", () => { current = s.id; shownAsk = ""; lastCount = -1; $("side").classList.remove("open"); refresh(); });
+        list.append(item);
+    }
+    const s = state.session;
+    if (!s) {
+        if (current !== "g") { current = "g"; refresh(); }
+        return;
+    }
+    $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
+    $("sessionInfo").textContent = [s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    $("closeSession").classList.toggle("hidden", s.id === "g");
+    renderTranscript(s.messages || [], s.error);
+    renderAsk(s);
+}
+
+function renderText(container, text) {
+    // the code blocks apart (```), the rest as plain text
+    const parts = text.split(/```[^\n]*\n?/);
+    parts.forEach((part, i) => {
+        if (!part) return;
+        if (i % 2) {
+            const pre = document.createElement("pre");
+            pre.textContent = part.replace(/\n$/, "");
+            container.append(pre);
+        } else {
+            container.append(document.createTextNode(part));
+        }
+    });
+}
+
+function renderTranscript(messages, error) {
+    const box = $("transcript");
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    const key = messages.length + ":" + (messages.length ? messages[messages.length - 1].text.length : 0) + ":" + (error || "");
+    if (key === lastCount) return;
+    const first = lastCount === -1;
+    lastCount = key;
+    box.textContent = "";
+    for (const m of messages) {
+        const div = document.createElement("div");
+        div.className = "msg " + m.kind;
+        const text = m.kind === "tool" ? "▸ " + (m.tool ? m.tool + " " : "") + m.text : m.text;
+        renderText(div, text);
+        box.append(div);
+    }
+    if (error) {
+        const div = document.createElement("div");
+        div.className = "msg error";
+        div.textContent = error;
+        box.append(div);
+    }
+    if (atBottom || first) box.scrollTop = box.scrollHeight;
+}
+
+function renderAsk(s) {
+    const box = $("ask");
+    const p = s.permissions && s.permissions[0];
+    if (!p) { box.classList.add("hidden"); box.textContent = ""; shownAsk = ""; return; }
+    if (shownAsk === s.id + p.request_id) return;
+    shownAsk = s.id + p.request_id;
+    box.textContent = "";
+    box.classList.remove("hidden");
+    const what = document.createElement("div");
+    what.className = "what";
+    if (p.questions) {
+        what.textContent = "Question of the agent";
+        box.append(what);
+        const answers = [];
+        p.questions.forEach((q, qi) => {
+            const field = document.createElement("div");
+            const title = document.createElement("div");
+            title.textContent = q.question;
+            title.style.fontWeight = "600";
+            field.append(title);
+            (q.options || []).forEach((o) => {
+                const label = document.createElement("label");
+                const input = document.createElement("input");
+                input.type = q.multiSelect ? "checkbox" : "radio";
+                input.name = "q" + qi;
+                input.value = o.label;
+                label.append(input, document.createTextNode(" " + o.label + " "));
+                if (o.description) { const d = document.createElement("small"); d.textContent = o.description; label.append(d); }
+                field.append(label);
+            });
+            const other = document.createElement("input");
+            other.placeholder = "Other (typed)";
+            field.append(other);
+            answers.push(() => {
+                if (other.value.trim()) return other.value.trim();
+                return [...field.querySelectorAll("input:checked")].map((i) => i.value).join(", ");
+            });
+            box.append(field);
+        });
+        const row = document.createElement("div");
+        row.className = "row";
+        const send = document.createElement("button");
+        send.className = "primary";
+        send.textContent = "Answer";
+        send.addEventListener("click", () => {
+            const result = {};
+            p.questions.forEach((q, i) => { result[q.question] = answers[i](); });
+            if (Object.values(result).some((v) => !v)) { toast("Answer every question"); return; }
+            act({cmd: "allow", session: s.id, request_id: p.request_id, answers: result});
+        });
+        const decline = document.createElement("button");
+        decline.textContent = "Decline";
+        decline.addEventListener("click", () => act({cmd: "allow", session: s.id, request_id: p.request_id, behavior: "deny"}));
+        row.append(send, decline);
+        box.append(row);
+        return;
+    }
+    what.textContent = "Permission: " + p.tool;
+    const desc = document.createElement("div");
+    desc.className = "desc";
+    desc.textContent = p.description;
+    const row = document.createElement("div");
+    row.className = "row";
+    const allow = document.createElement("button");
+    allow.className = "primary";
+    allow.textContent = "Allow";
+    allow.addEventListener("click", () => act({cmd: "allow", session: s.id, request_id: p.request_id, behavior: "allow"}));
+    const deny = document.createElement("button");
+    deny.className = "danger";
+    deny.textContent = "Deny";
+    deny.addEventListener("click", () => act({cmd: "allow", session: s.id, request_id: p.request_id, behavior: "deny"}));
+    row.append(allow, deny);
+    box.append(what, desc, row);
+}
+
+async function act(request) {
+    try {
+        const data = await cmd(request);
+        if (data && data.message) toast(data.message);
+        shownAsk = "";
+        refresh();
+        return data;
+    } catch (error) {
+        toast(error.message);
+        return null;
+    }
+}
+
+$("composer").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = $("prompt").value.trim();
+    if (!text) return;
+    $("prompt").value = "";
+    autosize();
+    await act({cmd: "send", session: current, text: text});
+});
+
+$("prompt").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        $("composer").requestSubmit();
+    }
+});
+
+function autosize() {
+    const p = $("prompt");
+    p.style.height = "auto";
+    p.style.height = Math.min(p.scrollHeight, window.innerHeight * 0.4) + "px";
+}
+$("prompt").addEventListener("input", autosize);
+
+$("interrupt").addEventListener("click", () => act({cmd: "interrupt", session: current}));
+
+$("closeSession").addEventListener("click", async () => {
+    if (current === "g" || !confirm("Close this session? (it goes to the trash, restorable)")) return;
+    if (await act({cmd: "close", session: current}) !== null) { current = "g"; refresh(); }
+});
+
+$("newSession").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const cwd = $("newCwd").value.trim();
+    if (!cwd) { toast("A folder first"); return; }
+    const data = await act({cmd: "spawn", cwd: cwd, name: $("newName").value.trim()});
+    if (data && data.id) { current = data.id; $("newCwd").value = ""; $("newName").value = ""; refresh(); }
+});
+
+$("picker").addEventListener("click", () => $("side").classList.toggle("open"));
+
+// already connected (the cookie of this browser): straight to the sessions
+fetch("/api/state?v=-1", {credentials: "same-origin", cache: "no-store"})
+    .then((r) => (r.status === 200 ? showApp() : showLogin()))
+    .catch(() => showLogin());
+</script>
+</body>
+</html>

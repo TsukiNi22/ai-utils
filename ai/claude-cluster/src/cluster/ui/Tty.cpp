@@ -2089,10 +2089,12 @@ class TtyUi {
                 error = notices.back().error;
             }
             const cluster::Config& c = this->_manager.config();
+            const std::string web = this->_app.web ? cluster::web_line(this->_app.web->status()) : "";
 
             ftxui::Element top = ftxui::hbox({
                 ftxui::text(" claude-cluster ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                 ftxui::text(" " + layout + " · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
+                web.empty() ? ftxui::emptyElement() : ftxui::text("  " + web + " ") | ftxui::bold | ftxui::color(this->_theme.accent),
                 ftxui::filler(),
                 ftxui::text(c.keys.at("palette") + " palette · " + c.keys.at("next_session") + "/" + c.keys.at("prev_session") + " session · "
                     + c.keys.at("global") + " global · " + c.keys.at("new_session") + " new · " + c.keys.at("quit") + " quit ") | ftxui::color(this->_theme.muted),

@@ -41,6 +41,7 @@ File Description:
     #define GLOBAL_ID "g" // id of the global session
 
 namespace cluster { // namespace start
+class Web;
 //----------------------------------------------------------------//
 /* STRUCT */
 
@@ -100,6 +101,7 @@ class Manager {
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
+        cluster::Web* _web = nullptr;                   // the web access of this instance (owned by the App)
         std::vector<cluster::UsageRecord> _usage;       // the usage ledger (usage.jsonl), in time order
         std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows)
 
@@ -209,6 +211,8 @@ class Manager {
         _nodiscard inline cluster::Auth& auth(void) {return this->_auth;};
         _nodiscard inline cluster::Config& config(void) {return this->_config;};
         _nodiscard inline bool remote(void) const {return this->ui("remote", "false") == "true";}; // Remote Control of the global session
+        inline void setWeb(cluster::Web* web) {this->_web = web;};
+        _nodiscard inline cluster::Web* web(void) const {return this->_web;};
         _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};
         _cold inline void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers) {this->get_(id)->answerQuestions(requestId, answers);};
         _cold inline void interrupt(const std::string& id) {this->get_(id)->interrupt();};

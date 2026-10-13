@@ -68,6 +68,7 @@ _cold void cluster::App::start(void)
             try {
                 this->manager->tick();
             } catch (const utils::exception::IException&) {} // reported as notices by the manager
+            if (this->web) this->web->tick();
         }
     });
 }
@@ -77,6 +78,8 @@ _cold void cluster::App::stop(void)
     this->running = false;
     if (this->ticker.joinable()) this->ticker.join();
     this->voice.reset();
+    if (this->manager) this->manager->setWeb(nullptr);
+    this->web.reset();
     if (this->control) this->control->stop();
     if (this->manager) this->manager->shutdown();
 }
@@ -106,6 +109,7 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("style", {"", "", "style", ""}, {{"name", true, any}}, "Style of the interface (see the palette)");
     this->_parser.setFlag("voice", {"", "", "voice", ""}, {{"mode", true, [](const std::string& v) {return choice_(v, {"auto", "wake", "push"});}}},
         "Voice on for this run: auto (every sentence) | wake | push (the service opens claude-cluster with --voice auto)");
+    this->_parser.setFlag("web", {"", "", "web", ""}, {}, "Web access on for this run: a browser of the same LAN drives it after the code shown");
     this->_parser.setFlag("verbose", {"v", "", "verbose", ""}, {}, "service run: the end of the text of every sound heard (tests)");
     this->_parser.setFlag("debug", {"", "", "debug", ""}, {}, "service setup / enable / run: the whole text heard in the journal (tests only)");
     this->_parser.setFlag("follow", {"", "", "follow", ""}, {}, "service logs: the new lines as they come");
@@ -263,6 +267,8 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!app.askRestore) app.manager->startGlobal(); // asked: started by the answer (resumed or new)
     app.askMachine = serve ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
+    app.web = std::make_unique<cluster::Web>(*app.manager, this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);
+    app.manager->setWeb(app.web.get());
     app.start();
 
     int code = 0;
@@ -310,6 +316,8 @@ _cold int cluster::Core::headless_(void)
     std::string shown = cmd;
 
     if (cmd == "list" || cmd == "trash" || cmd == "notices" || cmd == "providers") {
+    } else if (cmd == "web") {
+        request["action"] = w.size() > 1 ? w[1] : "";
     } else if (cmd == "status" || cmd == "read" || cmd == "close" || cmd == "interrupt") {
         request["session"] = word(1, "session");
     } else if (cmd == "spawn") {

@@ -95,6 +95,12 @@ struct UserConf {
     std::string notes;              // anything the global session should know
 };
 
+// The web access: a browser of the same LAN drives claude-cluster after a 6-digit code (one at a time)
+struct WebConf {
+    bool enabled = false;           // opened at the start (else: web on, the palette, --web)
+    int port = 8787;
+};
+
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on
 struct ServiceConf {
     std::string frontend = "auto";  // auto: a window, else a terminal | gui: a window (a terminal on its failure) | tty: a terminal
@@ -164,6 +170,7 @@ class Config {
 
         cluster::VoiceConf voice;
         cluster::ServiceConf service;
+        cluster::WebConf web;
         cluster::UserConf user;
         int machineDays = 30;                   // the map of this computer older: a sync proposed at start (0: never)
         std::string voiceForce;                 // --voice <mode>: the voice on in this mode for this run (over the file)

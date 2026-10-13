@@ -268,6 +268,14 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"service", "source", "Microphone", SettingKind::Text, {}, "PulseAudio / PipeWire source, empty: the default one", false,
                 [](const cluster::Config& cf) {return cf.service.source;}},
         }},
+        {"web", "Web", {
+            {"web", "enabled", "Web access", SettingKind::Bool, {}, "a browser of this network (same LAN, private address) drives claude-cluster after "
+                "the 6-digit code shown at the top; one browser at a time, the others refused while it is there (30 s without it: free); "
+                "plain HTTP: on a network you trust only. Open / closed live (palette: Web access)", false,
+                [](const cluster::Config& cf) {return cf.web.enabled ? std::string("true") : std::string("false");}},
+            {"web", "port", "Port", SettingKind::Int, {}, "the address shown: http://<this computer on the LAN>:<port>", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.web.port);}},
+        }},
         {"keys", "Keys", {}},
     };
 

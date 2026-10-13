@@ -91,6 +91,7 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `remote on\|off` | Remote Control of the global session |
 | `machine sync [--yes]` / `show` / `path` | map of this computer for the global session (asks first, `--yes`: not) |
 | `providers`, `notices` | backends and their state, last events |
+| `web [on\|off\|kick\|pin]` | web access on this LAN: its address, its code, the browser connected; open / close it for this run, the browser out, a new code |
 | `engines` | the engines of the voice: what each one handles, its limits, its free use, its links, ready or not (no running instance needed) |
 
 Keys of the interfaces (every one set in `[keys]` / the settings page, alternatives with `|`):
@@ -276,7 +277,8 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `config_files` / `config_read` / `config_write` (its own system prompt - it is
   started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
   config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
-  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `voice_engines` (the
+  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `web_access` (the web access:
+  address, code, on / off, kick), `voice_engines` (the
   engines of the voice, local and free-tier APIs: languages, strengths, limits, free use, links, ready, used),
   allowed without asking (`--allowedTools mcp__claude-cluster`);
 - **questions of the agents** (AskUserQuestion of Claude Code, asked even in `bypassPermissions`): a popup on the
@@ -370,6 +372,27 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `voice_fr`, `voice_en`); F6 stops.
 - The palette action **Voice: what is missing** lists what to set up (tools, enrollment, voices, English speech model,
   the model or the API key of the engines chosen).
+
+## Web access
+
+A browser of the same network (a phone, a tablet, another computer of the LAN) drives claude-cluster: the sessions and
+their state, the transcript, a message sent to any session, Stop, the permissions (Allow / Deny) and the questions of
+the agents, a new session, a session closed.
+
+- Open: settings page > Web (`[web] enabled`, opened at every start), the palette *Web access: open*, `claude-cluster
+  web on` (this run), `claude-cluster --web`. Its address and its code are shown at the top of the interface:
+  `web http://192.168.1.12:8787 · code 123 456 · free`.
+- **A 6-digit code**, new at every opening, after 5 wrong ones (each wrong one answered 1 s later) and on a kick.
+- **One browser at a time**: while one is connected (30 s without a request from it: gone), any other one is refused,
+  even with the code; *Web access: disconnect* (`web kick`) puts it out with a new code, *Log out* in the page frees
+  the place. The cookie is bound to the address it was given to.
+- **This network only**: the browser must have a private address (10/8, 172.16/12, 192.168/16, 169.254/16) of the
+  subnet of one of the interfaces of this computer (or be on this computer); the page answers only by the address or
+  the name of this computer (a public name pointed at the LAN refused) and the requests of another site are refused.
+- From the page: the commands of the sessions only (list, read, send, allow, interrupt, spawn, close, rename, mode,
+  model, tasks, trash, restore); never the configuration nor the web access itself.
+- Plain HTTP: the code and the conversation cross the network in clear; a network you trust only (home, not a public
+  Wi-Fi). A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`).
 
 ## Background service
 

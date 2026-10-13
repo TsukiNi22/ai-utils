@@ -25,6 +25,7 @@ File Description:
     #include "Manager.hpp"          // cluster::Manager
     #include "Config.hpp"           // cluster::Config
     #include "Voice.hpp"            // cluster::Voice
+    #include "Web.hpp"              // cluster::Web
     #include <memory>               // std::unique_ptr
     #include <atomic>               // std::atomic
     #include <thread>               // std::thread
@@ -63,6 +64,7 @@ struct App {
     std::unique_ptr<cluster::Manager> manager;
     std::unique_ptr<cluster::Control> control;
     std::unique_ptr<cluster::Voice> voice;
+    std::unique_ptr<cluster::Web> web;
     cluster::Options options;
     bool askRestore = false;        // the front-end asks restore / start clean
     int askMachine = 0;             // the front-end asks to map this computer: 1 no map yet, 2 an old one (Manager::machineAsk), 3 --rescan

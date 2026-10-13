@@ -993,6 +993,9 @@ class Window: public QMainWindow {
                 voiceText += "  " + esc_((p.target.empty() ? "" : "→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ": ") + said + when);
             }
             if (voice.speaking()) voiceText += "  " + span_(st.muted, "speaking (" + q_(conf.wakeWord.empty() ? "" : "") + q_(this->manager.config().keys.at("mute")) + " mute)");
+            // the web access: its address and code shown while it is open
+            const std::string web = this->manager.web() ? cluster::web_line(this->manager.web()->status()) : "";
+            if (!web.empty()) voiceText = span_(st.accent, esc_(web), true) + (voiceText.isEmpty() ? QString() : "    " + voiceText);
             this->voiceLabel->setText(voiceText);
             this->voiceLabel->setVisible(!voiceText.isEmpty());
             const std::vector<cluster::Notice> notices = this->manager.notices(1);

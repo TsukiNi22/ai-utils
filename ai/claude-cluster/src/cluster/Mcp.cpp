@@ -97,6 +97,10 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("search", "Full-text search in the history of every session.", {{"text", str_("text to find")}}, {"text"}),
         tool_("export", "Export the conversation of a session as Markdown (to a file when path is given).", {{"session", session}, {"path", str_("file (optional)")}}, {"session"}),
         tool_("providers", "Providers / backends and whether they are ready (logged in, key stored, server up).", nullptr, {}),
+        tool_("web_access", "The web access of claude-cluster on this LAN (a browser of the same network drives it after a 6-digit code, one at a "
+            "time): its address, code and the browser connected; action on / off (this run), kick (the browser out, a new code), pin (a new code). "
+            "Give the user the address and the code when they ask to open it.",
+            {{"action", {{"type", "string"}, {"enum", {"", "on", "off", "kick", "pin"}}, {"description", "empty: the state only"}}}}, {}),
         tool_("voice_engines", "The engines of the voice: speech to text ([voice] listen_model) and text to speech ([voice] say_engine), "
             "local or free-tier APIs: what each one handles (languages), its strengths and limits against the others, its free use, its "
             "voices, its links, ready (installed / API key stored), used. To change one: settings_set; a key: the user runs "
@@ -125,7 +129,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
-        {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
+        {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
         {"ui_style", "ui_style"}, {"ui_panel", "ui_panel"}, {"settings_get", "settings_get"}, {"settings_set", "settings_set"},
     };
     auto it = commands.find(name);

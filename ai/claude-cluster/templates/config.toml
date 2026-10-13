@@ -104,6 +104,11 @@ say_voices = ""            # the voice of that engine per language: "fr=ff_siwis
 voice_fr = "tom-medium"    # the Piper voices (say_engine = piper, and the fallback of the others)
 voice_en = "en_GB-northern_english_male-medium"
 
+[web]                      # a browser of this LAN drives claude-cluster (palette: Web access, claude-cluster web on, --web)
+enabled = false            # opened at each start; the code (6 digits) and the address shown at the top of the interface
+port = 8787                # one browser at a time (the others refused while it is there, 30 s without it: free); plain
+                           # HTTP: a network you trust only; private addresses of the same subnet only (never the internet)
+
 [user]                     # about you, for the global session (asked at the first map of this computer, F9 > User)
 nickname = ""
 email = ""

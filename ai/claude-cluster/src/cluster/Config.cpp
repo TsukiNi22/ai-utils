@@ -193,6 +193,10 @@ _cold void cluster::Config::load(void)
     this->user.notes = us["notes"].value_or(this->user.notes);
     this->machineDays = table["ui"]["machine_days"].value_or(this->machineDays);
 
+    /* web */
+    this->web.enabled = table["web"]["enabled"].value_or(this->web.enabled);
+    this->web.port = table["web"]["port"].value_or(this->web.port);
+
     /* service */
     toml::node_view<const toml::node> sv = std::as_const(table)["service"];
     this->service.frontend = sv["frontend"].value_or(this->service.frontend);

@@ -16,6 +16,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Web.hpp"
 #include <fstream>
 
 /* actions */
@@ -85,6 +86,15 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             list.push_back({"auth_logout:" + p.name, "Provider " + p.name + ": log out", "", "", true});
         }
     }
+    if (const cluster::Web* web = manager.web()) {
+        const cluster::WebStatus status = web->status();
+        list.push_back({status.on ? "web_off" : "web_on", status.on ? "Web access: close (" + status.url + ")" : "Web access: open (a browser of this network, a code)", "", "", false});
+        if (status.on) {
+            list.push_back({"web_show", "Web access: address and code (" + status.url + ", " + status.pin + ")", "", "", false});
+            list.push_back({"web_pin", "Web access: a new code", "", "", false});
+            if (!status.client.empty()) list.push_back({"web_kick", "Web access: disconnect " + status.client + " (a new code)", "", "", false});
+        }
+    }
     list.push_back({"voice_toggle", "Voice: listen / stop (push-to-talk)", "", "", false});
     list.push_back({"voice_confirm", "Voice: send the transcription now", "", "", false});
     list.push_back({"voice_cancel", "Voice: drop the transcription", "", "", false});
@@ -148,6 +158,16 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             manager.close(session);
             result.message = "closed (restorable from the palette)";
             result.focus = GLOBAL_ID;
+        } else if (base == "web_on" || base == "web_off" || base == "web_pin" || base == "web_kick" || base == "web_show") {
+            cluster::Web* web = manager.web();
+            if (web == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access here");
+            if (base == "web_on" || base == "web_off") web->setOn(base == "web_on");
+            if (base == "web_on" || base == "web_off") web->tick();
+            if (base == "web_pin") web->renewPin();
+            if (base == "web_kick") web->kick();
+            const cluster::WebStatus status = web->status();
+            result.message = status.on ? "open " + status.url + " on a device of this network, code " + status.pin
+                + (status.client.empty() ? "" : " (" + status.client + " connected)") : status.error.empty() ? "web access closed" : "web access: " + status.error;
         } else if (base == "remote_on" || base == "remote_off") {
             manager.setRemote(base == "remote_on");
         } else if (base == "export") {
