@@ -100,6 +100,7 @@ struct WebConf {
     bool enabled = false;           // opened at the start (else: web on, the palette, --web)
     int port = 8787;
     bool https = true;              // TLS, self-signed certificate (the microphone of the page needs it; the browser asks once)
+    bool approve = true;            // a new device: the code, then the host approves it (the trusted ones: neither)
 };
 
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on
@@ -136,6 +137,13 @@ class Config {
         bool notifyDone = true;                 // a sub-session finished its turn
         bool notifyPermission = true;           // a permission waits
         bool notifySound = true;                // a short sound with the notifications (one per kind)
+        std::string notifyWhen = "unfocused";   // unfocused: only when claude-cluster is not in front (its popups there) | always
+        bool notifyQuestion = true;             // a question of an agent
+        bool notifyError = true;                // an error, a crash, the safety check
+        bool notifyLimits = true;               // a limit close / reached (5 h, 7 d, the budget)
+        bool notifyWeb = true;                  // a device of the web access: asks to connect, connected
+        bool notifyTasks = true;                // the task queue done
+        bool notifyReminders = true;            // a reminder (schedule add --notify)
         bool vim = false;                       // vim mode of the prompt (Insert / Normal / Visual)
         int pasteLines = 3;                     // a paste of more lines becomes [Pasted text #N +L lines] (0: never)
         int pasteChars = 800;                   // or of more characters

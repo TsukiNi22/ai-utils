@@ -216,7 +216,9 @@ class Manager {
         void requestFocus(const std::string& id);           // the interfaces show this session (the global session asks it)
         void replyTo(const std::string& id);                // the end of the next turn of this session sent to the global session
         bool notifyDesktop(const std::string& title, const std::string& text, const bool urgent = false); // false: notifications off
-        bool notify(const cluster::Notification& notification);   // its face, buttons, sound; one per session (replaced); false: off
+        // its face, buttons, sound; one per session (replaced); kind: global | done | permission | question | error | limit | web | task |
+        // reminder (its setting, [ui] notify_when); false: not shown
+        bool notify(const cluster::Notification& notification, const std::string& kind = "");
         _nodiscard cluster::AppFace appFace(const bool listening) const;   // the face of the app now, its badge
         _cold void scanMachine(void);                       // the map of this computer written again (in the background, a notice)
         _nodiscard int machineAsk(void) const;              // asked at start: 0 no, 1 no map yet (not refused), 2 an old map (sync proposed)

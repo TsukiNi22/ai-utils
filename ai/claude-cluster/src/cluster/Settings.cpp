@@ -114,16 +114,6 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return join_(cf.panels);}},
             {"ui", "restore", "Previous sessions at start", SettingKind::Choice, {"ask", "always", "never"}, "ask (like Firefox), always restore, never (to the trash)", true,
                 [](const cluster::Config& cf) {return cf.restore;}},
-            {"ui", "notify", "Desktop notifications", SettingKind::Bool, {}, "all of them (off: none, the global session's too)", false,
-                [](const cluster::Config& cf) {return cf.notify ? std::string("true") : std::string("false");}},
-            {"ui", "notify_global", "  when the global session answers", SettingKind::Bool, {}, "the end of its answers (its first words)", false,
-                [](const cluster::Config& cf) {return cf.notifyGlobal ? std::string("true") : std::string("false");}},
-            {"ui", "notify_done", "  when a session finishes", SettingKind::Bool, {}, "the end of a turn of a sub-session", false,
-                [](const cluster::Config& cf) {return cf.notifyDone ? std::string("true") : std::string("false");}},
-            {"ui", "notify_permission", "  when a permission waits", SettingKind::Bool, {}, "a session waits for your yes", false,
-                [](const cluster::Config& cf) {return cf.notifyPermission ? std::string("true") : std::string("false");}},
-            {"ui", "notify_sound", "  with a sound", SettingKind::Bool, {}, "a short sound of the desktop theme, one per kind (done, question, error)", false,
-                [](const cluster::Config& cf) {return cf.notifySound ? std::string("true") : std::string("false");}},
             {"ui", "vim", "Vim mode of the prompt", SettingKind::Bool, {}, "Esc: Normal mode (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o: Insert", false,
                 [](const cluster::Config& cf) {return cf.vim ? std::string("true") : std::string("false");}},
             {"ui", "paste_lines", "Paste collapsed above (lines)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N +L lines] in the prompt (0: never)", false,
@@ -140,6 +130,33 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.typewriter ? std::string("true") : std::string("false");}},
             {"ui", "typewriter_speed", "Typing speed (characters / s)", SettingKind::Int, {}, "faster by itself when a long text is behind (never more than ~1.5 s late)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.typewriterSpeed);}},
+        }},
+        {"notify", "Notifications", {
+            {"ui", "notify", "Desktop notifications", SettingKind::Bool, {}, "all of them (off: none); their face, their buttons (Allow / Deny, the options of a question, Open), one per session", false,
+                [](const cluster::Config& cf) {return cf.notify ? std::string("true") : std::string("false");}},
+            {"ui", "notify_when", "When", SettingKind::Choice, {"unfocused", "always"}, "unfocused: only when claude-cluster is not in front (its terminal / window "
+                "not focused: its own popups are in front of you); always: also when it is", false,
+                [](const cluster::Config& cf) {return cf.notifyWhen;}},
+            {"ui", "notify_global", "The global session answers", SettingKind::Bool, {}, "^_^ the end of its answers (their first words)", false,
+                [](const cluster::Config& cf) {return cf.notifyGlobal ? std::string("true") : std::string("false");}},
+            {"ui", "notify_done", "A session finishes", SettingKind::Bool, {}, ">‿< the end of a turn of a sub-session (its tokens)", false,
+                [](const cluster::Config& cf) {return cf.notifyDone ? std::string("true") : std::string("false");}},
+            {"ui", "notify_permission", "A permission waits", SettingKind::Bool, {}, "•_• a tool waits for your yes (Allow / Deny from the notification); o_o: the safety check", false,
+                [](const cluster::Config& cf) {return cf.notifyPermission ? std::string("true") : std::string("false");}},
+            {"ui", "notify_question", "A question of an agent", SettingKind::Bool, {}, "•_• its options as buttons when there is one question", false,
+                [](const cluster::Config& cf) {return cf.notifyQuestion ? std::string("true") : std::string("false");}},
+            {"ui", "notify_error", "An error, a crash", SettingKind::Bool, {}, "o_o a turn failed, a session stopped", false,
+                [](const cluster::Config& cf) {return cf.notifyError ? std::string("true") : std::string("false");}},
+            {"ui", "notify_limits", "A limit close or reached", SettingKind::Bool, {}, "o_o 80 % / 95 % of the 5 h / 7 d windows; -_- reached (until its reset)", false,
+                [](const cluster::Config& cf) {return cf.notifyLimits ? std::string("true") : std::string("false");}},
+            {"ui", "notify_web", "Web devices", SettingKind::Bool, {}, "•_• a device asks to connect (Allow / Allow and trust / Deny), ^_^ a device connected", false,
+                [](const cluster::Config& cf) {return cf.notifyWeb ? std::string("true") : std::string("false");}},
+            {"ui", "notify_tasks", "The task queue done", SettingKind::Bool, {}, ">‿< one summary when every task is over", false,
+                [](const cluster::Config& cf) {return cf.notifyTasks ? std::string("true") : std::string("false");}},
+            {"ui", "notify_reminders", "Reminders", SettingKind::Bool, {}, "•_• schedule add --notify, at its time", false,
+                [](const cluster::Config& cf) {return cf.notifyReminders ? std::string("true") : std::string("false");}},
+            {"ui", "notify_sound", "With a sound", SettingKind::Bool, {}, "a short sound of the desktop theme, one per kind (done, question, error, web)", false,
+                [](const cluster::Config& cf) {return cf.notifySound ? std::string("true") : std::string("false");}},
         }},
         {"agent", "Agent", {
             {"agent", "default", "Backend of new sessions", SettingKind::Text, {}, "<provider>[/<model>]: claude, claude/opus, ollama/<model>, openai/<model>, opencode/<p>/<m>, codex", false,
@@ -289,10 +306,13 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.service.source;}},
         }},
         {"web", "Web", {
-            {"web", "enabled", "Web access", SettingKind::Bool, {}, "a browser of this network (same LAN, private address) drives claude-cluster after "
-                "the 6-digit code shown at the top; one browser at a time, the others refused while it is there (30 s without it: free); "
-                "plain HTTP: on a network you trust only. Open / closed live (palette: Web access)", false,
+            {"web", "enabled", "Web access", SettingKind::Bool, {}, "the devices of this network (same LAN, private address) drive claude-cluster after "
+                "the 6-digit code shown at the top and your approval here; several at once; the trusted ones without code (palette: Web devices). "
+                "Open / closed live (palette: Web access)", false,
                 [](const cluster::Config& cf) {return cf.web.enabled ? std::string("true") : std::string("false");}},
+            {"web", "approve", "Approve each new device", SettingKind::Bool, {}, "after its code, a new device waits for your yes here (a popup with "
+                "its name, address and browser: allow, allow and trust, deny); off: the code is enough", false,
+                [](const cluster::Config& cf) {return cf.web.approve ? std::string("true") : std::string("false");}},
             {"web", "port", "Port", SettingKind::Int, {}, "the address shown: https://<this computer on the LAN>:<port>", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.port);}},
             {"web", "https", "HTTPS", SettingKind::Bool, {}, "TLS with a certificate of its own (made once, the browser asks to accept it the first time): "
@@ -319,7 +339,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
     // pages built from the config itself
     for (const auto &[driver, command]: c.commands) {
         const std::string name = driver;
-        pages[2].settings.push_back({"commands", name, name, SettingKind::Text, {}, "program of the " + name + " driver", true,
+        std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& page) {return page.section == "commands";})->settings.push_back({"commands", name, name, SettingKind::Text, {}, "program of the " + name + " driver", true,
             [name](const cluster::Config& cf) {return cf.command(name);}});
     }
     // the tools of the global session (claude-cluster MCP): each one on / off

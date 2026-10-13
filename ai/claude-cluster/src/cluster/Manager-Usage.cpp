@@ -144,7 +144,7 @@ _cold void cluster::Manager::recordUsage_(const std::string& session)
             const std::string when = reset > 0 ? ", reset in " + cluster::human_age(cluster::now() + (cluster::now() - reset)) : std::string();
             std::thread([this, vendor, window, level, when]() {
                 (void)this->notify({"limit-" + vendor, vendor + " · " + window + " limit " + (level >= 100 ? "reached" : "close"),
-                    std::to_string(level) + " % of the " + window + " window used" + when, level >= 100 ? cluster::Face::Idle : cluster::Face::Waiting, level >= 95, "dialog-warning"});
+                    std::to_string(level) + " % of the " + window + " window used" + when, level >= 100 ? cluster::Face::Idle : cluster::Face::Waiting, level >= 95, "dialog-warning"}, "limit");
             }).detach();
         }
     }

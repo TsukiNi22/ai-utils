@@ -13,6 +13,13 @@ notify_global = true       # when the global session answers
 notify_done = true         # when a sub-session finishes its turn
 notify_permission = true   # when a permission waits
 notify_sound = true        # a short sound with them (the sounds of the desktop theme, one per kind)
+notify_when = "unfocused"  # unfocused: only when claude-cluster is not in front (its popups are) | always
+notify_question = true     # a question of an agent (its options as buttons)
+notify_error = true        # an error, a crash, the safety check
+notify_limits = true       # a limit close (80 / 95 %) or reached
+notify_web = true          # a device asks to connect / connected (web access)
+notify_tasks = true        # the task queue done
+notify_reminders = true    # a reminder (schedule add --notify)
 vim = false                # vim mode of the prompt: Esc Normal (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o Insert
 paste_lines = 3            # a paste of more lines is one [Pasted text #N +L lines] in the prompt (0: never)
 paste_chars = 800          # or of more characters (0: never)
@@ -112,12 +119,11 @@ say_voices = ""            # the voice of that engine per language: "fr=ff_siwis
 voice_fr = "tom-medium"    # the Piper voices (say_engine = piper, and the fallback of the others)
 voice_en = "en_GB-northern_english_male-medium"
 
-[web]                      # a browser of this LAN drives claude-cluster (palette: Web access, claude-cluster web on, --web)
+[web]                      # the devices of this LAN drive claude-cluster (palette: Web access, claude-cluster web on, --web)
 enabled = false            # opened at each start; the code (6 digits) and the address shown at the top of the interface
-port = 8787                # one browser at a time (the others refused while it is there, 30 s without it: free);
-                           # private addresses of the same subnet only (never the internet)
-https = true               # TLS, certificate of its own (~/.config/claude-cluster/web, the browser asks to accept it once):
-                           # encrypted, and the microphone of the page allowed (off: plain http, no microphone)
+port = 8787                # several devices at once; private addresses of the same subnet only (never the internet)
+https = true               # TLS, certificate of its own (~/.config/claude-cluster/web): encrypted, the microphone of the page allowed
+approve = true             # a new device: its code, then your yes here (allow, allow and trust, deny); the trusted ones: neither
 
 [mcp]                      # MCP of the global session (F9 > MCP)
 servers = []               # custom servers it gets too: "name: command args" (stdio; env VAR=value command... for its

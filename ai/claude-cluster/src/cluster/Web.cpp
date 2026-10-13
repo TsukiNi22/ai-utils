@@ -32,10 +32,12 @@ File Description:
 #include <sys/epoll.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
+#include <functional>
 #include <algorithm>
 #include <ifaddrs.h>
 #include <unistd.h>
 #include <net/if.h>
+#include <iterator>
 #include <cstring>
 #include <sstream>
 #include <random>
@@ -63,7 +65,7 @@ struct Request {
 
 _cold static std::int64_t now_ms_(void)
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // a date: the devices keep it
 }
 
 _cold static std::string random_digits_(const std::size_t count)
@@ -364,10 +366,11 @@ _cold void cluster::Web::open_(const int port)
     const std::string tls = this->_httpsWanted ? this->tls_() : "";
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
     this->newPin_();
+    this->loadTrusted_();
     this->_running = true;
     this->_thread = std::thread(&cluster::Web::serve_, this);
     this->_manager.notice(GLOBAL_ID, "web access open: " + std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":"
-        + std::to_string(port) + " code " + this->_pin.substr(0, 3) + " " + this->_pin.substr(3) + " (this network only, one browser at a time)");
+        + std::to_string(port) + " code " + this->_pin.substr(0, 3) + " " + this->_pin.substr(3) + " (this network only; each new device approved here)");
 }
 
 _cold void cluster::Web::close_(void)
@@ -384,8 +387,7 @@ _cold void cluster::Web::close_(void)
         if (this->_tls != nullptr) ::SSL_CTX_free(static_cast<SSL_CTX*>(this->_tls));
     #endif
     this->_tls = nullptr;
-    this->_token.clear();
-    this->_client.clear();
+    this->_access.clear();
 }
 
 _cold void cluster::Web::serve_(void)
@@ -461,10 +463,66 @@ _cold void cluster::Web::newPin_(void)
 
 _cold void cluster::Web::expire_(void)
 {
-    if (this->_token.empty() || now_ms_() - this->_seen < 30000) return;
-    this->_manager.notice(GLOBAL_ID, "web: " + this->_client + " gone (nothing for 30 s), the place is free");
-    this->_token.clear();
-    this->_client.clear();
+    // connected: gone after 30 s without a request (its page asks every 15 s); waiting: 3 min; denied: told, then gone
+    const std::int64_t now = now_ms_();
+    for (auto it = this->_access.begin(); it != this->_access.end();) {
+        const cluster::WebDevice& d = it->second.device;
+        const bool gone = (d.state == "connected" && now - d.seen > 30000) || (d.state == "waiting" && now - d.since > 180000) || (d.state == "denied" && now - d.since > 60000);
+        if (gone && d.state == "connected") this->_manager.notice(GLOBAL_ID, "web: " + d.name + " (" + d.address + ") gone (nothing for 30 s)");
+        if (gone && d.state == "waiting") this->_manager.notice(GLOBAL_ID, "web: " + d.name + " (" + d.address + ") not approved in time");
+        it = gone ? this->_access.erase(it) : std::next(it);
+    }
+}
+
+_cold static std::string device_name_(const std::string& agent)
+{
+    // its browser and its system, from its user agent
+    const std::function<bool(const char*)> has = [&agent](const char* word) {return agent.find(word) != std::string::npos;};
+    const std::string browser = has("claude-cluster-app") ? "the app" : has("Edg/") ? "Edge" : has("Firefox/") ? "Firefox" : has("OPR/") ? "Opera"
+        : has("Chrome/") ? "Chrome" : has("Safari/") ? "Safari" : "a browser";
+    const std::string system = has("Android") ? "Android" : has("iPhone") ? "iPhone" : has("iPad") ? "iPad" : has("Windows") ? "Windows"
+        : has("Mac OS") ? "macOS" : has("Linux") ? "Linux" : "";
+    return browser + (system.empty() ? "" : " · " + system);
+}
+
+_cold void cluster::Web::loadTrusted_(void)
+{
+    this->_trusted.clear();
+    const std::optional<cluster::Json> saved = cluster::read_json(cluster::config_dir() / "web" / "trusted.json");
+    if (!saved || !saved->is_array()) return;
+    for (const cluster::Json& d: *saved) {
+        Access access;
+        access.device = {d.value("id", std::string()), d.value("name", std::string()), d.value("agent", std::string()), d.value("address", std::string()),
+            "trusted", true, d.value("since", static_cast<std::int64_t>(0)), d.value("seen", static_cast<std::int64_t>(0))};
+        access.secret = d.value("secret", std::string());
+        if (!access.device.id.empty() && access.secret.size() >= 32) this->_trusted[access.device.id] = access;
+    }
+}
+
+_cold void cluster::Web::saveTrusted_(void) const
+{
+    // the secrets of the trusted devices: this user only
+    cluster::Json saved = cluster::Json::array();
+    for (const auto &[id, access]: this->_trusted)
+        saved.push_back({{"id", id}, {"name", access.device.name}, {"agent", access.device.agent}, {"address", access.device.address}, {"since", access.device.since},
+            {"seen", access.device.seen}, {"secret", access.secret}});
+    const std::filesystem::path path = cluster::config_dir() / "web" / "trusted.json";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    cluster::write_json(path, saved);
+    ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+}
+
+_cold void cluster::Web::ask_(const std::string& id)
+{
+    // a device gave the code: the host says yes, yes and remember it, or no (the popup of the interface, the notification)
+    const Access& access = this->_access.at(id);
+    const cluster::WebDevice d = access.device;
+    this->_manager.notice(GLOBAL_ID, "web: " + d.name + " (" + d.address + ") asks to connect: allow it here (its popup, the palette, the notification)");
+    cluster::Notification n{"web-" + id, "web access · " + d.name + " asks to connect", d.address + " · " + cluster::one_line(d.agent, 120), cluster::Face::Attentive, true,
+        "message-new-instant", {{"allow", "Allow"}, {"trust", "Allow and trust"}, {"deny", "Deny"}}};
+    n.onAction = [this, id](const std::string& answer) {this->approve(id, answer);};
+    std::thread([this, n]() {(void)this->_manager.notify(n, "web");}).detach();
 }
 
 _cold void cluster::Web::setOn(const bool on)
@@ -473,14 +531,73 @@ _cold void cluster::Web::setOn(const bool on)
     this->_force = on;
 }
 
-_cold void cluster::Web::kick(void)
+_cold void cluster::Web::kick(const std::vector<std::string>& ids)
+{
+    // these devices out (their pages back to the code); all of them: a new code too
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    std::vector<std::string> names;
+    for (auto it = this->_access.begin(); it != this->_access.end();) {
+        if (!ids.empty() && std::find(ids.begin(), ids.end(), it->first) == ids.end()) {
+            ++it;
+            continue;
+        }
+        names.push_back(it->second.device.name + " (" + it->second.device.address + ")");
+        it = this->_access.erase(it);
+    }
+    if (ids.empty()) this->newPin_();
+    std::string list;
+    for (const std::string& name: names)
+        list += (list.empty() ? "" : ", ") + name;
+    this->_manager.notice(GLOBAL_ID, "web: " + (list.empty() ? std::string("nobody connected") : list + " disconnected from here")
+        + (ids.empty() ? ", new code " + this->_pin.substr(0, 3) + " " + this->_pin.substr(3) : std::string()));
+}
+
+_cold void cluster::Web::approve(const std::string& id, const std::string& answer)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
-    this->newPin_();
-    if (!this->_client.empty()) this->_manager.notice(GLOBAL_ID, "web: " + this->_client + " disconnected from here, new code " + this->_pin.substr(0, 3)
-        + " " + this->_pin.substr(3));
-    this->_token.clear();
-    this->_client.clear();
+    auto it = this->_access.find(id);
+    if (it == this->_access.end() || it->second.device.state != "waiting")
+        throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no device waiting: " + id);
+    cluster::WebDevice& d = it->second.device;
+    if (answer == "deny") {
+        d.state = "denied";
+        d.since = now_ms_();
+        this->_manager.notice(GLOBAL_ID, "web: " + d.name + " (" + d.address + ") denied");
+        return;
+    }
+    if (answer != "allow" && answer != "trust")
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "allow | trust | deny");
+    d.state = "connected";
+    d.since = d.seen = now_ms_();
+    if (answer == "trust") { // remembered: no code, no approval next time (until removed)
+        d.trusted = true;
+        it->second.secret = random_hex_(32);
+        it->second.giveTrust = true;
+        Access remembered = it->second;
+        remembered.device.state = "trusted";
+        this->_trusted[id] = remembered;
+        this->saveTrusted_();
+    }
+    this->_manager.notice(GLOBAL_ID, "web: " + d.name + " (" + d.address + ") connected" + (d.trusted ? " and trusted" : ""));
+}
+
+_cold void cluster::Web::untrust(const std::vector<std::string>& ids)
+{
+    std::vector<std::string> removed;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        for (auto it = this->_trusted.begin(); it != this->_trusted.end();) {
+            if (!ids.empty() && std::find(ids.begin(), ids.end(), it->first) == ids.end()) {
+                ++it;
+                continue;
+            }
+            removed.push_back(it->first);
+            this->_manager.notice(GLOBAL_ID, "web: " + it->second.device.name + " trusted no more");
+            it = this->_trusted.erase(it);
+        }
+        this->saveTrusted_();
+    }
+    if (!removed.empty()) this->kick(removed);
 }
 
 _cold void cluster::Web::renewPin(void)
@@ -500,7 +617,12 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     status.https = this->_tls != nullptr;
     status.fingerprint = this->_fingerprint;
     status.pin = this->_pin.substr(0, 3) + " " + this->_pin.substr(3);
-    status.client = this->_client;
+    for (const auto &[id, access]: this->_access) {
+        status.devices.push_back(access.device);
+        if (access.device.state == "connected") status.client += (status.client.empty() ? "" : ", ") + access.device.name;
+    }
+    for (const auto &[id, access]: this->_trusted)
+        status.trusted.push_back(access.device);
     return status;
 }
 
@@ -582,8 +704,12 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
             "media-src 'self' blob:\r\nPermissions-Policy: microphone=(self)\r\n");
         return;
     }
-    if (post && request.path == "/api/login") {
-        this->login_(connection, request.body, cookie_(request, "cc_web"), peer, secure);
+    if (request.path == "/api/login") {
+        this->login_(connection, &request, peer, secure);
+        return;
+    }
+    if (request.method == "GET" && request.path == "/api/version") { // the app: is it still served, a newer one
+        json_(conn, 200, {{"version", CLUSTER_VERSION}, {"app_min", 1}});
         return;
     }
     if (!request.path.starts_with("/api/")) {
@@ -594,12 +720,14 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->expire_();
-        connected = !this->_token.empty() && cookie_(request, "cc_web") == this->_token && peer == this->_client;
-        if (connected) this->_seen = now_ms_();
+        // its device, its cookie of this connection, from its address
+        auto it = this->_access.find(cookie_(request, "cc_dev"));
+        connected = it != this->_access.end() && it->second.device.state == "connected" && !it->second.token.empty() && cookie_(request, "cc_web") == it->second.token
+            && it->second.device.address == peer;
+        if (connected) it->second.device.seen = now_ms_();
         if (connected && post && request.path == "/api/logout") {
-            this->_manager.notice(GLOBAL_ID, "web: " + peer + " left");
-            this->_token.clear();
-            this->_client.clear();
+            this->_manager.notice(GLOBAL_ID, "web: " + it->second.device.name + " (" + peer + ") left");
+            this->_access.erase(it);
         }
     }
     if (!connected) {
@@ -697,19 +825,59 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     }
 }
 
-_cold void cluster::Web::login_(void* connection, const std::string& requestBody, const std::string& cookie, const std::string& peer, const std::string& secure)
+_cold void cluster::Web::login_(void* connection, const void* requestData, const std::string& peer, const std::string& secure)
 {
-    // the code: one browser at a time (another one refused while it is there), 5 wrong ones: a new code
+    // a trusted device: in at once; else the code (5 wrong ones: a new code), then the host approves it ([web] approve);
+    // GET: how its wait goes (connected: its trust cookie given once)
     Conn& conn = *static_cast<Conn*>(connection);
-    const cluster::Json body = cluster::Json::parse(requestBody.empty() ? "{}" : requestBody, nullptr, false);
+    const Request& request = *static_cast<const Request*>(requestData);
+    const std::string year = "; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict" + secure + "\r\n";
+    const std::string session = "; Path=/; HttpOnly; SameSite=Strict" + secure + "\r\n";
+    std::string id = cookie_(request, "cc_dev");
+    const std::string agent = request.headers.contains("user-agent") ? request.headers.at("user-agent") : "";
+    std::unique_lock<std::mutex> lock(this->_mutex);
+    this->expire_();
+    if (request.method == "GET") {
+        auto it = this->_access.find(id);
+        if (it == this->_access.end() || cookie_(request, "cc_web") != it->second.token) {
+            json_(conn, 200, {{"state", "none"}});
+            return;
+        }
+        std::string cookies;
+        if (it->second.device.state == "connected" && it->second.giveTrust) {
+            cookies = "Set-Cookie: cc_trust=" + it->second.secret + year;
+            it->second.giveTrust = false;
+        }
+        json_(conn, 200, {{"state", it->second.device.state}, {"name", it->second.device.name}, {"trusted", it->second.device.trusted}}, cookies);
+        return;
+    }
+    const cluster::Json body = cluster::Json::parse(request.body.empty() ? "{}" : request.body, nullptr, false);
     const std::string typed = body.is_object() ? body.value("pin", std::string()) : std::string();
+    std::string name = body.is_object() ? cluster::one_line(cluster::trim(body.value("name", std::string())), 40) : std::string();
+    if (name.empty()) name = device_name_(agent);
     std::string digits;
     for (const char c: typed)
         if (std::isdigit(static_cast<unsigned char>(c))) digits += c;
-    std::unique_lock<std::mutex> lock(this->_mutex);
-    this->expire_();
-    if (!this->_token.empty() && cookie != this->_token) {
-        json_(conn, 423, {{"error", "already used by " + this->_client + ": one browser at a time"}});
+    // remembered: its secret
+    auto trusted = this->_trusted.find(id);
+    if (trusted != this->_trusted.end() && !cookie_(request, "cc_trust").empty() && cookie_(request, "cc_trust") == trusted->second.secret) {
+        Access access = trusted->second;
+        access.device.state = "connected";
+        access.device.address = peer;
+        access.device.agent = agent;
+        access.device.since = access.device.seen = now_ms_();
+        access.token = random_hex_(24);
+        trusted->second.device.seen = now_ms_();
+        trusted->second.device.address = peer;
+        this->saveTrusted_();
+        this->_access[id] = access;
+        this->_manager.notice(GLOBAL_ID, "web: " + access.device.name + " (" + peer + ") connected (trusted)");
+        (void)this->_manager.notify({"web-" + id, "web access", access.device.name + " connected (trusted) · " + peer, cluster::Face::Happy, false, "service-login"}, "web");
+        json_(conn, 200, {{"ok", true}, {"state", "connected"}, {"trusted", true}}, "Set-Cookie: cc_web=" + access.token + session);
+        return;
+    }
+    if (digits.empty()) {
+        json_(conn, 401, {{"error", "the code"}, {"need", "code"}});
     } else if (digits != this->_pin) {
         if (++this->_failures >= 5) {
             this->newPin_();
@@ -720,13 +888,24 @@ _cold void cluster::Web::login_(void* connection, const std::string& requestBody
         std::this_thread::sleep_for(std::chrono::seconds(1));
         json_(conn, 401, {{"error", "wrong code"}});
     } else {
+        // the code right: this device waits for the host (or is in at once when [web] approve is off)
         this->_failures = 0;
-        this->_token = random_hex_(24);
-        this->_client = peer;
-        this->_seen = now_ms_();
-        this->_manager.notice(GLOBAL_ID, "web: " + peer + " connected");
-        (void)this->_manager.notify({"web", "web access", peer + " connected (one browser at a time)", cluster::Face::Happy, false, "service-login", {{"open", "Open"}}});
-        json_(conn, 200, {{"ok", true}}, "Set-Cookie: cc_web=" + this->_token + "; Path=/; HttpOnly; SameSite=Strict" + secure + "\r\n");
+        if (id.size() != 24) id = random_hex_(12);
+        Access access;
+        access.device = {id, name, agent, peer, "waiting", false, now_ms_(), now_ms_()};
+        access.token = random_hex_(24);
+        const bool approve = this->_manager.config().web.approve;
+        if (!approve) access.device.state = "connected";
+        this->_access[id] = access;
+        const std::string cookies = "Set-Cookie: cc_dev=" + id + year + "Set-Cookie: cc_web=" + access.token + session;
+        if (approve) {
+            this->ask_(id);
+            json_(conn, 202, {{"ok", true}, {"state", "waiting"}, {"name", name}}, cookies);
+        } else {
+            this->_manager.notice(GLOBAL_ID, "web: " + name + " (" + peer + ") connected");
+            (void)this->_manager.notify({"web-" + id, "web access", name + " connected · " + peer, cluster::Face::Happy, false, "service-login"}, "web");
+            json_(conn, 200, {{"ok", true}, {"state", "connected"}}, cookies);
+        }
     }
 }
 
@@ -734,5 +913,12 @@ _cold void cluster::Web::login_(void* connection, const std::string& requestBody
 _cold std::string cluster::web_line(const cluster::WebStatus& status)
 {
     if (!status.on) return status.error.empty() ? "" : "web: port not opened (" + status.error + ")";
-    return "web " + status.url + " · code " + status.pin + " · " + (status.client.empty() ? std::string("free") : status.client + " connected");
+    std::size_t connected = 0;
+    std::size_t waiting = 0;
+    for (const cluster::WebDevice& d: status.devices) {
+        connected += d.state == "connected" ? 1 : 0;
+        waiting += d.state == "waiting" ? 1 : 0;
+    }
+    return "web " + status.url + " · code " + status.pin + " · " + (connected == 0 ? std::string("nobody") : std::to_string(connected) + " connected")
+        + (waiting > 0 ? " · " + std::to_string(waiting) + " waiting for you" : "");
 }

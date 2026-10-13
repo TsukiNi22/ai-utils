@@ -323,6 +323,8 @@ _cold int cluster::Core::headless_(void)
     if (cmd == "list" || cmd == "trash" || cmd == "notices" || cmd == "providers") {
     } else if (cmd == "web") {
         request["action"] = w.size() > 1 ? w[1] : "";
+        if (request["action"] == "approve") request.update({{"id", word(2, "id")}, {"answer", w.size() > 3 ? w[3] : "allow"}});
+        if (request["action"] == "kick" || request["action"] == "untrust") request["ids"] = w.size() > 2 ? w[2] : "";
     } else if (cmd == "external") {
         request["agent"] = w.size() > 1 ? w[1] : "";
     } else if (cmd == "import") {
@@ -419,11 +421,23 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
                 << (action == "off" ? "" : "   open it: claude-cluster web on") << "\n";
             return;
         }
-        if (action == "kick") std::cout << (data.value("kicked", false) ? "the browser disconnected, a new code" : "no browser connected, a new code") << "\n";
+        if (action == "kick") std::cout << (data.value("kicked", false) ? "disconnected" : "nobody connected") << "\n";
         if (action == "pin") std::cout << "a new code" << "\n";
-        std::cout << "web access open   " << data.value("url", std::string()) << "   code " << data.value("pin", std::string()) << "\n"
-            << (data.value("client", std::string()).empty() ? std::string("free: one browser of this network at a time")
-                : data.value("client", std::string()) + " connected (claude-cluster web kick: out)") << "\n";
+        if (action == "approve") std::cout << "answered" << "\n";
+        if (action == "untrust") std::cout << "trusted no more" << "\n";
+        std::cout << "web access open   " << data.value("url", std::string()) << "   code " << data.value("pin", std::string()) << "\n";
+        // the devices: waiting for you, connected, trusted
+        const std::function<void(const cluster::Json&, const std::string&)> devices = [](const cluster::Json& list, const std::string& title) {
+            if (list.empty()) return;
+            std::cout << title << "\n";
+            for (const cluster::Json& d: list)
+                std::cout << "  " << d.value("id", std::string()) << "  " << d.value("state", std::string()) << (d.value("trusted", false) && d.value("state", std::string()) != "trusted"
+                    ? " (trusted)" : "") << "  " << d.value("name", std::string()) << "  " << d.value("address", std::string()) << "\n";
+        };
+        devices(data.value("devices", cluster::Json::array()), "devices:");
+        devices(data.value("trusted", cluster::Json::array()), "trusted devices (no code, no approval):");
+        if (data.value("devices", cluster::Json::array()).empty()) std::cout << "nobody connected: the code, then your approval here" << "\n";
+        std::cout << "approve: claude-cluster web approve <id> allow|trust|deny · out: web kick [ids|all] · trust removed: web untrust [ids|all]" << "\n";
         if (data.value("https", false))
             std::cout << "certificate SHA-256 " << data.value("fingerprint", std::string()) << " (the browser asks to accept it once: compare)" << "\n";
         else

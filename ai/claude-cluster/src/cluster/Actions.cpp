@@ -122,7 +122,19 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         if (status.on) {
             list.push_back({"web_show", "Web access: address and code (" + status.url + ", " + status.pin + ")", "", "", false});
             list.push_back({"web_pin", "Web access: a new code", "", "", false});
-            if (!status.client.empty()) list.push_back({"web_kick", "Web access: disconnect " + status.client + " (a new code)", "", "", false});
+            list.push_back({"web_devices", "Web devices: the devices connected and trusted (kick, remove the trust)", "", "", true});
+            for (const cluster::WebDevice& d: status.devices) {
+                if (d.state == "waiting") {
+                    list.push_back({"web_approve:" + d.id + ":allow", "Web: allow " + d.name + " (" + d.address + ")", "", "", false});
+                    list.push_back({"web_approve:" + d.id + ":trust", "Web: allow and trust " + d.name + " (" + d.address + ")", "", "", false});
+                    list.push_back({"web_approve:" + d.id + ":deny", "Web: deny " + d.name + " (" + d.address + ")", "", "", false});
+                } else if (d.state == "connected") {
+                    list.push_back({"web_kick:" + d.id, "Web: disconnect " + d.name + " (" + d.address + ")", "", "", false});
+                }
+            }
+            if (!status.client.empty()) list.push_back({"web_kick", "Web access: disconnect every device (a new code)", "", "", false});
+            for (const cluster::WebDevice& d: status.trusted)
+                list.push_back({"web_untrust:" + d.id, "Web: trust " + d.name + " no more (the code asked again)", "", "", false});
         }
     }
     // the conversations of the agents opened outside (Claude Code, Codex, Qwen Code: their files; opencode: claude-cluster external)
@@ -196,6 +208,20 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             manager.close(session);
             result.message = "closed (restorable from the palette)";
             result.focus = GLOBAL_ID;
+        } else if (base == "web_approve" || base == "web_untrust" || (base == "web_kick" && !arg.empty())) {
+            cluster::Web* web = manager.web();
+            if (web == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access here");
+            if (base == "web_approve") {
+                const std::size_t colon = arg.rfind(':');
+                web->approve(arg.substr(0, colon), arg.substr(colon + 1));
+                result.message = "web: " + arg.substr(colon + 1) + (arg.substr(colon + 1) == "deny" ? "" : "ed");
+            } else if (base == "web_untrust") {
+                web->untrust({arg});
+                result.message = "web: trusted no more";
+            } else {
+                web->kick({arg});
+                result.message = "web: disconnected";
+            }
         } else if (base == "web_on" || base == "web_off" || base == "web_pin" || base == "web_kick" || base == "web_show") {
             cluster::Web* web = manager.web();
             if (web == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access here");
@@ -205,7 +231,7 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             if (base == "web_kick") web->kick();
             const cluster::WebStatus status = web->status();
             result.message = status.on ? "open " + status.url + " on a device of this network, code " + status.pin
-                + (status.client.empty() ? "" : " (" + status.client + " connected)")
+                + (status.client.empty() ? "" : " (" + status.client + " connected)") + " (click the code: copied)"
                 + (status.https ? "; certificate SHA-256 " + status.fingerprint.substr(0, 23) + "... (the browser shows it)" : "")
                 : status.error.empty() ? "web access closed" : "web access: " + status.error;
         } else if (base == "import") {

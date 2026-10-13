@@ -83,7 +83,7 @@ _cold void cluster::Manager::taskDone_(const std::string& session, const bool er
     }
     if (!open)
         (void)this->notify({"tasks", "task queue finished", std::to_string(done) + " done" + (failed > 0 ? ", " + std::to_string(failed) + " failed" : std::string()),
-            failed > 0 ? cluster::Face::Waiting : cluster::Face::Grin, false, "complete"});
+            failed > 0 ? cluster::Face::Waiting : cluster::Face::Grin, false, "complete"}, "task");
 }
 
 _cold void cluster::Manager::schedule_(void)
@@ -269,7 +269,7 @@ _cold void cluster::Manager::fireSchedules_(void)
     for (const cluster::Schedule& w: due) {
         if (w.action == "notify") {
             this->notice_(GLOBAL_ID, "scheduled " + w.id + ": " + w.text);
-            (void)this->notify({"schedule-" + w.id, "reminder", w.text, cluster::Face::Attentive, false, "message-new-instant"});
+            (void)this->notify({"schedule-" + w.id, "reminder", w.text, cluster::Face::Attentive, false, "message-new-instant"}, "reminder");
             continue;
         }
         try {

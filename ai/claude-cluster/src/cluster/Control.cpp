@@ -587,19 +587,35 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // the web access of this instance: on / off for this run, kick (the browser out, a new code), pin (a new code)
             cluster::Web* web = manager.web();
             if (web == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access in this instance");
+            // devices: approve <id> allow | trust | deny, kick [ids], untrust [ids] (ids: separated by commas, none: all)
+            static const std::set<std::string> actions = {"", "on", "off", "kick", "pin", "devices", "approve", "untrust"};
             const std::string action = arg_(request, "action");
-            if (!action.empty() && action != "on" && action != "off" && action != "kick" && action != "pin")
-                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown action '" + action + "' (web [on|off|kick|pin])");
-            if ((action == "kick" || action == "pin") && !web->status().on)
+            if (!actions.contains(action))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown action '" + action
+                    + "' (web [on|off|pin|devices|kick [ids]|approve <id> allow|trust|deny|untrust [ids]])");
+            if ((action == "kick" || action == "pin" || action == "approve") && !web->status().on)
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the web access is closed: claude-cluster web on");
+            std::vector<std::string> ids;
+            for (const std::string& id: cluster::split(arg_(request, "ids"), ','))
+                if (!cluster::trim(id).empty() && cluster::trim(id) != "all") ids.push_back(cluster::trim(id));
             const bool kicked = action == "kick" && !web->status().client.empty();
             if (action == "on" || action == "off") web->setOn(action == "on");
-            else if (action == "kick") web->kick();
+            else if (action == "kick") web->kick(ids);
             else if (action == "pin") web->renewPin();
+            else if (action == "approve") web->approve(arg_(request, "id"), arg_(request, "answer", "allow"));
+            else if (action == "untrust") web->untrust(ids);
             if (action == "on" || action == "off") web->tick(); // applied now, not at the next second
             const cluster::WebStatus status = web->status();
+            const std::function<cluster::Json(const std::vector<cluster::WebDevice>&)> list = [](const std::vector<cluster::WebDevice>& devices) {
+                cluster::Json out = cluster::Json::array();
+                for (const cluster::WebDevice& d: devices)
+                    out.push_back({{"id", d.id}, {"name", d.name}, {"address", d.address}, {"agent", d.agent}, {"state", d.state}, {"trusted", d.trusted},
+                        {"since", d.since / 1000}, {"seen", d.seen / 1000}});
+                return out;
+            };
             data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
-                {"https", status.https}, {"fingerprint", status.fingerprint}, {"action", action}, {"kicked", kicked}};
+                {"https", status.https}, {"fingerprint", status.fingerprint}, {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
+                {"trusted", list(status.trusted)}};
         } else if (cmd == "voice_engines") {
             // the engines of the voice: what each one handles, its limits, its free use, its links, ready, used
             data = cluster::voice_engines_json(manager.config());

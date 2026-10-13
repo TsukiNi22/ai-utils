@@ -53,7 +53,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices};
 
 struct Theme {
     ftxui::Color bg;
@@ -420,6 +420,10 @@ class TtyUi {
         };
         std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
         std::string _title;                         // the title of the terminal set (its face)
+        std::string _webAsk;                        // the device asking to connect shown (its popup)
+        std::set<std::string> _webLater;            // the ones put off (Esc): asked again from the palette
+        std::set<std::string> _webPicked;           // the web devices ticked ("d:<id>" connected / waiting, "t:<id>" trusted)
+        int _webCursor = 0;
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
@@ -1218,6 +1222,10 @@ class TtyUi {
                 if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
             } else if (base == "restore_menu") {
                 this->openRestore_();
+            } else if (base == "web_devices") {
+                this->_webPicked.clear();
+                this->_webCursor = 0;
+                this->_mode = Mode::WebDevices;
             } else if (base == "quit") {
                 this->_screen.Exit();
             } else if (base == "auth_login" || base == "auth_logout") {
@@ -2563,6 +2571,57 @@ class TtyUi {
                     ftxui::text(" its question is on the global session: " + this->_manager.config().keys.at("global") + " (or a click) to answer it") | ftxui::color(this->_theme.warn)})
                     | ftxui::dim, 0, [this]() {(void)this->shortcut_("global");}), 80);
             }
+            if (this->_mode == Mode::WebApprove && this->_app.web) {
+                // who it is: its name, its address, its browser, since when
+                const cluster::WebStatus status = this->_app.web->status();
+                auto it = std::find_if(status.devices.begin(), status.devices.end(), [this](const cluster::WebDevice& d) {return d.id == this->_webAsk;});
+                if (it == status.devices.end() || it->state != "waiting") {
+                    this->_mode = Mode::Normal;
+                } else {
+                    const cluster::WebDevice& d = *it;
+                    return box(ftxui::vbox({ftxui::text(" A device asks to connect to the web access") | ftxui::bold, ftxui::text(""),
+                        ftxui::text("   name     " + d.name) | ftxui::color(this->_theme.text), ftxui::text("   address  " + d.address) | ftxui::color(this->_theme.text),
+                        ftxui::paragraph("   browser  " + cluster::one_line(d.agent, 160)) | ftxui::color(this->_theme.muted),
+                        ftxui::text("   asked    " + cluster::human_age(d.since / 1000) + " ago (its code was right)") | ftxui::color(this->_theme.muted), ftxui::text(""),
+                        ftxui::hbox({press(ftxui::text(" [a] Allow ") | ftxui::color(this->_theme.accent), ftxui::Event::Character('a')), ftxui::text("  "),
+                            press(ftxui::text(" [t] Allow and trust ") | ftxui::color(this->_theme.ok), ftxui::Event::Character('t')), ftxui::text("  "),
+                            press(ftxui::text(" [d] Deny ") | ftxui::color(this->_theme.error), ftxui::Event::Character('d')), ftxui::text("  "),
+                            press(ftxui::text(" Esc later ") | ftxui::color(this->_theme.muted), ftxui::Event::Escape)}),
+                        ftxui::text(" trusted: no code, no approval next time (palette: Web devices, to remove it)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 90);
+                }
+            }
+            if (this->_mode == Mode::WebDevices) {
+                // each device: ticked by Space or a click; kicked, its trust removed
+                ftxui::Elements lines = {ftxui::text(" Web devices") | ftxui::bold, ftxui::text("")};
+                const std::vector<std::pair<std::string, cluster::WebDevice>> rows = this->webRows_();
+                if (rows.empty()) lines.push_back(ftxui::text("   nobody connected, no trusted device") | ftxui::color(this->_theme.muted));
+                bool trustedTitle = false;
+                for (std::size_t i = 0; i < rows.size(); ++i) {
+                    const auto &[key, d] = rows[i];
+                    if (key.starts_with("t:") && !trustedTitle) {
+                        lines.push_back(ftxui::text(" trusted (no code, no approval)") | ftxui::color(this->_theme.muted));
+                        trustedTitle = true;
+                    }
+                    const bool picked = this->_webPicked.contains(key);
+                    const std::string state = d.state == "trusted" ? "last " + (d.seen > 0 ? cluster::human_age(d.seen / 1000) + " ago" : std::string("never"))
+                        : d.state + (d.trusted ? " · trusted" : "");
+                    ftxui::Element row = ftxui::text(std::string(picked ? " [x] " : " [ ] ") + d.name + "  " + d.address + "  " + state + " ");
+                    const int index = static_cast<int>(i);
+                    lines.push_back(this->tap_(index == this->_webCursor ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row | ftxui::color(this->_theme.text), 1,
+                        [this, index, key]() {
+                            this->_webCursor = index;
+                            if (!this->_webPicked.erase(key)) this->_webPicked.insert(key);
+                        }));
+                }
+                lines.push_back(ftxui::text(""));
+                lines.push_back(ftxui::hbox({press(ftxui::text(" [k] kick the ticked ") | ftxui::color(this->_theme.accent), ftxui::Event::Character('k')), ftxui::text(" "),
+                    press(ftxui::text(" [K] kick all ") | ftxui::color(this->_theme.error), ftxui::Event::Character('K')), ftxui::text(" "),
+                    press(ftxui::text(" [u] trust no more ") | ftxui::color(this->_theme.warn), ftxui::Event::Character('u')), ftxui::text(" "),
+                    press(ftxui::text(" [a/t/d] a waiting one ") | ftxui::color(this->_theme.muted), ftxui::Event::Character('a')), ftxui::text(" "),
+                    press(ftxui::text(" Esc ") | ftxui::color(this->_theme.muted), ftxui::Event::Escape)}));
+                lines.push_back(ftxui::text(" ↑↓ · Space / a click: tick · none ticked: the one under the cursor") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                return box(ftxui::vbox(std::move(lines)), 100);
+            }
             if (this->_mode == Mode::Restore) {
                 const std::vector<cluster::SessionSpec> previous = this->_manager.previous();
                 ftxui::Elements lines = {ftxui::text(" Restore the previous run?") | ftxui::bold, ftxui::text("")};
@@ -2600,7 +2659,66 @@ class TtyUi {
                 this->settingsAction_("machine_sync");
                 return;
             }
-            if (show) this->_mode = Mode::Question;
+            if (show) {
+                this->_mode = Mode::Question;
+                return;
+            }
+            // a device of the web access asks to connect: its popup (once; Esc: later, the palette)
+            if (this->_app.web)
+                for (const cluster::WebDevice& d: this->_app.web->status().devices)
+                    if (d.state == "waiting" && !this->_webLater.contains(d.id)) {
+                        this->_webAsk = d.id;
+                        this->_mode = Mode::WebApprove;
+                        return;
+                    }
+        }
+
+        _nodiscard std::vector<std::pair<std::string, cluster::WebDevice>> webRows_(void) const
+        {
+            // the devices waiting and connected ("d:<id>"), then the trusted ones ("t:<id>")
+            std::vector<std::pair<std::string, cluster::WebDevice>> rows;
+            if (!this->_app.web) return rows;
+            const cluster::WebStatus status = this->_app.web->status();
+            for (const cluster::WebDevice& d: status.devices)
+                rows.emplace_back("d:" + d.id, d);
+            for (const cluster::WebDevice& d: status.trusted)
+                rows.emplace_back("t:" + d.id, d);
+            return rows;
+        }
+
+        void webDo_(const std::string& what)
+        {
+            // kick (the ticked ones, else the one under the cursor), all, untrust, a waiting one answered
+            if (!this->_app.web) return;
+            const std::vector<std::pair<std::string, cluster::WebDevice>> rows = this->webRows_();
+            std::vector<std::string> devices;
+            std::vector<std::string> trusted;
+            for (const auto &[key, d]: rows)
+                if (this->_webPicked.contains(key)) (key.starts_with("t:") ? trusted : devices).push_back(d.id);
+            if (devices.empty() && trusted.empty() && this->_webCursor < static_cast<int>(rows.size())) {
+                const auto &[key, d] = rows[static_cast<std::size_t>(this->_webCursor)];
+                (key.starts_with("t:") ? trusted : devices).push_back(d.id);
+            }
+            try {
+                if (what == "kick_all") {
+                    this->_app.web->kick();
+                    this->status_("web: every device disconnected, a new code");
+                } else if (what == "kick" && !devices.empty()) {
+                    this->_app.web->kick(devices);
+                    this->status_("web: " + std::to_string(devices.size()) + " disconnected");
+                } else if (what == "untrust") {
+                    std::vector<std::string> ids = trusted;
+                    if (ids.empty()) ids = devices; // a connected trusted device: its trust
+                    this->_app.web->untrust(ids);
+                    this->status_("web: trusted no more");
+                } else if (what == "allow" || what == "trust" || what == "deny") {
+                    for (const auto &[key, d]: rows)
+                        if (d.state == "waiting" && (std::find(devices.begin(), devices.end(), d.id) != devices.end())) this->_app.web->approve(d.id, what);
+                }
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
+            }
+            this->_webPicked.clear();
         }
 
         void askNext_(void)
@@ -2647,7 +2765,15 @@ class TtyUi {
                     [this]() {(void)this->shortcut_("settings");}),
                 key(" " + layout, "layout"),
                 ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
-                web.empty() ? ftxui::emptyElement() : ftxui::text("  " + web + " ") | ftxui::bold | ftxui::color(this->_theme.accent),
+                web.empty() ? ftxui::emptyElement() : this->tap_(ftxui::text("  " + web + " ") | ftxui::bold | ftxui::color(this->_theme.accent), 0, [this]() {
+                    // its code copied (ready to paste in the page), the devices dialog when one waits
+                    const cluster::WebStatus status = this->_app.web->status();
+                    std::string digits;
+                    for (const char c: status.pin)
+                        if (c >= '0' && c <= '9') digits += c;
+                    cluster::detach({"wl-copy", "--", digits});
+                    this->status_("web: code " + status.pin + " copied");
+                }),
                 ftxui::filler(),
                 key(c.keys.at("palette") + " palette", "palette"), dot(), key(c.keys.at("settings") + " settings", "settings"), dot(),
                 key(c.keys.at("next_session") + "/" + c.keys.at("prev_session") + " session", "next_session"), dot(), key(c.keys.at("global") + " global", "global"), dot(),
@@ -2895,6 +3021,45 @@ class TtyUi {
                     } else if (multi && event == ftxui::Event::Character(' ')) {
                         asking.toggle();
                     }
+                    return true;
+                }
+                case Mode::WebApprove: {
+                    // a: allow, t: allow and trust, d: deny, Esc: later (the palette asks it again)
+                    std::string answer;
+                    if (event == ftxui::Event::Character('a') || event == ftxui::Event::Return) answer = "allow";
+                    else if (event == ftxui::Event::Character('t')) answer = "trust";
+                    else if (event == ftxui::Event::Character('d')) answer = "deny";
+                    else if (event == ftxui::Event::Escape) {
+                        this->_webLater.insert(this->_webAsk);
+                        this->_mode = Mode::Normal;
+                        this->status_("web: answered later (palette: Web: allow / deny)");
+                        return true;
+                    } else {
+                        return true;
+                    }
+                    try {
+                        if (this->_app.web) this->_app.web->approve(this->_webAsk, answer);
+                        this->status_(answer == "deny" ? "web: denied" : answer == "trust" ? "web: allowed and trusted" : "web: allowed");
+                    } catch (const utils::exception::IException& e) {
+                        this->status_(e.info(), true);
+                    }
+                    this->_mode = Mode::Normal;
+                    return true;
+                }
+                case Mode::WebDevices: {
+                    const int count = static_cast<int>(this->webRows_().size());
+                    if (event == ftxui::Event::Escape) this->_mode = Mode::Normal;
+                    else if (event == ftxui::Event::ArrowDown) this->_webCursor = std::min(this->_webCursor + 1, std::max(0, count - 1));
+                    else if (event == ftxui::Event::ArrowUp) this->_webCursor = std::max(0, this->_webCursor - 1);
+                    else if ((event == ftxui::Event::Character(' ') || event == ftxui::Event::Return) && this->_webCursor < count) {
+                        const std::string row = this->webRows_()[static_cast<std::size_t>(this->_webCursor)].first;
+                        if (!this->_webPicked.erase(row)) this->_webPicked.insert(row);
+                    } else if (event == ftxui::Event::Character('k')) this->webDo_("kick");
+                    else if (event == ftxui::Event::Character('K')) this->webDo_("kick_all");
+                    else if (event == ftxui::Event::Character('u')) this->webDo_("untrust");
+                    else if (event == ftxui::Event::Character('a')) this->webDo_("allow");
+                    else if (event == ftxui::Event::Character('t')) this->webDo_("trust");
+                    else if (event == ftxui::Event::Character('d')) this->webDo_("deny");
                     return true;
                 }
                 case Mode::Palette:

@@ -91,7 +91,7 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `remote on\|off` | Remote Control of the global session |
 | `machine sync [--yes]` / `show` / `path` | map of this computer for the global session (asks first, `--yes`: not) |
 | `providers`, `notices` | backends and their state, last events |
-| `web [on\|off\|kick\|pin]` | web access on this LAN: its address, its code, the browser connected; open / close it for this run, the browser out, a new code |
+| `web [on\|off\|pin\|devices]`, `web approve <id> allow\|trust\|deny`, `web kick [ids\|all]`, `web untrust [ids\|all]` | web access on this LAN: its address, its code, its devices (waiting, connected, trusted); open / close it for this run, a new code, a device waiting answered, devices out (all: a new code), trusted no more |
 | `external [agent]` | the conversations of the agents opened outside claude-cluster (Claude Code, Codex, opencode, Qwen Code): agent, id, age, folder, title |
 | `import <agent> <id> [--name n] [--fork]` | one of them opened here as a session resuming it (its transcript shown); `--fork`: a copy (Claude Code), the original untouched |
 | `fork <s> [--name n]` | a copy of a session of Claude Code: its conversation so far, each one goes on apart |
@@ -332,6 +332,11 @@ start), and the custom MCP servers it gets too (`[mcp] servers`: `"name: command
 
 ### The icon and the notifications
 
+The settings have a **Notifications** page: all of them on / off, *when* (`unfocused`, default: only when
+claude-cluster is not in front, its own popups are; `always`), each kind on / off (the global session, a session
+finished, a permission, a question, an error, the limits, the web devices, the task queue, the reminders) and the
+sound.
+
 The icon is a stack of terminals whose front one has a face made of prompt characters; the app is `^_^`, and the face
 follows what claude-cluster does: the title of the terminal and its bar, the icon of the window, the tab of the web
 page, the dock (the number of the sessions waiting on you, else running: the Unity launcher API), `claude-cluster icon
@@ -503,11 +508,17 @@ the agents, a new session, a session closed.
 
 - Open: settings page > Web (`[web] enabled`, opened at every start), the palette *Web access: open*, `claude-cluster
   web on` (this run), `claude-cluster --web`. Its address and its code are shown at the top of the interface:
-  `web http://192.168.1.12:8787 · code 123 456 · free`.
-- **A 6-digit code**, new at every opening, after 5 wrong ones (each wrong one answered 1 s later) and on a kick.
-- **One browser at a time**: while one is connected (30 s without a request from it: gone), any other one is refused,
-  even with the code; *Web access: disconnect* (`web kick`) puts it out with a new code, *Log out* in the page frees
-  the place. The cookie is bound to the address it was given to.
+  `web https://192.168.1.12:8787 · code 123 456 · 2 connected · 1 waiting for you`; a click on it copies the code
+  (ready to paste in the page).
+- **A 6-digit code**, new at every opening, after 5 wrong ones (each wrong one answered 1 s later) and on a kick of
+  every device.
+- **Then your approval here** (`[web] approve`, on): the device waits, its popup shows its name (typed in its page,
+  else its browser and system), its address and its browser: **Allow**, **Allow and trust** (no code nor approval
+  next time), **Deny**, *Later* (the palette: *Web: allow ...*); the notification has the same buttons.
+- **Several devices at once**, each one its cookies (bound to its address; 30 s without a request: gone).
+- **Web devices** (the palette, the *devices* link of the window, `web devices`): tick devices, then kick them, kick
+  all of them (a new code), or remove their trust (the code asked again); trusted devices are kept in
+  `~/.config/claude-cluster/web/trusted.json` (0600).
 - **This network only**: the browser must have a private address (10/8, 172.16/12, 192.168/16, 169.254/16) of the
   subnet of one of the interfaces of this computer (or be on this computer); the page answers only by the address or
   the name of this computer (a public name pointed at the LAN refused) and the requests of another site are refused.

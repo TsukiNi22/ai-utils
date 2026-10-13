@@ -121,6 +121,13 @@ _cold void cluster::Config::load(void)
     this->notifyDone = table["ui"]["notify_done"].value_or(this->notifyDone);
     this->notifyPermission = table["ui"]["notify_permission"].value_or(this->notifyPermission);
     this->notifySound = table["ui"]["notify_sound"].value_or(this->notifySound);
+    this->notifyWhen = table["ui"]["notify_when"].value_or(this->notifyWhen);
+    this->notifyQuestion = table["ui"]["notify_question"].value_or(this->notifyQuestion);
+    this->notifyError = table["ui"]["notify_error"].value_or(this->notifyError);
+    this->notifyLimits = table["ui"]["notify_limits"].value_or(this->notifyLimits);
+    this->notifyWeb = table["ui"]["notify_web"].value_or(this->notifyWeb);
+    this->notifyTasks = table["ui"]["notify_tasks"].value_or(this->notifyTasks);
+    this->notifyReminders = table["ui"]["notify_reminders"].value_or(this->notifyReminders);
     this->vim = table["ui"]["vim"].value_or(this->vim);
     this->pasteLines = table["ui"]["paste_lines"].value_or(this->pasteLines);
     this->pasteChars = table["ui"]["paste_chars"].value_or(this->pasteChars);
@@ -203,6 +210,7 @@ _cold void cluster::Config::load(void)
     this->web.enabled = table["web"]["enabled"].value_or(this->web.enabled);
     this->web.port = table["web"]["port"].value_or(this->web.port);
     this->web.https = table["web"]["https"].value_or(this->web.https);
+    this->web.approve = table["web"]["approve"].value_or(this->web.approve);
 
     /* service */
     toml::node_view<const toml::node> sv = std::as_const(table)["service"];

@@ -22,6 +22,7 @@ File Description:
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include <filesystem>           // std::filesystem::path
+    #include <functional>           // std::function
     #include <string>               // std::string
     #include <vector>               // std::vector
 
@@ -51,6 +52,7 @@ struct Notification {
     std::string sound;              // a sound of the desktop theme: complete, message, message-new-instant, dialog-warning... (empty: none)
     std::vector<std::pair<std::string, std::string>> actions{};  // <key, label>: open, allow, deny, always, opt0..opt2
     std::string requestId{};        // the permission / question its buttons answer
+    std::function<void(const std::string&)> onAction{};    // its buttons answered by this (else: open, a permission, a question)
 };
 
 // The face of the app now and the number shown on it

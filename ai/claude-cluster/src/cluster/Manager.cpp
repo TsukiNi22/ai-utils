@@ -512,7 +512,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
         case cluster::Event::Kind::Permission:
             if (event.text.starts_with("AskUserQuestion: ")) { // a question of the agent: its popup in the interfaces
                 this->notice_(event.session, name + " asks: " + event.text.substr(17));
-                if (this->_config.notifyPermission) {
+                {
                     // its options as buttons (one question, one choice), else open it
                     cluster::Notification n{event.session, name + " · question", event.text.substr(17), cluster::Face::Attentive, true, "message-new-instant"};
                     const std::optional<cluster::Snapshot> asked = this->snapshot(event.session);
@@ -524,7 +524,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                                 n.actions.emplace_back("opt" + std::to_string(i), cluster::one_line(questions[0]["options"][i].value("label", std::string()), 24));
                     }
                     n.actions.emplace_back("open", "Open");
-                    (void)this->notify(n);
+                    (void)this->notify(n, "question");
                 }
                 const std::optional<cluster::Snapshot> snap = this->snapshot(event.session);
                 if (this->_config.globalAnswers && event.session != GLOBAL_ID && snap && !snap->permissions.empty() && this->snapshot(GLOBAL_ID)) {
@@ -539,7 +539,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 break;
             }
             this->notice_(event.session, name + " waits for a permission: " + event.text);
-            if (this->_config.notifyPermission) {
+            {
                 // allowed / denied from the notification; the safety check of Claude Code: its own face
                 const std::optional<cluster::Snapshot> asked = this->snapshot(event.session);
                 const bool safety = asked && !asked->permissions.empty() && asked->permissions.back().safety;
@@ -548,7 +548,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 if (asked && !asked->permissions.empty()) n.requestId = asked->permissions.back().requestId;
                 n.actions = safety ? std::vector<std::pair<std::string, std::string>>{{"allow", "Run it anyway"}, {"deny", "Leave it"}, {"open", "Open"}}
                     : std::vector<std::pair<std::string, std::string>>{{"allow", "Allow"}, {"deny", "Deny"}, {"open", "Open"}};
-                (void)this->notify(n);
+                (void)this->notify(n, safety ? "error" : "permission");
             }
             if (event.session != GLOBAL_ID && this->_config.bypassToGlobal) {
                 // a sub-session in bypassPermissions: the global session decides (the user can still answer it)
@@ -583,11 +583,8 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 this->notice_(event.session, name + ": interrupted");
             } else if (event.session == GLOBAL_ID) {
                 if (this->onGlobalAnswer && !event.error) this->onGlobalAnswer(event.text);
-                // notified only when claude-cluster has not the focus (the answer is in front of the user otherwise)
-                if (this->_config.notifyGlobal && this->_focused != 1)
-                    (void)this->notify({GLOBAL_ID, event.error ? "global session · error" : "global session", event.text, event.error ? cluster::Face::Waiting : cluster::Face::Happy,
-                        event.error, event.error ? "dialog-warning" : "message", {{"open", "Open"}}});
-                else if (!event.error) this->_moment = {cluster::Face::Happy, cluster::now()};
+                (void)this->notify({GLOBAL_ID, event.error ? "global session · error" : "global session", event.text, event.error ? cluster::Face::Waiting : cluster::Face::Happy,
+                    event.error, event.error ? "dialog-warning" : "message", {{"open", "Open"}}}, event.error ? "error" : "global");
             } else {
                 // asked by the global session (session_send reply): its answer goes back to it, it wakes up on it
                 bool reply = false;
@@ -618,11 +615,9 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 std::string took;
                 if (const std::optional<cluster::Snapshot> done = this->snapshot(event.session); done && !event.error)
                     took = " (" + cluster::human_tokens(done->metrics.last.total()) + " tokens)";
-                if (this->_config.notifyDone)
-                    (void)this->notify({event.session, name + (limit ? " · limit reached" : event.error ? " · error" : " · finished") + took, event.text,
-                        limit ? cluster::Face::Idle : event.error ? cluster::Face::Waiting : cluster::Face::Grin, event.error && !limit,
-                        limit ? "message" : event.error ? "dialog-warning" : "complete", {{"open", "Open"}}});
-                else if (!event.error) this->_moment = {cluster::Face::Grin, cluster::now()};
+                (void)this->notify({event.session, name + (limit ? " · limit reached" : event.error ? " · error" : " · finished") + took, event.text,
+                    limit ? cluster::Face::Idle : event.error ? cluster::Face::Waiting : cluster::Face::Grin, event.error && !limit,
+                    limit ? "message" : event.error ? "dialog-warning" : "complete", {{"open", "Open"}}}, limit ? "limit" : event.error ? "error" : "done");
             }
             this->taskDone_(event.session, event.error);
             break;
@@ -644,7 +639,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 break;
             }
             this->notice_(event.session, name + ": " + event.text, true);
-            (void)this->notify({event.session, name + " · stopped", event.text, cluster::Face::Waiting, true, "dialog-error", {{"open", "Open"}}});
+            (void)this->notify({event.session, name + " · stopped", event.text, cluster::Face::Waiting, true, "dialog-error", {{"open", "Open"}}}, "error");
             break;
         }
     }
@@ -891,11 +886,16 @@ _cold static std::string markup_(const std::string& text)
     return out;
 }
 
-bool cluster::Manager::notify(const cluster::Notification& n)
+bool cluster::Manager::notify(const cluster::Notification& n, const std::string& kind)
 {
     // failsafe: no notify-send, no desktop... nothing said; its buttons answered in a thread of its own (notify-send waits)
     if (n.face == cluster::Face::Grin || n.face == cluster::Face::Happy) this->_moment = {n.face, cluster::now()};
     if (!this->_config.notify) return false;
+    const cluster::Config& c = this->_config;
+    const std::map<std::string, bool> kinds = {{"global", c.notifyGlobal}, {"done", c.notifyDone}, {"permission", c.notifyPermission}, {"question", c.notifyQuestion},
+        {"error", c.notifyError}, {"limit", c.notifyLimits}, {"web", c.notifyWeb}, {"task", c.notifyTasks}, {"reminder", c.notifyReminders}};
+    if (kinds.contains(kind) && !kinds.at(kind)) return false;
+    if (c.notifyWhen != "always" && this->_focused == 1) return false; // in front of the user: its popups there
     const std::string key = n.session.empty() ? "-" : n.session;
     std::vector<std::string> args = {"notify-send", "-a", "claude-cluster", "-i", cluster::face_file(n.face).string(), "-h", "string:desktop-entry:claude-cluster",
         "-u", n.urgent ? "critical" : "normal", "-p"};
@@ -928,8 +928,13 @@ bool cluster::Manager::notify(const cluster::Notification& n)
             }
         }
         if (chosen.empty()) return;
-        // its button: the session shown, its permission or question answered
+        // its button: its owner (a device to approve...), else the session shown, its permission or question answered
         try {
+            if (n.onAction) {
+                n.onAction(chosen);
+                ++this->_version;
+                return;
+            }
             if (!n.session.empty()) this->requestFocus(n.session);
             if (chosen == "allow" || chosen == "deny" || chosen == "always") {
                 this->answer(n.session, n.requestId, chosen);
