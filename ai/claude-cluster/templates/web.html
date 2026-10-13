@@ -80,6 +80,22 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .bar { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; max-width: 420px; }
 .msg.display .bar div { height: 100%; background: var(--accent); }
 .msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
+.msg.display pre.term { background: #1e1e1e; color: #e5e5e5; }
+.msg.display .diff-add { color: var(--ok); } .msg.display .diff-del { color: var(--error); } .msg.display .diff-hunk { color: var(--accent); }
+.msg.display .steps div { padding: 2px 0; } .msg.display .done { color: var(--ok); } .msg.display .current { color: var(--accent); font-weight: 600; }
+.msg.display .todo { color: var(--muted); } .msg.display .fail { color: var(--error); }
+.msg.display .kanban { display: flex; gap: 8px; overflow-x: auto; }
+.msg.display .kanban .col { background: var(--surface); border-radius: 8px; padding: 8px; min-width: 150px; flex: 1; }
+.msg.display .kanban .card { border: 1px solid var(--line); border-radius: 6px; padding: 6px; margin-top: 6px; background: var(--bg); }
+.msg.display .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.msg.display .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.msg.display .metrics { display: flex; gap: 8px; flex-wrap: wrap; }
+.msg.display .metric { background: var(--surface); border-radius: 8px; padding: 8px 12px; min-width: 120px; }
+.msg.display .metric .value { font-size: 22px; font-weight: 700; }
+.msg.display .up { color: var(--ok); } .msg.display .down { color: var(--error); }
+.msg.display form.fields { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; align-items: center; max-width: 520px; }
+.msg.display .math { font-size: 18px; font-style: italic; }
+.msg.display details summary { cursor: pointer; font-weight: 600; }
 .msg pre { background: var(--code); padding: 8px 10px; border-radius: 8px; overflow-x: auto; font: 13px/1.4 ui-monospace, Menlo, monospace; white-space: pre; }
 #ask, #pending { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
 #ask .what { font-weight: 600; }
@@ -486,6 +502,7 @@ function drawDisplay(div, d) {
         for (const r of d.rows || []) { const tr = table.insertRow(); for (const c of Array.isArray(r) ? r : [r]) tr.insertCell().textContent = cell(c); }
         div.append(table);
     } else if (d.type === "chart") div.append(chart(d));
+    else if (more[d.type]) more[d.type](div, d);
     else div.append(picture(d));
     const caption = d.alt || d.caption;
     if (caption && (d.type === "image" || d.type === "diagram" || d.type === "svg")) {
@@ -495,6 +512,296 @@ function drawDisplay(div, d) {
         div.append(c);
     }
 }
+
+function ansi(text) {
+    // a terminal output with its colors (16, 256, 24-bit) as spans
+    const base = ["#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5", "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#ffffff"];
+    const pal = (n) => {
+        if (n < 16) return base[n];
+        if (n >= 232) { const g = 8 + (n - 232) * 10; return `rgb(${g},${g},${g})`; }
+        const c = n - 16, l = (v) => (v ? 55 + v * 40 : 0);
+        return `rgb(${l(Math.floor(c / 36))},${l(Math.floor(c / 6) % 6)},${l(c % 6)})`;
+    };
+    const pre = document.createElement("pre");
+    pre.className = "term";
+    let fg = "", bg = "";
+    for (const part of text.split(/(\x1b\[[0-9;]*m)/)) {
+        const m = /^\x1b\[([0-9;]*)m$/.exec(part);
+        if (!m) {
+            const clean = part.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
+            if (!clean) continue;
+            const span = document.createElement("span");
+            span.textContent = clean;
+            if (fg) span.style.color = fg;
+            if (bg) span.style.background = bg;
+            pre.append(span);
+            continue;
+        }
+        const codes = (m[1] || "0").split(";").map(Number);
+        for (let k = 0; k < codes.length; k++) {
+            const c = codes[k];
+            if (c === 0) { fg = ""; bg = ""; }
+            else if (c >= 30 && c <= 37) fg = base[c - 30]; else if (c >= 90 && c <= 97) fg = base[c - 82];
+            else if (c >= 40 && c <= 47) bg = base[c - 40]; else if (c >= 100 && c <= 107) bg = base[c - 92];
+            else if ((c === 38 || c === 48) && codes[k + 1] === 5) { (c === 38) ? fg = pal(codes[k + 2]) : bg = pal(codes[k + 2]); k += 2; }
+            else if ((c === 38 || c === 48) && codes[k + 1] === 2) { const v = `rgb(${codes[k + 2]},${codes[k + 3]},${codes[k + 4]})`; (c === 38) ? fg = v : bg = v; k += 4; }
+            else if (c === 39) fg = ""; else if (c === 49) bg = "";
+        }
+    }
+    return pre;
+}
+
+function jsonTree(value, key, depth) {
+    // a JSON value folded under its key (open for the first levels)
+    if (value === null || typeof value !== "object") {
+        const line = document.createElement("div");
+        line.textContent = (key !== undefined ? key + ": " : "") + JSON.stringify(value);
+        line.style.color = typeof value === "string" ? "var(--ok)" : typeof value === "number" ? "var(--warn)" : "var(--text)";
+        return line;
+    }
+    const details = document.createElement("details");
+    details.open = depth < 2;
+    const summary = document.createElement("summary");
+    const size = Array.isArray(value) ? value.length : Object.keys(value).length;
+    summary.textContent = (key !== undefined ? key + ": " : "") + (Array.isArray(value) ? "[" : "{") + " " + size + (Array.isArray(value) ? " ]" : " }");
+    details.append(summary);
+    const inner = document.createElement("div");
+    inner.style.marginLeft = "16px";
+    for (const [k, v] of Object.entries(value)) inner.append(jsonTree(v, Array.isArray(value) ? "[" + k + "]" : k, depth + 1));
+    details.append(inner);
+    return details;
+}
+
+function fileTree(node, prefix, last, root) {
+    // a folder and its files, ├── └──, its git state
+    const lines = [];
+    const name = node.name + (node.dir ? "/" : "") + (node.git ? "  " + node.git : "");
+    lines.push({text: root ? name : prefix + (last ? "└── " : "├── ") + name, kind: node.dir ? "d" : node.git === "??" ? "n" : node.git ? "m" : "f"});
+    const children = node.children || [];
+    children.forEach((c, i) => lines.push(...fileTree(c, root ? "" : prefix + (last ? "    " : "│   "), i === children.length - 1, false)));
+    return lines;
+}
+
+async function displayAct(d, act) {
+    try {
+        const data = await cmd(Object.assign({cmd: "display_act", session: current, id: d.id}, act));
+        if (data && data.done) toast(data.done);
+        refresh();
+    } catch (error) { toast(error.message); }
+}
+
+const more = {
+    diff(div, d) {
+        const pre = document.createElement("pre");
+        for (const line of (d.diff || "").split("\n")) {
+            const span = document.createElement("span");
+            span.className = line.startsWith("+++") || line.startsWith("---") ? "" : line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : line.startsWith("@@") ? "diff-hunk" : "";
+            span.textContent = line + "\n";
+            pre.append(span);
+        }
+        div.append(pre);
+    },
+    json(div, d) { div.append(jsonTree(d.data, undefined, 0)); },
+    tree(div, d) {
+        const pre = document.createElement("pre");
+        const colors = {d: "var(--accent)", n: "var(--ok)", m: "var(--warn)", f: "var(--text)"};
+        for (const line of fileTree(d.root || {name: "."}, "", true, true)) {
+            const span = document.createElement("span");
+            span.style.color = colors[line.kind];
+            if (line.kind === "d") span.style.fontWeight = "600";
+            span.textContent = line.text + "\n";
+            pre.append(span);
+        }
+        div.append(pre);
+    },
+    terminal(div, d) {
+        if (d.command) { const c = document.createElement("div"); c.textContent = "$ " + d.command; c.style.color = "var(--accent)"; div.append(c); }
+        div.append(ansi(d.output || ""));
+    },
+    checklist(div, d) {
+        (d.items || []).forEach((item, i) => {
+            const label = document.createElement("label");
+            label.style.display = "block";
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            box.checked = !!item.done;
+            box.addEventListener("change", () => displayAct(d, {item: i, done: box.checked}));
+            label.append(box, document.createTextNode(" " + item.text));
+            if (item.done) label.style.color = "var(--muted)";
+            div.append(label);
+        });
+    },
+    steps(div, d) {
+        const box = document.createElement("div");
+        box.className = "steps";
+        const icons = {done: "✔", current: "●", error: "✗", todo: "○"};
+        const classes = {done: "done", current: "current", error: "fail", todo: "todo"};
+        for (const s of d.steps || []) {
+            const line = document.createElement("div");
+            line.className = classes[s.state] || "todo";
+            line.textContent = (icons[s.state] || "○") + " " + s.text;
+            box.append(line);
+        }
+        div.append(box);
+    },
+    timeline(div, d) {
+        const tasks = d.tasks || [];
+        const low = Math.min(...tasks.map((t) => t.from)), high = Math.max(...tasks.map((t) => t.to));
+        const span = Math.max(1e-9, high - low), W = 720, L = 150, R = 170;
+        const svg = svgOf("svg", {viewBox: `0 0 ${W} ${tasks.length * 26 + 10}`, width: W, height: tasks.length * 26 + 10});
+        const colors = ["var(--accent)", "var(--ok)", "var(--warn)", "var(--error)"];
+        tasks.forEach((t, k) => {
+            const y = 5 + k * 26, a = L + (t.from - low) / span * (W - L - R), b = L + (t.to - low) / span * (W - L - R);
+            const name = svgOf("text", {x: L - 8, y: y + 14, "font-size": 12, fill: "var(--text)", "text-anchor": "end"});
+            name.textContent = t.name;
+            const dates = svgOf("text", {x: W - R + 8, y: y + 14, "font-size": 11, fill: "var(--muted)"});
+            dates.textContent = `${t.start} → ${t.end}`;
+            svg.append(name, svgOf("rect", {x: a, y: y + 3, width: Math.max(4, b - a), height: 14, rx: 3, fill: colors[k % colors.length]}), dates);
+        });
+        div.append(svg);
+    },
+    kanban(div, d) {
+        const board = document.createElement("div");
+        board.className = "kanban";
+        for (const c of d.columns || []) {
+            const col = document.createElement("div");
+            col.className = "col";
+            const head = document.createElement("b");
+            head.textContent = `${c.name} (${(c.cards || []).length})`;
+            col.append(head);
+            for (const card of c.cards || []) { const e = document.createElement("div"); e.className = "card"; e.textContent = typeof card === "string" ? card : JSON.stringify(card); col.append(e); }
+            board.append(col);
+        }
+        div.append(board);
+    },
+    actions(div, d) {
+        const row = document.createElement("div");
+        row.className = "actions";
+        (d.buttons || []).forEach((b, i) => {
+            const button = document.createElement("button");
+            button.className = "primary";
+            button.textContent = (b.clicked ? "✓ " : "") + b.label;
+            button.title = b.prompt || "";
+            button.addEventListener("click", () => displayAct(d, {item: i}));
+            row.append(button);
+        });
+        div.append(row);
+    },
+    form(div, d) {
+        const form = document.createElement("form");
+        form.className = "fields";
+        const values = d.values || {};
+        const reads = [];
+        for (const f of d.fields || []) {
+            const label = document.createElement("label");
+            label.textContent = f.label || f.name;
+            let input;
+            if (f.type === "choice") {
+                input = document.createElement("select");
+                for (const o of f.options || []) { const opt = document.createElement("option"); opt.textContent = o; input.append(opt); }
+            } else {
+                input = document.createElement("input");
+                input.type = f.type === "number" ? "number" : f.type === "date" ? "date" : f.type === "bool" ? "checkbox" : "text";
+            }
+            const value = values[f.name] !== undefined ? values[f.name] : f.value;
+            if (f.type === "bool") input.checked = value === true || value === "true";
+            else if (value !== undefined) input.value = value;
+            input.disabled = !!d.submitted;
+            reads.push(() => [f.name, f.type === "bool" ? input.checked : input.value]);
+            form.append(label, input);
+        }
+        const send = document.createElement("button");
+        send.className = "primary";
+        send.textContent = d.submitted ? "✓ sent" : d.submit || "Send";
+        send.disabled = !!d.submitted;
+        form.append(document.createElement("span"), send);
+        form.addEventListener("submit", (e) => { e.preventDefault(); displayAct(d, {values: Object.fromEntries(reads.map((r) => r()))}); });
+        div.append(form);
+    },
+    details(div, d) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = d.summary || "";
+        details.append(summary);
+        details.insertAdjacentHTML("beforeend", markdown(d.text || ""));
+        div.append(details);
+    },
+    compare(div, d) {
+        const grid = document.createElement("div");
+        grid.className = "compare";
+        for (const side of [d.left || {}, d.right || {}]) {
+            const box = document.createElement("div");
+            const title = document.createElement("b");
+            title.textContent = side.title || "";
+            const pre = document.createElement("pre");
+            pre.textContent = side.text || "";
+            box.append(title, pre);
+            grid.append(box);
+        }
+        div.append(grid);
+    },
+    metrics(div, d) {
+        const row = document.createElement("div");
+        row.className = "metrics";
+        for (const m of d.items || []) {
+            const tile = document.createElement("div");
+            tile.className = "metric";
+            const label = document.createElement("small");
+            label.textContent = m.label;
+            const value = document.createElement("div");
+            value.className = "value";
+            value.textContent = (m.value !== undefined ? m.value : "") + (m.unit || "");
+            tile.append(label, value);
+            if (m.delta !== undefined) {
+                const delta = document.createElement("div");
+                const down = String(m.delta).startsWith("-");
+                delta.className = down ? "down" : "up";
+                delta.textContent = (down ? "▼ " : "▲ ") + m.delta;
+                tile.append(delta);
+            }
+            if (m.trend) {
+                const t = m.trend.map(Number), lo = Math.min(...t), hi = Math.max(...t);
+                const svg = svgOf("svg", {viewBox: "0 0 100 24", width: 100, height: 24});
+                svg.append(svgOf("polyline", {points: t.map((v, i) => `${i * 100 / Math.max(1, t.length - 1)},${22 - (hi > lo ? (v - lo) / (hi - lo) * 20 : 10)}`).join(" "),
+                    fill: "none", stroke: "var(--accent)", "stroke-width": 2}));
+                tile.append(svg);
+            }
+            row.append(tile);
+        }
+        div.append(row);
+    },
+    heatmap(div, d) {
+        const rows = d.rows || [];
+        const columns = Math.max(...rows.map((r) => r.length), 1);
+        const high = Math.max(0, ...rows.flat().filter((v) => typeof v === "number"));
+        const size = Math.max(8, Math.min(26, Math.floor(560 / columns)));
+        const svg = svgOf("svg", {viewBox: `0 0 ${50 + columns * size} ${24 + rows.length * size}`, width: 50 + columns * size, height: 24 + rows.length * size});
+        rows.forEach((r, y) => {
+            const label = svgOf("text", {x: 44, y: 20 + y * size + size * 0.7, "font-size": 10, fill: "var(--muted)", "text-anchor": "end"});
+            label.textContent = (d.ylabels || [])[y] || "";
+            svg.append(label);
+            r.forEach((v, x) => {
+                const ratio = typeof v === "number" && high > 0 ? v / high : 0;
+                const cell = svgOf("rect", {x: 50 + x * size, y: 20 + y * size, width: size - 2, height: size - 2, rx: 2, fill: typeof v === "number" ? "var(--accent)" : "var(--line)",
+                    "fill-opacity": typeof v === "number" ? (0.15 + ratio * 0.85).toFixed(2) : 0.4});
+                const tip = svgOf("title", {});
+                tip.textContent = String(v === null ? "" : v);
+                cell.append(tip);
+                svg.append(cell);
+            });
+        });
+        (d.xlabels || []).forEach((l, x) => { const t = svgOf("text", {x: 50 + x * size, y: 12, "font-size": 10, fill: "var(--muted)"}); t.textContent = l; svg.append(t); });
+        div.append(svg);
+    },
+    audio(div, d) {
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.src = `data:${d.mime || "audio/wav"};base64,${d.data || ""}`;
+        div.append(audio);
+        if (d.alt || d.text) { const c = document.createElement("div"); c.className = "caption"; c.textContent = d.alt || d.text; div.append(c); }
+    },
+    math(div, d) { const m = document.createElement("div"); m.className = "math"; m.textContent = d.unicode || d.latex || ""; m.title = d.latex || ""; div.append(m); },
+};
 
 function renderDisplay(div, m) {
     let d;
@@ -511,7 +818,8 @@ function renderDisplay(div, m) {
 function renderTranscript(messages, error) {
     const box = $("transcript");
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-    const key = messages.length + ":" + (messages.length ? messages[messages.length - 1].text.length : 0) + ":" + (error || "");
+    const displays = messages.filter((m) => m.kind === "display").reduce((n, m) => n + m.text.length, 0); // a display ticked / updated: drawn again
+    const key = messages.length + ":" + (messages.length ? messages[messages.length - 1].text.length : 0) + ":" + displays + ":" + (error || "");
     if (key === lastKey) return;
     const first = lastKey === -1;
     lastKey = key;

@@ -18,9 +18,11 @@ File Description:
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
+#include <unistd.h>
 #include <iterator>
 #include <fstream>
 #include <random>
+#include <cmath>
 #include <set>
 
 /* tools */
@@ -362,10 +364,128 @@ _cold std::string cluster::Manager::editConversation(const std::string& id, cons
 }
 
 /* displays */
-_cold void cluster::Manager::display(const std::string& id, const cluster::Json& display)
+_cold static std::string spoken_(const cluster::Config& config, const std::string& text)
 {
-    // checked and made ready (a file read, a diagram drawn), shown in the transcript; the agent of the session never sees it
-    const cluster::Json ready = cluster::display_prepare(display);
-    this->get_(id)->append({{cluster::EntryKind::Display, ready.dump(-1, ' ', false, cluster::Json::error_handler_t::replace), "", cluster::now()}});
+    // an audio from a text: voice-say -o (the engine and the voice of the settings), a wav file of its own
+    const cluster::VoiceConf& conf = config.voice;
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / ("claude-cluster-say-" + std::to_string(::getpid()) + "-" + std::to_string(cluster::now()) + ".wav");
+    const std::string language = cluster::language_of(text);
+    std::vector<std::string> args = {cluster::expand_home(conf.sayCommand).string(), "-e", conf.sayEngine.empty() ? "piper" : conf.sayEngine, "-l", language,
+        "-f", language == "en" ? conf.voiceEn : conf.voiceFr, "-o", path.string(), text};
+    const cluster::Captured out = cluster::capture(args, "", 120);
+    std::error_code error;
+    if (out.code != 0 || !std::filesystem::exists(path, error))
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "audio: voice-say failed: " + cluster::one_line(out.out, 160));
+    return path.string();
+}
+
+_cold static std::string dump_(const cluster::Json& display)
+{
+    return display.dump(-1, ' ', false, cluster::Json::error_handler_t::replace);
+}
+
+_cold std::string cluster::Manager::display(const std::string& id, const cluster::Json& display)
+{
+    // checked and made ready (a file read, a diagram drawn, a text spoken), shown in the transcript; the agent of the session
+    // never sees it
+    cluster::Json input = display;
+    std::string spoken;
+    if (input.value("type", std::string()) == "audio" && !input.contains("path") && input.contains("text"))
+        input["path"] = spoken = spoken_(this->_config, input.value("text", std::string()));
+    const cluster::Json ready = cluster::display_prepare(input);
+    std::error_code error;
+    if (!spoken.empty()) std::filesystem::remove(spoken, error);
+    this->get_(id)->append({{cluster::EntryKind::Display, dump_(ready), "", cluster::now()}});
     ++this->_version;
+    return ready.value("id", std::string());
+}
+
+_cold std::optional<cluster::Json> cluster::Manager::displayOf(const std::string& id, const std::string& displayId) const
+{
+    const std::optional<cluster::Snapshot> snap = this->snapshot(id);
+    if (!snap) return std::nullopt;
+    for (auto it = snap->entries.rbegin(); it != snap->entries.rend(); ++it) {
+        if (it->kind != cluster::EntryKind::Display) continue;
+        const cluster::Json d = cluster::Json::parse(it->text, nullptr, false);
+        if (d.is_object() && d.value("id", std::string()) == displayId) return d;
+    }
+    return std::nullopt;
+}
+
+_cold void cluster::Manager::displayUpdate(const std::string& id, const std::string& displayId, const cluster::Json& display)
+{
+    if (!this->displayOf(id, displayId))
+        throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no display " + displayId + " in " + id);
+    cluster::Json input = display;
+    input["id"] = displayId;
+    if (input.value("type", std::string()) == "audio" && !input.contains("path") && input.contains("text"))
+        input["path"] = spoken_(this->_config, input.value("text", std::string()));
+    this->get_(id)->updateDisplay(displayId, dump_(cluster::display_prepare(input)));
+    ++this->_version;
+}
+
+_cold std::string cluster::Manager::displayAct(const std::string& id, const std::string& displayId, const cluster::Json& act)
+{
+    std::optional<cluster::Json> found = this->displayOf(id, displayId);
+    if (!found) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no display " + displayId + " in " + id);
+    cluster::Json d = *found;
+    const std::string type = d.value("type", std::string());
+    const std::size_t item = act.value("item", static_cast<std::size_t>(0));
+    std::string done;
+    if (type == "checklist") {
+        if (item >= d["items"].size()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no item " + std::to_string(item));
+        cluster::Json& entry = d["items"][item];
+        entry["done"] = act.contains("done") ? act.value("done", false) : !entry.value("done", false);
+        done = std::string(entry.value("done", false) ? "ticked: " : "unticked: ") + entry.value("text", std::string());
+    } else if (type == "actions") {
+        // its prompt to its session (default: the session of the display), as typed by the user
+        if (item >= d["buttons"].size()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no button " + std::to_string(item));
+        cluster::Json& button = d["buttons"][item];
+        const std::string target = this->resolve(button.value("session", id));
+        const std::string prompt = button.value("prompt", button.value("label", std::string()));
+        this->send(target, prompt);
+        button["clicked"] = cluster::now();
+        done = "sent to " + target + ": " + cluster::one_line(prompt, 80);
+    } else if (type == "form") {
+        // its values checked against their fields, then to the global session (its answer for the one who asked)
+        const cluster::Json values = act.value("values", cluster::Json::object());
+        cluster::Json kept = cluster::Json::object();
+        for (const cluster::Json& field: d["fields"]) {
+            const std::string name = field.value("name", std::string());
+            const std::string kind = field.value("type", std::string("text"));
+            if (!values.contains(name)) {
+                if (field.value("required", false)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, field.value("label", name) + ": required");
+                continue;
+            }
+            cluster::Json value = values[name];
+            if (kind == "number" && value.is_string()) {
+                try {
+                    const double number = std::stod(value.get<std::string>());
+                    value = number == std::floor(number) && std::abs(number) < 1e15 ? cluster::Json(static_cast<long long>(number)) : cluster::Json(number);
+                } catch (const std::exception&) {
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, field.value("label", name) + ": a number");
+                }
+            }
+            if (kind == "bool" && value.is_string()) value = value.get<std::string>() == "true" || value.get<std::string>() == "yes" || value.get<std::string>() == "1";
+            if (kind == "choice" && field.contains("options") && !value.is_string())
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, field.value("label", name) + ": one of its options");
+            kept[name] = value;
+        }
+        d["values"] = kept;
+        d["submitted"] = true;
+        if (this->snapshot(GLOBAL_ID)) this->send(GLOBAL_ID, "[form \"" + d.value("title", displayId) + "\" (" + displayId + ") filled by the user] " + kept.dump());
+        done = "form sent";
+    } else if (type == "audio") {
+        // played on this computer (the web page plays it itself)
+        const std::filesystem::path path = std::filesystem::temp_directory_path() / ("claude-cluster-play-" + displayId);
+        std::ofstream(path, std::ios::binary) << cluster::display_bytes(d);
+        const std::string player = cluster::has_command("pw-play") ? "pw-play" : cluster::has_command("paplay") ? "paplay" : "aplay";
+        cluster::detach({"sh", "-c", player + " \"$0\"; rm -f \"$0\"", path.string()});
+        return "playing";
+    } else {
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, type + ": nothing to do on it");
+    }
+    this->get_(id)->updateDisplay(displayId, dump_(d));
+    ++this->_version;
+    return done;
 }

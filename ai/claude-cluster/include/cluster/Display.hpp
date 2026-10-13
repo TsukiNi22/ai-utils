@@ -55,6 +55,21 @@ _cold _nodiscard std::vector<std::vector<cluster::Cell>> display_cells(const std
 // the bytes of its picture (image, diagram: its PNG, svg: its SVG), empty: none
 _cold _nodiscard std::string display_bytes(const cluster::Json& display);
 
+// a text with its ANSI colors (16, 256, 24-bit) as lines of colored runs (a terminal output, chafa)
+_cold _nodiscard std::vector<std::vector<cluster::Cell>> ansi_cells(const std::string& text);
+
+// LaTeX as Unicode (Greek letters, operators, superscripts / subscripts, \frac, \sqrt)
+_cold _nodiscard std::string display_math(const std::string& latex);
+
+// a sparkline of numbers (▁ to █), at most width characters
+_cold _nodiscard std::string display_spark(const cluster::Json& values, const std::size_t width);
+
+// a JSON value as indented lines "key: value" (depth levels, max lines), and the kind of each line (key / string / number / other)
+_cold _nodiscard std::vector<std::pair<std::string, char>> display_json_lines(const cluster::Json& data, const int depth, const std::size_t max);
+
+// a tree of files as lines "├── name" (folders end with /, its git state after), and its kind (d: folder, f: file, m: changed, n: new)
+_cold _nodiscard std::vector<std::pair<std::string, char>> display_tree_lines(const cluster::Json& root);
+
 // the types and their fields, for the MCP tool and the help
 _cold _nodiscard std::string display_help(void);
 

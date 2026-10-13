@@ -817,6 +817,39 @@ _cold void cluster::Session::append(const std::vector<cluster::Entry>& entries)
     this->touch_();
 }
 
+_cold void cluster::Session::updateDisplay(const std::string& displayId, const std::string& text)
+{
+    // the last display of this id replaced; the log written again with it (the next start shows it so)
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    const std::string mark = "\"id\":\"" + displayId + "\"";
+    for (auto it = this->_data.entries.rbegin(); it != this->_data.entries.rend(); ++it)
+        if (it->kind == cluster::EntryKind::Display && it->text.find(mark) != std::string::npos) {
+            it->text = text;
+            break;
+        }
+    std::ifstream in(this->_launch.log);
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(in, line))
+        lines.push_back(line);
+    in.close();
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
+        if (it->find(mark) == std::string::npos) continue;
+        cluster::Json json = cluster::Json::parse(*it, nullptr, false);
+        if (!json.is_object() || json.value("kind", 0) != static_cast<int>(cluster::EntryKind::Display)) continue;
+        json["text"] = text;
+        *it = json.dump();
+        break;
+    }
+    this->_log.close();
+    std::ofstream out(this->_launch.log, std::ios::trunc);
+    for (const std::string& kept: lines)
+        out << kept << "\n";
+    out.close();
+    this->_log.open(this->_launch.log, std::ios::app);
+    this->touch_();
+}
+
 _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool)
 {
     if (text.empty() && kind != cluster::EntryKind::Tool) return;

@@ -261,6 +261,11 @@ _cold void cluster::Voice::heard_(const std::string& heard)
         ++this->_version;
         return;
     }
+    if (const std::string clicked = this->clickAction_(text); !clicked.empty()) { // the label of an action shown
+        this->_manager.notice(GLOBAL_ID, "voice: \"" + text + "\": " + clicked);
+        ++this->_version;
+        return;
+    }
     if (this->command_(text)) return; // "annule" / "envoie" said alone: on what waits (no wake phrase needed)
     text = cluster::vocabulary_correct(text, this->terms_()); // the proper names the recognition bent
     const bool late = conf.mode == "push" && !this->_open; // the end of a sentence after F5: joins what is waiting
@@ -340,6 +345,33 @@ _cold std::string cluster::Voice::voiceWord(const std::string& text) const
     };
     if (said.empty()) return "";
     return is(words.cancel) ? "cancel" : is(words.send) ? "send" : "";
+}
+
+_cold std::string cluster::Voice::clickAction_(const std::string& text)
+{
+    // the buttons of the actions displays (the session shown, the global one): the one whose label is said, clicked
+    const std::string said = cluster::vocabulary_key(text);
+    if (said.size() < 3) return "";
+    for (const std::string& id: {this->_manager.active(), std::string(GLOBAL_ID)}) {
+        const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(id);
+        if (!snap) continue;
+        std::size_t seen = 0;
+        for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && seen < 10; ++it) {
+            if (it->kind != cluster::EntryKind::Display) continue;
+            ++seen;
+            const cluster::Json d = cluster::Json::parse(it->text, nullptr, false);
+            if (!d.is_object() || d.value("type", std::string()) != "actions") continue;
+            for (std::size_t i = 0; i < d["buttons"].size(); ++i)
+                if (cluster::vocabulary_key(d["buttons"][i].value("label", std::string())) == said) {
+                    try {
+                        return this->_manager.displayAct(id, d.value("id", std::string()), {{"item", i}});
+                    } catch (const utils::exception::IException& e) {
+                        return e.info();
+                    }
+                }
+        }
+    }
+    return "";
 }
 
 _cold bool cluster::Voice::command_(const std::string& text)

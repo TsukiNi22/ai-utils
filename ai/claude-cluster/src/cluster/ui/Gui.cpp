@@ -199,7 +199,8 @@ class SessionView: public QFrame {
         std::map<QString, QImage> pictures;     // the pictures of the displays (display:<entry>), given to the transcript
 
         SessionView(Window* window, const std::string& sessionId, const bool compact);
-        QString displayHtml(const cluster::Json& display, const std::string& key, const cluster::Style& style);
+        QString displayHtml(const cluster::Json& display, const std::string& key, const cluster::Style& style, const bool expanded);
+        void displayForm(Window* window, const std::string& displayId);    // a form of a display filled, its values sent
         void update(const cluster::Snapshot& s, const cluster::Style& style, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded);
 };
 
@@ -1752,7 +1753,134 @@ _cold static QImage chart_(const cluster::Json& d, const cluster::Style& st)
     return image;
 }
 
-QString SessionView::displayHtml(const cluster::Json& d, const std::string& key, const cluster::Style& st)
+_cold static QImage timeline_(const cluster::Json& d, const cluster::Style& st)
+{
+    // a Gantt: a bar per task on the span of all of them, its name on its left, its dates on its right
+    const cluster::Json& tasks = d["tasks"];
+    QImage image(680, 30 + static_cast<int>(tasks.size()) * 26, QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor(q_(st.surface)));
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing);
+    const std::vector<QColor> colors = {QColor(q_(st.accent)), QColor(q_(st.ok)), QColor(q_(st.warn)), QColor(q_(st.error))};
+    double low = 1e18;
+    double high = -1e18;
+    for (const cluster::Json& task: tasks) {
+        low = std::min(low, task.value("from", 0.0));
+        high = std::max(high, task.value("to", 0.0));
+    }
+    const double span = std::max(1e-9, high - low);
+    const QRectF area(150, 10, 420, static_cast<double>(tasks.size()) * 26);
+    QFont font = p.font();
+    font.setPointSize(8);
+    p.setFont(font);
+    for (std::size_t k = 0; k < tasks.size(); ++k) {
+        const double y = area.top() + static_cast<double>(k) * 26;
+        const double a = area.left() + (tasks[k].value("from", 0.0) - low) / span * area.width();
+        const double b = area.left() + (tasks[k].value("to", 0.0) - low) / span * area.width();
+        p.setPen(QColor(q_(st.text)));
+        p.drawText(QRectF(4, y, 140, 20), Qt::AlignVCenter | Qt::AlignRight, q_(tasks[k].value("name", std::string())));
+        p.setPen(Qt::NoPen);
+        p.setBrush(colors[k % colors.size()]);
+        p.drawRoundedRect(QRectF(a, y + 3, std::max(4.0, b - a), 14), 3, 3);
+        p.setPen(QColor(q_(st.muted)));
+        const std::function<QString(const cluster::Json&)> date = [](const cluster::Json& v) {return v.is_string() ? q_(v.get<std::string>()) : q_(v.dump());};
+        p.drawText(QRectF(area.right() + 6, y, 110, 20), Qt::AlignVCenter, date(tasks[k]["start"]) + " → " + date(tasks[k]["end"]));
+    }
+    return image;
+}
+
+_cold static QImage heatmap_(const cluster::Json& d, const cluster::Style& st)
+{
+    // a cell per value, from the surface to the accent; its labels
+    const cluster::Json& rows = d["rows"];
+    std::size_t columns = 0;
+    double high = 0.0;
+    for (const cluster::Json& row: rows) {
+        columns = std::max(columns, row.size());
+        for (const cluster::Json& v: row)
+            if (v.is_number()) high = std::max(high, v.get<double>());
+    }
+    const int size = std::clamp(600 / static_cast<int>(std::max<std::size_t>(1, columns)), 8, 28);
+    QImage image(50 + static_cast<int>(columns) * size + 10, 24 + static_cast<int>(rows.size()) * size + 10, QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor(q_(st.surface)));
+    QPainter p(&image);
+    QFont font = p.font();
+    font.setPointSize(7);
+    p.setFont(font);
+    const QColor low(q_(st.border));
+    const QColor top(q_(st.accent));
+    const cluster::Json ylabels = d.value("ylabels", cluster::Json::array());
+    const cluster::Json xlabels = d.value("xlabels", cluster::Json::array());
+    for (std::size_t r = 0; r < rows.size(); ++r) {
+        p.setPen(QColor(q_(st.muted)));
+        if (r < ylabels.size() && ylabels[r].is_string()) p.drawText(QRectF(2, 20 + static_cast<double>(r) * size, 44, size), Qt::AlignVCenter | Qt::AlignRight, q_(ylabels[r].get<std::string>()));
+        for (std::size_t c = 0; c < rows[r].size(); ++c) {
+            const cluster::Json& v = rows[r][c];
+            const double ratio = v.is_number() && high > 0 ? v.get<double>() / high : 0.0;
+            const QColor color = !v.is_number() ? QColor(q_(st.surface)).darker(110) : QColor::fromRgbF(low.redF() + (top.redF() - low.redF()) * static_cast<float>(ratio),
+                low.greenF() + (top.greenF() - low.greenF()) * static_cast<float>(ratio), low.blueF() + (top.blueF() - low.blueF()) * static_cast<float>(ratio));
+            p.fillRect(QRectF(50 + static_cast<double>(c) * size, 20 + static_cast<double>(r) * size, size - 2, size - 2), color);
+        }
+    }
+    p.setPen(QColor(q_(st.muted)));
+    for (std::size_t c = 0; c < xlabels.size() && c < columns; ++c)
+        if (xlabels[c].is_string()) p.drawText(QPointF(50 + static_cast<double>(c) * size, 14), q_(xlabels[c].get<std::string>()));
+    return image;
+}
+
+void SessionView::displayForm(Window* window, const std::string& displayId)
+{
+    // its fields (text, number, a choice, yes / no, a date), its values sent to the global session
+    const std::optional<cluster::Json> found = window->manager.displayOf(this->id, displayId);
+    if (!found) return;
+    const cluster::Json& d = *found;
+    QDialog dialog(this);
+    dialog.setWindowTitle(q_(d.value("title", std::string("Form"))));
+    QFormLayout* form = new QFormLayout(&dialog);
+    std::vector<std::pair<std::string, std::function<cluster::Json()>>> reads;
+    for (const cluster::Json& field: d["fields"]) {
+        const std::string type = field.value("type", std::string("text"));
+        const QString value = field.contains("value") ? q_(field["value"].is_string() ? field["value"].get<std::string>() : field["value"].dump()) : QString();
+        QWidget* widget = nullptr;
+        std::function<cluster::Json()> read;
+        if (type == "choice") {
+            QComboBox* box = new QComboBox(&dialog);
+            for (const cluster::Json& option: field.value("options", cluster::Json::array()))
+                box->addItem(q_(option.is_string() ? option.get<std::string>() : option.dump()));
+            box->setCurrentText(value);
+            read = [box]() {return cluster::Json(box->currentText().toStdString());};
+            widget = box;
+        } else if (type == "bool") {
+            QCheckBox* box = new QCheckBox(&dialog);
+            box->setChecked(value == "true");
+            read = [box]() {return cluster::Json(box->isChecked());};
+            widget = box;
+        } else {
+            QLineEdit* line = new QLineEdit(value, &dialog);
+            if (type == "date") line->setPlaceholderText("YYYY-MM-DD");
+            read = [line]() {return cluster::Json(line->text().toStdString());};
+            widget = line;
+        }
+        form->addRow(q_(field.value("label", field.value("name", std::string()))), widget);
+        reads.emplace_back(field.value("name", std::string()), read);
+    }
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(q_(d.value("submit", std::string("Send"))));
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    form->addRow(buttons);
+    if (dialog.exec() != QDialog::Accepted) return;
+    cluster::Json values = cluster::Json::object();
+    for (const auto &[name, read]: reads)
+        values[name] = read();
+    try {
+        window->message(window->manager.displayAct(this->id, displayId, {{"values", values}}), false);
+    } catch (const std::exception& e) {
+        window->message(e.what(), true);
+    }
+}
+
+QString SessionView::displayHtml(const cluster::Json& d, const std::string& key, const cluster::Style& st, const bool expanded)
 {
     // a rich display: markdown by Qt, a table, a chart drawn, a picture as it is (image, diagram, SVG), a callout, a progress
     const std::string type = d.value("type", std::string());
@@ -1794,11 +1922,106 @@ QString SessionView::displayHtml(const cluster::Json& d, const std::string& key,
             html += "</tr>";
         }
         html += "</table>";
+    } else if (type == "diff") {
+        html += "<pre>";
+        for (const QString& line: q_(d.value("diff", std::string())).split('\n')) {
+            const std::string color = line.startsWith("+++") || line.startsWith("---") ? st.muted : line.startsWith('+') ? st.ok : line.startsWith('-') ? st.error
+                : line.startsWith("@@") ? st.accent : st.text;
+            html += "<span style=\"color:" + q_(color) + "\">" + line.toHtmlEscaped() + "</span>\n";
+        }
+        html += "</pre>";
+    } else if (type == "json" || type == "tree") {
+        const std::vector<std::pair<std::string, char>> lines = type == "json" ? cluster::display_json_lines(d["data"], expanded ? 12 : 4, expanded ? 2000 : 120)
+            : cluster::display_tree_lines(d["root"]);
+        html += "<pre>";
+        for (const auto &[line, kind]: lines) {
+            const std::string color = kind == 's' || (kind == 'n' && type == "tree") ? st.ok : kind == 'n' ? st.warn : kind == 'k' || kind == 'd' ? st.accent
+                : kind == 'm' ? st.warn : st.text;
+            html += "<span style=\"color:" + q_(color) + "\">" + esc_(line) + "</span>\n";
+        }
+        html += "</pre>";
+    } else if (type == "terminal") {
+        // its own colors on a dark ground
+        html += "<table width=\"100%\" cellpadding=\"6\" bgcolor=\"#1e1e1e\"><tr><td><pre style=\"color:#e5e5e5\">";
+        if (!d.value("command", std::string()).empty()) html += "<span style=\"color:#3b8eea\">$ " + esc_(d.value("command", std::string())) + "</span>\n";
+        for (const std::vector<cluster::Cell>& line: cluster::ansi_cells(d.value("output", std::string()))) {
+            for (const cluster::Cell& c: line) {
+                QString style;
+                if (c.hasFg) style += "color:#" + QString::number(c.fg, 16).rightJustified(6, '0') + ";";
+                if (c.hasBg) style += "background:#" + QString::number(c.bg, 16).rightJustified(6, '0') + ";";
+                html += style.isEmpty() ? esc_(c.text) : "<span style=\"" + style + "\">" + esc_(c.text) + "</span>";
+            }
+            html += "\n";
+        }
+        html += "</pre></td></tr></table>";
+    } else if (type == "checklist") {
+        const std::string display = d.value("id", std::string());
+        for (std::size_t i = 0; i < d["items"].size(); ++i) {
+            const bool done = d["items"][i].value("done", false);
+            html += "<a href=\"cluster-act:" + q_(display) + "/" + QString::number(i) + "\" style=\"text-decoration:none\">" + span_(done ? st.ok : st.text, done ? "☑" : "☐")
+                + "</a> " + span_(done ? st.muted : st.text, esc_(d["items"][i].value("text", std::string()))) + "<br>";
+        }
+    } else if (type == "steps") {
+        for (const cluster::Json& step: d["steps"]) {
+            const std::string state = step.value("state", std::string("todo"));
+            const std::string color = state == "done" ? st.ok : state == "current" ? st.accent : state == "error" ? st.error : st.muted;
+            const QString text = esc_((state == "done" ? "✔ " : state == "current" ? "● " : state == "error" ? "✗ " : "○ ") + step.value("text", std::string()));
+            html += span_(color, state == "current" ? "<b>" + text + "</b>" : text) + "<br>";
+        }
+    } else if (type == "kanban") {
+        html += "<table cellspacing=\"6\"><tr>";
+        for (const cluster::Json& column: d["columns"]) {
+            html += "<td valign=\"top\" bgcolor=\"" + q_(st.surface) + "\" width=\"160\"><b>" + span_(st.accent, esc_(column.value("name", std::string()))) + "</b> "
+                + span_(st.muted, QString::number(column["cards"].size()));
+            for (const cluster::Json& card: column["cards"])
+                html += "<table width=\"100%\" cellpadding=\"4\" style=\"border:1px solid " + q_(st.border) + "\"><tr><td>" + cell(card) + "</td></tr></table>";
+            html += "</td>";
+        }
+        html += "</tr></table>";
+    } else if (type == "actions") {
+        const std::string display = d.value("id", std::string());
+        for (std::size_t i = 0; i < d["buttons"].size(); ++i)
+            html += "<a href=\"cluster-act:" + q_(display) + "/" + QString::number(i) + "\" style=\"text-decoration:none\"><span style=\"background:" + q_(st.accent)
+                + "; color:" + q_(st.bg) + "\">&nbsp;" + (d["buttons"][i].contains("clicked") ? QString("✓ ") : QString()) + esc_(d["buttons"][i].value("label", std::string()))
+                + "&nbsp;</span></a>&nbsp;&nbsp;";
+    } else if (type == "form") {
+        const cluster::Json values = d.value("values", cluster::Json::object());
+        html += "<table cellpadding=\"3\">";
+        for (const cluster::Json& field: d["fields"]) {
+            const std::string name = field.value("name", std::string());
+            html += "<tr><td>" + span_(st.muted, esc_(field.value("label", name))) + "</td><td>" + (values.contains(name) ? cell(values[name]) : field.contains("value")
+                ? cell(field["value"]) : QString("—")) + "</td></tr>";
+        }
+        html += "</table>" + (d.value("submitted", false) ? span_(st.ok, "✓ sent")
+            : "<a href=\"cluster-form:" + q_(d.value("id", std::string())) + "\">" + span_(st.accent, "<b>Fill the form…</b>") + "</a>");
+    } else if (type == "details") {
+        html += "<b>" + esc_((expanded ? "▾ " : "▸ ") + d.value("summary", std::string())) + "</b>";
+        if (expanded) html += "<pre>" + esc_(d.value("text", std::string())) + "</pre>";
+        else html += " " + span_(st.muted, "(Ctrl+O)");
+    } else if (type == "compare") {
+        html += "<table width=\"100%\" cellpadding=\"5\" border=\"1\" cellspacing=\"0\" style=\"border-color:" + q_(st.border) + "\"><tr><th>" + esc_(d["left"].value("title", std::string("A")))
+            + "</th><th>" + esc_(d["right"].value("title", std::string("B"))) + "</th></tr><tr><td valign=\"top\"><pre>" + esc_(d["left"].value("text", std::string()))
+            + "</pre></td><td valign=\"top\"><pre>" + esc_(d["right"].value("text", std::string())) + "</pre></td></tr></table>";
+    } else if (type == "metrics") {
+        html += "<table cellspacing=\"6\"><tr>";
+        for (const cluster::Json& m: d["items"]) {
+            const std::string delta = m.contains("delta") ? (m["delta"].is_string() ? m["delta"].get<std::string>() : m["delta"].dump()) : "";
+            html += "<td bgcolor=\"" + q_(st.surface) + "\" width=\"140\">" + span_(st.muted, esc_(m.value("label", std::string()))) + "<br><span style=\"font-size:18pt\"><b>"
+                + cell(m.value("value", cluster::Json(""))) + esc_(m.value("unit", std::string())) + "</b></span><br>"
+                + (delta.empty() ? QString() : span_(delta.starts_with("-") ? st.error : st.ok, esc_((delta.starts_with("-") ? "▼ " : "▲ ") + delta)))
+                + (m.contains("trend") ? " " + span_(st.accent, esc_(cluster::display_spark(m["trend"], 16))) : QString()) + "</td>";
+        }
+        html += "</tr></table>";
+    } else if (type == "audio") {
+        html += "<a href=\"cluster-play:" + q_(d.value("id", std::string())) + "\">" + span_(st.accent, "▶ <b>play</b>") + "</a> " + span_(st.muted, esc_(d.value("alt", d.value("text", std::string()))));
+    } else if (type == "math") {
+        html += "<span style=\"font-size:13pt\"><i>" + esc_(d.value("unicode", std::string())) + "</i></span>";
     } else {
         // a chart drawn here; an image / a diagram / an SVG read as they are; given to the transcript as display:<entry>
         const QString name = q_("display:" + key);
         if (!this->pictures.contains(name)) {
-            QImage image = type == "chart" ? chart_(d, st) : QImage::fromData(QByteArray::fromStdString(cluster::display_bytes(d)));
+            QImage image = type == "chart" ? chart_(d, st) : type == "timeline" ? timeline_(d, st) : type == "heatmap" ? heatmap_(d, st)
+                : QImage::fromData(QByteArray::fromStdString(cluster::display_bytes(d)));
             if (image.width() > 680) image = image.scaledToWidth(680, Qt::SmoothTransformation);
             this->pictures[name] = image;
         }
@@ -1821,7 +2044,27 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->log = new QTextBrowser(this);
     this->log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     this->log->setOpenLinks(false);
-    QObject::connect(this->log, &QTextBrowser::anchorClicked, [](const QUrl& url) {QDesktopServices::openUrl(url);});
+    QObject::connect(this->log, &QTextBrowser::anchorClicked, [window, this](const QUrl& url) {
+        // a display: tick / click (cluster-act:<display>/<item>), its form (cluster-form:<display>), its audio (cluster-play:<display>)
+        const std::string scheme = url.scheme().toStdString();
+        const std::string path = url.path().toStdString();
+        if (scheme != "cluster-act" && scheme != "cluster-form" && scheme != "cluster-play") {
+            QDesktopServices::openUrl(url);
+            return;
+        }
+        if (scheme == "cluster-form") {
+            this->displayForm(window, path);
+            return;
+        }
+        try {
+            const std::size_t slash = path.rfind('/');
+            const std::size_t item = scheme == "cluster-act" && slash != std::string::npos ? static_cast<std::size_t>(std::stoul(path.substr(slash + 1))) : 0;
+            const std::string display = scheme == "cluster-act" ? path.substr(0, slash) : path;
+            window->message(window->manager.displayAct(this->id, display, {{"item", item}}), false);
+        } catch (const std::exception& e) {
+            window->message(e.what(), true);
+        }
+    });
     // the pictures of the displays: display:<entry> in the transcript
     this->log->document()->setResourceProvider([this](const QUrl& url) -> QVariant {
         const std::map<QString, QImage>::const_iterator it = this->pictures.find(url.toString());
@@ -1886,7 +2129,11 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     const cluster::Config& config = manager.config();
     const cluster::Frame frame = reveal.step(s, config.typewriter, config.typewriterSpeed);
     const std::int64_t ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    std::size_t displays = 0;   // a display ticked / clicked / updated: rebuilt too
+    for (const cluster::Entry& e: s.entries)
+        if (e.kind == cluster::EntryKind::Display) displays += e.text.size();
     const std::string key = std::to_string(frame.visible) + "|" + std::to_string(frame.typedBytes) + "|" + std::to_string(frame.partialBytes) + "|" + std::to_string(s.thinking.size())
+        + "|" + std::to_string(displays)
         + "|" + cluster::state_name(s.state) + "|" + st.name + "|" + (expanded ? "e" : "") + (s.state == cluster::State::Working ? "|" + std::to_string(ms / 150) : "");
     if (key != this->lastKey) {
         this->lastKey = key;
@@ -1939,7 +2186,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                 case cluster::EntryKind::Error: html += "<div style=\"margin-top:10px\">" + span_(st.error, "✗ " + esc_(text)) + "</div>"; break;
                 case cluster::EntryKind::Display: {
                     const cluster::Json d = cluster::Json::parse(e.text, nullptr, false);
-                    if (d.is_object()) html += this->displayHtml(d, s.spec.id + "-" + std::to_string(e.time) + "-" + std::to_string(i), st);
+                    if (d.is_object()) html += this->displayHtml(d, s.spec.id + "-" + std::to_string(e.time) + "-" + std::to_string(i), st, expanded);
                     break;
                 }
             }

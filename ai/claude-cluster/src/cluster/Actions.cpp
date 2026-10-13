@@ -68,6 +68,33 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"export", "Export the conversation to Markdown", "file", "~/" + snap->spec.name + ".md", false});
         if (!snap->spec.global && !snap->spec.claudeId.empty() && snap->spec.backend.substr(0, snap->spec.backend.find('/')) != "codex")
             list.push_back({"fork", "Fork the session (a copy of its conversation, each one goes on apart)", "", "", false});
+        // its displays: tick, click, fill, play (the last 30)
+        std::size_t seen = 0;
+        for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && seen < 30; ++it) {
+            if (it->kind != cluster::EntryKind::Display) continue;
+            ++seen;
+            const cluster::Json d = cluster::Json::parse(it->text, nullptr, false);
+            if (!d.is_object()) continue;
+            const std::string id = d.value("id", std::string());
+            const std::string type = d.value("type", std::string());
+            const std::string title = d.value("title", type);
+            if (type == "checklist")
+                for (std::size_t i = 0; i < d["items"].size(); ++i)
+                    list.push_back({"display_tick:" + id + ":" + std::to_string(i), std::string(d["items"][i].value("done", false) ? "Untick: " : "Tick: ")
+                        + cluster::one_line(d["items"][i].value("text", std::string()), 60) + " (" + title + ")", "", "", false});
+            if (type == "actions")
+                for (std::size_t i = 0; i < d["buttons"].size(); ++i)
+                    list.push_back({"display_click:" + id + ":" + std::to_string(i), "Action: " + d["buttons"][i].value("label", std::string())
+                        + (d["buttons"][i].contains("clicked") ? " (again)" : ""), "", "", false});
+            if (type == "form" && !d.value("submitted", false)) {
+                std::string fill;
+                for (const cluster::Json& field: d["fields"])
+                    fill += (fill.empty() ? "" : "; ") + field.value("name", std::string()) + "=" + (field.contains("value") ? (field["value"].is_string()
+                        ? field["value"].get<std::string>() : field["value"].dump()) : "");
+                list.push_back({"display_form:" + id, "Fill the form: " + title, "name=value; ...", fill, false});
+            }
+            if (type == "audio") list.push_back({"display_play:" + id, "Play: " + title, "", "", false});
+        }
     }
     for (const cluster::SessionSpec& spec: manager.trash()) {
         list.push_back({"restore:" + spec.id, "Restore " + spec.name + " (" + cluster::short_path(spec.cwd) + ", closed " + cluster::human_age(spec.deleted) + " ago)", "", "", false});
@@ -188,6 +215,19 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             const bool recent = found && cluster::now() - found->updated < 120;
             result.focus = manager.importConversation(arg.substr(0, colon), arg.substr(colon + 1), "", recent);
             result.message = std::string("opened") + (recent && found->agent == "claude" ? " as a copy (used less than 2 min ago: maybe still open elsewhere)" : "");
+        } else if (base == "display_tick" || base == "display_click" || base == "display_play") {
+            const std::size_t colon = arg.rfind(':');
+            const std::string display = base == "display_play" ? arg : arg.substr(0, colon);
+            const std::size_t item = base == "display_play" ? 0 : static_cast<std::size_t>(std::stoul(arg.substr(colon + 1)));
+            result.message = manager.displayAct(session, display, {{"item", item}});
+        } else if (base == "display_form") {
+            // "name=value; name2=value2"
+            cluster::Json values = cluster::Json::object();
+            for (const std::string& pair: cluster::split(input, ';')) {
+                const std::size_t equal = pair.find('=');
+                if (equal != std::string::npos) values[cluster::trim(pair.substr(0, equal))] = cluster::trim(pair.substr(equal + 1));
+            }
+            result.message = manager.displayAct(session, arg, {{"values", values}});
         } else if (base == "fork") {
             result.focus = manager.forkSession(session, "");
             result.message = "forked";

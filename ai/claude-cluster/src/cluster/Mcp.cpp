@@ -130,6 +130,11 @@ _cold cluster::Json cluster::mcp_tools(void)
             "text (markdown). For the user: a summary table, a chart of numbers, a diagram of an architecture, an image file, a drawing (SVG), "
             "a callout, a progress bar.", {{"session", session}, {"display", {{"type", "object"}, {"description", "{type, ...}"}}},
             {"text", str_("markdown (when no display)")}, {"title", str_("its title")}}, {"session"}),
+        tool_("session_display_update", "Replace a display you put (its id, given back by session_display): the steps of a long work, a "
+            "progress, a checklist, a table that changes. The user sees it change in place.",
+            {{"session", session}, {"id", str_("its id")}, {"display", {{"type", "object"}, {"description", "{type, ...}"}}}}, {"session", "id", "display"}),
+        tool_("session_display_get", "A display of a session as it is now: the items the user ticked (checklist), the buttons clicked "
+            "(actions), the values sent (form, they also come to you as a message).", {{"session", session}, {"id", str_("its id")}}, {"session", "id"}),
         tool_("voice_engines", "The engines of the voice: speech to text ([voice] listen_model) and text to speech ([voice] say_engine), "
             "local or free-tier APIs: what each one handles (languages), its strengths and limits against the others, its free use, its "
             "voices, its links, ready (installed / API key stored), used. To change one: settings_set; a key: the user runs "
@@ -159,7 +164,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
-        {"session_display", "display"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
+        {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
         {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
         {"ui_style", "ui_style"}, {"ui_panel", "ui_panel"}, {"settings_get", "settings_get"}, {"settings_set", "settings_set"},
     };

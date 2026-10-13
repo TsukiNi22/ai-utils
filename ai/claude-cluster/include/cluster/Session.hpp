@@ -134,6 +134,7 @@ class Session {
         _cold void setClaudeId(const std::string& id);     // the conversation goes on under this id
         _cold void mark(const std::string& text);          // a line of the system in its transcript (and its log)
         _cold void append(const std::vector<cluster::Entry>& entries); // a transcript from elsewhere, shown and logged
+        _cold void updateDisplay(const std::string& displayId, const std::string& text);  // a display replaced (its log written again)
         _cold void remoteControl(const bool on, const std::string& name); // claude: Remote Control of this session (claude.ai)
         _cold void togglePanel(const std::string& panel);
         _cold void loadHistory(const std::size_t max);     // last entries of the log (restored session)

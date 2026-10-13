@@ -515,8 +515,19 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             cluster::Json display = request.contains("display") && request["display"].is_object() ? request["display"]
                 : cluster::Json{{"type", "markdown"}, {"text", arg_(request, "text")}};
             if (request.contains("title") && !display.contains("title")) display["title"] = arg_(request, "title");
-            manager.display(session(), display);
-            data = {{"shown", true}};
+            data = {{"id", manager.display(session(), display)}};
+        } else if (cmd == "display_update") {
+            // a display replaced (the steps of a long work, a progress, a checklist...), its id kept
+            if (!request.contains("display") || !request["display"].is_object())
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display_update: session, id, display {type, ...}");
+            manager.displayUpdate(session(), arg_(request, "id"), request["display"]);
+            data = {{"id", arg_(request, "id")}};
+        } else if (cmd == "display_act") {
+            data = {{"done", manager.displayAct(session(), arg_(request, "id"), request)}};
+        } else if (cmd == "display_get") {
+            const std::optional<cluster::Json> d = manager.displayOf(session(), arg_(request, "id"));
+            if (!d) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no display " + arg_(request, "id"));
+            data = *d;
         } else if (cmd == "ask") {
             // the question of an agent being answered (shared by the interfaces and the voice): choose, toggle, other, next, back, decline
             cluster::Asking& asking = manager.asking();

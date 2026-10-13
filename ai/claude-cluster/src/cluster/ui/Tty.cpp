@@ -1690,6 +1690,161 @@ class TtyUi {
                                     ftxui::color(palette[(kind == "pie" ? i : k) % palette.size()]), "\n"});
                             }
                     }
+                } else if (type == "diff") {
+                    for (const std::string& line: lines_(d.value("diff", std::string()))) {
+                        const ftxui::Decorator style = line.starts_with("+++") || line.starts_with("---") ? ftxui::color(th.muted) | ftxui::bold
+                            : line.starts_with("+") ? ftxui::color(th.ok) : line.starts_with("-") ? ftxui::color(th.error) : line.starts_with("@@") ? ftxui::color(th.accent)
+                            : ftxui::color(th.text);
+                        add(line, "  ", "  ", style);
+                    }
+                } else if (type == "json") {
+                    const int depth = this->_expanded ? 12 : 4;
+                    const std::size_t most = this->_expanded ? 2000 : 80;
+                    for (const auto &[line, kind]: cluster::display_json_lines(d["data"], depth, most))
+                        lines.push_back({"  " + line.substr(0, line.find_first_not_of(' ')) + cluster::one_line(line, room - 2), ftxui::color(kind == 's' ? th.ok : kind == 'n' ? th.warn : kind == 'k' ? th.accent : th.text), "\n"});
+                } else if (type == "tree") {
+                    for (const auto &[line, kind]: cluster::display_tree_lines(d["root"]))
+                        lines.push_back({"  " + cluster::one_line(line, room - 2), kind == 'd' ? ftxui::color(th.accent) | ftxui::bold : kind == 'm' ? ftxui::color(th.warn)
+                            : kind == 'n' ? ftxui::color(th.ok) : ftxui::color(th.text), "\n"});
+                    if (d.value("cut", false)) lines.push_back({"  … (400 entries shown)", ftxui::color(th.muted), "\n"});
+                } else if (type == "terminal") {
+                    // its own colors; the last lines (Ctrl+O: all)
+                    if (!d.value("command", std::string()).empty()) lines.push_back({"  $ " + d.value("command", std::string()), ftxui::color(th.accent), "\n"});
+                    const std::vector<std::vector<cluster::Cell>> output = cluster::ansi_cells(d.value("output", std::string()));
+                    const std::size_t from = this->_expanded || output.size() <= 30 ? 0 : output.size() - 30;
+                    if (from > 0) lines.push_back({"  … " + std::to_string(from) + " lines before" + more, ftxui::color(th.muted) | ftxui::dim, "\n"});
+                    for (std::size_t k = from; k < output.size(); ++k) {
+                        std::string text = "  ";
+                        std::vector<cluster::Cell> cells = {{"  ", 0, 0, false, false}};
+                        for (const cluster::Cell& c: output[k]) {
+                            text += c.text;
+                            cells.push_back(c);
+                        }
+                        lines.push_back({text, ftxui::color(th.text), "\n", output[k].empty() ? std::vector<cluster::Cell>{} : cells});
+                    }
+                } else if (type == "checklist") {
+                    std::size_t ticked = 0;
+                    for (const cluster::Json& item: d["items"]) {
+                        const bool done = item.value("done", false);
+                        ticked += done ? 1 : 0;
+                        add(item.value("text", std::string()), done ? "  ☑ " : "  ☐ ", "    ", done ? ftxui::color(th.muted) | ftxui::dim : ftxui::color(th.text));
+                    }
+                    lines.push_back({"  " + std::to_string(ticked) + "/" + std::to_string(d["items"].size()) + " done · palette: Tick", ftxui::color(th.muted) | ftxui::dim, "\n"});
+                } else if (type == "steps") {
+                    for (const cluster::Json& step: d["steps"]) {
+                        const std::string state = step.value("state", std::string("todo"));
+                        add(step.value("text", std::string()), state == "done" ? "  ✔ " : state == "current" ? "  ● " : state == "error" ? "  ✗ " : "  ○ ", "    ",
+                            state == "done" ? ftxui::color(th.ok) : state == "current" ? ftxui::color(th.accent) | ftxui::bold : state == "error" ? ftxui::color(th.error)
+                            : ftxui::color(th.muted));
+                    }
+                } else if (type == "timeline") {
+                    // a Gantt: a bar per task on the span of all of them
+                    double low = 1e18;
+                    double high = -1e18;
+                    std::size_t name = 4;
+                    for (const cluster::Json& task: d["tasks"]) {
+                        low = std::min(low, task.value("from", 0.0));
+                        high = std::max(high, task.value("to", 0.0));
+                        name = std::min<std::size_t>(20, std::max(name, width_(task.value("name", std::string()))));
+                    }
+                    const std::size_t size = room > name + 30 ? room - name - 30 : 10;
+                    const double span = std::max(1e-9, high - low);
+                    for (std::size_t k = 0; k < d["tasks"].size(); ++k) {
+                        const cluster::Json& task = d["tasks"][k];
+                        const std::size_t a = static_cast<std::size_t>((task.value("from", 0.0) - low) / span * static_cast<double>(size));
+                        const std::size_t b = std::max(a + 1, static_cast<std::size_t>((task.value("to", 0.0) - low) / span * static_cast<double>(size) + 0.5));
+                        std::string bar;
+                        for (std::size_t n = 0; n < size; ++n)
+                            bar += n >= a && n < b ? "█" : "·";
+                        lines.push_back({"  " + pad(task.value("name", std::string()), name) + " " + bar + "  " + cell(task["start"]) + " → " + cell(task["end"]),
+                            ftxui::color(palette[k % palette.size()]), "\n"});
+                    }
+                } else if (type == "kanban") {
+                    // its columns side by side, their cards one per line
+                    const cluster::Json& columns = d["columns"];
+                    const std::size_t count = std::max<std::size_t>(1, columns.size());
+                    const std::size_t size = std::max<std::size_t>(8, (room > 4 ? room - 4 : 20) / count - 1);
+                    std::size_t tallest = 0;
+                    std::string head = "  ";
+                    for (const cluster::Json& column: columns) {
+                        head += pad(column.value("name", std::string()) + " (" + std::to_string(column["cards"].size()) + ")", size) + " ";
+                        tallest = std::max(tallest, column["cards"].size());
+                    }
+                    lines.push_back({head, ftxui::color(th.accent) | ftxui::bold, "\n"});
+                    for (std::size_t r = 0; r < tallest; ++r) {
+                        std::string row = "  ";
+                        for (const cluster::Json& column: columns)
+                            row += pad(r < column["cards"].size() ? "▪ " + cell(column["cards"][r]) : "", size) + " ";
+                        lines.push_back({row, ftxui::color(th.text), "\n"});
+                    }
+                } else if (type == "actions") {
+                    std::string row = "  ";
+                    for (const cluster::Json& button: d["buttons"])
+                        row += (button.contains("clicked") ? "[✓ " : "[ ") + button.value("label", std::string()) + " ]  ";
+                    add(row, "", "  ", ftxui::color(th.accent) | ftxui::bold);
+                    lines.push_back({"  palette: Action" + std::string(this->_manager.config().voice.enabled ? " · voice: say its label" : ""), ftxui::color(th.muted) | ftxui::dim, "\n"});
+                } else if (type == "form") {
+                    const cluster::Json values = d.value("values", cluster::Json::object());
+                    for (const cluster::Json& field: d["fields"]) {
+                        const std::string field_name = field.value("name", std::string());
+                        const std::string value = values.contains(field_name) ? cell(values[field_name]) : field.contains("value") ? cell(field["value"]) : "____";
+                        std::string hint = field.value("type", std::string("text"));
+                        if (field.contains("options")) hint = "";
+                        if (field.contains("options"))
+                            for (const cluster::Json& o: field["options"])
+                                hint += (hint.empty() ? "" : " | ") + cell(o);
+                        add(field.value("label", field_name) + ": " + value + "  (" + hint + ")", "  ", "    ", ftxui::color(th.text));
+                    }
+                    lines.push_back({d.value("submitted", false) ? "  ✓ sent" : "  palette: Fill the form", ftxui::color(d.value("submitted", false) ? th.ok : th.muted) | ftxui::dim, "\n"});
+                } else if (type == "details") {
+                    add(d.value("summary", std::string()), this->_expanded ? "  ▾ " : "  ▸ ", "    ", ftxui::color(th.text) | ftxui::bold);
+                    if (this->_expanded)
+                        for (const std::string& line: lines_(d.value("text", std::string())))
+                            add(line, "    ", "    ", ftxui::color(th.text));
+                    else lines.push_back({"    " + more.substr(1), ftxui::color(th.muted) | ftxui::dim, "\n"});
+                } else if (type == "compare") {
+                    // two columns, the lines that differ colored
+                    const std::size_t half = std::max<std::size_t>(10, (room > 6 ? room - 6 : 20) / 2);
+                    const std::vector<std::string> left = lines_(d["left"].value("text", std::string()));
+                    const std::vector<std::string> right = lines_(d["right"].value("text", std::string()));
+                    lines.push_back({"  " + pad(d["left"].value("title", std::string("A")), half) + " │ " + d["right"].value("title", std::string("B")),
+                        ftxui::color(th.accent) | ftxui::bold, "\n"});
+                    for (std::size_t k = 0; k < std::max(left.size(), right.size()); ++k) {
+                        const std::string a = k < left.size() ? left[k] : "";
+                        const std::string b = k < right.size() ? right[k] : "";
+                        lines.push_back({"  " + pad(a, half) + " │ " + cluster::one_line(b, half), a == b ? ftxui::color(th.text) : ftxui::color(th.warn), "\n"});
+                    }
+                } else if (type == "metrics") {
+                    for (const cluster::Json& m: d["items"]) {
+                        const std::string delta = m.contains("delta") ? cell(m["delta"]) : "";
+                        const bool down = delta.starts_with("-");
+                        add(pad(m.value("label", std::string()), 18) + "  " + cell(m.value("value", cluster::Json(""))) + m.value("unit", std::string())
+                            + (delta.empty() ? "" : (down ? "  ▼ " : "  ▲ ") + delta) + (m.contains("trend") ? "  " + cluster::display_spark(m["trend"], 24) : ""),
+                            "  ", "  ", ftxui::color(delta.empty() ? th.text : down ? th.error : th.ok));
+                    }
+                } else if (type == "heatmap") {
+                    // a cell per value, its color from the surface to the accent
+                    double high = 0.0;
+                    for (const cluster::Json& row: d["rows"])
+                        for (const cluster::Json& v: row)
+                            if (v.is_number()) high = std::max(high, v.get<double>());
+                    const cluster::Json ylabels = d.value("ylabels", cluster::Json::array());
+                    for (std::size_t r = 0; r < d["rows"].size(); ++r) {
+                        const std::string label = pad(r < ylabels.size() ? cell(ylabels[r]) : "", 4);
+                        std::vector<cluster::Cell> cells = {{"  " + label + " ", 0x888888, 0, true, false}};
+                        std::string text = "  " + label + " ";
+                        for (const cluster::Json& v: d["rows"][r]) {
+                            const double ratio = v.is_number() && high > 0 ? v.get<double>() / high : -1.0;
+                            const std::uint32_t level = ratio < 0 ? 0x303030 : static_cast<std::uint32_t>(40 + ratio * 200);
+                            cells.push_back({"■ ", ratio < 0 ? 0x303030u : (level << 16) | (static_cast<std::uint32_t>(level * 0.5) << 8) | 0x30u, 0, true, false});
+                            text += "■ ";
+                        }
+                        lines.push_back({text, ftxui::nothing, "\n", cells});
+                    }
+                } else if (type == "audio") {
+                    lines.push_back({"  ♪ " + d.value("alt", d.value("text", std::string("audio"))).substr(0, room) + "  (palette: Play)", ftxui::color(th.accent), "\n"});
+                } else if (type == "math") {
+                    add(d.value("unicode", std::string()), "  ", "  ", ftxui::color(th.text) | ftxui::bold);
                 } else {
                     // image, diagram, svg: in blocks of colors (chafa), made once for a width
                     const std::string at = key + ":" + std::to_string(room);

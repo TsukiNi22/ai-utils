@@ -80,6 +80,7 @@ class Voice {
         _cold void heard_(const std::string& text);
         _cold void dispatch_(const cluster::Pending& pending);
         _cold void say_(const std::string& text);
+        _cold _nodiscard std::string clickAction_(const std::string& text);    // an action shown, said by its label: clicked (what it did)
         _cold _nodiscard bool command_(const std::string& text);    // cancel / send words said alone: done (true)
         _cold _nodiscard std::vector<cluster::Term> terms_(void);   // the vocabulary now (file, projects, sessions, user)
 

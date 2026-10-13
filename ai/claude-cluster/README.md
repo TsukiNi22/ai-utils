@@ -280,7 +280,7 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `config_files` / `config_read` / `config_write` (its own system prompt - it is
   started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
   config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
-  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `session_display` (a rich display in a transcript,
+  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `session_display` / `session_display_update` / `session_display_get` (a rich display in a transcript,
   below), `external_conversations` / `session_import` (the
   conversations of the other agents of this computer, opened here), `session_transcript` (whole entries of a transcript),
   `session_context` (a context given to a session: another session, a conversation of an agent, a file),
@@ -409,6 +409,28 @@ The global session puts a display in the transcript of a session (a sub-session,
 | `callout` | `level` (info, success, warning, error), `text` | colored, an icon | a colored box | a colored box |
 | `progress` | `value`, `max`, `label` | a bar of blocks | a bar | a bar |
 | `code` | `code`, `language` | framed lines | preformatted | preformatted |
+| `diff` | `diff` (unified) or `before` + `after`, `file` | +/- colored | colored | colored |
+| `json` | `data` (a value or a JSON text) | an indented tree (Ctrl+O: deeper) | colored lines | folding tree |
+| `tree` | `path` (read here: depth 3, 400 entries, its git state) + `depth`, or `root` | ├── └──, changed files colored | the same | the same |
+| `terminal` | `output` (its ANSI colors: 16, 256, 24-bit), `command` | its colors, the last 30 lines | its colors on dark | its colors on dark |
+| `checklist` | `items` [text or {text, done}] | ☑ / ☐, palette: Tick | ticked by a click | checkboxes |
+| `steps` | `steps` [text or {text, state: done, current, todo, error}] | ✔ ● ○ ✗ | the same | the same |
+| `timeline` | `tasks` [{name, start, end}] (YYYY-MM-DD or numbers) | Gantt bars | drawn | SVG |
+| `kanban` | `columns` [{name, cards}] | columns side by side | columns | columns of cards |
+| `actions` | `buttons` [{label, prompt, session}] | [ label ], palette: Action | buttons | buttons |
+| `form` | `fields` [{name, label, type: text, number, choice, bool, date, options, value, required}], `submit` | its fields, palette: Fill the form | a dialog | a form |
+| `details` | `summary`, `text` | folded (Ctrl+O) | folded (Ctrl+O) | `<details>` |
+| `compare` | `left` / `right` {title, text}, or `before` + `after` | two columns, the lines that differ colored | two columns | two columns |
+| `metrics` | `items` [{label, value, unit, delta, trend}] | ▲ ▼, a sparkline | tiles | tiles, a sparkline |
+| `heatmap` | `rows` [[n]] + `xlabels`, `ylabels`, or `days` {YYYY-MM-DD: n} (a calendar) | colored cells | drawn | SVG |
+| `audio` | `path`, or `text` (spoken by the voice of the settings) | ♪, palette: Play | ▶ (played here) | a player |
+| `math` | `latex` | Unicode (∑ xᵢ² ≤ √(π)) | the same | the same |
+
+Each display gets an `id` (given back): `session_display_update` replaces it in place (steps going on, a checklist, a
+progress), `session_display_get` reads its state. The user acts on them: a checklist item ticked, an action clicked (its
+prompt sent to its session, default the one shown; by voice, its label said), a form sent (its values typed, then sent
+to the global session as `[form "<title>" (<id>) filled by the user] {...}`), an audio played (control command
+`display_act`, the palette, the links of the window, the web page).
 
 The pictures of the terminal need `chafa`, the diagrams `dot` (Graphviz); a display is kept in the log of the session
 (searched and exported as text), the web page gets its picture once (`/api/display`).

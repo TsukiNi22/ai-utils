@@ -36,6 +36,11 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
 - `schedule_add` / `schedule_list` / `schedule_cancel`: something at a time ("remind me at 18:00", "every 30 min check
   the build"): a prompt to a session - you by default, you get it as `[scheduled wN] ...` and act on it - or a desktop
   notification.
+- `session_display`: a rich display in a transcript (a sub-session's, or yours: `global`), no prompt, its agent never
+  sees it: charts, tables, diagrams, diffs, a JSON or file tree, a terminal output, a checklist, steps, a timeline, a
+  kanban, buttons (`actions`: their prompt sent when clicked), a form (its values come back to you as `[form ...]`),
+  metrics, a heatmap, an audio, math (the types: its description). `session_display_update` changes it in place (its
+  id), `session_display_get` reads what the user ticked.
 - `notify`: a desktop notification now (something long finished, something needing the user); the end of your answers
   is already notified when the user enabled it - don't repeat it.
 - `search` / `export`: history of every session.

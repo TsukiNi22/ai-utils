@@ -184,7 +184,12 @@ class Manager {
         _cold void loadContext(const std::string& id, const std::string& source);  // session:<id> | <agent>:<id> | a file
         _cold _nodiscard cluster::Json conversationMessages(const std::string& id) const;
         _cold _nodiscard std::string editConversation(const std::string& id, const cluster::Json& edits);
-        _cold void display(const std::string& id, const cluster::Json& display);   // a rich display in its transcript, no prompt
+        _cold _nodiscard std::string display(const std::string& id, const cluster::Json& display); // a rich display in its transcript, no prompt: its id
+        _cold void displayUpdate(const std::string& id, const std::string& displayId, const cluster::Json& display);  // replaced (its id kept)
+        // the user on a display: tick (checklist), click (actions: its prompt sent), submit (form: its values to the global
+        // session), play (audio, on this computer); what it did
+        _cold _nodiscard std::string displayAct(const std::string& id, const std::string& displayId, const cluster::Json& act);
+        _cold _nodiscard std::optional<cluster::Json> displayOf(const std::string& id, const std::string& displayId) const;
         _cold _nodiscard cluster::Json toJson(const cluster::Snapshot& snapshot, const bool full) const;
         _cold void addHistory(const cluster::Draft& draft, const std::string& session); // prompts sent (history.jsonl)
         _cold _nodiscard std::vector<cluster::Draft> drafts(const std::size_t max = 500, const std::string& session = "") const; // newest first, no
