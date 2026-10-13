@@ -764,8 +764,20 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         else respond_(conn, 200, "application/x-x509-ca-cert", pem, "Content-Disposition: attachment; filename=\"claude-cluster-ca.crt\"\r\n");
         return;
     }
-    if (request.method == "GET" && request.path == "/api/version") { // the app: is it still served, a newer one
-        json_(conn, 200, {{"version", CLUSTER_VERSION}, {"app_min", 1}});
+    const std::filesystem::path app = cluster::data_dir() / "app";
+    if (request.method == "GET" && request.path == "/api/version") {
+        // the app: a newer one served here (app_version), the oldest one still supported (app_min: its protocol)
+        std::ifstream in(app / "version.txt");
+        std::string built;
+        std::getline(in, built);
+        json_(conn, 200, {{"version", CLUSTER_VERSION}, {"app_min", 1}, {"app_version", cluster::trim(built)}, {"app", std::filesystem::exists(app / "claude-cluster.apk")}});
+        return;
+    }
+    if (request.method == "GET" && request.path == "/app.apk") { // the Android app built by setup.sh (no secret in it)
+        std::ifstream in(app / "claude-cluster.apk", std::ios::binary);
+        const std::string apk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (apk.empty()) respond_(conn, 404, "text/plain", "no Android app built on this computer (the Android SDK: setup.sh install claude-cluster)\n");
+        else respond_(conn, 200, "application/vnd.android.package-archive", apk, "Content-Disposition: attachment; filename=\"claude-cluster.apk\"\r\n");
         return;
     }
     if (!request.path.starts_with("/api/")) {

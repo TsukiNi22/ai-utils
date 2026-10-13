@@ -507,6 +507,11 @@ the agents, a new session, a session closed.
   of the browser while the page is not in front (a session finished, waiting for you, an error).
 - **Settings** (⚙): every page of the settings of claude-cluster (saved in its config.toml) and *This device* (its
   name, its theme, its view, its voice). A code block clicked: copied.
+- **Android app** (`setup.sh install claude-cluster` builds it when the Android SDK is there: `android/build.sh`, no
+  Gradle; signed by a key of its own, `~/.config/claude-cluster/android/release.jks`): offered by the page on Android
+  (`/app.apk`). The same page in an app: the computer trusted once (its authority pinned after its fingerprint is
+  shown: no warning), its notifications, its microphone; a newer app on the computer is offered (never an older one),
+  and an app too old for this claude-cluster says so.
 - **Completion** like in the terminal: `@file`, `/command`, the argument of `/cd` `/new` `/mode` `/model` `/effort`
   `/restore`, and the folder of a new session (from the home folder); ↑↓, Tab / Enter, Esc.
 - **Voice** (⚙ of the page): the microphone of the browser, *tap to talk* or *hands-free* (each sentence cut by its

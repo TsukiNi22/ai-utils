@@ -197,6 +197,9 @@ header .muted { color: var(--muted); font-size: 13px; }
 .alerts-actions { padding: 10px 14px; border-bottom: 1px solid var(--line); }
 pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::after { content: "copy"; position: absolute; top: 6px; right: 8px; font: 11px var(--mono); color: var(--muted); }
 #tabbar { display: none; }
+.appbar { position: fixed; left: 10px; right: 10px; bottom: 70px; z-index: 45; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px;
+    padding: 10px 12px; display: flex; gap: 8px; align-items: center; font-size: 13.5px; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+.appbar span { flex: 1; } a.button { padding: 7px 12px; border-radius: 8px; text-decoration: none; background: var(--accent); color: #fff; }
 @media (prefers-reduced-motion: reduce) { .switch::after { transition: none; } }
 @media (max-width: 760px) {
     #views { display: none; }
@@ -1938,6 +1941,10 @@ function watchAlerts(state) {
     loadAlerts(false);
 }
 function browserNotify(title, body, id) {
+    if (window.ClusterApp) { // the Android app: its own notifications (shown when it is not in front)
+        try { window.ClusterApp.notify(title, (body || "").slice(0, 180), id); } catch (e) { /* an old app */ }
+        return;
+    }
     if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
     try {
         const n = new Notification(title, {body: (body || "").slice(0, 180), tag: "cc-" + id, icon: lastState && lastState.face ? "data:image/svg+xml," + encodeURIComponent(lastState.face.svg) : undefined});
@@ -1969,6 +1976,24 @@ async function loadAlerts(show) {
     } catch (e) { /* offline */ }
     alertsLoading = false;
 }
+// on Android in a browser: the app offered once (dismissed: kept)
+async function offerApp() {
+    if (window.ClusterApp || !/Android/i.test(navigator.userAgent) || store.get("cc-app-offer", "") === "no") return;
+    try {
+        const info = await (await fetch("/api/version", {cache: "no-store"})).json();
+        if (!info.app) return;
+        const bar = el("div", "appbar");
+        const text = el("span", "", "claude-cluster has an app " + (info.app_version || "") + ": no warning, notifications");
+        const get = el("a", "primary button", "Install");
+        get.href = "/app.apk";
+        get.setAttribute("download", "claude-cluster.apk");
+        const no = el("button", "", "No");
+        no.addEventListener("click", () => { store.set("cc-app-offer", "no"); bar.remove(); });
+        bar.append(text, get, no);
+        document.body.append(bar);
+    } catch (e) { /* an older claude-cluster */ }
+}
+
 function openAlerts() {
     closePanels();
     $("alerts").classList.remove("hidden");
@@ -2072,6 +2097,17 @@ function drawDevice(body) {
     $("voiceNote").textContent = (window.isSecureContext ? "" : "Microphone: needs https. ") + "Speech recognition: " + (voiceInfo.listen || "the default model")
         + "; voice: " + (voiceInfo.say || "piper") + " (settings of claude-cluster › Voice).";
     body.append(el("div", "label", "Voice"), voice);
+    // the Android app: offered on Android (no warning, notifications, updates), or its own actions inside it
+    if (window.ClusterApp) {
+        const change = el("button", "", "Another computer");
+        change.addEventListener("click", () => window.ClusterApp.changeComputer());
+        field("The app " + window.ClusterApp.version(), "its updates come from this computer (a newer one only)", change);
+    } else if (/Android/i.test(navigator.userAgent)) {
+        const link = el("a", "primary button", "Install the app");
+        link.href = "/app.apk";
+        link.setAttribute("download", "claude-cluster.apk");
+        field("Android app", "the same page in an app: no browser warning, its notifications, updated from this computer", link);
+    }
 }
 $("drawerClose").addEventListener("click", closePanels);
 $("drawerSave").addEventListener("click", async () => {
@@ -2102,6 +2138,7 @@ document.addEventListener("click", async (e) => {
     }
 });
 setView(view);
+offerApp();
 if (!window.isSecureContext) $("mic").title = "The microphone needs https (settings page > Web > HTTPS)";
 
 // already connected (the cookie of this browser): straight to the sessions; a trusted device: in at once (no code)

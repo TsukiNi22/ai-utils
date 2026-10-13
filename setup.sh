@@ -199,6 +199,10 @@ install_tool() {
     fi
     echo "  installed $tool -> $PREFIX/bin/$tool"
     install_completion "$tool"
+    # its own last step (ex: the Android app of claude-cluster): <tool dir>/post-install.sh <prefix>
+    if [[ -x "$dir/post-install.sh" ]]; then
+        "$dir/post-install.sh" "$PREFIX" >> "$log" 2>&1 && tail -1 "$log" | sed 's/^/  /' || echo "  $tool: its post-install failed, see $log"
+    fi
     TOOLS_CHANGED=true
     case ":$PATH:" in
         *":$PREFIX/bin:"*) ;;
