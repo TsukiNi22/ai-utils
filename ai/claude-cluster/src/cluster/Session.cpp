@@ -197,6 +197,7 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
         if (!model.empty()) args.insert(args.end(), {"--model", model});
         args.insert(args.end(), effort.begin(), effort.end());
         if (!spec.claudeId.empty()) args.insert(args.end(), {"--resume", spec.claudeId});
+        if (!spec.claudeId.empty() && spec.fork) args.push_back("--fork-session"); // a copy: its own id from now on
         if (!spec.claudeId.empty() && !spec.resumeAt.empty()) args.insert(args.end(), {"--resume-session-at", spec.resumeAt}); // after a rewind
     } else if (driver == "qwen") {
         const std::string approval = mode == "plan" ? "plan" : mode == "acceptEdits" || mode == "auto" ? "auto-edit"
@@ -456,6 +457,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
 
     if (type == "system" && subtype == "init") {
         this->_data.spec.claudeId = event.value("session_id", this->_data.spec.claudeId);
+        this->_data.spec.fork = false; // forked once: the copy goes on under its own id
         this->_data.modelUsed = event.value("model", std::string());
         if (event.contains("permissionMode")) this->_data.spec.mode = event.value("permissionMode", this->_data.spec.mode);
         this->_data.skillsAvailable.clear();
@@ -514,6 +516,8 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 this->_data.thinking.clear();
             } else if (kind == "tool_use") {
                 this->tool_(block.value("id", std::string()), block.value("name", std::string()), block.value("input", cluster::Json::object()));
+                if (this->_inputs.size() > 200) this->_inputs.erase(this->_inputs.begin());
+                this->_inputs[block.value("id", std::string())] = {{"name", block.value("name", std::string())}, {"input", block.value("input", cluster::Json::object())}};
             }
         }
         if (this->persistent() && this->_data.state != cluster::State::Waiting) this->_data.state = cluster::State::Working;
@@ -561,6 +565,22 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 for (const cluster::Json& part: block["content"])
                     text += part.value("text", std::string());
             this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(text, 6000));
+            if (error && text.find("denied by a built-in Claude Code safety check") != std::string::npos && this->_inputs.contains(id)) {
+                // a mode that never asks (auto, dontAsk): the safety check denied it at once; asked here instead, allowed it runs again
+                const cluster::Json& tool = this->_inputs[id];
+                cluster::Permission permission;
+                permission.requestId = "safety-" + id;
+                permission.tool = tool.value("name", std::string());
+                permission.input = tool.value("input", cluster::Json::object());
+                permission.description = "stopped by the safety check of Claude Code: " + tool_summary_(permission.tool, permission.input);
+                const std::size_t flagged = text.find("What was flagged:");
+                permission.reason = flagged == std::string::npos ? "only a person may approve it" : cluster::one_line(text.substr(flagged + 18), 240);
+                permission.time = cluster::now();
+                permission.safety = true;
+                this->_data.permissions.push_back(permission);
+                this->emit_(cluster::Event::Kind::Permission, permission.tool + ": " + cluster::one_line(permission.description, 120));
+            }
+            this->_inputs.erase(id);
         }
     } else if (type == "control_request" && event.contains("request")) {
         const cluster::Json& request = event["request"];
@@ -571,7 +591,15 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         permission.description = request.value("description", tool_summary_(permission.tool, request.value("input", cluster::Json::object())));
         permission.input = request.value("input", cluster::Json::object());
         permission.suggestions = request.value("permission_suggestions", cluster::Json::array());
+        permission.reason = request.value("decision_reason", std::string());
         permission.time = cluster::now();
+        if (!this->_approved.empty() && permission.input.dump() == this->_approved) {
+            this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", permission.requestId},
+                {"response", {{"behavior", "allow"}, {"updatedInput", permission.input}}}}}});
+            this->entry_(cluster::EntryKind::System, "allowed " + permission.tool + " (the user allowed it after the safety check)");
+            this->_approved.clear();
+            return;
+        }
         this->_data.permissions.push_back(permission);
         this->_data.state = cluster::State::Waiting;
         this->emit_(cluster::Event::Kind::Permission, permission.tool + ": " + cluster::one_line(permission.description, 120));
@@ -621,6 +649,13 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->_turn = this->persistent() ? cluster::Usage{} : this->_turn;
         this->_live = {};
         metrics.turns += this->persistent() ? 1 : 0;
+        if (!this->_modeBack.empty() && metrics.turns >= this->_restoreAfter) {
+            // the command allowed after the safety check ran (or was not asked again): its mode back
+            this->write_({{"type", "control_request"}, {"request_id", "mode-back-" + std::to_string(cluster::now())},
+                {"request", {{"subtype", "set_permission_mode"}, {"mode", this->_modeBack}}}});
+            this->_modeBack.clear();
+            this->_approved.clear();
+        }
         // total_cost_usd is cumulative over the life of the process (a restart begins again at 0)
         const double cost = event.value("total_cost_usd", 0.0);
         metrics.lastCost = std::max(0.0, cost - this->_processCost);
@@ -635,7 +670,9 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         if (error) this->entry_(cluster::EntryKind::Error, text.empty() ? subtype : text);
         this->_data.partial.clear();
         if (this->persistent()) {
-            this->_data.state = this->_data.permissions.empty() ? cluster::State::Idle : cluster::State::Waiting;
+            // a stop of the safety check shown to the user is no request claude waits for: the turn is over
+            const bool asked = std::any_of(this->_data.permissions.begin(), this->_data.permissions.end(), [](const cluster::Permission& p) {return !p.safety;});
+            this->_data.state = asked ? cluster::State::Waiting : cluster::State::Idle;
             this->emit_(cluster::Event::Kind::TurnDone, text, error, interrupted);
             if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) {
                 const cluster::Queued next = this->_pending.front();
@@ -767,6 +804,19 @@ _cold void cluster::Session::tool_(const std::string& id, const std::string& nam
     }
 }
 
+_cold void cluster::Session::append(const std::vector<cluster::Entry>& entries)
+{
+    // entries of a transcript from elsewhere (another agent, the session forked), shown and kept in its log
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    for (const cluster::Entry& entry: entries) {
+        this->_data.entries.push_back(entry);
+        if (this->_log) this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(entry.kind)}, {"text", entry.text}, {"tool", entry.tool}}.dump() << "\n";
+    }
+    if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.end() - 1500);
+    if (this->_log) this->_log.flush();
+    this->touch_();
+}
+
 _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool)
 {
     if (text.empty() && kind != cluster::EntryKind::Tool) return;
@@ -878,11 +928,37 @@ _cold std::optional<cluster::Queued> cluster::Session::unqueue(void)
 
 _cold void cluster::Session::answer(const std::string& requestId, const std::string& behavior)
 {
-    std::lock_guard<std::mutex> lock(this->_mutex);
+    std::unique_lock<std::mutex> lock(this->_mutex);
     auto it = std::find_if(this->_data.permissions.begin(), this->_data.permissions.end(),
         [&](const cluster::Permission& p) {return requestId.empty() || p.requestId == requestId;});
     if (it == this->_data.permissions.end())
         throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no pending permission '" + requestId + "' in " + this->_data.spec.id);
+    if (it->safety) {
+        // the command the safety check stopped: allowed, the agent runs it again, out of a mode that never asks (its request
+        // then allowed here at once, the mode put back after the turn); denied, it stays not run
+        const cluster::Permission stopped = *it;
+        this->_data.permissions.erase(it);
+        if (behavior == "deny") {
+            this->entry_(cluster::EntryKind::System, "not run (the safety check stopped it, the user denied it): " + cluster::one_line(stopped.description, 160));
+            this->touch_();
+            return;
+        }
+        this->_approved = stopped.input.dump();
+        const std::string mode = this->_data.spec.mode;
+        if (mode == "auto" || mode == "dontAsk") {
+            this->_modeBack = mode;
+            this->write_({{"type", "control_request"}, {"request_id", "mode-ask-" + std::to_string(cluster::now())},
+                {"request", {{"subtype", "set_permission_mode"}, {"mode", "default"}}}});
+        }
+        this->_restoreAfter = this->_data.metrics.turns + (this->_data.state == cluster::State::Idle ? 1 : 2);
+        this->entry_(cluster::EntryKind::System, "allowed by the user after the safety check: " + cluster::one_line(stopped.description, 160));
+        this->touch_();
+        lock.unlock();
+        const std::string command = stopped.input.contains("command") ? stopped.input.value("command", std::string()) : stopped.input.dump();
+        this->send("I approve, myself, the command the safety check stopped (I am the person it asked for). Run it again now, exactly unchanged: "
+            "it goes through a permission prompt that I accept.\n" + command);
+        return;
+    }
     if (it->tool == "AskUserQuestion" && behavior != "deny") // allowed without its answers, the agent goes on blind
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
             "a question of the agent: answer it in its popup (or session_allow with answers {question: answer})");

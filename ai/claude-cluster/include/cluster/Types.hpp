@@ -139,6 +139,8 @@ struct Permission {
     cluster::Json input;
     cluster::Json suggestions;      // permission_suggestions of claude ("always")
     std::int64_t time = 0;
+    std::string reason{};           // why claude asks (decision_reason: its safety check...)
+    bool safety = false;            // not a request: a command the safety check stopped without asking (auto mode); allowed, it runs again
 };
 
 struct ToolRun {
@@ -159,6 +161,7 @@ struct SessionSpec {
     std::string claudeId;           // session id of the agent (--resume / -r / -s)
     std::string leaf;               // claude: uuid of the last message of the conversation (its active branch)
     std::string resumeAt;           // claude: after a rewind, the message the conversation goes on from (until a prompt)
+    bool fork = false;              // claude: the next start resumes claudeId as a copy (--fork-session), the original untouched
     std::string model;              // model given to the agent (from the backend)
     std::string mode = "default";   // permission mode
     std::string effort;             // thinking / reasoning effort (empty: the default of the agent)

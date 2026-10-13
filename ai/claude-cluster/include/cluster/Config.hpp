@@ -167,6 +167,9 @@ class Config {
         int trashDays = 14;
         int maxParallel = 4;
         double budget = 0.0;
+        bool bypassToGlobal = true;             // the permissions a sub-session in bypassPermissions still asks: decided by the global session
+        bool globalFork = false;                // the global session may fork a sub-session (MCP session_fork)
+        bool globalEdit = false;                // the global session may rewrite the conversation of a sub-session (MCP session_edit)
         std::string sessionsPrompt = "~/.config/claude-cluster/sessions.md"; // system prompt of the sub-sessions (empty: none)
 
         cluster::VoiceConf voice;

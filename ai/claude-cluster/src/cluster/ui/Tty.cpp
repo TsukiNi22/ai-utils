@@ -1801,12 +1801,15 @@ class TtyUi {
                 return ftxui::hbox({ftxui::text(" question ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                     ftxui::text(" " + cluster::one_line(p.description, 100) + " ") | ftxui::color(this->_theme.text), ftxui::filler(),
                     ftxui::text("its popup: shown on this session · " + c.keys.at("deny") + " decline ") | ftxui::color(this->_theme.muted)}) | ftxui::bgcolor(this->_theme.surface);
-            return ftxui::hbox({
-                ftxui::text(" permission ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.warn),
+            ftxui::Element bar = ftxui::hbox({
+                ftxui::text(p.safety ? " safety check " : " permission ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(p.safety ? this->_theme.error : this->_theme.warn),
                 ftxui::text(" " + p.tool + ": " + cluster::one_line(p.description, 80) + " ") | ftxui::color(this->_theme.text),
                 ftxui::filler(),
-                ftxui::text(c.keys.at("allow") + " allow · " + c.keys.at("deny") + " deny · palette: always ") | ftxui::color(this->_theme.muted),
+                ftxui::text(c.keys.at("allow") + (p.safety ? " run it anyway · " : " allow · ") + c.keys.at("deny") + (p.safety ? " leave it " : " deny · palette: always "))
+                    | ftxui::color(this->_theme.muted),
             }) | ftxui::bgcolor(this->_theme.surface);
+            if (p.reason.empty()) return bar;
+            return ftxui::vbox({bar, ftxui::text("  why: " + cluster::one_line(p.reason, 200)) | ftxui::color(this->_theme.muted) | ftxui::bgcolor(this->_theme.surface)});
         }
 
         _nodiscard ftxui::Element session_(const cluster::Snapshot& s, const int width, const int height, const bool compact)

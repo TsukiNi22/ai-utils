@@ -54,6 +54,10 @@ header .muted { color: var(--muted); font-size: 13px; }
 .badge { background: var(--warn); color: #000; border-radius: 9px; font-size: 11px; padding: 0 6px; }
 #newSession { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
 #newSession .title { font-weight: 600; font-size: 13px; }
+#external { display: flex; flex-direction: column; gap: 4px; max-height: 45vh; overflow-y: auto; }
+#external .conv { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--surface); }
+#external .conv:hover { border-color: var(--accent); }
+#external .conv small { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #main { display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
 #sessionBar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 #sessionBar .grow { flex: 1; }
@@ -142,6 +146,8 @@ header .muted { color: var(--muted); font-size: 13px; }
                 <input id="newName" placeholder="app">
             </label>
             <button type="submit">Create the session</button>
+            <button type="button" id="openExternal">Open a conversation of another agent…</button>
+            <div id="external" class="hidden"></div>
         </form>
     </nav>
     <main id="main">
@@ -149,6 +155,7 @@ header .muted { color: var(--muted); font-size: 13px; }
             <button id="sessionName" class="link" title="Sessions" style="border:none;background:none;padding:0;font-weight:600"></button>
             <span class="muted" id="sessionInfo"></span>
             <span class="grow"></span>
+            <button id="fork" title="A copy of this session: its conversation so far, each one goes on apart">Fork</button>
             <button id="interrupt" title="Stop the turn and the reading">Stop</button>
             <button id="closeSession" class="danger" title="Close the session (to the trash)">Close</button>
         </div>
@@ -306,6 +313,7 @@ function render(state) {
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
     $("sessionInfo").textContent = [s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
     $("closeSession").classList.toggle("hidden", s.id === "g");
+    $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
     renderTranscript(s.messages || [], s.error);
     renderAsk(s);
     readAnswer(s);
@@ -414,7 +422,8 @@ function renderAsk(s) {
     what.textContent = "Permission: " + p.tool;
     const desc = document.createElement("div");
     desc.className = "desc";
-    desc.textContent = p.description;
+    desc.textContent = p.description + (p.reason ? "\nwhy: " + p.reason : "");
+    if (p.safety) what.textContent = "Stopped by the safety check of Claude Code: run it anyway?";
     row.append(button("Allow", "primary", {cmd: "allow", session: s.id, request_id: p.request_id, behavior: "allow"}),
         button("Deny", "danger", {cmd: "allow", session: s.id, request_id: p.request_id, behavior: "deny"}));
     box.append(what, desc, row);
@@ -473,6 +482,42 @@ $("newSession").addEventListener("submit", async (e) => {
 });
 
 $("picker").addEventListener("click", () => $("side").classList.toggle("open"));
+
+$("fork").addEventListener("click", async () => {
+    const data = await act({cmd: "fork", session: current});
+    if (data && data.id) select(data.id);
+});
+
+// the conversations of the agents opened outside claude-cluster (Claude Code, Codex, opencode, Qwen Code)
+$("openExternal").addEventListener("click", async () => {
+    const box = $("external");
+    if (!box.classList.contains("hidden")) { box.classList.add("hidden"); return; }
+    box.textContent = "…";
+    box.classList.remove("hidden");
+    try {
+        const list = await cmd({cmd: "external", limit: 40});
+        box.textContent = "";
+        if (!list.length) box.textContent = "No conversation of another agent";
+        const names = {claude: "Claude Code", codex: "Codex", opencode: "opencode", qwen: "Qwen Code"};
+        for (const c of list) {
+            const item = document.createElement("div");
+            item.className = "conv";
+            const where = document.createElement("small");
+            where.textContent = (names[c.agent] || c.agent) + " · " + c.age + " ago · " + c.cwd;
+            item.append(document.createTextNode(c.title), where);
+            item.title = c.first_prompt;
+            item.addEventListener("click", async () => {
+                // used less than 2 min ago: maybe still open elsewhere, a copy
+                const recent = Date.now() / 1000 - c.updated < 120;
+                const data = await act({cmd: "import", agent: c.agent, id: c.id, fork: recent});
+                if (data && data.id) { box.classList.add("hidden"); select(data.id); }
+            });
+            box.append(item);
+        }
+    } catch (error) {
+        box.textContent = error.message;
+    }
+});
 $("sessionName").addEventListener("click", () => $("side").classList.toggle("open"));
 
 // ---- completion: @file, /command, the argument of /cd /new /mode /model /effort /restore, the folder of a new session ----

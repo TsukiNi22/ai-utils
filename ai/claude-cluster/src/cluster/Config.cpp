@@ -154,6 +154,9 @@ _cold void cluster::Config::load(void)
     this->maxParallel = table["sessions"]["max_parallel"].value_or(this->maxParallel);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
     this->sessionsPrompt = table["sessions"]["prompt"].value_or(this->sessionsPrompt);
+    this->globalFork = table["sessions"]["global_fork"].value_or(this->globalFork);
+    this->bypassToGlobal = table["sessions"]["bypass_to_global"].value_or(this->bypassToGlobal);
+    this->globalEdit = table["sessions"]["global_edit"].value_or(this->globalEdit);
 
     /* voice */
     toml::node_view<const toml::node> v = std::as_const(table)["voice"];

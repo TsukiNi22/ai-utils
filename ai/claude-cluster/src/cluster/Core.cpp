@@ -109,6 +109,7 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("style", {"", "", "style", ""}, {{"name", true, any}}, "Style of the interface (see the palette)");
     this->_parser.setFlag("voice", {"", "", "voice", ""}, {{"mode", true, [](const std::string& v) {return choice_(v, {"auto", "wake", "push"});}}},
         "Voice on for this run: auto (every sentence) | wake | push (the service opens claude-cluster with --voice auto)");
+    this->_parser.setFlag("fork", {"", "", "fork", ""}, {}, "import: a copy of the conversation (Claude Code), the original untouched");
     this->_parser.setFlag("web", {"", "", "web", ""}, {}, "Web access on for this run: a browser of the same LAN drives it after the code shown");
     this->_parser.setFlag("verbose", {"v", "", "verbose", ""}, {}, "service run: the end of the text of every sound heard (tests)");
     this->_parser.setFlag("debug", {"", "", "debug", ""}, {}, "service setup / enable / run: the whole text heard in the journal (tests only)");
@@ -318,6 +319,12 @@ _cold int cluster::Core::headless_(void)
     if (cmd == "list" || cmd == "trash" || cmd == "notices" || cmd == "providers") {
     } else if (cmd == "web") {
         request["action"] = w.size() > 1 ? w[1] : "";
+    } else if (cmd == "external") {
+        request["agent"] = w.size() > 1 ? w[1] : "";
+    } else if (cmd == "import") {
+        request.update({{"agent", word(1, "agent")}, {"id", word(2, "id")}, {"name", value("name")}, {"fork", v.contains("fork")}});
+    } else if (cmd == "fork") {
+        request.update({{"session", word(1, "session")}, {"name", value("name")}});
     } else if (cmd == "status" || cmd == "read" || cmd == "close" || cmd == "interrupt") {
         request["session"] = word(1, "session");
     } else if (cmd == "spawn") {
@@ -385,6 +392,16 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         return;
     }
     const bool rtk = this->_options.rtk;
+    if (cmd == "external") {
+        for (const cluster::Json& c: data)
+            if (rtk) std::cout << c.value("agent", "") << "|" << c.value("id", "") << "|" << c.value("age", "") << "|" << cluster::short_path(c.value("cwd", ""))
+                << "|" << c.value("title", "") << "\n";
+            else std::cout << std::left << std::setw(9) << c.value("agent", "") << std::setw(10) << c.value("id", "").substr(0, 8) << std::setw(8) << c.value("age", "")
+                << std::setw(34) << cluster::one_line(cluster::short_path(c.value("cwd", "")), 33) << cluster::one_line(c.value("title", ""), 70) << "\n";
+        if (data.empty() && !rtk) std::cout << "no conversation of another agent" << "\n";
+        else if (!rtk) std::cout << "\nopen one here: claude-cluster import <agent> <id> [--name n] [--fork: a copy, the original untouched]" << "\n";
+        return;
+    }
     if (cmd == "web") {
         // open: its address, its code, the browser connected; closed: how to open it
         const std::string action = data.value("action", std::string());

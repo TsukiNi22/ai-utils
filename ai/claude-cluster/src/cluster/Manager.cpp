@@ -29,7 +29,7 @@ File Description:
 _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
 {
     return {
-        {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId}, {"leaf", spec.leaf}, {"resume_at", spec.resumeAt},
+        {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId}, {"leaf", spec.leaf}, {"resume_at", spec.resumeAt}, {"fork", spec.fork},
         {"model", spec.model}, {"mode", spec.mode}, {"effort", spec.effort}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
         {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
     };
@@ -45,6 +45,7 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.claudeId = json.value("claude_id", std::string());
     spec.leaf = json.value("leaf", std::string());
     spec.resumeAt = json.value("resume_at", std::string());
+    spec.fork = json.value("fork", false);
     spec.model = json.value("model", std::string());
     spec.mode = json.value("mode", std::string("default"));
     spec.effort = json.value("effort", std::string());
@@ -161,6 +162,8 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     spec.profile = req.profile;
     spec.panels = std::set<std::string>(this->_config.panels.begin(), this->_config.panels.end());
     spec.created = cluster::now();
+    spec.claudeId = req.resume;     // a conversation resumed (another agent's, a fork of a session)
+    spec.fork = req.fork && !req.resume.empty();
     if (!req.profile.empty()) spec.extraArgs = this->_config.profiles.at(req.profile).extraArgs;
 
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
@@ -169,6 +172,8 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
         this->_sessions[spec.id] = session;
         this->_order.push_back(spec.id);
     }
+    session->append(req.history);   // its transcript so far, shown (and in its log)
+    if (!req.note.empty()) session->mark(req.note);
     session->start();
     if (!req.prompt.empty()) session->send(req.prompt);
     this->notice_(spec.id, "new session " + spec.name + " (" + spec.backend + ") in " + cluster::short_path(spec.cwd));
@@ -510,6 +515,19 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             }
             this->notice_(event.session, name + " waits for a permission: " + event.text);
             if (this->_config.notifyPermission) (void)this->notifyDesktop(name + ": permission", event.text, true);
+            if (event.session != GLOBAL_ID && this->_config.bypassToGlobal) {
+                // a sub-session in bypassPermissions: the global session decides (the user can still answer it)
+                const std::optional<cluster::Snapshot> snap = this->snapshot(event.session);
+                if (snap && snap->spec.mode == "bypassPermissions" && !snap->permissions.empty() && this->snapshot(GLOBAL_ID)) {
+                    const cluster::Permission& p = snap->permissions.back();
+                    try {
+                        this->send(GLOBAL_ID, "[permission request from " + name + " (" + event.session + ")] " + p.tool + ": " + cluster::one_line(p.description, 400)
+                            + (p.reason.empty() ? "" : "\nwhy it asks: " + cluster::one_line(p.reason, 400))
+                            + "\nIts mode is bypassPermissions: you decide with session_allow {session: \"" + event.session + "\", request_id: \"" + p.requestId
+                            + "\", behavior: allow | deny}. Ask the user first (AskUserQuestion) when it may destroy data or you are unsure.");
+                    } catch (const utils::exception::IException&) {}
+                }
+            }
             break;
         case cluster::Event::Kind::TurnDone:
             this->recordUsage_(event.session);

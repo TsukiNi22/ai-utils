@@ -53,6 +53,10 @@ struct SpawnRequest {
     std::string profile;
     std::string prompt;         // first prompt (optional)
     std::string effort;         // empty: config
+    std::string resume{};       // the id of a conversation of the agent to go on with (claude --resume...)
+    bool fork = false;          // claude: resumed as a copy (--fork-session), the original untouched
+    std::vector<cluster::Entry> history{};  // its transcript so far, shown in the session
+    std::string note{};         // a line of the system after it (where it comes from)
 };
 
 struct Notice {
@@ -170,6 +174,14 @@ class Manager {
         /* history (Store.cpp) */
         _cold _nodiscard std::vector<cluster::Hit> search(const std::string& text, const std::size_t max = 50) const;
         _cold _nodiscard std::string exportMarkdown(const std::string& id) const;
+        // the conversations of the agents opened outside, forks, transcripts (Manager-External.cpp)
+        _cold _nodiscard std::vector<std::string> conversationIds(void) const;     // the ones opened here (not offered again)
+        _cold _nodiscard std::string importConversation(const std::string& agent, const std::string& id, const std::string& name, const bool fork);
+        _cold _nodiscard std::string forkSession(const std::string& id, const std::string& name);
+        _cold _nodiscard cluster::Json transcript(const std::string& id, const long from, const std::size_t count) const;
+        _cold void loadContext(const std::string& id, const std::string& source);  // session:<id> | <agent>:<id> | a file
+        _cold _nodiscard cluster::Json conversationMessages(const std::string& id) const;
+        _cold _nodiscard std::string editConversation(const std::string& id, const cluster::Json& edits);
         _cold _nodiscard cluster::Json toJson(const cluster::Snapshot& snapshot, const bool full) const;
         _cold void addHistory(const cluster::Draft& draft, const std::string& session); // prompts sent (history.jsonl)
         _cold _nodiscard std::vector<cluster::Draft> drafts(const std::size_t max = 500, const std::string& session = "") const; // newest first, no

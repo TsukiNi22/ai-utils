@@ -101,6 +101,29 @@ _cold cluster::Json cluster::mcp_tools(void)
             "time): its address, code and the browser connected; action on / off (this run), kick (the browser out, a new code), pin (a new code). "
             "Give the user the address and the code when they ask to open it.",
             {{"action", {{"type", "string"}, {"enum", {"", "on", "off", "kick", "pin"}}, {"description", "empty: the state only"}}}}, {}),
+        tool_("external_conversations", "The conversations of the agents of this computer opened outside claude-cluster (Claude Code, Codex, opencode, "
+            "Qwen Code): agent, id, title, folder, first prompt, age; the newest first. To open one here: session_import.",
+            {{"agent", str_("claude | codex | opencode | qwen (empty: all)")}, {"limit", {{"type", "integer"}, {"description", "30 by default"}}}}, {}),
+        tool_("session_import", "Open a conversation of another agent (external_conversations) as a sub-session resuming it: its transcript shown, the "
+            "same conversation goes on here. fork (Claude Code): a copy, the original untouched - use it when it may still be open elsewhere.",
+            {{"agent", str_("claude | codex | opencode | qwen")}, {"id", str_("its id (a unique prefix is enough)")}, {"name", str_("name of the session")},
+             {"fork", {{"type", "boolean"}, {"description", "a copy (Claude Code)"}}}}, {"agent", "id"}),
+        tool_("session_fork", "A copy of a sub-session of Claude Code: a new sub-session with its conversation so far (its context), each one goes on "
+            "apart. Only when the user allowed it (settings: Global session can fork).", {{"session", session}, {"name", str_("name of the copy")}}, {"session"}),
+        tool_("session_transcript", "The transcript of a session, whole entries (not cut like session_read): index, kind (user, assistant, tool, "
+            "tool_result, system, display), text. from: the first index (negative: from the end, -50 by default), count (50, 500 max).",
+            {{"session", session}, {"from", {{"type", "integer"}}}, {"count", {{"type", "integer"}}}}, {"session"}),
+        tool_("session_context", "Give a context to a session as a prompt it keeps for its next requests (it answers \"ok\"): source = session:<id> "
+            "(the conversation of another session), <agent>:<id> (a conversation of external_conversations), or a file path.",
+            {{"session", session}, {"source", str_("session:<id> | claude:<id> | codex:<id> | qwen:<id> | a file")}}, {"session", "source"}),
+        tool_("session_messages", "The real conversation of a sub-session of Claude Code (what its model sees): its messages with index, role, text, "
+            "tools. To rewrite it: session_edit.", {{"session", session}}, {"session"}),
+        tool_("session_edit", "Rewrite the conversation of a sub-session of Claude Code (indexes of session_messages): replace texts, delete messages "
+            "(a tool call and its result go together), keep only the first N; written as a new conversation (the old one kept), the session "
+            "started again on it, its transcript shown again. Only when it is idle and the user allowed it (settings: Global session can edit).",
+            {{"session", session}, {"replace", {{"type", "array"}, {"description", "[{index, text}]"}}},
+             {"delete", {{"type", "array"}, {"description", "[index, ...]"}}}, {"keep", {{"type", "integer"}, {"description", "keep the first N messages"}}}},
+            {"session"}),
         tool_("voice_engines", "The engines of the voice: speech to text ([voice] listen_model) and text to speech ([voice] say_engine), "
             "local or free-tier APIs: what each one handles (languages), its strengths and limits against the others, its free use, its "
             "voices, its links, ready (installed / API key stored), used. To change one: settings_set; a key: the user runs "
@@ -129,7 +152,9 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
-        {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
+        {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
+        {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
+        {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
         {"ui_style", "ui_style"}, {"ui_panel", "ui_panel"}, {"settings_get", "settings_get"}, {"settings_set", "settings_set"},
     };
     auto it = commands.find(name);
@@ -137,6 +162,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
 
     cluster::Json request = arguments.is_object() ? arguments : cluster::Json::object();
     request["cmd"] = it->second;
+    request["origin"] = "mcp"; // the global session: the limits the user set for it
     if (name == "session_list") request["global"] = false; // the global session lists the others
     if (name == "session_send" && !request.contains("reply")) request["reply"] = true; // its answer comes back (no polling)
     if (name == "session_send") request["from"] = "global"; // marked for the sub-session: a compact answer, for a model

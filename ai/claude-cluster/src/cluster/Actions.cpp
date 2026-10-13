@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/External.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
@@ -65,6 +66,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             list.push_back({manager.remote() ? "remote_off" : "remote_on", manager.remote() ? "Remote Control: off (back here)" : "Remote Control: on (claude.ai / app)", "", "", false});
         }
         list.push_back({"export", "Export the conversation to Markdown", "file", "~/" + snap->spec.name + ".md", false});
+        if (!snap->spec.global && !snap->spec.claudeId.empty() && snap->spec.backend.substr(0, snap->spec.backend.find('/')) != "codex")
+            list.push_back({"fork", "Fork the session (a copy of its conversation, each one goes on apart)", "", "", false});
     }
     for (const cluster::SessionSpec& spec: manager.trash()) {
         list.push_back({"restore:" + spec.id, "Restore " + spec.name + " (" + cluster::short_path(spec.cwd) + ", closed " + cluster::human_age(spec.deleted) + " ago)", "", "", false});
@@ -95,6 +98,14 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             if (!status.client.empty()) list.push_back({"web_kick", "Web access: disconnect " + status.client + " (a new code)", "", "", false});
         }
     }
+    // the conversations of the agents opened outside (Claude Code, Codex, Qwen Code: their files; opencode: claude-cluster external)
+    for (const cluster::Conversation& c: cluster::external_conversations("claude", 12, manager.conversationIds()))
+        list.push_back({"import:" + c.agent + ":" + c.id, "Open a conversation of Claude Code: " + cluster::one_line(c.title, 50) + " · "
+            + cluster::short_path(c.cwd) + " · " + cluster::human_age(c.updated) + " ago", "", "", false});
+    for (const std::string agent: {"codex", "qwen"})
+        for (const cluster::Conversation& c: cluster::external_conversations(agent, 6, manager.conversationIds()))
+            list.push_back({"import:" + c.agent + ":" + c.id, "Open a conversation of " + std::string(agent == "codex" ? "Codex" : "Qwen Code") + ": "
+                + cluster::one_line(c.title, 50) + " · " + cluster::short_path(c.cwd) + " · " + cluster::human_age(c.updated) + " ago", "", "", false});
     list.push_back({"voice_toggle", "Voice: listen / stop (push-to-talk)", "", "", false});
     list.push_back({"voice_confirm", "Voice: send the transcription now", "", "", false});
     list.push_back({"voice_cancel", "Voice: drop the transcription", "", "", false});
@@ -170,6 +181,16 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
                 + (status.client.empty() ? "" : " (" + status.client + " connected)")
                 + (status.https ? "; certificate SHA-256 " + status.fingerprint.substr(0, 23) + "... (the browser shows it)" : "")
                 : status.error.empty() ? "web access closed" : "web access: " + status.error;
+        } else if (base == "import") {
+            // used less than 2 min ago: maybe still open elsewhere, a copy (Claude Code)
+            const std::size_t colon = arg.find(':');
+            const std::optional<cluster::Conversation> found = cluster::external_conversation(arg.substr(0, colon), arg.substr(colon + 1));
+            const bool recent = found && cluster::now() - found->updated < 120;
+            result.focus = manager.importConversation(arg.substr(0, colon), arg.substr(colon + 1), "", recent);
+            result.message = std::string("opened") + (recent && found->agent == "claude" ? " as a copy (used less than 2 min ago: maybe still open elsewhere)" : "");
+        } else if (base == "fork") {
+            result.focus = manager.forkSession(session, "");
+            result.message = "forked";
         } else if (base == "remote_on" || base == "remote_off") {
             manager.setRemote(base == "remote_on");
         } else if (base == "export") {

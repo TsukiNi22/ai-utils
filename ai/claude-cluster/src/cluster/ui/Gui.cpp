@@ -1755,8 +1755,11 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
 
     // permission bar
     this->permBar->setVisible(!s.permissions.empty());
-    if (!s.permissions.empty())
-        this->permLabel->setText(span_(st.warn, "permission", true) + "  " + esc_(s.permissions.front().tool + ": " + cluster::one_line(s.permissions.front().description, 140)));
+    if (!s.permissions.empty()) {
+        const cluster::Permission& p = s.permissions.front();
+        this->permLabel->setText(span_(p.safety ? st.error : st.warn, p.safety ? "safety check" : "permission", true) + "  " + esc_(p.tool + ": " + cluster::one_line(p.description, 140))
+            + (p.reason.empty() ? QString() : "<br>" + span_(st.muted, esc_("why: " + cluster::one_line(p.reason, 240)))));
+    }
 
     // panels
     if (compact) return;

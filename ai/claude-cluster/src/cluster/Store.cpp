@@ -202,6 +202,8 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
     json["permissions"] = cluster::Json::array();
     for (const cluster::Permission& p: snap.permissions) {
         json["permissions"].push_back({{"request_id", p.requestId}, {"tool", p.tool}, {"description", cluster::one_line(p.description, 200)}});
+        if (!p.reason.empty()) json["permissions"].back()["reason"] = cluster::one_line(p.reason, 300);
+        if (p.safety) json["permissions"].back()["safety"] = true;
         // a question of the agent: its questions and options (answered with session_allow answers {question: label})
         if (p.tool == "AskUserQuestion" && p.input.contains("questions")) json["permissions"].back()["questions"] = p.input["questions"];
     }

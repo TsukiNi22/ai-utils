@@ -185,6 +185,16 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.maxParallel);}},
             {"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts", false,
                 [](const cluster::Config& cf) {return number_(cf.budget);}},
+            {"sessions", "bypass_to_global", "Bypass: global decides", SettingKind::Bool, {}, "a sub-session in bypassPermissions still asks for "
+                "some commands (the safety check of Claude Code: a removal it cannot resolve...): the global session decides them (it asks you when "
+                "unsure); off: you answer them. In the other modes such a command is asked to you (auto mode: after the check stopped it)", false,
+                [](const cluster::Config& cf) {return cf.bypassToGlobal ? std::string("true") : std::string("false");}},
+            {"sessions", "global_fork", "Global session can fork", SettingKind::Bool, {}, "the global session may copy a sub-session of Claude Code "
+                "(MCP session_fork: its conversation so far, each one goes on apart) to give a new one its context; you can always (palette, fork)", false,
+                [](const cluster::Config& cf) {return cf.globalFork ? std::string("true") : std::string("false");}},
+            {"sessions", "global_edit", "Global session can edit", SettingKind::Bool, {}, "the global session may rewrite the conversation of a sub-session "
+                "of Claude Code (MCP session_edit: texts replaced, messages deleted, its end cut; a new conversation, the old one kept)", false,
+                [](const cluster::Config& cf) {return cf.globalEdit ? std::string("true") : std::string("false");}},
             {"sessions", "prompt", "System prompt file", SettingKind::Text, {}, "system prompt of every sub-session (claude driver), added to CLAUDE.md; empty file: none", false,
                 [](const cluster::Config& cf) {return cf.sessionsPrompt;}},
             {"sessions", "edit_sessions_prompt", "System prompt (edit)", SettingKind::Action, {},

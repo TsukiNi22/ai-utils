@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #include <utils/utils.hpp>
 #include "cluster/VoiceEngines.hpp"
+#include "cluster/External.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
@@ -311,6 +312,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
 {
     const std::string cmd = arg_(request, "cmd");
     const std::function<std::string()> session = [&]() {return manager.resolve(arg_(request, "session"));};
+    const bool from_global = request.value("origin", std::string()) == "mcp"; // a tool of the global session (its limits)
     cluster::Json data;
 
     try {
@@ -508,6 +510,31 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = cluster::Json::array();
             for (const cluster::Notice& n: manager.notices(30))
                 data.push_back({{"time", n.time}, {"session", n.session}, {"text", n.text}, {"error", n.error}});
+        } else if (cmd == "external") {
+            // the conversations of the agents opened outside claude-cluster, not the ones opened here
+            data = cluster::Json::array();
+            for (const cluster::Conversation& c: cluster::external_conversations(arg_(request, "agent"), std::clamp(request.value("limit", 30), 1, 200),
+                manager.conversationIds()))
+                data.push_back(cluster::external_json(c));
+        } else if (cmd == "import") {
+            data = {{"id", manager.importConversation(arg_(request, "agent"), arg_(request, "id"), arg_(request, "name"), request.value("fork", false))}};
+        } else if (cmd == "fork") {
+            if (from_global && !manager.config().globalFork)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
+                    "not allowed: the user did not let the global session fork (settings page > Sessions > Global session can fork)");
+            data = {{"id", manager.forkSession(session(), arg_(request, "name"))}};
+        } else if (cmd == "transcript") {
+            data = manager.transcript(session(), request.value("from", -50L), static_cast<std::size_t>(std::clamp(request.value("count", 50), 1, 500)));
+        } else if (cmd == "context") {
+            manager.loadContext(session(), arg_(request, "source"));
+            data = {{"sent", true}};
+        } else if (cmd == "messages") {
+            data = manager.conversationMessages(session());
+        } else if (cmd == "edit") {
+            if (from_global && !manager.config().globalEdit)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
+                    "not allowed: the user did not let the global session edit (settings page > Sessions > Global session can edit)");
+            data = {{"result", manager.editConversation(session(), request)}};
         } else if (cmd == "web") {
             // the web access of this instance: on / off for this run, kick (the browser out, a new code), pin (a new code)
             cluster::Web* web = manager.web();

@@ -66,6 +66,10 @@ remote_name = "claude-cluster"                  # name of the Remote Control ses
 trash_days = 14            # a closed session stays restorable this many days
 max_parallel = 4           # task queue: sessions working at the same time
 budget_usd = 0.0           # 0 = no budget; reached: the session refuses new prompts (notified)
+bypass_to_global = true    # the permissions a sub-session in bypassPermissions still asks (safety check of Claude Code):
+                           # decided by the global session (it asks you when unsure); off: you answer them
+global_fork = false        # the global session may fork a sub-session (MCP session_fork); you can always (palette, fork)
+global_edit = false        # the global session may rewrite the conversation of a sub-session (MCP session_edit)
 prompt = "~/.config/claude-cluster/sessions.md" # system prompt of every sub-session (claude driver, added to the global
                            # CLAUDE.md; an empty file: none), taken at the next start of each session
 

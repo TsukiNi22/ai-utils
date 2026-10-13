@@ -92,6 +92,9 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `machine sync [--yes]` / `show` / `path` | map of this computer for the global session (asks first, `--yes`: not) |
 | `providers`, `notices` | backends and their state, last events |
 | `web [on\|off\|kick\|pin]` | web access on this LAN: its address, its code, the browser connected; open / close it for this run, the browser out, a new code |
+| `external [agent]` | the conversations of the agents opened outside claude-cluster (Claude Code, Codex, opencode, Qwen Code): agent, id, age, folder, title |
+| `import <agent> <id> [--name n] [--fork]` | one of them opened here as a session resuming it (its transcript shown); `--fork`: a copy (Claude Code), the original untouched |
+| `fork <s> [--name n]` | a copy of a session of Claude Code: its conversation so far, each one goes on apart |
 | `engines` | the engines of the voice: what each one handles, its limits, its free use, its links, ready or not (no running instance needed) |
 
 Keys of the interfaces (every one set in `[keys]` / the settings page, alternatives with `|`):
@@ -277,7 +280,12 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `config_files` / `config_read` / `config_write` (its own system prompt - it is
   started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
   config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
-  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `web_access` (the web access:
+  "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `external_conversations` / `session_import` (the
+  conversations of the other agents of this computer, opened here), `session_transcript` (whole entries of a transcript),
+  `session_context` (a context given to a session: another session, a conversation of an agent, a file),
+  `session_messages` / `session_edit` (the real conversation of a sub-session of Claude Code rewritten: texts replaced,
+  messages deleted, its end cut) and `session_fork` - these two only when the user allowed them (`[sessions] global_edit`,
+  `global_fork`, off by default), `web_access` (the web access:
   address, code, on / off, kick), `voice_engines` (the
   engines of the voice, local and free-tier APIs: languages, strengths, limits, free use, links, ready, used),
   allowed without asking (`--allowedTools mcp__claude-cluster`);
@@ -287,6 +295,11 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   (radio buttons or check boxes, Other, Answer / Decline); its notice and notification tell the question; the global
   session sees them in `session_status` and answers with `session_allow` `answers` {question: label}; a plain allow
   is refused (the agent would go on without its answer);
+- **the safety check of Claude Code** (a removal it cannot resolve, `rm -f $O/*.png`...): only a person may approve it.
+  A sub-session in `bypassPermissions` asks for it: the global session decides (`[sessions] bypass_to_global`, on; it
+  asks you when unsure), you can answer it too. In `auto` mode Claude Code denies it at once without asking: it is then
+  shown to you as *safety check* (its reason under it); allowed, the session leaves `auto` for that turn, runs the same
+  command again (allowed at once) and goes back to `auto`. The reason of every permission is shown with it;
 - autonomy (from its prompt): what the user asks explicitly is done without asking again; what it decides alone is
   proposed first;
 - **Remote Control** (`remote on` / palette): the global session itself on claude.ai and the Claude app (the
@@ -372,6 +385,26 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   `voice_fr`, `voice_en`); F6 stops.
 - The palette action **Voice: what is missing** lists what to set up (tools, enrollment, voices, English speech model,
   the model or the API key of the engines chosen).
+
+## Conversations of the other agents
+
+The conversations of the agents of this computer opened outside claude-cluster (Claude Code: `~/.claude/projects`,
+Codex: `~/.codex/sessions`, Qwen Code: `~/.qwen/projects`, opencode: `opencode session list`) are offered in the palette
+(*Open a conversation of Claude Code: ...*), the web page (*Open a conversation of another agent*), `claude-cluster
+external` and to the global session (MCP `external_conversations`). Opened, one becomes a session resuming it in its
+folder: its transcript so far shown (the active branch of Claude Code), the same conversation goes on here. A
+conversation of Claude Code used less than 2 minutes ago (maybe still open in a terminal) is opened as a copy
+(`--fork-session`): the original stays untouched. The ones opened here are not offered again.
+
+- **Fork** (palette *Fork the session*, the web page, `claude-cluster fork <s>`): a copy of a session of Claude Code, its
+  conversation so far, then each one goes its own way. The global session may do it only when allowed (settings page >
+  Sessions > *Global session can fork*, off by default): to give a new sub-session the context of another one.
+- **A context** (MCP `session_context`): the conversation of another session, of an agent, or a file, given to a session
+  as a prompt it keeps for its next requests.
+- **Edit** (MCP `session_messages` / `session_edit`, only when allowed: *Global session can edit*, off by default): the
+  real conversation of an idle sub-session of Claude Code (what its model sees) rewritten - texts replaced, messages
+  deleted (a tool call and its result together), its end cut; written as a new conversation next to the old one (kept),
+  the session started again on it and its transcript shown again.
 
 ## Web access
 
