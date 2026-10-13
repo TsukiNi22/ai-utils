@@ -479,12 +479,43 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->_data.bridgeState = state;
     } else if (type == "system" && subtype == "compact_boundary") {
         this->entry_(cluster::EntryKind::System, "context compacted");
+    } else if (type == "system" && subtype == "status") {
+        // the request sent / the context being compacted
+        const std::string status = event.value("status", std::string());
+        if (status == "requesting") this->step_("requesting");
+        else if (status == "compacting") this->step_("compacting");
+    } else if (type == "system" && subtype == "thinking_tokens") {
+        // the thinking estimated while its text is not sent
+        this->step_("thinking");
+        this->_data.stepDetail = "~" + cluster::human_tokens(event.value("estimated_tokens", static_cast<std::int64_t>(0))) + " tokens of thinking (its text not sent by the model)";
+    } else if (type == "system" && subtype == "api_retry") {
+        // an error of the API: tried again after a delay
+        const std::string error = event.value("error", cluster::Json("")).is_string() ? event.value("error", std::string()) : event["error"].dump();
+        const cluster::Json status = event.value("error_status", cluster::Json());
+        this->step_("retry");
+        this->_data.stepDetail = "API error" + (status.is_number() ? " " + std::to_string(status.get<int>()) : std::string()) + (error.empty() ? "" : " (" + error + ")")
+            + ", attempt " + std::to_string(event.value("attempt", 0)) + "/" + std::to_string(event.value("max_retries", 0)) + ", again in "
+            + std::to_string(event.value("retry_delay_ms", 0) / 1000) + " s";
+    } else if (type == "system" && subtype == "model_fallback") {
+        this->entry_(cluster::EntryKind::System, "model fallback: " + event.value("original_model", std::string()) + " → " + event.value("fallback_model", std::string())
+            + (event.value("content", std::string()).empty() ? "" : " (" + cluster::one_line(event.value("content", std::string()), 160) + ")"));
+    } else if (type == "system" && subtype == "hook_started" && this->_data.state == cluster::State::Working) {
+        this->step_("hook");
+        this->_data.stepDetail = event.value("hook_name", std::string());
+    } else if (type == "system" && subtype == "hook_response" && this->_data.step == "hook") {
+        this->step_("model");
     } else if (type == "stream_event" && event.contains("event")) {
         const cluster::Json& e = event["event"];
         const std::string kind = e.value("type", std::string());
         if (kind == "message_start" && e.contains("message")) {
             this->_live = usage_of_(e["message"].value("usage", cluster::Json::object()));
             metrics.contextUsed = this->_live.context();
+            // the model has the request: it reads it (and thinks, its text maybe not sent) before its first words
+            const std::int64_t context = this->_live.context();
+            this->step_("reading");
+            if (context > 0)
+                this->_data.stepDetail = cluster::human_tokens(context) + " tokens of context" + (this->_live.cacheRead > 0 ? " (" + std::to_string(this->_live.cacheRead * 100 / context)
+                    + " % cached)" : std::string());
         } else if (kind == "message_delta" && e.contains("usage")) {
             const cluster::Usage delta = usage_of_(e["usage"]);
             this->_live.output = delta.output;
@@ -853,6 +884,7 @@ static std::int64_t ms_(void)
 void cluster::Session::step_(const std::string& name)
 {
     if (name == this->_data.step) return;
+    if (name != "thinking" || this->_data.step != "reading") this->_data.stepDetail.clear(); // the thinking keeps the context told
     const std::int64_t now = ms_();
     if (!this->_data.step.empty() && !(this->_data.step == "tools" && now - this->_data.stepSince < 300)) { // between two tools of a message: left out
         this->_data.steps.emplace_back(this->_data.step, now - this->_data.stepSince);

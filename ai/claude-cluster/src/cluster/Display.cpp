@@ -639,6 +639,11 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
     if (step == "thinking" || !s.thinking.empty()) verb = "Thinking";
     else if (step == "writing" || !s.partial.empty()) verb = "Writing";
     else if (step == "tools") verb = tools.size() > 1 ? "Running " + std::to_string(tools.size()) + " tools" : tools.size() == 1 ? "Running " + tools[0].value("name", std::string()) : "Running a tool";
+    else if (step == "requesting") verb = "Sending the request";
+    else if (step == "reading") verb = "Reading the request";
+    else if (step == "compacting") verb = "Compacting the context";
+    else if (step == "retry") verb = "Retrying the API";
+    else if (step == "hook") verb = "Running a hook";
     else if (!step.empty() && step != "model") verb = "Writing the input of " + step;
     const std::int64_t output = s.metrics.current.output;
     const std::int64_t estimate = static_cast<std::int64_t>(s.streamed / 4);
@@ -646,9 +651,13 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
     if (std::max(output, estimate) > 0)
         tokens = std::string(estimate > output ? "~" : "") + cluster::human_tokens(std::max(output, estimate)) + " tokens"
             + (s.thinkingTokens > 0 ? " (" + cluster::human_tokens(s.thinkingTokens) + " thinking)" : std::string());
+    // the steps in words (model: the API awaited)
+    static const std::map<std::string, std::string> words = {{"model", "waiting"}, {"requesting", "request"}, {"reading", "reading"}, {"compacting", "compacting"},
+        {"retry", "retry"}, {"hook", "hook"}, {"tools", "tools"}, {"thinking", "thinking"}, {"writing", "writing"}};
+    const std::function<std::string(const std::string&)> word = [](const std::string& name) {return words.contains(name) ? words.at(name) : "input of " + name;};
     cluster::Json steps = cluster::Json::array();
     for (const auto &[name, duration]: s.steps)
-        steps.push_back({{"name", name}, {"ms", duration}});
-    return {{"verb", verb}, {"step", step}, {"step_ms", s.stepSince > 0 ? now - s.stepSince : 0}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
-        {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"hidden_thinking", (step == "thinking") && s.thinking.empty()}};
+        steps.push_back({{"name", word(name)}, {"ms", duration}});
+    return {{"verb", verb}, {"step", step.empty() ? std::string() : word(step)}, {"detail", s.stepDetail}, {"step_ms", s.stepSince > 0 ? now - s.stepSince : 0}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
+        {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"hidden_thinking", (step == "thinking") && s.thinking.empty() && s.stepDetail.empty()}};
 }

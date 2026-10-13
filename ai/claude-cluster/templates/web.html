@@ -43,7 +43,7 @@ header .grow { flex: 1; }
 header .muted { color: var(--muted); font-size: 13px; }
 #settings { position: absolute; right: 14px; top: 52px; z-index: 20; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; width: 290px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
 #settings .note { color: var(--muted); font-size: 12px; }
-#side { border-right: 1px solid var(--line); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+#side { border-right: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; min-width: 0; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .session { padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .session:hover { background: var(--surface); }
 .session.active { background: var(--surface); border-color: var(--line); }
@@ -113,7 +113,8 @@ header .muted { color: var(--muted); font-size: 13px; }
 #mic.on { background: var(--error); border-color: var(--error); color: #fff; }
 #mic.heard { box-shadow: 0 0 0 3px rgba(239, 107, 91, .35); }
 #micState { color: var(--muted); font-size: 12px; padding: 0 14px 4px; min-height: 0; }
-.complete { position: absolute; z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; max-height: 260px; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,.18); min-width: 260px; }
+.complete { position: absolute; z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; max-height: 260px; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,.18); box-sizing: border-box; }
+.complete.floating { position: fixed; }
 .complete div { padding: 6px 10px; cursor: pointer; display: flex; gap: 10px; justify-content: space-between; }
 .complete div small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
 .complete div.selected { background: var(--pick); }
@@ -850,6 +851,7 @@ function renderTurn(turn) {
     head.className = "turn-head";
     head.textContent = `✻ ${turn.verb}… ${took(turn.step_ms)}  (turn ${took(turn.turn_ms)}${turn.tokens ? " · ↓ " + turn.tokens : ""})`;
     div.append(head);
+    if (turn.detail) { const d = document.createElement("div"); d.className = "turn-tool"; d.textContent = "⎿ " + turn.detail; div.append(d); }
     for (const tool of turn.tools || []) {
         const line = document.createElement("div");
         line.className = "turn-tool";
@@ -1162,14 +1164,27 @@ function drawComplete() {
         box.append(row);
     });
     const input = completion.input;
-    const anchor = input.id === "prompt" ? $("composer") : input.parentElement;
-    anchor.append(box);
     completion.box = box;
-    if (input.id === "prompt") { box.style.left = "14px"; box.style.right = "14px"; box.style.bottom = "100%"; }
-    else { box.style.left = "0"; box.style.right = "0"; box.style.top = "100%"; }
+    if (input.id === "prompt") {
+        $("composer").append(box);
+        box.style.left = "14px"; box.style.right = "14px"; box.style.bottom = "100%";
+    } else {
+        // over the page, its field's width at least (the screen at most): the side panel and the page keep their size
+        box.classList.add("floating");
+        document.body.append(box);
+        const r = input.getBoundingClientRect();
+        const width = Math.min(window.innerWidth - 16, Math.max(r.width, 240));
+        box.style.left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) + "px";
+        box.style.width = width + "px";
+        const below = window.innerHeight - r.bottom - 12;
+        if (below >= 140 || below >= r.top) { box.style.top = (r.bottom + 4) + "px"; box.style.maxHeight = Math.min(260, below) + "px"; }
+        else { box.style.bottom = (window.innerHeight - r.top + 4) + "px"; box.style.maxHeight = Math.min(260, r.top - 12) + "px"; }
+    }
     const selected = box.children[completion.selected];
     if (selected) selected.scrollIntoView({block: "nearest"});
 }
+
+window.addEventListener("resize", () => closeComplete()); // its place computed for the size it had
 
 function accept() {
     const item = completion.items[completion.selected];

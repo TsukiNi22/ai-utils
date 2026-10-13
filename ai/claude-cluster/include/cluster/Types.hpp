@@ -212,6 +212,7 @@ struct Snapshot {
     std::string thinking;               // thinking being streamed (cleared by the final block)
     std::string step;                   // what the turn does now: thinking | writing | tools | model (awaited) | a tool being written
     std::int64_t stepSince = 0;         // its start (ms)
+    std::string stepDetail;             // what it waits on: the request (its context), the API retried (its error), a hook...
     std::int64_t turnSince = 0;         // the start of the turn (ms)
     std::size_t streamed = 0;           // characters streamed this turn (text, thinking, tool inputs): ~4 per token
     std::int64_t thinkingTokens = 0;    // thinking tokens of the turn (its text may be hidden by the model)

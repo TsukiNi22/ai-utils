@@ -118,7 +118,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+F | search in the transcript (Enter / ↑ older, ↓ newer, Esc close) |
 | F2 / F5 / F6 / Ctrl+Q | layout / push-to-talk / stop speaking / quit (the sessions are kept) |
 | PageUp / PageDown, wheel | scroll the transcript |
-| Ctrl+O | thinking and tool results in full / folded (like Claude Code); a turn running: every step so far (thinking, writing, tools, the model awaited) and all its tools running (folded: its step and how long, 4 tools with their input, the tokens as they come) |
+| Ctrl+O | thinking and tool results in full / folded (like Claude Code); a turn running: every step so far (the request sent, its context read, thinking (estimated when its text is hidden), writing, tools, a hook, the API retried with its error, the context compacted) and all its tools running (folded: its step and how long, 4 tools with their input, the tokens as they come) |
 | mouse drag (terminal) | select in the transcript or the prompt: copied when released (like Claude Code; the window: as any text) |
 | mouse click (terminal) | a session (list, tab, grid cell), the keys of the top bar, the answers of a permission, the items of the palette / history / question / dialogs, the settings (tab, line, its value: changed), a display (a checklist item ticked, a button, play, the form, details); the wheel: the item above / below in the lists |
 

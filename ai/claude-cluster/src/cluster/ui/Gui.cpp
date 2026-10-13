@@ -2230,6 +2230,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             html += "<p>" + span_(st.accent, esc_(spinner[static_cast<std::size_t>(ms / 120) % spinner.size()] + " " + turn.value("verb", std::string()) + "… "
                 + cluster::took(turn.value("step_ms", 0LL)) + "  (turn " + cluster::took(turn.value("turn_ms", since > 0 ? (cluster::now() - since) * 1000 : 0LL))
                 + (tokens.empty() ? "" : " · ↓ " + tokens) + " · " + config.keys.at("interrupt") + " to interrupt" + (expanded ? "" : " · Ctrl+O details") + ")"));
+            if (!turn.value("detail", std::string()).empty()) html += "<br>" + span_(st.muted, esc_("  ⎿ " + turn.value("detail", std::string())));
             for (const cluster::Json& tool: turn["tools"])
                 html += "<br>" + span_(st.muted, esc_("  ⎿ " + tool.value("name", std::string()) + "  " + cluster::one_line(tool.value("summary", std::string()), 110)
                     + "  " + cluster::took(tool.value("ms", 0LL))));

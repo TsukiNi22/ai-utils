@@ -2105,6 +2105,8 @@ class TtyUi {
                     + cluster::took(turn.value("step_ms", 0LL)) + "  (turn " + cluster::took(turn.value("turn_ms", since > 0 ? (cluster::now() - since) * 1000 : 0LL))
                     + (tokens.empty() ? "" : " · ↓ " + tokens) + " · " + config.keys.at("interrupt") + " to interrupt" + (this->_expanded ? "" : " · " + expand + " details") + ")"
                     + (s.queued > 0 ? "  " + std::to_string(s.queued) + " queued" : std::string()), ftxui::color(this->_theme.accent), "\n"});
+                if (!turn.value("detail", std::string()).empty()) // what it waits on (its context, the error retried, the thinking estimated)
+                    lines.push_back({"  ⎿ " + cluster::one_line(turn.value("detail", std::string()), room - 6), ftxui::color(this->_theme.muted), "\n"});
                 // the tools running: their input, how long
                 const cluster::Json& tools = turn["tools"];
                 const std::size_t most = this->_expanded ? 20 : 4;
