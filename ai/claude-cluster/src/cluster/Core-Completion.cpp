@@ -96,6 +96,7 @@ _cold const std::vector<cluster::Command>& cluster::commands(void)
         {"notices", "", "last events", {}},
         {"auth", "list|login|logout <provider>", "providers and their credentials", {"auth_sub", "provider"}},
         {"engines", "", "the engines of the voice: what each one handles, its limits, its free use, its link", {}},
+        {"icon", "[face] [badge]", "the SVG of the icon: a face (happy, grin, attentive, waiting, idle, working) or the one of claude-cluster now", {}},
         {"external", "[agent]", "the conversations of the agents opened outside claude-cluster (claude, codex, opencode, qwen)", {}},
         {"import", "<agent> <id>", "open one here as a session resuming it (--name, --fork: a copy)", {}},
         {"fork", "<s>", "a copy of a session of Claude Code (its conversation so far), --name", {"session"}},

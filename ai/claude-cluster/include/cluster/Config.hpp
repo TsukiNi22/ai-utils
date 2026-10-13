@@ -135,6 +135,7 @@ class Config {
         bool notifyGlobal = true;               // the global session answered
         bool notifyDone = true;                 // a sub-session finished its turn
         bool notifyPermission = true;           // a permission waits
+        bool notifySound = true;                // a short sound with the notifications (one per kind)
         bool vim = false;                       // vim mode of the prompt (Insert / Normal / Visual)
         int pasteLines = 3;                     // a paste of more lines becomes [Pasted text #N +L lines] (0: never)
         int pasteChars = 800;                   // or of more characters

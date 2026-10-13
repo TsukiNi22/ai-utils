@@ -80,6 +80,7 @@ set(SRC
     src/cluster/Manager-External.cpp
     src/cluster/Asking.cpp
     src/cluster/Display.cpp
+    src/cluster/Icons.cpp
     src/cluster/External.cpp
     src/cluster/Store.cpp
     src/cluster/Git.cpp

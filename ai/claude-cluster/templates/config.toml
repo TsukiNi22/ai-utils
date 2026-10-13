@@ -12,6 +12,7 @@ notify = true              # desktop notifications at all (the ones of the globa
 notify_global = true       # when the global session answers
 notify_done = true         # when a sub-session finishes its turn
 notify_permission = true   # when a permission waits
+notify_sound = true        # a short sound with them (the sounds of the desktop theme, one per kind)
 vim = false                # vim mode of the prompt: Esc Normal (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o Insert
 paste_lines = 3            # a paste of more lines is one [Pasted text #N +L lines] in the prompt (0: never)
 paste_chars = 800          # or of more characters (0: never)

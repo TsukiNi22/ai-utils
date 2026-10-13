@@ -20,6 +20,7 @@ File Description:
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Icons.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Mcp.hpp"
 #include <unordered_map>
@@ -31,6 +32,7 @@ File Description:
 #include <cstdlib>
 #include <csignal>
 #include <chrono>
+#include <set>
 
 /* tools */
 _cold static std::optional<std::string> choice_(const std::string& value, const std::vector<std::string>& choices)
@@ -214,6 +216,7 @@ _cold void cluster::Core::run(void)
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
     else if (cmd == "engines") this->_exit = this->engines_();
+    else if (cmd == "icon") this->_exit = this->icon_();
     else if (cmd == "machine") this->_exit = this->machine_();
     else if (cmd == "service") this->_exit = cluster::service_command(this->_words, {this->_options.values.contains("verbose"),
         this->_options.values.contains("debug"), this->_options.values.contains("follow")});
@@ -231,6 +234,7 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!this->_options.backend.empty()) app.config.backend = this->_options.backend;
     if (!this->_options.global) app.config.globalEnabled = false;
     (void)app.config.currentStyle();
+    cluster::install_icon(); // the menu, the dock and the notifications show it
 
     // Front-end: forced (fails when impossible) or auto (terminal first, then window)
     std::string frontend = this->_options.frontend.empty() ? app.config.frontend : this->_options.frontend;
@@ -488,6 +492,32 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         std::cout << "ok" << "\n";
     }
     std::cout << std::flush;
+}
+
+_cold int cluster::Core::icon_(void)
+{
+    // a face named, or the one of the claude-cluster running (its state, its badge): the SVG on the output
+    static const std::set<std::string> names = {"happy", "grin", "attentive", "waiting", "idle", "working"};
+    const std::string name = this->_words.size() > 1 ? this->_words[1] : "";
+    if (!name.empty() && !names.contains(name)) {
+        std::cerr << "claude-cluster icon [happy | grin | attentive | waiting | idle | working] [badge]" << std::endl;
+        return 1;
+    }
+    int badge = 0;
+    try {
+        badge = this->_words.size() > 2 ? std::stoi(this->_words[2]) : 0;
+    } catch (const std::exception&) {}
+    if (!name.empty()) {
+        std::cout << cluster::face_svg(cluster::face_of(name), badge, false) << std::endl;
+        return 0;
+    }
+    try {
+        const cluster::Json face = cluster::Control::request({{"cmd", "face"}}).value("data", cluster::Json::object());
+        std::cout << face.value("svg", std::string()) << std::endl;
+    } catch (const utils::exception::IException&) {
+        std::cout << cluster::face_svg(cluster::Face::Idle) << std::endl; // not running: asleep
+    }
+    return 0;
 }
 
 /* auth */

@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Display.hpp"
+#include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
 #ifdef CLUSTER_TLS
@@ -632,7 +633,10 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         for (const cluster::Snapshot& snap: this->_manager.list(true))
             sessions.push_back(this->_manager.toJson(snap, false));
         const cluster::VoiceConf& voice = this->_manager.config().voice;
+        const cluster::AppFace face = this->_manager.appFace(false);
         json_(conn, 200, {{"version", version()}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
+            {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
+                {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"client", peer}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
     } else if (request.method == "GET" && request.path == "/api/display") {
@@ -721,6 +725,7 @@ _cold void cluster::Web::login_(void* connection, const std::string& requestBody
         this->_client = peer;
         this->_seen = now_ms_();
         this->_manager.notice(GLOBAL_ID, "web: " + peer + " connected");
+        (void)this->_manager.notify({"web", "web access", peer + " connected (one browser at a time)", cluster::Face::Happy, false, "service-login", {{"open", "Open"}}});
         json_(conn, 200, {{"ok", true}}, "Set-Cookie: cc_web=" + this->_token + "; Path=/; HttpOnly; SameSite=Strict" + secure + "\r\n");
     }
 }

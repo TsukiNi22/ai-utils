@@ -22,6 +22,7 @@ File Description:
 #include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Reveal.hpp"
+#include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
@@ -36,6 +37,7 @@ File Description:
 #include <algorithm>
 #include <unistd.h>
 #include <optional>
+#include <iostream>
 #include <fstream>
 #include <sstream>
 #include <cerrno>
@@ -417,6 +419,7 @@ class TtyUi {
             std::function<bool(void)> act{};        // false: not for it (the mouse selection goes on); none: a dialog that stops the click
         };
         std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
+        std::string _title;                         // the title of the terminal set (its face)
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
@@ -2605,6 +2608,14 @@ class TtyUi {
             if (this->_manager.config().reload()) this->theme_();
             this->askCheck_();
             this->_clicks.clear();  // made again by this drawing
+            // the face of the app (>_< running, •_• waiting on you...): in the bar, the title of the terminal, the dock
+            const cluster::AppFace face = this->_manager.appFace(this->_app.voice->listening());
+            const std::string title = std::string("(") + cluster::face_text(face.face) + ") " + (face.badge > 0 ? std::to_string(face.badge) + " · " : "") + "claude-cluster";
+            if (title != this->_title) {
+                this->_title = title;
+                std::cout << "\x1b]0;" << title << "\x07" << std::flush;
+            }
+            cluster::dock_badge(face.badge, face.urgent);
             const ftxui::Dimensions size = ftxui::Terminal::Size();
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
             const std::vector<cluster::Notice> notices = this->_manager.notices(1);
@@ -2623,7 +2634,8 @@ class TtyUi {
             };
             const std::function<ftxui::Element(void)> dot = [this]() {return ftxui::text(" · ") | ftxui::color(this->_theme.muted);}; // new each time: drawn once
             ftxui::Element top = ftxui::hbox({
-                this->tap_(ftxui::text(" claude-cluster ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent), 0,
+                this->tap_(ftxui::text(std::string(" ") + cluster::face_text(face.face) + " claude-cluster ") | ftxui::bold | ftxui::color(this->_theme.bg)
+                    | ftxui::bgcolor(face.face == cluster::Face::Waiting ? this->_theme.warn : this->_theme.accent), 0,
                     [this]() {(void)this->shortcut_("settings");}),
                 key(" " + layout, "layout"),
                 ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),

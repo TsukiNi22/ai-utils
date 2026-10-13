@@ -27,6 +27,7 @@ File Description:
 #include <fcntl.h>
 #include <cstdio>
 #include <random>
+#include <tuple>
 #include <array>
 #include <map>
 
@@ -1302,6 +1303,13 @@ cluster::SessionSpec cluster::Session::spec(void) const
     spec.cost = this->_data.metrics.cost;
     spec.tokens = this->_data.metrics.total.total();
     return spec;
+}
+
+std::tuple<cluster::State, std::size_t, bool> cluster::Session::brief(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    const bool safety = std::any_of(this->_data.permissions.begin(), this->_data.permissions.end(), [](const cluster::Permission& p) {return p.safety;});
+    return {this->_data.state, this->_data.permissions.size(), safety};
 }
 
 cluster::State cluster::Session::state(void) const

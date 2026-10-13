@@ -67,7 +67,23 @@ _cold void cluster::Manager::taskDone_(const std::string& session, const bool er
             changed = true;
         }
     }
-    if (changed) this->save();
+    if (!changed) return;
+    this->save();
+    // the queue done: one summary
+    std::size_t done = 0;
+    std::size_t failed = 0;
+    bool open = false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        for (const cluster::Task& task: this->_tasks) {
+            open |= task.status == "queued" || task.status == "running";
+            done += task.status == "done" ? 1 : 0;
+            failed += task.status == "failed" ? 1 : 0;
+        }
+    }
+    if (!open)
+        (void)this->notify({"tasks", "task queue finished", std::to_string(done) + " done" + (failed > 0 ? ", " + std::to_string(failed) + " failed" : std::string()),
+            failed > 0 ? cluster::Face::Waiting : cluster::Face::Grin, false, "complete"});
 }
 
 _cold void cluster::Manager::schedule_(void)
@@ -253,7 +269,7 @@ _cold void cluster::Manager::fireSchedules_(void)
     for (const cluster::Schedule& w: due) {
         if (w.action == "notify") {
             this->notice_(GLOBAL_ID, "scheduled " + w.id + ": " + w.text);
-            cluster::detach({"notify-send", "-a", "claude-cluster", "claude-cluster", w.text});
+            (void)this->notify({"schedule-" + w.id, "reminder", w.text, cluster::Face::Attentive, false, "message-new-instant"});
             continue;
         }
         try {

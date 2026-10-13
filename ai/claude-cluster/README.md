@@ -263,8 +263,9 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   parallel). Local only; the global session reads it for a request about a local project, the user or the system;
 - the answer of a sub-session it asked (`session_send`) **comes back to it** as a message `[reply from <name> (<id>)]`
   when the sub-session is done: no polling of `session_read` (each read costs a whole context);
-- **notifications** (`[ui] notify`, `notify_global` / `notify_done` / `notify_permission`): the end of its answers,
-  of the turns of the sub-sessions, a permission waiting; failsafe (no `notify-send`: nothing);
+- **notifications** (`[ui] notify`, `notify_global` / `notify_done` / `notify_permission` / `notify_sound`): the end of
+  its answers, of the turns of the sub-sessions, a permission waiting; failsafe (no `notify-send`: nothing). See
+  [The icon and the notifications](#the-icon-and-the-notifications);
 - `/clear` and a new start (`n` at start) only start the context of claude again: the transcript stays, marked
   "new conversation" (the sub-sessions go to the trash as before);
 - it **stays**: its process ending by itself (not a stop) starts it again on its conversation (once a minute at most,
@@ -328,6 +329,26 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
 (`[mcp_tools] <tool> = false`: refused at once with a message for the user, left out of its tool list at its next
 start), and the custom MCP servers it gets too (`[mcp] servers`: `"name: command args"` for a local program, or
 `"name: https://url"` for an HTTP one; written in its MCP config next to the one of claude-cluster at its next start).
+
+### The icon and the notifications
+
+The icon is a stack of terminals whose front one has a face made of prompt characters; the app is `^_^`, and the face
+follows what claude-cluster does: the title of the terminal and its bar, the icon of the window, the tab of the web
+page, the dock (the number of the sessions waiting on you, else running: the Unity launcher API), `claude-cluster icon
+[face] [badge]` (its SVG, for a status bar). The binary installed writes its icon in the icon theme and
+`claude-cluster.desktop` (the menu, the dock, the notifications grouped under it).
+
+| Face | The app now | A notification |
+|---|---|---|
+| `^_^` happy | the global session just answered | the global session answered, a browser connected (web access) |
+| `>‿<` grin | a session just finished | a session finished (its tokens), the task queue done |
+| `•_•` attentive | a question or a permission waits, the voice listens | a question (its options as buttons), a permission (Allow / Deny), a reminder |
+| `o_o` waiting | an error, the safety check of Claude Code | an error, a crash, the safety check (Run it anyway / Leave it), a limit close (80 %, 95 % of 5 h / 7 d) |
+| `-_-` idle | nothing running | a limit reached (the usage, the budget): until its reset |
+| `>_<` squint | something running | |
+
+One notification per session (the next one replaces it), urgent when it waits on you, its buttons answered from the
+notification (Open shows the session), a short sound of the desktop theme per kind (`[ui] notify_sound`).
 
 ## Voice
 

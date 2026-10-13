@@ -133,6 +133,20 @@ _cold void cluster::Manager::recordUsage_(const std::string& session)
         for (const auto &[name, report]: this->_limits)
             saved[name] = {{"limit_5h", report.limit5h}, {"limit_7d", report.limit7d}, {"reset_5h", report.reset5h}, {"reset_7d", report.reset7d}};
         cluster::write_json(limits_file_(), saved);
+        for (const auto &[window, used, reset]: {std::tuple<std::string, double, std::int64_t>{"5 h", m.limit5h, m.reset5h}, {"7 d", m.limit7d, m.reset7d}}) {
+            const int level = used >= 1.0 ? 100 : used >= 0.95 ? 95 : used >= 0.8 ? 80 : 0;
+            int& told = this->_limitLevel[vendor + window];
+            if (level <= told) {
+                if (level < told) told = level; // reset: told again next time
+                continue;
+            }
+            told = level;
+            const std::string when = reset > 0 ? ", reset in " + cluster::human_age(cluster::now() + (cluster::now() - reset)) : std::string();
+            std::thread([this, vendor, window, level, when]() {
+                (void)this->notify({"limit-" + vendor, vendor + " · " + window + " limit " + (level >= 100 ? "reached" : "close"),
+                    std::to_string(level) + " % of the " + window + " window used" + when, level >= 100 ? cluster::Face::Idle : cluster::Face::Waiting, level >= 95, "dialog-warning"});
+            }).detach();
+        }
     }
     if (record.tokens + record.cache == 0) return; // nothing used (an error before the agent answered)
     this->_usage.push_back(record);

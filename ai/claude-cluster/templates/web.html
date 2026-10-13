@@ -343,6 +343,7 @@ function render(state) {
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
     renderTranscript(s.messages || [], s.error);
+    renderFace(s.face);
     renderTurn(s.turn);
     if (state.ask && (current === "g" || state.ask.session === current)) renderQuestion(state.ask);
     else renderAsk(s);
@@ -816,6 +817,20 @@ function renderDisplay(div, m) {
     fetch(`/api/display?session=${encodeURIComponent(current)}&index=${m.index}`, {credentials: "same-origin"})
         .then((r) => r.json()).then((full) => { displays.set(key, full); drawDisplay(div, full); })
         .catch(() => { div.textContent = "[" + d.type + " not loaded]"; });
+}
+
+let faceShown = "";
+function renderFace(face) {
+    // the tab: its icon and title follow the state of claude-cluster (>_< running, •_• waiting on you, o_o an error...)
+    if (!face) return;
+    const key = face.name + face.badge;
+    if (key === faceShown) return;
+    faceShown = key;
+    let link = document.querySelector("link[rel=icon]");
+    if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.append(link); }
+    link.type = "image/svg+xml";
+    link.href = "data:image/svg+xml," + encodeURIComponent(face.svg);
+    document.title = `(${face.text}) ${face.badge ? face.badge + " · " : ""}claude-cluster`;
 }
 
 let turnOpen = false;    // the steps of the turn unfolded (kept from one refresh to the next)

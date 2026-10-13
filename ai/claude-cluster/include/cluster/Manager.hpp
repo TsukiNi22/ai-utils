@@ -25,6 +25,7 @@ File Description:
     #include "Config.hpp"           // cluster::Config
     #include "Asking.hpp"           // cluster::Asking
     #include "Types.hpp"            // cluster::Snapshot, cluster::Task
+    #include "Icons.hpp"            // cluster::Notification, cluster::AppFace
     #include "Auth.hpp"             // cluster::Auth
     #include <functional>           // std::function
     #include <optional>             // std::optional
@@ -105,6 +106,9 @@ class Manager {
         std::atomic<std::uint64_t> _version{1};
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
+        std::map<std::string, std::string> _notifyIds;  // the notification shown per session (replaced by the next one)
+        std::pair<cluster::Face, std::int64_t> _moment{cluster::Face::Idle, 0};   // a finished turn / a global answer: shown a moment
+        std::map<std::string, int> _limitLevel;         // a limit close: the level already told (80, 95, 100)
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
         cluster::Web* _web = nullptr;                   // the web access of this instance (owned by the App)
         std::unique_ptr<cluster::Asking> _asking;       // the question of an agent being answered (the interfaces, the voice)
@@ -211,7 +215,9 @@ class Manager {
         void setUi(const std::string& key, const std::string& value);
         void requestFocus(const std::string& id);           // the interfaces show this session (the global session asks it)
         void replyTo(const std::string& id);                // the end of the next turn of this session sent to the global session
-        bool notifyDesktop(const std::string& title, const std::string& text, const bool urgent = false) const; // false: notifications off
+        bool notifyDesktop(const std::string& title, const std::string& text, const bool urgent = false); // false: notifications off
+        bool notify(const cluster::Notification& notification);   // its face, buttons, sound; one per session (replaced); false: off
+        _nodiscard cluster::AppFace appFace(const bool listening) const;   // the face of the app now, its badge
         _cold void scanMachine(void);                       // the map of this computer written again (in the background, a notice)
         _nodiscard int machineAsk(void) const;              // asked at start: 0 no, 1 no map yet (not refused), 2 an old map (sync proposed)
         _nodiscard std::optional<std::pair<cluster::MachineProgress, std::int64_t>> machineProgress(void) const; // the last scan, ms of its end (0: running)

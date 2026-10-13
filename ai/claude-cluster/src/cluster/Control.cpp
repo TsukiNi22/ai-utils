@@ -319,7 +319,12 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         if (from_global && request.contains("tool") && !manager.config().mcpTool(request.value("tool", std::string())))
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the tool " + request.value("tool", std::string())
                 + " is off in the settings of claude-cluster (MCP page): tell the user, they turn it on there if they want");
-        if (cmd == "mcp_off") {
+        if (cmd == "face") {
+            // the face of the app now (the web page, claude-cluster icon, a status bar)
+            const cluster::AppFace face = manager.appFace(false);
+            data = {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge}, {"urgent", face.urgent},
+                {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}};
+        } else if (cmd == "mcp_off") {
             data = cluster::Json::array();
             for (const auto &[tool, on]: manager.config().mcpTools)
                 if (!on) data.push_back(tool);

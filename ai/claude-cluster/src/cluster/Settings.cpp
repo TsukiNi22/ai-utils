@@ -122,6 +122,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.notifyDone ? std::string("true") : std::string("false");}},
             {"ui", "notify_permission", "  when a permission waits", SettingKind::Bool, {}, "a session waits for your yes", false,
                 [](const cluster::Config& cf) {return cf.notifyPermission ? std::string("true") : std::string("false");}},
+            {"ui", "notify_sound", "  with a sound", SettingKind::Bool, {}, "a short sound of the desktop theme, one per kind (done, question, error)", false,
+                [](const cluster::Config& cf) {return cf.notifySound ? std::string("true") : std::string("false");}},
             {"ui", "vim", "Vim mode of the prompt", SettingKind::Bool, {}, "Esc: Normal mode (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o: Insert", false,
                 [](const cluster::Config& cf) {return cf.vim ? std::string("true") : std::string("false");}},
             {"ui", "paste_lines", "Paste collapsed above (lines)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N +L lines] in the prompt (0: never)", false,

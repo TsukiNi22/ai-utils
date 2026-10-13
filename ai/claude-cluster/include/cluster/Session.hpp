@@ -146,6 +146,7 @@ class Session {
         _nodiscard cluster::Snapshot snapshot(void) const;
         _nodiscard cluster::SessionSpec spec(void) const;
         _nodiscard cluster::State state(void) const;
+        _nodiscard std::tuple<cluster::State, std::size_t, bool> brief(void) const; // state, permissions waiting, one of them a safety check
 
         // ---------- Function -------- //
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};

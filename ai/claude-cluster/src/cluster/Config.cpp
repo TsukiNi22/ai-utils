@@ -120,6 +120,7 @@ _cold void cluster::Config::load(void)
     this->notifyGlobal = table["ui"]["notify_global"].value_or(this->notifyGlobal);
     this->notifyDone = table["ui"]["notify_done"].value_or(this->notifyDone);
     this->notifyPermission = table["ui"]["notify_permission"].value_or(this->notifyPermission);
+    this->notifySound = table["ui"]["notify_sound"].value_or(this->notifySound);
     this->vim = table["ui"]["vim"].value_or(this->vim);
     this->pasteLines = table["ui"]["paste_lines"].value_or(this->pasteLines);
     this->pasteChars = table["ui"]["paste_chars"].value_or(this->pasteChars);

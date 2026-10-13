@@ -21,6 +21,7 @@ File Description:
 #include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Reveal.hpp"
+#include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
@@ -272,7 +273,26 @@ class Window: public QMainWindow {
             QTimer* timer = new QTimer(this);
             QObject::connect(timer, &QTimer::timeout, [this]() {this->tick();});
             timer->start(50);
+            QTimer* face = new QTimer(this); // the icon follows the state (>_< running, •_• waiting on you, o_o an error...)
+            QObject::connect(face, &QTimer::timeout, [this]() {this->showFace();});
+            face->start(500);
+            this->showFace();
         }
+
+        void showFace(void)
+        {
+            const cluster::AppFace face = this->manager.appFace(this->app.voice->listening());
+            const std::string key = std::string(cluster::face_name(face.face)) + std::to_string(face.badge) + (face.urgent ? "!" : "");
+            cluster::dock_badge(face.badge, face.urgent);
+            if (key == this->faceShown) return;
+            this->faceShown = key;
+            QPixmap pixmap;
+            pixmap.loadFromData(QByteArray::fromStdString(cluster::face_svg(face.face, face.badge, face.urgent)), "SVG");
+            this->setWindowIcon(QIcon(pixmap));
+            this->setWindowTitle(QString("(") + QString::fromUtf8(cluster::face_text(face.face)) + ") claude-cluster");
+        }
+
+        std::string faceShown;
 
         _nodiscard const cluster::Style& theme(void) const
         {
@@ -2334,6 +2354,7 @@ _cold int cluster::run_gui(cluster::App& app)
     char* argv[] = {name, nullptr};
     QApplication application(argc, argv);
     QApplication::setApplicationName("claude-cluster");
+    QGuiApplication::setDesktopFileName("claude-cluster"); // the dock: its .desktop and its icon
     Window window(app);
     window.show();
     // the end of a prompt of the global session is notified only when the window is not the active one
