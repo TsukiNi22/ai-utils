@@ -1618,7 +1618,7 @@ class TtyUi {
             ftxui::Element sub = ftxui::text("  " + cluster::one_line(backend + " · " + cluster::short_path(s.spec.cwd), 26)) | ftxui::color(this->_theme.muted) | ftxui::dim;
             const std::string id = s.spec.id;
             ftxui::Element block = this->tap_(ftxui::vbox({line, sub}), 0, [this, id]() {this->_active = id;}, clip); // clicked: shown
-            return active ? block | ftxui::bgcolor(this->_theme.surface) | ftxui::focus : block;
+            return active ? block | ftxui::bgcolor(this->_theme.surface) : block; // no focus: it would take the cursor of the prompt
         }
 
         _nodiscard ftxui::Element transcript_(const cluster::Snapshot& s, const int width, const int height, const bool compact)
@@ -2410,8 +2410,14 @@ class TtyUi {
             // list + active panel
             ftxui::Elements rows = {ftxui::text(" Sessions") | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text("")};
             const int clip = this->clip_();
-            for (const cluster::Snapshot& s: list)
-                rows.push_back(this->sessionRow_(s, s.spec.id == this->_active, clip));
+            // more sessions than the room: the ones around the one shown (2 lines each)
+            const std::size_t room = static_cast<std::size_t>(std::max(1, (height - 3) / 2));
+            const std::size_t at = static_cast<std::size_t>(it - list.begin());
+            const std::size_t first = list.size() <= room || at < room ? 0 : std::min(at + 1 - room, list.size() - room);
+            if (first > 0) rows.push_back(ftxui::text(" ↑ " + std::to_string(first) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            for (std::size_t i = first; i < list.size() && i < first + room; ++i)
+                rows.push_back(this->sessionRow_(list[i], list[i].spec.id == this->_active, clip));
+            if (first + room < list.size()) rows.push_back(ftxui::text(" ↓ " + std::to_string(list.size() - first - room) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
             const std::vector<cluster::Task> tasks = this->_manager.tasks();
             const auto open = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued" || t.status == "running";});
             if (open > 0) rows.push_back(ftxui::text(" " + std::to_string(open) + " task(s) in the queue") | ftxui::color(this->_theme.muted));
