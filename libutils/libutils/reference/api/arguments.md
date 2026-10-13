@@ -1,6 +1,6 @@
 # libutils `arguments`
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/arguments/ArgParser.hpp`
 
@@ -21,7 +21,7 @@ std::optional<std::string> defaultWritableParsingHook(const std::string& option)
 std::optional<std::string> defaultTrueParsingHook(const std::string&);
 class ArgParser: private utils::security::observer::Observer<"ArgParser"> {
     void help(void) const; // Help display (using hook)
-    utils::arguments::ParsedUsages parse(const int argc, const char *const argv[], const bool failsafe = false) const;
+    utils::arguments::ParsedUsages parse(const int argc, const char* const argv[], const bool failsafe = false) const;
     utils::arguments::ParsedUsages parse(const std::vector<std::string>& argv, const bool failsafe = false) const;
     void removeUsage(const std::string& id);
     void removeUsages(const std::vector<std::string>& ids);
@@ -71,7 +71,6 @@ struct ParsedUsage {
     std::string id; // empty -> nothing
     std::vector<std::tuple<std::string, bool, std::vector<std::string>>> arguments; // <id, option(true)|flag(false), {option}>
 };
-using ParsedUsages = std::vector<utils::arguments::ParsedUsage>;
 struct Usage {
     std::string name; // special name: default -> allow all flag (like no usage defined)
     bool ordered = false; // The order of the option will always matter, Raw option will be forced in mandatory
@@ -90,6 +89,7 @@ struct Flag {
     std::vector<std::tuple<std::string, bool, std::function<std::optional<std::string>(const std::string&)>>> options; // <name, mandatory, check>, the order matter
     std::string description = "[None]";
 };
+using ParsedUsages = std::vector<utils::arguments::ParsedUsage>;
 ```
 
 ## `utils/arguments/Setting.hpp`
@@ -141,7 +141,6 @@ class Settings: private utils::security::observer::Observer<"Settings"> {
     template<typename T> T& get(std::string_view id);
     const utils::arguments::Setting& get(std::string_view id) const;
     bool contains(std::string_view id) const;
-    template<bool force = false> [deprecated ~v4.0.0] utils::arguments::CastType auto_cast(const std::string& id, const std::string& setting);
     Settings& operator=(Settings&& other) = default;
     utils::arguments::Setting& operator[](std::string_view id);
     const utils::arguments::Setting& operator[](std::string_view id) const;

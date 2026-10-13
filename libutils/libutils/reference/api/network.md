@@ -1,6 +1,6 @@
 # libutils `network`
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/network/Client.hpp`
 
@@ -88,7 +88,7 @@ class Server: private utils::security::observer::Observer<"Server"> {
 
 Abstract for socket handling
 
-Namespace: `utils::network`, `utils::network::socket`
+Namespace: `utils::network`
 
 ```cpp
 // namespace utils::network
@@ -121,18 +121,13 @@ class ASocket: public utils::network::ISocket {
     ASocket() = default;
     ~ASocket() noexcept;
 };
-// namespace utils::network::socket
-[deprecated ~v4.0.0] bool is_ip(const std::string& s);
-[deprecated ~v4.0.0] std::string resolve_hostname(const std::string& hostname);
-[deprecated ~v4.0.0] void resolve_address(utils::network::Address& address);
-using ASocket [deprecated ~v4.0.0] = utils::network::ASocket;
 ```
 
 ## `utils/network/socket/ISocket.hpp`
 
 Interface for socket handling
 
-Namespace: `utils::network`, `utils::network::socket`
+Namespace: `utils::network`
 
 ```cpp
 // namespace utils::network
@@ -164,8 +159,6 @@ class ISocket: private utils::security::observer::Observer<"ISocket"> {
     ISocket() = default;
     virtual ~ISocket() = default;
 };
-// namespace utils::network::socket
-using ISocket [deprecated ~v4.0.0] = utils::network::ISocket;
 ```
 
 ## `utils/network/socket/Socket.hpp`
@@ -176,7 +169,7 @@ Include for all the different sockets
 
 Socket that handle tcp communication
 
-Namespace: `utils::network`, `utils::network::socket`
+Namespace: `utils::network`
 
 ```cpp
 // namespace utils::network
@@ -186,12 +179,13 @@ class TCPSocket: public utils::network::ASocket {
     bool hasAcceptOverload(void) const;
     bool hasRecvOverload(void) const;
     bool hasSendOverload(void) const;
+    using utils::network::ASocket::accept;
+    using utils::network::ASocket::recv;
+    using utils::network::ASocket::send;
     int accept(int fd, sockaddr* addr, socklen_t* len) const;
     ssize_t recv(int fd, char* buf, std::size_t len) const;
     ssize_t send(int fd, const char* buf, std::size_t len) const;
     TCPSocket() = default;
     ~TCPSocket() = default;
 };
-// namespace utils::network::socket
-using TCPSocket [deprecated ~v4.0.0] = utils::network::TCPSocket;
 ```

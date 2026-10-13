@@ -1,6 +1,6 @@
 # libutils `security`
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/security/encryption/AESKey.hpp`
 
@@ -58,8 +58,6 @@ template<typename T> class AKey: public utils::security::encryption::IKey<T> {
     AKey(AKey&& other) = default;
     virtual ~AKey() = default;
 };
-[deprecated ~v4.0.0] std::string keyToString(const std::vector<std::uint8_t>& data);
-[deprecated ~v4.0.0] std::vector<std::uint8_t> stringToKey(const std::string& s);
 ```
 
 ## `utils/security/encryption/CommonRSAKey.hpp`

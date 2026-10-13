@@ -1,6 +1,6 @@
 # libutils `root`
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/utils.hpp`
 
@@ -44,6 +44,7 @@ Main include for every part of the utils lib
 #define _Manip
 #define _Algorithms
 #define _Security
+#define _Platform
 #define _Middleware
 #define _Socket
 #define _BLT // Bidirectional Lookup Table

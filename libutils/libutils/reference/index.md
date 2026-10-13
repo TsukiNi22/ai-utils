@@ -1,6 +1,6 @@
 # libutils API index
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Details of a section: `api/<section>.md`.
 
@@ -93,7 +93,6 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/manip/smanip/codec/Base64Codec.hpp` | `utils::smanip::codec` | `Base64Codec` | Definition of the base 64 codec |
 | `utils/manip/smanip/codec/Codec.hpp` | `-` | - | Include for all the different codec |
 | `utils/manip/smanip/codec/ICodec.hpp` | `utils::smanip::codec` | `ICodec` | Declaration of the interface used for different codec (base64, ...) |
-| `utils/manip/smanip/fixed_string.hpp` | `-` | - | Old name of the FixedString (kept for backward compatibility) |
 | `utils/manip/smanip/format.hpp` | `utils::smanip` | `format` | Definition of the utils::smanip::format & explication |
 | `utils/manip/smanip/parser/AParser.hpp` | `utils::smanip::parser` | `AParser` | Declaration of the abstract used for different parser (2etp, ...) |
 | `utils/manip/smanip/parser/EETPParser.hpp` | `utils::smanip::parser` | `EETPContent`, `EETPParser` | Declaration of the parser used for the 2etp protocol |
@@ -117,10 +116,21 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | `utils/network/NetworkDefine.hpp` | `utils::network` | `Status` | Different definition of values for socket definition |
 | `utils/network/NetworkType.hpp` | `utils::network` | `Address` |  |
 | `utils/network/Server.hpp` | `utils::network` | `Server` | Definition of the server class for custom network |
-| `utils/network/socket/ASocket.hpp` | `utils::network`, `utils::network::socket` | `ASocket`, `is_ip`, `resolve_address`, `resolve_hostname` | Abstract for socket handling |
-| `utils/network/socket/ISocket.hpp` | `utils::network`, `utils::network::socket` | `ISocket` | Interface for socket handling |
+| `utils/network/socket/ASocket.hpp` | `utils::network` | `ASocket`, `is_ip`, `resolve_address`, `resolve_hostname` | Abstract for socket handling |
+| `utils/network/socket/ISocket.hpp` | `utils::network` | `ISocket` | Interface for socket handling |
 | `utils/network/socket/Socket.hpp` | `-` | - | Include for all the different sockets |
-| `utils/network/socket/TCPSocket.hpp` | `utils::network`, `utils::network::socket` | `TCPSocket` | Socket that handle tcp communication |
+| `utils/network/socket/TCPSocket.hpp` | `utils::network` | `TCPSocket` | Socket that handle tcp communication |
+
+## platform
+
+| Header | Namespace | Public types / functions | Description |
+|---|---|---|---|
+| `utils/platform/Dlfcn.hpp` | `utils::platform` | `Dl_info`, `dladdr`, `dlclose`, `dlerror`, `dlopen`, `dlsym` | Dynamic loading calls of <dlfcn.h> for Unix & Windows (same names, same contract) Unix: the system call, Windows: LoadLibrary / GetProcAddress / FreeLibrary |
+| `utils/platform/Epoll.hpp` | `utils::platform` | `epoll_data`, `epoll_event`, `epoll_create1`, `epoll_ctl`, `epoll_wait` | epoll for Unix & Windows (same names, same behavior) Unix: <sys/epoll.h>, Windows: emulation over WSAPoll (sockets only) |
+| `utils/platform/Platform.hpp` | `-` | - | Detection of the target platform (Unix or Windows) UTILS_UNIX / UTILS_WINDOWS, UTILS_PLATFORM |
+| `utils/platform/Socket.hpp` | `utils::platform` | `accept`, `bind`, `connect`, `freeaddrinfo`, `gai_strerror`, `gai_strerrorA`, `getaddrinfo`, `getpeername` ... | BSD socket calls for Unix & Windows (same names, same contract: -1 & errno) Unix: the system call, Windows: Winsock 2 (started on the first use, errors translated in errno) |
+| `utils/platform/Termios.hpp` | `utils::platform` | `termios`, `tcgetattr`, `tcsetattr` | Terminal calls of <termios.h> for Unix & Windows (same names, same contract: -1 & errno) Unix: the system call, Windows: console mode (ICANON = line input, ECHO = echo, ISIG = ctrl+c) |
+| `utils/platform/Unistd.hpp` | `utils::platform` | `close`, `dup`, `dup2`, `getpid`, `isatty`, `pipe`, `poll`, `read` ... | POSIX calls of <unistd.h> & co for Unix & Windows (same names, same contract: -1 & errno) Unix: the system call, Windows: CRT / Win32 implementation |
 
 ## pool
 
@@ -139,7 +149,7 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
 | `utils/security/encryption/AESKey.hpp` | `utils::security::encryption` | `KeyAES`, `AESKey` | Declaration of the key used for the AES |
-| `utils/security/encryption/AKey.hpp` | `utils::security::encryption` | `AKey`, `keyToString`, `key_to_string`, `stringToKey`, `string_to_key` | Declaration of the abstract used for different key (RSA, AES, ...) |
+| `utils/security/encryption/AKey.hpp` | `utils::security::encryption` | `AKey`, `key_to_string`, `string_to_key` | Declaration of the abstract used for different key (RSA, AES, ...) |
 | `utils/security/encryption/CommonRSAKey.hpp` | `utils::security::encryption` | `CommonRSAKey` | Declaration of the key used for the common RSA |
 | `utils/security/encryption/IKey.hpp` | `utils::security::encryption` | `IKey` | Declaration of the interface used for different key (RSA, AES, ...) |
 | `utils/security/encryption/Key.hpp` | `-` | - | Include for all the different key |

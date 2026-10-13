@@ -1,6 +1,6 @@
 # libutils `manip`
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/manip/iomanip/ANSI.hpp`
 
@@ -12,6 +12,7 @@ Namespace: `utils::iomanip`
 // namespace utils::iomanip
 std::string set_style(std::initializer_list<utils::iomanip::Style> styles);
 std::string reset_style(std::initializer_list<utils::iomanip::ResetStyle> styles);
+bool enable_ansi(void); // Windows: enable the virtual terminal mode of the console (ANSI sequences), Unix: nothing to do (true)
 constexpr std::string esc(void);
 constexpr std::string csi(const std::string& code);
 constexpr std::string file_hyperlink(const std::string& display, const std::string& path);
@@ -108,13 +109,6 @@ struct AdvancedMouseEvent {
 std::pair<int, int> read_cursor_position(void);
 utils::iomanip::MouseEvent read_mouse_event(void);
 utils::iomanip::AdvancedMouseEvent read_advanced_mouse_event(void);
-[deprecated ~v4.0.0] std::string setStyle(std::initializer_list<utils::iomanip::Style> styles);
-[deprecated ~v4.0.0] std::string setStyle(utils::iomanip::Style style);
-[deprecated ~v4.0.0] std::string resetStyle(std::initializer_list<utils::iomanip::ResetStyle> styles);
-[deprecated ~v4.0.0] std::string resetStyle(utils::iomanip::ResetStyle style);
-[deprecated ~v4.0.0] std::pair<int, int> readCursorPosition(void);
-[deprecated ~v4.0.0] utils::iomanip::MouseEvent readMouseEvent(void);
-[deprecated ~v4.0.0] utils::iomanip::AdvancedMouseEvent readAdvancedMouseEvent(void);
 ```
 
 ## `utils/manip/iomanip/Char.hpp`
@@ -211,10 +205,6 @@ class ICodec: private utils::security::observer::Observer<"ICodec"> {
     virtual ~ICodec() = default;
 };
 ```
-
-## `utils/manip/smanip/fixed_string.hpp`
-
-Old name of the FixedString (kept for backward compatibility)
 
 ## `utils/manip/smanip/format.hpp`
 

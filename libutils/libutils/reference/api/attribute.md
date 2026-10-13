@@ -1,6 +1,6 @@
 # libutils `attribute`
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/attribute/Attribute.hpp`
 
@@ -15,8 +15,8 @@ Namespace: `std`
 #define _migration(major, minor, fix)
 
 // namespace std
-constexpr std::size_t hardware_destructive_interference_size = 64;
-constexpr std::size_t hardware_constructive_interference_size = 64;
+constexpr std::size_t hardware_destructive_interference_size = 64; // xstyle: ignore CPP-NAMESPACE-INDENT (fallback in the include region)
+constexpr std::size_t hardware_constructive_interference_size = 64; // xstyle: ignore CPP-NAMESPACE-INDENT
 ```
 
 ## `utils/attribute/c++14.hpp`
@@ -28,6 +28,7 @@ Different attribute used for optimisation & other thing Version for c++14 and ab
 #define _noinline __attribute__((noinline)) // Cancel any auto inline from the compiler
 #define _noreturn [[noreturn]] // Signal a function that never return
 #define _unused __attribute__((unused)) // Signal an unused variable
+#define _hidden // No ELF visibility on Windows (dllexport/dllimport model)
 #define _hidden __attribute__((visibility("hidden"))) // Change the visibility on a shared lib
 #define _ctor __attribute__((constructor)) // Execute before the main
 #define _dtor __attribute__((destructor)) // Execute after the main
@@ -62,6 +63,7 @@ Different attribute used for optimisation & other thing Version for c++17 and ab
 #define _noinline [[noinline]] // Cancel any auto inline from the compiler
 #define _noreturn [[noreturn]] // Signal a function that never return
 #define _unused [[maybe_unused]] // Signal an unused variable
+#define _hidden // No ELF visibility on Windows (dllexport/dllimport model)
 #define _hidden [[gnu::visibility("hidden")]] // Change the visibility on a shared lib
 #define _ctor [[gnu::constructor]] // Execute before the main
 #define _dtor [[gnu::destructor]] // Execute after the main
@@ -96,6 +98,7 @@ Different attribute used for optimisation & other thing Version for c++20 and ab
 #define _noinline [[noinline]] // Cancel any auto inline from the compiler
 #define _noreturn [[noreturn]] // Signal a function that never return
 #define _unused [[maybe_unused]] // Signal an unused variable
+#define _hidden // No ELF visibility on Windows (dllexport/dllimport model)
 #define _hidden [[gnu::visibility("hidden")]] // Change the visibility on a shared lib
 #define _ctor [[gnu::constructor]] // Execute before the main
 #define _dtor [[gnu::destructor]] // Execute after the main

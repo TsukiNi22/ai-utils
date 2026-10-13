@@ -59,11 +59,19 @@ Before relying on the reference, here and in every skill that requires libutils 
 
 ## Integration
 ```cmake
-find_package(utils 3.0.0 CONFIG REQUIRED)                      # minimal version
+find_package(utils 4.0.0 CONFIG REQUIRED)                      # minimal version (SameMajorVersion: 3.x is refused)
 target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + include path
 ```
 - Packages (`dnf`/`apt`, see the README `setup.sh`): `libutils` (= `libutils-dev` + `libutils-op`),
   `-db` debug, `-as` asan, `-pre` pre-release; from the sources: `cmake -S . -B build && sudo cmake --build build --target install`.
+- Platforms (v4.0.0): Unix and Windows x86_64 (cross compiled with MinGW-w64:
+  `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchain/mingw-w64.cmake`, `utils::utils` also links `ws2_32`), every class with the
+  same API; on Windows `Process::spawn()` (fork) and a `Process::dup` on a fd other than 0, 1, 2 raise a
+  `FatalException` (`UndefinedCall`), `Poll` / `Client` / `Server` only handle sockets. Include `<windows.h>` before
+  `<utils/utils.hpp>` (or define `WIN32_LEAN_AND_MEAN`): the complete `<windows.h>` declares a `_unused` member.
+- System calls: the section `_Platform` gives `utils::platform::` versions of the POSIX calls with the **same names
+  and contract** (`close`, `read`, `pipe`, `poll`, `socket`, `connect`, `epoll_wait`, `dlopen`, `tcgetattr`, `strerror`...;
+  -1 & `errno`): use them instead of the raw calls in a code that must also build on Windows.
 - Include: **always** the root `#include <utils/utils.hpp>` (preferred; `<utils.hpp>`, `"utils/utils.hpp"`,
   `"utils.hpp"` accepted), never a libutils header one by one (`"utils/network/Server.hpp"`,
   `"utils/attribute/Attribute.hpp"`...). Only a header `utils.hpp` does not give is included directly: the
@@ -84,11 +92,11 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 
 ## Library conventions (to use it the right way)
 - Everything is in `utils::<section>` (see the index); a few grouping folders don't add a level
-  (`manip/iomanip` -> `utils::iomanip`, `network/socket` -> `utils::network`; `utils::network::socket` is a
-  deprecated alias until ~v4.0.0).
+  (`manip/iomanip` -> `utils::iomanip`, `network/socket` -> `utils::network`; `utils::network::socket` was removed in
+  v4.0.0).
 - Naming (v3.0.0): public names follow the convention (`autoCast`, `utils::cli::flags`, `isLoaded`,
-  `set_style`, `read_mouse_event`, `key_to_string`, `FixedString`, `ConvertibleTo`...); the old names are
-  `_migration` aliases until ~v4.0.0: always write the new name, flag the old one when reviewing code.
+  `set_style`, `read_mouse_event`, `key_to_string`, `FixedString`, `ConvertibleTo`...); the old names (`_migration`
+  aliases in v3.x) were **removed in v4.0.0**: always write the new name, an old one doesn't build anymore.
 - Errors: exceptions, never error codes (`throw utils::exception::ErrorException(InternalCode::X, "info")`,
   `catch (const utils::exception::IException& e) {... e.formated() ...}`). Everything about the exception
   classes, the restrictions and adding project codes (JSON + generator + CMake): the `libutils-exception` skill.
@@ -113,11 +121,12 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 | `attribute` | macros | compiler attributes per C++ version (`_noreturn`...), `_legacy`, `_migration(x, y, z)` |
 | `cli` | `utils::cli` | `Cli` interactive command line (commands, hooks, completion, `Flag`s) |
 | `concepts` | `utils::concepts` | operation concepts (`Addable`, `AddableWith`, `Arithmetic`...) and global ones |
-| `encapsulation` | `utils::encapsulation` | `Pipe`, `Dup`, `Process`, `Poll` (epoll), `SharedObject` (.so), `SharedMemory` (IPC) |
+| `encapsulation` | `utils::encapsulation` | `Pipe`, `Dup`, `Process`, `Poll` (epoll), `SharedObject` (.so / .dll), `SharedMemory` (IPC) |
 | `exception` | `utils::exception` | `IException`/`AException`, `Error`/`Warning`/`None`/`Fatal`/`CustomException`, codes |
 | `manip` | `utils::iomanip`, `utils::smanip` | ANSI (colors, styles, cursor, mouse), `format`, `FixedString`, `Base64Codec`, `EETPParser` |
 | `math` | `utils::math` | geometry (`rotate_point_2D/3D`, `to_look`), trigo (`deg_to_rad`), `CFrame` |
 | `network` | `utils::network` | `Server`, `Client`, `ISocket`/`ASocket`/`TCPSocket`, `Address`, `Payload`, `is_ip`, `resolve_*` |
+| `platform` | `utils::platform` | POSIX calls for Unix & Windows (`close`, `socket`, `epoll_*`, `dlopen`, `tcgetattr`...), `UTILS_UNIX` / `UTILS_WINDOWS` |
 | `pool` | `utils::pool` | `Middlewares<T, U>` chains (before/after), `Cluster` |
 | `security` | `utils::security` | `AESKey`, `RSAKey`, `CommonRSAKey`; observers/notifiers (memory leak) |
 | `system` | `utils::system` | `IdHandler<T>`, `Scheduler` (delayed tasks), `LoadBalancer<T>` (workers) |

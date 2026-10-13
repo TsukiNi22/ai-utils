@@ -1,6 +1,6 @@
 # libutils `encapsulation`
 
-Generated from libutils `v3.0.0` (commit `3b53ede`, 2026-10-05) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/encapsulation/Dup.hpp`
 
@@ -97,11 +97,11 @@ struct Status {
 };
 class Process: private utils::security::observer::Observer<"Process"> {
     bool is(void) const;
-    pid_t spawn(void); // fork
-    pid_t spawn(const std::string& path, const std::vector<std::string>& args); // execvp
-    _noreturn void replace(const std::string& path, const std::vector<std::string>& args); // execvp (never return: exec or _exit)
-    utils::encapsulation::Status wait(void); // waitpid
-    void kill(void); // -s 9
+    pid_t spawn(void); // fork (Windows: FatalException UndefinedCall, no fork)
+    pid_t spawn(const std::string& path, const std::vector<std::string>& args); // execvp (Windows: CreateProcess, only the fds 0, 1 & 2 can be dup)
+    _noreturn void replace(const std::string& path, const std::vector<std::string>& args); // execvp (Windows: _execvp) (never return: exec or _exit)
+    utils::encapsulation::Status wait(void); // waitpid (Windows: WaitForSingleObject, never killed by a signal)
+    void kill(void); // -s 9 (Windows: TerminateProcess)
     void clear(void); // clear Pipe/Dup (close fd)
     void pipe(const int read, const int write);
     void dup(const int origin, const int clone = -1);
@@ -200,7 +200,7 @@ class SharedMemory: private utils::security::observer::Observer<"SharedMemory"> 
     void send(const std::vector<std::byte>& bytes, std::size_t id, const utils::encapsulation::shm::Target& target, bool lastSending = false, bool lastTransmission = false, bool failsafe = false); // own id
     bool readable(const utils::encapsulation::shm::Id& id) const;
     SharedMemory(std::uint16_t ownership);
-    SharedMemory(pid_t ownership = ::getpid());
+    SharedMemory(pid_t ownership = utils::platform::getpid());
     ~SharedMemory();
 };
 ```
@@ -217,7 +217,6 @@ class SharedObject: private utils::security::observer::Observer<"SharedObject"> 
     bool isLoaded(void) const;
     std::string_view path(void) const;
     void* get(void) const;
-    [deprecated ~v4.0.0] bool isloaded(void) const;
     template<typename T> T loadFunction(const std::string& name);
     SharedObject& operator=(SharedObject&& other);
     SharedObject(const std::string& path);
