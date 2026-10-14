@@ -117,7 +117,7 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
     cluster::Json display = input;
     const std::string type = display.value("type", std::string());
     static const std::set<std::string> types = {"markdown", "table", "chart", "image", "diagram", "svg", "callout", "progress", "code", "diff", "json",
-        "tree", "terminal", "checklist", "steps", "timeline", "kanban", "actions", "form", "details", "compare", "metrics", "heatmap", "audio", "math"};
+        "tree", "terminal", "checklist", "steps", "timeline", "kanban", "actions", "form", "details", "compare", "metrics", "heatmap", "audio", "math", "file"};
     if (!types.contains(type))
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display: unknown type '" + type + "' (" + cluster::display_help() + ")");
     if (type == "markdown" || type == "callout") require_(display, "text");
@@ -315,6 +315,53 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
         display["data"] = utils::smanip::codec::Base64Codec().encode(bytes);
         display.erase("path");
     }
+    if (type == "file") {
+        // its files: name, size, type; a preview for an image (3 MB at most) and the first page of a PDF (pdftoppm)
+        std::vector<std::string> paths;
+        if (display.contains("path") && display["path"].is_string()) paths.push_back(display.value("path", std::string()));
+        if (display.contains("paths") && display["paths"].is_array())
+            for (const cluster::Json& p: display["paths"])
+                if (p.is_string()) paths.push_back(p.get<std::string>());
+        const std::filesystem::path base = display.value("cwd", std::string()).empty() ? std::filesystem::current_path() : std::filesystem::path(display.value("cwd", std::string()));
+        static const std::map<std::string, std::string> types_ = {{".png", "image/png"}, {".jpg", "image/jpeg"}, {".jpeg", "image/jpeg"}, {".gif", "image/gif"},
+            {".webp", "image/webp"}, {".svg", "image/svg+xml"}, {".pdf", "application/pdf"}, {".zip", "application/zip"}, {".gz", "application/gzip"},
+            {".tgz", "application/gzip"}, {".7z", "application/x-7z-compressed"}, {".apk", "application/vnd.android.package-archive"}, {".mp3", "audio/mpeg"},
+            {".wav", "audio/wav"}, {".ogg", "audio/ogg"}, {".mp4", "video/mp4"}, {".webm", "video/webm"}, {".csv", "text/csv"}, {".html", "text/html"},
+            {".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}, {".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+            {".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"}, {".txt", "text/plain"}, {".md", "text/markdown"}, {".json", "application/json"}};
+        cluster::Json files = cluster::Json::array();
+        for (const std::string& raw: paths) {
+            std::filesystem::path path = cluster::expand_home(raw);
+            if (path.is_relative()) path = base / path;
+            std::error_code error;
+            path = std::filesystem::weakly_canonical(path, error);
+            if (!std::filesystem::is_regular_file(path, error)) continue;
+            std::string ext = path.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
+            const std::uintmax_t size = std::filesystem::file_size(path, error);
+            cluster::Json file = {{"path", path.string()}, {"name", path.filename().string()}, {"size", size}, {"mime", types_.contains(ext) ? types_.at(ext) : "application/octet-stream"}};
+            if (file.value("mime", std::string()).starts_with("image/") && size <= 3 * 1024 * 1024) {
+                file["preview"] = utils::smanip::codec::Base64Codec().encode(read_(path, 3 * 1024 * 1024));
+                file["preview_mime"] = file.value("mime", std::string());
+            } else if (ext == ".pdf" && cluster::has_command("pdftoppm")) {
+                const std::filesystem::path out = temporary_("page");
+                if (cluster::capture({"pdftoppm", "-png", "-singlefile", "-f", "1", "-l", "1", "-scale-to", "360", path.string(), out.string()}, "", 15).code == 0) {
+                    const std::filesystem::path png = out.string() + ".png";
+                    if (std::filesystem::exists(png, error)) {
+                        file["preview"] = utils::smanip::codec::Base64Codec().encode(read_(png, 4 * 1024 * 1024));
+                        file["preview_mime"] = "image/png";
+                        std::filesystem::remove(png, error);
+                    }
+                }
+            }
+            files.push_back(file);
+        }
+        if (files.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "file: no such file (path / paths)");
+        display["files"] = files;
+        display.erase("path");
+        display.erase("paths");
+        display.erase("cwd");
+    }
     if (type == "math") {
         require_(display, "latex");
         display["unicode"] = cluster::display_math(display.value("latex", std::string()));
@@ -359,6 +406,11 @@ _cold std::string cluster::display_text(const cluster::Json& d)
     if (type == "json") return text + d["data"].dump(2);
     if (type == "terminal") return text + std::regex_replace(d.value("output", std::string()), std::regex("\x1b\\[[0-9;]*[A-Za-z]"), "");
     if (type == "math") return text + d.value("unicode", std::string());
+    if (type == "file") {
+        for (const cluster::Json& f: d.value("files", cluster::Json::array()))
+            text += "[file] " + f.value("path", std::string()) + " (" + std::to_string(f.value("size", static_cast<std::uintmax_t>(0)) / 1024) + " KB)\n";
+        return text;
+    }
     if (type == "details") return text + d.value("summary", std::string()) + "\n" + d.value("text", std::string());
     if (type == "compare") return text + d["left"].value("title", std::string()) + ":\n" + d["left"].value("text", std::string()) + "\n"
         + d["right"].value("title", std::string()) + ":\n" + d["right"].value("text", std::string());
@@ -542,7 +594,8 @@ _cold std::string cluster::display_help(void)
         "actions {buttons: [{label, prompt, session}]: clicked, the prompt sent to the session (default: the one shown)}; form {fields: [{name, label, "
         "type: text | number | choice | bool | date, options, value}], submit}: its values come back to you; details {summary, text}; compare "
         "{left: {title, text}, right: {...}} | {before, after}; metrics {items: [{label, value, unit, delta, trend: [numbers]}]}; heatmap {rows: [[n]], "
-        "xlabels, ylabels} | {days: {YYYY-MM-DD: n}}; audio {path | text: spoken by the voice of claude-cluster}; math {latex}; each with an "
+        "xlabels, ylabels} | {days: {YYYY-MM-DD: n}}; audio {path | text: spoken by the voice of claude-cluster}; math {latex}; file {path | paths: "
+        "files of this computer to open / download (png, pdf, zip, apk...: a preview for images and PDFs)}; each with an "
         "optional title; an id given back (session_display_update)";
 }
 

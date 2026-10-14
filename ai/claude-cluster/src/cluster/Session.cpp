@@ -16,6 +16,7 @@ File Description:
 #define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Session.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
 #include <sys/epoll.h>
@@ -27,6 +28,7 @@ File Description:
 #include <fcntl.h>
 #include <cstdio>
 #include <random>
+#include <regex>
 #include <tuple>
 #include <array>
 #include <map>
@@ -973,11 +975,37 @@ _cold void cluster::Session::updateDisplay(const std::string& displayId, const s
     this->touch_();
 }
 
+_cold static std::vector<std::string> files_named_(const std::string& text, const std::string& cwd)
+{
+    // the files an answer names that exist (made by the agent: pictures, documents, archives, apps...), 6 at most
+    static const std::regex named(R"((?:^|[\s`'"(\[])((?:~|\.{1,2})?/?[\w@%+=:,./-]*[\w-]\.(?:png|jpe?g|gif|webp|svg|pdf|zip|tar\.gz|tgz|7z|apk|mp3|wav|ogg|mp4|webm|csv|docx|xlsx|pptx|epub))(?=$|[\s`'")\].,;:!?]))",
+        std::regex::icase);
+    std::vector<std::string> found;
+    for (std::sregex_iterator it(text.begin(), text.end(), named), end; it != end && found.size() < 6; ++it) {
+        std::filesystem::path path = cluster::expand_home((*it)[1].str());
+        if (path.is_relative()) path = std::filesystem::path(cluster::expand_home(cwd)) / path;
+        std::error_code error;
+        if (!std::filesystem::is_regular_file(path, error)) continue;
+        const std::string full = std::filesystem::weakly_canonical(path, error).string();
+        if (std::find(found.begin(), found.end(), full) == found.end()) found.push_back(full);
+    }
+    return found;
+}
+
 _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool)
 {
     if (text.empty() && kind != cluster::EntryKind::Tool) return;
     cluster::Entry entry{kind, text, tool, cluster::now()};
     this->_data.entries.push_back(entry);
+    if (kind == cluster::EntryKind::Assistant) { // the files it names: their card under it (open, download)
+        const std::vector<std::string> files = files_named_(text, this->_data.spec.cwd);
+        if (!files.empty()) {
+            try {
+                const cluster::Json card = cluster::display_prepare({{"type", "file"}, {"paths", files}, {"auto", true}});
+                this->entry_(cluster::EntryKind::Display, card.dump(-1, ' ', false, cluster::Json::error_handler_t::replace));
+            } catch (const std::exception&) {}
+        }
+    }
     if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.begin() + 500);
     if (this->_log) {
         this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(kind)}, {"text", text}, {"tool", tool}}.dump() << "\n";

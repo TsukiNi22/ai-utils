@@ -2004,6 +2004,20 @@ class TtyUi {
                     clickable(lines.size() - 1, act(displayId, cluster::Json::object()));
                 } else if (type == "math") {
                     add(d.value("unicode", std::string()), "  ", "  ", ftxui::color(th.text) | ftxui::bold);
+                } else if (type == "file") {
+                    // its files: a click opens it (the application of the desktop)
+                    for (const cluster::Json& f: d.value("files", cluster::Json::array())) {
+                        const std::string path = f.value("path", std::string());
+                        const std::uintmax_t size = f.value("size", static_cast<std::uintmax_t>(0));
+                        const std::string human = size >= 1048576 ? std::to_string(size / 1048576) + " MB" : std::to_string(std::max<std::uintmax_t>(1, size / 1024)) + " KB";
+                        lines.push_back({"  ▤ " + f.value("name", std::string()) + "   " + human + " · " + f.value("mime", std::string()) + "   (a click: open)",
+                            ftxui::color(th.accent), "\n"});
+                        lines.back().hits.emplace_back(0, 100000, [this, path]() {
+                            cluster::detach({"xdg-open", path});
+                            this->status_("opened " + std::filesystem::path(path).filename().string());
+                        });
+                        lines.push_back({"    " + cluster::one_line(cluster::short_path(std::filesystem::path(path).parent_path().string()), room - 4), ftxui::color(th.muted) | ftxui::dim, "\n"});
+                    }
                 } else {
                     // image, diagram, svg: in blocks of colors (chafa), made once for a width
                     const std::string at = key + ":" + std::to_string(room);

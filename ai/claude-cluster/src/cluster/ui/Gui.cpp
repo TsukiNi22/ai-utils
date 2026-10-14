@@ -50,10 +50,12 @@ File Description:
 #include <QFormLayout>
 #include <QTextCursor>
 #include <QScrollArea>
+#include <QFileDialog>
 #include <QScrollBar>
 #include <functional>
 #include <QTabWidget>
 #include <QClipboard>
+#include <QFileInfo>
 #include <QLineEdit>
 #include <QSplitter>
 #include <QShortcut>
@@ -77,8 +79,10 @@ File Description:
 #include <QFrame>
 #include <QLabel>
 #include <QTimer>
+#include <QFile>
 #include <regex>
 #include <cmath>
+#include <QDir>
 #include <QUrl>
 #include <set>
 #include <map>
@@ -2337,6 +2341,31 @@ QString SessionView::displayHtml(const cluster::Json& d, const std::string& key,
         html += "<a href=\"cluster-play:" + q_(d.value("id", std::string())) + "\">" + span_(st.accent, "▶ <b>play</b>") + "</a> " + span_(st.muted, esc_(d.value("alt", d.value("text", std::string()))));
     } else if (type == "math") {
         html += "<span style=\"font-size:13pt\"><i>" + esc_(d.value("unicode", std::string())) + "</i></span>";
+    } else if (type == "file") {
+        // a card per file: its preview, its name, size and type, Open / Folder / Save as
+        const cluster::Json files = d.value("files", cluster::Json::array());
+        const QString display = q_(d.value("id", std::string()));
+        html += "<table cellspacing=\"6\">";
+        for (std::size_t i = 0; i < files.size(); ++i) {
+            const cluster::Json& f = files[i];
+            const std::uintmax_t size = f.value("size", static_cast<std::uintmax_t>(0));
+            QString picture;
+            if (f.contains("preview")) {
+                const QString name = q_("file:" + key + ":" + std::to_string(i));
+                if (!this->pictures.contains(name)) {
+                    QImage image = QImage::fromData(QByteArray::fromBase64(QByteArray::fromStdString(f.value("preview", std::string()))));
+                    if (!image.isNull()) this->pictures[name] = image.scaled(120, 120, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                }
+                if (this->pictures.contains(name)) picture = "<img src=\"" + name + "\">";
+            }
+            const QString target = display + "/" + QString::number(i);
+            html += "<tr><td valign=\"top\" bgcolor=\"" + q_(st.surface) + "\">" + (picture.isEmpty() ? span_(st.accent, "<span style=\"font-size:22pt\">▤</span>") : picture)
+                + "</td><td valign=\"top\" nowrap bgcolor=\"" + q_(st.surface) + "\"><b>" + esc_(f.value("name", std::string())) + "</b><br>" + span_(st.muted,
+                esc_((size >= 1048576 ? std::to_string(size / 1048576) + " MB" : std::to_string(std::max<std::uintmax_t>(1, size / 1024)) + " KB") + " · "
+                + f.value("mime", std::string()))) + "<br><a href=\"cluster-open:" + target + "\">Open</a> · <a href=\"cluster-reveal:" + target + "\">Folder</a> · "
+                "<a href=\"cluster-save:" + target + "\">Save as…</a></td></tr>";
+        }
+        html += "</table>";
     } else {
         // a chart drawn here; an image / a diagram / an SVG read as they are; given to the transcript as display:<entry>
         const QString name = q_("display:" + key);
@@ -2370,6 +2399,27 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
         // a display: tick / click (cluster-act:<display>/<item>), its form (cluster-form:<display>), its audio (cluster-play:<display>)
         const std::string scheme = url.scheme().toStdString();
         const std::string path = url.path().toStdString();
+        if (scheme == "cluster-open" || scheme == "cluster-reveal" || scheme == "cluster-save") {
+            // a file of a file display: opened, its folder, saved elsewhere
+            const std::size_t slash = path.rfind('/');
+            const std::optional<cluster::Json> found = window->manager.displayOf(this->id, path.substr(0, slash));
+            std::size_t which = 0;
+            try {
+                which = static_cast<std::size_t>(std::stoul(path.substr(slash + 1)));
+            } catch (const std::exception&) {}
+            if (!found || !found->contains("files") || which >= (*found)["files"].size()) return;
+            const QString file = q_((*found)["files"][which].value("path", std::string()));
+            if (scheme == "cluster-open") QDesktopServices::openUrl(QUrl::fromLocalFile(file));
+            else if (scheme == "cluster-reveal") QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(file).absolutePath()));
+            else {
+                const QString to = QFileDialog::getSaveFileName(this, "Save as", QDir::homePath() + "/" + QFileInfo(file).fileName());
+                if (!to.isEmpty()) {
+                    QFile::remove(to);
+                    window->message(QFile::copy(file, to) ? "saved: " + to.toStdString() : "not saved", !QFile::exists(to));
+                }
+            }
+            return;
+        }
         if (scheme != "cluster-act" && scheme != "cluster-form" && scheme != "cluster-play") {
             QDesktopServices::openUrl(url);
             return;
@@ -2465,6 +2515,9 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         head += "<br>" + span_(st.accent, "Remote Control " + esc_(s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? QString()
             : ": <a href=\"" + q_(s.remoteUrl) + "\">" + esc_(s.remoteUrl) + "</a>")) + span_(st.muted, "  (live on claude.ai and here)");
     this->header->setText(head);
+    // the links of the transcript in the accent (the dark blue of Qt unreadable on a dark style)
+    const QString links = "a { color: " + q_(st.accent) + "; text-decoration: none; }";
+    if (this->log->document()->defaultStyleSheet() != links) this->log->document()->setDefaultStyleSheet(links);
     if (this->outline) {
         const QColor color(q_(this->property("active").toBool() ? st.accent : st.border));
         if (color != this->outline->color) {

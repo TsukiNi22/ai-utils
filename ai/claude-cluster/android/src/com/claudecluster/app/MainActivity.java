@@ -388,6 +388,31 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void save(String path, String name) {
+            // a file of the computer (the app, a file display): Download/claude-cluster
+            final String url = prefs.getString("url", "");
+            new Thread(() -> {
+                String done;
+                try {
+                    byte[] bytes = Net.fetch(url + path, pinned(), android.webkit.CookieManager.getInstance().getCookie(url), 120000);
+                    android.content.ContentValues values = new android.content.ContentValues();
+                    values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/claude-cluster");
+                    android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) throw new IllegalStateException("Downloads refused it");
+                    try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                        out.write(bytes);
+                    }
+                    done = name + " saved in Download/claude-cluster";
+                } catch (Exception e) {
+                    done = name + ": " + e.getMessage();
+                }
+                final String message = done;
+                ui.post(() -> android.widget.Toast.makeText(MainActivity.this, message, android.widget.Toast.LENGTH_LONG).show());
+            }).start();
+        }
+
+        @JavascriptInterface
         public void changeComputer() {
             ui.post(() -> showSetup(""));
         }

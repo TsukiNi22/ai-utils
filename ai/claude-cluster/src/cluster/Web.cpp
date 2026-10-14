@@ -316,6 +316,9 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
             if (!light.is_object()) continue;
             for (const char* heavy: {"data", "svg", "png"})
                 if (light.erase(heavy) > 0) light["heavy"] = true;
+            if (light.contains("files") && light["files"].is_array())
+                for (cluster::Json& f: light["files"])
+                    if (f.is_object() && f.erase("preview") > 0) light["heavy"] = true;
             json["messages"].push_back({{"kind", "display"}, {"text", light.dump()}, {"tool", ""}, {"time", e.time}, {"index", i}});
             continue;
         }
@@ -870,6 +873,33 @@ self.addEventListener("notificationclick", (e) => {
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
+    } else if (request.method == "GET" && request.path == "/api/file") {
+        // a file of a file display of this session (never another path): sent to download
+        const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(request.query.contains("session") ? request.query.at("session") : GLOBAL_ID);
+        std::size_t index = 0;
+        std::size_t which = 0;
+        try {
+            index = request.query.contains("index") ? std::stoul(request.query.at("index")) : 0;
+            which = request.query.contains("i") ? std::stoul(request.query.at("i")) : 0;
+        } catch (const std::exception&) {}
+        cluster::Json file;
+        if (snap && index < snap->entries.size() && snap->entries[index].kind == cluster::EntryKind::Display) {
+            const cluster::Json d = cluster::Json::parse(snap->entries[index].text, nullptr, false);
+            if (d.is_object() && d.contains("files") && which < d["files"].size()) file = d["files"][which];
+        }
+        std::error_code error;
+        const std::filesystem::path path = file.is_object() ? file.value("path", std::string()) : std::string();
+        if (path.empty() || !std::filesystem::is_regular_file(path, error)) {
+            json_(conn, 404, {{"error", "no such file"}});
+        } else if (std::filesystem::file_size(path, error) > 512ULL * 1024 * 1024) {
+            json_(conn, 413, {{"error", "bigger than 512 MB"}});
+        } else {
+            std::ifstream in(path, std::ios::binary);
+            const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::string name = path.filename().string();
+            std::replace(name.begin(), name.end(), '"', '_');
+            respond_(conn, 200, file.value("mime", std::string("application/octet-stream")), bytes, "Content-Disposition: attachment; filename=\"" + name + "\"\r\n");
+        }
     } else if (request.method == "GET" && request.path == "/api/display") {
         // a display whole (its picture): the page asks it once
         const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(request.query.contains("session") ? request.query.at("session") : GLOBAL_ID);

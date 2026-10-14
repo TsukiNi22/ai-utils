@@ -389,6 +389,7 @@ _cold std::string cluster::Manager::display(const std::string& id, const cluster
     // checked and made ready (a file read, a diagram drawn, a text spoken), shown in the transcript; the agent of the session
     // never sees it
     cluster::Json input = display;
+    if (input.value("type", std::string()) == "file" && !input.contains("cwd")) input["cwd"] = cluster::expand_home(this->get_(id)->spec().cwd).string();
     std::string spoken;
     if (input.value("type", std::string()) == "audio" && !input.contains("path") && input.contains("text"))
         input["path"] = spoken = spoken_(this->_config, input.value("text", std::string()));

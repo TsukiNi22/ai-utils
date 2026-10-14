@@ -112,6 +112,12 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .up { color: var(--ok); } .msg.display .down { color: var(--error); }
 .msg.display form.fields { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; align-items: center; max-width: 520px; }
 .msg.display .math { font-size: 18px; font-style: italic; }
+.msg.display .filecard { display: flex; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 6px 0; max-width: 560px; }
+.msg.display .filecard img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; background: var(--bg); flex: none; }
+.msg.display .filecard .fileicon { width: 64px; height: 64px; display: grid; place-items: center; font-size: 30px; color: var(--accent); flex: none; }
+.msg.display .filecard > div:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.msg.display .filecard b { overflow-wrap: anywhere; } .msg.display .filecard small { color: var(--muted); }
+.msg.display .filebuttons { display: flex; gap: 6px; margin-top: 4px; }
 .msg.display details summary { cursor: pointer; font-weight: 600; }
 .msg pre { background: var(--code); padding: 8px 10px; border-radius: 8px; overflow-x: auto; font: 13px/1.4 ui-monospace, Menlo, monospace; white-space: pre; }
 #ask, #pending { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
@@ -420,6 +426,11 @@ $("caBack").addEventListener("click", () => { $("caSteps").classList.add("hidden
 // a file of the computer saved by the page itself: fetched (the exception of the certificate kept), then saved from memory;
 // Chrome on Android stalls a download it makes itself from a site it does not trust
 async function saveFile(path, name, button) {
+    if (window.ClusterApp && window.ClusterApp.save) { // the app: it fetches and saves it in Downloads itself
+        window.ClusterApp.save(path, name);
+        toast(name + ": downloading…");
+        return;
+    }
     const label = button ? button.textContent : "";
     try {
         const response = await fetch(path, {cache: "no-store"});
@@ -1027,10 +1038,47 @@ const more = {
         div.append(audio);
         if (d.alt || d.text) { const c = document.createElement("div"); c.className = "caption"; c.textContent = d.alt || d.text; div.append(c); }
     },
+    file(div, d) {
+        // a card per file: its preview, its name and size, Download (the page saves it), Open (in a tab)
+        const index = div.dataset.index;
+        (d.files || []).forEach((f, i) => {
+            const card = document.createElement("div");
+            card.className = "filecard";
+            if (f.preview) {
+                const img = document.createElement("img");
+                img.src = `data:${f.preview_mime || "image/png"};base64,${f.preview}`;
+                img.alt = f.name;
+                card.append(img);
+            } else {
+                card.append(Object.assign(document.createElement("div"), {className: "fileicon", textContent: "▤"}));
+            }
+            const info = document.createElement("div");
+            const size = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(f.size / 1024)) + " KB";
+            info.append(Object.assign(document.createElement("b"), {textContent: f.name}), Object.assign(document.createElement("small"), {textContent: size + " · " + f.mime}));
+            const url = `/api/file?session=${encodeURIComponent(current)}&index=${index}&i=${i}`;
+            const get = Object.assign(document.createElement("button"), {className: "primary", textContent: "Download", type: "button"});
+            get.addEventListener("click", () => saveFile(url, f.name, get));
+            const open = Object.assign(document.createElement("button"), {textContent: "Open", type: "button"});
+            open.addEventListener("click", async () => {
+                try {
+                    const blob = await (await fetch(url, {cache: "no-store"})).blob();
+                    const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), target: "_blank", rel: "noopener"});
+                    document.body.append(a); a.click(); a.remove();
+                } catch (e) { toast(e.message); }
+            });
+            const row = document.createElement("div");
+            row.className = "filebuttons";
+            row.append(get, open);
+            info.append(row);
+            card.append(info);
+            div.append(card);
+        });
+    },
     math(div, d) { const m = document.createElement("div"); m.className = "math"; m.textContent = d.unicode || d.latex || ""; m.title = d.latex || ""; div.append(m); },
 };
 
 function renderDisplay(div, m) {
+    if (m.index !== undefined) div.dataset.index = m.index;
     let d;
     try { d = JSON.parse(m.text); } catch (error) { div.textContent = "[display]"; return; }
     const key = current + ":" + m.index + ":" + m.time;
