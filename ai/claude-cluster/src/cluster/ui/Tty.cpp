@@ -420,6 +420,9 @@ class TtyUi {
         };
         std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
         std::string _title;                         // the title of the terminal set (its face)
+        std::string _host = cluster::host_name();   // where the sessions run
+        std::map<std::string, std::string> _branches;   // their git branch, read again every 5 s
+        std::map<std::string, std::int64_t> _branchAt;
         std::uint64_t _raiseSeen = 0;               // the last notification clicked
         std::string _webAsk;                        // the device asking to connect shown (its popup)
         std::set<std::string> _webLater;            // the ones put off (Esc): asked again from the palette
@@ -2292,7 +2295,19 @@ class TtyUi {
             return ftxui::vbox(std::move(blocks)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 36) | ftxui::yframe;
         }
 
-        _nodiscard ftxui::Element header_(const cluster::Snapshot& s, const bool compact) const
+        _nodiscard std::string whereOf_(const cluster::Snapshot& s)
+        {
+            // " · <branch> · <computer> · pid <n>" (its branch read again every 5 s)
+            const std::int64_t now = cluster::now();
+            if (now - this->_branchAt[s.spec.id] >= 5) {
+                this->_branches[s.spec.id] = cluster::git_branch(cluster::expand_home(s.spec.cwd));
+                this->_branchAt[s.spec.id] = now;
+            }
+            const std::string branch = this->_branches[s.spec.id];
+            return (branch.empty() ? "" : " · ⎇ " + branch) + " · " + this->_host + (s.pid > 0 ? " · pid " + std::to_string(s.pid) : "");
+        }
+
+        _nodiscard ftxui::Element header_(const cluster::Snapshot& s, const bool compact)
         {
             if (compact) {
                 const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error : this->_theme.muted;
@@ -2307,7 +2322,12 @@ class TtyUi {
                 ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted),
                 ftxui::text(s.spec.effort.empty() || s.spec.effort == "default" ? "" : "  effort " + s.spec.effort) | ftxui::color(this->_theme.muted),
                 ftxui::filler(),
-                ftxui::text(cluster::short_path(s.spec.cwd) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
+                // where it runs: its folder (a click opens it), the computer, its branch, its process
+                this->tap_(ftxui::text(cluster::short_path(s.spec.cwd)) | ftxui::color(this->_theme.muted), 0, [this, cwd = s.spec.cwd]() {
+                    cluster::open_folder(cluster::expand_home(cwd));
+                    this->status_("opened " + cluster::short_path(cwd));
+                }),
+                ftxui::text(this->whereOf_(s) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
             };
             ftxui::Element head = ftxui::hbox(std::move(left));
             if (!s.lastError.empty()) return ftxui::vbox({head, ftxui::text(" " + cluster::one_line(s.lastError, 200)) | ftxui::color(this->_theme.error)});

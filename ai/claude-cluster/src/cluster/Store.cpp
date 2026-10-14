@@ -211,6 +211,8 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         // a question of the agent: its questions and options (answered with session_allow answers {question: label})
         if (p.tool == "AskUserQuestion" && p.input.contains("questions")) json["permissions"].back()["questions"] = p.input["questions"];
     }
+    json["where"] = {{"folder", cluster::expand_home(snap.spec.cwd).string()}, {"host", cluster::host_name()}, {"pid", snap.pid},
+        {"branch", cluster::git_branch(cluster::expand_home(snap.spec.cwd))}};
     if (!snap.lastError.empty()) json["error"] = snap.lastError;
     if (!snap.remoteUrl.empty()) json["remote"] = snap.remoteUrl;
     if (!full) return json;

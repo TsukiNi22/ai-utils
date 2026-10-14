@@ -118,8 +118,10 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+F | search in the transcript (Enter / ↑ older, ↓ newer, Esc close) |
 | F2 / F5 / F6 / Ctrl+Q | layout / push-to-talk / stop speaking / quit (the sessions are kept) |
 | PageUp / PageDown, wheel | scroll the transcript |
-| Ctrl+O | thinking and tool results in full / folded (like Claude Code); a turn running: every step so far (the request sent, its context read, thinking (estimated when its text is hidden), writing, tools, a hook, the API retried with its error, the context compacted) and all its tools running (folded: its step and how long, 4 tools with their input, the tokens as they come) |
+| Ctrl+O | thinking and tool results in full / folded (like Claude Code); a turn running: its rounds, a request to the model a line (`#3  wait 2s · thinking 6s · Bash ×2 (ran 6s)`, the last 8) and all its tools running (folded: its step and how long - the request sent, its context read, thinking estimated when its text is hidden, the API retried with its error, a hook, the context compacted -, 4 tools with their input, the tokens as they come) |
 | mouse drag (terminal) | select in the transcript or the prompt: copied when released (like Claude Code; the window: as any text) |
+| where a session runs | its header: its folder (a click opens it), its git branch, the computer, the pid of its agent; the palette: *Open its folder*, *Open a terminal in its folder* (ptyxis, gnome-terminal, kitty, konsole, alacritty, xterm...) |
+| `/` anywhere | a `/word` is completed anywhere in the prompt: first, every command; later, the skills (yours, your plugins', with their description) and the commands of the agent, known from the start of the session |
 | mouse click (terminal) | a session (list, tab, grid cell), the keys of the top bar, the answers of a permission, the items of the palette / history / question / dialogs, the settings (tab, line, its value: changed), a display (a checklist item ticked, a button, play, the form, details); the wheel: the item above / below in the lists |
 
 > [!NOTE]
@@ -354,7 +356,10 @@ page, the dock (the number of the sessions waiting on you, else running: the Uni
 
 Never twice: the one who sent the last prompt of a session is notified for it - the desktop here (terminal, window,
 voice, the global session) or the web device that sent it (its page, its app), even on this same computer; a device
-asking to connect is always notified here. One notification per session (the next one replaces it), urgent when it waits on you, its buttons answered from the
+asking to connect is always notified here. A notification clicked (its body or Open) shows its session: the window comes to the front, the terminal rings (its
+tab or window marked: a terminal can't be given the focus on Wayland), the page and the app open the session. On a
+phone: the page notifies through a service worker (Chrome on Android), the app while it is not in front (its watch
+service: the sessions this phone sent the last prompt of). One notification per session (the next one replaces it), urgent when it waits on you, its buttons answered from the
 notification (Open shows the session), a short sound of the desktop theme per kind (`[ui] notify_sound`).
 
 ## Voice
@@ -464,6 +469,10 @@ The global session puts a display in the transcript of a session (a sub-session,
 | `heatmap` | `rows` [[n]] + `xlabels`, `ylabels`, or `days` {YYYY-MM-DD: n} (a calendar) | colored cells | drawn | SVG |
 | `audio` | `path`, or `text` (spoken by the voice of the settings) | ♪, palette: Play | ▶ (played here) | a player |
 | `math` | `latex` | Unicode (∑ xᵢ² ≤ √(π)) | the same | the same |
+| `file` | `path` or `paths` (relative: the folder of the session) | a line per file, a click opens it | its preview, Open / Folder / Save as | its preview, Download / Open (the app: saved in Download/claude-cluster) |
+
+An answer of an agent that names files it made (png, pdf, zip, apk, docx...: existing files) gets their `file` card
+under it by itself; the web access serves the files of a display only (`/api/file`).
 
 Each display gets an `id` (given back): `session_display_update` replaces it in place (steps going on, a checklist, a
 progress), `session_display_get` reads its state. The user acts on them: a checklist item ticked, an action clicked (its

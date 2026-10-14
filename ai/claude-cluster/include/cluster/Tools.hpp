@@ -73,6 +73,10 @@ _nodiscard std::string clock_time(const std::int64_t time);       // 14:03
 _cold _nodiscard bool has_command(const std::string& name);
 _cold _nodiscard cluster::Captured capture(const std::vector<std::string>& args, const std::string& cwd = "", const int timeout = 10);
 _cold void detach(const std::vector<std::string>& args);            // run without waiting (notify-send...)
+_cold _nodiscard std::string host_name(void);                          // the name of this computer
+_cold _nodiscard std::string git_branch(const std::filesystem::path& folder); // its branch (.git/HEAD up the tree), "" none
+_cold void open_folder(const std::filesystem::path& folder);           // the file manager of the desktop on it
+_cold _nodiscard std::string open_terminal(const std::filesystem::path& folder); // a terminal there: the one opened ("" none found)
 inline std::atomic<bool> quit_signal{false}; // set by catch_quit_signals
 _cold void complete_path(void);         // PATH + the folders of the user's tools (~/.local/bin...) it lacks
 _cold void catch_quit_signals(void);    // SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: quit_requested() (reset by exec)

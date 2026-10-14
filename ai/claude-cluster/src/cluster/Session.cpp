@@ -259,9 +259,9 @@ _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const 
     // never reach the agent, claude-cluster stops it itself
     if (cluster::has_command("setsid")) {
         envArgs.insert(envArgs.begin(), "env");
-        (void)this->_process->spawn("setsid", envArgs);
+        this->_data.pid = static_cast<int>(this->_process->spawn("setsid", envArgs));
     } else {
-        (void)this->_process->spawn("env", envArgs);
+        this->_data.pid = static_cast<int>(this->_process->spawn("env", envArgs));
     }
 
     // Parent: keep the write end of stdin and the read ends of the outputs (released from the Pipe objects)

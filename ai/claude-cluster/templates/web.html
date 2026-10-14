@@ -95,6 +95,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
 .msg.turn { color: var(--accent); font-size: 14px; } .msg.turn .turn-tool, .msg.turn details { color: var(--muted); font-size: 13px; margin-left: 12px; }
 .msg.turn summary { cursor: pointer; }
+#sessionWhere { font-family: var(--mono, monospace); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .msg.turn .round { font-family: var(--mono, monospace); font-size: 12px; padding-left: 10px; border-left: 2px solid var(--line); margin: 2px 0; }
 .msg.turn .round.current { color: var(--accent); border-left-color: var(--accent); }
 .msg.display pre.term { background: #1e1e1e; color: #e5e5e5; }
@@ -306,6 +307,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
         <div id="sessionBar">
             <button id="sessionName" class="link" title="Sessions" style="border:none;background:none;padding:0;font-weight:600"></button>
             <span class="muted" id="sessionInfo"></span>
+            <span class="where" id="sessionWhere"></span>
             <span class="grow"></span>
             <button id="fork" title="A copy of this session: its conversation so far, each one goes on apart">Fork</button>
             <button id="interrupt" title="Stop the turn and the reading">Stop</button>
@@ -571,6 +573,10 @@ function render(state) {
     }
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
     $("sessionInfo").textContent = [s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    // where it runs: its folder, its branch, the computer, its process
+    const w = s.where || {};
+    $("sessionInfo").title = [w.folder, w.branch ? "branch " + w.branch : "", w.host ? "on " + w.host : "", w.pid ? "pid " + w.pid : ""].filter(Boolean).join("\n");
+    $("sessionWhere").textContent = [shortPath(w.folder), w.branch ? "⎇ " + w.branch : "", w.host, w.pid ? "pid " + w.pid : ""].filter(Boolean).join(" · ");
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
     renderTranscript(s.messages || [], s.error);

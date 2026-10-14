@@ -239,6 +239,8 @@ class SessionView: public QFrame {
     public:
         Outline* outline = nullptr;
         std::string id;
+        std::string branch;                     // where it runs: its git branch (read every 5 s)
+        std::int64_t branchAt = 0;
         QLabel* header = nullptr;
         QTextBrowser* log = nullptr;
         QLabel* panels = nullptr;
@@ -2392,6 +2394,19 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->header = new QLabel(this);
     this->header->setObjectName("head");
     this->header->setTextFormat(Qt::RichText);
+    this->header->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+    QObject::connect(this->header, &QLabel::linkActivated, [window, this](const QString& link) {
+        // where it runs: its folder opened, a terminal there
+        const std::optional<cluster::Snapshot> snap = window->manager.snapshot(this->id);
+        if (!snap) return;
+        const std::filesystem::path folder = cluster::expand_home(snap->spec.cwd);
+        if (link == "cluster-folder:") {
+            cluster::open_folder(folder);
+        } else {
+            const std::string terminal = cluster::open_terminal(folder);
+            window->message(terminal.empty() ? "no terminal found" : terminal + " opened in " + folder.string(), terminal.empty());
+        }
+    });
     this->log = new QTextBrowser(this);
     this->log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     this->log->setOpenLinks(false);
@@ -2500,6 +2515,10 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     this->id = s.spec.id;
 
     // header
+    if (cluster::now() - this->branchAt >= 5) { // its git branch, read again every 5 s
+        this->branch = cluster::git_branch(cluster::expand_home(s.spec.cwd));
+        this->branchAt = cluster::now();
+    }
     const std::string model = s.modelUsed.empty() ? s.spec.backend : s.spec.backend.substr(0, s.spec.backend.find('/')) + "/" + s.modelUsed;
     const std::string tone = s.state == cluster::State::Error ? st.error : s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting ? st.warn : st.muted;
     const std::function<QString(const std::string&, const std::string&)> chip = [&st](const std::string& color, const std::string& text) {
@@ -2509,7 +2528,10 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     QString head = "<span style=\"font-size:11.5pt\"><b>" + esc_(s.spec.name) + "</b></span>&nbsp;&nbsp;" + chip(tone, cluster::state_name(s.state)) + "&nbsp; "
         + chip(st.accent, model) + "&nbsp; " + chip(st.muted, "mode " + s.spec.mode)
         + (s.spec.effort.empty() || s.spec.effort == "default" ? QString() : "&nbsp; " + chip(st.muted, "effort " + s.spec.effort))
-        + (compact ? QString() : "&nbsp;&nbsp;" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::short_path(s.spec.cwd)) + "</span>"));
+        + (compact ? QString() : "&nbsp;&nbsp;<a href=\"cluster-folder:\" style=\"color:" + q_(st.muted) + ";text-decoration:none;font-family:monospace;font-size:9pt\">"
+            + esc_(cluster::short_path(s.spec.cwd)) + "</a>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(
+                (this->branch.empty() ? std::string() : "  ⎇ " + this->branch) + "  " + cluster::host_name() + (s.pid > 0 ? "  pid " + std::to_string(s.pid) : ""))
+            + "</span>") + "&nbsp; <a href=\"cluster-terminal:\" style=\"color:" + q_(st.accent) + ";text-decoration:none;font-size:9pt\">terminal</a>");
     if (!s.lastError.empty()) head += "<br>" + span_(st.error, esc_(cluster::one_line(s.lastError, 200)));
     if (!s.remoteUrl.empty() || !s.bridgeState.empty())
         head += "<br>" + span_(st.accent, "Remote Control " + esc_(s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? QString()

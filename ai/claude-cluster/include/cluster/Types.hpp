@@ -220,6 +220,7 @@ struct Snapshot {
     std::int64_t thinkingTokens = 0;    // thinking tokens of the turn (its text may be hidden by the model)
     std::vector<std::pair<std::string, std::int64_t>> steps;   // the steps done this turn, their duration (ms)
     std::string modelUsed;              // from the init message
+    int pid = 0;                        // its process (the agent), 0: not running
     std::string lastError;
     std::string remoteUrl;              // Remote Control on: the session on claude.ai
     std::string bridgeState;            // Remote Control: ready | connected | disconnected... (empty: off)

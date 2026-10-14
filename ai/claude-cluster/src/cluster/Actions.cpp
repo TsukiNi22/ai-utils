@@ -66,6 +66,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             list.push_back({manager.remote() ? "remote_off" : "remote_on", manager.remote() ? "Remote Control: off (back here)" : "Remote Control: on (claude.ai / app)", "", "", false});
         }
         list.push_back({"export", "Export the conversation to Markdown", "file", "~/" + snap->spec.name + ".md", false});
+        list.push_back({"where_folder", "Open its folder (" + cluster::short_path(snap->spec.cwd) + ")", "", "", false});
+        list.push_back({"where_terminal", "Open a terminal in its folder (" + cluster::short_path(snap->spec.cwd) + ")", "", "", false});
         if (!snap->spec.global && !snap->spec.claudeId.empty() && snap->spec.backend.substr(0, snap->spec.backend.find('/')) != "codex")
             list.push_back({"fork", "Fork the session (a copy of its conversation, each one goes on apart)", "", "", false});
         // its displays: tick, click, fill, play (the last 30)
@@ -209,6 +211,18 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             manager.close(session);
             result.message = "closed (restorable from the palette)";
             result.focus = GLOBAL_ID;
+        } else if (base == "where_folder" || base == "where_terminal") {
+            const std::optional<cluster::Snapshot> where = manager.snapshot(session);
+            if (!where) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session " + session);
+            const std::filesystem::path folder = cluster::expand_home(where->spec.cwd);
+            if (base == "where_folder") {
+                cluster::open_folder(folder);
+                result.message = "opened " + folder.string();
+            } else {
+                const std::string terminal = cluster::open_terminal(folder);
+                result.message = terminal.empty() ? "no terminal found (ptyxis, gnome-terminal, kitty, konsole, alacritty, xterm...)" : terminal + " opened in " + folder.string();
+                result.error = terminal.empty();
+            }
         } else if (base == "web_trust_ca") {
             // claude-cluster web trust-ca in the background (the window of the password), its end told
             std::thread([&manager]() {

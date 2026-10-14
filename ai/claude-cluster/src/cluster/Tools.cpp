@@ -355,3 +355,57 @@ _cold void cluster::write_json(const std::filesystem::path& path, const cluster:
     std::filesystem::rename(tmp, path, error);
     if (error) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, path.string() + ": " + error.message());
 }
+
+_cold std::string cluster::host_name(void)
+{
+    std::array<char, 256> name{};
+    if (::gethostname(name.data(), name.size() - 1) != 0) return "this computer";
+    return name.data();
+}
+
+_cold std::string cluster::git_branch(const std::filesystem::path& folder)
+{
+    // .git/HEAD of the folder or of one above (a worktree: its gitdir file)
+    std::error_code error;
+    for (std::filesystem::path dir = std::filesystem::weakly_canonical(folder, error); !dir.empty(); dir = dir.parent_path()) {
+        const std::filesystem::path git = dir / ".git";
+        std::filesystem::path head = git / "HEAD";
+        if (std::filesystem::is_regular_file(git, error)) { // a worktree: "gitdir: <path>"
+            std::ifstream in(git);
+            std::string line;
+            std::getline(in, line);
+            if (line.starts_with("gitdir: ")) head = std::filesystem::path(cluster::trim(line.substr(8))) / "HEAD";
+        }
+        if (std::filesystem::is_regular_file(head, error)) {
+            std::ifstream in(head);
+            std::string line;
+            std::getline(in, line);
+            if (line.starts_with("ref: refs/heads/")) return cluster::trim(line.substr(16));
+            return line.size() >= 7 ? "detached " + line.substr(0, 7) : "";
+        }
+        if (dir == dir.root_path()) break;
+    }
+    return "";
+}
+
+_cold void cluster::open_folder(const std::filesystem::path& folder)
+{
+    cluster::detach({"xdg-open", folder.string()});
+}
+
+_cold std::string cluster::open_terminal(const std::filesystem::path& folder)
+{
+    // the first terminal installed, opened in this folder
+    const std::string dir = folder.string();
+    const std::vector<std::pair<std::string, std::vector<std::string>>> terminals = {
+        {"ptyxis", {"ptyxis", "--new-window", "--working-directory=" + dir}}, {"gnome-terminal", {"gnome-terminal", "--working-directory=" + dir}},
+        {"kgx", {"kgx", "--working-directory=" + dir}}, {"kitty", {"kitty", "--directory", dir}}, {"konsole", {"konsole", "--workdir", dir}},
+        {"alacritty", {"alacritty", "--working-directory", dir}}, {"wezterm", {"wezterm", "start", "--cwd", dir}}, {"foot", {"foot", "--working-directory=" + dir}},
+        {"xterm", {"xterm", "-e", "sh", "-c", "cd \"$0\" && exec \"${SHELL:-sh}\"", dir}}};
+    for (const auto &[name, command]: terminals)
+        if (cluster::has_command(name)) {
+            cluster::detach(command);
+            return name;
+        }
+    return "";
+}
