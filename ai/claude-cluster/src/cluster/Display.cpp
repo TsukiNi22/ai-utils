@@ -658,6 +658,62 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
     cluster::Json steps = cluster::Json::array();
     for (const auto &[name, duration]: s.steps)
         steps.push_back({{"name", word(name)}, {"ms", duration}});
+    // the rounds: one request to the model each (a new one at each request sent), told as one line
+    struct Round {
+        std::int64_t wait = 0;      // sent, read, awaited
+        std::int64_t thinking = 0;
+        std::int64_t writing = 0;
+        std::int64_t running = 0;   // its tools running
+        std::int64_t other = 0;     // hooks, retries, compacting
+        std::vector<std::pair<std::string, int>> tools;  // their names, how many times
+        std::vector<std::string> notes;                  // a retry, a hook, the context compacted
+    };
+    std::vector<Round> rounds;
+    std::vector<std::pair<std::string, std::int64_t>> all = s.steps;
+    if (!step.empty()) all.emplace_back(step, s.stepSince > 0 ? now - s.stepSince : 0);
+    for (const auto &[name, duration]: all) {
+        if (rounds.empty() || (name == "requesting" && (rounds.back().thinking + rounds.back().writing + rounds.back().running > 0 || !rounds.back().tools.empty())))
+            rounds.emplace_back();
+        Round& r = rounds.back();
+        if (name == "model" || name == "requesting" || name == "reading") r.wait += duration;
+        else if (name == "thinking") r.thinking += duration;
+        else if (name == "writing") r.writing += duration;
+        else if (name == "tools") r.running += duration;
+        else if (name == "retry" || name == "hook" || name == "compacting") {
+            r.other += duration;
+            const std::string note = name == "retry" ? "API retried" : name == "hook" ? "a hook" : "context compacted";
+            if (std::find(r.notes.begin(), r.notes.end(), note) == r.notes.end()) r.notes.push_back(note);
+        } else { // the input of a tool written: the tool called
+            std::string tool = name.starts_with("mcp__") ? name.substr(name.rfind("__") + 2) : name;
+            auto it = std::find_if(r.tools.begin(), r.tools.end(), [&tool](const std::pair<std::string, int>& t) {return t.first == tool;});
+            if (it == r.tools.end()) r.tools.emplace_back(tool, 1);
+            else ++it->second;
+            r.writing += duration;
+        }
+    }
+    cluster::Json lines = cluster::Json::array();
+    const std::size_t first = rounds.size() > 8 ? rounds.size() - 8 : 0;
+    if (first > 0) lines.push_back({{"text", std::to_string(first) + " earlier round(s)"}, {"current", false}});
+    for (std::size_t i = first; i < rounds.size(); ++i) {
+        const Round& r = rounds[i];
+        std::vector<std::string> parts;
+        if (r.wait >= 1000) parts.push_back("wait " + cluster::took(r.wait));
+        if (r.thinking > 0) parts.push_back("thinking " + cluster::took(r.thinking));
+        if (r.tools.empty() && r.writing > 0) parts.push_back("writing " + cluster::took(r.writing));
+        if (!r.tools.empty()) {
+            std::string called;
+            for (const auto &[tool, count]: r.tools)
+                called += (called.empty() ? "" : ", ") + tool + (count > 1 ? " ×" + std::to_string(count) : "");
+            parts.push_back(called + (r.running > 0 ? " (ran " + cluster::took(r.running) + ")" : ""));
+        }
+        for (const std::string& note: r.notes)
+            parts.push_back(note);
+        if (parts.empty()) parts.push_back(i + 1 == rounds.size() ? "waiting for the model" : "-");
+        std::string text = "#" + std::to_string(i + 1);
+        for (std::size_t k = 0; k < parts.size(); ++k)
+            text += (k == 0 ? "  " : " · ") + parts[k];
+        lines.push_back({{"text", text + (i + 1 == rounds.size() && !step.empty() ? " …" : "")}, {"current", i + 1 == rounds.size() && !step.empty()}});
+    }
     return {{"verb", verb}, {"step", step.empty() ? std::string() : word(step)}, {"detail", s.stepDetail}, {"step_ms", s.stepSince > 0 ? now - s.stepSince : 0}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
-        {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"hidden_thinking", (step == "thinking") && s.thinking.empty() && s.stepDetail.empty()}};
+        {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"rounds", lines}, {"hidden_thinking", (step == "thinking") && s.thinking.empty() && s.stepDetail.empty()}};
 }

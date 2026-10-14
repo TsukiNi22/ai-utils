@@ -200,8 +200,40 @@ class AtomHighlighter: public QSyntaxHighlighter {
         }
 };
 
-class SessionView: public QFrame {
+// The outline of a card, painted over its content (the clicks go through it)
+class Outline: public QWidget {
+    protected:
+        void paintEvent(QPaintEvent*) override
+        {
+            QPainter painter(this);
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setPen(QPen(this->color, 1.5));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(QRectF(this->rect()).adjusted(0.75, 0.75, -0.75, -0.75), 12, 12);
+        }
+
     public:
+        QColor color;
+        explicit Outline(QWidget* parent) : QWidget(parent)
+        {
+            this->setAttribute(Qt::WA_TransparentForMouseEvents);
+            this->setAttribute(Qt::WA_NoSystemBackground);
+        }
+};
+
+class SessionView: public QFrame {
+    protected:
+        void resizeEvent(QResizeEvent* event) override
+        {
+            QFrame::resizeEvent(event);
+            if (this->outline) {
+                this->outline->setGeometry(this->rect());
+                this->outline->raise();
+            }
+        }
+
+    public:
+        Outline* outline = nullptr;
         std::string id;
         QLabel* header = nullptr;
         QTextBrowser* log = nullptr;
@@ -453,9 +485,10 @@ class Window: public QMainWindow {
                 "QPushButton#seg:first{border-top-left-radius:8px;border-bottom-left-radius:8px;}"
                 "QPushButton#seg:last{border-top-right-radius:8px;border-bottom-right-radius:8px;}"
                 "QPushButton#seg:checked{background:" + tint + ";color:" + s.accent + ";font-weight:600;border-color:" + s.accent + ";}"
-                "QFrame#session{background:" + s.bg + ";border:1px solid " + s.border + ";border-radius:12px;}"
-                "QFrame#session[active=\"true\"]{border:1px solid " + s.accent + ";}"
-                "QLabel#head{padding:10px 12px;border-bottom:1px solid " + s.border + ";background:" + s.surface + ";border-top-left-radius:12px;border-top-right-radius:12px;}"
+                "QFrame#session{background:transparent;border:none;}"
+                "QLabel#head{border:none;border-bottom:1px solid " + s.border + ";border-top-left-radius:12px;border-top-right-radius:12px;}"
+                "QWidget#cardBody{background:" + s.bg + ";border:none;border-bottom-left-radius:12px;border-bottom-right-radius:12px;}"
+                "QLabel#head{padding:10px 12px;background:" + s.surface + ";}"
                 "QLineEdit,QTextEdit,QPlainTextEdit,QSpinBox,QDoubleSpinBox{border:1px solid " + s.border + ";border-radius:10px;padding:7px 10px;background:" + s.surface + ";}"
                 "QLineEdit:focus,QTextEdit:focus,QPlainTextEdit:focus{border-color:" + s.accent + ";}"
                 "QFrame#composer{background:" + s.surface + ";border:1px solid " + s.border + ";border-radius:14px;}"
@@ -470,7 +503,7 @@ class Window: public QMainWindow {
                 "QListWidget::item{border-radius:10px;margin:2px 0;}"
                 "QListWidget::item:hover{background:" + hover + ";}"
                 "QListWidget::item:selected{background:" + tint + ";color:" + s.text + ";}"
-                "QLabel#panels{background:" + s.surface + ";border:1px solid " + s.border + ";border-radius:12px;padding:10px;}"
+                "QLabel#panels{background:" + s.surface + ";border:none;border-radius:10px;padding:10px;}"
                 "QWidget#perm{background:" + mix_(s.surface, s.warn, 0.10) + ";border:1px solid " + s.warn + ";border-radius:10px;}"
                 "QLabel#status{color:" + s.muted + ";font-size:9pt;padding:2px 4px;}"
                 "QSplitter::handle{background:transparent;width:8px;}"
@@ -1289,6 +1322,7 @@ class Window: public QMainWindow {
         }
 
         std::uint64_t focusSeen = 0;            // last ui_focus applied
+        std::uint64_t raiseSeen = 0;            // last notification clicked
         cluster::Worker worker;                 // the sends / commands, in their order, out of the window thread
         QDialog* scanDialog = nullptr;          // the progress of the map of this computer
         QProgressBar* scanBar = nullptr;
@@ -1567,6 +1601,14 @@ class Window: public QMainWindow {
             this->scanProgress();
             // the global session asked to show a session (ui_focus) or another style (ui_style)
             const std::pair<std::uint64_t, std::string> focus = this->manager.focusRequest();
+            if (this->manager.raiseRequest() != this->raiseSeen) { // a notification clicked: this window to the front
+                this->raiseSeen = this->manager.raiseRequest();
+                if (this->isMinimized()) this->showNormal();
+                this->show();
+                this->raise();
+                this->activateWindow();
+                QApplication::alert(this);
+            }
             if (focus.first != this->focusSeen) {
                 this->focusSeen = focus.first;
                 if (this->manager.snapshot(focus.second)) {
@@ -2380,12 +2422,25 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     }
     this->permBar->setVisible(false);
 
+    // one card drawn by its two parts: the header (its top) and the body (its sides and bottom); the frame draws nothing
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    QWidget* card = new QWidget(this);
+    card->setObjectName("cardBody");
+    card->setAttribute(Qt::WA_StyledBackground, true);
+    QVBoxLayout* inside = new QVBoxLayout(card);
+    inside->setContentsMargins(4, 6, 8, 8);
+    inside->setSpacing(8);
     QHBoxLayout* body = new QHBoxLayout();
+    body->setSpacing(8);
     body->addWidget(this->log, 1);
     body->addWidget(this->panels);
+    inside->addLayout(body, 1);
+    inside->addWidget(this->permBar);
     layout->addWidget(this->header);
-    layout->addLayout(body, 1);
-    layout->addWidget(this->permBar);
+    layout->addWidget(card, 1);
+    this->outline = new Outline(this);
+    this->outline->raise();
 }
 
 void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded)
@@ -2410,6 +2465,13 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         head += "<br>" + span_(st.accent, "Remote Control " + esc_(s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? QString()
             : ": <a href=\"" + q_(s.remoteUrl) + "\">" + esc_(s.remoteUrl) + "</a>")) + span_(st.muted, "  (live on claude.ai and here)");
     this->header->setText(head);
+    if (this->outline) {
+        const QColor color(q_(this->property("active").toBool() ? st.accent : st.border));
+        if (color != this->outline->color) {
+            this->outline->color = color;
+            this->outline->update();
+        }
+    }
 
     // transcript (rebuilt only when it changed)
     const cluster::Config& config = manager.config();
@@ -2496,10 +2558,8 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                 html += "<br>" + span_(st.muted, esc_("  ⎿ " + tool.value("name", std::string()) + "  " + cluster::one_line(tool.value("summary", std::string()), 110)
                     + "  " + cluster::took(tool.value("ms", 0LL))));
             if (expanded) {
-                std::string done;
-                for (const cluster::Json& step: turn["steps"])
-                    done += (done.empty() ? "" : " → ") + step.value("name", std::string()) + " " + cluster::took(step.value("ms", 0LL));
-                if (!done.empty()) html += "<br>" + span_(st.muted, esc_("steps: " + done));
+                for (const cluster::Json& round: turn["rounds"]) // a line per request to the model
+                    html += "<br>" + span_(round.value("current", false) ? st.accent : st.muted, esc_("  │ " + round.value("text", std::string())));
                 if (turn.value("hidden_thinking", false)) html += "<br>" + span_(st.muted, "<i>the text of its thinking is not sent by the model: its tokens only</i>");
             }
             html += "</p>";

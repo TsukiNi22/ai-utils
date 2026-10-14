@@ -934,6 +934,7 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (this->_notifyIds.contains(key)) args.insert(args.end(), {"-r", this->_notifyIds.at(key)});
     }
+    args.insert(args.end(), {"-A", "default=Open"}); // its body clicked: its session, the interface to the front
     for (const auto &[action, label]: n.actions)
         args.insert(args.end(), {"-A", action + "=" + label});
     args.push_back(n.title);
@@ -947,26 +948,27 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
         }
     }
     std::thread([this, args, n, key]() {
-        const cluster::Captured out = cluster::capture(args, "", n.actions.empty() ? 15 : 3600);
+        const cluster::Captured out = cluster::capture(args, "", 3600); // its buttons (and its body): waited for
         std::string chosen;
         for (const std::string& raw: cluster::split(out.out, '\n')) {
             const std::string line = cluster::trim(raw);
             if (!line.empty() && std::all_of(line.begin(), line.end(), [](const char c) {return c >= '0' && c <= '9';})) {
                 std::lock_guard<std::mutex> lock(this->_mutex);
                 this->_notifyIds[key] = line;
-            } else if (std::any_of(n.actions.begin(), n.actions.end(), [&line](const std::pair<std::string, std::string>& a) {return a.first == line;})) {
+            } else if (line == "default" || std::any_of(n.actions.begin(), n.actions.end(), [&line](const std::pair<std::string, std::string>& a) {return a.first == line;})) {
                 chosen = line;
             }
         }
         if (chosen.empty()) return;
         // its button: its owner (a device to approve...), else the session shown, its permission or question answered
         try {
-            if (n.onAction) {
+            if (n.onAction && chosen != "default") {
                 n.onAction(chosen);
                 ++this->_version;
                 return;
             }
-            if (!n.session.empty()) this->requestFocus(n.session);
+            if (!n.session.empty() && n.session != "ready" && n.session != "map" && n.session != "voice" && this->snapshot(n.session)) this->requestFocus(n.session);
+            if (chosen == "default" || chosen == "open") this->requestRaise();
             if (chosen == "allow" || chosen == "deny" || chosen == "always") {
                 this->answer(n.session, n.requestId, chosen);
             } else if (chosen.starts_with("opt")) {

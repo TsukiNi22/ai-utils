@@ -95,6 +95,8 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
 .msg.turn { color: var(--accent); font-size: 14px; } .msg.turn .turn-tool, .msg.turn details { color: var(--muted); font-size: 13px; margin-left: 12px; }
 .msg.turn summary { cursor: pointer; }
+.msg.turn .round { font-family: var(--mono, monospace); font-size: 12px; padding-left: 10px; border-left: 2px solid var(--line); margin: 2px 0; }
+.msg.turn .round.current { color: var(--accent); border-left-color: var(--accent); }
 .msg.display pre.term { background: #1e1e1e; color: #e5e5e5; }
 .msg.display .diff-add { color: var(--ok); } .msg.display .diff-del { color: var(--error); } .msg.display .diff-hunk { color: var(--accent); }
 .msg.display .steps div { padding: 2px 0; } .msg.display .done { color: var(--ok); } .msg.display .current { color: var(--accent); font-weight: 600; }
@@ -238,7 +240,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
     <div id="caSteps" class="hidden">
         <h2>Trust this computer once</h2>
         <p>The browser warns because this computer made its own certificate (a local network has no public one). Install its authority once on this device: its pages open without warning, and stay encrypted.</p>
-        <a class="primary button" href="/ca.crt" download>Download the certificate</a>
+        <button type="button" class="primary button" id="caDownload">Download the certificate</button>
         <details open><summary>Android</summary><ol><li>Download it (above).</li><li>Settings › Security › More security settings › Encryption &amp; credentials › Install a certificate › CA certificate.</li><li>Pick <code>claude-cluster-ca.crt</code>, then reload this page.</li></ol></details>
         <details><summary>iPhone / iPad</summary><ol><li>Download it (above), then Settings › Profile downloaded › Install.</li><li>Settings › General › About › Certificate Trust Settings: turn on <i>claude-cluster</i>.</li></ol></details>
         <details><summary>Firefox (any system)</summary><ol><li>Download it, then Settings › Privacy &amp; Security › Certificates › View Certificates › Authorities › Import.</li><li>Tick <i>Trust this CA to identify websites</i>.</li></ol></details>
@@ -414,6 +416,47 @@ $("pin").addEventListener("input", (e) => {
 
 $("caHelp").addEventListener("click", (e) => { e.preventDefault(); $("loginForm").classList.add("hidden"); $("caSteps").classList.remove("hidden"); });
 $("caBack").addEventListener("click", () => { $("caSteps").classList.add("hidden"); $("loginForm").classList.remove("hidden"); });
+
+// a file of the computer saved by the page itself: fetched (the exception of the certificate kept), then saved from memory;
+// Chrome on Android stalls a download it makes itself from a site it does not trust
+async function saveFile(path, name, button) {
+    const label = button ? button.textContent : "";
+    try {
+        const response = await fetch(path, {cache: "no-store"});
+        if (!response.ok) throw new Error(response.status === 404 ? "not on this computer" : response.statusText);
+        const total = Number(response.headers.get("Content-Length")) || 0;
+        const reader = response.body.getReader();
+        const parts = [];
+        let got = 0;
+        for (;;) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            parts.push(value);
+            got += value.length;
+            if (button && total) button.textContent = "Downloading… " + Math.round(got * 100 / total) + " %";
+        }
+        const url = URL.createObjectURL(new Blob(parts, {type: response.headers.get("Content-Type") || "application/octet-stream"}));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        toast(name + " saved: open it from the downloads");
+    } catch (error) {
+        toast(name + ": " + error.message);
+    }
+    if (button) button.textContent = label;
+}
+$("caDownload").addEventListener("click", (e) => saveFile("/ca.crt", "claude-cluster-ca.crt", e.target));
+
+// the service worker: the notifications of Chrome on Android, a click on one opens its session
+let worker = null;
+if ("serviceWorker" in navigator && window.isSecureContext && !window.ClusterApp) {
+    navigator.serviceWorker.register("/sw.js").then((r) => { worker = r; }).catch(() => { /* not trusted yet: the page shows its own */ });
+    navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.open) openSession(e.data.open); });
+}
 
 function deviceName() {
     try { return localStorage.getItem("cc-device-name") || ""; } catch (error) { return ""; }
@@ -1037,15 +1080,21 @@ function renderTurn(turn) {
         line.textContent = `⎿ ${tool.name}  ${tool.summary}  ${took(tool.ms)}`;
         div.append(line);
     }
-    const steps = (turn.steps || []).map((s) => `${s.name} ${took(s.ms)}`).concat(turn.step ? [`${turn.step} ${took(turn.step_ms)}…`] : []);
-    if (steps.length) {
+    const rounds = turn.rounds || [];
+    if (rounds.length) {
         const details = document.createElement("details");
         details.open = turnOpen;
         details.addEventListener("toggle", () => { turnOpen = details.open; });
         const summary = document.createElement("summary");
-        summary.textContent = "details";
+        summary.textContent = rounds.length + " round(s) with the model";
         const body = document.createElement("div");
-        body.textContent = "steps: " + steps.join(" → ") + (turn.hidden_thinking ? "  (the text of its thinking is not sent by the model: its tokens only)" : "");
+        for (const r of rounds) {
+            const line = document.createElement("div");
+            line.className = "round" + (r.current ? " current" : "");
+            line.textContent = r.text;
+            body.append(line);
+        }
+        if (turn.hidden_thinking) body.append(Object.assign(document.createElement("div"), {textContent: "the text of its thinking is not sent by the model: its tokens only"}));
         details.append(summary, body);
         div.append(details);
     }
@@ -1948,6 +1997,12 @@ function browserNotify(title, body, id) {
         return;
     }
     if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+    if (worker) { // Chrome on Android: through the service worker only
+        worker.showNotification(title, {body: (body || "").slice(0, 180), tag: "cc-" + id, data: {session: id},
+            icon: lastState && lastState.face ? "data:image/svg+xml," + encodeURIComponent(lastState.face.svg) : undefined}).catch(() => {});
+        if (navigator.vibrate) navigator.vibrate(120);
+        return;
+    }
     try {
         const n = new Notification(title, {body: (body || "").slice(0, 180), tag: "cc-" + id, icon: lastState && lastState.face ? "data:image/svg+xml," + encodeURIComponent(lastState.face.svg) : undefined});
         n.onclick = () => { window.focus(); openSession(id); n.close(); };
@@ -1987,8 +2042,8 @@ async function offerApp() {
         const bar = el("div", "appbar");
         const text = el("span", "", "claude-cluster has an app " + (info.app_version || "") + ": no warning, notifications");
         const get = el("a", "primary button", "Install");
-        get.href = "/app.apk";
-        get.setAttribute("download", "claude-cluster.apk");
+        get.href = "#";
+        get.addEventListener("click", (e) => { e.preventDefault(); saveFile("/app.apk", "claude-cluster.apk", get); });
         const no = el("button", "", "No");
         no.addEventListener("click", () => { store.set("cc-app-offer", "no"); bar.remove(); });
         bar.append(text, get, no);
@@ -2106,8 +2161,8 @@ function drawDevice(body) {
         field("The app " + window.ClusterApp.version(), "its updates come from this computer (a newer one only)", change);
     } else if (/Android/i.test(navigator.userAgent)) {
         const link = el("a", "primary button", "Install the app");
-        link.href = "/app.apk";
-        link.setAttribute("download", "claude-cluster.apk");
+        link.href = "#";
+        link.addEventListener("click", (e) => { e.preventDefault(); saveFile("/app.apk", "claude-cluster.apk", link); });
         field("Android app", "the same page in an app: no browser warning, its notifications, updated from this computer", link);
     }
 }
@@ -2141,6 +2196,11 @@ document.addEventListener("click", async (e) => {
 });
 setView(view);
 offerApp();
+if (location.hash.length > 1) { // opened by a notification: its session
+    const session = decodeURIComponent(location.hash.slice(1));
+    history.replaceState(null, "", "/");
+    setTimeout(() => openSession(session), 800);
+}
 if (!window.isSecureContext) $("mic").title = "The microphone needs https (settings page > Web > HTTPS)";
 
 // already connected (the cookie of this browser): straight to the sessions; a trusted device: in at once (no code)

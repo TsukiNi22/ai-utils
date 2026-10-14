@@ -43,23 +43,13 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Locale;
 
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
 
 public class MainActivity extends Activity {
     // the protocol of the app: claude-cluster refuses an app older than its app_min (it says so)
@@ -91,13 +81,35 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         front = true;
+        stopService(new Intent(this, WatchService.class));
     }
 
     @Override
     protected void onPause() {
-        // the page keeps running (its notifications): its timers not paused
+        // out of front: the watch service follows the sessions of this phone (its notifications)
         super.onPause();
         front = false;
+        if (!prefs.getString("url", "").isEmpty() && web != null) {
+            try {
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(new Intent(this, WatchService.class));
+                else startService(new Intent(this, WatchService.class));
+            } catch (Exception e) {
+                // not allowed now (Android): the notifications while in front only
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        openSession(intent);
+    }
+
+    private void openSession(Intent intent) {
+        // a notification tapped: its session shown in the page
+        final String session = intent == null ? null : intent.getStringExtra("session");
+        if (session == null || web == null) return;
+        web.evaluateJavascript("typeof openSession === 'function' && openSession(" + org.json.JSONObject.quote(session) + ")", null);
     }
 
     @Override
@@ -186,6 +198,8 @@ public class MainActivity extends Activity {
         web.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(web);
         web.loadUrl(url + "/");
+        final Intent first = getIntent();
+        web.postDelayed(() -> openSession(first), 2500); // opened by a notification: its session once the page is there
         checkUpdate(url);
     }
 
@@ -200,13 +214,7 @@ public class MainActivity extends Activity {
 
     // ---- the computer trusted once: its authority pinned ----
     private X509Certificate pinned() {
-        try {
-            String saved = prefs.getString("ca", "");
-            if (saved.isEmpty()) return null;
-            return (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(Base64.decode(saved, Base64.DEFAULT)));
-        } catch (Exception e) {
-            return null;
-        }
+        return Net.pinned(prefs);
     }
 
     private static boolean signedBy(X509Certificate leaf, X509Certificate ca) {
@@ -292,38 +300,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---- a request of the app itself: trusting the authority pinned (null: anything, only to read /ca.crt the first time) ----
     private byte[] fetch(String address, X509Certificate ca) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        if (connection instanceof HttpsURLConnection) {
-            HttpsURLConnection https = (HttpsURLConnection) connection;
-            TrustManager[] managers;
-            if (ca == null) {
-                managers = new TrustManager[] {new X509TrustManager() {
-                    public void checkClientTrusted(X509Certificate[] chain, String type) {}
-                    public void checkServerTrusted(X509Certificate[] chain, String type) {}
-                    public X509Certificate[] getAcceptedIssuers() {return new X509Certificate[0];}
-                }};
-            } else {
-                KeyStore store = KeyStore.getInstance(KeyStore.getDefaultType());
-                store.load(null, null);
-                store.setCertificateEntry("claude-cluster", ca);
-                TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-                factory.init(store);
-                managers = factory.getTrustManagers();
-            }
-            SSLContext context = SSLContext.getInstance("TLS");
-            context.init(null, managers, null);
-            https.setSSLSocketFactory(context.getSocketFactory());
-            https.setHostnameVerifier((host, session) -> true); // its address: one of the certificate's, checked by the page
-        }
-        connection.setConnectTimeout(8000);
-        connection.setReadTimeout(60000);
-        try (InputStream in = connection.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[65536];
-            for (int n; (n = in.read(buffer)) > 0;) out.write(buffer, 0, n);
-            return out.toByteArray();
-        }
+        return Net.fetch(address, ca, null, 60000);
     }
 
     // ---- updates: only a newer app; one too old for this claude-cluster: told so ----
@@ -406,14 +384,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void notify(String title, String body, String session) {
-            // shown when the app is not in front (the page shows it otherwise)
-            if (front) return;
-            Intent open = new Intent(MainActivity.this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            PendingIntent pending = PendingIntent.getActivity(MainActivity.this, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(MainActivity.this, "sessions") : new Notification.Builder(MainActivity.this);
-            Notification notification = builder.setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(body).setAutoCancel(true)
-                .setContentIntent(pending).build();
-            getSystemService(NotificationManager.class).notify(session.hashCode(), notification);
+            // out of front the watch service notifies (never twice); in front the page shows it itself
         }
 
         @JavascriptInterface

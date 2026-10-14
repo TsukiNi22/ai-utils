@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <application android:label="claude-cluster" android:icon="@mipmap/ic_launcher" android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:allowBackup="false">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
@@ -16,5 +18,9 @@
             </intent-filter>
         </activity>
         <receiver android:name=".InstallReceiver" android:exported="false"/>
+        <service android:name=".WatchService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Follows the claude-cluster sessions of this phone on its own computer to notify when one finishes or waits"/>
+        </service>
     </application>
 </manifest>

@@ -748,12 +748,28 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     }
     if (request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
         respond_(conn, 200, "text/html; charset=utf-8", std::string(cluster::templates::WEB_PAGE),
-            "Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; "
-            "media-src 'self' blob:\r\nPermissions-Policy: microphone=(self)\r\n");
+            "Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; "
+            "media-src 'self' blob:; worker-src 'self'\r\nPermissions-Policy: microphone=(self)\r\n");
         return;
     }
     if (request.path == "/api/login") {
         this->login_(connection, &request, peer, secure);
+        return;
+    }
+    if (request.method == "GET" && request.path == "/sw.js") {
+        // the service worker of the page: its notifications (Chrome on Android needs one), a click on one opens its session
+        static const std::string worker = R"JS(self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("notificationclick", (e) => {
+    e.notification.close();
+    const session = (e.notification.data || {}).session || "";
+    e.waitUntil(self.clients.matchAll({type: "window", includeUncontrolled: true}).then((all) => {
+        for (const client of all) { client.postMessage({open: session}); return client.focus(); }
+        return self.clients.openWindow("/#" + encodeURIComponent(session));
+    }));
+});
+)JS";
+        respond_(conn, 200, "application/javascript; charset=utf-8", worker, "Service-Worker-Allowed: /\r\n");
         return;
     }
     if (request.method == "GET" && request.path == "/ca.crt") {

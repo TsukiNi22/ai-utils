@@ -95,6 +95,7 @@ class Manager {
         std::map<std::string, int> _replies;            // sessions whose next turn ends are sent back to the global session
         bool _globalNew = false;                        // the global session starts a new conversation (marked in its transcript)
         std::atomic<std::uint64_t> _focusVersion{0};
+        std::atomic<std::uint64_t> _raiseVersion{0};    // a notification clicked: the interface to the front
         std::string _active = "g";                      // the session they show
         std::vector<cluster::Task> _tasks;
         std::vector<cluster::Schedule> _schedules;      // things to do at a time (kept in the state)
@@ -239,6 +240,8 @@ class Manager {
         inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
         inline void machineDecline(void) {this->setUi("machine", "no");};
         _nodiscard inline std::pair<std::uint64_t, std::string> focusRequest(void) const {return {this->_focusVersion, this->_focus};};
+        _nodiscard inline std::uint64_t raiseRequest(void) const {return this->_raiseVersion;};  // a notification clicked: to the front
+        inline void requestRaise(void) {++this->_raiseVersion; ++this->_version;};
         inline void noteActive(const std::string& id) {this->_active = id;};   // the session shown (ui_state)
         _nodiscard inline std::string active(void) const {return this->_active;};
         _nodiscard inline cluster::Auth& auth(void) {return this->_auth;};

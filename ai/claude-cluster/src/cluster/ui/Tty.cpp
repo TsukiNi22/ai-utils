@@ -420,6 +420,7 @@ class TtyUi {
         };
         std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
         std::string _title;                         // the title of the terminal set (its face)
+        std::uint64_t _raiseSeen = 0;               // the last notification clicked
         std::string _webAsk;                        // the device asking to connect shown (its popup)
         std::set<std::string> _webLater;            // the ones put off (Esc): asked again from the palette
         std::set<std::string> _webPicked;           // the web devices ticked ("d:<id>" connected / waiting, "t:<id>" trusted)
@@ -2126,13 +2127,10 @@ class TtyUi {
                 }
                 if (tools.size() > most) lines.push_back({"  ⎿ … " + std::to_string(tools.size() - most) + " more", ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
                 if (this->_expanded) {
-                    // every step of the turn so far
-                    std::string done;
-                    for (const cluster::Json& step: turn["steps"])
-                        done += (done.empty() ? "" : " → ") + step.value("name", std::string()) + " " + cluster::took(step.value("ms", 0LL));
-                    if (!turn.value("step", std::string()).empty())
-                        done += (done.empty() ? "" : " → ") + turn.value("step", std::string()) + " " + cluster::took(turn.value("step_ms", 0LL)) + "…";
-                    if (!done.empty()) add(done, "  steps: ", "         ", ftxui::color(this->_theme.muted) | ftxui::dim);
+                    // the rounds of the turn: one request to the model a line (its wait, its thinking, the tools it called)
+                    for (const cluster::Json& round: turn["rounds"])
+                        lines.push_back({"  │ " + cluster::one_line(round.value("text", std::string()), room - 6), round.value("current", false)
+                            ? ftxui::color(this->_theme.accent) : ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
                     if (turn.value("hidden_thinking", false))
                         lines.push_back({"  (the text of its thinking is not sent by the model: its tokens only)", ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
                 }
@@ -2780,6 +2778,10 @@ class TtyUi {
                 key(c.keys.at("new_session") + " new", "new_session"), dot(), ftxui::text(c.keys.at("quit") + " quit ") | ftxui::color(this->_theme.muted),
             });
             // the global session asked to show a session (ui_focus); the style may have changed (ui_style)
+            if (this->_manager.raiseRequest() != this->_raiseSeen) { // a notification clicked: the bell marks this terminal
+                this->_raiseSeen = this->_manager.raiseRequest();
+                std::cout << "\a" << std::flush;
+            }
             const std::pair<std::uint64_t, std::string> focus = this->_manager.focusRequest();
             if (focus.first != this->_focusSeen) {
                 this->_focusSeen = focus.first;
