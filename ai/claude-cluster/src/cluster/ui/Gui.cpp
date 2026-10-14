@@ -71,6 +71,7 @@ File Description:
 #include <QWidget>
 #include <QTabBar>
 #include <QDialog>
+#include <cstdlib>
 #include <QImage>
 #include <chrono>
 #include <QFrame>
@@ -81,6 +82,15 @@ File Description:
 #include <QUrl>
 #include <set>
 #include <map>
+
+_cold static std::string mix_(const std::string& a, const std::string& b, const double weight)
+{
+    // a + (b - a) * weight, as #rrggbb (the tints of the style sheet)
+    const QColor x(QString::fromStdString(a));
+    const QColor y(QString::fromStdString(b));
+    const std::function<int(int, int)> at = [weight](const int p, const int q) {return static_cast<int>(p + (q - p) * weight + 0.5);};
+    return QColor(at(x.red(), y.red()), at(x.green(), y.green()), at(x.blue(), y.blue())).name().toStdString();
+}
 
 namespace {
 //----------------------------------------------------------------//
@@ -384,6 +394,7 @@ class Window: public QMainWindow {
             dialog.exec();
         }
 
+        QLabel* brand = nullptr;                // the top bar: its face and the name
         bool webAsking = false;
         std::set<std::string> webAsked;
 
@@ -399,6 +410,11 @@ class Window: public QMainWindow {
             pixmap.loadFromData(QByteArray::fromStdString(cluster::face_svg(face.face, face.badge, face.urgent)), "SVG");
             this->setWindowIcon(QIcon(pixmap));
             this->setWindowTitle(QString("(") + QString::fromUtf8(cluster::face_text(face.face)) + ") claude-cluster");
+            if (this->brand) {
+                const cluster::Style& st = this->theme();
+                this->brand->setText("<span style=\"background:" + q_(mix_(st.surface, st.accent, 0.18)) + ";color:" + q_(st.accent) + ";font-family:monospace\">&nbsp;"
+                    + QString::fromUtf8(cluster::face_text(face.face)).toHtmlEscaped() + "&nbsp;</span>&nbsp; claude-cluster");
+            }
         }
 
         std::string faceShown;
@@ -425,17 +441,58 @@ class Window: public QMainWindow {
             palette.setColor(QPalette::HighlightedText, QColor(q_(s.bg)));
             palette.setColor(QPalette::PlaceholderText, QColor(q_(s.muted)));
             QApplication::setPalette(palette);
+            // one look with the web page: surfaces, 1 px lines, rounded panels, the accent for what is active, thin scroll bars
+            const std::string tint = mix_(s.surface, s.accent, 0.14);
+            const std::string hover = mix_(s.surface, s.accent, 0.07);
+            const std::string sunk = mix_(s.bg, s.surface, 0.5);
             this->setStyleSheet(q_(
-                "QFrame#session{border:1px solid " + s.border + ";border-radius:8px;}"
-                "QFrame#session[active=\"true\"]{border:2px solid " + s.accent + ";}"
-                "QTextBrowser{border:none;background:" + s.bg + ";}"
-                "QLineEdit{border:1px solid " + s.border + ";border-radius:6px;padding:6px;background:" + s.surface + ";}"
-                "QPushButton{border:1px solid " + s.border + ";border-radius:6px;padding:4px 10px;}"
-                "QPushButton:hover{border-color:" + s.accent + ";}"
-                "QListWidget{border:none;background:" + s.bg + ";}"
-                "QListWidget::item:selected{background:" + s.surface + ";color:" + s.text + ";}"
-                "QLabel#panels{background:" + s.surface + ";border-radius:8px;padding:8px;}"
-                "QWidget#perm{background:" + s.surface + ";border:1px solid " + s.warn + ";border-radius:6px;}"));
+                "QMainWindow,QDialog{background:" + s.bg + ";}"
+                "QWidget#topbar{background:" + s.surface + ";border-bottom:1px solid " + s.border + ";}"
+                "QLabel#brand{font-weight:600;font-size:11pt;padding:0 6px;}"
+                "QPushButton#seg{border:1px solid " + s.border + ";border-radius:0;padding:5px 14px;background:transparent;margin:0;}"
+                "QPushButton#seg:first{border-top-left-radius:8px;border-bottom-left-radius:8px;}"
+                "QPushButton#seg:last{border-top-right-radius:8px;border-bottom-right-radius:8px;}"
+                "QPushButton#seg:checked{background:" + tint + ";color:" + s.accent + ";font-weight:600;border-color:" + s.accent + ";}"
+                "QFrame#session{background:" + s.bg + ";border:1px solid " + s.border + ";border-radius:12px;}"
+                "QFrame#session[active=\"true\"]{border:1px solid " + s.accent + ";}"
+                "QLabel#head{padding:10px 12px;border-bottom:1px solid " + s.border + ";background:" + s.surface + ";border-top-left-radius:12px;border-top-right-radius:12px;}"
+                "QLineEdit,QTextEdit,QPlainTextEdit,QSpinBox,QDoubleSpinBox{border:1px solid " + s.border + ";border-radius:10px;padding:7px 10px;background:" + s.surface + ";}"
+                "QLineEdit:focus,QTextEdit:focus,QPlainTextEdit:focus{border-color:" + s.accent + ";}"
+                "QFrame#composer{background:" + s.surface + ";border:1px solid " + s.border + ";border-radius:14px;}"
+                "QFrame#composer QLineEdit,QFrame#composer QTextEdit,QFrame#composer QPlainTextEdit{border:none;background:transparent;padding:2px 4px;}"
+                "QTextBrowser{border:none;border-radius:0;background:" + s.bg + ";selection-background-color:" + s.accent + ";selection-color:" + s.bg + ";padding:6px 10px;}"
+                "QPushButton{border:1px solid " + s.border + ";border-radius:8px;padding:6px 12px;background:" + s.surface + ";}"
+                "QPushButton:hover{border-color:" + s.accent + ";background:" + hover + ";}"
+                "QPushButton:pressed{background:" + tint + ";}"
+                "QPushButton#primary{background:" + s.accent + ";color:" + s.bg + ";border:none;font-weight:600;padding:7px 16px;}"
+                "QPushButton#primary:hover{background:" + mix_(s.accent, s.text, 0.15) + ";}"
+                "QListWidget{border:none;background:" + s.bg + ";outline:0;padding:4px;}"
+                "QListWidget::item{border-radius:10px;margin:2px 0;}"
+                "QListWidget::item:hover{background:" + hover + ";}"
+                "QListWidget::item:selected{background:" + tint + ";color:" + s.text + ";}"
+                "QLabel#panels{background:" + s.surface + ";border:1px solid " + s.border + ";border-radius:12px;padding:10px;}"
+                "QWidget#perm{background:" + mix_(s.surface, s.warn, 0.10) + ";border:1px solid " + s.warn + ";border-radius:10px;}"
+                "QLabel#status{color:" + s.muted + ";font-size:9pt;padding:2px 4px;}"
+                "QSplitter::handle{background:transparent;width:8px;}"
+                "QScrollBar:vertical{background:transparent;width:10px;margin:2px;}"
+                "QScrollBar::handle:vertical{background:" + s.border + ";border-radius:4px;min-height:32px;}"
+                "QScrollBar::handle:vertical:hover{background:" + s.muted + ";}"
+                "QScrollBar:horizontal{background:transparent;height:10px;margin:2px;}"
+                "QScrollBar::handle:horizontal{background:" + s.border + ";border-radius:4px;min-width:32px;}"
+                "QScrollBar::add-line,QScrollBar::sub-line,QScrollBar::add-page,QScrollBar::sub-page{background:none;border:none;width:0;height:0;}"
+                "QTabWidget::pane{border:1px solid " + s.border + ";border-radius:10px;top:-1px;background:" + s.bg + ";}"
+                "QTabBar::tab{background:transparent;border:1px solid transparent;border-radius:8px;padding:6px 12px;margin:2px;color:" + s.muted + ";}"
+                "QTabBar::tab:selected{background:" + tint + ";color:" + s.accent + ";border-color:" + s.accent + ";}"
+                "QTabBar::tab:hover{color:" + s.text + ";}"
+                "QComboBox{border:1px solid " + s.border + ";border-radius:8px;padding:5px 10px;background:" + s.surface + ";}"
+                "QComboBox QAbstractItemView{background:" + s.surface + ";border:1px solid " + s.border + ";selection-background-color:" + tint + ";}"
+                "QCheckBox::indicator{width:16px;height:16px;border:1px solid " + s.border + ";border-radius:4px;background:" + sunk + ";}"
+                "QCheckBox::indicator:checked{background:" + s.accent + ";border-color:" + s.accent + ";}"
+                "QToolTip{background:" + s.surface + ";color:" + s.text + ";border:1px solid " + s.border + ";border-radius:6px;padding:6px;}"
+                "QMenu{background:" + s.surface + ";border:1px solid " + s.border + ";border-radius:8px;padding:4px;}"
+                "QMenu::item{padding:6px 14px;border-radius:6px;} QMenu::item:selected{background:" + tint + ";}"
+                "QProgressBar{border:1px solid " + s.border + ";border-radius:6px;background:" + sunk + ";text-align:center;}"
+                "QProgressBar::chunk{background:" + s.accent + ";border-radius:5px;}"));
         }
 
         void bindKeys(void)
@@ -985,7 +1042,54 @@ class Window: public QMainWindow {
 
             QWidget* central = new QWidget(this);
             QVBoxLayout* root = new QVBoxLayout(central);
-            root->setContentsMargins(8, 8, 8, 8);
+            root->setContentsMargins(0, 0, 0, 8);
+            root->setSpacing(8);
+            // the top bar: its face, the layouts, the palette / the web devices / the settings (like the web page)
+            QWidget* topbar = new QWidget(central);
+            topbar->setObjectName("topbar");
+            topbar->setAttribute(Qt::WA_StyledBackground, true);
+            QHBoxLayout* top = new QHBoxLayout(topbar);
+            top->setContentsMargins(12, 8, 12, 8);
+            top->setSpacing(0);
+            this->brand = new QLabel(topbar);
+            this->brand->setObjectName("brand");
+            this->brand->setTextFormat(Qt::RichText);
+            top->addWidget(this->brand);
+            top->addSpacing(14);
+            for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"tabs", "Tabs"}}) {
+                QPushButton* seg = new QPushButton(q_(label), topbar);
+                seg->setObjectName("seg");
+                seg->setCheckable(true);
+                seg->setChecked(layout == name);
+                seg->setCursor(Qt::PointingHandCursor);
+                const std::string chosen = name;
+                QObject::connect(seg, &QPushButton::clicked, [this, chosen]() {
+                    this->manager.setUi("layout", chosen);
+                    this->refresh(true);
+                });
+                top->addWidget(seg);
+            }
+            top->addStretch(1);
+            for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}}) {
+                if (action == "devices" && (this->manager.web() == nullptr || !this->manager.web()->status().on)) continue;
+                QPushButton* button = new QPushButton(q_(label), topbar);
+                button->setCursor(Qt::PointingHandCursor);
+                const std::string name = action;
+                QObject::connect(button, &QPushButton::clicked, [this, name]() {
+                    if (name == "devices") this->webDevices();
+                    else if (name == "settings") this->settings();
+                    else this->shortcut(name);
+                });
+                top->addSpacing(6);
+                top->addWidget(button);
+            }
+            root->addWidget(topbar);
+            QWidget* body = new QWidget(central);
+            QVBoxLayout* inner = new QVBoxLayout(body);
+            inner->setContentsMargins(10, 0, 10, 0);
+            inner->setSpacing(8);
+            root->addWidget(body, 1);
+            root = inner;
             if (layout == "grid" && sessions.size() > 1) {
                 QGridLayout* grid = new QGridLayout();
                 const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(sessions.size()))));
@@ -1077,19 +1181,29 @@ class Window: public QMainWindow {
             this->input->popup->setVisible(false);
             this->target = new QLabel(central);
             QPushButton* sendButton = new QPushButton("Send", central);
+            sendButton->setObjectName("primary");
+            sendButton->setCursor(Qt::PointingHandCursor);
             QObject::connect(sendButton, &QPushButton::clicked, [this]() {this->send();});
             this->input->vimLabel = new QLabel(central);
             this->input->vimLabel->setStyleSheet("font-weight:bold;");
+            // the composer: the prompt, its target, Send, in one rounded field
+            QFrame* composer = new QFrame(central);
+            composer->setObjectName("composer");
+            composer->setLayout(bar);
+            bar->setContentsMargins(8, 6, 6, 6);
             bar->addWidget(this->input, 1);
             bar->addWidget(this->input->vimLabel);
             bar->addWidget(this->target);
+            bar->addSpacing(6);
             bar->addWidget(sendButton);
-            root->addLayout(bar);
+            root->addWidget(composer);
             this->status = new QLabel(central);
+            this->status->setObjectName("status");
             root->addWidget(this->status);
             this->setCentralWidget(central);
             this->input->setFocus();
             this->lastVersion = 0;
+            this->faceShown.clear(); // the new top bar gets its face
         }
 
         void refresh(const bool force)
@@ -1105,10 +1219,22 @@ class Window: public QMainWindow {
                 const QSignalBlocker block(this->list);
                 this->list->clear();
                 for (const cluster::Snapshot& s: sessions) {
-                    std::string line = std::string(s.state == cluster::State::Working ? "● " : s.state == cluster::State::Waiting ? "! " : "○ ") + s.spec.name
-                        + "   " + cluster::human_tokens(s.metrics.total.total()) + (s.permissions.empty() ? "" : "  [" + std::to_string(s.permissions.size()) + " perm]")
-                        + "\n   " + s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd);
-                    this->list->addItem(q_(line));
+                    const std::string dot = s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting || !s.permissions.empty() ? st.warn
+                        : s.state == cluster::State::Error ? st.error : st.muted;
+                    const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
+                    QLabel* row = new QLabel(this->list);
+                    row->setTextFormat(Qt::RichText);
+                    row->setAttribute(Qt::WA_TransparentForMouseEvents);
+                    row->setContentsMargins(10, 7, 10, 7);
+                    row->setText("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>" + span_(dot, "●") + "&nbsp; <b>" + esc_(s.spec.name) + "</b>&nbsp; "
+                        + "<span style=\"background:" + q_(mix_(st.surface, dot, 0.22)) + ";color:" + q_(dot) + ";font-family:monospace;font-size:9pt\">&nbsp;" + face + "&nbsp;</span>"
+                        + (s.permissions.empty() ? QString() : "&nbsp;" + span_(st.warn, "<b>" + QString::number(s.permissions.size()) + "</b>"))
+                        + "</td><td align=\"right\">" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::human_tokens(s.metrics.total.total()))
+                        + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">"
+                        + esc_(s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd)) + "</span>"));
+                    QListWidgetItem* item = new QListWidgetItem(this->list);
+                    item->setSizeHint(QSize(0, row->sizeHint().height() + 4));
+                    this->list->setItemWidget(item, row);
                     if (s.spec.id == this->active) this->list->setCurrentRow(this->list->count() - 1);
                 }
             }
@@ -2193,6 +2319,7 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->setObjectName("session");
     QVBoxLayout* layout = new QVBoxLayout(this);
     this->header = new QLabel(this);
+    this->header->setObjectName("head");
     this->header->setTextFormat(Qt::RichText);
     this->log = new QTextBrowser(this);
     this->log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
@@ -2269,9 +2396,15 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
 
     // header
     const std::string model = s.modelUsed.empty() ? s.spec.backend : s.spec.backend.substr(0, s.spec.backend.find('/')) + "/" + s.modelUsed;
-    QString head = span_(st.accent, esc_(s.spec.name), true) + "  " + span_(s.state == cluster::State::Error ? st.error : st.text, cluster::state_name(s.state))
-        + "  " + span_(st.muted, esc_(model + "  ·  mode " + s.spec.mode
-        + (s.spec.effort.empty() || s.spec.effort == "default" ? "" : "  ·  effort " + s.spec.effort) + (compact ? "" : "  ·  " + cluster::short_path(s.spec.cwd))));
+    const std::string tone = s.state == cluster::State::Error ? st.error : s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting ? st.warn : st.muted;
+    const std::function<QString(const std::string&, const std::string&)> chip = [&st](const std::string& color, const std::string& text) {
+        return "<span style=\"background:" + q_(mix_(st.surface, color, 0.2)) + ";color:" + q_(color) + ";font-family:monospace;font-size:9pt\">&nbsp;" + esc_(text)
+            + "&nbsp;</span>";
+    };
+    QString head = "<span style=\"font-size:11.5pt\"><b>" + esc_(s.spec.name) + "</b></span>&nbsp;&nbsp;" + chip(tone, cluster::state_name(s.state)) + "&nbsp; "
+        + chip(st.accent, model) + "&nbsp; " + chip(st.muted, "mode " + s.spec.mode)
+        + (s.spec.effort.empty() || s.spec.effort == "default" ? QString() : "&nbsp; " + chip(st.muted, "effort " + s.spec.effort))
+        + (compact ? QString() : "&nbsp;&nbsp;" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::short_path(s.spec.cwd)) + "</span>"));
     if (!s.lastError.empty()) head += "<br>" + span_(st.error, esc_(cluster::one_line(s.lastError, 200)));
     if (!s.remoteUrl.empty() || !s.bridgeState.empty())
         head += "<br>" + span_(st.accent, "Remote Control " + esc_(s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? QString()
@@ -2486,6 +2619,11 @@ _cold int cluster::run_gui(cluster::App& app)
     QGuiApplication::setDesktopFileName("claude-cluster"); // the dock: its .desktop and its icon
     Window window(app);
     window.show();
+    // tests: a picture of the window after a moment (CLAUDE_CLUSTER_GUI_SHOT=<file.png>)
+    if (const char* shot = std::getenv("CLAUDE_CLUSTER_GUI_SHOT"); shot != nullptr && *shot != '\0') {
+        const std::string path = shot;
+        QTimer::singleShot(4000, &window, [&window, path]() {(void)window.grab().save(q_(path));});
+    }
     // the end of a prompt of the global session is notified only when the window is not the active one
     app.manager->setFocused(QGuiApplication::applicationState() == Qt::ApplicationActive);
     QObject::connect(&application, &QGuiApplication::applicationStateChanged, [&app](const Qt::ApplicationState state) {
