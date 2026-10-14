@@ -256,7 +256,13 @@ _cold int cluster::Core::ui_(const bool serve)
         else throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no terminal and no window available");
     }
 
-    // Core: one instance per user (control socket), previous sessions, global session
+    // Core: one instance per user (control socket), previous sessions, global session; another one running: told before
+    // anything starts here (no session, no thread left behind)
+    if (cluster::Control::alive())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::AlreadyRunning, "claude-cluster already runs (" + cluster::socket_path().string()
+            + "): its terminal or window is open elsewhere, or its service runs (claude-cluster service status); drive it with the headless commands "
+            "(claude-cluster list, send...) or its web access, or close it first");
+    try {
     app.manager = std::make_unique<cluster::Manager>(app.config);
     app.control = std::make_unique<cluster::Control>(*app.manager);
     app.control->start();
@@ -276,6 +282,10 @@ _cold int cluster::Core::ui_(const bool serve)
     app.web = std::make_unique<cluster::Web>(*app.manager, app.voice.get(), this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);
     app.manager->setWeb(app.web.get());
     app.start();
+    } catch (...) { // a start failing: what it started stopped (its sessions, its threads)
+        app.stop();
+        throw;
+    }
 
     int code = 0;
     cluster::catch_quit_signals(); // Ctrl+C, kill, the terminal closed: a normal quit (sessions saved, terminal restored)
