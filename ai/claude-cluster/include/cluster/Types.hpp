@@ -25,6 +25,7 @@ File Description:
     #include <string>               // std::string
     #include <vector>               // std::vector
     #include <set>                  // std::set
+    #include <map>                  // std::map
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
@@ -207,6 +208,7 @@ struct Snapshot {
     std::vector<std::string> skillsLoaded;
     std::vector<std::string> skillsAvailable;
     std::vector<std::string> slashCommands;     // commands of the agent (/compact, skills...)
+    std::map<std::string, std::string> commandHelp;  // their description (the answer of initialize)
     std::vector<std::string> files;     // files modified by Edit / Write / NotebookEdit
     std::string partial;                // text being streamed
     std::string thinking;               // thinking being streamed (cleared by the final block)

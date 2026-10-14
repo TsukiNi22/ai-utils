@@ -1347,7 +1347,7 @@ function context(input) {
     const start = cursor - word.length;
     const head = before.slice(0, start).trim();
     if (word.startsWith("@")) return {kind: "file", query: word.slice(1), start: start + 1, end: cursor, session: current};
-    if (word.startsWith("/") && !head) return {kind: "command", query: word.slice(1), start: start + 1, end: cursor, session: current};
+    if (word.startsWith("/")) return {kind: head ? "skill" : "command", query: word.slice(1), start: start + 1, end: cursor, session: current};
     const kinds = {"/cd": "folder", "/new": "folder", "/mode": "mode", "/model": "model", "/effort": "effort", "/restore": "trash"};
     if (kinds[head] && !before.slice(0, start).trim().includes(" ")) return {kind: kinds[head], query: word, start: start, end: cursor, session: current};
     return null;

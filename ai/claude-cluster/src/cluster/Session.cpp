@@ -466,7 +466,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->_data.modelUsed = event.value("model", std::string());
         if (event.contains("permissionMode")) this->_data.spec.mode = event.value("permissionMode", this->_data.spec.mode);
         this->_data.skillsAvailable.clear();
-        this->_data.slashCommands.clear();
+        this->_data.slashCommands.clear(); // the ones of initialize too: told again here
         if (event.contains("slash_commands") && event["slash_commands"].is_array())
             for (const cluster::Json& command: event["slash_commands"])
                 if (command.is_string()) this->_data.slashCommands.push_back(command.get<std::string>());
@@ -666,6 +666,17 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
     } else if (type == "control_response" && event.contains("response")) {
         const cluster::Json& response = event["response"];
         if (response.value("request_id", std::string()).starts_with("init-")) {
+            // its commands and skills (the user's, its plugins'), with their description: completed from the start
+            const cluster::Json answer = response.value("response", cluster::Json::object());
+            if (answer.contains("commands") && answer["commands"].is_array()) {
+                for (const cluster::Json& command: answer["commands"]) {
+                    const std::string name = command.value("name", std::string());
+                    if (name.empty()) continue;
+                    if (std::find(this->_data.slashCommands.begin(), this->_data.slashCommands.end(), name) == this->_data.slashCommands.end())
+                        this->_data.slashCommands.push_back(name);
+                    this->_data.commandHelp[name] = cluster::one_line(command.value("description", std::string()), 140);
+                }
+            }
             if (response.value("subtype", std::string()) != "error") this->emit_(cluster::Event::Kind::Init);
             return;
         }

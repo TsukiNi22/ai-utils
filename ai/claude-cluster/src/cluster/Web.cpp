@@ -678,7 +678,7 @@ _cold cluster::WebStatus cluster::Web::status(void) const
 _cold static cluster::CompletionKind completion_kind_(const std::string& name)
 {
     static const std::map<std::string, cluster::CompletionKind> kinds = {{"file", cluster::CompletionKind::File},
-        {"folder", cluster::CompletionKind::Folder}, {"command", cluster::CompletionKind::Command}, {"mode", cluster::CompletionKind::Mode},
+        {"folder", cluster::CompletionKind::Folder}, {"command", cluster::CompletionKind::Command}, {"skill", cluster::CompletionKind::Skill}, {"mode", cluster::CompletionKind::Mode},
         {"model", cluster::CompletionKind::Model}, {"effort", cluster::CompletionKind::Effort}, {"trash", cluster::CompletionKind::Trash}};
     return kinds.contains(name) ? kinds.at(name) : cluster::CompletionKind::None;
 }

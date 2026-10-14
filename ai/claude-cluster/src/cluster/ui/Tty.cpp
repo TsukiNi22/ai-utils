@@ -1121,7 +1121,7 @@ class TtyUi {
             ftxui::Elements rows;
             for (int i = start; i < static_cast<int>(items.size()) && i < start + 8; ++i) {
                 const cluster::Candidate& c = items[static_cast<std::size_t>(i)];
-                const std::string prefix = this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command ? "/" : "";
+                const std::string prefix = this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command || this->_editor.kind() == cluster::CompletionKind::Skill ? "/" : "";
                 ftxui::Element row = ftxui::hbox({ftxui::text("  " + prefix + c.label + "  "), ftxui::text(cluster::one_line(c.description, 70)) | ftxui::dim, ftxui::filler()});
                 rows.push_back(i == selected ? row | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : row | ftxui::color(this->_theme.text));
             }

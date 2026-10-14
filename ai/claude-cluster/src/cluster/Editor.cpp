@@ -449,8 +449,9 @@ _cold void cluster::Editor::refresh_(void)
         kind = cluster::CompletionKind::File;
         this->_start = start + 1;
         query = cluster::unescape_path(word.substr(1));
-    } else if (word.starts_with("/") && cluster::trim(before).empty()) {
-        kind = cluster::CompletionKind::Command;
+    } else if (word.starts_with("/")) {
+        // first: every command; later in the prompt: the skills and the commands of the agent
+        kind = cluster::trim(before).empty() ? cluster::CompletionKind::Command : cluster::CompletionKind::Skill;
         this->_start = start + 1;
         query = word.substr(1);
     } else if (words.size() == 1 && !this->_anchor) {

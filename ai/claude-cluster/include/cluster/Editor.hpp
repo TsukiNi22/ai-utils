@@ -38,6 +38,7 @@ enum class CompletionKind {
     File,       // @path: files and folders of the project of the session
     Folder,     // argument of /cd, /new
     Command,    // /command: local commands, skills, commands of the agent
+    Skill,      // a /word later in the prompt: the skills and the commands of the agent (the local ones run first only)
     Mode,       // argument of /mode
     Model,      // argument of /model
     Effort,     // argument of /effort

@@ -412,13 +412,15 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                     add(spec.name, "closed " + cluster::human_age(spec.deleted) + " ago, " + cluster::short_path(spec.cwd));
                 break;
             case cluster::CompletionKind::Command:
-                for (const auto &[name, description]: cluster::slash_commands())
-                    add(name, description);
+            case cluster::CompletionKind::Skill:
+                if (kind == cluster::CompletionKind::Command)
+                    for (const auto &[name, description]: cluster::slash_commands())
+                        add(name, description);
                 if (snap) {
                     for (const std::string& skill: snap->skillsAvailable)
-                        add(skill, "skill");
+                        add(skill, snap->commandHelp.contains(skill) ? snap->commandHelp.at(skill) : "skill");
                     for (const std::string& command: snap->slashCommands)
-                        add(command, "command of the agent");
+                        add(command, snap->commandHelp.contains(command) ? snap->commandHelp.at(command) : "command of the agent");
                 }
                 // the ones starting with the query first
                 std::stable_sort(items.begin(), items.end(), [&](const cluster::Candidate& a, const cluster::Candidate& b) {

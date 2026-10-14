@@ -1676,7 +1676,7 @@ void PromptEdit::refreshCompletion(void)
         this->popup->setVisible(false);
         return;
     }
-    const std::string prefix = this->completion.kind() == cluster::CompletionKind::File ? "@" : this->completion.kind() == cluster::CompletionKind::Command ? "/" : "";
+    const std::string prefix = this->completion.kind() == cluster::CompletionKind::File ? "@" : this->completion.kind() == cluster::CompletionKind::Command || this->completion.kind() == cluster::CompletionKind::Skill ? "/" : "";
     this->popup->clear();
     for (const cluster::Candidate& c: this->completion.items())
         this->popup->addItem(q_(prefix + c.label + "    " + cluster::one_line(c.description, 80)));
