@@ -73,6 +73,7 @@ _cold _nodiscard std::vector<std::pair<std::string, char>> display_tree_lines(co
 // a turn running: its verb (Thinking, Running 3 tools, Waiting for the model...), how long its step and the turn, the
 // tokens as they come, the tools running (name, input, ms), the steps done; "took" of milliseconds: 12s, 4m 41s
 _cold _nodiscard cluster::Json turn_state(const cluster::Snapshot& snap);
+_cold _nodiscard std::string resumable(const cluster::Snapshot& snap);   // "retry" (an API error retried later) | "continue" (stopped) | ""
 _cold _nodiscard std::string took(const std::int64_t ms);
 
 // the types and their fields, for the MCP tool and the help

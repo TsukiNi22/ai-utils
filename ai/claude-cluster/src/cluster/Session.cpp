@@ -424,6 +424,7 @@ _cold void cluster::Session::finished_(int code)
                 cluster::Entry entry{cluster::EntryKind::Error, this->_data.lastError, "", cluster::now()};
                 this->_data.entries.push_back(entry);
             }
+            this->_data.stopped = failed || interrupted; // to continue (Continue / F4)
             events.push_back({cluster::Event::Kind::TurnDone, this->_data.spec.id, failed ? this->_data.lastError : this->_lastText, failed, interrupted});
         }
     }
@@ -757,6 +758,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             // a stop of the safety check shown to the user is no request claude waits for: the turn is over
             const bool asked = std::any_of(this->_data.permissions.begin(), this->_data.permissions.end(), [](const cluster::Permission& p) {return !p.safety;});
             this->_data.state = asked ? cluster::State::Waiting : cluster::State::Idle;
+            this->_data.stopped = error || interrupted; // to continue (Continue / F4)
             this->emit_(cluster::Event::Kind::TurnDone, text, error, interrupted);
             if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) {
                 const cluster::Queued next = this->_pending.front();

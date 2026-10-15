@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/External.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
@@ -66,6 +67,9 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         if (!snap->spec.global) {
             list.push_back({"cd", "Move the session to another folder", "folder", snap->spec.cwd, false});
             list.push_back({"close_session", "Close the session (to the trash)", "", "", false});
+            const std::string can = cluster::resumable(*snap);
+            list.push_back({"resume", can == "retry" ? "Retry now (the API error waits for its retry)" : can == "continue" ? "Continue the session (it stopped: interrupted, an error)"
+                : "Continue the session (\"continue\" sent)", "", "", false});
         } else {
             list.push_back({manager.remote() ? "remote_off" : "remote_on", manager.remote() ? "Remote Control: off (back here)" : "Remote Control: on (claude.ai / app)", "", "", false});
         }
@@ -197,6 +201,8 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
         } else if (base == "interrupt") {
             manager.interrupt(session);
             voice.mute(); // the answer stopped: its reading too
+        } else if (base == "resume") {
+            result.message = manager.resume(session);
         } else if (base == "rename") {
             manager.rename(session, input);
         } else if (base == "describe") {
@@ -386,6 +392,8 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"mode", "[mode]: permission mode of the session; none: pick it"},
         {"rename", "<name>: rename the session"},
         {"describe", "[text]: its short description (none: written again)"},
+        {"continue", "the session goes on where it stopped (interrupted, an error); a retry of the API waited: now (= F4)"},
+        {"retry", "an error of the API retried now (= /continue, F4)"},
         {"close", "close the session (to the trash)"},
         {"interrupt", "stop the running turn"},
         {"export", "[file]: conversation as Markdown"},
@@ -499,6 +507,8 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             result.ui = "pick:mode:"; // its choices to pick from (like Claude Code)
         } else if (name == "mode") {
             manager.setMode(session, arg);
+        } else if (name == "continue" || name == "retry") {
+            result.message = manager.resume(session);
         } else if (name == "rename") {
             manager.rename(session, arg);
         } else if (name == "describe") {
@@ -586,7 +596,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"global", "the global session"}, {"new_session", "new session"}, {"close_session", "close the session (trash)"},
         {"restore", "reopen a closed session"}, {"allow", "allow the permission"}, {"always", "always allow (rule)"}, {"deny", "deny the permission"},
         {"interrupt", "stop the running turn, else clear the prompt (copy with a selection); twice on an empty prompt: quit"}, {"mode_cycle", "next permission mode"},
-        {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
+        {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"resume", "retry now / continue the session"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
         {"undo", "undo"}, {"redo", "redo"}, {"select_all", "select all"}, {"cut", "cut"}, {"paste", "paste (text or image)"},
         {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
         {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},

@@ -80,6 +80,8 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("session_purge", "Delete for good a session of the trash (its conversation and history), \"*\" for the whole trash. Irreversible: only when the user asked it.",
             {{"session", str_("id or name in the trash, or *")}}, {"session"}),
         tool_("session_rename", "Rename a session.", {{"session", session}, {"name", str_("new name")}}, {"session", "name"}),
+        tool_("session_continue", "A session goes on where it stopped (interrupted, an error of the API or of the connection): \"continue\" sent in "
+            "the same conversation; a turn waiting for a retry of the API: stopped and asked again at once.", {{"session", session}}, {"session"}),
         tool_("session_describe", "Give a session its short description (a few words: what it works on, holds; shown under its name, the trash too, to find it "
             "again). Given: kept; empty: claude-cluster writes it again.", {{"session", session}, {"text", str_("a few words, empty: written again")}}, {"session"}),
         tool_("session_cd", "Move a session to another project folder (a new conversation there, same name).", {{"session", session}, {"cwd", str_("folder")}}, {"session", "cwd"}),
@@ -179,7 +181,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
-        {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
+        {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
         {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},

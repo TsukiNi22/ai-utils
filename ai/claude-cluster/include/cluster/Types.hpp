@@ -230,6 +230,7 @@ struct Schedule {
 struct Snapshot {
     cluster::SessionSpec spec;
     cluster::State state = cluster::State::Starting;
+    bool stopped = false;               // its last turn ended without its answer (interrupted, an error): to continue
     cluster::Metrics metrics;
     std::vector<cluster::Entry> entries;
     std::vector<cluster::Permission> permissions;

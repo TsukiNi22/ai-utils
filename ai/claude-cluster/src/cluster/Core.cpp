@@ -358,6 +358,8 @@ _cold int cluster::Core::headless_(void)
         request.update({{"session", word(1, "session")}, {"name", rest(2)}});
     } else if (cmd == "describe") {
         request.update({{"session", word(1, "session")}, {"text", rest(2)}});
+    } else if (cmd == "continue" || cmd == "retry") {
+        request.update({{"cmd", "resume"}, {"session", word(1, "session")}});
     } else if (cmd == "mode") {
         request.update({{"session", word(1, "session")}, {"mode", word(2, "mode")}});
     } else if (cmd == "model") {

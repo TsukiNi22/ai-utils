@@ -796,3 +796,11 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
     return {{"verb", verb}, {"step", step.empty() ? std::string() : word(step)}, {"detail", why}, {"step_ms", stepMs}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
         {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"rounds", lines}, {"hidden_thinking", (step == "thinking") && s.thinking.empty() && s.stepDetail.empty()}};
 }
+
+_cold std::string cluster::resumable(const cluster::Snapshot& s)
+{
+    // an error of the API retried after a wait: retry now; its last turn ended without its answer (interrupted, an error): continue
+    if (s.state == cluster::State::Working && s.step == "retry") return "retry";
+    if (s.state != cluster::State::Idle && s.state != cluster::State::Error) return "";
+    return s.stopped ? "continue" : "";
+}

@@ -1315,7 +1315,9 @@ class TtyUi {
         bool shortcut_(const std::string& action)
         {
             if (action.empty()) return false;
-            if (action == "expand") {
+            if (action == "resume") { // retry now / continue the session shown
+                this->run_({"resume", "", "", "", false}, "");
+            } else if (action == "expand") {
                 this->_expanded = !this->_expanded;
                 this->status_(this->_expanded ? "thinking and tool results in full" : "thinking and tool results folded");
             } else if (action == "undo") {
@@ -2178,7 +2180,8 @@ class TtyUi {
                     + (tokens.empty() ? "" : " · ↓ " + tokens) + " · " + config.keys.at("interrupt") + " to interrupt" + (this->_expanded ? "" : " · " + expand + " details") + ")"
                     + (s.queued > 0 ? "  " + std::to_string(s.queued) + " queued" : std::string()), ftxui::color(this->_theme.accent), "\n"});
                 if (!turn.value("detail", std::string()).empty()) // what it waits on (its context, the error retried, the thinking estimated)
-                    lines.push_back({"  ⎿ " + cluster::one_line(turn.value("detail", std::string()), room - 6), ftxui::color(this->_theme.muted), "\n"});
+                    lines.push_back({"  ⎿ " + cluster::one_line(turn.value("detail", std::string()), room - 22)
+                        + (cluster::resumable(s) == "retry" ? " · " + config.keys.at("resume") + " retry now" : std::string()), ftxui::color(this->_theme.muted), "\n"});
                 // the tools running: their input, how long
                 const cluster::Json& tools = turn["tools"];
                 const std::size_t most = this->_expanded ? 20 : 4;
@@ -2376,7 +2379,10 @@ class TtyUi {
                 ftxui::text(this->whereOf_(s) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
             };
             ftxui::Element head = ftxui::hbox(std::move(left));
-            if (!s.lastError.empty()) return ftxui::vbox({head, ftxui::text(" " + cluster::one_line(s.lastError, 200)) | ftxui::color(this->_theme.error)});
+            if (!s.lastError.empty())
+                return ftxui::vbox({head, ftxui::hbox({ftxui::text(" " + cluster::one_line(s.lastError, 180)) | ftxui::color(this->_theme.error),
+                    cluster::resumable(s) == "continue" ? this->tap_(ftxui::text("  " + this->_manager.config().keys.at("resume") + " continue") | ftxui::color(this->_theme.accent), 0,
+                        [this]() {(void)this->shortcut_("resume");}) : ftxui::emptyElement()})});
             if (!s.remoteUrl.empty() || !s.bridgeState.empty())
                 return ftxui::vbox({head, ftxui::text(" Remote Control " + (s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? std::string() : ": " + s.remoteUrl)
                     + "  (live on claude.ai and here)") | ftxui::color(this->_theme.accent)});

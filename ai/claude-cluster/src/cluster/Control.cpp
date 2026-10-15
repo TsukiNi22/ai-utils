@@ -383,6 +383,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.purge(arg_(request, "session"));
         } else if (cmd == "rename") {
             manager.rename(session(), arg_(request, "name"));
+        } else if (cmd == "resume") {
+            data = {{"done", manager.resume(arg_(request, "session"))}};
         } else if (cmd == "describe") {
             manager.describe(arg_(request, "session"), request.value("text", std::string())); // the trash too
         } else if (cmd == "mode") {

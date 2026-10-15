@@ -324,6 +324,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
             <span class="grow"></span>
             <button id="fork" title="A copy of this session: its conversation so far, each one goes on apart">Fork</button>
             <button id="interrupt" title="Stop the turn and the reading">Stop</button>
+            <button id="resume" class="hidden" title="Retry now / continue where it stopped">Continue</button>
             <button id="closeSession" class="danger" title="Close the session (to the trash)">Close</button>
         </div>
         <div id="transcript"></div>
@@ -608,6 +609,9 @@ function render(state) {
     }
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
     $("sessionInfo").textContent = [s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    // retry now (an API error retried later) / continue (stopped: interrupted, an error)
+    $("resume").classList.toggle("hidden", !s.resumable);
+    $("resume").textContent = s.resumable === "retry" ? "Retry now" : "Continue";
     // where it runs: its folder, its branch, the computer, its process
     const w = s.where || {};
     $("sessionInfo").title = [w.folder, w.branch ? "branch " + w.branch : "", w.host ? "on " + w.host : "", w.pid ? "pid " + w.pid : ""].filter(Boolean).join("\n");
@@ -1435,6 +1439,7 @@ function autosize() {
 }
 
 $("interrupt").addEventListener("click", () => { stopReading(); act({cmd: "interrupt", session: current}); });
+$("resume").addEventListener("click", () => act({cmd: "resume", session: current}).then((d) => { if (d && d.done) toast(d.done); }));
 
 $("closeSession").addEventListener("click", async () => {
     if (current === "g" || !confirm("Close this session? (it goes to the trash, restorable)")) return;

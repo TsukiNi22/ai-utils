@@ -347,6 +347,19 @@ _cold void cluster::Manager::purge(const std::string& id)
     if (!removed.empty()) this->save();
 }
 
+_cold std::string cluster::Manager::resume(const std::string& id)
+{
+    // Retry now: the turn waiting for a retry of the API stopped, then "continue" (sent as soon as it stopped: the same
+    // conversation, it goes on where it was); Continue: a turn stopped (interrupted, an error): "continue" sent
+    const std::shared_ptr<cluster::Session> session = this->get_(this->resolve(id));
+    const cluster::Snapshot snap = session->snapshot();
+    const bool running = snap.state == cluster::State::Working || snap.state == cluster::State::Starting;
+    if (running) this->interrupt(snap.spec.id);
+    session->send("continue", {});
+    this->notice_(snap.spec.id, snap.spec.name + (running ? ": retried now" : ": continued"));
+    return running ? "retried now" : "continued";
+}
+
 _cold void cluster::Manager::askGlobal(const std::string& id, const std::string& requestId, const cluster::Json& questions)
 {
     // the user lets the global session answer the questions of an agent for them (its options, a text of its own allowed)
