@@ -157,7 +157,7 @@ Rules observed on the ~90 headers of libutils:
     ```cpp
     //----------------------------------------------------------------//
     /* MIGRATION */
-    namespace utils::network::socket {
+    namespace utils::network {
         using ISocket _migration(4, 0, 0) = utils::network::ISocket;
         _migration(4, 0, 0) inline bool is_ip(const std::string& s) {return utils::network::is_ip(s);};
     }

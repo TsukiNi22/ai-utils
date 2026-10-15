@@ -17,7 +17,7 @@ endif()
 # =========================
 # Requirement
 # =========================
-find_package(utils 3.0.0 CONFIG REQUIRED) # Check utils dependencies existance
+find_package(utils 4.0.0 CONFIG REQUIRED) # Check utils dependencies existance
 find_program(CCACHE_PROGRAM ccache) # Used for cache during compilation
 if (CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})

@@ -1,6 +1,6 @@
 # libutils `cli`
 
-Generated from libutils `v4.0.0` (commit `e333130`, 2026-10-13) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.0.0` (commit `4ee63c9`, 2026-10-15) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/cli/Cli.hpp`
 

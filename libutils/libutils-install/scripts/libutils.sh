@@ -5,18 +5,21 @@
 #
 # Commands:
 #   status             installed packages/version, mirror, last available version (no root needed)
-#   install            setup the mirror if needed, then install libutils (default: pre channel = last version)
+#   install            setup the mirror if needed, then install libutils (default: the channel with the newest version)
 #   update             update the installed libutils packages (install them if missing)
 #   remove             remove every libutils package (--repo: also the mirror & key)
 #   repo               only setup the mirror & GPG key
+#   channel            the channel install would use (the newest of stable / pre), no root
+#   windows            build libutils for Windows x86_64 (MinGW-w64 cross compilation, v4.0.0+) into --prefix, no root
 #
 # Options:
-#   --stable           stable channel (libutils) instead of the pre channel (libutils-pre, default)
+#   --stable / --pre   force the stable channel (libutils) or the pre channel (libutils-pre); default: the newest one
 #   --variants <list>  extra builds: db (debug), as (asan), all (default: none, only the optimized one)
 #   --source [<ref>]   build & install from the sources into /usr/local (other OS, or forced), ref default main
 #   --repo             with remove: also remove the mirror & key
 #   --local            with remove: also remove the source install of /usr/local
 #   --no-sudo          already root
+#   --prefix <dir>     with windows: where it goes (default: ~/.local/share/libutils/windows)
 #   -y                 don't ask for confirmation (dnf/apt -y)
 
 set -euo pipefail
@@ -25,7 +28,7 @@ BASE_URL="https://tsukini22.github.io/libutils"
 SETUP_URL="https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh"
 REMOTE="https://github.com/TsukiNi22/libutils.git"
 SUDO="sudo"
-CHANNEL="-pre"
+CHANNEL="auto"
 VARIANTS=""
 SOURCE=false
 REF="main"
@@ -35,16 +38,20 @@ YES=""
 COMMAND="${1:-}"
 [[ $# -gt 0 ]] && shift
 
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+PREFIX="$HOME/.local/share/libutils/windows"
+
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --stable) CHANNEL="" ;;
+        --pre) CHANNEL="-pre" ;;
         --variants) VARIANTS="$2"; shift ;;
         --source) SOURCE=true; if [[ $# -gt 1 ]] && [[ "$2" != -* ]]; then REF="$2"; shift; fi ;;
         --repo) REPO=true ;;
         --local) LOCAL=true ;;
         --no-sudo) SUDO="" ;;
+        --prefix) PREFIX="$2"; shift ;;
         -y) YES="-y" ;;
         -h|--help) usage 0 ;;
         *) echo "Error: unknown argument '$1'" >&2; usage 1 ;;
@@ -81,6 +88,20 @@ packages() {
     echo "$list"
 }
 other_channel() { [[ -z "$CHANNEL" ]] && echo "-pre" || echo ""; }
+available() { # <package>: its newest version on the mirror ("" unknown)
+    case "$FAMILY" in
+        rpm) dnf -q repoquery --latest-limit 1 --qf '%{version}\n' "$1" 2>/dev/null | head -1 ;;
+        deb) apt-cache policy "$1" 2>/dev/null | sed -n 's/^ *Candidate: \([^-]*\).*/\1/p' | grep -v none | head -1 ;;
+    esac
+    return 0
+}
+resolve_channel() { # auto: the channel with the newest version (the pre channel may lag behind a stable release)
+    [[ "$CHANNEL" != "auto" ]] && return 0
+    local pre stable
+    pre="$(available libutils-pre)"; stable="$(available libutils)"
+    if [[ -n "$pre" ]] && [[ "$pre" != "$stable" ]] && [[ "$(printf '%s\n%s\n' "$pre" "${stable:-0}" | sort -V | tail -1)" == "$pre" ]]; then CHANNEL="-pre"; else CHANNEL=""; fi
+    echo "Channel: libutils${CHANNEL} (stable ${stable:-?}, pre ${pre:-?})"
+}
 
 installed_rpm() { rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\n' 'libutils*' 2>/dev/null | sort; }
 installed_deb() { dpkg-query -W -f '${Package} ${Version} ${Status}\n' 'libutils*' 2>/dev/null | awk '$NF=="installed"{print $1, $2}' | sort; }
@@ -130,13 +151,39 @@ setup_repo() {
 source_install() {
     command -v cmake > /dev/null && command -v clang++ > /dev/null && command -v git > /dev/null \
         || { echo "Error: git, cmake, clang++, python3 and OpenSSL (dev) are required to build libutils" >&2; exit 1; }
-    local tmp; tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
+    tmp="$(mktemp -d)" # global: the EXIT trap runs after the function
+    trap 'rm -rf "${tmp:-}"' EXIT
     git clone -q --depth 1 --branch "$REF" "$REMOTE" "$tmp/libutils"
     cmake -S "$tmp/libutils" -B "$tmp/libutils/build" > /dev/null
     need_root
     $SUDO cmake --build "$tmp/libutils/build" --target install_release --parallel "$(nproc)"
     echo "libutils ($REF) installed into /usr/local (Debug, Asan and Optimized builds)"
+}
+
+# =========================
+# Windows (MinGW-w64 cross compilation)
+# =========================
+MINGW="x86_64-w64-mingw32"
+windows_install() {
+    command -v "$MINGW-g++" > /dev/null || { echo "Error: MinGW-w64 is required: dnf install mingw64-gcc-c++ mingw64-openssl (Fedora), apt install g++-mingw-w64-x86-64 + an OpenSSL built for MinGW (Debian/Ubuntu)" >&2; exit 1; }
+    command -v cmake > /dev/null && command -v git > /dev/null || { echo "Error: git and cmake are required" >&2; exit 1; }
+    tmp="$(mktemp -d)" # global: the EXIT trap runs after the function
+    trap 'rm -rf "${tmp:-}"' EXIT
+    git clone -q --depth 1 --branch "$REF" "$REMOTE" "$tmp/libutils"
+    [[ -f "$tmp/libutils/cmake/toolchain/mingw-w64.cmake" ]] || { echo "Error: libutils $REF has no Windows support (v4.0.0+)" >&2; exit 1; }
+    cmake -S "$tmp/libutils" -B "$tmp/build" -DCMAKE_TOOLCHAIN_FILE="$tmp/libutils/cmake/toolchain/mingw-w64.cmake" -DCMAKE_BUILD_TYPE=Optimized > /dev/null
+    cmake --build "$tmp/build" --parallel "$(nproc)"
+    cmake --install "$tmp/build" --prefix "$PREFIX" > /dev/null
+    # its toolchain kept with it: a project builds for Windows with the same one
+    command mkdir -p "$PREFIX/share/toolchain"
+    cp "$tmp/libutils/cmake/toolchain/mingw-w64.cmake" "$PREFIX/share/toolchain/mingw-w64.cmake"
+    echo "libutils ($REF) for Windows installed into $PREFIX"
+    echo "A project for Windows:"
+    echo "  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=$PREFIX/share/toolchain/mingw-w64.cmake -DCMAKE_FIND_ROOT_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Optimized"
+}
+windows_version() {
+    [[ -f "$PREFIX/include/utils/version.hpp" ]] && sed -n 's/.*__LIBUTILS_VERSION__ "\(.*\)".*/\1/p' "$PREFIX/include/utils/version.hpp" | head -1
+    return 0
 }
 
 # =========================
@@ -152,10 +199,19 @@ case "$COMMAND" in
             echo "WARNING: a source install in /usr/local shadows the packages (compilers and find_package search /usr/local first)."
             echo "         remove it to use the packages: libutils.sh remove --local (or keep it on purpose)"
         fi
+        echo "Windows build: $([[ -n "$(windows_version)" ]] && echo "$(windows_version) ($PREFIX)" || echo "none (libutils.sh windows)")"
         case "$FAMILY" in
             rpm) echo "Last available:"; dnf -q repoquery --latest-limit 1 --qf '  %{name} %{version}-%{release}\n' libutils-pre libutils 2>/dev/null | sort -u || true ;;
             deb) echo "Available:"; apt-cache policy libutils-pre libutils 2>/dev/null | grep -E '^[a-z]|Candidate' | sed 's/^/  /' || true ;;
         esac
+        ;;
+
+    windows)
+        windows_install
+        ;;
+
+    channel)
+        resolve_channel
         ;;
 
     repo)
@@ -169,6 +225,7 @@ case "$COMMAND" in
             source_install; exit 0
         fi
         setup_repo
+        resolve_channel
         need_root
         PKGS="$(packages)"
         # Switching channel: the stable and pre packages conflict

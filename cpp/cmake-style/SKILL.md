@@ -79,7 +79,12 @@ it is ignored (or re-runs the configuration). Sections, each introduced by the 3
   `add_custom_target(generated_<internal|external>_exception_header)` + `add_dependencies(${TARGET} ...)`
   (internal = libutils itself, external = a project using libutils).
 - libutils dependency: `find_package(utils <min version> CONFIG REQUIRED) # Check utils dependencies existance`
-  + `utils::utils`.
+  + `utils::utils`; `<min version>` is `4.0.0` at least for a new project (libutils v4: no v3 compatibility names,
+  `SameMajorVersion`: a v3 requirement refuses an installed v4).
+- Windows (libutils v4): the same CMake builds for Windows x86_64 with the MinGW-w64 toolchain of libutils
+  (`-DCMAKE_TOOLCHAIN_FILE=<prefix>/share/toolchain/mingw-w64.cmake -DCMAKE_FIND_ROOT_PATH=<prefix>`, prefix of
+  `libutils-install windows`): its compiler wins over the `clang++` set before `project()`, the executable is
+  `<name>.exe` (`.gitignore`: `/<name>.exe`, `/build-windows`); no Asan with MinGW (built like Debug).
 - Tests: `if(BUILD_TESTS)` -> `enable_testing()` + `add_subdirectory(tests)`; `tests/CMakeLists.txt` builds
   `unit_tests` (GTest, `gtest_discover_tests`), reuses the parent `SRC` without `main.cpp`.
 - Header-only library: `src/nothing.cpp` in `SRC` to keep a target, a `message(WARNING ...)` explaining that only

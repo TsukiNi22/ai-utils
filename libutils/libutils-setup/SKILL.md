@@ -1,6 +1,6 @@
 ---
 name: libutils-setup
-description: Set up libutils in the current C++ project - find_package(utils X.Y.Z) with the installed version, utils::utils on every target, and optionally the custom exception codes (JSON config, generator scripts, CMake generation block, include/exception, .gitignore) - in the user's CMake layout, installing libutils first when it is missing. Use whenever the user wants to add/use libutils in an existing project, link it in the CMake, or set up custom libutils exceptions in a repository.
+description: Set up libutils in the current C++ project - find_package(utils X.Y.Z) with the installed version, utils::utils on every target, and optionally the custom exception codes (JSON config, generator scripts, CMake generation block, include/exception, .gitignore) - in the user's CMake layout, installing libutils first when it is missing; libutils v4 (no v3 names), its Windows build too (MinGW-w64). Use whenever the user wants to add/use libutils in an existing project, link it in the CMake, or set up custom libutils exceptions in a repository.
 ---
 
 # libutils in the current project
@@ -46,5 +46,12 @@ Idempotent (a second run changes nothing). In the `cmake-style` sections (create
 - Code: `#include <utils/utils.hpp>` (or partial: `#define _Exception` ... before it), APIs: **libutils** skill;
   a `main` in the user's style: **cpp-class** (`templates/main.cpp`).
 - `Debug`/`Asan` builds need the `libutils-db[-pre]` / `libutils-as[-pre]` packages (libutils-install `--variants`).
+- v4.0.0 removed every v3 compatibility name (`isloaded`, `auto_cast`, `setStyle`, `utils::network::socket::*`...):
+  a project moving to `find_package(utils 4.0.0)` replaces them (`xstyle --rtk --fix` lists them: `LU-*` rules).
+- **For Windows too** (libutils v4): `libutils-install` `windows` (libutils cross compiled with MinGW-w64 into a
+  prefix), then the project builds with `-DCMAKE_TOOLCHAIN_FILE=<prefix>/share/toolchain/mingw-w64.cmake
+  -DCMAKE_FIND_ROOT_PATH=<prefix>` (the same `find_package(utils 4.0.0)` / `utils::utils`, which also links
+  `ws2_32`); the code goes through `utils::platform::` for the system calls, `<windows.h>` before `<utils/utils.hpp>`,
+  `utils::iomanip::enable_ansi()` once in `main` (details: `libutils` skill, Platforms).
 - Check: `cmake -S . -B build && cmake --build build` (the header is generated at the first build), then report the
   libutils version used and what was added.

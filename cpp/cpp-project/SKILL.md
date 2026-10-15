@@ -8,10 +8,11 @@ description: Set up a new C++20 project in Tsukini's way from the cpp_project_te
 The base is always **`cpp_project_template`** (local clone `~/personal_delivery/cpp/cpp_project_template`,
 otherwise `https://github.com/TsukiNi22/cpp_project_template.git`): executable `template`, core class `Core`
 (`init(argc, argv)` with an `ArgParser` + `--verbose`, `run()`), `main.cpp` (catches the libutils and the standard
-exceptions), libutils `>= 3.0.0`, exception JSON + generator (checks the codes are C++ identifiers, `Undefined`
-reserved), `Makefile`, `Doxyfile`, `.gitignore` (`/<name>`, `/build`, `compile_commands.json`, `/.cache`), CI
-`build.yml`. Skill synced with the template at `aa33b8b` (2026-10-05, libutils v3): when its `HEAD` is newer
-(`git -C <clone> log --oneline aa33b8b..origin/main`), check what changed against the steps below and the copies
+exceptions), libutils `4.x` (`find_package(utils 4.0.0)`), exception JSON + generator (checks the codes are C++
+identifiers, `Undefined` reserved), `Makefile`, `Doxyfile`, `.gitignore` (`/<name>`, `/build`, `compile_commands.json`,
+`/.cache`), CI `build.yml`. Skill synced with the template at `b1827dc` (2026-10-15, libutils v4.0.0, whole-word
+renames, C++ keywords refused as names): when its `HEAD` is newer (`git -C <clone> log --oneline b1827dc..origin/main`),
+check what changed against the steps below and the copies
 in the other skills (workflows, exception scripts, `main.cpp`, CMake templates) before relying on them. Then adapt it with the other skills:
 `cmake-style` (CMake), `cpp-class` (files, header question, main), `libutils-exception` (codes),
 `readme-style`, `git-conventions` (CHANGELOG, commits, branches), `html-doc` (docs). Load each one when its step comes.
@@ -26,13 +27,15 @@ else ask once (continue / update the installed libutils with `libutils-install` 
 ## 1. Ask (one AskUserQuestion call, French)
 Name (lower case, `_` preferred: the template's own `setup.sh` only accepts C++ identifiers; `-` is accepted by
 `new_project.sh`, which then uses the name without `-` as namespace) and core class (PascalCase) are usually in the
-request: ask in plain text if missing.
+request: ask in plain text if missing. Neither may be a C++ keyword nor `std` / `utils` (refused by both scripts:
+ask another name).
 1. **Type de projet**: `Binaire` · `Binaire + paquets RPM/DEB` · `Bibliothèque (.a / .so, installable)` · `Header-only`.
    For a library, ask after: static `.a` (default) or shared `.so`, and with or without packages.
 2. **CI/CD** (GitHub repository only, see section 6): `Build simple (Recommandé)` (build check on push) · `Complète`
    (dispatch, unit tests, packages, signed RPM/DEB mirror on gh-pages) · `Personnalisée (ci-cd)` · `Aucune`.
 3. **libutils**: `Oui (Recommandé)` · `Non`.
-4. **Extras** (multiSelect): `Tests GTest` · `Doc HTML` · `README + CHANGELOG` · `Dépôt GitHub (git init + gh)`.
+4. **Extras** (multiSelect): `Tests GTest` · `Doc HTML` · `README + CHANGELOG` · `Dépôt GitHub (git init + gh)` ·
+   `Build Windows (MinGW)` (libutils v4: see section 3).
 Plus the header banner question of `cpp-class` (once, reused for every generated file).
 
 ## 2. Base
@@ -41,13 +44,14 @@ bash SKILL_DIR/scripts/new_project.sh <dir> <name> <Core> [--no-libutils]
 ```
 Copies the committed template (local clone or GitHub), removes the template-only files (`setup.sh`, `setup.yml`,
 `scripts.zip`, the template repository condition of `build.yml`), renames `template` -> `<name>` and `Core` ->
-`<Core>` (files, folders, CMake, sources, workflows, guard `<CORE>_H`), namespace = name without `-`, sets the
+`<Core>` as whole words only, like the template's `setup.sh` (files, folders, CMake, sources, workflows, guard
+`<CORE>_H`; `CoreUtils.hpp` or `include/utils/` untouched), refuses a C++ keyword, namespace = name without `-`, sets the
 header dates to today, writes a minimal README, fills the `.gitignore` block (step 7). Never commits.
 
 ## 3. Adapt by type (rules and templates of `cmake-style`)
 | Type | CMake | Sources |
 |---|---|---|
-| Binaire | keep the template CMake (already in style); `find_package(utils 3.0.0)` minimum (the template needs v3: sections + `_Attribute`, new names), higher if the project uses something newer (`/usr/include/utils/version.hpp`); an installed libutils older than 3.0.0 -> `libutils-install` | keep `main.cpp`, `<Core>-init.cpp`, `<Core>.cpp` |
+| Binaire | keep the template CMake (already in style); `find_package(utils 4.0.0)` (the template needs v4: no v3 compatibility names left, `utils::platform`), higher if the project uses something newer (`/usr/include/utils/version.hpp`); an installed libutils older than 4.0.0 -> `libutils-install` | keep `main.cpp`, `<Core>-init.cpp`, `<Core>.cpp` |
 | Binaire + paquets | `cmake-style/templates/app/CMakeLists.txt` (Options, CPack, install), keep the `SRC` list of the template | same + root `setup.sh` from `templates/install.sh` |
 | Bibliothèque `.a` / `.so` | `cmake-style/templates/lib/CMakeLists.txt` + `cmake/package/<name>Config.cmake.in` (`SHARED` + `OUTPUT_NAME` for `.so`) | remove `main.cpp` and `<Core>-init.cpp` (`ArgParser` is for executables); public headers in `include/<name>/` |
 | Header-only | lib template with `src/nothing.cpp` + the `message(WARNING ...)` (`cmake-style`) | headers only |
@@ -55,6 +59,15 @@ header dates to today, writes a minimal README, fills the `.gitignore` block (st
   reduced to an empty `init`, remove `find_package(utils ...)`, `utils::utils`, the exception header block and
   `include/exception` (`cmake-style`); attributes in `std` mode (`cpp-class`).
 - New classes/modules asked with the project: `cpp-class` (empty bodies, CMake registration).
+- **Windows** (the `Build Windows` extra, libutils v4): the template builds for Windows x86_64 unchanged, cross
+  compiled from Linux with MinGW-w64 (checked: the `.exe` runs under `wine`). libutils for Windows:
+  `libutils-install` (`libutils.sh windows`, into `~/.local/share/libutils/windows` by default); then
+  `cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=<prefix>/share/toolchain/mingw-w64.cmake
+  -DCMAKE_FIND_ROOT_PATH=<prefix> -DCMAKE_BUILD_TYPE=Optimized && cmake --build build-windows` (the executable is
+  `<name>.exe` at the root: `/<name>.exe` and `/build-windows` in `.gitignore`). Portable code only: system calls
+  through `utils::platform::` (section `_Platform`), never `<unistd.h>` / `<sys/socket.h>`...; `<windows.h>` before
+  `<utils/utils.hpp>` (or `WIN32_LEAN_AND_MEAN`); `utils::iomanip::enable_ansi()` at the start of `main` for the
+  colors of the console; `#if UTILS_WINDOWS` for what differs (rules of `libutils`, section Platforms).
 
 ## 4. Exceptions (libutils only)
 The template ships `cmake/config/exceptions/global.json` + `cmake/scripts/` + the CMake block. Replace the example
@@ -112,6 +125,8 @@ assets of the project): add them under the block in a `## <Name>` group like the
 ## 9. Check
 - `make` (or `cmake -S . -B build && cmake --build build`), run the binary (`./<name>`), `-DBUILD_TESTS=ON` + `ctest`,
   `cmake --build build --target get_unregistered_files` (no unregistered `.cpp`).
+- Windows build chosen: the MinGW build above, then `WINEPATH=/usr/x86_64-w64-mingw32/sys-root/mingw/bin wine
+  ./<name>.exe --help`.
 - Library: `cmake --install build --prefix <tmp>` then `find_package(<name>)` from a tiny consumer.
 - `git status --ignored --short` after a build: every produced file is ignored, no source is.
 - Workflows: valid YAML (`python3 -c "import yaml; yaml.safe_load(open(f))"`), no `{{...}}` left

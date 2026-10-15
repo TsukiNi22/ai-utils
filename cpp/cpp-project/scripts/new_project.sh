@@ -30,6 +30,18 @@ done
 
 [[ "$NAME" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "Error: project name must be lower case (a-z, 0-9, '-', '_')" >&2; exit 1; }
 [[ "$CORE" =~ ^[A-Z][A-Za-z0-9]*$ ]] || { echo "Error: core name must be PascalCase" >&2; exit 1; }
+# Like the setup.sh of the template: a C++ keyword or a name of the project (std, utils) can't be a namespace / class
+CPP_RESERVED="alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t char16_t char32_t class \
+compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete \
+do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace \
+new noexcept not not_eq nullptr operator or or_eq private protected public register reinterpret_cast requires return short \
+signed sizeof static static_assert static_cast struct switch template this thread_local throw true try typedef typeid \
+typename union unsigned using virtual void volatile wchar_t while xor xor_eq std utils"
+for word in "$(echo "$NAME" | tr -d '-')" "$CORE"; do
+    if [[ " $CPP_RESERVED " == *" $word "* ]]; then
+        echo "Error: '$word' is a C++ keyword or a name reserved by the project (std, utils)" >&2; exit 1
+    fi
+done
 if [[ -d "$TARGET" ]] && [[ -n "$(ls -A "$TARGET" 2>/dev/null | grep -v '^\.git$' || true)" ]]; then
     echo "Error: $TARGET is not empty" >&2; exit 1
 fi
@@ -61,9 +73,9 @@ sed -i "/# Don't run on template repository/{N;d;}" "$TMP/.github/workflows/buil
 # =========================
 # Rename 'template' -> <project_name> and 'Core' -> <core_name>
 # =========================
-rename() { # <from> <to>
-    find "$TMP" -depth -name "*$1*" -not -path "*/.git/*" | while read -r path; do
-        new="$(dirname "$path")/$(basename "$path" | sed "s/$1/$2/g")"
+rename() { # <from> <to>: whole words only (CoreUtils.hpp kept), never inside include/utils
+    find "$TMP" -mindepth 1 -depth -name "*$1*" -not -path "*/.git/*" -not -path "*/include/utils/*" | while read -r path; do
+        new="$(dirname "$path")/$(basename "$path" | sed "s/\\b$1\\b/$2/g")"
         [[ "$path" != "$new" ]] && mv "$path" "$new"
     done
 }

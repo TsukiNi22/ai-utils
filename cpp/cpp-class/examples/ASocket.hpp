@@ -124,7 +124,7 @@ class ASocket: public utils::network::ISocket {
 
 //----------------------------------------------------------------//
 /* MIGRATION */
-namespace utils::network::socket {
+namespace utils::network {
     _migration(4, 0, 0) inline bool is_ip(const std::string& s)                          {return utils::network::is_ip(s);};
     _migration(4, 0, 0) inline std::string resolve_hostname(const std::string& hostname) {return utils::network::resolve_hostname(hostname);};
     _migration(4, 0, 0) inline void resolve_address(utils::network::Address& address)    {utils::network::resolve_address(address);};

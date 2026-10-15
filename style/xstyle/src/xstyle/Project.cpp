@@ -63,6 +63,26 @@ _cold static void parse_migrations_(xstyle::ProjectInfo& project)
             project.migrations.push_back(migration);
         }
     }
+
+    // libutils v4.0.0 removed every migration kept until it: known here, a v3 code still told what to write
+    static const std::vector<xstyle::Migration> removed = {
+        {"auto_cast", "autoCast", true}, {"isloaded", "isLoaded", true}, {"utils::cli::Flags", "utils::cli::flags", false},
+        {"utils::iomanip::setStyle", "utils::iomanip::set_style", false}, {"utils::iomanip::resetStyle", "utils::iomanip::reset_style", false},
+        {"utils::iomanip::readCursorPosition", "utils::iomanip::read_cursor_position", false},
+        {"utils::iomanip::readMouseEvent", "utils::iomanip::read_mouse_event", false},
+        {"utils::iomanip::readAdvancedMouseEvent", "utils::iomanip::read_advanced_mouse_event", false},
+        {"utils::security::encryption::keyToString", "utils::security::encryption::key_to_string", false},
+        {"utils::security::encryption::stringToKey", "utils::security::encryption::string_to_key", false},
+        {"utils::smanip::fixed_string", "utils::smanip::FixedString", false}, {"utils/manip/smanip/fixed_string.hpp", "utils/manip/smanip/FixedString.hpp", false},
+        {"utils::network::socket::ISocket", "utils::network::ISocket", false}, {"utils::network::socket::ASocket", "utils::network::ASocket", false},
+        {"utils::network::socket::TCPSocket", "utils::network::TCPSocket", false}, {"utils::network::socket::is_ip", "utils::network::is_ip", false},
+        {"utils::network::socket::resolve_hostname", "utils::network::resolve_hostname", false},
+        {"utils::network::socket::resolve_address", "utils::network::resolve_address", false},
+        {"utils::concepts::convertible_to", "utils::concepts::ConvertibleTo", false},
+    };
+    for (const xstyle::Migration& migration: removed)
+        if (std::none_of(project.migrations.begin(), project.migrations.end(), [&migration](const xstyle::Migration& m) {return m.from == migration.from;}))
+            project.migrations.push_back(migration);
 }
 
 _cold static void parse_attributes_(xstyle::ProjectInfo& project)

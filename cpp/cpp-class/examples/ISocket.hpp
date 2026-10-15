@@ -99,7 +99,7 @@ class ISocket: private utils::security::observer::Observer<"ISocket"> {
 
 //----------------------------------------------------------------//
 /* MIGRATION */
-namespace utils::network::socket {
+namespace utils::network {
     using ISocket _migration(4, 0, 0) = utils::network::ISocket;
 }
 

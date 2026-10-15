@@ -18,7 +18,7 @@ with `--fix`, for every rule or only some codes, files or directories.
 
 | Name | Version | Fedora (`dnf`) | Debian/Ubuntu (`apt`) |
 |---|---|---|---|
-| [libutils](https://github.com/TsukiNi22/libutils) | >= 3.0.0 | `libutils` | `libutils` |
+| [libutils](https://github.com/TsukiNi22/libutils) | `4.x` (`>= 4.0.0`) | `libutils` | `libutils` |
 | clang++ | C++20 | `clang` | `clang` |
 | CMake | >= 3.20 | `cmake` | `cmake` |
 
@@ -152,8 +152,9 @@ The `LU-*` rules are enabled when libutils is **installed** (`/usr/include`, `/u
 - includes: one root `<utils/utils.hpp>` preceded by the `#define _Section` of every section used (detected from
   the `utils::<section>::` names and the attribute macros of the file), never a libutils header one by one;
 - `[[nodiscard]]`, `[[maybe_unused]]`, `alignas(...)`... -> the libutils macros (`_nodiscard`, `_unused`, `_alignas`...);
-- deprecated names -> new names, read from the `_migration` aliases of the **installed** headers
-  (`isloaded()` -> `isLoaded()`, `utils::network::socket::is_ip` -> `utils::network::is_ip`...);
+- deprecated names -> new names, read from the `_migration` aliases of the **installed** headers, plus the names
+  libutils v4.0.0 removed (`isloaded()` -> `isLoaded()`, `utils::network::socket::is_ip` -> `utils::network::is_ip`,
+  `setStyle` -> `set_style`, `fixed_string` -> `FixedString`...: a v3 code moved to v4 is told what to write);
 - code that libutils already gives: standard exceptions, `argv` parsed by hand, raw ANSI sequences, BSD sockets,
   `pipe` / `fork` / `epoll` / `shm_open` / `dlopen`, thread pools, degree / radian conversions, base64, verbose
   flags, string distances (hint with the libutils class to use).
