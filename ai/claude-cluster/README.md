@@ -317,7 +317,10 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   (`[sessions] questions_to_global`, on), its own view greyed (*waits for your answer: Ctrl+G*); the voice answers it
   (read aloud with its options when `speak` is on): a number or the label of an option chooses it, a word of `[send]` /
   `[next]` validates it (the next question; the last one: all sent), `[back]` the previous one, `[other] <answer>`
-  types it, `[cancel]` declines (`voice-words.txt`). `[sessions] global_answers` (off): the global session is told those
+  types it, `[cancel]` declines (`voice-words.txt`). **The global session answers** the whole set for you: the key of the
+  global session (Ctrl+G) in the terminal, *Global answers* in the window, the web page and the notification, or a word
+  of `[global]` said (*la globale*, *laisse la globale répondre*, *let the global answer*): it chooses from the
+  conversation, the project and `machine.md`, answers with `session_allow`, then tells you what it answered. `[sessions] global_answers` (off): the global session is told those
   questions and may choose their answer when it knows what you want;
 - **the safety check of Claude Code** (a removal it cannot resolve, `rm -f $O/*.png`...): only a person may approve it.
   A sub-session in `bypassPermissions` asks for it: the global session decides (`[sessions] bypass_to_global`, on; it

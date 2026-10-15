@@ -44,6 +44,19 @@ back
 previous
 go back
 
+[global]
+# a question: the whole set answered by the global session for you (it chooses from the conversation and the project)
+globale
+la globale
+demande a la globale
+laisse la globale
+laisse la globale repondre
+la globale repond
+global
+ask the global
+let the global answer
+global answers
+
 [other]
 # a question: "<word> <the answer>": the answer typed as Other ("autre on garde les deux")
 autre

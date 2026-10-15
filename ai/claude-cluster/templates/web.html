@@ -1273,6 +1273,7 @@ function renderQuestion(a) {
         if (other.value && other.value !== (a.other || "")) await cmd({cmd: "ask", action: "other", text: other.value});
         act({cmd: "ask", action: "next"});
     }), button("Decline", "danger", () => act({cmd: "ask", action: "decline"})));
+    if (a.session !== "g") row.append(button("Global answers", "", () => act({cmd: "ask", action: "global"}).then((d) => { if (d && d.done) toast(d.done); })));
     const hint = document.createElement("small");
     hint.textContent = "voice: a number or an option · valide / suivant · retour · autre <answer> · annule";
     hint.style.color = "var(--muted)";

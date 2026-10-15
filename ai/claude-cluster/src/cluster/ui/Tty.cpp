@@ -2636,8 +2636,15 @@ class TtyUi {
                     press(ftxui::text(std::string("Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")), ftxui::Event::Return),
                     a.index > 0 ? press(ftxui::text(" · ← back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
                     press(ftxui::text("Esc decline"), ftxui::Event::Escape)}) | ftxui::color(this->_theme.muted) | ftxui::dim);
+                if (a.session != GLOBAL_ID)
+                    lines.push_back(this->tap_(ftxui::text(" " + this->_manager.config().keys.at("global") + ": the global session answers them all for you")
+                        | ftxui::color(this->_theme.accent), 0, [this]() {
+                            const std::string done = this->_manager.asking().toGlobal();
+                            this->status_(done, done != "the global session answers it");
+                            this->_mode = Mode::Normal;
+                        }));
                 if (this->_manager.config().voice.enabled)
-                    lines.push_back(ftxui::text(" voice: a number or an option · valide / suivant · retour · autre <answer> · annule") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    lines.push_back(ftxui::text(" voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 96);
             }
             if (this->_mode == Mode::Normal && asked && asked->session == this->_active && !this->askShown_(*asked)) {
@@ -3079,6 +3086,10 @@ class TtyUi {
                     if (event == ftxui::Event::Escape) {
                         asking.decline();
                         this->status_("question declined");
+                        this->_mode = Mode::Normal;
+                    } else if (key == this->_manager.config().keys.at("global") && ask->session != GLOBAL_ID) {
+                        const std::string done = asking.toGlobal(); // the whole set: the global session answers it
+                        this->status_(done, done != "the global session answers it");
                         this->_mode = Mode::Normal;
                     } else if (event == ftxui::Event::ArrowUp) {
                         asking.move(-1);

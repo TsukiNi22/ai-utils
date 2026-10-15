@@ -35,6 +35,7 @@ struct VoiceWords {
     std::vector<std::string> next;      // a question of an agent: its answer validated, the next one
     std::vector<std::string> back;      // a question: the previous one
     std::vector<std::string> other;     // a question: "<word> <the answer>" typed as Other
+    std::vector<std::string> global;    // a question: the whole set answered by the global session
 };
 
 struct Term {

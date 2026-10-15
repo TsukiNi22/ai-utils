@@ -1535,12 +1535,17 @@ class Window: public QMainWindow {
                     if (!syncing && now && now->index == k) this->manager.asking().setOther(text.toStdString());
                 });
             }
-            QLabel* voice = new QLabel(this->manager.config().voice.enabled ? "voice: a number or an option · valide / suivant · retour · autre <answer> · annule" : "", &dialog);
+            QLabel* voice = new QLabel(this->manager.config().voice.enabled ? "voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule" : "", &dialog);
             voice->setStyleSheet("color: gray;");
             layout->addWidget(voice);
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
             buttons->button(QDialogButtonBox::Ok)->setText("Answer");
             buttons->button(QDialogButtonBox::Cancel)->setText("Decline");
+            if (ask.session != GLOBAL_ID) { // the whole set answered by the global session
+                QPushButton* global = buttons->addButton("Global answers", QDialogButtonBox::ActionRole);
+                global->setToolTip("The global session answers them all for you");
+                QObject::connect(global, &QPushButton::clicked, &dialog, [&dialog]() {dialog.done(3);});
+            }
             QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
             layout->addWidget(buttons);
@@ -1580,6 +1585,11 @@ class Window: public QMainWindow {
             timer.stop();
             if (result == 2) {
                 this->message("question answered", false);
+                return;
+            }
+            if (result == 3) {
+                const std::string done = this->manager.asking().toGlobal();
+                this->message(done, done != "the global session answers it");
                 return;
             }
             if (result != QDialog::Accepted) {

@@ -219,6 +219,31 @@ _cold void cluster::Asking::decline(void)
     } catch (const utils::exception::IException&) {}
 }
 
+_cold std::string cluster::Asking::toGlobal(void)
+{
+    // every question of the set given to the global session (it answers with session_allow), the popup closed
+    std::optional<cluster::Ask> ask;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (!this->_ask) return "no question";
+        if (this->_ask->session == GLOBAL_ID) return "it is a question of the global session itself: answer it";
+        ask = this->_ask;
+        this->_offered.insert(this->_ask->requestId);
+        this->_ask.reset();
+        ++this->_version;
+    }
+    try {
+        this->_manager.askGlobal(ask->session, ask->requestId, ask->questions);
+    } catch (const utils::exception::IException& e) {
+        std::lock_guard<std::mutex> lock(this->_mutex); // not given: open again
+        this->_offered.erase(ask->requestId);
+        this->_ask = ask;
+        ++this->_version;
+        return std::string("not given to the global session: ") + e.info();
+    }
+    return "the global session answers it";
+}
+
 _cold std::string cluster::Asking::spoken(const std::string& sentence)
 {
     // a sentence while a question is shown: a word of [send] / [next] (validated), [back], [cancel], [other] <its text>,
@@ -243,6 +268,7 @@ _cold std::string cluster::Asking::spoken(const std::string& sentence)
         this->back();
         return "previous question";
     }
+    if (is_(key, words.global)) return this->toGlobal();
     // "<other word> <the answer>"
     const std::string text = cluster::trim(sentence);
     const std::size_t space = text.find(' ');

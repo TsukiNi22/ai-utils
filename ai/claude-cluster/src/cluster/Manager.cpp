@@ -347,6 +347,19 @@ _cold void cluster::Manager::purge(const std::string& id)
     if (!removed.empty()) this->save();
 }
 
+_cold void cluster::Manager::askGlobal(const std::string& id, const std::string& requestId, const cluster::Json& questions)
+{
+    // the user lets the global session answer the questions of an agent for them (its options, a text of its own allowed)
+    if (!this->snapshot(GLOBAL_ID)) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no global session");
+    const std::optional<cluster::Snapshot> asking = this->snapshot(id);
+    const std::string name = asking ? asking->spec.name : id;
+    this->send(GLOBAL_ID, "[questions from " + name + " (" + id + "), the user asks you to answer them for them] " + questions.dump()
+        + "\nAnswer all of them at once with session_allow {session: \"" + id + "\", request_id: \"" + requestId + "\", answers: {<question>: <label>}} "
+        "(several labels: \"a, b\"; none fits: a short text of your own): choose what the user would want from this conversation, the project and "
+        "machine.md; ask the user first (AskUserQuestion) only when it may destroy data. Then tell them in one line what you answered.");
+    this->notice_(id, name + ": its questions given to the global session");
+}
+
 _cold void cluster::Manager::rename(const std::string& id, const std::string& name)
 {
     if (cluster::trim(name).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "empty name");
@@ -554,6 +567,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                             for (std::size_t i = 0; i < questions[0].value("options", cluster::Json::array()).size() && i < 3; ++i)
                                 n.actions.emplace_back("opt" + std::to_string(i), cluster::one_line(questions[0]["options"][i].value("label", std::string()), 24));
                     }
+                    if (event.session != GLOBAL_ID && this->snapshot(GLOBAL_ID)) n.actions.emplace_back("global", "Global answers");
                     n.actions.emplace_back("open", "Open");
                     (void)this->notify(n, "question");
                 }
@@ -993,6 +1007,11 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
             if (chosen == "default" || chosen == "open") this->requestRaise();
             if (chosen == "allow" || chosen == "deny" || chosen == "always") {
                 this->answer(n.session, n.requestId, chosen);
+            } else if (chosen == "global") {
+                const std::optional<cluster::Ask> ask = this->asking().current();
+                if (ask && ask->session == n.session) (void)this->asking().toGlobal();
+                else if (const std::optional<cluster::Snapshot> s = this->snapshot(n.session); s && !s->permissions.empty())
+                    this->askGlobal(n.session, s->permissions.back().requestId, s->permissions.back().input.value("questions", cluster::Json::array()));
             } else if (chosen.starts_with("opt")) {
                 const std::optional<cluster::Ask> ask = this->asking().current();
                 if (ask && ask->session == n.session) {

@@ -73,6 +73,7 @@ class Asking {
         _cold _nodiscard std::string next(void);        // the answer recorded: the next question, or all sent ("" or why not)
         _cold void back(void);                  // the previous question
         _cold void decline(void);
+        _cold _nodiscard std::string toGlobal(void);    // the whole set answered by the global session (what it did, or why not)
         _cold _nodiscard std::string spoken(const std::string& sentence); // a sentence of the voice on it: what it did, "" not for it
         _cold _nodiscard cluster::Json json(void) const;  // the question shown (null: none): the web page, the commands
 
