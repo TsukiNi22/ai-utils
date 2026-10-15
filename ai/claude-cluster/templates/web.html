@@ -215,6 +215,8 @@ header .muted { color: var(--muted); font-size: 13px; }
 .hit .where.name { background: var(--accent); }
 .setting.lit { animation: lit 2.4s ease-out; } @keyframes lit { from { background: var(--accent); } to { background: transparent; } }
 .setting .help { white-space: pre-line; }
+.danger-mark { color: #e5b400; font-weight: 700; }
+.danger-now { color: var(--error); font-weight: 600; }
 /* every clickable thing answers the mouse: hover, press, keyboard focus */
 button:hover:not(:disabled) { border-color: var(--accent); filter: brightness(1.12); }
 button:active:not(:disabled) { transform: translateY(1px); filter: brightness(.95); }
@@ -2490,6 +2492,10 @@ function drawDrawer() {
         const id = "set-" + key.replace(/[^a-z0-9]/gi, "-");
         const label = el("label", "", s.label.trim());
         label.htmlFor = id;
+        // ⚠: it can be dangerous; red: its value is (a choice, a switch: known here; a text: told at the save)
+        const risky = s.danger && Object.keys(s.danger).length;
+        if (risky) { const mark = el("span", "danger-mark", " ⚠"); mark.title = "can be dangerous"; label.append(mark); }
+        if (risky && s.danger[settingsChanged.has(key) ? settingsChanged.get(key) : s.value]) label.classList.add("danger-now");
         let input;
         const value = settingsChanged.has(key) ? settingsChanged.get(key) : s.value;
         if (s.kind === "bool") {
@@ -2559,9 +2565,17 @@ function drawDevice(body) {
 $("drawerClose").addEventListener("click", closePanels);
 $("drawerSave").addEventListener("click", async () => {
     let next = 0;
+    // the dangerous values: one confirmation listing them; no: nothing saved
+    const risky = [];
+    for (const [key, value] of settingsChanged) {
+        const s = settingsData.find((x) => x.section + "." + x.key === key);
+        if (s && s.danger && s.danger[value]) risky.push("⚠ " + s.label.trim() + " = " + value + "\n   " + s.danger[value]);
+    }
+    if (risky.length && !confirm("Save these dangerous settings?\n\n" + risky.join("\n\n"))) { $("drawerNote").textContent = "not saved"; return; }
+    const confirmed = risky.length > 0;
     for (const [key, value] of settingsChanged) {
         const dot = key.indexOf(".");
-        const request = {cmd: "settings_set", section: key.slice(0, dot), key: key.slice(dot + 1), value};
+        const request = {cmd: "settings_set", section: key.slice(0, dot), key: key.slice(dot + 1), value, confirmed};
         try {
             let data;
             try { data = await cmd(request); } catch (error) {

@@ -687,11 +687,12 @@ tabs dialog (help on hover, Ctrl+S save, F10 / Save save & close; closed with ch
 reloaded live; the options marked *applied at the next start* need a restart. Profiles, providers and own styles
 stay in the file.
 
-**Dangerous values are confirmed first**: bypassPermissions (new sessions, the global session), `allow_bypass`,
+**Dangerous values are confirmed at the save**: bypassPermissions (new sessions, the global session), `allow_bypass`,
 `bypass_to_global`, `extra_args` skipping the permissions, the web access without approval, open to the Internet
-(`remote = router`), its shell, plain http, an MCP server added. The terminal asks its `y` (any other key: not
-changed), the window a dialog, the web page a confirmation; `:set` needs `:set!`; the control and the MCP refuse it
-without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
+(`remote = router`), its shell, plain http, an MCP server added. A yellow **⚠** next to each setting that can be
+dangerous, its name **red** while its value is the dangerous one. Changing it asks nothing; the save (Ctrl+S, F10,
+Save, Esc then save) shows one popup listing them with their warning: save them, or back (nothing saved, the changes
+kept). `:set` needs `:set!`; the control and the MCP refuse it without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
 right (the terminal), in lines and steps (Web > Beyond the LAN: how to set up Tailscale or the router).
 
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its

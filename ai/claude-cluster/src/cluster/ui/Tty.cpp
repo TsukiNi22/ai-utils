@@ -656,8 +656,8 @@ class TtyUi {
         int _page = 0;
         int _item = 0;
         bool _finding = false;                      // the search of the settings page (/)
-        std::pair<cluster::Setting, std::string> _danger;   // a dangerous value waiting for its y
-        bool _dangerOk = false;
+        bool _dangerOk = false;                     // the dangerous changes confirmed (their popup at the save)
+        bool _saveExit = true;                      // the save waiting for that popup: the page closed after
         std::string _find;
         std::vector<cluster::SettingHit> _hits;
         int _findHit = 0;
@@ -1533,17 +1533,26 @@ class TtyUi {
                 return;
             }
             if (value == setting.value(this->_manager.config())) this->_changes.erase({setting.section, setting.key});
-            else if (const std::string warning = cluster::setting_danger(setting, value); !warning.empty() && !this->_dangerOk) {
-                // a dangerous value: its y first (any other key: not changed)
-                this->_danger = {setting, value};
-                this->_note = "danger";
-                return;
-            } else this->_changes[{setting.section, setting.key}] = {setting, value};
+            else this->_changes[{setting.section, setting.key}] = {setting, value}; // a dangerous one: asked at the save
             this->_note.clear();
+        }
+
+        _nodiscard std::vector<std::pair<cluster::Setting, std::string>> dangerous_(void) const
+        {
+            // the changes to a dangerous value: listed in the popup of the save
+            std::vector<std::pair<cluster::Setting, std::string>> out;
+            for (const auto &[where, change]: this->_changes)
+                if (!cluster::setting_danger(change.first, change.second).empty()) out.push_back(change);
+            return out;
         }
 
         void saveSettings_(const bool exit = true)
         {
+            if (!this->_dangerOk && !this->dangerous_().empty()) { // asked first: all of them in one popup
+                this->_saveExit = exit;
+                this->_note = "danger_save";
+                return;
+            }
             if (!this->_changes.empty()) {
                 try {
                     cluster::settings_write(this->_manager.config(), this->_changes);
@@ -1626,15 +1635,15 @@ class TtyUi {
                 }
                 return true;
             }
-            // a dangerous value: y applies it, any other key keeps the old one
-            if (this->_note == "danger") {
+            // the save with dangerous values: y saves them all, n / Esc back to the page (nothing saved, the changes kept)
+            if (this->_note == "danger_save") {
                 this->_note.clear();
                 if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
                     this->_dangerOk = true;
-                    this->setSetting_(this->_danger.first, this->_danger.second);
+                    this->saveSettings_(this->_saveExit);
                     this->_dangerOk = false;
                 } else {
-                    this->_note = this->_danger.first.label + ": not changed";
+                    this->_note = "not saved: the changes are kept (Ctrl+S to save them)";
                 }
                 return true;
             }
@@ -1721,8 +1730,11 @@ class TtyUi {
                 else if (setting.kind == cluster::SettingKind::Choice) value = "< " + (value.empty() ? std::string("(agent default)") : value) + " >";
                 else if (setting.kind == cluster::SettingKind::Action) value = "▶ " + value;
                 else if (value.empty()) value = "(empty)";
-                const std::string label = setting.label + " ";
-                const std::size_t dots = label.size() < 34 ? 34 - label.size() : 1;
+                const bool risky = static_cast<bool>(setting.danger);
+                const bool dangerNow = risky && !cluster::setting_danger(setting, this->settingValue_(setting)).empty();
+                const std::string label = setting.label + (risky ? " ⚠ " : " ");
+                const std::size_t width = setting.label.size() + (risky ? 3 : 1);
+                const std::size_t dots = width < 34 ? 34 - width : 1;
                 const int index = static_cast<int>(i);
                 // clicked: selected; its value clicked: changed (a switch, a choice), edited (a text), run (an action)
                 const std::function<void(bool)> pick = [this, index](const bool change) {
@@ -1732,7 +1744,9 @@ class TtyUi {
                 };
                 ftxui::Element line = ftxui::hbox({
                     this->tap_(ftxui::text(changed ? " * " : "   ") | ftxui::color(t.warn) | ftxui::bold, 2, [pick]() {pick(false);}, clip),
-                    this->tap_(ftxui::text(label + std::string(dots, '.') + " ") | ftxui::color(t.muted), 2, [pick]() {pick(false);}, clip),
+                    this->tap_(ftxui::hbox({ftxui::text(setting.label) | (dangerNow ? ftxui::color(t.error) | ftxui::bold : ftxui::color(t.muted)),
+                        risky ? ftxui::text(" ⚠") | ftxui::color(t.warn) | ftxui::bold : ftxui::text(""),
+                        ftxui::text(" " + std::string(dots, '.') + " ") | ftxui::color(t.muted)}), 2, [pick]() {pick(false);}, clip),
                     this->tap_(ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
                         2, [pick]() {pick(true);}, clip),
                     ftxui::filler(),
@@ -1789,8 +1803,7 @@ class TtyUi {
                 if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
             }
             std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)"
-                : this->_note == "danger" ? "⚠ " + this->_danger.first.label + " = " + this->_danger.second + ": " + cluster::setting_danger(this->_danger.first, this->_danger.second)
-                + ". Sure?" : this->_note;
+                : this->_note == "danger_save" ? std::string() : this->_note;
             ftxui::Elements choice;
             for (const std::string& line: cluster::split(choiceHelp, '\n'))
                 choice.push_back(ftxui::paragraph(line) | (choice.empty() ? ftxui::bold | ftxui::color(t.accent) : ftxui::color(t.text)));
@@ -1806,7 +1819,22 @@ class TtyUi {
                 ftxui::text(std::to_string(this->_changes.size()) + " change(s) not saved") | ftxui::color(this->_changes.empty() ? t.muted : t.warn),
                 ftxui::paragraph(cluster::short_path(this->_manager.config().path().string())) | ftxui::color(t.muted) | ftxui::dim,
             }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, choiceHelp.empty() ? 38 : 64);
-            return ftxui::vbox({
+            // the save with dangerous values: one popup, each one with its warning
+            ftxui::Element popup = ftxui::emptyElement();
+            if (this->_note == "danger_save") {
+                ftxui::Elements lines = {ftxui::text(" ⚠ Dangerous settings ") | ftxui::bold | ftxui::color(t.warn), ftxui::text("")};
+                for (const auto &[setting, value]: this->dangerous_()) {
+                    lines.push_back(ftxui::hbox({ftxui::text(" ⚠ ") | ftxui::color(t.warn) | ftxui::bold, ftxui::text(setting.label) | ftxui::bold | ftxui::color(t.error),
+                        ftxui::text(" = " + (value.empty() ? std::string("(empty)") : cluster::one_line(value, 50))) | ftxui::color(t.text)}));
+                    lines.push_back(ftxui::paragraph("   " + cluster::setting_danger(setting, value)) | ftxui::color(t.muted));
+                    lines.push_back(ftxui::text(""));
+                }
+                lines.push_back(ftxui::hbox({keyed(" [y] save them ", ftxui::Event::Character('y')) | ftxui::color(t.error) | ftxui::bold, ftxui::text("   "),
+                    keyed(" [n] / Esc back (nothing saved) ", ftxui::Event::Character('n')) | ftxui::color(t.accent)}));
+                popup = ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.warn) | ftxui::bgcolor(t.bg) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 90)
+                    | ftxui::center;
+            }
+            return ftxui::dbox({ftxui::vbox({
                 ftxui::hbox({ftxui::text(" claude-cluster setup ") | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent), ftxui::filler(),
                     ftxui::text(" config.toml ") | ftxui::color(t.muted)}),
                 ftxui::hbox(std::move(tabs)) | ftxui::bgcolor(t.surface),
@@ -1815,14 +1843,12 @@ class TtyUi {
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
                 this->_note == "confirm" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn), keyed(" [y] save ", ftxui::Event::Character('y')) | ftxui::color(t.accent),
                     keyed(" [n] drop ", ftxui::Event::Character('n')) | ftxui::color(t.accent)})
-                : this->_note == "danger" ? ftxui::hbox({ftxui::paragraph(" " + note + "  ") | ftxui::bold | ftxui::color(t.error) | ftxui::flex,
-                    keyed(" [y] yes ", ftxui::Event::Character('y')) | ftxui::color(t.error), keyed(" [n] no ", ftxui::Event::Character('n')) | ftxui::color(t.accent)})
                 : ftxui::text(" " + note) | ftxui::color(t.warn),
                 ftxui::hbox({ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   "), keyed("/ search", ftxui::Event::Character('/')),
                     ftxui::text("   "), keyed("Ctrl+S save", ftxui::Event::Special(std::string(1, '\x13'))),
                     ftxui::text("   "), keyed("F10 save & exit", ftxui::Event::F10), ftxui::text("   "), keyed("Esc exit (asks to save) ", ftxui::Event::Escape)})
                     | ftxui::color(t.bg) | ftxui::bgcolor(t.muted), ftxui::filler()}) | ftxui::bgcolor(t.muted),
-            }) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, size.dimy) | ftxui::color(t.text) | ftxui::bgcolor(t.bg);
+            }), popup}) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, size.dimy) | ftxui::color(t.text) | ftxui::bgcolor(t.bg);
         }
 
         /* rendering */

@@ -782,19 +782,21 @@ class Window: public QMainWindow {
             this->choose(shown[static_cast<std::size_t>(items->currentRow())]);
         }
 
-        void confirmDangers(std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes, QWidget* parent)
+        _nodiscard bool confirmDangers(const std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes, QWidget* parent)
         {
-            // a dangerous value: its warning, yes or not changed
-            for (auto it = changes.begin(); it != changes.end();) {
-                const std::string warning = cluster::setting_danger(it->second.first, it->second.second);
-                if (warning.empty() || QMessageBox::warning(parent, "Dangerous setting", q_(it->second.first.label + " = " + it->second.second + "\n\n" + warning + ".\n\nSure?"),
-                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
-                    ++it;
-                } else {
-                    this->message(it->second.first.label + ": not changed", false);
-                    it = changes.erase(it);
-                }
-            }
+            // the save with dangerous values: one popup listing them with their warning; yes: saved, no: nothing saved
+            QString listed;
+            for (const auto &[where, change]: changes)
+                if (const std::string warning = cluster::setting_danger(change.first, change.second); !warning.empty())
+                    listed += "<p><b style=\"color:" + q_(this->theme().error) + "\">⚠ " + esc_(change.first.label) + "</b> = " + esc_(change.second.empty() ? "(empty)" : change.second)
+                        + "<br><span style=\"color:" + q_(this->theme().muted) + "\">" + esc_(warning) + "</span></p>";
+            if (listed.isEmpty()) return true;
+            QMessageBox box(QMessageBox::Warning, "Dangerous settings", "<b>Save these dangerous settings?</b>" + listed, QMessageBox::Yes | QMessageBox::No, parent);
+            box.setTextFormat(Qt::RichText);
+            box.button(QMessageBox::Yes)->setText("Save them");
+            box.button(QMessageBox::No)->setText("Back (nothing saved)");
+            box.setDefaultButton(QMessageBox::No);
+            return box.exec() == QMessageBox::Yes;
         }
 
         void settings(const std::string& focus = "", const bool search = false)
@@ -813,6 +815,7 @@ class Window: public QMainWindow {
             const std::vector<cluster::SettingsPage> pages = cluster::settings_pages(config);
             std::vector<std::vector<std::pair<QLabel*, QWidget*>>> placed(pages.size()); // per page, per setting: its label, its widget
             std::vector<QScrollArea*> scrolls;
+            std::vector<std::function<void()>> marks; // the dangerous marks, followed while the values change
 
             for (const cluster::SettingsPage& page: pages) {
                 QWidget* tab = new QWidget(sections);
@@ -872,8 +875,17 @@ class Window: public QMainWindow {
                         widget = line;
                     }
                     widget->setToolTip(tip);
-                    QLabel* label = new QLabel(q_(setting.label + (setting.restart ? " *" : "")), tab);
+                    QLabel* label = new QLabel(tab);
+                    label->setTextFormat(Qt::RichText);
                     label->setToolTip(tip);
+                    const cluster::Style st = this->theme();
+                    const std::function<void()> mark = [label, setting, read, st]() { // ⚠: it can be dangerous; red: its value is
+                        const bool now = !cluster::setting_danger(setting, read()).empty();
+                        label->setText((now ? "<span style=\"color:" + q_(st.error) + ";font-weight:600\">" + esc_(setting.label) + "</span>" : esc_(setting.label))
+                            + (setting.restart ? " *" : "") + (setting.danger ? " <span style=\"color:#e5b400\" title=\"can be dangerous\">⚠</span>" : ""));
+                    };
+                    mark();
+                    if (setting.danger) marks.push_back(mark);
                     form->addRow(label, widget);
                     if (info != nullptr) form->addRow(info);
                     if (!setting.description.empty()) { // its help under it, line by line (not only on hover)
@@ -892,6 +904,12 @@ class Window: public QMainWindow {
                 scroll->setFrameShape(QFrame::NoFrame);
                 sections->addTab(scroll, q_(page.title));
             }
+            QTimer* marking = new QTimer(&dialog);
+            QObject::connect(marking, &QTimer::timeout, &dialog, [&marks]() {
+                for (const std::function<void()>& mark: marks)
+                    mark();
+            });
+            marking->start(400);
             // a setting shown: its tab, scrolled to it, its field focused, its label lit a moment
             const std::function<void(std::size_t, std::size_t)> showAt = [&sections, &scrolls, &placed, this](const std::size_t p, const std::size_t i) {
                 if (p >= placed.size() || i >= placed[p].size()) return;
@@ -941,7 +959,12 @@ class Window: public QMainWindow {
             layout->addWidget(find);
             layout->addWidget(hits);
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
-            QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+            QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [this, &fields, &dialog]() {
+                std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> now;
+                for (const auto &[setting, read]: fields)
+                    if (const std::string value = read(); value != setting.value(this->manager.config())) now[{setting.section, setting.key}] = {setting, value};
+                if (this->confirmDangers(now, &dialog)) dialog.accept(); // back: the page stays open
+            });
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
             // Ctrl+S: saved, the page stays (the values written become the current ones); F10: save and close
             QShortcut* saveKey = new QShortcut(QKeySequence("Ctrl+S"), &dialog);
@@ -951,7 +974,7 @@ class Window: public QMainWindow {
                     const std::string value = read();
                     if (value != setting.value(this->manager.config())) now[{setting.section, setting.key}] = {setting, value};
                 }
-                this->confirmDangers(now, &dialog);
+                if (!this->confirmDangers(now, &dialog)) return; // back: nothing saved
                 if (now.empty()) return;
                 try {
                     cluster::settings_write(this->manager.config(), now);
@@ -965,7 +988,7 @@ class Window: public QMainWindow {
                 dialog.setWindowTitle(q_("claude-cluster setup - " + std::to_string(now.size()) + " setting(s) saved"));
             });
             QShortcut* closeKey = new QShortcut(QKeySequence(Qt::Key_F10), &dialog);
-            QObject::connect(closeKey, &QShortcut::activated, &dialog, &QDialog::accept);
+            QObject::connect(closeKey, &QShortcut::activated, buttons, &QDialogButtonBox::accepted);
             layout->addWidget(sections, 1);
             layout->addWidget(new QLabel("* applied at the next start · hover an option for its help · Ctrl+S save · F10 save & close · Esc close (asks to save the changes)", &dialog));
             layout->addWidget(buttons);
@@ -992,8 +1015,10 @@ class Window: public QMainWindow {
                 if (value != setting.value(config)) changes[{setting.section, setting.key}] = {setting, value};
             }
             if (changes.empty()) return;
-            this->confirmDangers(changes, this);
-            if (changes.empty()) return;
+            if (!accepted && !this->confirmDangers(changes, this)) { // closed: its dangerous ones asked now
+                this->message("not saved", false);
+                return;
+            }
             // closed (Esc / Cancel) with changes: asked, no = dropped
             if (!accepted && ((screenshot && *screenshot)
                 || QMessageBox::question(this, "claude-cluster setup", q_("Save the " + std::to_string(changes.size()) + " change(s)?"),
