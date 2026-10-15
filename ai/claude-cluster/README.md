@@ -543,6 +543,15 @@ the agents, a new session, a session closed.
   speak, Send now / Cancel / Edit), the cancel / send words act on it. The answers read aloud by the voice of
   claude-cluster (`say_engine`, `say_voices`: a wav from voice-say) or by the voice of the device.
 
+- **Beyond the LAN** (`[web] remote`, settings page > Web > *Beyond the LAN*), the TLS of claude-cluster end to end
+  (its certificate names the address used from outside; the app goes there by itself when the LAN is not reached, the
+  same trusted phone):
+  - `tailscale` (recommended): this computer and the phone in the same tailnet (WireGuard), nothing open to the
+    Internet; its address `https://<its MagicDNS name>:<port>`;
+  - `router`: a port of the router opened to this computer (by UPnP when `upnpc` is installed, else told to open it),
+    `remote_host` (a dynamic DNS name, else its public address), `remote_port`; open to the Internet.
+  From outside, each new device waits for your approval (even with `approve = false`), 5 wrong codes block its
+  address 15 minutes; plain http is refused. Not a TLS-terminating tunnel (Cloudflare...): it would read the traffic.
 - Open: settings page > Web (`[web] enabled`, opened at every start), the palette *Web access: open*, `claude-cluster
   web on` (this run), `claude-cluster --web`. Its address and its code are shown at the top of the interface:
   `web https://192.168.1.12:8787 · code 123 456 · 2 connected · 1 waiting for you`; a click on it copies the code

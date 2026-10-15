@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.1.1 LANGUAGES CXX)
+project(${TARGET} VERSION 1.2.0 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -17,7 +17,7 @@ endif()
 # =========================
 # Requirement
 # =========================
-find_package(utils 3.0.0 CONFIG REQUIRED) # Check utils dependencies existance
+find_package(utils 4.0.0 CONFIG REQUIRED) # Check utils dependencies existance
 find_package(nlohmann_json 3.10 CONFIG REQUIRED) # stream-json of claude, MCP, state files
 find_package(tomlplusplus 3.0 CONFIG REQUIRED) # config.toml
 find_package(Threads REQUIRED)

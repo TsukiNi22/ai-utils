@@ -563,6 +563,7 @@ function stateClass(state) {
 
 function render(state) {
     lastState = state;
+    if (state.remote && window.ClusterApp && ClusterApp.remote && render.remote !== state.remote) { render.remote = state.remote; ClusterApp.remote(state.remote); }
     applyStyle(state.style);
     watchAlerts(state);
     if (state.face) $("brandFace").textContent = state.face.text;

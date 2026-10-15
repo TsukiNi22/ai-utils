@@ -60,6 +60,8 @@ struct WebStatus {
     std::string error;              // why the port could not be opened
     bool https = false;             // TLS (self-signed certificate): the microphone of the page works
     std::string fingerprint;        // SHA-256 of the certificate, to compare with the one the browser shows
+    std::string remoteUrl;          // reached from outside ([web] remote), empty: not
+    std::string remoteState;        // how it is reached from outside, or why not
 };
 
 //----------------------------------------------------------------//
@@ -98,6 +100,12 @@ class Web {
         void* _tls = nullptr;           // SSL_CTX of https (nullptr: plain http)
         bool _httpsWanted = false;      // [web] https when it was opened
         std::string _fingerprint;
+        std::string _remoteWanted;                  // [web] remote, remote_host, remote_port when it was opened
+        std::vector<std::string> _remoteNames;      // the names / addresses used from outside (the certificate, the host checked)
+        std::string _remoteUrl;
+        std::string _remoteState;
+        int _mapped = 0;                            // the port of the router opened by UPnP (closed with it)
+        std::map<std::string, std::pair<int, std::int64_t>> _blocked; // a peer from outside: its wrong codes, blocked until (ms)
 
         // ---------- Pre-Function -------- //
         _cold void open_(const int port);
@@ -112,6 +120,8 @@ class Web {
         _cold _nodiscard std::string tls_(void);   // https set up (its certificate made once), error text, empty: on
         _cold void newPin_(void);
         _cold void expire_(void);       // the devices gone, the waits too old (under _mutex)
+        _cold void remote_(void);       // reached from outside: its names, its address, the port of the router (UPnP)
+        _cold _nodiscard bool allowed_(const std::string& peer) const;  // this LAN, or from outside when [web] remote allows it
 
     public:
         // ---------- Pre-Function -------- //

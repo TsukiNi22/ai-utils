@@ -58,6 +58,7 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private WebView web;
     private boolean front = false;
+    private String base = "";       // the address open now: the LAN or the one from outside
     private PermissionRequest waitingMic = null;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -74,7 +75,43 @@ public class MainActivity extends Activity {
             requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 2);
         final String url = prefs.getString("url", "");
         if (url.isEmpty()) showSetup("");
-        else open(url);
+        else choose(url);
+    }
+
+    // the LAN when it answers, else the address from outside (tailscale / the router) told by claude-cluster
+    private void choose(final String lan) {
+        final String remote = prefs.getString("remote", "");
+        if (remote.isEmpty() || remote.equals(lan)) {
+            open(lan);
+            return;
+        }
+        new Thread(() -> {
+            boolean near;
+            try {
+                Net.fetch(lan + "/api/version", pinned(), null, 2500);
+                near = true;
+            } catch (Exception e) {
+                near = false;
+            }
+            final boolean reached = near;
+            ui.post(() -> {
+                if (!reached) carry(lan, remote);
+                open(reached ? lan : remote);
+            });
+        }).start();
+    }
+
+    // its device cookies (its id, its trust) given to the other address: the same phone there
+    private void carry(String from, String to) {
+        android.webkit.CookieManager cookies = android.webkit.CookieManager.getInstance();
+        String all = cookies.getCookie(from);
+        if (all == null) return;
+        for (String part : all.split(";")) {
+            String pair = part.trim();
+            if (pair.startsWith("cc_dev=") || pair.startsWith("cc_trust="))
+                cookies.setCookie(to, pair + "; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Strict");
+        }
+        cookies.flush();
     }
 
     @Override
@@ -166,6 +203,8 @@ public class MainActivity extends Activity {
     // ---- the page ----
     @SuppressWarnings("SetJavaScriptEnabled")
     private void open(String url) {
+        base = url;
+        prefs.edit().putString("active", url).apply(); // the watch service follows the same address
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#15171b"));
         WebSettings settings = web.getSettings();
@@ -182,7 +221,16 @@ public class MainActivity extends Activity {
 
             @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
-                if (request.isForMainFrame()) showSetup("Not reached: " + error.getDescription() + " (the same network? claude-cluster web on?)");
+                if (!request.isForMainFrame()) return;
+                // the LAN not reached: the address from outside when there is one
+                final String lan = prefs.getString("url", "");
+                final String remote = prefs.getString("remote", "");
+                if (url.equals(lan) && !remote.isEmpty() && !remote.equals(lan)) {
+                    carry(lan, remote);
+                    open(remote);
+                } else {
+                    showSetup("Not reached: " + error.getDescription() + " (the same network, or [web] remote? claude-cluster web on?)");
+                }
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -392,7 +440,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void save(String path, String name) {
             // a file of the computer (the app, a file display): Download/claude-cluster
-            final String url = prefs.getString("url", "");
+            final String url = base;
             new Thread(() -> {
                 String done;
                 try {
@@ -421,7 +469,13 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void update() {
-            ui.post(() -> install(prefs.getString("url", "")));
+            ui.post(() -> install(base));
+        }
+
+        @JavascriptInterface
+        public void remote(String url) {
+            // the address from outside, told by claude-cluster: kept for when the LAN is not reached
+            if (url != null && url.startsWith("https://")) prefs.edit().putString("remote", url).apply();
         }
     }
 }

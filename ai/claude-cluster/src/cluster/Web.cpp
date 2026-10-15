@@ -222,6 +222,14 @@ _cold static bool same_lan_(const std::string& peer)
     return found;
 }
 
+_cold static bool tailnet_(const std::string& peer)
+{
+    // the addresses of a tailscale network: 100.64.0.0/10 (shared address space)
+    in_addr address{};
+    if (::inet_pton(AF_INET, peer.c_str(), &address) != 1) return false;
+    return (ntohl(address.s_addr) & 0xFFC00000u) == 0x64400000u;
+}
+
 _cold static std::string lan_address_(void)
 {
     // the address the other devices of the LAN reach: 192.168.x first, then 10.x, then 172.16-31.x
@@ -353,7 +361,8 @@ _cold void cluster::Web::tick(void)
         this->expire_();
     }
     if (this->_speech) this->_speech->tick();
-    if (wanted && (this->_fd == -1 || this->_port != config.web.port || this->_httpsWanted != config.web.https)) {
+    const std::string remote = config.web.remote + "|" + config.web.remoteHost + "|" + std::to_string(config.web.remotePort);
+    if (wanted && (this->_fd == -1 || this->_port != config.web.port || this->_httpsWanted != config.web.https || this->_remoteWanted != remote)) {
         this->close_();
         this->open_(config.web.port);
     } else if (!wanted && this->_fd != -1) {
@@ -385,6 +394,7 @@ _cold void cluster::Web::open_(const int port)
     this->_error.clear();
     this->_fd = fd;
     this->_httpsWanted = this->_manager.config().web.https;
+    this->remote_(); // its names first: in the certificate
     const std::string tls = this->_httpsWanted ? this->tls_() : "";
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
     this->newPin_();
@@ -393,6 +403,61 @@ _cold void cluster::Web::open_(const int port)
     this->_thread = std::thread(&cluster::Web::serve_, this);
     this->_manager.notice(GLOBAL_ID, "web access open: " + std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":"
         + std::to_string(port) + " code " + this->_pin.substr(0, 3) + " " + this->_pin.substr(3) + " (this network only; each new device approved here)");
+    if (!this->_remoteState.empty()) this->_manager.notice(GLOBAL_ID, "web access from outside: " + this->_remoteState, this->_remoteUrl.empty());
+}
+
+_cold void cluster::Web::remote_(void)
+{
+    // tailscale: its address and its name (MagicDNS); router: the port opened by UPnP, its public address (or the name given)
+    const cluster::WebConf& conf = this->_manager.config().web;
+    this->_remoteWanted = conf.remote + "|" + conf.remoteHost + "|" + std::to_string(conf.remotePort);
+    this->_remoteNames.clear();
+    this->_remoteUrl.clear();
+    this->_remoteState.clear();
+    if (conf.remote == "tailscale") {
+        if (!cluster::has_command("tailscale")) {
+            this->_remoteState = "tailscale is not installed: install it on this computer and on the phone, log both in (tailscale up)";
+            return;
+        }
+        const std::string ip = cluster::trim(cluster::split(cluster::capture({"tailscale", "ip", "-4"}, "", 10).out + "\n", '\n')[0]);
+        if (ip.empty() || !tailnet_(ip)) {
+            this->_remoteState = "tailscale is not connected (tailscale up)";
+            return;
+        }
+        this->_remoteNames.push_back(ip);
+        const cluster::Json status = cluster::Json::parse(cluster::capture({"tailscale", "status", "--json"}, "", 10).out, nullptr, false);
+        std::string name = status.is_object() && status.contains("Self") && status["Self"].is_object() ? status["Self"].value("DNSName", std::string()) : "";
+        while (name.ends_with(".")) name.pop_back();
+        if (!name.empty()) this->_remoteNames.push_back(cluster::lower(name));
+        this->_remoteUrl = "https://" + (name.empty() ? ip : cluster::lower(name)) + ":" + std::to_string(this->_port);
+        this->_remoteState = this->_remoteUrl + " (tailscale: the devices of your tailnet, end to end)";
+    } else if (conf.remote == "router") {
+        const int outside = conf.remotePort > 0 ? conf.remotePort : this->_port;
+        std::string address;
+        if (cluster::has_command("upnpc")) {
+            const cluster::Captured map = cluster::capture({"upnpc", "-e", "claude-cluster", "-r", std::to_string(this->_port), std::to_string(outside), "TCP"}, "", 20);
+            if (map.code == 0 && map.out.find("is redirected") != std::string::npos) this->_mapped = outside;
+            for (const std::string& line: cluster::split(cluster::capture({"upnpc", "-s"}, "", 20).out, '\n'))
+                if (line.starts_with("ExternalIPAddress = ")) address = cluster::trim(line.substr(20));
+        }
+        if (!conf.remoteHost.empty()) this->_remoteNames.push_back(cluster::lower(conf.remoteHost));
+        if (!address.empty()) this->_remoteNames.push_back(address);
+        const std::string name = !conf.remoteHost.empty() ? cluster::lower(conf.remoteHost) : address;
+        if (!name.empty()) this->_remoteUrl = "https://" + name + ":" + std::to_string(outside);
+        this->_remoteState = (this->_remoteUrl.empty() ? std::string("no public address known (upnpc missing or refused; [web] remote_host: a dynamic DNS name)")
+            : this->_remoteUrl) + (this->_mapped > 0 ? " (the router opened its port " + std::to_string(outside) + " to this computer by UPnP)"
+            : " (open the port " + std::to_string(outside) + " of your router to " + lan_address_() + ":" + std::to_string(this->_port) + ")")
+            + "; open to the Internet: each new device approved here";
+    }
+}
+
+_cold bool cluster::Web::allowed_(const std::string& peer) const
+{
+    // this LAN; from outside: the tailnet (tailscale), any address (router), https only
+    if (same_lan_(peer)) return true;
+    const std::string& remote = this->_manager.config().web.remote;
+    if (this->_tls == nullptr || remote == "off") return false;
+    return remote == "router" || (remote == "tailscale" && tailnet_(peer));
 }
 
 _cold void cluster::Web::close_(void)
@@ -402,6 +467,10 @@ _cold void cluster::Web::close_(void)
     if (this->_thread.joinable()) this->_thread.join();
     for (int i = 0; i < 50 && this->_busy > 0; ++i) // the requests being served end (a waiting state returns within 0.2 s)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (this->_mapped > 0) { // the port of the router closed again
+        (void)cluster::capture({"upnpc", "-d", std::to_string(this->_mapped), "TCP"}, "", 20);
+        this->_mapped = 0;
+    }
     std::lock_guard<std::mutex> lock(this->_mutex);
     ::close(this->_fd);
     this->_fd = -1;
@@ -463,6 +532,11 @@ _cold std::string cluster::Web::tls_(void)
         for (const std::string& address: lan_addresses_())
             wanted += ",IP:" + address;
         if (own[0] != '\0') wanted += ",DNS:" + std::string(own.data()) + ",DNS:" + std::string(own.data()) + ".local";
+        for (const std::string& name: this->_remoteNames) { // reached from outside: by these names too
+            in_addr address{};
+            const std::string entry = (::inet_pton(AF_INET, name.c_str(), &address) == 1 ? "IP:" : "DNS:") + name;
+            if (("," + wanted + ",").find("," + entry + ",") == std::string::npos) wanted += "," + entry;
+        }
         std::ifstream in(names);
         const std::string made((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         const bool ending = cluster::capture({"openssl", "x509", "-checkend", std::to_string(30 * 86400), "-noout", "-in", cert.string()}, "", 10).code != 0;
@@ -667,6 +741,8 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     status.url = std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":" + std::to_string(this->_port);
     status.https = this->_tls != nullptr;
     status.fingerprint = this->_fingerprint;
+    status.remoteUrl = this->_remoteUrl;
+    status.remoteState = this->_remoteState;
     status.pin = this->_pin.substr(0, 3) + " " + this->_pin.substr(3);
     for (const auto &[id, access]: this->_access) {
         status.devices.push_back(access.device);
@@ -697,7 +773,7 @@ _cold void cluster::Web::client_(const int fd, const std::string& peer)
     bool plain = true;
     bool ready = true;
     #ifdef CLUSTER_TLS
-        if (this->_tls != nullptr && same_lan_(peer)) {
+        if (this->_tls != nullptr && this->allowed_(peer)) {
             char first = 0;
             if (::recv(fd, &first, 1, MSG_PEEK) == 1 && first == 0x16) { // a TLS handshake
                 conn.ssl = ::SSL_new(static_cast<SSL_CTX*>(this->_tls));
@@ -708,7 +784,7 @@ _cold void cluster::Web::client_(const int fd, const std::string& peer)
         }
     #endif
     try {
-        if (!same_lan_(peer)) respond_(conn, 403, "text/plain", "claude-cluster: this network only\n");
+        if (!this->allowed_(peer)) respond_(conn, 403, "text/plain", "claude-cluster: this network only\n");
         else if (ready) this->request_(&conn, peer, this->_tls != nullptr && plain);
     } catch (const std::exception& e) {
         json_(conn, 500, {{"error", e.what()}});
@@ -737,7 +813,9 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     const std::string scheme = this->_tls == nullptr ? "http://" : "https://";
     const std::string secure = this->_tls != nullptr ? "; Secure" : "";
 
-    if (!host_ok_(host)) {
+    const std::string named = cluster::lower(host.substr(0, host.rfind(':') == std::string::npos ? host.size() : host.rfind(':')));
+    const bool remoteName = std::find(this->_remoteNames.begin(), this->_remoteNames.end(), named) != this->_remoteNames.end();
+    if (!host_ok_(host) && !remoteName) {
         respond_(conn, 403, "text/plain", "claude-cluster: open it by the address of this computer\n");
         return;
     }
@@ -868,7 +946,7 @@ self.addEventListener("notificationclick", (e) => {
             {"accent", st.accent}, {"border", st.border}, {"ok", st.ok}, {"warn", st.warn}, {"error", st.error}};
         const cluster::VoiceConf& voice = this->_manager.config().voice;
         const cluster::AppFace face = this->_manager.appFace(false);
-        json_(conn, 200, {{"version", version()}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
+        json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
@@ -977,6 +1055,12 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
     const std::string agent = request.headers.contains("user-agent") ? request.headers.at("user-agent") : "";
     std::unique_lock<std::mutex> lock(this->_mutex);
     this->expire_();
+    // from outside: always approved by the host; 5 wrong codes block the address 15 minutes
+    const bool outside = !same_lan_(peer);
+    if (outside && request.method != "GET" && this->_blocked.contains(peer) && this->_blocked.at(peer).second > now_ms_()) {
+        json_(conn, 429, {{"error", "too many wrong codes from this address: try again later"}});
+        return;
+    }
     if (request.method == "GET") {
         auto it = this->_access.find(id);
         if (it == this->_access.end() || cookie_(request, "cc_web") != it->second.token) {
@@ -1019,6 +1103,12 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
     if (digits.empty()) {
         json_(conn, 401, {{"error", "the code"}, {"need", "code"}});
     } else if (digits != this->_pin) {
+        if (outside && ++this->_blocked[peer].first >= 5) {
+            this->_blocked[peer] = {0, now_ms_() + 15 * 60 * 1000};
+            this->_manager.notice(GLOBAL_ID, "web: 5 wrong codes from " + peer + " (outside the LAN): blocked 15 min", true);
+            (void)this->_manager.notify({"web-blocked", "web access", "5 wrong codes from " + peer + " (outside the LAN): blocked 15 min", cluster::Face::Waiting, true,
+                "dialog-warning"}, "web");
+        }
         if (++this->_failures >= 5) {
             this->newPin_();
             this->_manager.notice(GLOBAL_ID, "web: 5 wrong codes (last from " + peer + "), new code " + this->_pin.substr(0, 3) + " "
@@ -1034,7 +1124,8 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
         Access access;
         access.device = {id, name, agent, peer, "waiting", false, now_ms_(), now_ms_()};
         access.token = random_hex_(24);
-        const bool approve = this->_manager.config().web.approve;
+        const bool approve = this->_manager.config().web.approve || outside;
+        if (outside) this->_blocked.erase(peer);
         if (!approve) access.device.state = "connected";
         this->_access[id] = access;
         const std::string cookies = "Set-Cookie: cc_dev=" + id + year + "Set-Cookie: cc_web=" + access.token + session;

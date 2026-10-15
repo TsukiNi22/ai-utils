@@ -626,7 +626,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 return out;
             };
             data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
-                {"https", status.https}, {"fingerprint", status.fingerprint}, {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
+                {"https", status.https}, {"fingerprint", status.fingerprint}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState},
+                {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
                 {"trusted", list(status.trusted)}};
         } else if (cmd == "voice_engines") {
             // the engines of the voice: what each one handles, its limits, its free use, its links, ready, used

@@ -325,6 +325,16 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.web.approve ? std::string("true") : std::string("false");}},
             {"web", "port", "Port", SettingKind::Int, {}, "the address shown: https://<this computer on the LAN>:<port>", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.port);}},
+            {"web", "remote", "Beyond the LAN", SettingKind::Choice, {"off", "tailscale", "router"}, "reached from outside, its TLS kept end to end (the "
+                "app goes there when the LAN is not reached): tailscale: its private network (this computer and the phone in the same tailnet, "
+                "nothing open to the Internet, recommended); router: a port of the router opened to this computer (UPnP: upnpc; else open it "
+                "yourself), open to the Internet. From outside: each new device approved here, 5 wrong codes block its address 15 min", false,
+                [](const cluster::Config& cf) {return cf.web.remote;}},
+            {"web", "remote_host", "Name from outside", SettingKind::Text, {}, "router: a dynamic DNS name pointing at your router (empty: its public "
+                "address); put in the certificate", false,
+                [](const cluster::Config& cf) {return cf.web.remoteHost;}},
+            {"web", "remote_port", "Port outside", SettingKind::Int, {}, "router: the port opened on the router (0: the same as here)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.web.remotePort);}},
             {"web", "https", "HTTPS", SettingKind::Bool, {}, "TLS with a certificate of its own (made once, the browser asks to accept it the first time): "
                 "the conversation and the code encrypted, the microphone of the page allowed; off: plain http, no microphone", false,
                 [](const cluster::Config& cf) {return cf.web.https ? std::string("true") : std::string("false");}},

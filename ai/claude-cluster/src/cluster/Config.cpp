@@ -214,6 +214,9 @@ _cold void cluster::Config::load(void)
     this->web.port = table["web"]["port"].value_or(this->web.port);
     this->web.https = table["web"]["https"].value_or(this->web.https);
     this->web.approve = table["web"]["approve"].value_or(this->web.approve);
+    this->web.remote = table["web"]["remote"].value_or(this->web.remote);
+    this->web.remoteHost = table["web"]["remote_host"].value_or(this->web.remoteHost);
+    this->web.remotePort = table["web"]["remote_port"].value_or(this->web.remotePort);
 
     /* service */
     toml::node_view<const toml::node> sv = std::as_const(table)["service"];

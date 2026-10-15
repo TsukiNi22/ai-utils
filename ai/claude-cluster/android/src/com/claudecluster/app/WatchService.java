@@ -73,7 +73,7 @@ public class WatchService extends Service {
         long version = 0;
         while (running) {
             try {
-                String url = prefs.getString("url", "");
+                String url = prefs.getString("active", prefs.getString("url", ""));
                 String cookie = CookieManager.getInstance().getCookie(url);
                 if (url.isEmpty() || cookie == null) break;
                 JSONObject state = new JSONObject(new String(Net.fetch(url + "/api/state?v=" + version, Net.pinned(prefs), cookie, 30000), StandardCharsets.UTF_8));

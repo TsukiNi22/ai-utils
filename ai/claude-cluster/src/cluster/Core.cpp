@@ -451,6 +451,7 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         devices(data.value("trusted", cluster::Json::array()), "trusted devices (no code, no approval):");
         if (data.value("devices", cluster::Json::array()).empty()) std::cout << "nobody connected: the code, then your approval here" << "\n";
         std::cout << "approve: claude-cluster web approve <id> allow|trust|deny · out: web kick [ids|all] · trust removed: web untrust [ids|all]" << "\n";
+        if (!data.value("remote", std::string()).empty()) std::cout << "from outside: " << data.value("remote", std::string()) << "\n";
         if (data.value("https", false))
             std::cout << "certificate SHA-256 " << data.value("fingerprint", std::string()) << " (the browser asks to accept it once: compare)" << "\n";
         else
