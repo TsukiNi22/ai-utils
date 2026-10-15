@@ -13,9 +13,11 @@ File Description:
 \**************************************************************/
 
 /* include */
+#define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Machine.hpp"
+#include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Types.hpp"
 #include <unordered_set>
@@ -631,4 +633,83 @@ _cold std::size_t cluster::machine_scan(const cluster::Config& config, const std
     progress.next.clear();
     if (report) report(progress);
     return repos.size();
+}
+
+_cold std::vector<cluster::Project> cluster::projects(const std::string& query)
+{
+    // the table "Projects" of machine.md (read again when it changed); a query: its name close first, its path / kind /
+    // origin far behind (6 further), the closest first
+    static std::mutex mutex;
+    static std::filesystem::file_time_type seen{};
+    static std::vector<cluster::Project> all;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::error_code error;
+        const std::filesystem::file_time_type written = std::filesystem::last_write_time(cluster::machine_file(), error);
+        if (!error && written != seen) {
+            seen = written;
+            all.clear();
+            std::ifstream in(cluster::machine_file());
+            bool table = false;
+            for (std::string line; std::getline(in, line);) {
+                if (line.starts_with("## ")) table = line.starts_with("## Projects");
+                if (!table || !line.starts_with("| `")) continue;
+                std::vector<std::string> cells = {""}; // its empty ones kept (a repository without origin)
+                for (const char c: line) {
+                    if (c == '|') cells.emplace_back();
+                    else cells.back() += c;
+                }
+                for (std::string& cell: cells)
+                    cell = cluster::trim(cell);
+                // "", path, kind, branch, origin, activity, ""
+                if (cells.size() < 6) continue;
+                cluster::Project p;
+                p.path = cells[1].size() > 2 ? cells[1].substr(1, cells[1].size() - 2) : cells[1];
+                p.name = std::filesystem::path(p.path).filename().string();
+                p.kind = cells[2];
+                p.branch = cells[3];
+                p.origin = cells[4];
+                p.activity = cells[5];
+                all.push_back(p);
+            }
+        }
+    }
+    std::lock_guard<std::mutex> lock(mutex);
+    if (cluster::trim(query).empty()) return all;
+    std::vector<std::pair<float, cluster::Project>> found;
+    for (cluster::Project p: all) {
+        // its name: word by word, or whole without its separators (bteasite: beta-site)
+        std::optional<float> name = cluster::match_words(query, p.name);
+        std::string joined;
+        for (const char c: p.name)
+            if (std::isalnum(static_cast<unsigned char>(c))) joined += c;
+        if (const std::optional<float> whole = cluster::match_score(cluster::trim(query), joined); whole && (!name || *whole < *name)) name = whole;
+        const std::optional<float> about = cluster::match_words(query, p.path + " " + p.kind + " " + p.origin);
+        if (!name && !about) continue;
+        const float described = about ? *about + 6.0F : 1e9F;
+        p.byName = name && *name <= described;
+        found.emplace_back(name ? std::min(*name, described) : described, p);
+    }
+    std::stable_sort(found.begin(), found.end(), [](const std::pair<float, cluster::Project>& a, const std::pair<float, cluster::Project>& b) {return a.first < b.first;});
+    std::vector<cluster::Project> out;
+    for (const auto &[score, p]: found)
+        out.push_back(p);
+    return out;
+}
+
+_cold std::filesystem::path cluster::resolve_folder(const std::string& text, const std::filesystem::path& base)
+{
+    const std::string given = cluster::trim(text);
+    std::error_code error;
+    const std::filesystem::path direct = given.starts_with("/") || given.starts_with("~") || base.empty() ? cluster::expand_home(given.empty() ? "." : given)
+        : base / given;
+    if (std::filesystem::is_directory(direct, error)) return std::filesystem::weakly_canonical(direct, error);
+    // a project of the map, by its name
+    const std::vector<cluster::Project> found = cluster::projects(given);
+    if (!given.empty() && !found.empty() && found.front().byName) return std::filesystem::weakly_canonical(cluster::expand_home(found.front().path), error);
+    std::string near;
+    for (std::size_t i = 0; i < found.size() && i < 3; ++i)
+        near += (near.empty() ? "" : ", ") + found[i].name;
+    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "not a folder nor a project: " + given
+        + (near.empty() ? std::string(" (the projects come from the map of this computer: settings > Global session)") : " (close: " + near + ")"));
 }

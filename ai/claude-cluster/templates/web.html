@@ -104,6 +104,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker { background: var(--surface, var(--bg)); border: 1px solid var(--border, #444); border-radius: 12px; width: min(520px, 100%); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); }
 .picker-title { padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border, #444); }
 .picker-list { overflow-y: auto; padding: 6px; }
+.picker-row.danger { color: var(--error); }
 .picker-row { display: flex; gap: 12px; align-items: baseline; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
 .picker-row small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .picker-row.selected, .picker-row:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -640,6 +641,11 @@ function render(state) {
         item.title = [s.summary, s.cwd].filter(Boolean).join("\n");
         item.append(name, sub);
         item.addEventListener("click", () => select(s.id));
+        // its menu: a right click, a long press (a phone)
+        item.addEventListener("contextmenu", (e) => { e.preventDefault(); sessionMenu(s); });
+        let pressed = 0;
+        item.addEventListener("touchstart", () => { pressed = setTimeout(() => { pressed = 0; sessionMenu(s); }, 600); }, {passive: true});
+        for (const end of ["touchend", "touchmove", "touchcancel"]) item.addEventListener(end, () => { if (pressed) clearTimeout(pressed); });
         list.append(item);
     }
     const s = state.session;
@@ -1496,6 +1502,50 @@ function scope(kind, value) {
     draw();
 }
 
+// a session: its menu (open, rename, describe, archive, delete for good asked first)
+function sessionMenu(s) {
+    const name = s.id === "g" ? "global" : s.name || s.id;
+    const items = [{label: "Open " + name, run: () => select(s.id)}];
+    if (s.id !== "g") {
+        items.push({label: "Rename", run: async () => { const v = prompt("New name of " + name, name); if (v && v.trim()) await act({cmd: "rename", session: s.id, name: v.trim()}); }});
+        items.push({label: "Describe", run: async () => { const v = prompt("Its short description (empty: written again)", s.summary || ""); if (v !== null) await act({cmd: "describe", session: s.id, text: v}); }});
+        items.push({label: "Archive (to the trash, restorable)", run: () => act({cmd: "close", session: s.id})});
+        items.push({label: "Delete for good…", danger: true, run: () => deleteSession(s.id, name)});
+    }
+    const veil = el("div", "picker-veil");
+    const box = el("div", "picker");
+    box.append(el("div", "picker-title", name));
+    const list = el("div", "picker-list");
+    let selected = 0;
+    const close = () => { veil.remove(); document.removeEventListener("keydown", keys, true); };
+    const choose = (item) => { close(); item.run(); };
+    const draw = () => [...list.children].forEach((row, i) => row.classList.toggle("selected", i === selected));
+    items.forEach((item) => {
+        const row = el("div", "picker-row" + (item.danger ? " danger" : ""));
+        row.append(el("span", "", item.label));
+        row.addEventListener("click", () => choose(item));
+        list.append(row);
+    });
+    const keys = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); close(); }
+        else if (e.key === "ArrowDown") { e.preventDefault(); selected = (selected + 1) % items.length; draw(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); selected = (selected + items.length - 1) % items.length; draw(); }
+        else if (e.key === "Enter") { e.preventDefault(); choose(items[selected]); }
+    };
+    document.addEventListener("keydown", keys, true);
+    veil.addEventListener("click", (e) => { if (e.target === veil) close(); });
+    box.append(list);
+    veil.append(box);
+    document.body.append(veil);
+    draw();
+}
+
+async function deleteSession(id, name) {
+    if (!confirm("Delete " + name + " for good?\n\nIts conversation is gone, it is not in the trash (Archive keeps it restorable).")) return;
+    const done = await act({cmd: "delete", session: id, confirmed: true});
+    if (done !== null) { toast(name + " deleted for good"); if (current === id) select("g"); }
+}
+
 // a !command ran: its command and output given to the agent or not (this time / always / not this time / never)
 function shareShell() {
     const items = [{label: "Give it to the agent", description: "this time", choice: "yes"}, {label: "Always give it", description: "not asked again", choice: "always"},
@@ -1548,6 +1598,7 @@ async function send(text, picked) {
     const data = await act({cmd: "send", session: current, text: text});
     if (data && data.ui === "fill") { $("prompt").value = data.fill || ""; autosize(); } // a :s of the last prompt, a :r
     if (data && data.ui === "pick:share:") shareShell();
+    if (data && data.ui && data.ui.startsWith("pick:delete:")) { const s = (lastState.sessions || []).find((x) => x.id === data.ui.slice(12)); deleteSession(data.ui.slice(12), s ? s.name : data.ui.slice(12)); }
     promptMode();
 }
 

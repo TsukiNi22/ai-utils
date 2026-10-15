@@ -425,7 +425,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (local) {
                 if (local->error) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, local->message);
                 std::string message = local->message.empty() ? "done" : local->message;
-                if (!local->ui.empty() && local->ui != "fill" && local->ui != "pick:share:") message += " (" + local->ui + ": only in the interface, not run)";
+                if (!local->ui.empty() && local->ui != "fill" && local->ui != "pick:share:" && !local->ui.starts_with("pick:delete:")) message += " (" + local->ui + ": only in the interface, not run)";
                 return {{"ok", true}, {"data", {{"id", id}, {"local", true}, {"message", message}, {"ui", local->ui}, {"fill", local->fill}}}};
             }
             const bool reply = request.value("reply", false) && id != GLOBAL_ID;
@@ -458,6 +458,20 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.close(session());
         } else if (cmd == "restore") {
             data = {{"id", manager.restore(arg_(request, "session"))}};
+        } else if (cmd == "projects") {
+            // the projects of the map of this computer matching a text (its name first): a new session on one
+            data = cluster::Json::array();
+            for (const cluster::Project& p: cluster::projects(arg_(request, "query"))) {
+                data.push_back({{"path", p.path}, {"name", p.name}, {"kind", p.kind}, {"branch", p.branch}, {"origin", p.origin}, {"by_name", p.byName}});
+                if (data.size() >= 40) break;
+            }
+        } else if (cmd == "delete") {
+            // a session deleted for good (closed, out of the trash): only confirmed
+            if (!(request.contains("confirmed") && (request["confirmed"] == true || request["confirmed"] == "true")))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "confirm: delete it for good (its conversation gone)");
+            const std::string id = manager.resolve(session());
+            manager.close(id);
+            manager.purge(id);
         } else if (cmd == "purge") {
             manager.purge(arg_(request, "session"));
         } else if (cmd == "rename") {

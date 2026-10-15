@@ -187,6 +187,17 @@ other agents as `@path`). The images are saved by content (`img-<hash>.png`): th
 clicked) is one more reference to the same `[Image #N]` ("here, here and here"), the image itself is sent once; the
 images are numbered in the order of the text when sent.
 
+**Sessions by hand**:
+- **A new session on a project**: `/new <name>`, `/cd <name>`, the palette *New session on a project*, the web page,
+  `claude-cluster spawn <name>` and the global session (`session_spawn`) take a folder or the name of a project of the
+  map of this computer (its git repositories, `machine.md`): the closest by its name (a typo found: c2dmp-hsm), its
+  path / kind / origin far behind. The folders are completed with the projects first (`/cd alph` → alpha-engine).
+- **A right click on a session** (the list, the tabs; a long press in the web page): its menu - open, rename,
+  describe, move to another folder, open its folder / a terminal there, **archive** (closed, to the trash, restorable)
+  and **delete for good** (asked first: yes / no; its conversation gone, not in the trash).
+- **In the session**: `/close` (archived), `/delete` (asked first), `/delete!` (at once, no question). The global
+  session: `session_close`, then `session_purge` for good (only when you asked).
+
 **Chips** above the prompt, one per image / pasted text of the prompt (dim when removed from the text): mouse over shows
 the image (terminal: its pixels as half blocks through `magick`, or the symbols of `chafa` with `[ui] image_preview =
 "chafa"`; window: the image itself) or

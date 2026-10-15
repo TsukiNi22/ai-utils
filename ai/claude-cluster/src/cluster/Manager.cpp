@@ -150,8 +150,7 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
         if (req.mode.empty()) req.mode = profile.mode;
         if (req.prompt.empty()) req.prompt = profile.prompt;
     }
-    const std::filesystem::path cwd = std::filesystem::weakly_canonical(cluster::expand_home(req.cwd.empty() ? "." : req.cwd));
-    if (!std::filesystem::is_directory(cwd)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "not a folder: " + cwd.string());
+    const std::filesystem::path cwd = cluster::resolve_folder(req.cwd); // a folder, or a project of the map by its name
 
     cluster::SessionSpec spec;
     {
@@ -440,8 +439,7 @@ _cold void cluster::Manager::togglePanel(const std::string& id, const std::strin
 _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
 {
     if (id == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the folder of the global session is set by global.cwd");
-    const std::filesystem::path path = std::filesystem::weakly_canonical(cluster::expand_home(cwd));
-    if (!std::filesystem::is_directory(path)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "not a folder: " + path.string());
+    const std::filesystem::path path = cluster::resolve_folder(cwd); // a folder, or a project of the map by its name
 
     // A conversation belongs to its project: the session starts a new one in the new folder (same id / name / log)
     const std::shared_ptr<cluster::Session> old = this->get_(id);

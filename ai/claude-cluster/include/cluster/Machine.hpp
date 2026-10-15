@@ -56,6 +56,19 @@ struct ProfileQuestion {
 };
 
 //----------------------------------------------------------------//
+/* STRUCT */
+
+struct Project {
+    std::string path;               // ~/...
+    std::string name;               // its folder name
+    std::string kind;               // C/C++ (CMake), Python...
+    std::string branch;
+    std::string origin;
+    std::string activity;           // its last commit (date)
+    bool byName = true;             // matched by its name (else its path / description)
+};
+
+//----------------------------------------------------------------//
 /* FUNCTION */
 
 _cold _nodiscard inline std::filesystem::path machine_file(void) {return cluster::config_dir() / "machine.md";};
@@ -63,6 +76,10 @@ _cold _nodiscard std::string machine_scope(void);           // what a scan reads
 _cold _nodiscard std::size_t machine_scan(const cluster::Config& config, const std::function<void(const cluster::MachineProgress&)>& report = {}); // repositories
 _cold _nodiscard std::vector<cluster::ProfileQuestion> machine_questions(const cluster::Config& config);  // the [user] fields, at every sync
 _cold _nodiscard int machine_days_old(void);                // age of the map in days (-1: none)
+// the projects of the map (its git repositories): the closest to a text first - its name, then its path / kind / origin
+_cold _nodiscard std::vector<cluster::Project> projects(const std::string& query = "");
+// a folder given (~, absolute, relative to base), else the project the closest by its name; throws when none
+_cold _nodiscard std::filesystem::path resolve_folder(const std::string& text, const std::filesystem::path& base = {});
 _cold _nodiscard std::string machine_age(void);             // "2026-10-11 14:03" of the file, empty: none
 
 } // namespace end

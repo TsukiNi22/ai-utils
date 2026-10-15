@@ -40,7 +40,7 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("session_status", "Details of one session and its last 20 messages (skills loaded, files modified).", {{"session", session}}, {"session"}),
         tool_("session_read", "Same as session_status: the last messages of a session.", {{"session", session}}, {"session"}),
         tool_("session_spawn", "Start a new session in a project folder. backend: <provider>[/<model>] (claude, ollama/<model>, openai/<model>, opencode/<provider>/<model>, codex...).",
-            {{"cwd", str_("project folder (~ allowed)")}, {"name", str_("name of the session (default: the folder name)")}, {"backend", str_("provider[/model], default from the config")},
+            {{"cwd", str_("project folder (~ allowed), or the name of a project of machine.md (its git repositories: the closest by its name)")}, {"name", str_("name of the session (default: the folder name)")}, {"backend", str_("provider[/model], default from the config")},
              {"mode", str_("auto | manual | acceptEdits | plan | dontAsk | bypassPermissions")}, {"profile", str_("profile of the config")}, {"prompt", str_("first prompt")},
              {"effort", str_("thinking effort: default | low | medium | high | xhigh | max")}}, {"cwd"}),
         tool_("session_send", "Send a prompt to a session (queued when it is working). By default (reply: true) its answer comes back to you as a message "

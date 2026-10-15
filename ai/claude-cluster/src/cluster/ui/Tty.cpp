@@ -392,6 +392,7 @@ class TtyUi {
         std::vector<ftxui::Box> _chipBoxes;
         int _hoverChip = -1;
         int _hover = -1;                            // the click target under the mouse (its index in _clicks), underlined
+        std::map<int, std::string> _rowSessions;    // the click targets that are sessions (a right click: their menu)
         struct PromptRow {
             std::size_t from = 0;                   // first byte shown
             std::size_t end = 0;
@@ -1289,7 +1290,7 @@ class TtyUi {
         void filter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
-            this->_actions = cluster::filter_actions(cluster::actions(this->_manager, this->_active), wanted, &this->_manager.config()); // the closest first
+            this->_actions = cluster::filter_actions(cluster::actions(this->_manager, this->_active), wanted, &this->_manager); // the closest first
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_actions.size()) - 1));
         }
 
@@ -1305,6 +1306,8 @@ class TtyUi {
             } else if (base == "style") {
                 this->_manager.setUi("style", arg);
                 this->theme_();
+            } else if (base == "new_project") {
+                this->pick_("new:"); // the projects of this computer, its name typed
             } else if (base == "setting") {
                 this->openSettingsAt_(arg);
             } else if (base == "settings_search") {
@@ -1839,6 +1842,7 @@ class TtyUi {
             ftxui::Element sub = ftxui::text("  " + cluster::one_line(s.spec.summary.empty() ? backend + " · " + cluster::short_path(s.spec.cwd) : s.spec.summary, 26))
                 | ftxui::color(this->_theme.muted) | ftxui::dim;
             const std::string id = s.spec.id;
+            this->_rowSessions[static_cast<int>(this->_clicks.size())] = id; // a right click: its menu
             ftxui::Element block = this->tap_(ftxui::vbox({line, sub}), 0, [this, id]() {this->_active = id;}, clip); // clicked: shown
             return active ? block | ftxui::bgcolor(this->_theme.surface) : block; // no focus: it would take the cursor of the prompt
         }
@@ -2660,6 +2664,7 @@ class TtyUi {
                     const bool active = s.spec.id == this->_active;
                     ftxui::Element tab = ftxui::text(" " + state_mark_(s.state) + " " + cluster::one_line(s.spec.name, 14) + (s.permissions.empty() ? "" : " !") + " ");
                     const std::string id = s.spec.id;
+                    this->_rowSessions[static_cast<int>(this->_clicks.size())] = id;
                     tabs.push_back(this->tap_(active ? tab | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : tab | ftxui::color(this->_theme.muted),
                         0, [this, id]() {this->_active = id;}));
                 }
@@ -3030,6 +3035,7 @@ class TtyUi {
             if (this->_manager.config().reload()) this->theme_();
             this->askCheck_();
             this->_clicks.clear();  // made again by this drawing
+            this->_rowSessions.clear();
             // the face of the app (>_< running, •_• waiting on you...): in the bar, the title of the terminal, the dock
             const cluster::AppFace face = this->_manager.appFace(this->_app.voice->listening());
             const std::string title = std::string("(") + cluster::face_text(face.face) + ") " + (face.badge > 0 ? std::to_string(face.badge) + " · " : "") + "claude-cluster";
@@ -3207,6 +3213,14 @@ class TtyUi {
                     if (list) return this->event_(ftxui::Event::ArrowDown);
                     this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 3);
                     return true;
+                }
+                if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Right && this->_mode == Mode::Normal) {
+                    // a session right-clicked: its menu (open, rename, archive, delete for good...)
+                    if (auto it = this->_rowSessions.find(this->hoverAt_(mouse)); it != this->_rowSessions.end()) {
+                        this->_active = it->second;
+                        this->pick_("menu:" + it->second);
+                        return true;
+                    }
                 }
                 if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Left && this->clickAt_(mouse)) {
                     this->_selection.reset();

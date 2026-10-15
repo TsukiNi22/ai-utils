@@ -79,6 +79,7 @@ File Description:
 #include <QFrame>
 #include <QLabel>
 #include <QTimer>
+#include <QMenu>
 #include <QFile>
 #include <regex>
 #include <cmath>
@@ -646,6 +647,8 @@ class Window: public QMainWindow {
                 this->signature.clear();
             } else if (base == "settings") {
                 this->settings();
+            } else if (base == "new_project") {
+                QTimer::singleShot(0, this, [this]() {this->palette("new:");});
             } else if (base == "setting") {
                 this->settings(arg); // found in the palette: opened at it
             } else if (base == "settings_search") {
@@ -664,12 +667,44 @@ class Window: public QMainWindow {
                 const cluster::ActionResult result = cluster::run_action(this->manager, *this->app.voice, action.id, this->active, value);
                 if (!result.focus.empty()) this->active = result.focus;
                 if (!result.message.empty()) this->message(result.message, result.error);
-                if (result.ui.starts_with("pick:")) { // a next step to pick (where it applies), once this palette is closed
+                if (result.ui.starts_with("pick:delete:")) { // a session deleted for good: asked here
+                    this->confirmDelete(result.ui.substr(12));
+                } else if (result.ui.starts_with("pick:")) { // a next step to pick (where it applies), once this palette is closed
                     const QString next = q_(result.ui.substr(5));
                     QTimer::singleShot(0, this, [this, next]() {this->palette(next);});
                 }
             }
             this->refresh(true);
+        }
+
+        void confirmDelete(const std::string& id)
+        {
+            // a session deleted for good: its conversation gone, not in the trash; asked first
+            const std::optional<cluster::Snapshot> snap = this->manager.snapshot(id);
+            if (!snap) return;
+            if (QMessageBox::warning(this, "Delete for good", q_("Delete " + snap->spec.name + " for good?\n\nIts conversation is gone, it is not in the trash "
+                "(Archive keeps it restorable)."), QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+            const cluster::ActionResult result = cluster::run_action(this->manager, *this->app.voice, "delete_session:" + id, this->active, "");
+            if (!result.focus.empty()) this->active = result.focus;
+            this->message(result.message, result.error);
+            this->refresh(true);
+        }
+
+        void sessionMenu(const std::string& id, const QPoint& where)
+        {
+            // a session right-clicked: what it can do (open, rename, describe, move, archive, delete for good)
+            QMenu menu(this);
+            const std::vector<cluster::Action> items = cluster::filter_actions({}, "menu:" + id, &this->manager);
+            for (const cluster::Action& action: items) {
+                if (action.id.starts_with("delete_ask:")) menu.addSeparator();
+                QAction* entry = menu.addAction(q_(action.title));
+                QObject::connect(entry, &QAction::triggered, this, [this, action, id]() {
+                    this->active = id;
+                    if (action.id.starts_with("delete_ask:")) this->confirmDelete(id);
+                    else this->choose(action);
+                });
+            }
+            (void)menu.exec(where);
         }
 
         void choose(const cluster::Action& action)
@@ -729,7 +764,7 @@ class Window: public QMainWindow {
                 const std::string wanted = cluster::lower(filter->text().toStdString());
                 items->clear();
                 shown.clear();
-                shown = cluster::filter_actions(all, wanted, &this->manager.config()); // the closest first, the settings found too
+                shown = cluster::filter_actions(all, wanted, &this->manager); // the closest first, the settings found too
                 for (const cluster::Action& a: shown)
                     items->addItem(q_(a.title));
                 items->setCurrentRow(0);
@@ -1224,6 +1259,7 @@ class Window: public QMainWindow {
                         if (local->ui == "settings") this->settings();
                         else if (local->ui == "restore_menu") this->openRestore();
                         else if (local->ui == "rewind") this->rewind();
+                        else if (local->ui.starts_with("pick:delete:")) this->confirmDelete(local->ui.substr(12)); // asked here
                         else if (local->ui.starts_with("pick:")) this->palette(q_(local->ui.substr(5))); // its choices to pick from
                         if (!local->message.empty()) this->message(local->message, local->error);
                     }
@@ -1320,6 +1356,12 @@ class Window: public QMainWindow {
                 root->addLayout(grid, 1);
             } else if (layout == "tabs") {
                 this->tabs = new QTabBar(central);
+                this->tabs->setContextMenuPolicy(Qt::CustomContextMenu);
+                QObject::connect(this->tabs, &QTabBar::customContextMenuRequested, this, [this](const QPoint& pos) {
+                    const int index = this->tabs->tabAt(pos);
+                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    if (index >= 0 && static_cast<std::size_t>(index) < all.size()) this->sessionMenu(all[static_cast<std::size_t>(index)].spec.id, this->tabs->mapToGlobal(pos));
+                });
                 for (const cluster::Snapshot& s: sessions)
                     this->tabs->addTab(q_(s.spec.name));
                 QObject::connect(this->tabs, &QTabBar::currentChanged, [this](int index) {
@@ -1334,6 +1376,13 @@ class Window: public QMainWindow {
             } else {
                 QSplitter* splitter = new QSplitter(central);
                 this->list = new QListWidget(splitter);
+                this->list->setContextMenuPolicy(Qt::CustomContextMenu); // a session right-clicked: its menu
+                this->list->setCursor(Qt::PointingHandCursor);
+                QObject::connect(this->list, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+                    const int row = this->list->indexAt(pos).row();
+                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    if (row >= 0 && static_cast<std::size_t>(row) < all.size()) this->sessionMenu(all[static_cast<std::size_t>(row)].spec.id, this->list->viewport()->mapToGlobal(pos));
+                });
                 this->list->setMinimumWidth(220);
                 this->list->setWordWrap(true);
                 this->list->setTextElideMode(Qt::ElideMiddle);

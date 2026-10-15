@@ -17,6 +17,7 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
@@ -50,6 +51,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             "type yes to confirm", "", false},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
+        {"new_project", "New session on a project of this computer (search it by its name)", "", "", true},
         {"send", "Send a prompt to the session", "prompt", "", false},
     };
 
@@ -268,6 +270,23 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             manager.togglePanel(session, arg);
         } else if (base == "cd") {
             manager.cd(session, input);
+        } else if (base == "new" && !arg.empty()) {
+            result.focus = manager.spawn({arg, "", "", "", "", "", ""});
+            result.message = "session " + result.focus + " started in " + cluster::short_path(arg);
+        } else if (base == "focus") {
+            result.focus = arg;
+        } else if (base == "cancel") {
+            result.message = "nothing changed";
+        } else if (base == "delete_ask") {
+            result.ui = "pick:delete:" + arg; // its confirmation (yes / no)
+        } else if (base == "delete_session") {
+            // closed, then out of the trash: its conversation gone
+            const std::optional<cluster::Snapshot> gone = manager.snapshot(arg);
+            const std::string target = gone ? gone->spec.id : arg;
+            manager.close(target);
+            manager.purge(target);
+            result.message = (gone ? gone->spec.name : arg) + " deleted for good";
+            result.focus = GLOBAL_ID;
         } else if (base == "close_session") {
             manager.close(session);
             result.message = "closed (restorable from the palette)";
@@ -452,6 +471,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"context", "the context window used"},
         {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
         {"exit", "close the session (= /close)"},
+        {"delete", "delete the session for good: asked first (/delete! at once); /close keeps it in the trash"},
         {"settings", "the settings page"},
         {"vim", "vim mode of the prompt on / off"},
         {"help", "the local commands"},
@@ -527,7 +547,18 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                     return list;
                 }
                 return cluster::complete_paths(cwd, query, false);
-            case cluster::CompletionKind::Folder: return cluster::complete_paths(cwd, query, true);
+            case cluster::CompletionKind::Folder: {
+                // a name (no path typed): the projects of the map first, then the folders
+                std::vector<cluster::Candidate> list;
+                if (!query.empty() && query.find('/') == std::string::npos && !query.starts_with("~") && !query.starts_with("."))
+                    for (const cluster::Project& p: cluster::projects(query)) {
+                        list.push_back({cluster::escape_path(p.path), p.name, "project · " + (p.kind.empty() ? std::string("git") : p.kind) + " · " + p.path, true});
+                        if (list.size() >= 12) break;
+                    }
+                for (const cluster::Candidate& c: cluster::complete_paths(cwd, query, true))
+                    list.push_back(c);
+                return list;
+            }
             case cluster::CompletionKind::Mode:
                 for (const auto &[mode, description]: cluster::permission_modes())
                     add(mode, description);
@@ -587,13 +618,25 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
     const std::string name = line.substr(1, space == std::string::npos ? std::string::npos : space - 1);
     const std::string arg = space == std::string::npos ? "" : cluster::unescape_path(cluster::trim(line.substr(space + 1)));
     const std::vector<std::pair<std::string, std::string>>& local = cluster::slash_commands();
-    if (std::none_of(local.begin(), local.end(), [&](const std::pair<std::string, std::string>& c) {return c.first == name;})) return std::nullopt;
+    const std::string bare = name.ends_with("!") ? name.substr(0, name.size() - 1) : name; // /delete!: forced
+    if (std::none_of(local.begin(), local.end(), [&](const std::pair<std::string, std::string>& c) {return c.first == bare;})) return std::nullopt;
 
     cluster::ActionResult result;
     try {
         if (name == "cd") {
             manager.cd(session, arg);
             result.message = "moved to " + cluster::short_path(arg);
+        } else if (name == "delete" || name == "delete!") {
+            if (session == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session can't be deleted");
+            if (name == "delete") {
+                result.ui = "pick:delete:" + manager.resolve(session); // yes / no
+            } else {
+                const std::string id = manager.resolve(session);
+                manager.close(id);
+                manager.purge(id);
+                result.message = "deleted for good";
+                result.focus = GLOBAL_ID;
+            }
         } else if (name == "new") {
             const std::vector<std::string> parts = cluster::split(arg, ' ');
             result.focus = manager.spawn({parts.empty() ? "." : parts[0], "", parts.size() > 1 ? parts[1] : "", "", "", "", ""});
@@ -742,10 +785,57 @@ _cold cluster::ModelInfo cluster::model_info(cluster::Manager& manager, const st
     return info;
 }
 
-_cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<cluster::Action>& actions, const std::string& filter, const cluster::Config* config)
+_cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, const std::string& wanted)
 {
-    // the palette: the actions matching, the closest first (no filter: their order); a config: the settings found too
-    // (after the actions as close; setting: alone: only them), Enter opens the settings page at it
+    // the lists made for a filter: new: (a project of the map, its folder), menu:<id> (what a session can do: its right
+    // click), delete:<id> (its confirmation); none: not one of them
+    std::vector<cluster::Action> out;
+    if (cluster::lower(wanted).starts_with("new:")) {
+        const std::string query = cluster::trim(wanted.substr(4));
+        for (const cluster::Project& p: cluster::projects(query)) {
+            out.push_back({"new:" + p.path, "New session on " + p.name + "  · " + (p.kind.empty() ? std::string("git") : p.kind) + " · " + p.path
+                + (p.byName || query.empty() ? "" : "  (found by its path / kind)"), "", "", false});
+            if (out.size() >= 40) break;
+        }
+        std::error_code error;
+        if (!query.empty() && std::filesystem::is_directory(cluster::expand_home(query), error))
+            out.insert(out.begin(), cluster::Action{"new:" + query, "New session in the folder " + query, "", "", false});
+        if (out.empty()) out.push_back({"new_session", "New session: a folder (no project matches" + std::string(query.empty() ? ": map this computer first" : "") + ")", "folder [backend]", ".", false});
+        return out;
+    }
+    const bool menu = cluster::lower(wanted).starts_with("menu:");
+    const bool remove = cluster::lower(wanted).starts_with("delete:");
+    if (!menu && !remove) return out;
+    const std::string id = cluster::trim(wanted.substr(menu ? 5 : 7));
+    const std::optional<cluster::Snapshot> snap = manager.snapshot(id);
+    if (!snap) return out;
+    const std::string name = snap->spec.name;
+    if (remove) {
+        out.push_back({"delete_session:" + id, "Yes: delete " + name + " for good (its conversation gone, not in the trash)", "", "", false});
+        out.push_back({"cancel", "No: keep " + name, "", "", false});
+        return out;
+    }
+    out.push_back({"focus:" + id, "Open " + name, "", "", false});
+    if (snap->spec.global) return out;
+    static const std::vector<std::string> kept = {"rename", "describe", "cd", "resume", "where_folder", "where_terminal", "close_session"};
+    for (const cluster::Action& a: cluster::actions(manager, id))
+        if (std::find(kept.begin(), kept.end(), a.id.substr(0, a.id.find(':'))) != kept.end()) {
+            cluster::Action shown = a;
+            if (a.id == "close_session") shown.title = "Archive " + name + ": closed, to the trash (restorable " + std::to_string(manager.config().trashDays) + " days)";
+            out.push_back(shown);
+        }
+    out.push_back({"delete_ask:" + id, "Delete " + name + " for good… (asked first)", "", "", false});
+    return out;
+}
+
+_cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<cluster::Action>& actions, const std::string& filter, cluster::Manager* manager)
+{
+    // the palette: the actions matching, the closest first (no filter: their order); a manager: the lists made for a filter
+    // (new:, menu:<id>, delete:<id>) and the settings found too (after the actions as close; setting: alone: only them),
+    // Enter opens the settings page at it
+    if (manager != nullptr)
+        if (std::vector<cluster::Action> made = generated_(*manager, cluster::trim(filter)); !made.empty()) return made;
+    const cluster::Config* config = manager != nullptr ? &manager->config() : nullptr;
     std::vector<std::pair<float, cluster::Action>> found;
     std::string wanted = cluster::trim(filter);
     const bool settingsOnly = cluster::lower(wanted).starts_with("setting:");
