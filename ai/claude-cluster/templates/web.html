@@ -363,6 +363,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
             <button id="fork" title="A copy of this session: its conversation so far, each one goes on apart">Fork</button>
             <button id="interrupt" title="Stop the turn and the reading">Stop</button>
             <button id="resume" class="hidden" title="Retry now / continue where it stopped">Continue</button>
+            <button id="sendNext" class="hidden" title="the running turn interrupted, the next queued prompt sent now">Send the next now</button>
             <button id="closeSession" class="danger" title="Close the session (to the trash)">Close</button>
         </div>
         <div id="transcript"></div>
@@ -679,9 +680,12 @@ function render(state) {
     }
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
     $("sessionInfo").textContent = [s.warning ? "⚠ " + s.warning : "", s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    // a prompt queued: sent now (the running turn interrupted)
+    $("sendNext").classList.toggle("hidden", !s.queued);
     // retry now (an API error retried later) / continue (stopped: interrupted, an error)
     $("resume").classList.toggle("hidden", !s.resumable);
     $("resume").textContent = s.resumable === "retry" ? "Retry now" : "Continue";
+    $("composer").classList.remove("hidden");
     // where it runs: its folder, its branch, the computer, its process
     const w = s.where || {};
     $("sessionInfo").title = [w.folder, w.branch ? "branch " + w.branch : "", w.host ? "on " + w.host : "", w.pid ? "pid " + w.pid : ""].filter(Boolean).join("\n");
@@ -2747,6 +2751,8 @@ $("drawerSave").addEventListener("click", async () => {
     drawDrawer();
     $("drawerNote").textContent = count ? "saved" + (next ? " (" + next + " at the next start)" : "") : "nothing changed";
 });
+
+$("sendNext").addEventListener("click", () => act({cmd: "send_next", session: current}));
 
 // ---- the copy: the clipboard of the browser (https), the app, else a hidden field copied (http too) ----
 async function copyText(text) {

@@ -372,3 +372,14 @@ _cold std::string cluster::Manager::shareShell(const std::string& id, const std:
     }
     return done;
 }
+
+/* the next queued prompt of a session: now */
+_cold void cluster::Manager::sendNext(const std::string& id)
+{
+    if (this->_replica) {
+        (void)this->call({{"cmd", "send_next"}, {"session", id}});
+        return;
+    }
+    this->get_(this->resolve(id))->sendNext();
+    ++this->_version;
+}

@@ -490,6 +490,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = {{"done", manager.shareShell(session(), arg_(request, "choice"))}};
         } else if (cmd == "shell") {
             data = manager.shell(session(), arg_(request, "command"));
+        } else if (cmd == "send_next") {
+            manager.sendNext(session());
         } else if (cmd == "resume") {
             data = {{"done", manager.resume(arg_(request, "session"))}};
         } else if (cmd == "describe") {

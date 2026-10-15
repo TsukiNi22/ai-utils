@@ -132,6 +132,7 @@ class Session {
         _cold void answerQuestions(const std::string& requestId, const cluster::Json& answers); // AskUserQuestion: {question: answer}
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);
+        _cold void sendNext(void);                                         // the next queued prompt now: the turn interrupted, it sent
         _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)
         _cold void stop(void);
         _cold void rename(const std::string& name);

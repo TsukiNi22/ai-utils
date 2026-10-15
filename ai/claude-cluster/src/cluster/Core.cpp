@@ -32,6 +32,7 @@ File Description:
 #include <iomanip>
 #include <cstdlib>
 #include <csignal>
+#include <thread>
 #include <chrono>
 #include <set>
 
@@ -274,14 +275,24 @@ _cold bool cluster::Core::otherBuild_(const bool window)
     // stopped, this build started) or quit without anything; true: go on (the same build, or replaced)
     std::string theirs = "an older one (before 1.4.0)";
     std::string build;
-    try {
-        const cluster::Json r = cluster::Control::request({{"cmd", "hello"}});
-        if (r.value("ok", false)) {
-            build = r["data"].value("build", std::string());
-            theirs = r["data"].value("version", std::string()) + " (" + build + ")";
-        }
-    } catch (const utils::exception::IException&) {}
+    bool older = false; // it answered without hello: a version before it
+    for (int i = 0; i < 30; ++i) {
+        try {
+            const cluster::Json r = cluster::Control::request({{"cmd", "hello"}});
+            if (r.value("ok", false)) {
+                build = r["data"].value("build", std::string());
+                theirs = r["data"].value("version", std::string()) + " (" + build + ")";
+                break;
+            }
+            older = r.value("error", std::string()).find("unknown command") != std::string::npos;
+            if (older) break;
+        } catch (const utils::exception::IException&) {}
+        // not answered (a core stopping, starting): asked again a moment; gone: this one starts its own, nothing asked
+        if (!cluster::Control::alive()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
     if (build == cluster::build_id()) return true;
+    if (build.empty() && !older) return true; // never answered (stuck): left to the attach, which tells it
     const std::vector<int> interfaces = old_interfaces_();
     const std::string question = "claude-cluster " + theirs + " runs the core of your sessions; this one is " + cluster::build_id() + ".\n\n"
         "Replace it: its terminals / windows (" + std::to_string(interfaces.size()) + ") and its core stopped (the sessions kept: resumed by this one), "

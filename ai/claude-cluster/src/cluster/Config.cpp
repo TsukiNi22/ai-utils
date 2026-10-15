@@ -68,7 +68,7 @@ _cold void cluster::Config::defaults_(void)
         {"new_session", "Ctrl+T"}, {"close_session", "Ctrl+W"}, {"allow", "Alt+Y"}, {"always", "Alt+A"}, {"deny", "Alt+D"},
         {"undo", "Ctrl+Z"}, {"redo", "Ctrl+Y"}, {"select_all", "Ctrl+A"}, {"stash", "Ctrl+S"}, {"unstash", "Ctrl+P"},
         {"history", "Ctrl+R"}, {"paste", "Ctrl+V"}, {"cut", "Ctrl+X"},
-        {"interrupt", "Ctrl+C"}, {"resume", "F4"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"quit", "Ctrl+Q"},
+        {"interrupt", "Ctrl+C"}, {"resume", "F4"}, {"send_next", "F8"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"quit", "Ctrl+Q"},
         {"restore", "Ctrl+Shift+T|Ctrl+Shift+R|Alt+T"}, {"prefix", "Ctrl+B"},
         {"mode_cycle", "Shift+Tab"}, {"search", "Ctrl+F"}, {"edit", "Ctrl+E"}, {"expand", "Ctrl+O"}, {"help", "F1"},
     };

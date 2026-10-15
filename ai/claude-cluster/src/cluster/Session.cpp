@@ -1257,6 +1257,31 @@ _cold void cluster::Session::interrupt(void)
     this->touch_();
 }
 
+_cold void cluster::Session::sendNext(void)
+{
+    // the turn stopped, the next queued prompt sent at once (a persistent agent: the end of the interrupted turn sends it;
+    // one process per turn: the next one starts with it); not running: sent now
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (this->_pending.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "nothing queued in " + this->_data.spec.name);
+    const bool running = this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting;
+    if (this->persistent()) {
+        if (!running) {
+            const cluster::Queued next = this->_pending.front();
+            this->_pending.pop_front();
+            this->queue_();
+            this->dispatch_(next);
+        } else if (this->_in != -1) {
+            this->write_({{"type", "control_request"}, {"request_id", "int-" + std::to_string(cluster::now())}, {"request", {{"subtype", "interrupt"}}}});
+            this->_interrupted = true;
+        }
+    } else if (running && this->_process && this->_process->is()) {
+        ::kill(this->_process->getPid(), SIGINT); // its queue kept: the next turn takes it
+        this->_interrupted = true;
+    }
+    this->entry_(cluster::EntryKind::System, "interrupted: the next queued prompt sent now");
+    this->touch_();
+}
+
 _cold cluster::Queued cluster::Session::rewind(void)
 {
     // like Esc Esc in Claude Code: the last turn leaves the conversation (claude goes on from the message before its

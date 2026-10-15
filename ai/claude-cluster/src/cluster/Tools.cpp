@@ -16,6 +16,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Tools.hpp"
 #include <sys/epoll.h>
+#include <sys/stat.h>
 #include <algorithm>
 #include <unistd.h>
 #include <csignal>
@@ -462,9 +463,8 @@ _cold std::string cluster::build_id(void)
 {
     // read once, at the start: the binary installed again meanwhile is another build (its date changed)
     static const std::string id = []() {
-        std::error_code error;
-        const std::filesystem::file_time_type written = std::filesystem::last_write_time(cluster::self_exe(), error);
-        const std::int64_t seconds = error ? 0 : std::chrono::duration_cast<std::chrono::seconds>(written.time_since_epoch()).count();
+        struct stat info{};
+        const std::int64_t seconds = ::stat(cluster::self_exe().c_str(), &info) == 0 ? static_cast<std::int64_t>(info.st_mtime) : 0; // unix time
         return std::string(CLUSTER_VERSION) + "+" + std::to_string(seconds);
     }();
     return id;

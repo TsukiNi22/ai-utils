@@ -303,6 +303,7 @@ class Manager {
         _cold void answer(const std::string& id, const std::string& requestId, const std::string& behavior);
         _cold void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers);
         _cold void interrupt(const std::string& id);
+        _cold void sendNext(const std::string& id);   // its next queued prompt now (the running turn interrupted)
         _cold _nodiscard std::optional<cluster::Queued> unqueue(const std::string& id); // last queued prompt, removed
 
         // ---------- Function -------- //

@@ -103,6 +103,9 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
                     if (other.spec.id != session)
                         list.push_back({"apply:" + other.spec.id, "Apply " + what + " to " + other.spec.name + " only", "", "", false});
             }
+            if (snap->queued > 0)
+                list.push_back({"send_next", "Send the next queued prompt now (the running turn interrupted): " + cluster::one_line(snap->queue.empty() ? std::string() : snap->queue.front(), 50),
+                    "", "", false});
             const std::string can = cluster::resumable(*snap);
             list.push_back({"resume", can == "retry" ? "Retry now (the API error waits for its retry)" : can == "continue" ? "Continue the session (it stopped: interrupted, an error)"
                 : "Continue the session (\"continue\" sent)", "", "", false});
@@ -247,6 +250,9 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
         } else if (base == "interrupt") {
             manager.interrupt(session);
             voice.mute(); // the answer stopped: its reading too
+        } else if (base == "send_next") {
+            manager.sendNext(session);
+            result.message = "the next queued prompt sent now";
         } else if (base == "resume") {
             result.message = manager.resume(session);
         } else if (base == "rename") {
@@ -485,6 +491,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
         {"exit", "close the session (= /close)"},
         {"delete", "delete the session for good: asked first (/delete! at once); /close keeps it in the trash"},
+        {"now", "the next queued prompt sent now (the running turn interrupted, = F8)"},
         {"tasks", "the Tasks session: the todo lists, the task queue, the schedules"},
         {"settings", "the settings page"},
         {"vim", "vim mode of the prompt on / off"},
@@ -640,6 +647,9 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
         if (name == "cd") {
             manager.cd(session, arg);
             result.message = "moved to " + cluster::short_path(arg);
+        } else if (name == "now") {
+            manager.sendNext(session);
+            result.message = "the next queued prompt sent now";
         } else if (name == "tasks") {
             result.focus = TASKS_ID;
         } else if (name == "delete" || name == "delete!") {
@@ -750,7 +760,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"global", "the global session"}, {"new_session", "new session"}, {"close_session", "close the session (trash)"},
         {"restore", "reopen a closed session"}, {"allow", "allow the permission"}, {"always", "always allow (rule)"}, {"deny", "deny the permission"},
         {"interrupt", "stop the running turn, else clear the prompt (copy with a selection); twice on an empty prompt: quit"}, {"mode_cycle", "next permission mode"},
-        {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"resume", "retry now / continue the session"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
+        {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"resume", "retry now / continue the session"}, {"send_next", "the next queued prompt now (the turn interrupted)"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
         {"undo", "undo"}, {"redo", "redo"}, {"select_all", "select all"}, {"cut", "cut"}, {"paste", "paste (text or image)"},
         {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
         {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},

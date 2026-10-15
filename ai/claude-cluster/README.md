@@ -167,6 +167,7 @@ window opens instead when there is a display). In the background: `claude-cluste
 | Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent); while a turn runs the prompt is **queued** (shown under the transcript); the prompt leaves at once ("sent", "/clear…"): the send and the commands run in the background in their order, an error puts the prompt back |
 | Alt+Enter / Shift+Enter | new line (prompt on several lines) |
 | Esc | the last queued prompt of the session back in the prompt, removed from the queue (to edit it) |
+| F8 / `/now` / a click on the first queued line | the next queued prompt sent now: the running turn interrupted (the window: the palette; the web page: *Send the next now*; the control: `send_next`) |
 | Esc / Ctrl+C with voice prompts waiting | drop the last one / all of them (before anything else these keys do) |
 | Esc Esc | clear the prompt; on an empty prompt (like Claude Code): the last turn leaves the conversation (claude goes on from the message before it, `--resume-session-at`) and its prompt comes back to be edited (again: the one before) |
 | ↑ / ↓ | a line of the prompt; on its first / last line (or empty): the history of the prompts of the session shown, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest |

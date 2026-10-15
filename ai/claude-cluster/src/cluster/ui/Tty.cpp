@@ -1386,6 +1386,10 @@ class TtyUi {
         bool shortcut_(const std::string& action)
         {
             if (action.empty()) return false;
+            if (action == "send_next") { // the next queued prompt now
+                this->run_({"send_next", "", "", "", false}, "");
+                return true;
+            }
             if (action == "resume") { // retry now / continue the session shown
                 this->run_({"resume", "", "", "", false}, "");
             } else if (action == "expand") {
@@ -2561,8 +2565,13 @@ class TtyUi {
                 }
                 this->_animating = true;
             }
-            for (const std::string& queued: s.queue)
-                lines.push_back({"⧗ queued: " + cluster::one_line(queued, static_cast<std::size_t>(std::max(10, width - 30))) + (compact ? "" : "  (Esc: edit)"), ftxui::color(this->_theme.warn), "\n"});
+            for (std::size_t q = 0; q < s.queue.size(); ++q) {
+                // the first one: clicked (or F8), sent now
+                const std::string now = q == 0 && !compact ? "  (" + config.keys.at("send_next") + " / a click: send it now · Esc: edit)" : compact ? "" : "  (Esc: edit)";
+                Row row{"⧗ queued: " + cluster::one_line(s.queue[q], static_cast<std::size_t>(std::max(10, width - 60))) + now, ftxui::color(this->_theme.warn), "\n"};
+                if (q == 0) row.hits.emplace_back(0, std::max(10, width), [this]() {(void)this->shortcut_("send_next");});
+                lines.push_back(row);
+            }
 
             int& scroll = this->_scroll[s.spec.id];
             if (hitLine >= 0) scroll = std::max(0, static_cast<int>(lines.size()) - hitLine - height / 2);

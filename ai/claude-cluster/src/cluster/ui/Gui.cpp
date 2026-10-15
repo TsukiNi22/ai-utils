@@ -1215,6 +1215,7 @@ class Window: public QMainWindow {
             else if (action == "allow" || action == "deny" || action == "mute") this->run({action, "", "", "", false}, "");
             else if (action == "push_to_talk") this->run({"voice_toggle", "", "", "", false}, "");
             else if (action == "resume") this->run({"resume", "", "", "", false}, "");
+            else if (action == "send_next") this->run({"send_next", "", "", "", false}, "");
             else if (action == "layout") {
                 const std::string layout = this->manager.ui("layout", this->manager.config().layout);
                 this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
