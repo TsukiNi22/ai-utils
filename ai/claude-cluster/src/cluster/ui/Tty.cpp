@@ -1247,7 +1247,7 @@ class TtyUi {
             const std::string wanted = cluster::lower(this->_filter);
             this->_actions.clear();
             for (const cluster::Action& action: cluster::actions(this->_manager, this->_active))
-                if (wanted.empty() || cluster::lower(action.title).find(wanted) != std::string::npos || cluster::lower(action.id).find(wanted) != std::string::npos)
+                if (cluster::action_matches(action, wanted))
                     this->_actions.push_back(action);
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_actions.size()) - 1));
         }
@@ -1295,6 +1295,7 @@ class TtyUi {
                 const cluster::ActionResult result = cluster::run_action(this->_manager, *this->_app.voice, action.id, this->_active, input);
                 if (!result.focus.empty()) this->_active = result.focus;
                 if (!result.message.empty()) this->status_(result.message, result.error);
+                if (result.ui.starts_with("pick:")) this->pick_(result.ui.substr(5)); // a next step to pick (where it applies)
             }
         }
 

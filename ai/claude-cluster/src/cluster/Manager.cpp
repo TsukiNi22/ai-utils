@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Settings.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
@@ -345,6 +346,45 @@ _cold void cluster::Manager::purge(const std::string& id)
             if (file.path().stem().string().starts_with(gone + "-")) std::filesystem::remove(file.path(), error); // its old conversations
     }
     if (!removed.empty()) this->save();
+}
+
+_cold std::string cluster::Manager::applyTo(const std::string& kind, const std::string& value, const std::string& scope, const std::string& current)
+{
+    if (kind != "model" && kind != "mode" && kind != "effort")
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "model | mode | effort, not " + kind);
+    if (cluster::trim(value).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no value");
+    if (scope == "new") {
+        // the next new sub-sessions: the default of [agent] (a model: on the provider of the session shown)
+        std::string key = kind == "mode" ? "permission_mode" : kind == "effort" ? "effort" : "default";
+        std::string setting = value;
+        if (kind == "model") {
+            const std::optional<cluster::Snapshot> snap = this->snapshot(this->resolve(current));
+            const std::string provider = snap ? snap->spec.backend.substr(0, snap->spec.backend.find('/')) : std::string("claude");
+            setting = value.find('/') == std::string::npos ? provider + "/" + value : value;
+        }
+        if (!cluster::settings_set(this->_config, "agent", key, setting))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "[agent] " + key + " not set to " + setting);
+        (void)this->_config.reload();
+        return kind + " " + setting + " for the next new sub-sessions";
+    }
+    std::vector<std::string> ids;
+    if (scope.empty() || scope == "here") ids.push_back(this->resolve(current));
+    else if (scope == "global") ids.push_back(GLOBAL_ID);
+    else if (scope == "subs" || scope == "all")
+        for (const cluster::Snapshot& snap: this->list(scope == "all"))
+            ids.push_back(snap.spec.id);
+    else ids.push_back(this->resolve(scope));
+    std::string failed;
+    for (const std::string& id: ids) {
+        try {
+            if (kind == "model") this->setModel(id, value);
+            else if (kind == "mode") this->setMode(id, value);
+            else this->setEffort(id, value);
+        } catch (const utils::exception::IException& e) {
+            failed += (failed.empty() ? "" : ", ") + id + " (" + e.info() + ")";
+        }
+    }
+    return kind + " " + value + ": " + std::to_string(ids.size()) + " session(s)" + (failed.empty() ? std::string() : ", not for " + failed);
 }
 
 _cold std::string cluster::Manager::resume(const std::string& id)

@@ -67,6 +67,19 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         if (!snap->spec.global) {
             list.push_back({"cd", "Move the session to another folder", "folder", snap->spec.cwd, false});
             list.push_back({"close_session", "Close the session (to the trash)", "", "", false});
+            // a model / mode / effort picked: where it applies (this session first: Enter at once)
+            if (const std::string pending = manager.ui("apply", ""); !pending.empty()) {
+                const std::string what = pending.substr(0, pending.find(':')) + " " + pending.substr(pending.find(':') + 1);
+                const std::vector<cluster::Snapshot> subs = manager.list(false);
+                list.push_back({"apply:here", "Apply " + what + " to this session (" + snap->spec.name + ")", "", "", false});
+                if (session != GLOBAL_ID) list.push_back({"apply:global", "Apply " + what + " to the global session", "", "", false});
+                list.push_back({"apply:subs", "Apply " + what + " to every sub-session (" + std::to_string(subs.size()) + ")", "", "", false});
+                list.push_back({"apply:all", "Apply " + what + " to every session (" + std::to_string(subs.size() + 1) + ")", "", "", false});
+                list.push_back({"apply:new", "Apply " + what + " to the next new sub-sessions (their default)", "", "", false});
+                for (const cluster::Snapshot& other: subs)
+                    if (other.spec.id != session)
+                        list.push_back({"apply:" + other.spec.id, "Apply " + what + " to " + other.spec.name + " only", "", "", false});
+            }
             const std::string can = cluster::resumable(*snap);
             list.push_back({"resume", can == "retry" ? "Retry now (the API error waits for its retry)" : can == "continue" ? "Continue the session (it stopped: interrupted, an error)"
                 : "Continue the session (\"continue\" sent)", "", "", false});
@@ -208,15 +221,17 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
         } else if (base == "describe") {
             manager.describe(session, input);
             result.message = cluster::trim(input).empty() ? "its description written again" : "described";
-        } else if (base == "mode") {
-            manager.setMode(session, arg);
-            result.message = "mode " + arg;
-        } else if (base == "model") {
-            manager.setModel(session, arg.empty() ? cluster::trim(input) : arg);
-            result.message = "model " + (arg.empty() ? cluster::trim(input) : arg) + " (same conversation)";
-        } else if (base == "effort") {
-            manager.setEffort(session, arg);
-            result.message = "effort " + arg + " (same conversation)";
+        } else if (base == "mode" || base == "model" || base == "effort") {
+            // the value picked: where it applies is asked next (Enter at once: this session)
+            const std::string value = arg.empty() ? cluster::trim(input) : arg;
+            if (value.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no " + base);
+            manager.setUi("apply", base + ":" + value);
+            result.ui = "pick:apply:";
+        } else if (base == "apply") {
+            const std::string pending = manager.ui("apply", "");
+            if (pending.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "nothing to apply");
+            result.message = manager.applyTo(pending.substr(0, pending.find(':')), pending.substr(pending.find(':') + 1), arg, session);
+            manager.setUi("apply", "");
         } else if (base == "panel") {
             manager.togglePanel(session, arg);
         } else if (base == "cd") {
@@ -645,4 +660,20 @@ _cold cluster::ModelInfo cluster::model_info(cluster::Manager& manager, const st
     info.models = cluster::model_choices(manager.config(), backend.provider);
     info.efforts = cluster::effort_levels(info.driver);
     return info;
+}
+
+_cold bool cluster::action_matches(const cluster::Action& action, const std::string& filter)
+{
+    // a prefix ("apply:", "mode:"): the actions of that kind, the rest found in their title or id; else anywhere
+    const std::string wanted = cluster::lower(filter);
+    const std::string title = cluster::lower(action.title);
+    const std::string id = cluster::lower(action.id);
+    if (wanted.empty()) return true;
+    const std::size_t colon = wanted.find(':');
+    if (colon != std::string::npos && colon > 0 && wanted.find(' ') > colon) {
+        const std::string prefix = wanted.substr(0, colon + 1);
+        const std::string rest = cluster::trim(wanted.substr(colon + 1));
+        if (id.starts_with(prefix)) return rest.empty() || title.find(rest) != std::string::npos || id.find(rest) != std::string::npos;
+    }
+    return title.find(wanted) != std::string::npos || id.find(wanted) != std::string::npos;
 }

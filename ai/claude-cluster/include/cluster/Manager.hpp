@@ -184,7 +184,10 @@ class Manager {
         _cold void rename(const std::string& id, const std::string& name);
         _cold void askGlobal(const std::string& id, const std::string& requestId, const cluster::Json& questions); // its questions answered by the global session
         _cold void chatAbout(const cluster::Ask& ask);
-        _cold _nodiscard std::string resume(const std::string& id);   // retry now / continue (what it did)      // "Chat about this": its last message answered by the model of the session (background)
+        _cold _nodiscard std::string resume(const std::string& id);   // retry now / continue (what it did)
+        // a model / mode / effort where asked: here (the session given), global, subs (every sub-session), all, new (the default
+        // of the next sub-sessions) or a session id; what it did
+        _cold _nodiscard std::string applyTo(const std::string& kind, const std::string& value, const std::string& scope, const std::string& current);      // "Chat about this": its last message answered by the model of the session (background)
         _cold void describe(const std::string& id, const std::string& text); // its short description (empty: written again)
         _cold void setMode(const std::string& id, const std::string& mode);
         _cold _nodiscard cluster::Queued rewind(const std::string& id); // the last turn removed, its prompt back (Esc Esc)

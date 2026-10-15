@@ -608,6 +608,10 @@ class Window: public QMainWindow {
                 const cluster::ActionResult result = cluster::run_action(this->manager, *this->app.voice, action.id, this->active, value);
                 if (!result.focus.empty()) this->active = result.focus;
                 if (!result.message.empty()) this->message(result.message, result.error);
+                if (result.ui.starts_with("pick:")) { // a next step to pick (where it applies), once this palette is closed
+                    const QString next = q_(result.ui.substr(5));
+                    QTimer::singleShot(0, this, [this, next]() {this->palette(next);});
+                }
             }
             this->refresh(true);
         }
@@ -670,7 +674,7 @@ class Window: public QMainWindow {
                 items->clear();
                 shown.clear();
                 for (const cluster::Action& a: all)
-                    if (wanted.empty() || cluster::lower(a.title).find(wanted) != std::string::npos || cluster::lower(a.id).find(wanted) != std::string::npos) {
+                    if (cluster::action_matches(a, wanted)) {
                         shown.push_back(a);
                         items->addItem(q_(a.title));
                     }

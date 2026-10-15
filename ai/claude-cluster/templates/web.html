@@ -1389,7 +1389,13 @@ async function pick(kind, command) {
     const list = el("div", "picker-list");
     let selected = 0;
     const close = () => { veil.remove(); document.removeEventListener("keydown", keys, true); };
-    const choose = (item) => { close(); send(command + " " + item.label, true); };
+    const choose = (item) => {
+        close();
+        // a model / mode / effort: where it applies (this session first)
+        const name = command.slice(1);
+        if (name === "model" || name === "mode" || name === "effort") scope(name, item.label);
+        else send(command + " " + item.label, true);
+    };
     const draw = () => [...list.children].forEach((row, i) => row.classList.toggle("selected", i === selected));
     items.forEach((item, i) => {
         const row = el("div", "picker-row");
@@ -1412,6 +1418,42 @@ async function pick(kind, command) {
     draw();
     const row = list.children[selected];
     if (row) row.scrollIntoView({block: "nearest"});
+}
+
+function scope(kind, value) {
+    const subs = (lastState && lastState.sessions || []).filter((s) => s.id !== "g");
+    const here = (lastState && lastState.session) || {};
+    const items = [{label: "This session", description: here.name || current, scope: "here"}];
+    if (current !== "g") items.push({label: "The global session", scope: "global"});
+    items.push({label: "Every sub-session", description: String(subs.length), scope: "subs"}, {label: "Every session", description: String(subs.length + 1), scope: "all"},
+        {label: "The next new sub-sessions", description: "their default", scope: "new"});
+    for (const s of subs) if (s.id !== current) items.push({label: s.name || s.id, description: "only it", scope: s.id});
+    const veil = el("div", "picker-veil");
+    const box = el("div", "picker");
+    box.append(el("div", "picker-title", kind + " " + value + ": apply to"));
+    const list = el("div", "picker-list");
+    let selected = 0;
+    const close = () => { veil.remove(); document.removeEventListener("keydown", keys, true); };
+    const choose = (item) => { close(); act({cmd: "apply", kind, value, scope: item.scope, session: current}).then((d) => { if (d && d.done) toast(d.done); }); };
+    const draw = () => [...list.children].forEach((row, i) => row.classList.toggle("selected", i === selected));
+    items.forEach((item) => {
+        const row = el("div", "picker-row");
+        row.append(el("span", "", item.label), el("small", "", item.description || ""));
+        row.addEventListener("click", () => choose(item));
+        list.append(row);
+    });
+    const keys = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); close(); }
+        else if (e.key === "ArrowDown") { e.preventDefault(); selected = (selected + 1) % items.length; draw(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); selected = (selected + items.length - 1) % items.length; draw(); }
+        else if (e.key === "Enter") { e.preventDefault(); choose(items[selected]); }
+    };
+    document.addEventListener("keydown", keys, true);
+    veil.addEventListener("click", (e) => { if (e.target === veil) close(); });
+    box.append(list);
+    veil.append(box);
+    document.body.append(veil);
+    draw();
 }
 
 async function send(text, picked) {

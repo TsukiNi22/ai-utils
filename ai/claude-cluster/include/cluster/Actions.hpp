@@ -57,6 +57,7 @@ struct ActionResult {
 /* FUNCTION */
 
 _cold _nodiscard std::vector<cluster::Action> actions(cluster::Manager& manager, const std::string& session);
+_cold _nodiscard bool action_matches(const cluster::Action& action, const std::string& filter); // the palette filter ("apply:every": its prefix, then words)
 _cold _nodiscard cluster::ActionResult run_action(cluster::Manager& manager, cluster::Voice& voice, const std::string& id,
     const std::string& session, const std::string& input);
 _cold _nodiscard std::string key_action(const cluster::Config& config, const std::string& key);   // "Ctrl+K" -> "palette"
