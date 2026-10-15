@@ -114,6 +114,7 @@ class Manager {
         int _next = 1;
         int _nextTask = 1;
         std::atomic<std::uint64_t> _version{1};
+        std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::map<std::string, std::string> _notifyIds;  // the notification shown per session (replaced by the next one)

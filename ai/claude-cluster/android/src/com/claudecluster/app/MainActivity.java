@@ -428,6 +428,15 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void copy(String text) {
+            // the clipboard of the phone (the page's own is not always given to a WebView)
+            ui.post(() -> {
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (clipboard != null) clipboard.setPrimaryClip(android.content.ClipData.newPlainText("claude-cluster", text));
+            });
+        }
+
+        @JavascriptInterface
         public boolean inFront() {
             return front;
         }

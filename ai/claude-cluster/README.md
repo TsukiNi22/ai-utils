@@ -388,7 +388,9 @@ slow ready: claude-cluster started, the speech model loaded, the map of this com
 The icon is a stack of terminals whose front one has a face made of prompt characters; the app is `^_^`, and the face
 follows what claude-cluster does: the title of the terminal and its bar, the icon of the window, the tab of the web
 page, the dock (the number of the sessions waiting on you, else running: the Unity launcher API), `claude-cluster icon
-[face] [badge]` (its SVG, for a status bar). The binary installed writes its icon in the icon theme and
+[face] [badge]` (its SVG, for a status bar). It changes at once everywhere (a turn ended, its happy moment over 20 s
+later, an error, a question): the core tells every interface and the web page then, not at their next poll; an
+interface adds its own voice listening. The binary installed writes its icon in the icon theme and
 `claude-cluster.desktop` (the menu, the dock, the notifications grouped under it).
 
 | Face | The app now | A notification |
@@ -563,7 +565,10 @@ the agents, a new session, a session closed.
 - **Notifications**: a center (🔔, the notices, unseen ones counted; a click opens the session) and the notifications
   of the browser while the page is not in front (a session finished, waiting for you, an error).
 - **Settings** (⚙): every page of the settings of claude-cluster (saved in its config.toml) and *This device* (its
-  name, its theme, its view, its voice). A code block clicked: copied.
+  name, its theme, its view, its voice). A code block: its *copy* button (on hover; always shown on a phone) or a
+  click copies it - the clipboard of the browser (https), of the app, else a hidden field copied (plain http too).
+  Every clickable thing answers the mouse (hover, press, keyboard focus); the terminal underlines what the mouse is
+  over.
 - **Android app** (`setup.sh install claude-cluster` builds it when the Android SDK is there: `android/build.sh`, no
   Gradle; signed by a key of its own, `~/.config/claude-cluster/android/release.jks`): offered by the page on Android
   (`/app.apk`). The same page in an app: the computer trusted once (its authority pinned after its fingerprint is

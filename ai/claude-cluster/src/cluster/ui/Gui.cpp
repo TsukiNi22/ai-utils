@@ -498,7 +498,8 @@ class Window: public QMainWindow {
             QPixmap pixmap;
             pixmap.loadFromData(QByteArray::fromStdString(cluster::face_svg(face.face, face.badge, face.urgent)), "SVG");
             this->setWindowIcon(QIcon(pixmap));
-            this->setWindowTitle(QString("(") + QString::fromUtf8(cluster::face_text(face.face)) + ") claude-cluster");
+            this->setWindowTitle(QString("(") + QString::fromUtf8(cluster::face_text(face.face)) + ") " + (face.badge > 0 ? QString::number(face.badge) + " · " : QString())
+                + "claude-cluster");
             if (this->brand) {
                 const cluster::Style& st = this->theme();
                 this->brand->setText("<span style=\"background:" + q_(mix_(st.surface, st.accent, 0.18)) + ";color:" + q_(st.accent) + ";font-family:monospace\">&nbsp;"

@@ -214,6 +214,20 @@ header .muted { color: var(--muted); font-size: 13px; }
 .hit .where.name { background: var(--accent); }
 .setting.lit { animation: lit 2.4s ease-out; } @keyframes lit { from { background: var(--accent); } to { background: transparent; } }
 .setting .help { white-space: pre-line; }
+/* every clickable thing answers the mouse: hover, press, keyboard focus */
+button:hover:not(:disabled) { border-color: var(--accent); filter: brightness(1.12); }
+button:active:not(:disabled) { transform: translateY(1px); filter: brightness(.95); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.session:hover, #external .conv:hover, .picker-row:hover, .complete div:hover, .card-head:hover, .tree .row:hover,
+.msg.turn summary:hover, .msg.display details summary:hover, #sessionDesc:hover, #caSteps summary:hover {
+    background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.session:hover { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.session, .picker-row, .complete div, .card-head, .tree .row, .hit, button { transition: background .12s, border-color .12s, filter .12s; }
+a:hover { text-decoration: underline; }
+.code-wrap { position: relative; }
+.copy-code { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 11px; opacity: 0; transition: opacity .15s; }
+.code-wrap:hover .copy-code, .copy-code:focus-visible { opacity: 1; }
+@media (hover: none) { .copy-code { opacity: .75; } }
 .setting { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .setting .help { grid-column: 1 / 3; color: var(--muted); font-size: 12.5px; }
 .setting .help.next { color: var(--warn); }
@@ -1167,7 +1181,7 @@ let faceShown = "";
 function renderFace(face) {
     // the tab: its icon and title follow the state of claude-cluster (>_< running, •_• waiting on you, o_o an error...)
     if (!face) return;
-    const key = face.name + face.badge;
+    const key = face.name + "|" + face.badge + "|" + face.text + "|" + (face.svg || "").length;
     if (key === faceShown) return;
     faceShown = key;
     let link = document.querySelector("link[rel=icon]");
@@ -2515,17 +2529,51 @@ $("drawerSave").addEventListener("click", async () => {
     $("drawerNote").textContent = count ? "saved" + (next ? " (" + next + " at the next start)" : "") : "nothing changed";
 });
 
-// ---- a code block clicked: copied ----
+// ---- the copy: the clipboard of the browser (https), the app, else a hidden field copied (http too) ----
+async function copyText(text) {
+    if (window.ClusterApp && window.ClusterApp.copy) { window.ClusterApp.copy(text); return true; }
+    if (navigator.clipboard && window.isSecureContext) {
+        try { await navigator.clipboard.writeText(text); return true; } catch (error) { /* the fallback below */ }
+    }
+    const field = document.createElement("textarea");
+    field.value = text;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed"; field.style.opacity = "0"; field.style.top = "0";
+    document.body.append(field);
+    field.select();
+    let done = false;
+    try { done = document.execCommand("copy"); } catch (error) { done = false; }
+    field.remove();
+    return done;
+}
+
+// ---- a code block: its copy button (on hover), or the block clicked ----
 document.addEventListener("click", async (e) => {
-    const pre = e.target.closest("#transcript pre");
-    if (!pre || window.getSelection().toString()) return;
-    try { await navigator.clipboard.writeText(pre.textContent); toast("copied"); }
-    catch (error) {
+    const button = e.target.closest(".copy-code");
+    const pre = button ? button.parentElement.querySelector("pre") : e.target.closest("#transcript pre");
+    if (!pre || (!button && window.getSelection().toString())) return;
+    if (await copyText(pre.textContent)) {
+        toast("copied");
+        if (button) { button.textContent = "copied ✓"; setTimeout(() => { button.textContent = "copy"; }, 1500); }
+    } else {
         const range = document.createRange(); range.selectNodeContents(pre);
         const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
         toast("selected: Ctrl+C");
     }
 });
+// each code block of the transcript gets its button (added as they come)
+new MutationObserver(() => {
+    for (const pre of document.querySelectorAll("#transcript pre:not([data-copy])")) {
+        pre.dataset.copy = "1";
+        const wrap = document.createElement("div");
+        wrap.className = "code-wrap";
+        pre.replaceWith(wrap);
+        const button = el("button", "copy-code", "copy");
+        button.type = "button";
+        button.title = "copy this code";
+        wrap.append(button, pre);
+    }
+}).observe(document.body, {childList: true, subtree: true});
 setView(view);
 offerApp();
 if (location.hash.length > 1) { // opened by a notification: its session

@@ -391,6 +391,7 @@ class TtyUi {
         std::vector<std::size_t> _chips;            // atoms of the prompt shown as chips (images, pasted texts)
         std::vector<ftxui::Box> _chipBoxes;
         int _hoverChip = -1;
+        int _hover = -1;                            // the click target under the mouse (its index in _clicks), underlined
         struct PromptRow {
             std::size_t from = 0;                   // first byte shown
             std::size_t end = 0;
@@ -1070,9 +1071,11 @@ class TtyUi {
         /* mouse clicks */
         ftxui::Element click_(ftxui::Element element, const int layer, const std::function<bool(void)>& act, const int clip = -1)
         {
-            // drawn: its box kept, a click in it runs act (the last drawn first: what is over the rest)
+            // drawn: its box kept, a click in it runs act (the last drawn first: what is over the rest); under the mouse:
+            // underlined (hover)
+            const bool hovered = static_cast<int>(this->_clicks.size()) == this->_hover;
             this->_clicks.push_back({ftxui::Box{-1, -1, -1, -1}, layer, clip, act});
-            return element | ftxui::reflect(this->_clicks.back().box);
+            return (hovered ? element | ftxui::underlined : element) | ftxui::reflect(this->_clicks.back().box);
         }
 
         ftxui::Element tap_(ftxui::Element element, const int layer, const std::function<void(void)>& act, const int clip = -1)
@@ -1093,6 +1096,19 @@ class TtyUi {
         _nodiscard ftxui::Decorator clipBox_(const int clip)
         {
             return ftxui::reflect(this->_clicks[static_cast<std::size_t>(clip)].box);
+        }
+
+        _nodiscard int hoverAt_(const ftxui::Mouse& mouse) const
+        {
+            // the target a click would hit (the layer shown, inside its list), -1: none
+            const int layer = this->_mode == Mode::Settings ? 2 : this->_mode == Mode::Normal ? 0 : 1;
+            for (std::size_t i = this->_clicks.size(); i-- > 0;) {
+                const Click& c = this->_clicks[i];
+                if (c.layer != layer || !c.act || !c.box.Contain(mouse.x, mouse.y)) continue;
+                if (c.clip >= 0 && !this->_clicks[static_cast<std::size_t>(c.clip)].box.Contain(mouse.x, mouse.y)) continue;
+                return static_cast<int>(i);
+            }
+            return -1;
         }
 
         bool clickAt_(const ftxui::Mouse& mouse)
@@ -3177,6 +3193,7 @@ class TtyUi {
             }
             if (event.is_mouse()) {
                 const ftxui::Mouse& mouse = event.mouse();
+                this->_hover = this->hoverAt_(mouse);
                 this->_hoverChip = -1;
                 for (std::size_t i = 0; i < this->_chipBoxes.size(); ++i)
                     if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);

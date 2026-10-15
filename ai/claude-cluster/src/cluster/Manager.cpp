@@ -887,6 +887,10 @@ _cold void cluster::Manager::shutdown(void)
 _cold void cluster::Manager::tick(void)
 {
     if (this->_replica) return; // the core does it
+    // the face changed (a turn ended, its happy moment over, an error, a question): the interfaces redraw now
+    const cluster::AppFace face = this->appFace(false);
+    const int key = static_cast<int>(face.face) * 100000 + face.badge * 2 + (face.urgent ? 1 : 0);
+    if (this->_faceKey.exchange(key) != key) ++this->_version;
     static int seconds = 0;
     if (this->_config.reload()) {
         if (this->_config.error().empty()) this->notice_("", "config reloaded");
@@ -1119,7 +1123,10 @@ cluster::AppFace cluster::Manager::appFace(const bool listening) const
 {
     if (this->_replica) {
         const cluster::Json face = this->replicaState("face");
-        return face.is_object() ? face.get<cluster::AppFace>() : cluster::AppFace{};
+        cluster::AppFace shown = face.is_object() ? face.get<cluster::AppFace>() : cluster::AppFace{};
+        // its own voice listening: attentive, like the core would show it
+        if (listening && (shown.face == cluster::Face::Idle || shown.face == cluster::Face::Squint)) shown.face = cluster::Face::Attentive;
+        return shown;
     }
     // what needs the user first: an error or the safety check, a question / permission, a turn just finished, the voice
     // listening, something running, nothing
