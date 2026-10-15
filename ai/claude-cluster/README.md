@@ -91,7 +91,7 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `remote on\|off` | Remote Control of the global session |
 | `machine sync [--yes]` / `show` / `path` | map of this computer for the global session (asks first, `--yes`: not) |
 | `providers`, `notices` | backends and their state, last events |
-| `web [on\|off\|pin\|devices]`, `web approve <id> allow\|trust\|deny`, `web kick [ids\|all]`, `web untrust [ids\|all]` | web access on this LAN: its address, its code, its devices (waiting, connected, trusted); open / close it for this run, a new code, a device waiting answered, devices out (all: a new code), trusted no more |
+| `web [on\|off\|pin\|devices]`, `web approve <id> allow\|trust\|deny`, `web kick [ids\|all]`, `web untrust [ids\|all]`, `web ban <ids>`, `web unban [ids\|all]` | web access on this LAN: its address, its code, its devices (waiting, connected, trusted); open / close it for this run, a new code, a device waiting answered, devices out (all: a new code), trusted no more |
 | `external [agent]` | the conversations of the agents opened outside claude-cluster (Claude Code, Codex, opencode, Qwen Code): agent, id, age, folder, title |
 | `import <agent> <id> [--name n] [--fork]` | one of them opened here as a session resuming it (its transcript shown); `--fork`: a copy (Claude Code), the original untouched |
 | `fork <s> [--name n]` | a copy of a session of Claude Code: its conversation so far, each one goes on apart |
@@ -587,18 +587,23 @@ the agents, a new session, a session closed.
   From outside, each new device waits for your approval (even with `approve = false`), 5 wrong codes block its
   address 15 minutes; plain http is refused. Not a TLS-terminating tunnel (Cloudflare...): it would read the traffic.
 - Open: settings page > Web (`[web] enabled`, opened at every start), the palette *Web access: open*, `claude-cluster
-  web on` (this run), `claude-cluster --web`. Its address and its code are shown at the top of the interface:
-  `web https://192.168.1.12:8787 · code 123 456 · 2 connected · 1 waiting for you`; a click on it copies the code
-  (ready to paste in the page).
+  web on` (this run), `claude-cluster --web`. Its address and its code are shown at the top of every terminal and
+  window (an interface attached to the core too), in the color of the style: `● web https://192.168.1.12:8787 · code
+  123 456 · 2 connected · ping 24 ms · 1 waiting for you` (● someone connected, ○ open, nobody, ✕ the port not
+  opened); a click copies the code (the desktop clipboard: wl-copy, xclip, xsel; the terminal's too, OSC 52: over ssh),
+  *devices ›* opens their list.
 - **A 6-digit code**, new at every opening, after 5 wrong ones (each wrong one answered 1 s later) and on a kick of
   every device.
 - **Then your approval here** (`[web] approve`, on): the device waits, its popup shows its name (typed in its page,
   else its browser and system), its address and its browser: **Allow**, **Allow and trust** (no code nor approval
   next time), **Deny**, *Later* (the palette: *Web: allow ...*); the notification has the same buttons.
 - **Several devices at once**, each one its cookies (bound to its address; 30 s without a request: gone).
-- **Web devices** (the palette, the *devices* link of the window, `web devices`): tick devices, then kick them, kick
-  all of them (a new code), or remove their trust (the code asked again); trusted devices are kept in
-  `~/.config/claude-cluster/web/trusted.json` (0600).
+- **Web devices** (*devices ›* at the top, the palette, `web devices`): the connected / waiting ones with their
+  **ping** (the round trip of their page, measured every 5 s, smoothed; the mean one at the top), the trusted ones,
+  the banned ones. Tick devices (Space, a click), then kick them, kick all of them (a new code; confirmed), remove
+  their trust (the code asked again), **ban** them (confirmed: out, trusted no more, refused from now - their code
+  too; from outside the LAN their address too) or **unban** them. Kept in `~/.config/claude-cluster/web/trusted.json`
+  and `banned.json` (0600). `claude-cluster web ban <ids>` / `web unban [ids|all]` too.
 - **This network only**: the browser must have a private address (10/8, 172.16/12, 192.168/16, 169.254/16) of the
   subnet of one of the interfaces of this computer (or be on this computer); the page answers only by the address or
   the name of this computer (a public name pointed at the LAN refused) and the requests of another site are refused.
@@ -665,6 +670,13 @@ ones. Terminal: `↑↓` select, `←→` / `Enter` change a choice / toggle / n
 tabs dialog (help on hover, Ctrl+S save, F10 / Save save & close; closed with changes: asked). The changes are written in `config.toml` - only the values, its comments kept - and
 reloaded live; the options marked *applied at the next start* need a restart. Profiles, providers and own styles
 stay in the file.
+
+**Dangerous values are confirmed first**: bypassPermissions (new sessions, the global session), `allow_bypass`,
+`bypass_to_global`, `extra_args` skipping the permissions, the web access without approval, open to the Internet
+(`remote = router`), its shell, plain http, an MCP server added. The terminal asks its `y` (any other key: not
+changed), the window a dialog, the web page a confirmation; `:set` needs `:set!`; the control and the MCP refuse it
+without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
+right (the terminal), in lines and steps (Web > Beyond the LAN: how to set up Tailscale or the router).
 
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its
 description, the closest first, each hit telling where it matched (*name* / *description*). In the settings page:

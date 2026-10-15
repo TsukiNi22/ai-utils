@@ -171,7 +171,9 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("settings_get", "The settings of claude-cluster (the settings page): section, key, value, choices, help. section: one section only.",
             {{"section", str_("ui | agent | commands | global | sessions | voice | service (optional)")}}, {}),
         tool_("settings_set", "Change one setting of claude-cluster (written in its config.toml, applied live except the ones marked at_next_start).",
-            {{"section", str_("section of the option")}, {"key", str_("its key (settings_get)")}, {"value", str_("the new value (true / false, a number, a choice, a text)")}},
+            {{"section", str_("section of the option")}, {"key", str_("its key (settings_get)")}, {"value", str_("the new value (true / false, a number, a choice, a text)")},
+                {"confirmed", str_("\"true\" only when the user explicitly asked for this value: a dangerous one (bypassPermissions, the web open to "
+                    "the Internet, a shell from the web page, an MCP server...) is refused without it - ask the user first")}},
             {"section", "key", "value"}),
     });
 }

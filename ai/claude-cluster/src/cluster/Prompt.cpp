@@ -198,7 +198,7 @@ _cold static cluster::ActionResult ex_(cluster::Manager& manager, const std::str
         while (!pattern.empty() && pattern.back() == '/') pattern.pop_back();
         return {"", false, "", "search:" + pattern, ""};
     }
-    if (name == "set" || name == "se") {
+    if (name == "set" || name == "se" || name == "set!" || name == "se!") {
         // key=value: a key of the settings, alone or with its section (ui.layout)
         const std::size_t equal = arg.find('=');
         if (equal == std::string::npos) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, ":set <key>=<value>");
@@ -213,6 +213,8 @@ _cold static cluster::ActionResult ex_(cluster::Manager& manager, const std::str
             matches[0].section + "." + key + ")");
         if (const std::string why = cluster::setting_check(matches[0], value); !why.empty())
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, why);
+        if (const std::string warning = cluster::setting_danger(matches[0], value); !warning.empty() && !name.ends_with("!"))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "dangerous: " + warning + ". Sure? :set! " + key + "=" + value);
         (void)cluster::settings_set(manager.config(), matches[0].section, matches[0].key, value);
         result.message = matches[0].section + "." + matches[0].key + " = " + value + (matches[0].restart ? " (at the next start)" : "");
         return result;

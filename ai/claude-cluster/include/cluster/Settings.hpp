@@ -53,6 +53,7 @@ struct Setting {
     bool restart = false;               // applied at the next start only
     std::function<std::string(const cluster::Config&)> value;   // current value, as shown
     std::function<std::string(const std::string&)> choiceHelp{}; // Choice: the help of a value (shown with the description)
+    std::function<std::string(const std::string&)> danger{};     // a value to confirm first: its warning (empty: safe)
 };
 
 struct SettingsPage {
@@ -77,6 +78,7 @@ _cold _nodiscard std::string setting_check(const cluster::Setting& setting, cons
 _cold bool settings_set(const cluster::Config& config, const std::string& section, const std::string& key, const std::string& value);
 // the settings matching a text: their name (c2dmp-hsm, [ui] matching) far before their description, the closest first
 _cold _nodiscard std::vector<cluster::SettingHit> settings_search(const std::vector<cluster::SettingsPage>& pages, const std::string& query);
+_cold _nodiscard inline std::string setting_danger(const cluster::Setting& setting, const std::string& value) {return setting.danger ? setting.danger(value) : std::string();}; // its warning, empty: safe
 _cold void settings_write(const cluster::Config& config, const std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes);
 
 } // namespace end

@@ -334,41 +334,80 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.service.source;}},
         }},
         {"web", "Web", {
-            {"web", "enabled", "Web access", SettingKind::Bool, {}, "the devices of this network (same LAN, private address) drive claude-cluster after "
-                "the 6-digit code shown at the top and your approval here; several at once; the trusted ones without code (palette: Web devices). "
-                "Open / closed live (palette: Web access)", false,
+            {"web", "enabled", "Web access", SettingKind::Bool, {}, "a browser or the app of a phone / another computer drives claude-cluster.\n"
+                "• who: the devices of this network (same LAN); beyond it: Beyond the LAN\n"
+                "• how: the address and the 6-digit code shown at the top (a click copies the code), then your yes here (a popup)\n"
+                "• several at once; trusted: no code next time; banned: refused (devices › at the top, the palette: Web devices)\n"
+                "• opened / closed live: the palette, Web access", false,
                 [](const cluster::Config& cf) {return cf.web.enabled ? std::string("true") : std::string("false");}},
-            {"web", "approve", "Approve each new device", SettingKind::Bool, {}, "after its code, a new device waits for your yes here (a popup with "
-                "its name, address and browser: allow, allow and trust, deny); off: the code is enough", false,
+            {"web", "approve", "Approve each new device", SettingKind::Bool, {}, "after its code, a new device waits for your yes here.\n"
+                "• a popup: its name, its address, its browser; allow, allow and trust, deny\n"
+                "• off: the code is enough on the LAN (from outside the LAN: always asked)", false,
                 [](const cluster::Config& cf) {return cf.web.approve ? std::string("true") : std::string("false");}},
             {"web", "port", "Port", SettingKind::Int, {}, "the address shown: https://<this computer on the LAN>:<port>", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.port);}},
-            {"web", "remote", "Beyond the LAN", SettingKind::Choice, {"off", "tailscale", "router"}, "reached from outside, its TLS kept end to end (the "
-                "app goes there when the LAN is not reached): tailscale: its private network (this computer and the phone in the same tailnet, "
-                "nothing open to the Internet, recommended); router: a port of the router opened to this computer (UPnP: upnpc; else open it "
-                "yourself), open to the Internet. From outside: each new device approved here, 5 wrong codes block its address 15 min", false,
+            {"web", "remote", "Beyond the LAN", SettingKind::Choice, {"off", "tailscale", "router"}, "the page reached away from home (the app goes there by itself when the LAN is not reached), encrypted end to end.\n"
+                "tailscale (recommended: nothing open to the Internet)\n"
+                "  1. install Tailscale here and on the phone, log in both with the same account\n"
+                "  2. choose tailscale here: the address shown at the top becomes its tailnet one\n"
+                "router (open to the Internet)\n"
+                "  1. choose router: the port is opened on the router by UPnP (upnpc), else forward it yourself (TCP, Port outside → Port)\n"
+                "  2. a changing public address: a dynamic DNS name in Name from outside\n"
+                "Always from outside: each new device approved here, 5 wrong codes block its address 15 min, the bans apply", false,
                 [](const cluster::Config& cf) {return cf.web.remote;}},
-            {"web", "remote_host", "Name from outside", SettingKind::Text, {}, "router: a dynamic DNS name pointing at your router (empty: its public "
-                "address); put in the certificate", false,
+            {"web", "remote_host", "Name from outside", SettingKind::Text, {}, "router: a dynamic DNS name pointing at your router (duckdns, no-ip...).\n"
+                "• empty: its public address\n• put in the certificate (the browser checks it)", false,
                 [](const cluster::Config& cf) {return cf.web.remoteHost;}},
             {"web", "remote_port", "Port outside", SettingKind::Int, {}, "router: the port opened on the router (0: the same as here)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.remotePort);}},
-            {"web", "shell", "Shell from the page", SettingKind::Bool, {}, "!command (and :r !command) typed in the web page or the app run "
-                "on this computer, in the folder of the session, like in the terminal; off: refused there (a shell of this computer for every "
-                "device trusted, from outside the LAN too)", false,
+            {"web", "shell", "Shell from the page", SettingKind::Bool, {}, "!command (and :r !command) typed in the web page or the app run on this computer.\n"
+                "• in the folder of the session, like in the terminal\n"
+                "• off (default): refused there - on, every device connected gets a shell of this computer, from outside the LAN too", false,
                 [](const cluster::Config& cf) {return cf.web.shell ? std::string("true") : std::string("false");}},
-            {"web", "https", "HTTPS", SettingKind::Bool, {}, "TLS with a certificate of its own (made once, the browser asks to accept it the first time): "
-                "the conversation and the code encrypted, the microphone of the page allowed; off: plain http, no microphone", false,
+            {"web", "https", "HTTPS", SettingKind::Bool, {}, "TLS with a certificate of its own, made once.\n"
+                "• the conversation and the code encrypted, the microphone of the page allowed\n"
+                "• the browser asks to accept it the first time (or: the palette, Web access: trust its certificate)\n"
+                "• off: plain http, no microphone", false,
                 [](const cluster::Config& cf) {return cf.web.https ? std::string("true") : std::string("false");}},
         }},
         {"mcp", "MCP", {
-            {"mcp", "servers", "Custom MCP servers", SettingKind::List, {}, "MCP servers given to the global session, comma separated: "
-                "\"name: command args\" (a local program, stdio; env VAR=value command... for its variables) or \"name: https://url\" "
-                "(HTTP); its tools are mcp__<name>__*", true,
+            {"mcp", "servers", "Custom MCP servers", SettingKind::List, {}, "more tools for the global session (MCP servers), comma separated.\n"
+                "• a local program: name: command args (stdio; env VAR=value command... for its variables)\n"
+                "  e.g. files: npx -y @modelcontextprotocol/server-filesystem ~/notes\n"
+                "• a site: name: https://url (HTTP)\n"
+                "• its tools: mcp__<name>__*, on / off one by one in this MCP page\n"
+                "Applied at the next start of the global session", true,
                 [](const cluster::Config& cf) {return join_(cf.mcpServers);}},
         }},
         {"keys", "Keys", {}},
     };
+
+    // the dangerous values: confirmed first (the terminal, the window, the web page, :set!, the MCP)
+    static const std::map<std::string, std::function<std::string(const std::string&)>> dangers = {
+        {"agent.permission_mode", [](const std::string& v) {return v == "bypassPermissions" ? std::string("every new session runs any tool and "
+            "command without asking you (files changed or deleted, commands run)") : std::string();}},
+        {"global.permission_mode", [](const std::string& v) {return v == "bypassPermissions" ? std::string("the global session runs anything without "
+            "asking you, the sub-sessions too through it") : std::string();}},
+        {"agent.allow_bypass", [](const std::string& v) {return v == "true" ? std::string("a session may be switched to bypassPermissions: no "
+            "permission asked any more") : std::string();}},
+        {"agent.extra_args", [](const std::string& v) {return v.find("dangerously") != std::string::npos ? std::string("these arguments skip the "
+            "permissions of claude") : std::string();}},
+        {"sessions.bypass_to_global", [](const std::string& v) {return v == "true" ? std::string("the global session decides the commands the "
+            "safety check of Claude Code stopped (a removal...), without you") : std::string();}},
+        {"web.approve", [](const std::string& v) {return v == "false" ? std::string("a device of the network giving the code is in at once, without "
+            "your yes (from outside the LAN: still asked)") : std::string();}},
+        {"web.remote", [](const std::string& v) {return v == "router" ? std::string("a port of your router opened to the Internet: anyone may reach "
+            "the page (the code, your approval and the bans still apply). Tailscale opens nothing") : std::string();}},
+        {"web.shell", [](const std::string& v) {return v == "true" ? std::string("every device connected runs commands on this computer "
+            "(!command), from outside the LAN too") : std::string();}},
+        {"web.https", [](const std::string& v) {return v == "false" ? std::string("the conversation, the code and the cookies go in clear on the "
+            "network (anyone on it can read them); no microphone") : std::string();}},
+        {"mcp.servers", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("an MCP server runs a program (or "
+            "reaches a site) with the rights of the global session: only the ones you trust");}},
+    };
+    for (cluster::SettingsPage& page: pages)
+        for (cluster::Setting& setting: page.settings)
+            if (auto it = dangers.find(setting.section + "." + setting.key); it != dangers.end()) setting.danger = it->second;
 
     // the engines of the voice: what the value chosen handles
     for (cluster::SettingsPage& page: pages)

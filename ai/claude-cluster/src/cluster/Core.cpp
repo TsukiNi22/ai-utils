@@ -382,7 +382,7 @@ _cold int cluster::Core::headless_(void)
     } else if (cmd == "web") {
         request["action"] = w.size() > 1 ? w[1] : "";
         if (request["action"] == "approve") request.update({{"id", word(2, "id")}, {"answer", w.size() > 3 ? w[3] : "allow"}});
-        if (request["action"] == "kick" || request["action"] == "untrust") request["ids"] = w.size() > 2 ? w[2] : "";
+        if (request["action"] == "kick" || request["action"] == "untrust" || request["action"] == "ban" || request["action"] == "unban") request["ids"] = w.size() > 2 ? w[2] : "";
     } else if (cmd == "external") {
         request["agent"] = w.size() > 1 ? w[1] : "";
     } else if (cmd == "import") {
@@ -487,6 +487,8 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         if (action == "pin") std::cout << "a new code" << "\n";
         if (action == "approve") std::cout << "answered" << "\n";
         if (action == "untrust") std::cout << "trusted no more" << "\n";
+        if (action == "ban") std::cout << "banned (refused from now, their code too)" << "\n";
+        if (action == "unban") std::cout << "unbanned (the code asked again)" << "\n";
         std::cout << "web access open   " << data.value("url", std::string()) << "   code " << data.value("pin", std::string()) << "\n";
         // the devices: waiting for you, connected, trusted
         const std::function<void(const cluster::Json&, const std::string&)> devices = [](const cluster::Json& list, const std::string& title) {
@@ -494,12 +496,15 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
             std::cout << title << "\n";
             for (const cluster::Json& d: list)
                 std::cout << "  " << d.value("id", std::string()) << "  " << d.value("state", std::string()) << (d.value("trusted", false) && d.value("state", std::string()) != "trusted"
-                    ? " (trusted)" : "") << "  " << d.value("name", std::string()) << "  " << d.value("address", std::string()) << "\n";
+                    ? " (trusted)" : "") << "  " << d.value("name", std::string()) << "  " << d.value("address", std::string())
+                    << (d.value("ping", -1) >= 0 ? "  ping " + std::to_string(d.value("ping", -1)) + " ms" : "") << "\n";
         };
         devices(data.value("devices", cluster::Json::array()), "devices:");
         devices(data.value("trusted", cluster::Json::array()), "trusted devices (no code, no approval):");
+        devices(data.value("banned", cluster::Json::array()), "banned devices (refused):");
         if (data.value("devices", cluster::Json::array()).empty()) std::cout << "nobody connected: the code, then your approval here" << "\n";
-        std::cout << "approve: claude-cluster web approve <id> allow|trust|deny · out: web kick [ids|all] · trust removed: web untrust [ids|all]" << "\n";
+        std::cout << "approve: claude-cluster web approve <id> allow|trust|deny · out: web kick [ids|all] · trust removed: web untrust [ids|all] · "
+            "web ban <ids> / unban [ids|all]" << "\n";
         if (!data.value("remote", std::string()).empty()) std::cout << "from outside: " << data.value("remote", std::string()) << "\n";
         if (data.value("https", false))
             std::cout << "certificate SHA-256 " << data.value("fingerprint", std::string()) << " (the browser asks to accept it once: compare)" << "\n";

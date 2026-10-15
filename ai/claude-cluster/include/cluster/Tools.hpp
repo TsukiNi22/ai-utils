@@ -73,6 +73,7 @@ _nodiscard std::string clock_time(const std::int64_t time);       // 14:03
 _cold _nodiscard bool has_command(const std::string& name);
 _cold _nodiscard cluster::Captured capture(const std::vector<std::string>& args, const std::string& cwd = "", const int timeout = 10);
 _cold void detach(const std::vector<std::string>& args);            // run without waiting (notify-send...)
+_cold bool copy_text(const std::string& text);                      // the clipboard: wl-copy, else xclip / xsel; false: none of them
 _cold void end_captures(const int ms);                              // the quit: the commands still running stopped, waited for (ms at most)
 _cold _nodiscard std::string host_name(void);                          // the name of this computer
 _cold _nodiscard std::string git_branch(const std::filesystem::path& folder); // its branch (.git/HEAD up the tree), "" none

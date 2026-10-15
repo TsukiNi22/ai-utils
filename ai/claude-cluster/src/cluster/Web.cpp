@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Display.hpp"
+#include "cluster/Manager.hpp"
 #include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
@@ -399,6 +400,7 @@ _cold void cluster::Web::open_(const int port)
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
     this->newPin_();
     this->loadTrusted_();
+    this->loadBanned_();
     this->_running = true;
     this->_thread = std::thread(&cluster::Web::serve_, this);
     this->_manager.notice(GLOBAL_ID, "web access open: " + std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":"
@@ -638,6 +640,85 @@ _cold void cluster::Web::saveTrusted_(void) const
     ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
 }
 
+_cold void cluster::Web::loadBanned_(void)
+{
+    this->_banned.clear();
+    const std::optional<cluster::Json> saved = cluster::read_json(cluster::config_dir() / "web" / "banned.json");
+    if (!saved || !saved->is_array()) return;
+    for (const cluster::Json& d: *saved)
+        if (!d.value("id", std::string()).empty())
+            this->_banned[d.value("id", std::string())] = {d.value("id", std::string()), d.value("name", std::string()), d.value("agent", std::string()),
+                d.value("address", std::string()), "banned", false, d.value("since", static_cast<std::int64_t>(0)), 0};
+}
+
+_cold void cluster::Web::saveBanned_(void) const
+{
+    cluster::Json saved = cluster::Json::array();
+    for (const auto &[id, d]: this->_banned)
+        saved.push_back({{"id", id}, {"name", d.name}, {"agent", d.agent}, {"address", d.address}, {"since", d.since}});
+    const std::filesystem::path path = cluster::config_dir() / "web" / "banned.json";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    cluster::write_json(path, saved);
+    ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+}
+
+_cold bool cluster::Web::banned_(const std::string& id, const std::string& peer) const
+{
+    // its device; from outside the LAN its address too (a new cookie does not get it back in); on the LAN the code still asked
+    if (!id.empty() && this->_banned.contains(id)) return true;
+    if (same_lan_(peer)) return false;
+    return std::any_of(this->_banned.begin(), this->_banned.end(), [&peer](const std::pair<const std::string, cluster::WebDevice>& b) {return b.second.address == peer;});
+}
+
+_cold void cluster::Web::ban(const std::vector<std::string>& ids)
+{
+    std::vector<std::string> out;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        for (const std::string& id: ids) {
+            cluster::WebDevice d;
+            if (auto a = this->_access.find(id); a != this->_access.end()) d = a->second.device;
+            else if (auto t = this->_trusted.find(id); t != this->_trusted.end()) d = t->second.device;
+            else continue;
+            d.state = "banned";
+            d.trusted = false;
+            d.since = now_ms_();
+            this->_banned[id] = d;
+            this->_trusted.erase(id);
+            out.push_back(id);
+            this->_manager.notice(GLOBAL_ID, "web: " + d.name + " (" + d.address + ") banned (Web devices: unban it)");
+        }
+        if (out.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no such device");
+        this->saveTrusted_();
+        this->saveBanned_();
+    }
+    this->kick(out);
+}
+
+_cold void cluster::Web::unban(const std::vector<std::string>& ids)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    for (auto it = this->_banned.begin(); it != this->_banned.end();) {
+        if (!ids.empty() && std::find(ids.begin(), ids.end(), it->first) == ids.end()) {
+            ++it;
+            continue;
+        }
+        this->_manager.notice(GLOBAL_ID, "web: " + it->second.name + " unbanned (its code asked again)");
+        it = this->_banned.erase(it);
+    }
+    this->saveBanned_();
+}
+
+_cold void cluster::Web::ping(const std::string& id, const int rtt)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    auto it = this->_access.find(id);
+    if (it == this->_access.end() || rtt < 0 || rtt > 120000) return;
+    int& ping = it->second.device.ping;
+    ping = ping < 0 ? rtt : (ping * 2 + rtt) / 3; // smoothed: a slow request does not jump it
+}
+
 _cold void cluster::Web::ask_(const std::string& id)
 {
     // a device gave the code: the host says yes, yes and remember it, or no (the popup of the interface, the notification)
@@ -737,7 +818,11 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     cluster::WebStatus status;
     status.on = this->_fd != -1;
     status.error = this->_error;
-    if (!status.on) return status;
+    if (!status.on) {
+        for (const auto &[id, d]: this->_banned)
+            status.banned.push_back(d);
+        return status;
+    }
     status.url = std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":" + std::to_string(this->_port);
     status.https = this->_tls != nullptr;
     status.fingerprint = this->_fingerprint;
@@ -750,6 +835,16 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     }
     for (const auto &[id, access]: this->_trusted)
         status.trusted.push_back(access.device);
+    for (const auto &[id, d]: this->_banned)
+        status.banned.push_back(d);
+    int sum = 0;
+    int measured = 0;
+    for (const cluster::WebDevice& d: status.devices)
+        if (d.state == "connected" && d.ping >= 0) {
+            sum += d.ping;
+            ++measured;
+        }
+    status.ping = measured > 0 ? sum / measured : -1;
     return status;
 }
 
@@ -908,6 +1003,10 @@ self.addEventListener("notificationclick", (e) => {
 
     if (request.path == "/api/logout") {
         json_(conn, 200, {{"ok", true}}, "Set-Cookie: cc_web=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure + "\r\n");
+    } else if (post && request.path == "/api/ping") {
+        // its round trip before this one, measured by the page (the ping of the devices)
+        if (body.is_object() && body.contains("rtt") && body["rtt"].is_number()) this->ping(cookie_(request, "cc_dev"), body["rtt"].get<int>());
+        json_(conn, 200, {{"ok", true}});
     } else if (request.method == "GET" && request.path == "/api/state") {
         // waits for a change (15 s at most): the page asks again at once, no polling
         std::uint64_t seen = 0;
@@ -1061,6 +1160,10 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
     const std::string agent = request.headers.contains("user-agent") ? request.headers.at("user-agent") : "";
     std::unique_lock<std::mutex> lock(this->_mutex);
     this->expire_();
+    if (this->banned_(id, peer)) {
+        json_(conn, 403, {{"error", "this device is banned by the computer"}, {"banned", true}});
+        return;
+    }
     // from outside: always approved by the host; 5 wrong codes block the address 15 minutes
     const bool outside = !same_lan_(peer);
     if (outside && request.method != "GET" && this->_blocked.contains(peer) && this->_blocked.at(peer).second > now_ms_()) {
@@ -1157,5 +1260,71 @@ _cold std::string cluster::web_line(const cluster::WebStatus& status)
         waiting += d.state == "waiting" ? 1 : 0;
     }
     return "web " + status.url + " · code " + status.pin + " · " + (connected == 0 ? std::string("nobody") : std::to_string(connected) + " connected")
-        + (waiting > 0 ? " · " + std::to_string(waiting) + " waiting for you" : "");
+        + (status.ping >= 0 ? " · ping " + std::to_string(status.ping) + " ms" : "") + (waiting > 0 ? " · " + std::to_string(waiting) + " waiting for you" : "");
+}
+
+_cold static cluster::WebDevice device_json_(const cluster::Json& d)
+{
+    return {d.value("id", std::string()), d.value("name", std::string()), d.value("agent", std::string()), d.value("address", std::string()),
+        d.value("state", std::string()), d.value("trusted", false), d.value("since", static_cast<std::int64_t>(0)) * 1000, d.value("seen", static_cast<std::int64_t>(0)) * 1000,
+        d.value("ping", -1)};
+}
+
+static std::mutex web_cache_mutex_;
+static std::int64_t web_cache_at_ = 0;
+static std::optional<cluster::WebStatus> web_cache_;
+
+_cold std::optional<cluster::WebStatus> cluster::web_status(cluster::Manager& manager)
+{
+    // here: its state; an interface of the core: asked to the core (once a second at most, the screen redraws often)
+    if (manager.web() != nullptr) return manager.web()->status();
+    if (!manager.replica()) return std::nullopt;
+    std::lock_guard<std::mutex> lock(web_cache_mutex_);
+    if (now_ms_() - web_cache_at_ < 1000) return web_cache_;
+    web_cache_at_ = now_ms_();
+    try {
+        const cluster::Json data = manager.call({{"cmd", "web"}, {"action", "devices"}});
+        cluster::WebStatus status;
+        status.on = data.value("on", false);
+        status.url = data.value("url", std::string());
+        status.pin = data.value("pin", std::string());
+        status.client = data.value("client", std::string());
+        status.error = data.value("error", std::string());
+        status.https = data.value("https", false);
+        status.fingerprint = data.value("fingerprint", std::string());
+        status.remoteUrl = data.value("remote_url", std::string());
+        status.remoteState = data.value("remote", std::string());
+        status.ping = data.value("ping", -1);
+        for (const char* list: {"devices", "trusted", "banned"})
+            if (data.contains(list) && data[list].is_array())
+                for (const cluster::Json& d: data[list])
+                    (std::string(list) == "devices" ? status.devices : std::string(list) == "trusted" ? status.trusted : status.banned).push_back(device_json_(d));
+        web_cache_ = status;
+    } catch (const utils::exception::IException&) {
+        web_cache_ = std::nullopt;
+    }
+    return web_cache_;
+}
+
+_cold void cluster::web_act(cluster::Manager& manager, const std::string& action, const std::vector<std::string>& ids, const std::string& id, const std::string& answer)
+{
+    if (cluster::Web* web = manager.web()) {
+        if (action == "on" || action == "off") {
+            web->setOn(action == "on");
+            web->tick();
+        } else if (action == "pin") web->renewPin();
+        else if (action == "kick") web->kick(ids);
+        else if (action == "approve") web->approve(id, answer);
+        else if (action == "untrust") web->untrust(ids);
+        else if (action == "ban") web->ban(ids);
+        else if (action == "unban") web->unban(ids);
+        return;
+    }
+    if (!manager.replica()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access here");
+    std::string joined;
+    for (const std::string& i: ids)
+        joined += (joined.empty() ? "" : ",") + i;
+    (void)manager.call({{"cmd", "web"}, {"action", action}, {"ids", joined}, {"id", id}, {"answer", answer}});
+    std::lock_guard<std::mutex> lock(web_cache_mutex_);
+    web_cache_at_ = 0; // its new state at the next look
 }

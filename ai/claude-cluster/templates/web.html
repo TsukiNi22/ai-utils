@@ -213,6 +213,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .hit .where { margin-left: auto; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--muted, #888); color: var(--bg, #000); }
 .hit .where.name { background: var(--accent); }
 .setting.lit { animation: lit 2.4s ease-out; } @keyframes lit { from { background: var(--accent); } to { background: transparent; } }
+.setting .help { white-space: pre-line; }
 .setting { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .setting .help { grid-column: 1 / 3; color: var(--muted); font-size: 12.5px; }
 .setting .help.next { color: var(--warn); }
@@ -422,9 +423,23 @@ async function reconnect() {
         const r = await fetch("/api/login", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json"},
             body: JSON.stringify({name: deviceName()})});
         if (r.status === 200) { version = 0; return; }
+        if (r.status === 403) { showLogin("This device is banned by the computer (unbanned there: its Web devices)"); return; }
     } catch (error) { /* offline */ }
     showLogin("Disconnected: the code again");
 }
+
+// the round trip of this page, measured every 5 s, the last one sent with the next: the ping shown on the computer
+let pingLast = -1;
+setInterval(async () => {
+    if (document.hidden || $("app").classList.contains("hidden")) return;
+    const start = performance.now();
+    try {
+        await fetch("/api/ping", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({rtt: pingLast})});
+        pingLast = Math.round(performance.now() - start);
+        $("who").title = "ping " + pingLast + " ms";
+    } catch (error) { /* offline: the state loop reconnects */ }
+}, 5000);
 
 function showLogin(message) {
     loop++;
@@ -2481,8 +2496,15 @@ $("drawerSave").addEventListener("click", async () => {
     let next = 0;
     for (const [key, value] of settingsChanged) {
         const dot = key.indexOf(".");
+        const request = {cmd: "settings_set", section: key.slice(0, dot), key: key.slice(dot + 1), value};
         try {
-            const data = await cmd({cmd: "settings_set", section: key.slice(0, dot), key: key.slice(dot + 1), value});
+            let data;
+            try { data = await cmd(request); } catch (error) {
+                // a dangerous value: its warning, yes or not changed
+                if (!error.message.startsWith("confirm: ")) throw error;
+                if (!confirm("⚠ " + key + " = " + value + "\n\n" + error.message.slice(9) + ".\n\nSure?")) { settingsChanged.delete(key); continue; }
+                data = await cmd(Object.assign({confirmed: true}, request));
+            }
             if (data && data.at_next_start) next++;
         } catch (error) { toast(key + ": " + error.message); return; }
     }

@@ -48,6 +48,7 @@ struct WebDevice {
     bool trusted = false;           // no code, no approval
     std::int64_t since = 0;         // asked / connected / trusted (ms)
     std::int64_t seen = 0;          // its last request (ms)
+    int ping = -1;                  // its round trip (ms, smoothed; measured by its page every 5 s), -1: not yet
 };
 
 struct WebStatus {
@@ -62,13 +63,20 @@ struct WebStatus {
     std::string fingerprint;        // SHA-256 of the certificate, to compare with the one the browser shows
     std::string remoteUrl;          // reached from outside ([web] remote), empty: not
     std::string remoteState;        // how it is reached from outside, or why not
+    std::vector<cluster::WebDevice> banned;     // refused (their code, their trust), until unbanned
+    int ping = -1;                  // the mean of the devices connected (ms), -1: none measured
 };
 
 //----------------------------------------------------------------//
 /* FUNCTION */
 
-// "web http://192.168.1.12:8787 · code 123 456 · free" (connected: its address), empty: closed
+// "web http://192.168.1.12:8787 · code 123 456 · 2 connected · ping 24 ms", empty: closed
 _cold _nodiscard std::string web_line(const cluster::WebStatus& status);
+// the web access of the core, here or from an interface attached to it (the control, its state kept 1 s): none: no web access
+_cold _nodiscard std::optional<cluster::WebStatus> web_status(cluster::Manager& manager);
+// on | off | pin | kick [ids] | approve <id> <answer> | untrust [ids] | ban [ids] | unban [ids] (ids: none, all)
+_cold void web_act(cluster::Manager& manager, const std::string& action, const std::vector<std::string>& ids = {}, const std::string& id = "",
+    const std::string& answer = "");
 
 //----------------------------------------------------------------//
 /* CLASS */
@@ -106,6 +114,7 @@ class Web {
         std::string _remoteState;
         int _mapped = 0;                            // the port of the router opened by UPnP (closed with it)
         std::map<std::string, std::pair<int, std::int64_t>> _blocked; // a peer from outside: its wrong codes, blocked until (ms)
+        std::map<std::string, cluster::WebDevice> _banned;              // by device (config folder / web / banned.json)
 
         // ---------- Pre-Function -------- //
         _cold void open_(const int port);
@@ -117,6 +126,9 @@ class Web {
         _cold void ask_(const std::string& id);    // the host asked to approve it (popup, notification)
         _cold void loadTrusted_(void);
         _cold void saveTrusted_(void) const;
+        _cold void loadBanned_(void);
+        _cold void saveBanned_(void) const;
+        _cold _nodiscard bool banned_(const std::string& id, const std::string& peer) const; // its device, or its address from outside
         _cold _nodiscard std::string tls_(void);   // https set up (its certificate made once), error text, empty: on
         _cold void newPin_(void);
         _cold void expire_(void);       // the devices gone, the waits too old (under _mutex)
@@ -130,6 +142,9 @@ class Web {
         _cold void kick(const std::vector<std::string>& ids = {});     // these devices out (none: all of them, a new code)
         _cold void approve(const std::string& id, const std::string& answer); // a device waiting: allow | trust | deny
         _cold void untrust(const std::vector<std::string>& ids = {});  // remembered no more (none: all), out too
+        _cold void ban(const std::vector<std::string>& ids);            // refused from now (out, trusted no more), kept
+        _cold void unban(const std::vector<std::string>& ids = {});    // allowed again (none: all)
+        _cold void ping(const std::string& id, const int rtt);          // a round trip measured by its page
         _cold void renewPin(void);
         _cold _nodiscard cluster::WebStatus status(void) const;
 

@@ -596,6 +596,14 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 for (const cluster::Setting& setting: page.settings)
                     if (section.empty() || section == setting.section)
                         data.push_back({{"section", setting.section}, {"key", setting.key}, {"label", setting.label}, {"value", setting.value(manager.config())},
+                            {"danger", [&setting]() {
+                                cluster::Json d = cluster::Json::object(); // the dangerous values of a choice / a switch: their warning
+                                std::vector<std::string> values = setting.choices;
+                                if (setting.kind == cluster::SettingKind::Bool) values = {"true", "false"};
+                                for (const std::string& v: values)
+                                    if (const std::string w = cluster::setting_danger(setting, v); !w.empty()) d[v] = w;
+                                return d;
+                            }()},
                             {"choices", setting.choices}, {"help", setting.description}, {"at_next_start", setting.restart}, {"page", page.title},
                             {"kind", setting.kind == cluster::SettingKind::Bool ? "bool" : setting.kind == cluster::SettingKind::Int ? "int"
                                 : setting.kind == cluster::SettingKind::Float ? "float" : setting.kind == cluster::SettingKind::Choice ? "choice"
@@ -605,6 +613,12 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::string section = arg_(request, "section");
             const std::string key = arg_(request, "key");
             const std::string value = arg_(request, "value");
+            const bool confirmed = request.contains("confirmed") && (request["confirmed"] == true || request["confirmed"] == "true");
+            for (const cluster::SettingsPage& page: cluster::settings_pages(manager.config()))
+                for (const cluster::Setting& setting: page.settings)
+                    if (setting.section == section && setting.key == key && value != setting.value(manager.config()) && !confirmed)
+                        if (const std::string warning = cluster::setting_danger(setting, value); !warning.empty())
+                            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "confirm: " + warning);
             const bool restart = cluster::settings_set(manager.config(), section, key, value);
             if (section == "ui" && (key == "layout" || key == "style" || key == "vim")) manager.setUi(key, value);
             (void)manager.config().reload();
@@ -684,11 +698,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             cluster::Web* web = manager.web();
             if (web == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no web access in this instance");
             // devices: approve <id> allow | trust | deny, kick [ids], untrust [ids] (ids: separated by commas, none: all)
-            static const std::set<std::string> actions = {"", "on", "off", "kick", "pin", "devices", "approve", "untrust"};
+            static const std::set<std::string> actions = {"", "on", "off", "kick", "pin", "devices", "approve", "untrust", "ban", "unban"};
             const std::string action = arg_(request, "action");
             if (!actions.contains(action))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown action '" + action
-                    + "' (web [on|off|pin|devices|kick [ids]|approve <id> allow|trust|deny|untrust [ids]])");
+                    + "' (web [on|off|pin|devices|kick [ids]|approve <id> allow|trust|deny|untrust [ids]|ban <ids>|unban [ids]])");
             if ((action == "kick" || action == "pin" || action == "approve") && !web->status().on)
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the web access is closed: claude-cluster web on");
             std::vector<std::string> ids;
@@ -700,19 +714,21 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             else if (action == "pin") web->renewPin();
             else if (action == "approve") web->approve(arg_(request, "id"), arg_(request, "answer", "allow"));
             else if (action == "untrust") web->untrust(ids);
+            else if (action == "ban") web->ban(ids);
+            else if (action == "unban") web->unban(ids);
             if (action == "on" || action == "off") web->tick(); // applied now, not at the next second
             const cluster::WebStatus status = web->status();
             const std::function<cluster::Json(const std::vector<cluster::WebDevice>&)> list = [](const std::vector<cluster::WebDevice>& devices) {
                 cluster::Json out = cluster::Json::array();
                 for (const cluster::WebDevice& d: devices)
                     out.push_back({{"id", d.id}, {"name", d.name}, {"address", d.address}, {"agent", d.agent}, {"state", d.state}, {"trusted", d.trusted},
-                        {"since", d.since / 1000}, {"seen", d.seen / 1000}});
+                        {"since", d.since / 1000}, {"seen", d.seen / 1000}, {"ping", d.ping}});
                 return out;
             };
             data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
                 {"https", status.https}, {"fingerprint", status.fingerprint}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState},
                 {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
-                {"trusted", list(status.trusted)}};
+                {"trusted", list(status.trusted)}, {"banned", list(status.banned)}, {"ping", status.ping}};
         } else if (cmd == "voice_engines") {
             // the engines of the voice: what each one handles, its limits, its free use, its links, ready, used
             data = cluster::voice_engines_json(manager.config());

@@ -442,3 +442,18 @@ _cold std::string cluster::open_terminal(const std::filesystem::path& folder)
         }
     return "";
 }
+
+_cold bool cluster::copy_text(const std::string& text)
+{
+    // the clipboard of the desktop: Wayland (wl-copy), else X11 (xclip, xsel: the text given on their input)
+    if (std::getenv("WAYLAND_DISPLAY") != nullptr && cluster::has_command("wl-copy")) {
+        cluster::detach({"wl-copy", "--", text});
+        return true;
+    }
+    for (const char* tool: {"xclip -selection clipboard", "xsel --clipboard --input"})
+        if (std::getenv("DISPLAY") != nullptr && cluster::has_command(cluster::split(tool, ' ')[0])) {
+            cluster::detach({"sh", "-c", std::string("printf %s \"$1\" | ") + tool, "sh", text});
+            return true;
+        }
+    return false;
+}

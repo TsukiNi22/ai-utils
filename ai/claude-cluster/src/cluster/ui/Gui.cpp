@@ -331,9 +331,9 @@ class Window: public QMainWindow {
         void webAsk(void)
         {
             // a device of the web access asks to connect: who it is, allow / allow and trust / deny / later
-            cluster::Web* web = this->manager.web();
-            if (web == nullptr || this->webAsking) return;
-            for (const cluster::WebDevice& d: web->status().devices) {
+            const std::optional<cluster::WebStatus> web = cluster::web_status(this->manager);
+            if (!web || this->webAsking) return;
+            for (const cluster::WebDevice& d: web->devices) {
                 if (d.state != "waiting" || this->webAsked.contains(d.id)) continue;
                 this->webAsked.insert(d.id);
                 this->webAsking = true;
@@ -352,7 +352,7 @@ class Window: public QMainWindow {
                 const QAbstractButton* clicked = box.clickedButton();
                 const std::string answer = clicked == allow ? "allow" : clicked == trust ? "trust" : clicked == deny ? "deny" : "";
                 try {
-                    if (!answer.empty()) web->approve(d.id, answer);
+                    if (!answer.empty()) cluster::web_act(this->manager, "approve", {}, d.id, answer);
                 } catch (const utils::exception::IException& e) {
                     this->message(e.info(), true);
                 }
@@ -363,42 +363,57 @@ class Window: public QMainWindow {
 
         void webDevices(void)
         {
-            // the devices waiting, connected and trusted: ticked, then kicked or their trust removed
-            cluster::Web* web = this->manager.web();
-            if (web == nullptr) return;
+            // the devices connected / waiting (their ping), trusted, banned: ticked, then kicked, trusted no more, banned or
+            // unbanned; kick all and ban asked first
+            if (!cluster::web_status(this->manager)) return;
             QDialog dialog(this);
             dialog.setWindowTitle("Web devices");
-            dialog.resize(640, 420);
+            dialog.resize(760, 480);
             QVBoxLayout* layout = new QVBoxLayout(&dialog);
+            QLabel* head = new QLabel(&dialog);
+            head->setTextFormat(Qt::RichText);
             QListWidget* devices = new QListWidget(&dialog);
-            layout->addWidget(new QLabel("Tick the devices, then: kick them, or trust them no more (the code asked again).", &dialog));
+            devices->setMouseTracking(true);
+            devices->setStyleSheet("QListWidget::item{padding:6px 4px;}QListWidget::item:hover{background:" + q_(this->theme().surface) + ";}");
+            layout->addWidget(head);
+            layout->addWidget(new QLabel("Tick the devices, then: kick them, trust them no more, ban them (refused, their code too) or unban them.", &dialog));
             layout->addWidget(devices);
-            const std::function<void(void)> fill = [web, devices]() {
+            const cluster::Style st = this->theme();
+            const std::function<void(void)> fill = [this, devices, head, st]() {
+                std::set<QString> ticked;
+                for (int i = 0; i < devices->count(); ++i)
+                    if (devices->item(i)->checkState() == Qt::Checked) ticked.insert(devices->item(i)->data(Qt::UserRole).toString());
                 devices->clear();
-                const cluster::WebStatus status = web->status();
-                for (const cluster::WebDevice& d: status.devices) {
-                    QListWidgetItem* item = new QListWidgetItem(q_(d.name + "   " + d.address + "   " + d.state + (d.trusted ? " · trusted" : "")), devices);
+                const std::optional<cluster::WebStatus> now = cluster::web_status(this->manager);
+                if (!now) return;
+                head->setText(!now->on ? span_(st.muted, "the web access is closed (the palette: Web access: open)")
+                    : span_(st.accent, esc_(now->url + " · code " + now->pin), true) + span_(st.muted, esc_(now->ping >= 0 ? "  · mean ping " + std::to_string(now->ping) + " ms" : "")));
+                const std::function<void(const std::string&, const std::string&, const cluster::WebDevice&)> add = [devices, &ticked](const std::string& key,
+                    const std::string& line, const cluster::WebDevice& d) {
+                    QListWidgetItem* item = new QListWidgetItem(q_(line), devices);
                     item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-                    item->setCheckState(Qt::Unchecked);
-                    item->setData(Qt::UserRole, q_("d:" + d.id));
-                    item->setToolTip(q_(d.agent));
-                }
-                for (const cluster::WebDevice& d: status.trusted) {
-                    QListWidgetItem* item = new QListWidgetItem(q_("trusted   " + d.name + "   last " + (d.seen > 0 ? cluster::human_age(d.seen / 1000) + " ago" : std::string("never"))), devices);
-                    item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-                    item->setCheckState(Qt::Unchecked);
-                    item->setData(Qt::UserRole, q_("t:" + d.id));
-                    item->setToolTip(q_(d.agent));
-                }
-                if (devices->count() == 0) new QListWidgetItem("nobody connected, no trusted device", devices);
+                    item->setCheckState(ticked.contains(q_(key)) ? Qt::Checked : Qt::Unchecked);
+                    item->setData(Qt::UserRole, q_(key));
+                    item->setToolTip(q_(d.address + "\n" + d.agent));
+                };
+                for (const cluster::WebDevice& d: now->devices)
+                    add("d:" + d.id, (d.state == "connected" ? "● " : "◌ ") + d.name + "   " + d.address + "   " + d.state + (d.trusted ? " · trusted" : "")
+                        + (d.state != "connected" ? "" : d.ping < 0 ? "   ping …" : "   ping " + std::to_string(d.ping) + " ms"), d);
+                for (const cluster::WebDevice& d: now->trusted)
+                    add("t:" + d.id, "trusted   " + d.name + "   last " + (d.seen > 0 ? cluster::human_age(d.seen / 1000) + " ago" : std::string("never")), d);
+                for (const cluster::WebDevice& d: now->banned)
+                    add("b:" + d.id, "banned   " + d.name + "   " + d.address + "   since " + cluster::human_age(d.since / 1000) + " ago", d);
+                if (devices->count() == 0) new QListWidgetItem("nobody connected, no trusted or banned device", devices);
             };
             fill();
-            const std::function<std::pair<std::vector<std::string>, std::vector<std::string>>(void)> ticked = [devices]() {
-                std::pair<std::vector<std::string>, std::vector<std::string>> out;
+            QTimer* live = new QTimer(&dialog); // their ping, the ones coming and going
+            QObject::connect(live, &QTimer::timeout, &dialog, fill);
+            live->start(2000);
+            const std::function<std::map<char, std::vector<std::string>>(void)> ticked = [devices]() {
+                std::map<char, std::vector<std::string>> out; // d / t / b: their ids
                 for (int i = 0; i < devices->count(); ++i) {
                     const QString key = devices->item(i)->data(Qt::UserRole).toString();
-                    if (key.isEmpty() || devices->item(i)->checkState() != Qt::Checked) continue;
-                    (key.startsWith("t:") ? out.second : out.first).push_back(key.mid(2).toStdString());
+                    if (key.size() > 2 && devices->item(i)->checkState() == Qt::Checked) out[key.at(0).toLatin1()].push_back(key.mid(2).toStdString());
                 }
                 return out;
             };
@@ -406,33 +421,69 @@ class Window: public QMainWindow {
             QPushButton* kick = new QPushButton("Kick the ticked", &dialog);
             QPushButton* kickAll = new QPushButton("Kick all (a new code)", &dialog);
             QPushButton* untrust = new QPushButton("Trust no more", &dialog);
+            QPushButton* ban = new QPushButton("Ban", &dialog);
+            QPushButton* unban = new QPushButton("Unban", &dialog);
             QPushButton* close = new QPushButton("Close", &dialog);
-            for (QPushButton* b: {kick, kickAll, untrust})
+            for (QPushButton* b: {kick, kickAll, untrust, ban, unban}) {
+                b->setCursor(Qt::PointingHandCursor);
                 buttons->addWidget(b);
+            }
             buttons->addStretch(1);
             buttons->addWidget(close);
             layout->addLayout(buttons);
-            QObject::connect(kick, &QPushButton::clicked, [web, ticked, fill]() {
-                const std::vector<std::string> ids = ticked().first;
-                if (!ids.empty()) web->kick(ids);
+            const std::function<void(const std::string&, const std::vector<std::string>&)> act = [this, fill](const std::string& action, const std::vector<std::string>& ids) {
+                try {
+                    cluster::web_act(this->manager, action, ids);
+                } catch (const utils::exception::IException& e) {
+                    this->message(e.info(), true);
+                }
                 fill();
+            };
+            QObject::connect(kick, &QPushButton::clicked, [act, ticked]() {
+                if (const std::vector<std::string> ids = ticked()['d']; !ids.empty()) act("kick", ids);
             });
-            QObject::connect(kickAll, &QPushButton::clicked, [web, fill]() {
-                web->kick();
-                fill();
+            QObject::connect(kickAll, &QPushButton::clicked, [act, &dialog]() {
+                if (QMessageBox::question(&dialog, "Web devices", "Kick every device? A new code is made too.") == QMessageBox::Yes) act("kick", {});
             });
-            QObject::connect(untrust, &QPushButton::clicked, [web, ticked, fill]() {
-                const auto [connected, trusted] = ticked();
-                std::vector<std::string> ids = trusted;
-                ids.insert(ids.end(), connected.begin(), connected.end());
-                if (!ids.empty()) web->untrust(ids);
-                fill();
+            QObject::connect(untrust, &QPushButton::clicked, [act, ticked]() {
+                std::map<char, std::vector<std::string>> t = ticked();
+                std::vector<std::string> ids = t['t'];
+                ids.insert(ids.end(), t['d'].begin(), t['d'].end());
+                if (!ids.empty()) act("untrust", ids);
+            });
+            QObject::connect(ban, &QPushButton::clicked, [act, ticked, &dialog]() {
+                std::map<char, std::vector<std::string>> t = ticked();
+                std::vector<std::string> ids = t['d'];
+                ids.insert(ids.end(), t['t'].begin(), t['t'].end());
+                if (ids.empty()) return;
+                if (QMessageBox::warning(&dialog, "Ban", q_("Ban " + std::to_string(ids.size()) + " device(s)? Disconnected, trusted no more, refused from now - "
+                    "their code too - until unbanned here."), QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) act("ban", ids);
+            });
+            QObject::connect(unban, &QPushButton::clicked, [act, ticked]() {
+                if (const std::vector<std::string> ids = ticked()['b']; !ids.empty()) act("unban", ids);
             });
             QObject::connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
             dialog.exec();
         }
 
         QLabel* brand = nullptr;                // the top bar: its face and the name
+        QLabel* webLabel = nullptr;             // the web access under it
+
+        void webLink(const QString& link)
+        {
+            // the web line: its code copied (ready to paste in the page), its devices
+            const std::optional<cluster::WebStatus> web = cluster::web_status(this->manager);
+            if (!web) return;
+            if (link == "web-devices") {
+                this->webDevices();
+                return;
+            }
+            QString digits;
+            for (const QChar c: q_(web->pin))
+                if (c.isDigit()) digits += c;
+            QGuiApplication::clipboard()->setText(digits);
+            this->message("web: code " + web->pin + " copied", false);
+        }
         bool webAsking = false;
         std::set<std::string> webAsked;
 
@@ -695,6 +746,21 @@ class Window: public QMainWindow {
             this->choose(shown[static_cast<std::size_t>(items->currentRow())]);
         }
 
+        void confirmDangers(std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes, QWidget* parent)
+        {
+            // a dangerous value: its warning, yes or not changed
+            for (auto it = changes.begin(); it != changes.end();) {
+                const std::string warning = cluster::setting_danger(it->second.first, it->second.second);
+                if (warning.empty() || QMessageBox::warning(parent, "Dangerous setting", q_(it->second.first.label + " = " + it->second.second + "\n\n" + warning + ".\n\nSure?"),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
+                    ++it;
+                } else {
+                    this->message(it->second.first.label + ": not changed", false);
+                    it = changes.erase(it);
+                }
+            }
+        }
+
         void settings(const std::string& focus = "", const bool search = false)
         {
             // Every option of config.toml, one tab per section; saved in the file (comments kept), reloaded live; focus: the
@@ -774,6 +840,12 @@ class Window: public QMainWindow {
                     label->setToolTip(tip);
                     form->addRow(label, widget);
                     if (info != nullptr) form->addRow(info);
+                    if (!setting.description.empty()) { // its help under it, line by line (not only on hover)
+                        QLabel* help = new QLabel(q_(setting.description), tab);
+                        help->setWordWrap(true);
+                        help->setStyleSheet("color:" + q_(this->theme().muted) + ";font-size:11px;margin:0 0 6px 0;");
+                        form->addRow(help);
+                    }
                     fields.emplace_back(setting, read);
                     placed[scrolls.size()].emplace_back(label, widget);
                 }
@@ -843,6 +915,7 @@ class Window: public QMainWindow {
                     const std::string value = read();
                     if (value != setting.value(this->manager.config())) now[{setting.section, setting.key}] = {setting, value};
                 }
+                this->confirmDangers(now, &dialog);
                 if (now.empty()) return;
                 try {
                     cluster::settings_write(this->manager.config(), now);
@@ -882,6 +955,8 @@ class Window: public QMainWindow {
                 const std::string value = read();
                 if (value != setting.value(config)) changes[{setting.section, setting.key}] = {setting, value};
             }
+            if (changes.empty()) return;
+            this->confirmDangers(changes, this);
             if (changes.empty()) return;
             // closed (Esc / Cancel) with changes: asked, no = dropped
             if (!accepted && ((screenshot && *screenshot)
@@ -1189,6 +1264,11 @@ class Window: public QMainWindow {
             this->brand->setTextFormat(Qt::RichText);
             top->addWidget(this->brand);
             top->addSpacing(14);
+            this->webLabel = new QLabel(topbar); // the web access: its address, its code, connected, mean ping (a click: the code copied)
+            this->webLabel->setTextFormat(Qt::RichText);
+            this->webLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+            this->webLabel->setVisible(false);
+            QObject::connect(this->webLabel, &QLabel::linkActivated, this, [this](const QString& link) {this->webLink(link);});
             for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"tabs", "Tabs"}}) {
                 QPushButton* seg = new QPushButton(q_(label), topbar);
                 seg->setObjectName("seg");
@@ -1204,7 +1284,7 @@ class Window: public QMainWindow {
             }
             top->addStretch(1);
             for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}}) {
-                if (action == "devices" && (this->manager.web() == nullptr || !this->manager.web()->status().on)) continue;
+                if (action == "devices" && !cluster::web_status(this->manager)) continue;
                 QPushButton* button = new QPushButton(q_(label), topbar);
                 button->setCursor(Qt::PointingHandCursor);
                 const std::string name = action;
@@ -1217,6 +1297,11 @@ class Window: public QMainWindow {
                 top->addWidget(button);
             }
             root->addWidget(topbar);
+            QHBoxLayout* webRow = new QHBoxLayout();
+            webRow->setContentsMargins(14, 0, 14, 0);
+            webRow->addWidget(this->webLabel);
+            webRow->addStretch(1);
+            root->addLayout(webRow);
             QWidget* body = new QWidget(central);
             QVBoxLayout* inner = new QVBoxLayout(body);
             inner->setContentsMargins(10, 0, 10, 0);
@@ -1268,20 +1353,7 @@ class Window: public QMainWindow {
             }
             this->voiceLabel = new QLabel(central);
             this->voiceLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
-            QObject::connect(this->voiceLabel, &QLabel::linkActivated, [this](const QString& link) {
-                // the web line: its code copied (ready to paste in the page), its devices
-                cluster::Web* web = this->manager.web();
-                if (web == nullptr) return;
-                if (link == "web-devices") {
-                    this->webDevices();
-                    return;
-                }
-                QString digits;
-                for (const QChar c: q_(web->status().pin))
-                    if (c.isDigit()) digits += c;
-                QGuiApplication::clipboard()->setText(digits);
-                this->message("web: code " + web->status().pin + " copied", false);
-            });
+            QObject::connect(this->voiceLabel, &QLabel::linkActivated, [this](const QString& link) {this->webLink(link);});
             root->addWidget(this->voiceLabel);
             QHBoxLayout* bar = new QHBoxLayout();
             this->input = new PromptEdit(this, central);
@@ -1413,10 +1485,13 @@ class Window: public QMainWindow {
             }
             if (voice.speaking()) voiceText += "  " + span_(st.muted, "speaking (" + q_(conf.wakeWord.empty() ? "" : "") + q_(this->manager.config().keys.at("mute")) + " mute)");
             // the web access: its address and code shown while it is open
-            const std::string web = this->manager.web() ? cluster::web_line(this->manager.web()->status()) : "";
-            if (!web.empty())
-                voiceText = "<a href=\"web-copy\" style=\"text-decoration:none\">" + span_(st.accent, esc_(web), true) + "</a> <a href=\"web-devices\">"
-                    + span_(st.muted, "devices") + "</a>" + (voiceText.isEmpty() ? QString() : "    " + voiceText);
+            const std::optional<cluster::WebStatus> webState = cluster::web_status(this->manager);
+            const std::string web = webState ? cluster::web_line(*webState) : "";
+            if (this->webLabel != nullptr) {
+                this->webLabel->setText(web.empty() ? QString() : "<a href=\"web-copy\" style=\"text-decoration:none\" title=\"copy the code\">" + span_(st.accent, esc_(web), true)
+                    + "</a>&nbsp;&nbsp;<a href=\"web-devices\" style=\"text-decoration:none\">" + span_(st.muted, "devices ›") + "</a>");
+                this->webLabel->setVisible(!web.empty());
+            }
             this->voiceLabel->setText(voiceText);
             this->voiceLabel->setVisible(!voiceText.isEmpty());
             const std::vector<cluster::Notice> notices = this->manager.notices(1);
