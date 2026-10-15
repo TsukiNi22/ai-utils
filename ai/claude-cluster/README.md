@@ -711,6 +711,14 @@ one closed stops it (the service, when it runs, is the core and stays). The core
 interface. Two prompts sent at once to one session from two interfaces: told on that session (a minute in its header)
 and in the notices, the second one waits behind the first. Off: a second claude-cluster is refused, as before.
 
+**Another version runs the core** (installed again while it runs, older or newer: its build is its version and the
+date of its binary): a new terminal / window does not mix with it, it asks first (the terminal: a question, the
+window: a dialog): **replace it** - the terminals / windows of the other version (the same install, the same socket)
+and its core stopped (10 s, then killed), the sessions resumed by this version - or **quit**, nothing changed. An
+interface of another build is refused by a core (told on it: close it and open it again). Only through the local
+socket of this user, never the network; the service, its MCP servers and the headless commands are left alone (the
+service: `claude-cluster service restart`).
+
 ```
 claude-cluster core (one per user: control socket; serve --linger, or the service)
 ├── Manager ── Session g (global) ── claude -p --input-format stream-json ... --mcp-config mcp.json

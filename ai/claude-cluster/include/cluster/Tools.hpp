@@ -50,6 +50,7 @@ _cold _nodiscard std::filesystem::path socket_path(void);
 // overwrites the one of another
 _cold _nodiscard inline std::filesystem::path mcp_config_path(void) {return cluster::socket_path().parent_path() / "mcp.json";};
 _cold _nodiscard std::filesystem::path self_exe(void);
+_cold _nodiscard std::string build_id(void);    // its version + the date of its binary when it started ("1.3.0+1791467670")
 _cold _nodiscard std::string short_path(const std::string& path); // ~ for the home
 
 /* text */

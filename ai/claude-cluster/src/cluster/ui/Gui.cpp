@@ -2972,6 +2972,26 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
 } // namespace
 
 /* entry */
+_cold int cluster::gui_choice(const std::string& title, const std::string& text, const std::vector<std::string>& choices)
+{
+    // a question before the window (its own application, gone after)
+    int argc = 1;
+    char name[] = "claude-cluster";
+    char* argv[] = {name, nullptr};
+    QApplication::setApplicationName("claude-cluster");
+    QGuiApplication::setDesktopFileName("claude-cluster");
+    QApplication application(argc, argv);
+    QMessageBox box(QMessageBox::Warning, q_(title), q_(text));
+    std::vector<QAbstractButton*> buttons;
+    for (const std::string& choice: choices)
+        buttons.push_back(box.addButton(q_(choice), buttons.empty() ? QMessageBox::AcceptRole : QMessageBox::RejectRole));
+    if (!buttons.empty()) box.setDefaultButton(static_cast<QPushButton*>(buttons.back()));
+    (void)box.exec();
+    for (std::size_t i = 0; i < buttons.size(); ++i)
+        if (box.clickedButton() == buttons[i]) return static_cast<int>(i);
+    return -1;
+}
+
 _cold int cluster::run_gui(cluster::App& app)
 {
     int argc = 1;

@@ -457,3 +457,15 @@ _cold bool cluster::copy_text(const std::string& text)
         }
     return false;
 }
+
+_cold std::string cluster::build_id(void)
+{
+    // read once, at the start: the binary installed again meanwhile is another build (its date changed)
+    static const std::string id = []() {
+        std::error_code error;
+        const std::filesystem::file_time_type written = std::filesystem::last_write_time(cluster::self_exe(), error);
+        const std::int64_t seconds = error ? 0 : std::chrono::duration_cast<std::chrono::seconds>(written.time_since_epoch()).count();
+        return std::string(CLUSTER_VERSION) + "+" + std::to_string(seconds);
+    }();
+    return id;
+}

@@ -62,6 +62,18 @@ _cold static int connect_(const std::filesystem::path& path)
     return fd;
 }
 
+_cold int cluster::Control::corePid(void)
+{
+    // the process at the other end of the socket (this user's: a socket of the runtime folder, 0700)
+    const int fd = connect_(cluster::socket_path());
+    if (fd == -1) return -1;
+    ucred credentials{};
+    socklen_t size = sizeof(credentials);
+    const int pid = ::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &size) == 0 ? credentials.pid : -1;
+    ::close(fd);
+    return pid;
+}
+
 _cold static bool send_line_(const int fd, const std::string& line)
 {
     const std::string data = line + "\n";
@@ -326,6 +338,12 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 + " is off in the settings of claude-cluster (MCP page): tell the user, they turn it on there if they want");
         // an interface of another process: seen alive (the core stops when none is left)
         if (request.contains("client") && request["client"].is_string()) manager.clientSeen(request["client"].get<std::string>());
+        if (cmd == "hello") {
+            // who this core is: an interface of another build asks before attaching
+            return {{"ok", true}, {"data", {{"version", CLUSTER_VERSION}, {"build", cluster::build_id()}, {"pid", ::getpid()}, {"binary", cluster::self_exe().string()}}}};
+        }
+        if (cmd == "sync" && request.value("build", std::string()) != cluster::build_id()) // an interface of another build: not mixed
+            return {{"ok", false}, {"error", "another version of claude-cluster runs the core (" + cluster::build_id() + "): close this one and open it again"}};
         if (cmd == "sync") {
             // its state, waited for up to 10 s until something changes
             const std::uint64_t seen = request.value("v", std::uint64_t{0});

@@ -49,7 +49,8 @@ _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& repli
             known[snap.spec.id] = snap.version;
         seen = wait ? replica->seen : 0;
     }
-    const cluster::Json response = cluster::Control::request({{"cmd", "sync"}, {"client", replica->client}, {"v", seen}, {"known", known}}, &replica->fd);
+    const cluster::Json response = cluster::Control::request({{"cmd", "sync"}, {"client", replica->client}, {"v", seen}, {"known", known},
+        {"build", cluster::build_id()}}, &replica->fd);
     if (!response.value("ok", false)) throw utils::exception::ErrorException(utils::exception::InternalCode::Communication, response.value("error", std::string("sync")));
     cluster::Json data = response.value("data", cluster::Json::object());
     std::lock_guard<std::mutex> lock(replica->mutex);

@@ -27,6 +27,7 @@ File Description:
 #include <unordered_set>
 #include <iostream>
 #include <unistd.h>
+#include <csignal>
 #include <fstream>
 #include <iomanip>
 #include <cstdlib>
@@ -54,6 +55,38 @@ _cold static bool foreground_(void)
     // the process group the terminal reads for: not started with & (nor sent to the background)
     const pid_t group = ::tcgetpgrp(STDIN_FILENO);
     return group == -1 || group == ::getpgrp();
+}
+
+_cold static std::vector<int> old_interfaces_(void)
+{
+    // the terminals / windows of this install and this core (the same binary path, the same socket), not this one; not the
+    // core itself, its service, its MCP servers nor a headless command
+    std::vector<int> found;
+    const std::string mine = cluster::self_exe().string();
+    const char* env = std::getenv("CLAUDE_CLUSTER_SOCKET");
+    const std::string socket = env != nullptr ? env : "";
+    std::error_code error;
+    for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator("/proc", error)) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || !std::all_of(name.begin(), name.end(), [](const char c) {return std::isdigit(static_cast<unsigned char>(c));})) continue;
+        const int pid = std::stoi(name);
+        if (pid == ::getpid()) continue;
+        std::string exe = std::filesystem::read_symlink(entry.path() / "exe", error).string();
+        if (error) continue;
+        if (exe.ends_with(" (deleted)")) exe.resize(exe.size() - 10);
+        if (exe != mine) continue;
+        std::ifstream args(entry.path() / "cmdline", std::ios::binary);
+        std::vector<std::string> argv;
+        for (std::string arg; std::getline(args, arg, '\0');)
+            argv.push_back(arg);
+        if (argv.size() > 1 && !argv[1].starts_with("-")) continue; // serve, service, mcp, list...
+        std::ifstream variables(entry.path() / "environ", std::ios::binary);
+        std::string theirs;
+        for (std::string var; std::getline(variables, var, '\0');)
+            if (var.starts_with("CLAUDE_CLUSTER_SOCKET=")) theirs = var.substr(22);
+        if (theirs == socket) found.push_back(pid);
+    }
+    return found;
 }
 
 _cold static bool display_(void)
@@ -235,8 +268,57 @@ _cold void cluster::Core::run(void)
     else this->_exit = this->headless_();
 }
 
+_cold bool cluster::Core::otherBuild_(const bool window)
+{
+    // the core running is of another build (installed again, older or newer): asked - replace it (its interfaces and it
+    // stopped, this build started) or quit without anything; true: go on (the same build, or replaced)
+    std::string theirs = "an older one (before 1.4.0)";
+    std::string build;
+    try {
+        const cluster::Json r = cluster::Control::request({{"cmd", "hello"}});
+        if (r.value("ok", false)) {
+            build = r["data"].value("build", std::string());
+            theirs = r["data"].value("version", std::string()) + " (" + build + ")";
+        }
+    } catch (const utils::exception::IException&) {}
+    if (build == cluster::build_id()) return true;
+    const std::vector<int> interfaces = old_interfaces_();
+    const std::string question = "claude-cluster " + theirs + " runs the core of your sessions; this one is " + cluster::build_id() + ".\n\n"
+        "Replace it: its terminals / windows (" + std::to_string(interfaces.size()) + ") and its core stopped (the sessions kept: resumed by this one), "
+        "this version started.\nQuit: nothing changed (open the other version, or close it first).\n\nIts service, if any, runs on: claude-cluster service restart.";
+    int choice = -1;
+    #ifdef CLUSTER_GUI
+        if (window) choice = cluster::gui_choice("claude-cluster: another version runs", question, {"Replace it", "Quit"});
+    #endif
+    if (!window) {
+        std::cout << question << "\n\n[r] replace it   [q] quit (default) > " << std::flush;
+        std::string answer;
+        (void)std::getline(std::cin, answer);
+        choice = cluster::lower(cluster::trim(answer)) == "r" ? 0 : 1;
+    }
+    if (choice != 0) {
+        if (!window) std::cout << "nothing changed" << std::endl;
+        return false;
+    }
+    // its interfaces first (they would start their core again), then the core; waited for (10 s, then killed)
+    for (const int pid: interfaces)
+        (void)::kill(pid, SIGTERM);
+    const int core = cluster::Control::corePid();
+    if (core > 0) (void)::kill(core, SIGTERM);
+    for (int i = 0; i < 100 && (cluster::Control::alive() || (core > 0 && ::kill(core, 0) == 0)); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (core > 0 && ::kill(core, 0) == 0) (void)::kill(core, SIGKILL);
+    for (const int pid: interfaces)
+        if (::kill(pid, 0) == 0) (void)::kill(pid, SIGKILL);
+    std::error_code error;
+    if (!cluster::Control::alive()) std::filesystem::remove(cluster::socket_path(), error); // left by a killed one
+    if (!window) std::cout << "replaced: this version starts" << std::endl;
+    return true;
+}
+
 _cold int cluster::Core::ui_(const bool serve)
 {
+    (void)cluster::build_id(); // its build read now (the binary may be installed again while it runs)
     cluster::App app;
     app.options = this->_options;
     if (this->_options.values.contains("voice")) app.config.voiceForce = this->_options.values.at("voice");
@@ -284,6 +366,8 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!this->_options.global) coreArgs.push_back("--no-global");
     if (this->_options.values.contains("web")) coreArgs.push_back("--web");
     if (this->_options.values.contains("voice")) coreArgs.insert(coreArgs.end(), {"--voice", this->_options.values.at("voice")});
+    if (!serve && app.config.sharedCore && cluster::Control::alive() && !this->otherBuild_(frontend == "gui"))
+        return 0; // a core of another build kept: quit without anything
     const bool attached = !serve && app.config.sharedCore && (cluster::Control::alive() || cluster::start_core(coreArgs));
     try {
     if (attached) {

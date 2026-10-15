@@ -50,6 +50,7 @@ class Control {
         _cold _nodiscard static cluster::Json request(const cluster::Json& request, std::atomic<int>* current = nullptr); // client side, throws when
                                                             // nothing runs; current: its socket while it runs (shut down: it stops)
         _cold _nodiscard static bool alive(void);
+        _cold _nodiscard static int corePid(void);         // the process of the core (its socket: its credentials), -1: none
 
         // ---------- Constructor -------- //
         _cold Control(cluster::Manager& manager);

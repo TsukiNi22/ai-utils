@@ -96,6 +96,7 @@ class Core {
         _cold void complete_(const std::string& kind) const;   // __complete <kind>: values for the shells (Core-Completion.cpp)
         _cold _nodiscard std::string flagKind_(const std::string& id) const; // kind of the value of a flag
         _cold int ui_(const bool serve = false);    // serve: no front-end, until SIGINT / SIGTERM
+        _cold _nodiscard bool otherBuild_(const bool window); // a core of another build: replaced (true) or kept (false, quit)
         _cold int headless_(void);
         _cold int auth_(void);
         _cold int engines_(void);                   // the engines of the voice, their state
@@ -126,6 +127,7 @@ _cold _nodiscard const std::vector<cluster::Command>& commands(void);  // Core-C
 _cold int run_tty(cluster::App& app);
 #ifdef CLUSTER_GUI
     _cold int run_gui(cluster::App& app);
+    _cold int gui_choice(const std::string& title, const std::string& text, const std::vector<std::string>& choices); // index, -1: closed
 #endif
 
 } // namespace end
