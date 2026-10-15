@@ -445,9 +445,14 @@ _cold void cluster::Session::line_(const std::string& line)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::string& driver = this->_launch.backend.provider.driver;
-        if (driver == "opencode") this->opencode_(event);
-        else if (driver == "codex") this->codex_(event);
-        else this->claude_(event);
+        try {
+            if (driver == "opencode") this->opencode_(event);
+            else if (driver == "codex") this->codex_(event);
+            else this->claude_(event);
+        } catch (const cluster::Json::exception& e) {
+            // an event of an unexpected shape (a null where a text was, a new field type): left out, never the end of claude-cluster
+            this->_stderr += std::string("event left out (") + e.what() + "): " + cluster::one_line(line, 200) + "\n";
+        }
     }
     this->touch_();
     std::vector<cluster::Event> events;
@@ -485,8 +490,8 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
     } else if (type == "system" && subtype == "compact_boundary") {
         this->entry_(cluster::EntryKind::System, "context compacted");
     } else if (type == "system" && subtype == "status") {
-        // the request sent / the context being compacted
-        const std::string status = event.value("status", std::string());
+        // the request sent / the context being compacted (a null status: only its permission mode told)
+        const std::string status = event.contains("status") && event["status"].is_string() ? event["status"].get<std::string>() : "";
         if (status == "requesting") this->step_("requesting");
         else if (status == "compacting") this->step_("compacting");
     } else if (type == "system" && subtype == "thinking_tokens") {

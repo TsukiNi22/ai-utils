@@ -1060,6 +1060,7 @@ class Window: public QMainWindow {
                         if (local->ui == "settings") this->settings();
                         else if (local->ui == "restore_menu") this->openRestore();
                         else if (local->ui == "rewind") this->rewind();
+                        else if (local->ui.starts_with("pick:")) this->palette(q_(local->ui.substr(5))); // its choices to pick from
                         if (!local->message.empty()) this->message(local->message, local->error);
                     }
                     this->refresh(true);

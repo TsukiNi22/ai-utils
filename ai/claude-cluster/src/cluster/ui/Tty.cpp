@@ -706,6 +706,17 @@ class TtyUi {
             this->_active = list[static_cast<std::size_t>(target)].spec.id;
         }
 
+        void pick_(const std::string& prefix)
+        {
+            // a command typed alone (/model, /mode, /effort): the palette on its choices, the current one marked
+            this->_filter = prefix;
+            this->_selected = 0;
+            this->filter_();
+            for (std::size_t i = 0; i < this->_actions.size(); ++i)
+                if (this->_actions[i].title.find("(current)") != std::string::npos) this->_selected = static_cast<int>(i);
+            this->_mode = Mode::Palette;
+        }
+
         void openRestore_(void)
         {
             if (this->_manager.trash().empty()) {
@@ -848,6 +859,7 @@ class TtyUi {
                     if (local->ui == "settings") this->openSettings_();
                     else if (local->ui == "restore_menu") this->openRestore_();
                     else if (local->ui == "rewind") this->rewind_();
+                    else if (local->ui.starts_with("pick:")) this->pick_(local->ui.substr(5));
                     if (!local->message.empty()) this->status_(local->message, local->error);
                     else if (local->ui.empty()) this->status_("done");
                 });

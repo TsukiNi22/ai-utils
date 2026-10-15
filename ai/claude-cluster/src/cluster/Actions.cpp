@@ -51,11 +51,11 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"describe", "Describe the session (its short description: " + (snap->spec.summary.empty() ? std::string("none yet") : cluster::one_line(snap->spec.summary, 50)) + ")",
             "a few words (empty: written again)", snap->spec.summary, false});
         for (const auto &[mode, description]: cluster::permission_modes())
-            list.push_back({"mode:" + mode, "Permission mode: " + mode + " - " + description + (snap->spec.mode == mode ? " (current)" : ""), "", "", false});
+            list.push_back({"mode:" + mode, "Permission mode: " + mode + (snap->spec.mode == mode ? " (current)" : "") + " - " + description, "", "", false});
         try {
             const cluster::ModelInfo info = cluster::model_info(manager, session);
             for (const auto &[model, description]: info.models)
-                list.push_back({"model:" + model, "Model: " + model + " - " + description + (info.model == model ? " (current)" : ""), "", "", false});
+                list.push_back({"model:" + model, "Model: " + model + (info.model == model ? " (current)" : "") + " - " + description, "", "", false});
             list.push_back({"model", "Model: another one (any id of the provider)", "model", info.model, false});
             if (!info.efforts.empty()) list.push_back({"effort:default", std::string("Effort (thinking): default of the agent") + (info.effort.empty() || info.effort == "default" ? " (current)" : ""), "", "", false});
             for (const std::string& level: info.efforts)
@@ -383,7 +383,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
     static const std::vector<std::pair<std::string, std::string>> list = {
         {"cd", "<folder>: move the session to another project"},
         {"new", "<folder> [backend]: new session"},
-        {"mode", "<mode>: permission mode of the session"},
+        {"mode", "[mode]: permission mode of the session; none: pick it"},
         {"rename", "<name>: rename the session"},
         {"describe", "[text]: its short description (none: written again)"},
         {"close", "close the session (to the trash)"},
@@ -391,8 +391,8 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"export", "[file]: conversation as Markdown"},
         {"restore", "<session>: reopen a closed session"},
         {"clear", "a new conversation for the session (the context again from 0; the transcript emptied, archived for the search)"},
-        {"model", "[model]: the session on this model (opus, sonnet, an id, an Ollama model...), same conversation; none: the choices"},
-        {"effort", "[level]: thinking / reasoning effort (default, low, medium, high, xhigh, max: per agent), same conversation"},
+        {"model", "[model]: the session on this model (opus, sonnet, an id, an Ollama model...), same conversation; none: pick it"},
+        {"effort", "[level]: thinking / reasoning effort (default, low, medium, high, xhigh, max: per agent), same conversation; none: pick it"},
         {"cost", "cost and tokens of the session"},
         {"context", "the context window used"},
         {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
@@ -495,6 +495,8 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             const std::vector<std::string> parts = cluster::split(arg, ' ');
             result.focus = manager.spawn({parts.empty() ? "." : parts[0], "", parts.size() > 1 ? parts[1] : "", "", "", "", ""});
             result.message = "session " + result.focus + " started";
+        } else if (name == "mode" && cluster::trim(arg).empty()) {
+            result.ui = "pick:mode:"; // its choices to pick from (like Claude Code)
         } else if (name == "mode") {
             manager.setMode(session, arg);
         } else if (name == "rename") {
@@ -507,10 +509,10 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             result.message = "new conversation";
         } else if (name == "model") {
             if (arg.empty()) {
+                // its choices to pick from (like Claude Code); none known: told
                 const cluster::ModelInfo info = cluster::model_info(manager, session);
-                result.message = "model: " + (info.model.empty() ? std::string("default of the provider") : info.model) + " (/model <name> to change):";
-                for (const auto &[model, description]: info.models)
-                    result.message += "\n  " + model + "  " + description;
+                if (!info.models.empty()) result.ui = "pick:model:";
+                else result.message = "model: " + (info.model.empty() ? std::string("default of the provider") : info.model) + " (/model <name> to change)";
             } else {
                 manager.setModel(session, arg);
                 result.message = "model " + arg + " (same conversation)";
@@ -521,8 +523,8 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
                 std::string levels = "default";
                 for (const std::string& level: info.efforts)
                     levels += ", " + level;
-                result.message = info.efforts.empty() ? "no effort level for the " + info.driver + " driver"
-                    : "effort: " + (info.effort.empty() ? std::string("default") : info.effort) + " (/effort <level>: " + levels + ")";
+                if (info.efforts.empty()) result.message = "no effort level for the " + info.driver + " driver";
+                else result.ui = "pick:effort:"; // its choices to pick from
             } else {
                 manager.setEffort(session, arg);
                 result.message = "effort " + arg + " (same conversation)";
