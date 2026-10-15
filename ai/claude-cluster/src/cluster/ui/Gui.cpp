@@ -467,6 +467,45 @@ class Window: public QMainWindow {
             dialog.exec();
         }
 
+        QFrame* progressBox = nullptr;          // a long operation: its box over the window
+        QLabel* progressLabel = nullptr;
+
+        void showProgress(void)
+        {
+            // its title, a spinner, what it does now, its last lines greyed
+            const std::optional<cluster::Progress> p = this->manager.progress();
+            if (!p) {
+                if (this->progressBox != nullptr) this->progressBox->hide();
+                return;
+            }
+            const cluster::Style& st = this->theme();
+            if (this->progressBox == nullptr) {
+                this->progressBox = new QFrame(this);
+                this->progressBox->setObjectName("progressBox");
+                this->progressBox->setStyleSheet("QFrame#progressBox{background:" + q_(st.surface) + ";border:1px solid " + q_(st.border) + ";border-radius:12px;}");
+                QVBoxLayout* layout = new QVBoxLayout(this->progressBox);
+                this->progressLabel = new QLabel(this->progressBox);
+                this->progressLabel->setTextFormat(Qt::RichText);
+                this->progressLabel->setWordWrap(true);
+                layout->addWidget(this->progressLabel);
+            }
+            static const char* spinner[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+            const std::int64_t now = cluster::now_ms();
+            const std::string mark = p->done ? (p->ok ? "✓" : "✗") : spinner[(now / 90) % 10];
+            QString html = "<b>" + span_(p->done ? (p->ok ? st.ok : st.error) : st.accent, q_(mark)) + "&nbsp; " + esc_(p->title) + "</b> &nbsp;"
+                + span_(st.muted, QString::number(((p->done ? p->ended : now) - p->started) / 1000) + "s") + "<br>";
+            if (!p->now.empty()) html += span_(p->done ? (p->ok ? st.ok : st.error) : st.text, esc_(p->now)) + "<br>";
+            for (const std::string& line: p->log)
+                html += "<span style=\"color:" + q_(st.muted) + ";font-family:monospace;font-size:9pt\">" + esc_(cluster::one_line(line, 110)) + "</span><br>";
+            this->progressLabel->setText(html);
+            this->progressBox->setFixedWidth(std::min(640, this->width() - 40));
+            this->progressBox->adjustSize();
+            this->progressBox->move((this->width() - this->progressBox->width()) / 2, 70);
+            this->progressBox->show();
+            this->progressBox->raise();
+            this->animating = this->animating || !p->done;
+        }
+
         QTextBrowser* tasksView = nullptr;      // the Tasks session (list / tabs)
         QDialog* tasksWindow = nullptr;         // the Tasks session in a window of its own (grid)
         QTextBrowser* tasksBrowser = nullptr;
@@ -956,7 +995,7 @@ class Window: public QMainWindow {
             const int answer = box.exec();
             if (install != nullptr && box.clickedButton() == install) {
                 for (const std::string& package: packages) {
-                    const std::string error = cluster::install_package(package); // its password window
+                    const std::string error = cluster::install_package(package, &this->manager); // its password window, its popup
                     this->message(error.empty() ? package + " installed" : error, !error.empty());
                 }
                 return true;
@@ -1079,7 +1118,7 @@ class Window: public QMainWindow {
                             const std::string package = install->property("package").toString().toStdString();
                             install->setEnabled(false);
                             install->setText("installing…");
-                            const std::string error = cluster::install_package(package); // its password window
+                            const std::string error = cluster::install_package(package, &this->manager); // its password window, its popup
                             install->setEnabled(true);
                             this->message(error.empty() ? package + " installed" : error, !error.empty());
                             check();
@@ -1787,6 +1826,7 @@ class Window: public QMainWindow {
                 }
             }
             this->animating = working || this->reveal.active();
+            this->showProgress();
             // the Tasks session shown: its view in place of the session
             const bool tasksShown = this->active == TASKS_ID && this->tasksView != nullptr;
             if (this->views.contains("") && this->tasksView != nullptr) this->views[""]->setVisible(!tasksShown);

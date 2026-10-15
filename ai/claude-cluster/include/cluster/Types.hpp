@@ -236,6 +236,18 @@ struct Schedule {
     std::int64_t last = 0;          // its last run
 };
 
+// A long operation shown in a popup (an install, the sessions restored...): what it does now, its last lines
+struct Progress {
+    std::uint64_t id = 0;
+    std::string title;
+    std::string now;                // what it does now (its end: the result)
+    std::vector<std::string> log;   // its last lines (greyed under it)
+    bool done = false;
+    bool ok = true;
+    std::int64_t started = 0;       // ms
+    std::int64_t ended = 0;         // ms
+};
+
 // A todo of a session (its TodoWrite: what it does, what is left)
 struct Todo {
     std::string id;                 // TaskCreate: its number (TodoWrite: none)

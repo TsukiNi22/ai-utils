@@ -21,6 +21,7 @@ File Description:
 #include "cluster/Manager.hpp"
 #include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Wire.hpp"
 #include "cluster/Web.hpp"
 #ifdef CLUSTER_TLS
     #include <openssl/x509.h>
@@ -1059,6 +1060,7 @@ self.addEventListener("notificationclick", (e) => {
         const auto waiting = std::count_if(planned.begin(), planned.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
         json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"tasks_open", open}, {"schedules_waiting", waiting},
+            {"progress", this->_manager.progress() ? cluster::Json(*this->_manager.progress()) : cluster::Json(nullptr)},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},

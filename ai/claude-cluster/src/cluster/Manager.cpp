@@ -828,7 +828,9 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
         std::copy_if(this->_previous.begin(), this->_previous.end(), std::back_inserter(previous), [](const cluster::SessionSpec& s) {return !s.global;});
         std::erase_if(this->_previous, [](const cluster::SessionSpec& s) {return !s.global;});
     }
+    const std::uint64_t shown = restore && previous.size() > 1 ? this->progressBegin("Restoring the previous run (" + std::to_string(previous.size()) + " sessions)") : 0;
     for (cluster::SessionSpec& spec: previous) {
+        if (shown != 0) this->progressStep(shown, "resuming " + spec.name + " (" + cluster::short_path(spec.cwd) + ")");
         if (!restore) {
             spec.deleted = cluster::now();
             std::lock_guard<std::mutex> lock(this->_mutex);
@@ -844,10 +846,13 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
                 this->_order.push_back(spec.id);
             }
             session->start();
+            if (shown != 0) this->progressLog(shown, "✓ " + spec.name + " · " + spec.backend);
         } catch (const utils::exception::IException& e) {
             this->notice_(spec.id, spec.name + " not restored: " + e.info(), true);
+            if (shown != 0) this->progressLog(shown, "✗ " + spec.name + ": " + e.info());
         }
     }
+    if (shown != 0) this->progressEnd(shown, true, std::to_string(previous.size()) + " session(s) restored");
     if (!previous.empty()) this->notice_("", std::to_string(previous.size()) + (restore ? " session(s) restored" : " session(s) moved to the trash"));
     this->save();
 }

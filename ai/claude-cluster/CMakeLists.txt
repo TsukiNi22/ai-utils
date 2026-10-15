@@ -83,6 +83,7 @@ set(SRC
     src/cluster/Prompt.cpp
     src/cluster/Match.cpp
     src/cluster/Requirements.cpp
+    src/cluster/Progress.cpp
     src/cluster/Manager-External.cpp
     src/cluster/Asking.cpp
     src/cluster/Display.cpp

@@ -644,7 +644,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             }
         } else if (cmd == "install_package") {
             // what a setting needs: installed here (the password window of the desktop)
-            const std::string error = cluster::install_package(arg_(request, "package"));
+            const std::string error = cluster::install_package(arg_(request, "package"), &manager);
             if (!error.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, error);
             data = {{"done", arg_(request, "package") + " installed"}};
         } else if (cmd == "settings_get") {

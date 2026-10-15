@@ -115,6 +115,9 @@ class Manager {
         int _next = 1;
         int _nextTask = 1;
         std::atomic<std::uint64_t> _version{1};
+        mutable std::mutex _progressMutex;         // the long operation shown (its popup)
+        std::optional<cluster::Progress> _progress;
+        std::uint64_t _progressNext = 1;
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
@@ -304,6 +307,12 @@ class Manager {
         _cold void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers);
         _cold void interrupt(const std::string& id);
         _cold void sendNext(const std::string& id);   // its next queued prompt now (the running turn interrupted)
+        // a long operation: its popup in every interface (begin, what it does now, a line of its log, its end)
+        _cold std::uint64_t progressBegin(const std::string& title);
+        _cold void progressStep(const std::uint64_t id, const std::string& now);
+        _cold void progressLog(const std::uint64_t id, const std::string& line);
+        _cold void progressEnd(const std::uint64_t id, const bool ok, const std::string& text);
+        _cold _nodiscard std::optional<cluster::Progress> progress(void) const;    // the one shown (running, or ended < 4 s)
         _cold _nodiscard std::optional<cluster::Queued> unqueue(const std::string& id); // last queued prompt, removed
 
         // ---------- Function -------- //

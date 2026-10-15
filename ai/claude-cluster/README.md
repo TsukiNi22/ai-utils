@@ -724,6 +724,10 @@ a package installs it: `[i]` / *Install …* installs it at once (the terminal: 
 in the terminal; the window, the web page: the password window of the desktop, `pkexec`). The save lists the changed
 settings missing something with the dangerous ones: install, then save / save anyway / back.
 
+**A long operation** (a package installed, the sessions of the previous run restored) shows a popup in every
+interface, like the map of the computer: its title, a spinner and its time, what it does now, its last lines greyed
+scrolling under it, then its result (4 s); Esc hides it in the terminal (it goes on).
+
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its
 description, the closest first, each hit telling where it matched (*name* / *description*). In the settings page:
 `/` or Ctrl+F (terminal), its field at the top (window, web page; Ctrl+F); Enter / a click opens its page on it. In the

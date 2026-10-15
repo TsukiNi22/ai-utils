@@ -62,15 +62,23 @@ _cold std::vector<std::string> cluster::install_command(const std::string& packa
     return {};
 }
 
-_cold std::string cluster::install_package(const std::string& package)
+_cold std::string cluster::install_package(const std::string& package, cluster::Manager* manager)
 {
-    // as root by the password window of the desktop (pkexec); its error told, empty: installed
+    // as root by the password window of the desktop (pkexec), its output live in the popup of the interfaces; its error
+    // told, empty: installed
     const std::vector<std::string> command = cluster::install_command(package);
     if (command.empty()) return "no package manager known here (dnf, apt-get, pacman, zypper): install " + package + " yourself";
     if (!cluster::has_command("pkexec")) return "pkexec missing: run sudo " + command[0] + " install " + package + " yourself";
     std::vector<std::string> args = {"pkexec"};
     args.insert(args.end(), command.begin(), command.end());
-    const cluster::Captured done = cluster::capture(args, "", 900);
-    if (done.code != 0) return package + " not installed (" + (done.code == 126 || done.code == 127 ? std::string("the password refused or the window closed") : "exit " + std::to_string(done.code)) + ")";
-    return "";
+    const std::uint64_t shown = manager != nullptr ? manager->progressBegin("Installing " + package) : 0;
+    std::string line;
+    for (const std::string& part: args)
+        line += (line.empty() ? "" : " ") + part;
+    if (shown != 0) manager->progressStep(shown, line + " (its password window)");
+    const int code = cluster::run_logged(args, [manager, shown](const std::string& out) {if (shown != 0) manager->progressLog(shown, out);});
+    const std::string error = code == 0 ? "" : package + " not installed (" + (code == 126 || code == 127 ? std::string("the password refused or the window closed")
+        : "exit " + std::to_string(code)) + ")";
+    if (shown != 0) manager->progressEnd(shown, error.empty(), error.empty() ? package + " installed" : error);
+    return error;
 }

@@ -106,6 +106,12 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker-list { overflow-y: auto; padding: 6px; }
 .picker-row.danger { color: var(--error); }
 .tasks-mark { color: var(--accent); font-weight: 700; }
+.progress-card { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); z-index: 50;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+.progress-card .head { display: flex; gap: 8px; align-items: baseline; } .progress-card .mark { color: var(--accent); font-weight: 700; }
+.progress-card .mark.ok, .progress-card .now.ok { color: var(--ok, #3fb950); } .progress-card .mark.bad, .progress-card .now.bad { color: var(--error); }
+.progress-card .now { margin: 6px 0 4px; } .progress-card .log { color: var(--muted); font-family: var(--mono, monospace); font-size: 12px; opacity: .8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tasks-view { padding: 4px 6px 20px; } .tasks-view h3 { color: var(--accent); margin: 18px 0 2px; font-size: 15px; } .tasks-view .muted { color: var(--muted); font-size: 12px; }
 .todo-head { margin: 8px 0 2px; cursor: pointer; } .todo { padding: 1px 0 1px 14px; } .todo .mark { margin-right: 8px; color: var(--muted); }
 .todo.in_progress { color: var(--accent); font-weight: 600; } .todo.in_progress .mark { color: var(--accent); }
@@ -673,6 +679,7 @@ function render(state) {
         list.append(item);
     }
     $("composer").classList.toggle("hidden", current === "tasks"); // the Tasks session: no prompt
+    renderProgress(state.progress);
     if (current === "tasks") { renderTasks(); return; }
     const s = state.session;
     if (!s) {
@@ -702,6 +709,24 @@ function render(state) {
     else renderAsk(s);
     readAnswer(s);
 }
+
+// ---- a long operation of the computer: its card (its title, a spinner, what it does now, its last lines greyed) ----
+let progressShown = null;
+function renderProgress(p) {
+    let card = $("progressCard");
+    if (!p) { if (card) card.remove(); progressShown = null; return; }
+    progressShown = p;
+    if (!card) { card = el("div", "progress-card"); card.id = "progressCard"; document.body.append(card); }
+    const mark = p.done ? (p.ok ? "✓" : "✗") : "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[Math.floor(Date.now() / 90) % 10];
+    card.textContent = "";
+    const head = el("div", "head");
+    head.append(el("span", "mark " + (p.done ? (p.ok ? "ok" : "bad") : ""), mark), el("b", "", p.title),
+        el("span", "muted", " " + Math.floor(((p.done ? p.ended : Date.now()) - p.started) / 1000) + "s"));
+    card.append(head);
+    if (p.now) card.append(el("div", "now" + (p.done ? (p.ok ? " ok" : " bad") : ""), p.now));
+    for (const line of p.log || []) card.append(el("div", "log", line));
+}
+setInterval(() => { if (progressShown && !progressShown.done) renderProgress(progressShown); }, 120);
 
 // ---- the Tasks session: its view in place of the conversation ----
 const ago = (s) => { s = Math.max(0, Math.floor(s)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };

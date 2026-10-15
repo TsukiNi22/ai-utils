@@ -518,6 +518,27 @@ class TtyUi {
             return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.border) | ftxui::bgcolor(t.surface)
                 | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 88) | ftxui::center;
         }
+        std::uint64_t _progressHidden = 0;          // the popup of a long operation hidden (Esc)
+
+        _nodiscard ftxui::Element progressBox_(const cluster::Progress& p) const
+        {
+            // its title and a spinner (its time), what it does now, its last lines greyed under it
+            const Theme& t = this->_theme;
+            static const char* spinner[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+            const std::int64_t now = cluster::now_ms();
+            const std::int64_t took = ((p.done ? p.ended : now) - p.started) / 1000;
+            const std::string mark = p.done ? (p.ok ? "✓" : "✗") : spinner[(now / 90) % 10];
+            ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + mark + " ") | ftxui::bold | ftxui::color(p.done ? (p.ok ? t.ok : t.error) : t.accent),
+                ftxui::text(p.title) | ftxui::bold | ftxui::color(t.text), ftxui::filler(), ftxui::text(std::to_string(took) + "s ") | ftxui::color(t.muted)}), ftxui::text("")};
+            if (!p.now.empty()) lines.push_back(ftxui::paragraph(" " + (p.done ? "" : std::string("◌ ")) + p.now) | ftxui::color(p.done ? (p.ok ? t.ok : t.error) : t.text));
+            for (const std::string& line: p.log)
+                lines.push_back(ftxui::text("   " + cluster::one_line(line, 80)) | ftxui::color(t.muted) | ftxui::dim);
+            lines.push_back(ftxui::text(""));
+            lines.push_back(ftxui::text(p.done ? " Esc: close" : " Esc: hide (it goes on)") | ftxui::color(t.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.border) | ftxui::bgcolor(t.surface) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 88)
+                | ftxui::center;
+        }
+
         Mode _machineReturn = Mode::Normal;         // where its question goes back to
 
         void terminalModes_(void)
@@ -1572,7 +1593,17 @@ class TtyUi {
 
         void install_(const std::string& package)
         {
-            // its package installed in the terminal (sudo asks its password there), the interface back after
+            // a desktop: the password window and its popup here (the interface stays); else in the terminal (sudo asks its
+            // password there), the interface back after
+            if ((std::getenv("WAYLAND_DISPLAY") != nullptr || std::getenv("DISPLAY") != nullptr) && cluster::has_command("pkexec")) {
+                this->_worker.push([this, package]() {
+                    const std::string error = cluster::install_package(package, &this->_manager);
+                    this->_screen.Post([this, package, error]() {this->_note = error.empty() ? package + " installed" : error;});
+                    this->_screen.PostEvent(ftxui::Event::Custom);
+                });
+                this->_note = "installing " + package + "…";
+                return;
+            }
             const std::vector<std::string> command = cluster::install_command(package);
             if (command.empty()) {
                 this->_note = "no package manager known here: install " + package + " yourself";
@@ -3435,6 +3466,11 @@ class TtyUi {
             const std::optional<cluster::MachineProgress> scan = this->scanShown_();
             // Normal: the note of a sub-session whose question waits on the global session (modal_, empty else)
             ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : ftxui::dbox({document, this->modal_()});
+            // a long operation: its popup over the screen (its spinner turning)
+            if (const std::optional<cluster::Progress> running = this->_manager.progress(); running && running->id != this->_progressHidden) {
+                this->_animating = true;
+                screen = ftxui::dbox({screen, this->progressBox_(*running)});
+            }
             if (!scan) return screen;
             this->_animating = true;
             return ftxui::dbox({screen, this->scanBox_(*scan)});
@@ -3456,6 +3492,11 @@ class TtyUi {
                 this->_manager.setFocused(event.input() == "\x1b[I"); // xstyle: ignore LU-ANSI (focus in)
                 return true;
             }
+            if (event == ftxui::Event::Escape) // a long operation: its popup hidden (it goes on)
+                if (const std::optional<cluster::Progress> running = this->_manager.progress(); running && running->id != this->_progressHidden) {
+                    this->_progressHidden = running->id;
+                    return true;
+                }
             if (event == ftxui::Event::Escape && this->_mode != Mode::Machine && this->_mode != Mode::Profile && this->scanShown_()) {
                 this->_scanHidden = this->scanShown_()->id; // the box of the scan closed (it goes on), on any screen
                 return true;
