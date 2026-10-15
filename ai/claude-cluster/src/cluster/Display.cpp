@@ -708,6 +708,31 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
     static const std::map<std::string, std::string> words = {{"model", "waiting"}, {"requesting", "request"}, {"reading", "reading"}, {"compacting", "compacting"},
         {"retry", "retry"}, {"hook", "hook"}, {"tools", "tools"}, {"thinking", "thinking"}, {"writing", "writing"}};
     const std::function<std::string(const std::string&)> word = [](const std::string& name) {return words.contains(name) ? words.at(name) : "input of " + name;};
+
+    // why it waits: told from what is known (the step before, the mode, the context, the limits) when its step has no detail
+    const std::int64_t stepMs = s.stepSince > 0 ? now - s.stepSince : 0;
+    const std::string before = s.steps.empty() ? std::string() : s.steps.back().first;
+    const bool justCalled = !before.empty() && !words.contains(before); // the input of a tool written last: its call
+    const std::string callee = before.starts_with("mcp__") ? before.substr(before.rfind("__") + 2) : before;
+    const bool autoMode = s.spec.mode == "auto";
+    if (step == "model" && justCalled && tools.empty()) verb = autoMode ? "Checking the call of " + callee : "Starting " + callee;
+    std::string why = s.stepDetail;
+    if (why.empty()) {
+        const std::int64_t context = s.metrics.contextUsed;
+        if (step.empty()) why = "Claude Code prepares the request (its hooks, the files of the prompt)";
+        else if (step == "requesting") why = "sent, no answer of the API yet" + (context > 0 ? ": ~" + cluster::human_tokens(context) + " tokens of context to read" : std::string());
+        else if (step == "reading") why = "the model reads the request before its first words";
+        else if (step == "model" && justCalled && tools.empty())
+            why = autoMode ? "the classifier of the auto mode checks this call before it runs (a call it can't judge: asked to you)" : "Claude Code prepares it (its hooks, its permission)";
+        else if (step == "model") why = "Claude Code handles the answer (its hooks), then sends the next request";
+        else if (step == "compacting") why = "the context is full: Claude Code summarizes it (a request to the model)";
+        else if (step == "tools" && autoMode) why = "each call checked by the classifier of the auto mode, then run";
+    }
+    if ((step == "requesting" || step == "reading") && stepMs >= 15000)
+        why += (why.empty() ? "" : "; ") + std::string("slow: the API is busy, or a long context read again in full (its cache expires after some idle minutes)");
+    if (const double limit = std::max(s.metrics.limit5h, s.metrics.limit7d); limit >= 0.9 && (step == "requesting" || step == "reading" || step == "retry"))
+        why += (why.empty() ? "" : "; ") + std::string("your limits at ") + std::to_string(static_cast<int>(limit * 100)) + " % ("
+            + (s.metrics.limit7d >= s.metrics.limit5h ? "7 days" : "5 hours") + ")";
     cluster::Json steps = cluster::Json::array();
     for (const auto &[name, duration]: s.steps)
         steps.push_back({{"name", word(name)}, {"ms", duration}});
@@ -761,12 +786,13 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
         }
         for (const std::string& note: r.notes)
             parts.push_back(note);
+        if (r.wait >= 15000 && i + 1 < rounds.size()) parts.push_back("slow API");
         if (parts.empty()) parts.push_back(i + 1 == rounds.size() ? "waiting for the model" : "-");
         std::string text = "#" + std::to_string(i + 1);
         for (std::size_t k = 0; k < parts.size(); ++k)
             text += (k == 0 ? "  " : " · ") + parts[k];
         lines.push_back({{"text", text + (i + 1 == rounds.size() && !step.empty() ? " …" : "")}, {"current", i + 1 == rounds.size() && !step.empty()}});
     }
-    return {{"verb", verb}, {"step", step.empty() ? std::string() : word(step)}, {"detail", s.stepDetail}, {"step_ms", s.stepSince > 0 ? now - s.stepSince : 0}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
+    return {{"verb", verb}, {"step", step.empty() ? std::string() : word(step)}, {"detail", why}, {"step_ms", stepMs}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
         {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"rounds", lines}, {"hidden_thinking", (step == "thinking") && s.thinking.empty() && s.stepDetail.empty()}};
 }
