@@ -1801,18 +1801,27 @@ class TtyUi {
                     const cluster::Setting& s = this->_pages[hit.page].settings[hit.item];
                     const bool selected = static_cast<int>(h) == this->_findHit;
                     const int index = static_cast<int>(h);
+                    // its name (accent when chosen), its value now, its page; where it matched: a small mark on the right
+                    std::string now = this->settingValue_(s);
+                    if (s.kind == cluster::SettingKind::Bool) now = now == "true" ? "on" : "off";
+                    else if (s.kind == cluster::SettingKind::Action) now = "▶";
+                    else if (now.empty()) now = "(empty)";
+                    const bool risky = !cluster::setting_danger(s, this->settingValue_(s)).empty();
                     ftxui::Element line = ftxui::hbox({
-                        ftxui::text(selected ? " › " : "   ") | ftxui::color(t.accent) | ftxui::bold,
-                        ftxui::text(s.label) | ftxui::bold | (selected ? ftxui::color(t.accent) : ftxui::color(t.text)),
-                        ftxui::text("  " + this->_pages[hit.page].title) | ftxui::color(t.muted),
+                        ftxui::text(selected ? " ▸ " : "   ") | ftxui::color(t.accent) | ftxui::bold,
+                        ftxui::text(s.label) | (selected ? ftxui::bold | ftxui::color(t.accent) : ftxui::color(t.text)),
+                        s.danger ? ftxui::text(" ⚠") | ftxui::color(t.warn) : ftxui::text(""),
+                        ftxui::text("  " + cluster::one_line(now, 28)) | ftxui::color(risky ? t.error : t.muted),
                         ftxui::filler(),
-                        ftxui::text(hit.name ? " name " : " description ") | (hit.name ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.bg) | ftxui::bgcolor(t.muted)),
-                        ftxui::text(" "),
+                        ftxui::text(this->_pages[hit.page].title) | ftxui::color(t.muted) | ftxui::dim | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 16),
+                        (hit.name ? ftxui::text("● name") | ftxui::color(t.accent) : ftxui::text("○ description") | ftxui::color(t.muted)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 14),
                     });
-                    rows.push_back(this->tap_(selected ? line | ftxui::inverted | ftxui::focus : line, 2, [this, index]() {
+                    rows.push_back(this->tap_(selected ? line | ftxui::bgcolor(t.surface) | ftxui::focus : line, 2, [this, index]() {
                         this->_findHit = index;
                         (void)this->event_(ftxui::Event::Return);
                     }));
+                    if (selected && !s.description.empty())
+                        rows.push_back(ftxui::text("     " + cluster::one_line(s.description, 110)) | ftxui::color(t.muted) | ftxui::dim | ftxui::bgcolor(t.surface));
                     if (selected) help = s.description;
                 }
                 if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
