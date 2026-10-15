@@ -64,8 +64,11 @@ target_link_libraries(${TARGET} PRIVATE utils::utils)          # static lib + in
 ```
 - Packages (`dnf`/`apt`, see the README `setup.sh`): `libutils` (= `libutils-dev` + `libutils-op`),
   `-db` debug, `-as` asan, `-pre` pre-release; from the sources: `cmake -S . -B build && sudo cmake --build build --target install`.
-- Platforms (v4.0.0): Unix and Windows x86_64 (cross compiled with MinGW-w64:
-  `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchain/mingw-w64.cmake`, `utils::utils` also links `ws2_32`), every class with the
+  Windows (v4.1.0): `mingw64-libutils` (= `-dev` + `-op`), `mingw64-libutils-db` (no asan), `-pre`, same mirror,
+  installed in the MinGW sysroot (found by `find_package(utils)` with a MinGW toolchain: `mingw64-cmake` on Fedora).
+- Platforms (v4.0.0+): Unix and Windows x86_64 (cross compiled with MinGW-w64: the packages `mingw64-libutils*`
+  since v4.1.0, or `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchain/mingw-w64.cmake` from the sources; `utils::utils` also links
+  `ws2_32`), every class with the
   same API; on Windows `Process::spawn()` (fork) and a `Process::dup` on a fd other than 0, 1, 2 raise a
   `FatalException` (`UndefinedCall`), `Poll` / `Client` / `Server` only handle sockets. Include `<windows.h>` before
   `<utils/utils.hpp>` (or define `WIN32_LEAN_AND_MEAN`): the complete `<windows.h>` declares a `_unused` member.

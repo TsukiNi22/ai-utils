@@ -1,6 +1,6 @@
 # libutils `exception`
 
-Generated from libutils `v4.0.0` (commit `4ee63c9`, 2026-10-15) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.1.0` (commit `eec28ab`, 2026-10-15) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/exception/AException.hpp`
 

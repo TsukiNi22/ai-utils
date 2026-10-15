@@ -10,7 +10,8 @@
 #   remove             remove every libutils package (--repo: also the mirror & key)
 #   repo               only setup the mirror & GPG key
 #   channel            the channel install would use (the newest of stable / pre), no root
-#   windows            build libutils for Windows x86_64 (MinGW-w64 cross compilation, v4.0.0+) into --prefix, no root
+#   windows            libutils for Windows x86_64 (v4.1.0+): its packages mingw64-libutils* (dnf/apt, in the MinGW sysroot);
+#                      none on the mirror or --source: built from the sources (MinGW-w64) into --prefix, no root
 #
 # Options:
 #   --stable / --pre   force the stable channel (libutils) or the pre channel (libutils-pre); default: the newest one
@@ -95,16 +96,16 @@ available() { # <package>: its newest version on the mirror ("" unknown)
     esac
     return 0
 }
-resolve_channel() { # auto: the channel with the newest version (the pre channel may lag behind a stable release)
+resolve_channel() { # [<base>] auto: the channel with the newest version (the pre channel may lag behind a stable release)
     [[ "$CHANNEL" != "auto" ]] && return 0
-    local pre stable
-    pre="$(available libutils-pre)"; stable="$(available libutils)"
+    local base="${1:-libutils}" pre stable
+    pre="$(available "$base-pre")"; stable="$(available "$base")"
     if [[ -n "$pre" ]] && [[ "$pre" != "$stable" ]] && [[ "$(printf '%s\n%s\n' "$pre" "${stable:-0}" | sort -V | tail -1)" == "$pre" ]]; then CHANNEL="-pre"; else CHANNEL=""; fi
-    echo "Channel: libutils${CHANNEL} (stable ${stable:-?}, pre ${pre:-?})"
+    echo "Channel: $base${CHANNEL} (stable ${stable:-?}, pre ${pre:-?})"
 }
 
-installed_rpm() { rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\n' 'libutils*' 2>/dev/null | sort; }
-installed_deb() { dpkg-query -W -f '${Package} ${Version} ${Status}\n' 'libutils*' 2>/dev/null | awk '$NF=="installed"{print $1, $2}' | sort; }
+installed_rpm() { rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\n' 'libutils*' 'mingw64-libutils*' 2>/dev/null | sort; }
+installed_deb() { dpkg-query -W -f '${Package} ${Version} ${Status}\n' 'libutils*' 'mingw64-libutils*' 2>/dev/null | awk '$NF=="installed"{print $1, $2}' | sort; }
 installed() { case "$FAMILY" in rpm) installed_rpm ;; deb) installed_deb ;; *) true ;; esac; }
 header_version() {
     for d in /usr/include /usr/local/include; do
@@ -164,7 +165,43 @@ source_install() {
 # Windows (MinGW-w64 cross compilation)
 # =========================
 MINGW="x86_64-w64-mingw32"
+windows_packages() { # mingw64-libutils[-pre] (dev + optimized) + the debug variant (no asan with MinGW)
+    local list="mingw64-libutils${CHANNEL}"
+    for v in ${VARIANTS//,/ }; do
+        case "$v" in
+            db) list="$list mingw64-libutils-db${CHANNEL}" ;;
+            as) echo "note: no asan variant with MinGW (Asan is built like Debug)" >&2 ;;
+        esac
+    done
+    echo "$list"
+}
+windows_hint() {
+    echo "A project for Windows (find_package(utils) finds it in the MinGW sysroot):"
+    if command -v mingw64-cmake > /dev/null; then
+        echo "  mingw64-cmake -S . -B build-windows -DCMAKE_BUILD_TYPE=Optimized && cmake --build build-windows"
+    else
+        echo "  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=<libutils>/cmake/toolchain/mingw-w64.cmake -DCMAKE_BUILD_TYPE=Optimized"
+    fi
+}
 windows_install() {
+    # its packages first (v4.1.0+: mingw64-libutils*, same mirror), else built from the sources into --prefix
+    if ! $SOURCE && { [[ "$FAMILY" = "rpm" ]] || [[ "$FAMILY" = "deb" ]]; }; then
+        setup_repo
+        [[ "$FAMILY" = "deb" ]] && $SUDO apt-get update -q > /dev/null 2>&1 || true
+        if [[ -n "$(available mingw64-libutils)$(available mingw64-libutils-pre)" ]]; then
+            resolve_channel mingw64-libutils
+            need_root
+            local pkgs; pkgs="$(windows_packages)"
+            case "$FAMILY" in
+                rpm) $SUDO dnf install $YES --refresh $pkgs ;;
+                deb) $SUDO apt-get install $YES $pkgs ;;
+            esac
+            echo "libutils for Windows installed ($pkgs) into the MinGW sysroot"
+            windows_hint
+            return 0
+        fi
+        echo "No mingw64-libutils package on the mirror (libutils v4.1.0+): built from the sources into $PREFIX"
+    fi
     command -v "$MINGW-g++" > /dev/null || { echo "Error: MinGW-w64 is required: dnf install mingw64-gcc-c++ mingw64-openssl (Fedora), apt install g++-mingw-w64-x86-64 + an OpenSSL built for MinGW (Debian/Ubuntu)" >&2; exit 1; }
     command -v cmake > /dev/null && command -v git > /dev/null || { echo "Error: git and cmake are required" >&2; exit 1; }
     tmp="$(mktemp -d)" # global: the EXIT trap runs after the function
@@ -181,8 +218,13 @@ windows_install() {
     echo "A project for Windows:"
     echo "  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=$PREFIX/share/toolchain/mingw-w64.cmake -DCMAKE_FIND_ROOT_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Optimized"
 }
-windows_version() {
-    [[ -f "$PREFIX/include/utils/version.hpp" ]] && sed -n 's/.*__LIBUTILS_VERSION__ "\(.*\)".*/\1/p' "$PREFIX/include/utils/version.hpp" | head -1
+windows_version() { # the packages (MinGW sysroot), else the source build of --prefix
+    for d in /usr/$MINGW/sys-root/mingw/include /usr/$MINGW/include "$PREFIX/include"; do
+        if [[ -f "$d/utils/version.hpp" ]]; then
+            echo "$(sed -n 's/.*__LIBUTILS_VERSION__ "\(.*\)".*/\1/p' "$d/utils/version.hpp" | head -1) (${d%/include})"
+            return 0
+        fi
+    done
     return 0
 }
 
@@ -199,7 +241,7 @@ case "$COMMAND" in
             echo "WARNING: a source install in /usr/local shadows the packages (compilers and find_package search /usr/local first)."
             echo "         remove it to use the packages: libutils.sh remove --local (or keep it on purpose)"
         fi
-        echo "Windows build: $([[ -n "$(windows_version)" ]] && echo "$(windows_version) ($PREFIX)" || echo "none (libutils.sh windows)")"
+        echo "Windows build: $([[ -n "$(windows_version)" ]] && windows_version || echo "none (libutils.sh windows)")"
         case "$FAMILY" in
             rpm) echo "Last available:"; dnf -q repoquery --latest-limit 1 --qf '  %{name} %{version}-%{release}\n' libutils-pre libutils 2>/dev/null | sort -u || true ;;
             deb) echo "Available:"; apt-cache policy libutils-pre libutils 2>/dev/null | grep -E '^[a-z]|Candidate' | sed 's/^/  /' || true ;;
@@ -228,9 +270,9 @@ case "$COMMAND" in
         resolve_channel
         need_root
         PKGS="$(packages)"
-        # Switching channel: the stable and pre packages conflict
-        if [[ -n "$CHANNEL" ]]; then CONFLICT="$(installed | awk '{print $1}' | grep -v -- '-pre$' || true)"
-        else CONFLICT="$(installed | awk '{print $1}' | grep -- '-pre$' || true)"; fi
+        # Switching channel: the stable and pre packages conflict (the Windows ones apart: libutils.sh windows)
+        if [[ -n "$CHANNEL" ]]; then CONFLICT="$(installed | awk '{print $1}' | grep -v '^mingw64-' | grep -v -- '-pre$' || true)"
+        else CONFLICT="$(installed | awk '{print $1}' | grep -v '^mingw64-' | grep -- '-pre$' || true)"; fi
         if [[ -n "$CONFLICT" ]]; then
             echo "Removing the other channel: $(echo $CONFLICT)"
             case "$FAMILY" in rpm) $SUDO dnf remove $YES $CONFLICT ;; deb) $SUDO apt-get remove $YES $CONFLICT ;; esac

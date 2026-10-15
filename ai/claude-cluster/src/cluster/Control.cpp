@@ -188,15 +188,17 @@ _cold void cluster::Control::client_(const int fd)
 }
 
 /* client */
-_cold cluster::Json cluster::Control::request(const cluster::Json& request)
+_cold cluster::Json cluster::Control::request(const cluster::Json& request, std::atomic<int>* current)
 {
     const int fd = connect_(cluster::socket_path());
     if (fd == -1) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning,
         "claude-cluster is not running (start it: claude-cluster)");
+    if (current) *current = fd;
     std::string buffer;
     bool closed = false;
     const bool sent = send_line_(fd, request.dump());
     const std::optional<std::string> line = sent ? read_line_(fd, buffer, 120000, closed) : std::nullopt;
+    if (current) *current = -1;
     ::close(fd);
     if (!line) throw utils::exception::ErrorException(utils::exception::InternalCode::Communication, "no answer from claude-cluster");
     return cluster::Json::parse(*line);

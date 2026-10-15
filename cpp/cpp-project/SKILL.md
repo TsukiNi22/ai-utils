@@ -61,9 +61,10 @@ header dates to today, writes a minimal README, fills the `.gitignore` block (st
 - New classes/modules asked with the project: `cpp-class` (empty bodies, CMake registration).
 - **Windows** (the `Build Windows` extra, libutils v4): the template builds for Windows x86_64 unchanged, cross
   compiled from Linux with MinGW-w64 (checked: the `.exe` runs under `wine`). libutils for Windows:
-  `libutils-install` (`libutils.sh windows`, into `~/.local/share/libutils/windows` by default); then
-  `cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=<prefix>/share/toolchain/mingw-w64.cmake
-  -DCMAKE_FIND_ROOT_PATH=<prefix> -DCMAKE_BUILD_TYPE=Optimized && cmake --build build-windows` (the executable is
+  `libutils-install` (`libutils.sh windows`: the packages `mingw64-libutils*` of v4.1.0+ in the MinGW sysroot, else a
+  source build into `~/.local/share/libutils/windows`); then `mingw64-cmake -S . -B build-windows
+  -DCMAKE_BUILD_TYPE=Optimized && cmake --build build-windows` (Fedora; elsewhere `-DCMAKE_TOOLCHAIN_FILE=<a MinGW
+  toolchain>`; a source build: `+ -DCMAKE_FIND_ROOT_PATH=<prefix>`) (the executable is
   `<name>.exe` at the root: `/<name>.exe` and `/build-windows` in `.gitignore`). Portable code only: system calls
   through `utils::platform::` (section `_Platform`), never `<unistd.h>` / `<sys/socket.h>`...; `<windows.h>` before
   `<utils/utils.hpp>` (or `WIN32_LEAN_AND_MEAN`); `utils::iomanip::enable_ansi()` at the start of `main` for the

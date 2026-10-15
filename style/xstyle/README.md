@@ -19,6 +19,10 @@ with `--fix`, for every rule or only some codes, files or directories.
 | Name | Version | Fedora (`dnf`) | Debian/Ubuntu (`apt`) |
 |---|---|---|---|
 | [libutils](https://github.com/TsukiNi22/libutils) | `4.x` (`>= 4.0.0`) | `libutils` | `libutils` |
+
+> [!NOTE]
+> The libutils checks read the installed headers: `/usr/include`, `/usr/local/include`, `~/.local/include`, `CPATH`, else
+> its Windows build (v4.1.0: the MinGW sysroot of the `mingw64-libutils` packages, or a source build of `libutils.sh windows`).
 | clang++ | C++20 | `clang` | `clang` |
 | CMake | >= 3.20 | `cmake` | `cmake` |
 

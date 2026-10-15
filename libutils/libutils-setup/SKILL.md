@@ -48,10 +48,11 @@ Idempotent (a second run changes nothing). In the `cmake-style` sections (create
 - `Debug`/`Asan` builds need the `libutils-db[-pre]` / `libutils-as[-pre]` packages (libutils-install `--variants`).
 - v4.0.0 removed every v3 compatibility name (`isloaded`, `auto_cast`, `setStyle`, `utils::network::socket::*`...):
   a project moving to `find_package(utils 4.0.0)` replaces them (`xstyle --rtk --fix` lists them: `LU-*` rules).
-- **For Windows too** (libutils v4): `libutils-install` `windows` (libutils cross compiled with MinGW-w64 into a
-  prefix), then the project builds with `-DCMAKE_TOOLCHAIN_FILE=<prefix>/share/toolchain/mingw-w64.cmake
-  -DCMAKE_FIND_ROOT_PATH=<prefix>` (the same `find_package(utils 4.0.0)` / `utils::utils`, which also links
-  `ws2_32`); the code goes through `utils::platform::` for the system calls, `<windows.h>` before `<utils/utils.hpp>`,
-  `utils::iomanip::enable_ansi()` once in `main` (details: `libutils` skill, Platforms).
+- **For Windows too** (libutils v4.1.0: packages `mingw64-libutils*`): `libutils-install` `windows` installs them in
+  the MinGW sysroot, then the project builds with `mingw64-cmake -S . -B build-windows` (Fedora) or
+  `-DCMAKE_TOOLCHAIN_FILE=<a MinGW toolchain>` (the same `find_package(utils 4.0.0)` / `utils::utils`, which also links
+  `ws2_32`; `Debug`: `mingw64-libutils-db`); a source build into a prefix instead (no package): add
+  `-DCMAKE_FIND_ROOT_PATH=<prefix>`. The code goes through `utils::platform::` for the system calls, `<windows.h>`
+  before `<utils/utils.hpp>`, `utils::iomanip::enable_ansi()` once in `main` (details: `libutils` skill, Platforms).
 - Check: `cmake -S . -B build && cmake --build build` (the header is generated at the first build), then report the
   libutils version used and what was added.

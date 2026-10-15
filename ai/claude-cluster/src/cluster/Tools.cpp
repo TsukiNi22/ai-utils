@@ -246,10 +246,39 @@ _cold bool cluster::has_command(const std::string& name)
     return false;
 }
 
+// the commands running (their pid): stopped at the quit, waited for (no process, pipe or poll left at the end)
+static std::mutex captures_mutex_;
+static std::set<pid_t> captures_;
+static std::atomic<int> captures_running_{0};
+
+_cold void cluster::end_captures(const int ms)
+{
+    {
+        std::lock_guard<std::mutex> lock(captures_mutex_);
+        for (const pid_t pid: captures_)
+            (void)::kill(pid, SIGTERM);
+    }
+    const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    while (captures_running_ > 0 && std::chrono::steady_clock::now() < end)
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+
 _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, const std::string& cwd, const int timeout)
 {
     cluster::Captured result;
     if (args.empty()) return result;
+    ++captures_running_;
+    struct Running {
+        pid_t pid = 0;
+        ~Running()
+        {
+            if (this->pid > 0) {
+                std::lock_guard<std::mutex> lock(captures_mutex_);
+                captures_.erase(this->pid);
+            }
+            --captures_running_;
+        }
+    } running;
     utils::encapsulation::Pipe out;
     utils::encapsulation::Process process;
 
@@ -264,7 +293,11 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     std::vector<std::string> envArgs;
     if (!cwd.empty()) envArgs = {"-C", cwd};
     envArgs.insert(envArgs.end(), args.begin(), args.end());
-    (void)process.spawn("env", envArgs);
+    running.pid = process.spawn("env", envArgs);
+    {
+        std::lock_guard<std::mutex> lock(captures_mutex_);
+        captures_.insert(running.pid);
+    }
     out.closeWrite();
     if (null != -1) ::close(null);
 

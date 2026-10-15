@@ -402,10 +402,20 @@ _cold void xstyle::Core::libutilsCheck_(void)
     }
 
     bool upToDate = true;
+    bool older = false;     // the libutils installed older than the reference: the library to update, not the reference
     const xstyle::ProjectInfo project = xstyle::detect_project(std::filesystem::current_path());
     std::cout << "reference: " << referenceVersion << " (" << referenceHash.substr(0, 7) << ")" << std::endl;
     if (project.libutilsInstalled) {
-        std::cout << "installed: " << project.libutilsVersion << (project.libutilsVersion == referenceVersion ? "" : " (differs from the reference)") << std::endl;
+        // which way: an older libutils installed (update it), or an older reference (regenerate it)
+        const std::function<std::vector<int>(const std::string&)> parts = [](const std::string& v) {
+            std::vector<int> n;
+            for (const std::string& p: xstyle::split(v.starts_with("v") ? v.substr(1) : v, '.'))
+                n.push_back(std::atoi(p.c_str()));
+            return n;
+        };
+        older = parts(project.libutilsVersion) < parts(referenceVersion);
+        std::cout << "installed: " << project.libutilsVersion << (project.libutilsVersion == referenceVersion ? "" : older
+            ? " (older than the reference: update libutils, libutils-install skill)" : " (newer than the reference)") << std::endl;
         upToDate = upToDate && project.libutilsVersion == referenceVersion;
     } else {
         std::cout << "installed: none" << std::endl;
@@ -418,8 +428,8 @@ _cold void xstyle::Core::libutilsCheck_(void)
         std::cout << "repository: " << repository.string() << ", " << (ahead.empty() ? "?" : ahead) << " commit(s) after the reference" << std::endl;
         upToDate = upToDate && ahead == "0";
     }
-    std::cout << "status: " << (upToDate ? "up to date" : "outdated (bash " + (std::filesystem::path(XSTYLE_SKILLS_DIR) / "libutils" / "libutils" / "scripts" / "update.sh").string()
-        + " to regenerate the reference)") << std::endl;
+    std::cout << "status: " << (upToDate ? "up to date" : older ? "libutils installed is older than the reference (update it: libutils-install skill, libutils.sh update)"
+        : "outdated (bash " + (std::filesystem::path(XSTYLE_SKILLS_DIR) / "libutils" / "libutils" / "scripts" / "update.sh").string() + " to regenerate the reference)") << std::endl;
     this->_exit = upToDate ? OK : 1;
 }
 

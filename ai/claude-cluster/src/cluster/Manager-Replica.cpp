@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Voice.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Wire.hpp"
+#include <sys/socket.h>
 #include <unistd.h>
 #include <thread>
 
@@ -31,6 +32,8 @@ struct cluster::ReplicaState {
     std::string error;                          // the core not reached: why
     std::uint64_t seen = 0;                     // the version of the core last seen
     std::atomic<std::uint64_t> version{1};      // changed at each sync that brought something (the interfaces redraw)
+    std::atomic<int> fd{-1};                    // the socket of the sync waiting (shut down at the quit: it ends at once)
+    std::thread thread;                         // the sync (joined at the quit)
 };
 
 _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& replica, const bool wait)
@@ -45,7 +48,7 @@ _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& repli
             known[snap.spec.id] = snap.version;
         seen = wait ? replica->seen : 0;
     }
-    const cluster::Json response = cluster::Control::request({{"cmd", "sync"}, {"client", replica->client}, {"v", seen}, {"known", known}});
+    const cluster::Json response = cluster::Control::request({{"cmd", "sync"}, {"client", replica->client}, {"v", seen}, {"known", known}}, &replica->fd);
     if (!response.value("ok", false)) throw utils::exception::ErrorException(utils::exception::InternalCode::Communication, response.value("error", std::string("sync")));
     cluster::Json data = response.value("data", cluster::Json::object());
     std::lock_guard<std::mutex> lock(replica->mutex);
@@ -78,7 +81,7 @@ _cold void cluster::Manager::attach(void)
     this->_replica->client = std::string(host.data()) + ":" + std::to_string(::getpid());
     sync_once_(this->_replica, false);
     this->_replica->running = true;
-    std::thread([replica = this->_replica]() {
+    this->_replica->thread = std::thread([replica = this->_replica]() {
         int failures = 0;
         while (replica->running) {
             try {
@@ -91,11 +94,12 @@ _cold void cluster::Manager::attach(void)
                 }
                 ++replica->version;
                 // the core gone (the last interface closed it, a crash): started again once in a while, its sessions resumed
-                if (++failures % 5 == 1 && !cluster::Control::alive()) cluster::start_core();
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+                if (++failures % 5 == 1 && replica->running && !cluster::Control::alive()) cluster::start_core();
+                for (int i = 0; i < 10 && replica->running; ++i)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
-    }).detach();
+    });
 }
 
 _cold cluster::Json cluster::Manager::call(cluster::Json request) const
@@ -140,6 +144,8 @@ _cold void cluster::Manager::detach_(void)
     // this interface closed: told to the core (it stops when no interface is left, unless it is the service)
     if (!this->_replica) return;
     this->_replica->running = false;
+    if (const int fd = this->_replica->fd; fd >= 0) (void)::shutdown(fd, SHUT_RDWR); // the sync waiting: it ends now
+    if (this->_replica->thread.joinable()) this->_replica->thread.join();
     try {
         (void)this->call({{"cmd", "detach"}});
     } catch (const utils::exception::IException&) {}
@@ -227,7 +233,8 @@ _cold bool cluster::start_core(const std::vector<std::string>& args)
 {
     // the core of claude-cluster in a process of its own (setsid: no terminal); it stops when its last interface closes
     // its output in <data>/core.log (why it stopped)
-    std::vector<std::string> command = {"sh", "-c", "log=\"$1\"; shift; exec setsid \"$@\" >>\"$log\" 2>&1", "sh", (cluster::data_dir() / "core.log").string(),
+    // put in the background by sh (which ends at once): nothing of this process waits for it
+    std::vector<std::string> command = {"sh", "-c", "log=\"$1\"; shift; setsid \"$@\" >>\"$log\" 2>&1 </dev/null &", "sh", (cluster::data_dir() / "core.log").string(),
         cluster::self_exe().string(), "serve", "--linger"};
     command.insert(command.end(), args.begin(), args.end());
     cluster::detach(command);

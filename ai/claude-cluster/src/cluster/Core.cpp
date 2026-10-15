@@ -85,6 +85,7 @@ _cold void cluster::App::stop(void)
     this->voice.reset();
     if (this->control) this->control->stop();
     if (this->manager) this->manager->shutdown();
+    cluster::end_captures(2000); // a notification waiting for its click, a command still running: ended before the quit
 }
 
 /* setup */

@@ -47,7 +47,8 @@ class Control {
         _cold void start(void);             // throws AlreadyRunning when another instance owns the socket
         _cold void stop(void);
         _cold _nodiscard static cluster::Json handle(cluster::Manager& manager, const cluster::Json& request);
-        _cold _nodiscard static cluster::Json request(const cluster::Json& request);  // client side, throws when nothing runs
+        _cold _nodiscard static cluster::Json request(const cluster::Json& request, std::atomic<int>* current = nullptr); // client side, throws when
+                                                            // nothing runs; current: its socket while it runs (shut down: it stops)
         _cold _nodiscard static bool alive(void);
 
         // ---------- Constructor -------- //

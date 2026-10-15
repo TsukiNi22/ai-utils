@@ -127,9 +127,11 @@ _cold xstyle::ProjectInfo xstyle::detect_project(const std::filesystem::path& st
         if (p == p.parent_path()) break;
     }
 
-    // libutils installed (system or CPATH)
+    // libutils installed (system or CPATH; else its Windows build: the MinGW sysroot of mingw64-libutils, a source build)
     std::vector<std::filesystem::path> candidates = {"/usr/include", "/usr/local/include"};
     if (const char* home = std::getenv("HOME")) candidates.push_back(std::filesystem::path(home) / ".local" / "include");
+    candidates.insert(candidates.end(), {"/usr/x86_64-w64-mingw32/sys-root/mingw/include", "/usr/x86_64-w64-mingw32/include"});
+    if (const char* home = std::getenv("HOME")) candidates.push_back(std::filesystem::path(home) / ".local" / "share" / "libutils" / "windows" / "include");
     if (const char* cpath = std::getenv("CPATH"))
         for (const std::string& p: xstyle::split(cpath, ':'))
             candidates.insert(candidates.begin(), p);
