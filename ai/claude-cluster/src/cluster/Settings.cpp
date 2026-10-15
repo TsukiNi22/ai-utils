@@ -334,7 +334,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.service.source;}},
         }},
         {"web", "Web", {
-            {"web", "enabled", "Web access", SettingKind::Bool, {}, "a browser or the app of a phone / another computer drives claude-cluster.\n"
+            {"web", "enabled", "Open the web access at start", SettingKind::Bool, {}, "a browser or the app of a phone / another computer drives claude-cluster.\n"
                 "• who: the devices of this network (same LAN); beyond it: Beyond the LAN\n"
                 "• how: the address and the 6-digit code shown at the top (a click copies the code), then your yes here (a popup)\n"
                 "• several at once; trusted: no code next time; banned: refused (devices › at the top, the palette: Web devices)\n"

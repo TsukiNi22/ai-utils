@@ -716,6 +716,14 @@ Save, Esc then save) shows one popup listing them with their warning: save them,
 kept). The quit key (Ctrl+Q) in the settings closes the page without saving (not asked; claude-cluster goes on). `:set` needs `:set!`; the control and the MCP refuse it without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
 right (the terminal), in lines and steps (Web > Beyond the LAN: how to set up Tailscale or the router).
 
+**What a setting needs and is missing** is told in red on its right (the terminal: `✗ …`, its details in its help;
+the window: under it; the web page: under it): a program not found (the editor, the image viewer, the terminal of
+the service, the program of an agent), `upnpc` for `remote = router` - and when it is there, the router refusing to
+open the port or its public address unknown, with what to do in the box -, `tailscale` missing or not connected. When
+a package installs it: `[i]` / *Install …* installs it at once (the terminal: `sudo <dnf | apt-get | pacman | zypper>`
+in the terminal; the window, the web page: the password window of the desktop, `pkexec`). The save lists the changed
+settings missing something with the dangerous ones: install, then save / save anyway / back.
+
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its
 description, the closest first, each hit telling where it matched (*name* / *description*). In the settings page:
 `/` or Ctrl+F (terminal), its field at the top (window, web page; Ctrl+F); Enter / a click opens its page on it. In the

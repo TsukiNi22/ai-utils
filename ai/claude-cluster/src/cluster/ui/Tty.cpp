@@ -657,6 +657,7 @@ class TtyUi {
         int _item = 0;
         bool _finding = false;                      // the search of the settings page (/)
         bool _dangerOk = false;                     // the dangerous changes confirmed (their popup at the save)
+        cluster::Requirement _need;                 // what the setting chosen needs and is missing (its help, [i] install)
         bool _saveExit = true;                      // the save waiting for that popup: the page closed after
         std::string _find;
         std::vector<cluster::SettingHit> _hits;
@@ -1559,6 +1560,37 @@ class TtyUi {
             this->_note.clear();
         }
 
+        _nodiscard std::vector<std::pair<std::pair<cluster::Setting, std::string>, cluster::Requirement>> missing_(void)
+        {
+            // the changes whose value needs something missing: listed in the popup of the save
+            std::vector<std::pair<std::pair<cluster::Setting, std::string>, cluster::Requirement>> out;
+            for (const auto &[where, change]: this->_changes)
+                if (const cluster::Requirement need = cluster::setting_requirement(this->_manager, change.first, change.second); !need.problem.empty())
+                    out.push_back({change, need});
+            return out;
+        }
+
+        void install_(const std::string& package)
+        {
+            // its package installed in the terminal (sudo asks its password there), the interface back after
+            const std::vector<std::string> command = cluster::install_command(package);
+            if (command.empty()) {
+                this->_note = "no package manager known here: install " + package + " yourself";
+                return;
+            }
+            std::string line = "sudo";
+            for (const std::string& part: command)
+                line += " " + part;
+            int code = 0;
+            this->_screen.WithRestoredIO([&]() {
+                std::cout << "\n  claude-cluster: installing " << package << " (" << line << ")\n\n" << std::flush;
+                code = std::system(line.c_str());
+                std::cout << "\n  " << (code == 0 ? "installed" : "not installed") << ": back in claude-cluster…" << std::flush;
+                std::this_thread::sleep_for(std::chrono::milliseconds(800));
+            })();
+            this->_note = code == 0 ? package + " installed" : package + " not installed (exit " + std::to_string(code) + ")";
+        }
+
         _nodiscard std::vector<std::pair<cluster::Setting, std::string>> dangerous_(void) const
         {
             // the changes to a dangerous value: listed in the popup of the save
@@ -1570,7 +1602,7 @@ class TtyUi {
 
         void saveSettings_(const bool exit = true)
         {
-            if (!this->_dangerOk && !this->dangerous_().empty()) { // asked first: all of them in one popup
+            if (!this->_dangerOk && (!this->dangerous_().empty() || !this->missing_().empty())) { // asked first: all of them in one popup
                 this->_saveExit = exit;
                 this->_note = "danger_save";
                 return;
@@ -1636,9 +1668,14 @@ class TtyUi {
                 }
                 return true;
             }
+            if (!this->_editing && this->_note.empty() && (event == ftxui::Event::Character('i') || event == ftxui::Event::Character('I')) && !this->_need.package.empty()) {
+                this->install_(this->_need.package); // what the setting chosen needs
+                return true;
+            }
             if (!this->_editing && this->_note != "confirm" && (event == ftxui::Event::Character('/') || event.input() == std::string(1, '\x06'))) {
                 this->_finding = true;
-                this->_hits = cluster::settings_search(this->_pages, this->_find);
+                this->_find.clear(); // a new search each time
+                this->_hits.clear();
                 this->_findHit = 0;
                 return true;
             }
@@ -1660,6 +1697,17 @@ class TtyUi {
             // the save with dangerous values: y saves them all, n / Esc back to the page (nothing saved, the changes kept)
             if (this->_note == "danger_save") {
                 this->_note.clear();
+                if (event == ftxui::Event::Character('i') || event == ftxui::Event::Character('I')) { // what is missing installed, then saved
+                    for (const auto &[change, need]: this->missing_())
+                        if (!need.package.empty()) this->install_(need.package);
+                    const std::string installed = this->_note;
+                    this->_dangerOk = true;
+                    this->saveSettings_(this->_saveExit);
+                    this->_dangerOk = false;
+                    if (!installed.empty() && this->_mode == Mode::Settings) this->_note = installed + " · " + this->_note;
+                    else if (!installed.empty()) this->status_(installed);
+                    return true;
+                }
                 if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
                     this->_dangerOk = true;
                     this->saveSettings_(this->_saveExit);
@@ -1764,6 +1812,8 @@ class TtyUi {
                     this->_item = index;
                     if (change && !this->_editing) (void)this->event_(ftxui::Event::Return);
                 };
+                // what its value needs and is missing: in red on its right
+                const cluster::Requirement need = cluster::setting_requirement(this->_manager, setting, this->settingValue_(setting));
                 ftxui::Element line = ftxui::hbox({
                     this->tap_(ftxui::text(changed ? " * " : "   ") | ftxui::color(t.warn) | ftxui::bold, 2, [pick]() {pick(false);}, clip),
                     this->tap_(ftxui::hbox({ftxui::text(setting.label) | (dangerNow ? ftxui::color(t.error) | ftxui::bold : ftxui::color(t.muted)),
@@ -1771,10 +1821,12 @@ class TtyUi {
                         ftxui::text(" " + std::string(dots, '.') + " ") | ftxui::color(t.muted)}), 2, [pick]() {pick(false);}, clip),
                     this->tap_(ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
                         2, [pick]() {pick(true);}, clip),
+                    need.problem.empty() ? ftxui::text("") : ftxui::text("  ✗ " + cluster::one_line(need.problem.substr(0, need.problem.find(':')), 34)) | ftxui::color(t.error) | ftxui::bold,
                     ftxui::filler(),
                 });
                 rows.push_back(selected ? line | ftxui::focus : line);
                 if (selected) {
+                    this->_need = need;
                     help = setting.description;
                     if (setting.choiceHelp) choiceHelp = setting.choiceHelp(this->settingValue_(setting));
                     restart = setting.restart;
@@ -1842,6 +1894,10 @@ class TtyUi {
             ftxui::Element helpBox = ftxui::vbox({
                 ftxui::text(" Item Specific Help") | ftxui::bold | ftxui::color(t.accent),
                 ftxui::separatorLight() | ftxui::color(t.border),
+                this->_need.problem.empty() || this->_finding ? ftxui::emptyElement() : ftxui::vbox({ftxui::text(""),
+                    ftxui::paragraph("✗ " + this->_need.problem) | ftxui::color(t.error) | ftxui::bold,
+                    this->_need.package.empty() ? ftxui::emptyElement() : keyed(" [i] install " + this->_need.package + " ", ftxui::Event::Character('i')) | ftxui::color(t.accent),
+                    ftxui::text("")}),
                 ftxui::vbox(helpLines(help)),
                 ftxui::vbox(std::move(choice)),
                 ftxui::text(""),
@@ -1853,14 +1909,33 @@ class TtyUi {
             // the save with dangerous values: one popup, each one with its warning
             ftxui::Element popup = ftxui::emptyElement();
             if (this->_note == "danger_save") {
-                ftxui::Elements lines = {ftxui::text(" ⚠ Dangerous settings ") | ftxui::bold | ftxui::color(t.warn), ftxui::text("")};
+                ftxui::Elements lines;
+                const std::vector<std::pair<std::pair<cluster::Setting, std::string>, cluster::Requirement>> missing = this->missing_();
+                bool installable = false;
+                if (!missing.empty()) {
+                    lines.push_back(ftxui::text(" ✗ Missing for these settings ") | ftxui::bold | ftxui::color(t.error));
+                    lines.push_back(ftxui::text(""));
+                    for (const auto &[change, need]: missing) {
+                        installable |= !need.package.empty();
+                        lines.push_back(ftxui::hbox({ftxui::text(" ✗ ") | ftxui::color(t.error) | ftxui::bold, ftxui::text(change.first.label) | ftxui::bold,
+                            ftxui::text(" = " + cluster::one_line(change.second, 40) + (need.package.empty() ? "" : "  (install: " + need.package + ")")) | ftxui::color(t.text)}));
+                        lines.push_back(ftxui::paragraph("   " + need.problem) | ftxui::color(t.muted));
+                        lines.push_back(ftxui::text(""));
+                    }
+                }
+                if (!this->dangerous_().empty()) {
+                    lines.push_back(ftxui::text(" ⚠ Dangerous settings ") | ftxui::bold | ftxui::color(t.warn));
+                    lines.push_back(ftxui::text(""));
+                }
                 for (const auto &[setting, value]: this->dangerous_()) {
                     lines.push_back(ftxui::hbox({ftxui::text(" ⚠ ") | ftxui::color(t.warn) | ftxui::bold, ftxui::text(setting.label) | ftxui::bold | ftxui::color(t.error),
                         ftxui::text(" = " + (value.empty() ? std::string("(empty)") : cluster::one_line(value, 50))) | ftxui::color(t.text)}));
                     lines.push_back(ftxui::paragraph("   " + cluster::setting_danger(setting, value)) | ftxui::color(t.muted));
                     lines.push_back(ftxui::text(""));
                 }
-                lines.push_back(ftxui::hbox({keyed(" [y] save them ", ftxui::Event::Character('y')) | ftxui::color(t.error) | ftxui::bold, ftxui::text("   "),
+                lines.push_back(ftxui::hbox({installable ? keyed(" [i] install, then save ", ftxui::Event::Character('i')) | ftxui::color(t.ok) | ftxui::bold : ftxui::text(""),
+                    installable ? ftxui::text("   ") : ftxui::text(""),
+                    keyed(missing.empty() ? " [y] save them " : " [y] save anyway ", ftxui::Event::Character('y')) | ftxui::color(t.error) | ftxui::bold, ftxui::text("   "),
                     keyed(" [n] / Esc back (nothing saved) ", ftxui::Event::Character('n')) | ftxui::color(t.accent)}));
                 popup = ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.warn) | ftxui::bgcolor(t.bg) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 90)
                     | ftxui::center;

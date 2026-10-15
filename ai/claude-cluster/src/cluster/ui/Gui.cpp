@@ -935,17 +935,33 @@ class Window: public QMainWindow {
         {
             // the save with dangerous values: one popup listing them with their warning; yes: saved, no: nothing saved
             QString listed;
+            std::vector<std::string> packages;
+            for (const auto &[where, change]: changes)
+                if (const cluster::Requirement need = cluster::setting_requirement(this->manager, change.first, change.second); !need.problem.empty()) {
+                    listed += "<p><b style=\"color:" + q_(this->theme().error) + "\">✗ " + esc_(change.first.label) + "</b> = " + esc_(change.second) + "<br><span style=\"color:"
+                        + q_(this->theme().muted) + "\">" + esc_(need.problem) + "</span></p>";
+                    if (!need.package.empty()) packages.push_back(need.package);
+                }
             for (const auto &[where, change]: changes)
                 if (const std::string warning = cluster::setting_danger(change.first, change.second); !warning.empty())
                     listed += "<p><b style=\"color:" + q_(this->theme().error) + "\">⚠ " + esc_(change.first.label) + "</b> = " + esc_(change.second.empty() ? "(empty)" : change.second)
                         + "<br><span style=\"color:" + q_(this->theme().muted) + "\">" + esc_(warning) + "</span></p>";
             if (listed.isEmpty()) return true;
-            QMessageBox box(QMessageBox::Warning, "Dangerous settings", "<b>Save these dangerous settings?</b>" + listed, QMessageBox::Yes | QMessageBox::No, parent);
+            QMessageBox box(QMessageBox::Warning, "Before saving", "<b>Save these settings?</b>" + listed, QMessageBox::Yes | QMessageBox::No, parent);
             box.setTextFormat(Qt::RichText);
-            box.button(QMessageBox::Yes)->setText("Save them");
+            box.button(QMessageBox::Yes)->setText(packages.empty() ? "Save them" : "Save anyway");
             box.button(QMessageBox::No)->setText("Back (nothing saved)");
+            QPushButton* install = packages.empty() ? nullptr : box.addButton("Install, then save", QMessageBox::AcceptRole);
             box.setDefaultButton(QMessageBox::No);
-            return box.exec() == QMessageBox::Yes;
+            const int answer = box.exec();
+            if (install != nullptr && box.clickedButton() == install) {
+                for (const std::string& package: packages) {
+                    const std::string error = cluster::install_package(package); // its password window
+                    this->message(error.empty() ? package + " installed" : error, !error.empty());
+                }
+                return true;
+            }
+            return answer == QMessageBox::Yes;
         }
 
         void settings(const std::string& focus = "", const bool search = false)
@@ -1037,6 +1053,40 @@ class Window: public QMainWindow {
                     if (setting.danger) marks.push_back(mark);
                     form->addRow(label, widget);
                     if (info != nullptr) form->addRow(info);
+                    {
+                        // what its value needs and is missing: red under it, its Install button
+                        QWidget* needRow = new QWidget(tab);
+                        QHBoxLayout* needLayout = new QHBoxLayout(needRow);
+                        needLayout->setContentsMargins(0, 0, 0, 0);
+                        QLabel* need = new QLabel(needRow);
+                        need->setWordWrap(true);
+                        need->setStyleSheet("color:" + q_(this->theme().error) + ";font-weight:600;");
+                        QPushButton* install = new QPushButton(needRow);
+                        needLayout->addWidget(need, 1);
+                        needLayout->addWidget(install);
+                        form->addRow(needRow);
+                        const cluster::Setting copy = setting;
+                        const std::function<std::string()> value = read;
+                        const std::function<void()> check = [this, needRow, need, install, copy, value]() {
+                            const cluster::Requirement r = cluster::setting_requirement(this->manager, copy, value());
+                            needRow->setVisible(!r.problem.empty());
+                            need->setText(q_("✗ " + r.problem));
+                            install->setVisible(!r.package.empty());
+                            install->setText(q_("Install " + r.package));
+                            install->setProperty("package", q_(r.package));
+                        };
+                        QObject::connect(install, &QPushButton::clicked, this, [this, install, check]() {
+                            const std::string package = install->property("package").toString().toStdString();
+                            install->setEnabled(false);
+                            install->setText("installing…");
+                            const std::string error = cluster::install_package(package); // its password window
+                            install->setEnabled(true);
+                            this->message(error.empty() ? package + " installed" : error, !error.empty());
+                            check();
+                        });
+                        check();
+                        marks.push_back(check);
+                    }
                     if (!setting.description.empty()) { // its help under it, line by line (not only on hover)
                         QLabel* help = new QLabel(q_(setting.description), tab);
                         help->setWordWrap(true);

@@ -227,6 +227,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .setting.lit { animation: lit 2.4s ease-out; } @keyframes lit { from { background: var(--accent); } to { background: transparent; } }
 .setting .help { white-space: pre-line; }
 .danger-mark { color: #e5b400; font-weight: 700; }
+.setting .need { grid-column: 1 / -1; color: var(--error); font-weight: 600; font-size: 13px; } .setting .need button { margin-left: 8px; font-size: 12px; padding: 3px 8px; }
 .danger-now { color: var(--error); font-weight: 600; }
 /* every clickable thing answers the mouse: hover, press, keyboard focus */
 button:hover:not(:disabled) { border-color: var(--accent); filter: brightness(1.12); }
@@ -2673,6 +2674,23 @@ function drawDrawer() {
         }
         input.id = id;
         row.append(label, input, el("div", "help" + (s.at_next_start ? " next" : ""), s.help + (s.at_next_start ? " · applied at the next start" : "")));
+        if (s.problem) { // what its value needs and is missing, its install
+            const need = el("div", "need", "✗ " + s.problem);
+            if (s.package) {
+                const install = el("button", "", "Install " + s.package);
+                install.type = "button";
+                install.addEventListener("click", async () => {
+                    install.disabled = true;
+                    install.textContent = "installing… (the password is asked on the computer)";
+                    const done = await act({cmd: "install_package", package: s.package});
+                    install.disabled = false;
+                    if (done) { settingsData = await cmd({cmd: "settings_get"}); drawDrawer(); }
+                    else install.textContent = "Install " + s.package;
+                });
+                need.append(" ", install);
+            }
+            row.append(need);
+        }
         body.append(row);
         if (settingsLit === key) {
             settingsLit = "";

@@ -642,6 +642,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data.push_back({{"section", s.section}, {"key", s.key}, {"label", s.label}, {"page", pages[hit.page].title}, {"help", s.description},
                     {"matched", hit.name ? "name" : "description"}});
             }
+        } else if (cmd == "install_package") {
+            // what a setting needs: installed here (the password window of the desktop)
+            const std::string error = cluster::install_package(arg_(request, "package"));
+            if (!error.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, error);
+            data = {{"done", arg_(request, "package") + " installed"}};
         } else if (cmd == "settings_get") {
             // every option of the settings page: its section, key, value, choices and help
             const std::string section = arg_(request, "section");
@@ -650,6 +655,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 for (const cluster::Setting& setting: page.settings)
                     if (section.empty() || section == setting.section)
                         data.push_back({{"section", setting.section}, {"key", setting.key}, {"label", setting.label}, {"value", setting.value(manager.config())},
+                            {"problem", cluster::setting_requirement(manager, setting, setting.value(manager.config())).problem},
+                            {"package", cluster::setting_requirement(manager, setting, setting.value(manager.config())).package},
                             {"danger", [&setting]() {
                                 cluster::Json d = cluster::Json::object(); // the dangerous values of a choice / a switch: their warning
                                 std::vector<std::string> values = setting.choices;
