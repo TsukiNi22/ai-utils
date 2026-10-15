@@ -285,6 +285,9 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   stopped, a new conversation for the global session - after a yes / no;
 - it **stays**: its process ending by itself (not a stop) starts it again on its conversation (once a minute at most,
   told in the status line);
+- between sessions, few tokens (like `rtk`): the results of the MCP tools are compact JSON without their empty fields,
+  the answers of a sub-session to the global session (`[from the global session]`, a task of a group, `[questions from ...]`)
+  terse `key: value` lines with quiet commands, the prompts of the global session the task only; what the user reads stays normal;
 - the **MCP server** `claude-cluster mcp`: `session_list`, `session_status`, `session_spawn`, `session_send`,
   `session_allow`, `session_set_mode`, `session_interrupt`, `session_close`, `session_restore`, `session_trash`,
   `session_rename`, `session_cd`, `task_add`, `task_list`, `task_cancel`, `search`, `export`, `providers`,

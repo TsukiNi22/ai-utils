@@ -203,7 +203,22 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         return {{"content", {{{"type", "text"}, {"text", e.info()}}}}, {"isError", true}};
     }
     const bool ok = response.value("ok", false);
-    const std::string text = ok ? (response["data"].is_null() ? "done" : response["data"].dump(1)) : response.value("error", std::string("error"));
+    // read by a model, not a human: compact JSON, its empty fields left out (like rtk: every token says something)
+    const std::function<void(cluster::Json&)> prune = [&prune](cluster::Json& value) {
+        if (value.is_object()) {
+            for (auto it = value.begin(); it != value.end();) {
+                prune(*it);
+                const bool empty = it->is_null() || (it->is_string() && it->get_ref<const std::string&>().empty()) || ((it->is_array() || it->is_object()) && it->empty());
+                it = empty ? value.erase(it) : std::next(it);
+            }
+        } else if (value.is_array()) {
+            for (cluster::Json& item: value)
+                prune(item);
+        }
+    };
+    cluster::Json data = response.value("data", cluster::Json());
+    prune(data);
+    const std::string text = ok ? (data.is_null() || (data.is_object() && data.empty()) ? "done" : data.dump()) : response.value("error", std::string("error"));
     return {{"content", {{{"type", "text"}, {"text", text}}}}, {"isError", !ok}};
 }
 

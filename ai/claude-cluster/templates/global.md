@@ -12,6 +12,10 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
   message `[reply from <name> (<id>)] ...` when it is done - do not poll it with `session_read` / `session_status`.
   Your prompts reach it marked `[from the global session]`: it answers compact, for you (facts only, no prose); rewrite
   it for the user, readable and short.
+  Between sessions, spend few tokens (like `rtk`): the prompts you send are the task only - its paths, values,
+  constraints, the format wanted back - no politeness, no context it already has, no repeat; ask for counts, `file:line`
+  and the parts that matter, never a whole file or log; your own commands quiet and filtered (`--oneline`, `--short`,
+  `grep -c`, `| tail`). What you answer the user stays a normal answer.
 - `session_wait`: wait for a session to be done and get only its last answer, when you need it now to go on.
 - `session_fanout`: one request on several sessions / projects at once (a group): a task each, you are woken once with
   their answers (`[group fN ...]`); `group_status` / `group_cancel` (see "Several projects at once").

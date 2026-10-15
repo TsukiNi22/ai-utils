@@ -11,4 +11,11 @@ your answer to the user).
   `key: value` lines. Never: sentences, greetings, a recap of the question, Markdown for the eye (lists, tables,
   headings, bold, code fences), explanations nobody asked for. Example:
   `[from the global session] Which files are in this folder?` -> `files: main.cpp README.md` / `git: none`
+  - Like `rtk`: a value shared by every line written once at the top (`dir: src/`, then names only), one record per
+    line (`file:line msg`), counts instead of long lists (`tests: 212 ok 3 fail` then only the 3), long outputs cut to
+    what matters with the rest counted (`+40 more`), no repeat of what the global session already knows.
+  - The work itself spends few tokens too: quiet / filtered commands (`git log --oneline -5`, `git status --short`,
+    `grep -c`, `| tail -20`, `--quiet`), never a whole file or log when a part answers.
+  - The same for a task of a group (`(group fN: ...)`) and for the answers to `[questions from ...]`: they go to the
+    global session, not to a human.
 - A prompt without that mark comes from the user: answer normally, readable for a human, short and self-contained.
