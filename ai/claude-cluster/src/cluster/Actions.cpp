@@ -213,13 +213,13 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     return list;
 }
 
-_cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, cluster::Voice& voice, const std::string& id,
+_cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluster::Voice& voice, const std::string& id,
     const std::string& session, const std::string& input)
 {
     if (manager.replica()) { // a replica: run by its core (its voice, its sessions)
         cluster::ActionResult result;
         try {
-            const cluster::Json r = manager.call({{"cmd", "action"}, {"id", id}, {"session", session}, {"input", input}});
+            const cluster::Json r = manager.call({{"cmd", "action"}, {"id", id}, {"session", session}, {"input", input}, {"ui", true}});
             result = {r.value("message", std::string()), r.value("error", false), r.value("focus", std::string()), r.value("ui", std::string())};
         } catch (const utils::exception::IException& e) {
             result = {e.info(), true, "", ""};
@@ -469,6 +469,32 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
     return result;
 }
 
+_cold static std::string session_name_(cluster::Manager& manager, const std::string& session)
+{
+    if (session.empty()) return "claude-cluster";
+    const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+    return snap ? snap->spec.name + " (" + session + ")" : session;
+}
+
+_cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, cluster::Voice& voice, const std::string& id,
+    const std::string& session, const std::string& input)
+{
+    // run here: its popup while it takes time, its failure (OK / Retry); an interface of the core: run by the core (so)
+    if (manager.replica()) return run_action_(manager, voice, id, session, input);
+    std::string title = id.substr(0, id.find(':'));
+    std::replace(title.begin(), title.end(), '_', ' ');
+    if (!title.empty()) title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
+    if (id.find(':') != std::string::npos) title += " " + id.substr(id.find(':') + 1);
+    if (!cluster::trim(input).empty() && input.size() < 60) title += " " + cluster::trim(input);
+    cluster::Busy busy(manager, title, session);
+    const cluster::ActionResult result = run_action_(manager, voice, id, session, input);
+    busy.end(!result.error, result.message);
+    if (result.error && cluster::failure_popups()) (void)manager.fail(title, session_name_(manager, session), result.message, [&manager, &voice, id, session, input]() {
+        (void)cluster::run_action(manager, voice, id, session, input);
+    });
+    return result;
+}
+
 /* prompt: completion and local /commands */
 _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_commands(void)
 {
@@ -623,14 +649,14 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
     };
 }
 
-_cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& manager, const std::string& session, const std::string& line)
+_cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& manager, const std::string& session, const std::string& line)
 {
     // A local /command runs here; any other /command (skill, command of the agent) is sent as the prompt; !<command> and
     // :<command>: the modes of the prompt
     const bool mode = line.starts_with("!") || line.starts_with(":");
     if (!line.starts_with("/") && !mode) return std::nullopt;
     if (manager.replica()) { // a replica: run by its core
-        const cluster::Json r = manager.call({{"cmd", "slash"}, {"session", session}, {"text", line}});
+        const cluster::Json r = manager.call({{"cmd", "slash"}, {"session", session}, {"text", line}, {"ui", true}});
         if (!r.value("local", false)) return std::nullopt;
         return cluster::ActionResult{r.value("message", std::string()), r.value("error", false), r.value("focus", std::string()), r.value("ui", std::string()),
             r.value("fill", std::string())};
@@ -743,6 +769,21 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
         result.message = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
         result.error = true;
     }
+    return result;
+}
+
+_cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& manager, const std::string& session, const std::string& line)
+{
+    // a local command run here: its popup while it takes time, its failure (OK / Retry); else sent as the prompt
+    if (manager.replica() || !(line.starts_with("/") || line.starts_with("!") || line.starts_with(":"))) return run_slash_(manager, session, line);
+    cluster::Busy busy(manager, cluster::one_line(line, 70), session);
+    const std::optional<cluster::ActionResult> result = run_slash_(manager, session, line);
+    if (!result) return result; // not a local one (its popup dropped: never shown)
+    busy.end(!result->error, result->message);
+    if (result->error && cluster::failure_popups()) (void)manager.fail(cluster::one_line(line, 70), session_name_(manager, session), result->message,
+        [&manager, session, line]() {
+        (void)cluster::run_slash(manager, session, line);
+    });
     return result;
 }
 

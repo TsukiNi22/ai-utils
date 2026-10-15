@@ -229,6 +229,7 @@ _cold void cluster::Manager::clear(const std::string& id)
     // one archived: found by the search, not shown)
     const std::shared_ptr<cluster::Session> old = this->get_(id);
     old->stop();
+    cluster::busy_step("its transcript archived (found by the search)");
     cluster::SessionSpec spec = old->spec();
     spec.claudeId.clear();
     spec.leaf.clear();
@@ -726,6 +727,14 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                     limit ? cluster::Face::Idle : event.error ? cluster::Face::Waiting : cluster::Face::Grin, event.error && !limit,
                     limit ? "message" : event.error ? "dialog-warning" : "complete", {{"open", "Open"}}}, limit ? "limit" : event.error ? "error" : "done");
             }
+            if (event.error && !event.interrupted) {
+                // its turn failed (not a limit: it waits for its reset): its popup, Retry = continue it
+                const std::string lower = cluster::lower(event.text);
+                if (lower.find("limit") == std::string::npos && lower.find("budget") == std::string::npos) {
+                    const std::string sid = event.session;
+                    (void)this->fail("the turn of " + name + " (its last prompt)", name + " (" + sid + ")", event.text, [this, sid]() {(void)this->resume(sid);});
+                }
+            }
             this->taskDone_(event.session, event.error, event.interrupted, event.text);
             break;
         case cluster::Event::Kind::Exited: {
@@ -746,6 +755,10 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 break;
             }
             this->notice_(event.session, name + ": " + event.text, true);
+            {
+                const std::string sid = event.session;
+                (void)this->fail(name + " running (its agent)", name + " (" + sid + ")", event.text, [this, sid]() {(void)this->resume(sid);});
+            }
             (void)this->notify({event.session, name + " · stopped", event.text, cluster::Face::Waiting, true, "dialog-error", {{"open", "Open"}}}, "error");
             break;
         }
@@ -762,6 +775,7 @@ _cold void cluster::Manager::notice_(const std::string& session, const std::stri
         if (this->_notices.size() > 200) this->_notices.pop_front();
     }
     ++this->_version;
+    this->progressNotice_(notice); // an operation running: under it
     if (this->onNotice) this->onNotice(notice);
 }
 
@@ -852,7 +866,7 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
             if (shown != 0) this->progressLog(shown, "✗ " + spec.name + ": " + e.info());
         }
     }
-    if (shown != 0) this->progressEnd(shown, true, std::to_string(previous.size()) + " session(s) restored");
+    if (shown != 0) this->progressEnd(shown, true, std::to_string(previous.size()) + " session(s) restored", false);
     if (!previous.empty()) this->notice_("", std::to_string(previous.size()) + (restore ? " session(s) restored" : " session(s) moved to the trash"));
     this->save();
 }

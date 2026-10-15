@@ -328,6 +328,7 @@ _cold static cluster::Json cluster_info_(cluster::Manager& manager)
 _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cluster::Json& request)
 {
     const std::string cmd = arg_(request, "cmd");
+    cluster::failure_popups() = request.value("ui", false); // its failures: told by its answer (an interface: its popup too)
     const std::function<std::string()> session = [&]() {return manager.resolve(arg_(request, "session"));};
     const bool from_global = request.value("origin", std::string()) == "mcp"; // a tool of the global session (its limits)
     cluster::Json data;
@@ -642,6 +643,12 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data.push_back({{"section", s.section}, {"key", s.key}, {"label", s.label}, {"page", pages[hit.page].title}, {"help", s.description},
                     {"matched", hit.name ? "name" : "description"}});
             }
+        } else if (cmd == "failure") {
+            // a failure answered: OK (gone), retry (run again)
+            manager.failureAnswer(arg_(request, "id"), request.value("answer", std::string("ok")) == "retry");
+            data = {{"done", true}};
+        } else if (cmd == "failures") {
+            data = manager.failures();
         } else if (cmd == "install_package") {
             // what a setting needs: installed here (the password window of the desktop)
             const std::string error = cluster::install_package(arg_(request, "package"), &manager);
@@ -787,7 +794,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 return out;
             };
             data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
-                {"https", status.https}, {"fingerprint", status.fingerprint}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState},
+                {"https", status.https}, {"fingerprint", status.fingerprint}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState}, {"remote_ok", status.remoteOk},
                 {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
                 {"trusted", list(status.trusted)}, {"banned", list(status.banned)}, {"ping", status.ping}};
         } else if (cmd == "voice_engines") {

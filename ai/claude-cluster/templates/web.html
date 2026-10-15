@@ -106,6 +106,11 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker-list { overflow-y: auto; padding: 6px; }
 .picker-row.danger { color: var(--error); }
 .tasks-mark { color: var(--accent); font-weight: 700; }
+.failure-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); z-index: 60;
+    background: var(--surface); border: 1px solid var(--error); border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
+.failure-card .title { color: var(--error); font-weight: 700; margin-bottom: 8px; }
+.failure-card .info { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; margin-bottom: 12px; word-break: break-word; }
+.failure-card .info .error { color: var(--error); } .failure-card .buttons { display: flex; gap: 8px; justify-content: flex-end; }
 .progress-card { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); z-index: 50;
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
 .progress-card .head { display: flex; gap: 8px; align-items: baseline; } .progress-card .mark { color: var(--accent); font-weight: 700; }
@@ -680,6 +685,7 @@ function render(state) {
     }
     $("composer").classList.toggle("hidden", current === "tasks"); // the Tasks session: no prompt
     renderProgress(state.progress);
+    renderFailure(state.failures);
     if (current === "tasks") { renderTasks(); return; }
     const s = state.session;
     if (!s) {
@@ -727,6 +733,49 @@ function renderProgress(p) {
     for (const line of p.log || []) card.append(el("div", "log", line));
 }
 setInterval(() => { if (progressShown && !progressShown.done) renderProgress(progressShown); }, 120);
+
+// ---- what failed of what the user did (here or elsewhere): its card, OK (the default) / Retry ----
+let failureLocal = null;             // a request of this page failed: {action, source, error, retry, request}
+const failureDone = new Set();       // answered here (until the computer forgets them)
+let failureList = [];
+function renderFailure(list) {
+    if (list) failureList = list;
+    const f = failureLocal || failureList.find(x => !failureDone.has(x.id));
+    let card = $("failureCard");
+    if (!f) { if (card) card.remove(); return; }
+    const key = f.id || "local:" + f.error;
+    if (card && card.dataset.key === key) return;
+    if (!card) { card = el("div", "failure-card"); card.id = "failureCard"; card.setAttribute("role", "alertdialog"); document.body.append(card); }
+    card.dataset.key = key;
+    card.textContent = "";
+    const more = failureList.filter(x => !failureDone.has(x.id)).length - (failureLocal ? 0 : 1);
+    card.append(el("div", "title", "✗ " + f.action + " failed" + (more > 0 ? "  (+" + more + " more)" : "")));
+    const info = el("div", "info");
+    info.append(el("span", "muted", "source"), el("span", "", f.source || "the computer"), el("span", "muted", "error"), el("span", "error", f.error));
+    card.append(info);
+    const answer = async (again) => {
+        card.remove();
+        if (failureLocal) { const request = failureLocal.request; failureLocal = null; if (again) act(request); renderFailure(); return; }
+        failureDone.add(f.id);
+        renderFailure();
+        try { await cmd({cmd: "failure", id: f.id, answer: again ? "retry" : "ok"}); } catch (error) { /* gone */ }
+        refresh();
+    };
+    const buttons = el("div", "buttons");
+    const ok = el("button", "primary", "OK");
+    ok.type = "button";
+    ok.addEventListener("click", () => answer(false));
+    buttons.append(ok);
+    if (f.retry) {
+        const again = el("button", "", "Retry");
+        again.type = "button";
+        again.addEventListener("click", () => answer(true));
+        buttons.append(again);
+    }
+    card.append(buttons);
+    card.addEventListener("keydown", (e) => { if (e.key === "Escape") answer(false); });
+    ok.focus();
+}
 
 // ---- the Tasks session: its view in place of the conversation ----
 const ago = (s) => { s = Math.max(0, Math.floor(s)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
@@ -1605,7 +1654,10 @@ async function act(request) {
         refresh();
         return data;
     } catch (error) {
-        toast(error.message);
+        if (error.message === "not connected") return null;
+        failureLocal = {action: request.cmd.replace(/_/g, " ") + (request.session ? " (" + request.session + ")" : ""), source: "the computer",
+            error: error.message, retry: true, request};
+        renderFailure();
         return null;
     }
 }

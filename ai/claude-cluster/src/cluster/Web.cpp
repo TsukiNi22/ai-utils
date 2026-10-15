@@ -392,14 +392,22 @@ _cold void cluster::Web::open_(const int port)
     this->_port = port;
     if (!error.empty()) {
         if (fd != -1) ::close(fd);
-        if (error != this->_error) this->_manager.notice(GLOBAL_ID, "web access: port " + std::to_string(port) + " not opened (" + error + ")", true);
+        if (error != this->_error) {
+            this->_manager.notice(GLOBAL_ID, "web access: port " + std::to_string(port) + " not opened (" + error + ")", true);
+            (void)this->_manager.fail("Open the web access", "port " + std::to_string(port) + " of this computer", error
+                + (errno == EADDRINUSE ? " (another program uses it: change Port in the settings, or stop it)" : ""), [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();});
+        }
         this->_error = error;
         return;
     }
     this->_error.clear();
     this->_fd = fd;
+    // its steps in a popup (the router: seconds)
+    cluster::Busy busy(this->_manager, "Opening the web access");
+    cluster::busy_step("port " + std::to_string(port) + " opened on this computer");
     this->_httpsWanted = this->_manager.config().web.https;
     this->remote_(); // its names first: in the certificate
+    if (this->_httpsWanted) cluster::busy_step("its certificate (https)");
     const std::string tls = this->_httpsWanted ? this->tls_() : "";
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
     this->newPin_();
@@ -409,7 +417,32 @@ _cold void cluster::Web::open_(const int port)
     this->_thread = std::thread(&cluster::Web::serve_, this);
     this->_manager.notice(GLOBAL_ID, "web access open: " + std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":"
         + std::to_string(port) + " code " + this->_pin.substr(0, 3) + " " + this->_pin.substr(3) + " (this network only; each new device approved here)");
-    if (!this->_remoteState.empty()) this->_manager.notice(GLOBAL_ID, "web access from outside: " + this->_remoteState, this->_remoteUrl.empty());
+    if (!this->_remoteState.empty()) this->_manager.notice(GLOBAL_ID, "web access from outside: " + this->_remoteState, !this->_remoteOk);
+    busy.end(true, "web access open: " + (this->_remoteOk && !this->_remoteUrl.empty() ? this->_remoteUrl + " (outside), " : std::string())
+        + (this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":" + std::to_string(port));
+    const std::string remote = this->_manager.config().web.remote;
+    if (remote != "off" && !this->_remoteOk) // asked but not reached: its popup (Retry: the router asked again)
+        (void)this->_manager.fail(remote == "router" ? "Open the port of the router (the web access from outside)" : "Reach this computer by tailscale (the web access from outside)",
+            remote == "router" ? "the router (UPnP, upnpc)" : "tailscale", this->_remoteWhy, [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();});
+}
+
+_cold void cluster::Web::reopen(void)
+{
+    std::lock_guard<std::mutex> port(this->_portMutex);
+    this->_remoteWanted.clear(); // its next tick: opened again
+    this->_error.clear();
+}
+
+_cold static std::string upnp_why_(const cluster::Captured& map)
+{
+    // why the router did not open its port: the line of upnpc telling it
+    for (const std::string& line: cluster::split(map.out, '\n')) {
+        const std::string lower = cluster::lower(line);
+        if (lower.find("failed") != std::string::npos || lower.find("no igd") != std::string::npos || lower.find("no valid") != std::string::npos
+            || lower.find("error") != std::string::npos)
+            return cluster::trim(line) + (lower.find("no igd") != std::string::npos ? " (UPnP off in the box: turn it on in its admin page)" : "");
+    }
+    return map.code != 0 ? "upnpc exit " + std::to_string(map.code) : "the router answered without opening it (its UPnP refused)";
 }
 
 _cold void cluster::Web::remote_(void)
@@ -420,14 +453,19 @@ _cold void cluster::Web::remote_(void)
     this->_remoteNames.clear();
     this->_remoteUrl.clear();
     this->_remoteState.clear();
+    this->_remoteOk = false;
+    this->_remoteWhy.clear();
     if (conf.remote == "tailscale") {
+        cluster::busy_step("tailscale: its address");
         if (!cluster::has_command("tailscale")) {
             this->_remoteState = "tailscale is not installed: install it on this computer and on the phone, log both in (tailscale up)";
+            this->_remoteWhy = this->_remoteState;
             return;
         }
         const std::string ip = cluster::trim(cluster::split(cluster::capture({"tailscale", "ip", "-4"}, "", 10).out + "\n", '\n')[0]);
         if (ip.empty() || !tailnet_(ip)) {
             this->_remoteState = "tailscale is not connected (tailscale up)";
+            this->_remoteWhy = "tailscale is not connected: log this computer in (sudo tailscale up)";
             return;
         }
         this->_remoteNames.push_back(ip);
@@ -437,14 +475,22 @@ _cold void cluster::Web::remote_(void)
         if (!name.empty()) this->_remoteNames.push_back(cluster::lower(name));
         this->_remoteUrl = "https://" + (name.empty() ? ip : cluster::lower(name)) + ":" + std::to_string(this->_port);
         this->_remoteState = this->_remoteUrl + " (tailscale: the devices of your tailnet, end to end)";
+        this->_remoteOk = true;
     } else if (conf.remote == "router") {
         const int outside = conf.remotePort > 0 ? conf.remotePort : this->_port;
         std::string address;
         if (cluster::has_command("upnpc")) {
+            cluster::busy_step("asking the router to open its port " + std::to_string(outside) + " (UPnP)");
             const cluster::Captured map = cluster::capture({"upnpc", "-e", "claude-cluster", "-r", std::to_string(this->_port), std::to_string(outside), "TCP"}, "", 20);
+            for (const std::string& line: cluster::split(map.out, '\n'))
+                cluster::busy_log(line);
             if (map.code == 0 && map.out.find("is redirected") != std::string::npos) this->_mapped = outside;
+            else this->_remoteWhy = upnp_why_(map);
+            cluster::busy_step("its public address (UPnP)");
             for (const std::string& line: cluster::split(cluster::capture({"upnpc", "-s"}, "", 20).out, '\n'))
                 if (line.starts_with("ExternalIPAddress = ")) address = cluster::trim(line.substr(20));
+        } else {
+            this->_remoteWhy = "upnpc missing: the port of the router can't be opened by itself (install miniupnpc, or open it by hand in the box)";
         }
         if (!conf.remoteHost.empty()) this->_remoteNames.push_back(cluster::lower(conf.remoteHost));
         if (!address.empty()) this->_remoteNames.push_back(address);
@@ -452,8 +498,13 @@ _cold void cluster::Web::remote_(void)
         if (!name.empty()) this->_remoteUrl = "https://" + name + ":" + std::to_string(outside);
         this->_remoteState = (this->_remoteUrl.empty() ? std::string("no public address known (upnpc missing or refused; [web] remote_host: a dynamic DNS name)")
             : this->_remoteUrl) + (this->_mapped > 0 ? " (the router opened its port " + std::to_string(outside) + " to this computer by UPnP)"
-            : " (open the port " + std::to_string(outside) + " of your router to " + lan_address_() + ":" + std::to_string(this->_port) + ")")
-            + "; open to the Internet: each new device approved here";
+            : " (the router did not open its port" + (this->_remoteWhy.empty() ? std::string() : ": " + this->_remoteWhy) + "; open the port " + std::to_string(outside)
+            + " of your router to " + lan_address_() + ":" + std::to_string(this->_port) + ")") + "; open to the Internet: each new device approved here";
+        this->_remoteOk = this->_mapped > 0 || !conf.remoteHost.empty(); // a name given: its port opened by hand
+        if (!this->_remoteOk && this->_remoteWhy.empty()) this->_remoteWhy = "no public address known";
+        if (!this->_remoteOk) this->_remoteWhy += "; open the port " + std::to_string(outside) + " of the router to " + lan_address_() + ":" + std::to_string(this->_port)
+            + " in its admin page, or give its name (Name from outside) once done";
+        if (!this->_remoteOk) this->_remoteState = "not reached from outside: " + this->_remoteWhy;
     }
 }
 
@@ -834,6 +885,7 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     status.fingerprint = this->_fingerprint;
     status.remoteUrl = this->_remoteUrl;
     status.remoteState = this->_remoteState;
+    status.remoteOk = this->_remoteOk;
     status.pin = this->_pin.substr(0, 3) + " " + this->_pin.substr(3);
     for (const auto &[id, access]: this->_access) {
         status.devices.push_back(access.device);
@@ -906,7 +958,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
         "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "settings_get", "settings_search", "settings_set", "ui_state", "delete",
-        "projects", "send_next", "install_package", "task_act", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel"};
+        "projects", "send_next", "install_package", "failure", "task_act", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel"};
     Conn& conn = *static_cast<Conn*>(connection);
     Request request;
     if (!read_request_(conn, request)) return;
@@ -1060,7 +1112,7 @@ self.addEventListener("notificationclick", (e) => {
         const auto waiting = std::count_if(planned.begin(), planned.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
         json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"tasks_open", open}, {"schedules_waiting", waiting},
-            {"progress", this->_manager.progress() ? cluster::Json(*this->_manager.progress()) : cluster::Json(nullptr)},
+            {"progress", this->_manager.progress() ? cluster::Json(*this->_manager.progress()) : cluster::Json(nullptr)}, {"failures", this->_manager.failures()},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
@@ -1277,7 +1329,7 @@ _cold std::string cluster::web_line(const cluster::WebStatus& status)
     // reached from outside: its public address first (the one to give away from home), the LAN one after; asked but not
     // reached: told
     std::string where = status.url;
-    if (!status.remoteUrl.empty()) {
+    if (!status.remoteUrl.empty() && status.remoteOk) {
         std::string lan = status.url.substr(status.url.find("://") == std::string::npos ? 0 : status.url.find("://") + 3);
         where = status.remoteUrl + " (LAN " + lan + ")";
     } else if (!status.remoteState.empty()) {
@@ -1318,6 +1370,7 @@ _cold std::optional<cluster::WebStatus> cluster::web_status(cluster::Manager& ma
         status.fingerprint = data.value("fingerprint", std::string());
         status.remoteUrl = data.value("remote_url", std::string());
         status.remoteState = data.value("remote", std::string());
+        status.remoteOk = data.value("remote_ok", false);
         status.ping = data.value("ping", -1);
         for (const char* list: {"devices", "trusted", "banned"})
             if (data.contains(list) && data[list].is_array())

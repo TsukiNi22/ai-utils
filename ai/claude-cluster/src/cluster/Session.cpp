@@ -340,6 +340,7 @@ _cold void cluster::Session::start(void)
         this->_data.state = cluster::State::Starting;
     }
     this->touch_();
+    cluster::busy_step("starting " + this->_data.spec.name + " (" + this->_launch.backend.provider.driver + " in " + cluster::short_path(this->_data.spec.cwd) + ")");
     // The process is started here (an error goes to the caller), read by the worker
     try {
         this->spawn_(this->args_(""), true);
@@ -1343,6 +1344,7 @@ _cold cluster::Queued cluster::Session::rewind(void)
 
 _cold void cluster::Session::stop(void)
 {
+    cluster::busy_step("stopping " + this->_data.spec.name + " (its agent)");
     this->_stopping = true;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);

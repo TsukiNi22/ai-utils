@@ -63,6 +63,7 @@ struct WebStatus {
     std::string fingerprint;        // SHA-256 of the certificate, to compare with the one the browser shows
     std::string remoteUrl;          // reached from outside ([web] remote), empty: not
     std::string remoteState;        // how it is reached from outside, or why not
+    bool remoteOk = false;          // reached from outside for sure (the router opened its port, tailscale on, a name given)
     std::vector<cluster::WebDevice> banned;     // refused (their code, their trust), until unbanned
     int ping = -1;                  // the mean of the devices connected (ms), -1: none measured
 };
@@ -113,6 +114,8 @@ class Web {
         std::string _remoteUrl;
         std::string _remoteState;
         int _mapped = 0;                            // the port of the router opened by UPnP (closed with it)
+        bool _remoteOk = false;                     // reached from outside (see WebStatus)
+        std::string _remoteWhy;                     // why not
         std::map<std::string, std::pair<int, std::int64_t>> _blocked; // a peer from outside: its wrong codes, blocked until (ms)
         std::map<std::string, cluster::WebDevice> _banned;              // by device (config folder / web / banned.json)
 
@@ -146,6 +149,7 @@ class Web {
         _cold void unban(const std::vector<std::string>& ids = {});    // allowed again (none: all)
         _cold void ping(const std::string& id, const int rtt);          // a round trip measured by its page
         _cold void renewPin(void);
+        _cold void reopen(void);                    // opened again at its next tick (its port, the router asked again)
         _cold _nodiscard cluster::WebStatus status(void) const;
 
         // ---------- Constructor -------- //

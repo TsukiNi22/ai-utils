@@ -35,6 +35,7 @@ File Description:
     #include <vector>               // std::vector
     #include <mutex>                // std::mutex
     #include <deque>                // std::deque
+    #include <set>                  // std::set
     #include <map>                  // std::map
 
     //----------------------------------------------------------------//
@@ -118,6 +119,9 @@ class Manager {
         mutable std::mutex _progressMutex;         // the long operation shown (its popup)
         std::optional<cluster::Progress> _progress;
         std::uint64_t _progressNext = 1;
+        std::deque<std::pair<cluster::Failure, std::function<void(void)>>> _failures; // failed, their retry (under _progressMutex)
+        std::uint64_t _failureNext = 1;
+        std::set<std::string> _failureGone;        // the ones of the core answered here (until its next sync)
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
@@ -159,6 +163,7 @@ class Manager {
         _cold _nodiscard std::vector<cluster::Snapshot> replicaSessions_(void) const;
         _cold _nodiscard std::uint64_t replicaVersion_(void) const;
         _cold void notice_(const std::string& session, const std::string& text, const bool error = false);
+        _cold void progressNotice_(const cluster::Notice& notice);   // an operation running: the notice under it
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
         _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
         _cold void writeMcpConfig_(void) const;
@@ -308,10 +313,16 @@ class Manager {
         _cold void interrupt(const std::string& id);
         _cold void sendNext(const std::string& id);   // its next queued prompt now (the running turn interrupted)
         // a long operation: its popup in every interface (begin, what it does now, a line of its log, its end)
-        _cold std::uint64_t progressBegin(const std::string& title);
+        _cold std::uint64_t progressBegin(const std::string& title, const std::string& session = "");
         _cold void progressStep(const std::uint64_t id, const std::string& now);
+        _cold void progressAdvance(const std::uint64_t id, const std::string& now);    // the step before in its log (done)
         _cold void progressLog(const std::uint64_t id, const std::string& line);
-        _cold void progressEnd(const std::uint64_t id, const bool ok, const std::string& text);
+        _cold void progressEnd(const std::uint64_t id, const bool ok, const std::string& text, const bool notice = true);
+        _cold void progressDrop(const std::uint64_t id);
+        // what failed of what the user did: its popup in every interface (OK, Retry: run again), answered once
+        _cold std::string fail(const std::string& action, const std::string& source, const std::string& error, const std::function<void(void)>& retry = {});
+        _cold _nodiscard std::vector<cluster::Failure> failures(void) const;
+        _cold void failureAnswer(const std::string& id, const bool retry);
         _cold _nodiscard std::optional<cluster::Progress> progress(void) const;    // the one shown (running, or ended < 4 s)
         _cold _nodiscard std::optional<cluster::Queued> unqueue(const std::string& id); // last queued prompt, removed
 

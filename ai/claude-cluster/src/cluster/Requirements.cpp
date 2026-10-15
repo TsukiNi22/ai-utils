@@ -79,6 +79,10 @@ _cold std::string cluster::install_package(const std::string& package, cluster::
     const int code = cluster::run_logged(args, [manager, shown](const std::string& out) {if (shown != 0) manager->progressLog(shown, out);});
     const std::string error = code == 0 ? "" : package + " not installed (" + (code == 126 || code == 127 ? std::string("the password refused or the window closed")
         : "exit " + std::to_string(code)) + ")";
-    if (shown != 0) manager->progressEnd(shown, error.empty(), error.empty() ? package + " installed" : error);
+    if (shown != 0 && error.empty()) manager->progressEnd(shown, true, package + " installed");
+    if (shown != 0 && !error.empty()) {
+        manager->progressDrop(shown);
+        (void)manager->fail("Install " + package, line, error, [manager, package]() {(void)cluster::install_package(package, manager);});
+    }
     return error;
 }

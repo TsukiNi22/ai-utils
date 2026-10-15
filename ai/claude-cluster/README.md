@@ -724,9 +724,18 @@ a package installs it: `[i]` / *Install …* installs it at once (the terminal: 
 in the terminal; the window, the web page: the password window of the desktop, `pkexec`). The save lists the changed
 settings missing something with the dangerous ones: install, then save / save anyway / back.
 
-**A long operation** (a package installed, the sessions of the previous run restored) shows a popup in every
-interface, like the map of the computer: its title, a spinner and its time, what it does now, its last lines greyed
-scrolling under it, then its result (4 s); Esc hides it in the terminal (it goes on).
+**A long operation** (an action of the palette, a local `/command`, a `!command`, `/clear`, the opening of the web
+access and its router, a package installed, the previous run restored) runs without freezing the interface and,
+past 0.4 s, shows a popup in every interface like the map of the computer: its title, a spinner and its time, its
+step now (stopping the agent, starting it, asking the router...), its done steps and what it told greyed scrolling
+under it, then its result; Esc hides it in the terminal (it goes on).
+
+**What failed of what you did** (an action, a command, a prompt not sent, the settings not saved, a turn ending in
+an error, the port of the router not opened, an install) opens a popup in every interface: what you did, where it
+failed (its source), the error, **OK** (Enter, the default) or **Retry** (`r`: run again; failing again, its popup
+again). A request of the control socket (the CLI, a script, the MCP) is told by its answer only; the web page shows
+the failures of its own requests the same way. The web line shows the public address only when it is reached for
+sure (the router opened its port, tailscale connected, *Name from outside* given), else `outside ✕` and why.
 
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its
 description, the closest first, each hit telling where it matched (*name* / *description*). In the settings page:

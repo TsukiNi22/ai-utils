@@ -520,6 +520,30 @@ class TtyUi {
         }
         std::uint64_t _progressHidden = 0;          // the popup of a long operation hidden (Esc)
 
+        ftxui::Element failureBox_(const std::vector<cluster::Failure>& failed)
+        {
+            // what the user did, where it failed, its error; OK (Enter, the default) / Retry (r), clickable
+            const Theme& t = this->_theme;
+            const cluster::Failure& f = failed.front();
+            const std::string id = f.id;
+            ftxui::Elements lines = {
+                ftxui::hbox({ftxui::text(" ✗ ") | ftxui::bold | ftxui::color(t.error), ftxui::paragraph(f.action + " failed") | ftxui::bold | ftxui::color(t.text) | ftxui::flex,
+                    failed.size() > 1 ? ftxui::text(" +" + std::to_string(failed.size() - 1) + " more ") | ftxui::color(t.muted) : ftxui::text("")}),
+                ftxui::text(""),
+                ftxui::hbox({ftxui::text("   source  ") | ftxui::color(t.muted), ftxui::paragraph(f.source) | ftxui::color(t.text) | ftxui::flex}),
+                ftxui::hbox({ftxui::text("   error   ") | ftxui::color(t.muted), ftxui::paragraph(f.error) | ftxui::color(t.error) | ftxui::flex}),
+                ftxui::text("")};
+            ftxui::Elements buttons = {ftxui::text("   "), this->tap_(ftxui::text(" [Enter] OK ") | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent), 9,
+                [this, id]() {this->_manager.failureAnswer(id, false);})};
+            if (f.retry) {
+                buttons.push_back(ftxui::text("   "));
+                buttons.push_back(this->tap_(ftxui::text(" [r] Retry ") | ftxui::bold | ftxui::color(t.warn), 9, [this, id]() {this->_manager.failureAnswer(id, true);}));
+            }
+            lines.push_back(ftxui::hbox(std::move(buttons)));
+            return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.error) | ftxui::bgcolor(t.surface) | ftxui::clear_under
+                | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 88) | ftxui::center;
+        }
+
         _nodiscard ftxui::Element progressBox_(const cluster::Progress& p) const
         {
             // its title and a spinner (its time), what it does now, its last lines greyed under it
@@ -535,8 +559,8 @@ class TtyUi {
                 lines.push_back(ftxui::text("   " + cluster::one_line(line, 80)) | ftxui::color(t.muted) | ftxui::dim);
             lines.push_back(ftxui::text(""));
             lines.push_back(ftxui::text(p.done ? " Esc: close" : " Esc: hide (it goes on)") | ftxui::color(t.muted) | ftxui::dim);
-            return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.border) | ftxui::bgcolor(t.surface) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 88)
-                | ftxui::center;
+            return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.border) | ftxui::bgcolor(t.surface) | ftxui::clear_under
+                | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 88) | ftxui::center;
         }
 
         Mode _machineReturn = Mode::Normal;         // where its question goes back to
@@ -895,6 +919,9 @@ class TtyUi {
                     this->_manager.addHistory(draft, session); // typed here: in the history (not the ones of the global session / MCP)
                 } catch (const utils::exception::IException& e) {
                     error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+                    const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(session);
+                    (void)this->_manager.fail(text.starts_with("/") ? cluster::one_line(text, 70) : "Send the prompt \"" + cluster::one_line(text, 50) + "\"",
+                        snap ? snap->spec.name + " (" + session + ")" : session, error, [this, session, text, images]() {this->_manager.send(session, text, false, images);});
                 }
                 this->_screen.Post([this, local, error, draft]() {
                     if (!error.empty()) {
@@ -1384,10 +1411,18 @@ class TtyUi {
                 })();
                 this->terminalModes_();
             } else {
-                const cluster::ActionResult result = cluster::run_action(this->_manager, *this->_app.voice, action.id, this->_active, input);
-                if (!result.focus.empty()) this->_active = result.focus;
-                if (!result.message.empty()) this->status_(result.message, result.error);
-                if (result.ui.starts_with("pick:")) this->pick_(result.ui.substr(5)); // a next step to pick (where it applies)
+                // run in the worker: the screen goes on (its progress popup when it takes time), its result back here
+                const std::string session = this->_active;
+                this->status_(cluster::one_line(action.title, 60) + "…");
+                this->_worker.push([this, action, input, session]() {
+                    const cluster::ActionResult result = cluster::run_action(this->_manager, *this->_app.voice, action.id, session, input);
+                    this->_screen.Post([this, result]() {
+                        if (!result.focus.empty()) this->_active = result.focus;
+                        if (!result.message.empty()) this->status_(result.message, result.error);
+                        if (result.ui.starts_with("pick:")) this->pick_(result.ui.substr(5)); // a next step to pick (where it applies)
+                    });
+                    this->_screen.PostEvent(ftxui::Event::Custom);
+                });
             }
         }
 
@@ -1643,6 +1678,7 @@ class TtyUi {
                     cluster::settings_write(this->_manager.config(), this->_changes);
                 } catch (const utils::exception::IException& e) {
                     this->_note = std::string("not saved: ") + e.info();
+                    (void)this->_manager.fail("Save the settings", this->_manager.config().path().string(), e.info());
                     return;
                 }
                 // the live choices of layout / style follow the saved ones
@@ -3471,6 +3507,8 @@ class TtyUi {
                 this->_animating = true;
                 screen = ftxui::dbox({screen, this->progressBox_(*running)});
             }
+            // what failed of what the user did: over everything (OK / Retry)
+            if (const std::vector<cluster::Failure> failed = this->_manager.failures(); !failed.empty()) screen = ftxui::dbox({screen, this->failureBox_(failed)});
             if (!scan) return screen;
             this->_animating = true;
             return ftxui::dbox({screen, this->scanBox_(*scan)});
@@ -3487,6 +3525,15 @@ class TtyUi {
                 }
                 return true;
             }
+            // a failure shown: answered first (Enter / Esc / o: OK, r: Retry); the mouse: its buttons
+            if (!event.is_mouse() && event.input() != "\x1b[I" && event.input() != "\x1b[O") // xstyle: ignore LU-ANSI (focus in / out)
+                if (const std::vector<cluster::Failure> failed = this->_manager.failures(); !failed.empty()) {
+                    if (event == ftxui::Event::Return || event == ftxui::Event::Escape || event == ftxui::Event::Character('o') || event == ftxui::Event::Character(' '))
+                        this->_manager.failureAnswer(failed.front().id, false);
+                    else if ((event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R')) && failed.front().retry)
+                        this->_manager.failureAnswer(failed.front().id, true);
+                    return true;
+                }
             // focus reporting of the terminal (?1004): in / out
             if (event.input() == "\x1b[I" || event.input() == "\x1b[O") { // xstyle: ignore LU-ANSI (input of the terminal, no color)
                 this->_manager.setFocused(event.input() == "\x1b[I"); // xstyle: ignore LU-ANSI (focus in)

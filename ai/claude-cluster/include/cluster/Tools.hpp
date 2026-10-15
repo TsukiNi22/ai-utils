@@ -67,6 +67,31 @@ _nodiscard inline std::int64_t now(void) {return std::chrono::duration_cast<std:
 _nodiscard inline std::int64_t now_ms(void) {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
 // a program run, each line of its output (and its errors) given as it comes; its exit code (-1: not run)
 _cold int run_logged(const std::vector<std::string>& args, const std::function<void(const std::string&)>& line);
+// the operation running in this thread (a Busy): its step now (the one before done), a line of its log; none: nothing
+_cold void busy_step(const std::string& text);
+_cold void busy_log(const std::string& line);
+// what fails in this thread: a popup of failure (an interface acting: true; a request of the control socket: its answer
+// tells it, unless an interface sent it: "ui": true)
+_cold _nodiscard bool& failure_popups(void);
+
+class Manager;
+// A user action taking time: its progress popup (shown after 0.4 s) while it runs in this thread, its steps told by
+// busy_step; inside another one: a step of it
+class Busy {
+    private:
+        cluster::Manager& _manager;
+        std::uint64_t _id = 0;
+        bool _nested = false;
+        bool _closed = false;
+
+    public:
+        Busy(cluster::Manager& manager, const std::string& title, const std::string& session = "");
+        ~Busy();
+        Busy(const Busy&) = delete;
+        Busy& operator=(const Busy&) = delete;
+        void end(const bool ok, const std::string& text = "");    // done (its result a moment) / failed (its failure popup instead)
+        void drop(void);
+};
 _nodiscard std::string tail_utf8(const std::string& text, const std::size_t max); // its last max bytes (whole characters, "…" before)
 _nodiscard std::string human_tokens(const std::int64_t tokens);   // 12.3k, 1.2M
 _nodiscard std::string human_cost(const double usd);              // $0.0123

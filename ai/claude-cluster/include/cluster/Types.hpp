@@ -236,10 +236,21 @@ struct Schedule {
     std::int64_t last = 0;          // its last run
 };
 
+// What failed of what the user did (a request, a command, a prompt): its popup, OK / Retry
+struct Failure {
+    std::string id;                 // c<n>: of the core, l<n>: of this interface
+    std::string action;             // what the user did
+    std::string source;             // where it failed (the session, the router, a program...)
+    std::string error;
+    bool retry = false;             // Retry offered
+    std::int64_t at = 0;
+};
+
 // A long operation shown in a popup (an install, the sessions restored...): what it does now, its last lines
 struct Progress {
     std::uint64_t id = 0;
     std::string title;
+    std::string session;            // its session (the notices of it under it), empty: claude-cluster
     std::string now;                // what it does now (its end: the result)
     std::vector<std::string> log;   // its last lines (greyed under it)
     bool done = false;

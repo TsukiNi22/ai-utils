@@ -467,6 +467,45 @@ class Window: public QMainWindow {
             dialog.exec();
         }
 
+        QMessageBox* failureBox = nullptr;      // what failed of what the user did: its dialog (OK / Retry)
+        std::string failureShown;
+
+        void showFailure(void)
+        {
+            // the oldest one, one at a time; answered elsewhere: closed here
+            const std::vector<cluster::Failure> failed = this->manager.failures();
+            if (this->failureBox != nullptr) {
+                if (std::none_of(failed.begin(), failed.end(), [this](const cluster::Failure& f) {return f.id == this->failureShown;})) {
+                    QMessageBox* box = this->failureBox;
+                    this->failureBox = nullptr;
+                    box->disconnect(this);
+                    box->close();
+                }
+                return;
+            }
+            if (failed.empty()) return;
+            const cluster::Failure f = failed.front();
+            const cluster::Style& st = this->theme();
+            QMessageBox* box = new QMessageBox(QMessageBox::Critical, q_(f.action + " failed"), "<b>" + esc_(f.action) + "</b> failed"
+                + (failed.size() > 1 ? span_(st.muted, " (+" + QString::number(failed.size() - 1) + " more)") : QString()) + "<br><br>" + span_(st.muted, "source") + "&nbsp; "
+                + esc_(f.source) + "<br>" + span_(st.muted, "error") + "&nbsp;&nbsp; " + span_(st.error, esc_(f.error)), QMessageBox::NoButton, this);
+            box->setTextFormat(Qt::RichText);
+            QPushButton* ok = box->addButton(QMessageBox::Ok);
+            QPushButton* retry = f.retry ? box->addButton("Retry", QMessageBox::AcceptRole) : nullptr;
+            box->setDefaultButton(ok);
+            box->setAttribute(Qt::WA_DeleteOnClose);
+            box->setWindowModality(Qt::NonModal);
+            QObject::connect(box, &QMessageBox::finished, this, [this, box, retry, id = f.id]() {
+                const bool again = retry != nullptr && box->clickedButton() == retry;
+                this->failureBox = nullptr;
+                this->manager.failureAnswer(id, again);
+                this->refresh(true);
+            });
+            this->failureBox = box;
+            this->failureShown = f.id;
+            box->open();
+        }
+
         QFrame* progressBox = nullptr;          // a long operation: its box over the window
         QLabel* progressLabel = nullptr;
 
@@ -852,15 +891,7 @@ class Window: public QMainWindow {
             } else if (base == "auth_login" || base == "auth_logout") {
                 this->message("Interactive login: run in a terminal\n\n    claude-cluster auth " + std::string(base == "auth_login" ? "login " : "logout ") + arg, false);
             } else {
-                const cluster::ActionResult result = cluster::run_action(this->manager, *this->app.voice, action.id, this->active, value);
-                if (!result.focus.empty()) this->active = result.focus;
-                if (!result.message.empty()) this->message(result.message, result.error);
-                if (result.ui.starts_with("pick:delete:")) { // a session deleted for good: asked here
-                    this->confirmDelete(result.ui.substr(12));
-                } else if (result.ui.starts_with("pick:")) { // a next step to pick (where it applies), once this palette is closed
-                    const QString next = q_(result.ui.substr(5));
-                    QTimer::singleShot(0, this, [this, next]() {this->palette(next);});
-                }
+                this->runAction(action.id, value);
             }
             this->refresh(true);
         }
@@ -872,10 +903,27 @@ class Window: public QMainWindow {
             if (!snap) return;
             if (QMessageBox::warning(this, "Delete for good", q_("Delete " + snap->spec.name + " for good?\n\nIts conversation is gone, it is not in the trash "
                 "(Archive keeps it restorable)."), QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
-            const cluster::ActionResult result = cluster::run_action(this->manager, *this->app.voice, "delete_session:" + id, this->active, "");
-            if (!result.focus.empty()) this->active = result.focus;
-            this->message(result.message, result.error);
-            this->refresh(true);
+            this->runAction("delete_session:" + id, "");
+        }
+
+        void runAction(const std::string& id, const std::string& value)
+        {
+            // run in the worker: the window goes on (its progress box when it takes time), its result back here
+            const std::string session = this->active;
+            this->worker.push([this, id, value, session]() {
+                const cluster::ActionResult result = cluster::run_action(this->manager, *this->app.voice, id, session, value);
+                QMetaObject::invokeMethod(this, [this, result]() {
+                    if (!result.focus.empty()) this->active = result.focus;
+                    if (!result.message.empty()) this->message(result.message, result.error);
+                    if (result.ui.starts_with("pick:delete:")) { // a session deleted for good: asked here
+                        this->confirmDelete(result.ui.substr(12));
+                    } else if (result.ui.starts_with("pick:")) { // a next step to pick (where it applies), once this palette is closed
+                        const QString next = q_(result.ui.substr(5));
+                        QTimer::singleShot(0, this, [this, next]() {this->palette(next);});
+                    }
+                    this->refresh(true);
+                }, Qt::QueuedConnection);
+            });
         }
 
         void sessionMenu(const std::string& id, const QPoint& where)
@@ -1516,6 +1564,9 @@ class Window: public QMainWindow {
                     this->manager.addHistory(draft, session); // typed here: in the history (not the ones of the global session / MCP)
                 } catch (const utils::exception::IException& e) {
                     error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+                    const std::optional<cluster::Snapshot> snap = this->manager.snapshot(session);
+                    (void)this->manager.fail(text.starts_with("/") ? cluster::one_line(text, 70) : "Send the prompt \"" + cluster::one_line(text, 50) + "\"",
+                        snap ? snap->spec.name + " (" + session + ")" : session, error, [this, session, text, images]() {this->manager.send(session, text, false, images);});
                 }
                 QMetaObject::invokeMethod(this, [this, local, error, draft]() {
                     if (!error.empty()) {
@@ -1827,6 +1878,7 @@ class Window: public QMainWindow {
             }
             this->animating = working || this->reveal.active();
             this->showProgress();
+            this->showFailure();
             // the Tasks session shown: its view in place of the session
             const bool tasksShown = this->active == TASKS_ID && this->tasksView != nullptr;
             if (this->views.contains("") && this->tasksView != nullptr) this->views[""]->setVisible(!tasksShown);
