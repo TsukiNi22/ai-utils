@@ -31,6 +31,7 @@ File Description:
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/mouse.hpp>
 #include <ftxui/screen/terminal.hpp>
+#include <ftxui/screen/string.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <functional>
 #include <termios.h>
@@ -866,29 +867,57 @@ class TtyUi {
             const std::string& text = this->_editor.text();
             const std::pair<std::size_t, std::size_t> sel = this->_editor.selection();
             const std::size_t cursor = this->_editor.cursor();
-            std::vector<std::pair<std::size_t, std::size_t>> lines; // <start, end> of each line
+            const std::string target = this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ";
+            // its rows: a line longer than the room wrapped (at a space when one is near, never an atom or a character cut),
+            // never scrolled sideways: the text stays where it is while typing
+            const std::size_t room = static_cast<std::size_t>(std::max(10, width - 4 - static_cast<int>(target.size()) - (this->_editor.vim() != cluster::VimMode::Off ? 16 : 0)));
+            struct Row {
+                std::size_t start;
+                std::size_t end;
+                bool last;          // the last row of its line (the cursor at its end is on it)
+            };
+            std::vector<Row> lines;
+            std::size_t count = 1;  // its lines
             for (std::size_t start = 0;;) {
                 const std::size_t nl = text.find('\n', start);
-                lines.emplace_back(start, nl == std::string::npos ? text.size() : nl);
+                const std::size_t end = nl == std::string::npos ? text.size() : nl;
+                std::size_t from = start;
+                do {
+                    std::size_t at = from;
+                    std::size_t used = 0;
+                    std::size_t space = std::string::npos;
+                    while (at < end) {
+                        const std::optional<std::size_t> atom = this->_editor.atomAt(text, at);
+                        std::size_t next = atom ? at + 4 : at + 1;
+                        while (next < end && (static_cast<unsigned char>(text[next]) & 0xC0) == 0x80)
+                            ++next;
+                        const std::size_t cells = atom ? this->_editor.atom(*atom).label.size()
+                            : static_cast<std::size_t>(std::max(0, ftxui::string_width(this->_editor.shown(text.substr(at, next - at)))));
+                        if (used + cells > room && at > from) break;
+                        if (text[at] == ' ') space = next;
+                        used += cells;
+                        at = next;
+                    }
+                    if (at < end && space != std::string::npos && space > from + room / 2) at = space; // at the last space, when not too far back
+                    lines.push_back({from, at, at >= end});
+                    from = at;
+                } while (from < end);
                 if (nl == std::string::npos) break;
                 start = nl + 1;
+                ++count;
             }
             std::size_t current = 0;
             for (std::size_t i = 0; i < lines.size(); ++i)
-                if (cursor >= lines[i].first && cursor <= lines[i].second) current = i;
+                if (cursor >= lines[i].start && (cursor < lines[i].end || (cursor == lines[i].end && lines[i].last))) current = i;
             const std::size_t first = current >= 7 ? current - 7 : 0;
-            const std::size_t room = static_cast<std::size_t>(std::max(10, width - 30));
             ftxui::Elements rows;
             for (std::size_t i = first; i < lines.size() && i < first + 8; ++i) {
-                const auto [ls, le] = lines[i];
+                const std::size_t ls = lines[i].start;
+                const std::size_t le = lines[i].end;
                 ftxui::Elements parts = {ftxui::text(i == 0 ? " › " : "   ") | ftxui::color(this->_theme.accent) | ftxui::bold};
-                std::size_t from = ls;
-                if (le - ls > room && cursor > ls + room / 2 && i == current) from = std::min(cursor - room / 2, le - room);
-                while (from > ls && (static_cast<unsigned char>(text[from]) & 0xC0) == 0x80) --from;
-                if (from > ls) parts.push_back(ftxui::text("…") | ftxui::color(this->_theme.muted));
-                this->_promptRows.push_back({from, le, from > ls ? 4 : 3});
+                this->_promptRows.push_back({ls, le, 3});
                 const std::function<void(std::size_t, std::size_t, bool)> piece = [&](std::size_t x, std::size_t y, bool selected) {
-                    x = std::max(x, from);
+                    x = std::max(x, ls);
                     y = std::min(y, le);
                     // the atoms ([Image #N], [Pasted text #N]): their label, one block
                     for (std::size_t at = x; x < y; at = x) {
@@ -918,7 +947,7 @@ class TtyUi {
                         parts.push_back(ftxui::text(cursor < le ? this->_editor.shown(text.substr(cursor, next - cursor)) : " ") | ftxui::color(this->_theme.accent) | ftxui::inverted);
                         piece(next, le, false);
                     } else if (this->_mode == Mode::Normal) {
-                        // the cursor of the terminal (a bar) on the character: no cell added in the text
+                        // the cursor of the terminal (a bar) on the character: no cell added in the text (its end: one cell)
                         std::size_t next = cursor;
                         if (next < le) next = this->_editor.atomAt(text, next) ? next + 4 : next + 1;
                         while (next < le && (static_cast<unsigned char>(text[next]) & 0xC0) == 0x80) ++next;
@@ -943,10 +972,12 @@ class TtyUi {
                     parts.push_back(ftxui::text(" -- " + names.at(this->_editor.vim()) + " -- " + this->_editor.vimPending() + " ")
                         | ftxui::color(insert ? this->_theme.muted : this->_theme.warn) | ftxui::bold);
                 }
-                if (i == first) parts.push_back(ftxui::text(this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                if (i == first) parts.push_back(ftxui::text(target) | ftxui::color(this->_theme.muted) | ftxui::dim);
                 rows.push_back(ftxui::hbox(std::move(parts)));
             }
-            if (lines.size() > 8) rows.push_back(ftxui::text("   " + std::to_string(lines.size()) + " lines") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            if (lines.size() > 8)
+                rows.push_back(ftxui::text("   " + std::to_string(count) + " lines, " + std::to_string(lines.size()) + " rows (row " + std::to_string(current + 1) + ")")
+                    | ftxui::color(this->_theme.muted) | ftxui::dim);
             return ftxui::vbox(std::move(rows)) | ftxui::reflect(this->_promptBox);
         }
 

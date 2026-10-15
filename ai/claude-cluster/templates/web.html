@@ -376,9 +376,9 @@ function toast(text) {
     toast.timer = setTimeout(() => t.classList.add("hidden"), 3500);
 }
 
-async function api(path, body) {
+async function api(path, body, signal) {
     const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
-    const response = await fetch(path, Object.assign({credentials: "same-origin", cache: "no-store"}, options));
+    const response = await fetch(path, Object.assign({credentials: "same-origin", cache: "no-store", signal}, options));
     const data = await response.json().catch(() => ({}));
     if (response.status === 401 && path !== "/api/login") { reconnect(); throw new Error("not connected"); }
     if (!response.ok) throw new Error(data.error || response.statusText);
@@ -515,7 +515,12 @@ async function run(id) {
     // the state, waited for by the server until something changes (15 s at most)
     while (id === loop) {
         try {
-            const state = await api("/api/state?v=" + version + "&session=" + encodeURIComponent(current));
+            // 20 s at most (the server answers within 15 s): a request stuck by a sleeping phone never holds the page
+            polling = new AbortController();
+            const timer = setTimeout(() => polling.abort(), 20000);
+            let state;
+            try { state = await api("/api/state?v=" + version + "&session=" + encodeURIComponent(current), undefined, polling.signal); }
+            finally { clearTimeout(timer); }
             if (id !== loop) return;
             version = state.version;
             $("who").textContent = "from " + state.client;
@@ -528,10 +533,16 @@ async function run(id) {
     }
 }
 
+let polling = null;   // the long poll running (aborted when the page asks again at once)
 function refresh() {
     version = 0;
+    if (polling) polling.abort();
     run(++loop);
 }
+// back in front, the network back, the focus back: the state asked at once (not after a stuck request)
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("app").classList.contains("hidden")) refresh(); });
+window.addEventListener("online", () => { if (!$("app").classList.contains("hidden")) refresh(); });
+window.addEventListener("focus", () => { if (!$("app").classList.contains("hidden")) refresh(); });
 
 function stateClass(state) {
     return state === "working" || state === "starting" ? "working" : state === "waiting" ? "waiting" : state === "error" ? "error" : "";
@@ -1113,8 +1124,18 @@ function renderFace(face) {
 let turnOpen = false;    // the steps of the turn unfolded (kept from one refresh to the next)
 const took = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m " + (s % 60) + "s" : Math.floor(s / 3600) + "h " + (Math.floor(s / 60) % 60) + "m"; };
 
-function renderTurn(turn) {
+let turnShown = null;    // the turn drawn and when it came: its times counted by the page every second
+setInterval(() => {
+    if (!turnShown || document.hidden) return;
+    const late = Date.now() - turnShown.at;
+    const t = Object.assign({}, turnShown.turn, {step_ms: turnShown.turn.step_ms + late, turn_ms: turnShown.turn.turn_ms + late,
+        tools: (turnShown.turn.tools || []).map((x) => Object.assign({}, x, {ms: x.ms + late}))});
+    renderTurn(t, true);
+}, 1000);
+
+function renderTurn(turn, ticking) {
     // a turn running: its step and how long, the tools running with their input, the tokens; its steps folded
+    if (!ticking) turnShown = turn ? {turn, at: Date.now()} : null;
     const box = $("transcript");
     const old = $("turnState");
     if (old) old.remove();

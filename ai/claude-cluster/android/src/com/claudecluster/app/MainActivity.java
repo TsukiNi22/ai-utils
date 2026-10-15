@@ -82,6 +82,8 @@ public class MainActivity extends Activity {
         super.onResume();
         front = true;
         stopService(new Intent(this, WatchService.class));
+        // back in front: the state asked again at once (a long poll of the page frozen in the background never holds it)
+        if (web != null) web.evaluateJavascript("if (typeof refresh === 'function' && !document.getElementById('app').classList.contains('hidden')) refresh();", null);
     }
 
     @Override
