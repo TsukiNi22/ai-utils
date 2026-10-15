@@ -639,7 +639,8 @@ the agents, a new session, a session closed.
   the banned ones. Tick devices (Space, a click), then kick them, kick all of them (a new code; confirmed), remove
   their trust (the code asked again), **ban** them (confirmed: out, trusted no more, refused from now - their code
   too; from outside the LAN their address too) or **unban** them. Kept in `~/.config/claude-cluster/web/trusted.json`
-  and `banned.json` (0600). `claude-cluster web ban <ids>` / `web unban [ids|all]` too.
+  and `banned.json` (0600); the trusted and banned ones are listed and edited while the web access is closed too (the palette *Web
+  devices*, `claude-cluster web`). `claude-cluster web ban <ids>` / `web unban [ids|all]` too.
 - **This network only**: the browser must have a private address (10/8, 172.16/12, 192.168/16, 169.254/16) of the
   subnet of one of the interfaces of this computer (or be on this computer); the page answers only by the address or
   the name of this computer (a public name pointed at the LAN refused) and the requests of another site are refused.

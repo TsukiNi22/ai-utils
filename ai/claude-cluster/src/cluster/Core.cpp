@@ -573,18 +573,17 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
                 + data.value("client", std::string()) : "off|" + data.value("error", std::string())) << "\n";
             return;
         }
-        if (!data.value("on", false)) {
+        const bool on = data.value("on", false);
+        if (!on)
             std::cout << "web access closed" << (data.value("error", std::string()).empty() ? "" : " (" + data.value("error", std::string()) + ")")
                 << (action == "off" ? "" : "   open it: claude-cluster web on") << "\n";
-            return;
-        }
         if (action == "kick") std::cout << (data.value("kicked", false) ? "disconnected" : "nobody connected") << "\n";
         if (action == "pin") std::cout << "a new code" << "\n";
         if (action == "approve") std::cout << "answered" << "\n";
         if (action == "untrust") std::cout << "trusted no more" << "\n";
         if (action == "ban") std::cout << "banned (refused from now, their code too)" << "\n";
         if (action == "unban") std::cout << "unbanned (the code asked again)" << "\n";
-        std::cout << "web access open   " << data.value("url", std::string()) << "   code " << data.value("pin", std::string()) << "\n";
+        if (on) std::cout << "web access open   " << data.value("url", std::string()) << "   code " << data.value("pin", std::string()) << "\n";
         // the devices: waiting for you, connected, trusted
         const std::function<void(const cluster::Json&, const std::string&)> devices = [](const cluster::Json& list, const std::string& title) {
             if (list.empty()) return;
@@ -597,13 +596,13 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         devices(data.value("devices", cluster::Json::array()), "devices:");
         devices(data.value("trusted", cluster::Json::array()), "trusted devices (no code, no approval):");
         devices(data.value("banned", cluster::Json::array()), "banned devices (refused):");
-        if (data.value("devices", cluster::Json::array()).empty()) std::cout << "nobody connected: the code, then your approval here" << "\n";
+        if (on && data.value("devices", cluster::Json::array()).empty()) std::cout << "nobody connected: the code, then your approval here" << "\n";
         std::cout << "approve: claude-cluster web approve <id> allow|trust|deny · out: web kick [ids|all] · trust removed: web untrust [ids|all] · "
             "web ban <ids> / unban [ids|all]" << "\n";
         if (!data.value("remote", std::string()).empty()) std::cout << "from outside: " << data.value("remote", std::string()) << "\n";
-        if (data.value("https", false))
+        if (on && data.value("https", false))
             std::cout << "certificate SHA-256 " << data.value("fingerprint", std::string()) << " (the browser asks to accept it once: compare)" << "\n";
-        else
+        else if (on)
             std::cout << "plain http: no microphone in the page ([web] https = true, then claude-cluster web off / on)" << "\n";
         return;
     }

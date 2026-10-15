@@ -342,6 +342,9 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
 _cold cluster::Web::Web(cluster::Manager& manager, cluster::Voice* voice, const std::optional<bool> force)
     : _manager(manager), _voice(voice), _speech(voice != nullptr ? std::make_unique<cluster::WebVoice>(manager, *voice) : nullptr), _force(force)
 {
+    // its trusted and banned devices: known (and edited) while it is closed too
+    this->loadTrusted_();
+    this->loadBanned_();
 }
 
 _cold cluster::Web::~Web()
@@ -818,7 +821,9 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     cluster::WebStatus status;
     status.on = this->_fd != -1;
     status.error = this->_error;
-    if (!status.on) {
+    if (!status.on) { // closed: its trusted and banned devices still listed (edited while closed)
+        for (const auto &[id, access]: this->_trusted)
+            status.trusted.push_back(access.device);
         for (const auto &[id, d]: this->_banned)
             status.banned.push_back(d);
         return status;

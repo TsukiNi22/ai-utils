@@ -169,10 +169,11 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     if (const cluster::Web* web = manager.web()) {
         const cluster::WebStatus status = web->status();
         list.push_back({status.on ? "web_off" : "web_on", status.on ? "Web access: close (" + status.url + ")" : "Web access: open (a browser of this network, a code)", "", "", false});
+        // its devices: connected, trusted, banned (the trusted / banned ones edited while it is closed too)
+        list.push_back({"web_devices", "Web devices: connected, trusted, banned (kick, trust no more, ban / unban)", "", "", true});
         if (status.on) {
             list.push_back({"web_show", "Web access: address and code (" + status.url + ", " + status.pin + ")", "", "", false});
             list.push_back({"web_pin", "Web access: a new code", "", "", false});
-            list.push_back({"web_devices", "Web devices: the devices connected and trusted (kick, remove the trust)", "", "", true});
             if (status.https) list.push_back({"web_trust_ca", "Web access: trust its certificate on this computer (no browser warning; asks the password)", "", "", false});
             for (const cluster::WebDevice& d: status.devices) {
                 if (d.state == "waiting") {
