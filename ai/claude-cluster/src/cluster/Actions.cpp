@@ -39,6 +39,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     const std::optional<cluster::Snapshot> snap = session.empty() ? std::nullopt : manager.snapshot(session);
     std::vector<cluster::Action> list = {
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
+        {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
         {"edit_sessions_prompt", "System prompt of the sub-sessions: edit it (empty: none)", "", "", true},
@@ -741,12 +742,26 @@ _cold cluster::ModelInfo cluster::model_info(cluster::Manager& manager, const st
     return info;
 }
 
-_cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<cluster::Action>& actions, const std::string& filter)
+_cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<cluster::Action>& actions, const std::string& filter, const cluster::Config* config)
 {
-    // the palette: the actions matching, the closest first (no filter: their order)
+    // the palette: the actions matching, the closest first (no filter: their order); a config: the settings found too
+    // (after the actions as close; setting: alone: only them), Enter opens the settings page at it
     std::vector<std::pair<float, cluster::Action>> found;
-    for (const cluster::Action& action: actions)
-        if (const std::optional<float> score = cluster::action_score(action, filter)) found.emplace_back(*score, action);
+    std::string wanted = cluster::trim(filter);
+    const bool settingsOnly = cluster::lower(wanted).starts_with("setting:");
+    if (!settingsOnly)
+        for (const cluster::Action& action: actions)
+            if (const std::optional<float> score = cluster::action_score(action, filter)) found.emplace_back(*score, action);
+    if (settingsOnly) wanted = cluster::trim(wanted.substr(8));
+    const std::size_t colon = wanted.find(':');
+    if (config != nullptr && !wanted.empty() && (settingsOnly || colon == std::string::npos || wanted.find(' ') < colon)) {
+        const std::vector<cluster::SettingsPage> pages = cluster::settings_pages(*config);
+        for (const cluster::SettingHit& hit: cluster::settings_search(pages, wanted)) {
+            const cluster::Setting& s = pages[hit.page].settings[hit.item];
+            found.emplace_back(hit.score + 2.0F, cluster::Action{"setting:" + s.section + "." + s.key, "⚙ Setting: " + s.label + "  · " + pages[hit.page].title
+                + (hit.name ? "" : "  (found in its description)"), "", "", false});
+        }
+    }
     std::stable_sort(found.begin(), found.end(), [](const std::pair<float, cluster::Action>& a, const std::pair<float, cluster::Action>& b) {return a.first < b.first;});
     std::vector<cluster::Action> out;
     for (const auto &[score, action]: found)

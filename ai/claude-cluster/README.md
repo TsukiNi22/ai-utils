@@ -666,6 +666,12 @@ tabs dialog (help on hover, Ctrl+S save, F10 / Save save & close; closed with ch
 reloaded live; the options marked *applied at the next start* need a restart. Profiles, providers and own styles
 stay in the file.
 
+**Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its
+description, the closest first, each hit telling where it matched (*name* / *description*). In the settings page:
+`/` or Ctrl+F (terminal), its field at the top (window, web page; Ctrl+F); Enter / a click opens its page on it. In the
+palette (Ctrl+K): the settings found come after the actions (`setting:` alone: only them; the action *Settings:
+search one*), Enter opens the settings page at it.
+
 `~/.config/claude-cluster/config.toml` (written commented on the first run, reloaded when saved): interface
 (`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never`, `notify`), `[agent]` default backend
 and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel`: the parallel sessions, `task_queue`: the tasks waiting for a place, of the task

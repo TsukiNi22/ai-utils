@@ -17,6 +17,7 @@ File Description:
 #include "cluster/Vocabulary.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Types.hpp"
 #include "cluster/Mcp.hpp"
@@ -462,6 +463,29 @@ _cold bool cluster::settings_set(const cluster::Config& config, const std::strin
                 return setting.restart;
             }
     throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no option " + section + "." + key);
+}
+
+_cold std::vector<cluster::SettingHit> cluster::settings_search(const std::vector<cluster::SettingsPage>& pages, const std::string& query)
+{
+    // the name: its label (every word typed close to one of its words), its key, section.key; the description: the same,
+    // 6 further (a word of a description never before a name close to it)
+    constexpr float DESCRIPTION = 6.0F;
+    std::vector<cluster::SettingHit> hits;
+    if (cluster::trim(query).empty()) return hits;
+    for (std::size_t p = 0; p < pages.size(); ++p)
+        for (std::size_t i = 0; i < pages[p].settings.size(); ++i) {
+            const cluster::Setting& s = pages[p].settings[i];
+            std::optional<float> name = cluster::match_words(query, s.label);
+            for (const std::string& key: {s.key, s.section + "." + s.key})
+                if (const std::optional<float> k = cluster::match_score(cluster::trim(query), key); k && (!name || *k < *name)) name = k;
+            const std::optional<float> about = cluster::match_words(query, s.description);
+            if (!name && !about) continue;
+            const float described = about ? *about + DESCRIPTION : 1e9F;
+            hits.push_back({p, i, name ? std::min(*name, described) : described, name && *name <= described});
+        }
+    std::stable_sort(hits.begin(), hits.end(), [](const cluster::SettingHit& a, const cluster::SettingHit& b) {return a.score < b.score;});
+    if (hits.size() > 50) hits.resize(50);
+    return hits;
 }
 
 _cold void cluster::settings_write(const cluster::Config& config,

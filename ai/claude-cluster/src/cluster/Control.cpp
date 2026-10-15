@@ -579,6 +579,15 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.setUi("style", style);
         } else if (cmd == "ui_panel") {
             manager.togglePanel(session(), arg_(request, "panel"));
+        } else if (cmd == "settings_search") {
+            // the settings matching a text: by their name far before their description, where it matched
+            const std::vector<cluster::SettingsPage> pages = cluster::settings_pages(manager.config());
+            data = cluster::Json::array();
+            for (const cluster::SettingHit& hit: cluster::settings_search(pages, arg_(request, "query"))) {
+                const cluster::Setting& s = pages[hit.page].settings[hit.item];
+                data.push_back({{"section", s.section}, {"key", s.key}, {"label", s.label}, {"page", pages[hit.page].title}, {"help", s.description},
+                    {"matched", hit.name ? "name" : "description"}});
+            }
         } else if (cmd == "settings_get") {
             // every option of the settings page: its section, key, value, choices and help
             const std::string section = arg_(request, "section");

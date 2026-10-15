@@ -594,6 +594,10 @@ class Window: public QMainWindow {
                 this->signature.clear();
             } else if (base == "settings") {
                 this->settings();
+            } else if (base == "setting") {
+                this->settings(arg); // found in the palette: opened at it
+            } else if (base == "settings_search") {
+                this->settings("", true);
             } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
                 this->settingAction(base == "edit_global_prompt" ? "edit_prompt" : base);
             } else if (base == "restore_menu") {
@@ -673,7 +677,7 @@ class Window: public QMainWindow {
                 const std::string wanted = cluster::lower(filter->text().toStdString());
                 items->clear();
                 shown.clear();
-                shown = cluster::filter_actions(all, wanted); // the closest first
+                shown = cluster::filter_actions(all, wanted, &this->manager.config()); // the closest first, the settings found too
                 for (const cluster::Action& a: shown)
                     items->addItem(q_(a.title));
                 items->setCurrentRow(0);
@@ -691,9 +695,10 @@ class Window: public QMainWindow {
             this->choose(shown[static_cast<std::size_t>(items->currentRow())]);
         }
 
-        void settings(void)
+        void settings(const std::string& focus = "", const bool search = false)
         {
-            // Every option of config.toml, one tab per section; saved in the file (comments kept), reloaded live
+            // Every option of config.toml, one tab per section; saved in the file (comments kept), reloaded live; focus: the
+            // one shown (section.key), search: its field first
             QDialog dialog(this);
             dialog.setWindowTitle("claude-cluster setup");
             dialog.resize(860, 620);
@@ -703,8 +708,11 @@ class Window: public QMainWindow {
             QTabWidget* sections = new QTabWidget(&dialog);
             const cluster::Config& config = this->manager.config();
             std::vector<std::pair<cluster::Setting, std::function<std::string()>>> fields; // <setting, value of its widget>
+            const std::vector<cluster::SettingsPage> pages = cluster::settings_pages(config);
+            std::vector<std::vector<std::pair<QLabel*, QWidget*>>> placed(pages.size()); // per page, per setting: its label, its widget
+            std::vector<QScrollArea*> scrolls;
 
-            for (const cluster::SettingsPage& page: cluster::settings_pages(config)) {
+            for (const cluster::SettingsPage& page: pages) {
                 QWidget* tab = new QWidget(sections);
                 QFormLayout* form = new QFormLayout(tab);
                 for (const cluster::Setting& setting: page.settings) {
@@ -767,13 +775,63 @@ class Window: public QMainWindow {
                     form->addRow(label, widget);
                     if (info != nullptr) form->addRow(info);
                     fields.emplace_back(setting, read);
+                    placed[scrolls.size()].emplace_back(label, widget);
                 }
                 QScrollArea* scroll = new QScrollArea(sections);
+                scrolls.push_back(scroll);
                 scroll->setWidget(tab);
                 scroll->setWidgetResizable(true);
                 scroll->setFrameShape(QFrame::NoFrame);
                 sections->addTab(scroll, q_(page.title));
             }
+            // a setting shown: its tab, scrolled to it, its field focused, its label lit a moment
+            const std::function<void(std::size_t, std::size_t)> showAt = [&sections, &scrolls, &placed, this](const std::size_t p, const std::size_t i) {
+                if (p >= placed.size() || i >= placed[p].size()) return;
+                sections->setCurrentIndex(static_cast<int>(p));
+                const auto [label, widget] = placed[p][i];
+                scrolls[p]->ensureWidgetVisible(widget, 40, 80);
+                widget->setFocus();
+                label->setStyleSheet("background:" + q_(this->theme().accent) + ";color:" + q_(this->theme().bg) + ";border-radius:4px;padding:1px 4px;");
+                QTimer::singleShot(2500, label, [label]() {label->setStyleSheet("");});
+            };
+            // the search: every page, by its name (c2dmp-hsm) far before its description; each hit says where it matched
+            QLineEdit* find = new QLineEdit(&dialog);
+            find->setPlaceholderText("Search a setting: its name or words of its description (Ctrl+F)  ·  ↓ / Enter: open it");
+            find->setClearButtonEnabled(true);
+            QListWidget* hits = new QListWidget(&dialog);
+            hits->setVisible(false);
+            hits->setMaximumHeight(220);
+            hits->setMouseTracking(true);
+            hits->setStyleSheet("QListWidget::item:hover{background:" + q_(this->theme().surface) + ";}");
+            std::vector<cluster::SettingHit> found;
+            QObject::connect(find, &QLineEdit::textChanged, &dialog, [find, hits, &found, &pages]() {
+                found = cluster::settings_search(pages, find->text().toStdString());
+                hits->clear();
+                for (const cluster::SettingHit& hit: found) {
+                    const cluster::Setting& s = pages[hit.page].settings[hit.item];
+                    QListWidgetItem* item = new QListWidgetItem(q_(s.label + "   · " + pages[hit.page].title + (hit.name ? "" : "   (found in its description)")), hits);
+                    item->setToolTip(q_(s.description));
+                }
+                hits->setVisible(!find->text().trimmed().isEmpty());
+                if (!found.empty()) hits->setCurrentRow(0);
+            });
+            const std::function<void()> open = [hits, find, &found, &showAt]() {
+                const int row = hits->currentRow();
+                if (row < 0 || static_cast<std::size_t>(row) >= found.size()) return;
+                const cluster::SettingHit hit = found[static_cast<std::size_t>(row)];
+                hits->setVisible(false);
+                find->clearFocus();
+                showAt(hit.page, hit.item);
+            };
+            QObject::connect(find, &QLineEdit::returnPressed, &dialog, open);
+            QObject::connect(hits, &QListWidget::itemActivated, &dialog, open);
+            QObject::connect(hits, &QListWidget::itemClicked, &dialog, open);
+            QShortcut* findDown = new QShortcut(QKeySequence(Qt::Key_Down), find, nullptr, nullptr, Qt::WidgetShortcut);
+            QObject::connect(findDown, &QShortcut::activated, hits, [hits]() {hits->setFocus(); hits->setCurrentRow(std::min(hits->currentRow() + 1, hits->count() - 1));});
+            QShortcut* findKey = new QShortcut(QKeySequence::Find, &dialog);
+            QObject::connect(findKey, &QShortcut::activated, find, [find]() {find->setFocus(); find->selectAll();});
+            layout->addWidget(find);
+            layout->addWidget(hits);
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
             QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -811,6 +869,12 @@ class Window: public QMainWindow {
                     dialog.reject();
                 });
             }
+            if (!focus.empty())
+                for (std::size_t p = 0; p < pages.size(); ++p)
+                    for (std::size_t i = 0; i < pages[p].settings.size(); ++i)
+                        if (pages[p].settings[i].section + "." + pages[p].settings[i].key == focus)
+                            QTimer::singleShot(0, &dialog, [showAt, p, i]() {showAt(p, i);});
+            if (search) QTimer::singleShot(0, find, [find]() {find->setFocus();});
             const bool accepted = dialog.exec() == QDialog::Accepted;
 
             std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> changes;

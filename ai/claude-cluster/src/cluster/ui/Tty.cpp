@@ -651,6 +651,10 @@ class TtyUi {
         std::vector<cluster::SettingsPage> _pages;  // settings page
         int _page = 0;
         int _item = 0;
+        bool _finding = false;                      // the search of the settings page (/)
+        std::string _find;
+        std::vector<cluster::SettingHit> _hits;
+        int _findHit = 0;
         bool _editing = false;
         std::string _edit;
         std::string _note;
@@ -1265,7 +1269,7 @@ class TtyUi {
         void filter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
-            this->_actions = cluster::filter_actions(cluster::actions(this->_manager, this->_active), wanted); // the closest first
+            this->_actions = cluster::filter_actions(cluster::actions(this->_manager, this->_active), wanted, &this->_manager.config()); // the closest first
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_actions.size()) - 1));
         }
 
@@ -1281,6 +1285,13 @@ class TtyUi {
             } else if (base == "style") {
                 this->_manager.setUi("style", arg);
                 this->theme_();
+            } else if (base == "setting") {
+                this->openSettingsAt_(arg);
+            } else if (base == "settings_search") {
+                this->openSettings_();
+                this->_finding = true;
+                this->_find.clear();
+                this->_hits.clear();
             } else if (base == "settings") {
                 this->openSettings_();
             } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
@@ -1460,11 +1471,24 @@ class TtyUi {
         }
 
         /* settings page */
+        void openSettingsAt_(const std::string& where)
+        {
+            // a setting found (the palette, a search): its page, on it
+            this->openSettings_();
+            for (std::size_t p = 0; p < this->_pages.size(); ++p)
+                for (std::size_t i = 0; i < this->_pages[p].settings.size(); ++i)
+                    if (this->_pages[p].settings[i].section + "." + this->_pages[p].settings[i].key == where) {
+                        this->_page = static_cast<int>(p);
+                        this->_item = static_cast<int>(i);
+                    }
+        }
+
         void openSettings_(void)
         {
             this->_pages = cluster::settings_pages(this->_manager.config());
             this->_page = 0;
             this->_item = 0;
+            this->_finding = false;
             this->_editing = false;
             this->_note.clear();
             this->_changes.clear();
@@ -1525,6 +1549,39 @@ class TtyUi {
             const int count = static_cast<int>(page.settings.size());
             if (count > 0) this->_item = std::clamp(this->_item, 0, count - 1);
 
+            // the search: / (or Ctrl+F) opens it, every page searched; Enter goes to the one chosen, Esc closes it
+            if (this->_finding) {
+                if (event == ftxui::Event::Escape) {
+                    this->_finding = false;
+                } else if (event == ftxui::Event::Return) {
+                    if (!this->_hits.empty()) {
+                        const cluster::SettingHit& hit = this->_hits[static_cast<std::size_t>(std::clamp(this->_findHit, 0, static_cast<int>(this->_hits.size()) - 1))];
+                        this->_page = static_cast<int>(hit.page);
+                        this->_item = static_cast<int>(hit.item);
+                    }
+                    this->_finding = false;
+                } else if (event == ftxui::Event::ArrowDown) {
+                    this->_findHit = std::min(this->_findHit + 1, std::max(0, static_cast<int>(this->_hits.size()) - 1));
+                } else if (event == ftxui::Event::ArrowUp) {
+                    this->_findHit = std::max(this->_findHit - 1, 0);
+                } else if (event == ftxui::Event::Backspace) {
+                    while (!this->_find.empty() && (static_cast<unsigned char>(this->_find.back()) & 0xC0) == 0x80) this->_find.pop_back();
+                    if (!this->_find.empty()) this->_find.pop_back();
+                    this->_hits = cluster::settings_search(this->_pages, this->_find);
+                    this->_findHit = 0;
+                } else if (event.is_character()) {
+                    this->_find += event.character();
+                    this->_hits = cluster::settings_search(this->_pages, this->_find);
+                    this->_findHit = 0;
+                }
+                return true;
+            }
+            if (!this->_editing && this->_note != "confirm" && (event == ftxui::Event::Character('/') || event.input() == std::string(1, '\x06'))) {
+                this->_finding = true;
+                this->_hits = cluster::settings_search(this->_pages, this->_find);
+                this->_findHit = 0;
+                return true;
+            }
             if (this->_editing) {
                 const cluster::Setting& setting = page.settings[static_cast<std::size_t>(this->_item)];
                 if (event == ftxui::Event::Return) {
@@ -1647,6 +1704,36 @@ class TtyUi {
                 }
             }
             if (rows.empty()) rows.push_back(ftxui::text("   nothing here") | ftxui::color(t.muted));
+            if (this->_finding) {
+                // the search: every page, the closest first, where it matched (its name / its description)
+                rows.clear();
+                rows.push_back(ftxui::hbox({ftxui::text(" / ") | ftxui::bold | ftxui::color(t.accent), ftxui::text(this->_find + "▏") | ftxui::bold,
+                    ftxui::filler(), ftxui::text(this->_find.empty() ? "type a name or words of its description " : std::to_string(this->_hits.size()) + " found ")
+                    | ftxui::color(t.muted)}));
+                rows.push_back(ftxui::separatorLight() | ftxui::color(t.border));
+                help.clear();
+                choiceHelp.clear();
+                for (std::size_t h = 0; h < this->_hits.size(); ++h) {
+                    const cluster::SettingHit& hit = this->_hits[h];
+                    const cluster::Setting& s = this->_pages[hit.page].settings[hit.item];
+                    const bool selected = static_cast<int>(h) == this->_findHit;
+                    const int index = static_cast<int>(h);
+                    ftxui::Element line = ftxui::hbox({
+                        ftxui::text(selected ? " › " : "   ") | ftxui::color(t.accent) | ftxui::bold,
+                        ftxui::text(s.label) | ftxui::bold | (selected ? ftxui::color(t.accent) : ftxui::color(t.text)),
+                        ftxui::text("  " + this->_pages[hit.page].title) | ftxui::color(t.muted),
+                        ftxui::filler(),
+                        ftxui::text(hit.name ? " name " : " description ") | (hit.name ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.bg) | ftxui::bgcolor(t.muted)),
+                        ftxui::text(" "),
+                    });
+                    rows.push_back(this->tap_(selected ? line | ftxui::inverted | ftxui::focus : line, 2, [this, index]() {
+                        this->_findHit = index;
+                        (void)this->event_(ftxui::Event::Return);
+                    }));
+                    if (selected) help = s.description;
+                }
+                if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
+            }
             std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)" : this->_note;
             ftxui::Elements choice;
             for (const std::string& line: cluster::split(choiceHelp, '\n'))
@@ -1672,7 +1759,8 @@ class TtyUi {
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
                 this->_note == "confirm" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn), keyed(" [y] save ", ftxui::Event::Character('y')) | ftxui::color(t.accent),
                     keyed(" [n] drop ", ftxui::Event::Character('n')) | ftxui::color(t.accent)}) : ftxui::text(" " + note) | ftxui::color(t.warn),
-                ftxui::hbox({ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   "), keyed("Ctrl+S save", ftxui::Event::Special(std::string(1, '\x13'))),
+                ftxui::hbox({ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   "), keyed("/ search", ftxui::Event::Character('/')),
+                    ftxui::text("   "), keyed("Ctrl+S save", ftxui::Event::Special(std::string(1, '\x13'))),
                     ftxui::text("   "), keyed("F10 save & exit", ftxui::Event::F10), ftxui::text("   "), keyed("Esc exit (asks to save) ", ftxui::Event::Escape)})
                     | ftxui::color(t.bg) | ftxui::bgcolor(t.muted), ftxui::filler()}) | ftxui::bgcolor(t.muted),
             }) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, size.dimy) | ftxui::color(t.text) | ftxui::bgcolor(t.bg);

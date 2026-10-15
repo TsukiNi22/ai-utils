@@ -207,6 +207,12 @@ header .muted { color: var(--muted); font-size: 13px; }
 .tabs button { white-space: nowrap; font-size: 13px; padding: 5px 10px; border-radius: 8px; }
 .tabs button.on { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: var(--accent); color: var(--accent); }
 #drawerBody { flex: 1; overflow-y: auto; padding: 8px 14px 18px; }
+#drawerFind { margin: 8px 12px 4px; width: calc(100% - 24px); box-sizing: border-box; }
+.hit { display: flex; gap: 8px; align-items: baseline; padding: 9px 8px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 6px; }
+.hit:hover, .hit:focus { background: var(--surface, rgba(127,127,127,.12)); outline: none; }
+.hit .where { margin-left: auto; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--muted, #888); color: var(--bg, #000); }
+.hit .where.name { background: var(--accent); }
+.setting.lit { animation: lit 2.4s ease-out; } @keyframes lit { from { background: var(--accent); } to { background: transparent; } }
 .setting { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .setting .help { grid-column: 1 / 3; color: var(--muted); font-size: 12.5px; }
 .setting .help.next { color: var(--warn); }
@@ -354,6 +360,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
 </div>
 <aside id="drawer" class="panel hidden" aria-label="Settings">
     <div class="panel-head"><b>Settings</b><span class="grow"></span><button id="drawerClose" aria-label="Close">✕</button></div>
+    <input id="drawerFind" type="search" placeholder="Search a setting: its name or words of its description" autocomplete="off">
     <div id="drawerTabs" class="tabs"></div>
     <div id="drawerBody"></div>
     <div class="panel-foot"><span id="drawerNote" class="muted"></span><span class="grow"></span><button id="drawerSave" class="primary">Save</button></div>
@@ -2347,6 +2354,41 @@ async function openDrawer() {
     settingsChanged.clear();
     drawDrawer();
 }
+// the search: by the name far before the description (c2dmp-hsm of claude-cluster), each hit tells where it matched; a
+// hit clicked: its page, scrolled to it, lit a moment
+let settingsFind = "";
+let settingsLit = "";
+$("drawerFind").addEventListener("input", async () => {
+    settingsFind = $("drawerFind").value.trim();
+    if (!settingsFind) { drawDrawer(); return; }
+    const asked = settingsFind;
+    let found = [];
+    try { found = await cmd({cmd: "settings_search", query: asked}); } catch (e) { found = []; }
+    if (asked !== settingsFind) return; // typed on meanwhile
+    const body = $("drawerBody");
+    body.textContent = "";
+    $("drawerNote").textContent = found.length + " found";
+    for (const hit of found) {
+        const row = el("div", "hit");
+        row.tabIndex = 0;
+        row.title = hit.help;
+        row.append(el("b", "", hit.label.trim()), el("span", "muted", hit.page), el("span", "where" + (hit.matched === "name" ? " name" : ""), hit.matched));
+        const open = () => {
+            settingsTab = hit.page;
+            settingsLit = hit.section + "." + hit.key;
+            settingsFind = "";
+            $("drawerFind").value = "";
+            drawDrawer();
+        };
+        row.addEventListener("click", open);
+        row.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
+        body.append(row);
+    }
+    if (!found.length) body.append(el("div", "muted", "nothing found"));
+});
+$("drawerFind").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === "ArrowDown") { const first = $("drawerBody").querySelector(".hit"); if (first) { e.preventDefault(); if (e.key === "Enter") first.click(); else first.focus(); } }
+});
 function drawDrawer() {
     const pages = ["This device"].concat([...new Set(settingsData.map((s) => s.page))]);
     const tabs = $("drawerTabs");
@@ -2388,6 +2430,11 @@ function drawDrawer() {
         input.id = id;
         row.append(label, input, el("div", "help" + (s.at_next_start ? " next" : ""), s.help + (s.at_next_start ? " · applied at the next start" : "")));
         body.append(row);
+        if (settingsLit === key) {
+            settingsLit = "";
+            row.classList.add("lit");
+            setTimeout(() => { row.scrollIntoView({block: "center", behavior: "smooth"}); input.focus({preventScroll: true}); }, 30);
+        }
     }
 }
 function drawDevice(body) {

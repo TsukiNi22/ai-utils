@@ -61,6 +61,13 @@ struct SettingsPage {
     std::vector<cluster::Setting> settings;
 };
 
+struct SettingHit {
+    std::size_t page = 0;       // in the pages searched
+    std::size_t item = 0;       // in its page
+    float score = 0.0F;         // lower: closer
+    bool name = true;           // matched by its name (its label, its key); false: by its description only
+};
+
 //----------------------------------------------------------------//
 /* FUNCTION */
 
@@ -68,6 +75,8 @@ _cold _nodiscard std::vector<cluster::SettingsPage> settings_pages(const cluster
 _cold _nodiscard std::string setting_next(const cluster::Setting& setting, const std::string& value, const int step); // Bool / Choice / Int / Float
 _cold _nodiscard std::string setting_check(const cluster::Setting& setting, const std::string& value); // error message, empty: valid
 _cold bool settings_set(const cluster::Config& config, const std::string& section, const std::string& key, const std::string& value);
+// the settings matching a text: their name (c2dmp-hsm, [ui] matching) far before their description, the closest first
+_cold _nodiscard std::vector<cluster::SettingHit> settings_search(const std::vector<cluster::SettingsPage>& pages, const std::string& query);
 _cold void settings_write(const cluster::Config& config, const std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes);
 
 } // namespace end
