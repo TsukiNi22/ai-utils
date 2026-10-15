@@ -106,6 +106,12 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker-list { overflow-y: auto; padding: 6px; }
 .picker-row.danger { color: var(--error); }
 .tasks-mark { color: var(--accent); font-weight: 700; }
+.svc-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.svc-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; } .svc-state { color: var(--accent); font-weight: 600; }
+.svc-line { font-size: 13px; color: var(--muted); margin-top: 3px; word-break: break-word; } .svc-line.text { color: var(--text); }
+.svc-line.log { font-family: var(--mono, monospace); font-size: 12px; opacity: .75; } .svc-line.heard { color: var(--accent); font-weight: 600; }
+.svc-line.error { color: var(--error); } .svc-line.ok { color: var(--ok, #3fb950); } .svc-line.warn { color: #e5b400; }
+.svc-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; } .svc-buttons button { font-size: 13px; padding: 4px 10px; }
 .tasks-view [tabindex='0']:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--surface); border-radius: 6px; }
 .failure-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); z-index: 60;
     background: var(--surface); border: 1px solid var(--error); border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
@@ -2722,9 +2728,69 @@ $("drawerFind").addEventListener("input", async () => {
     }
     if (!found.length) body.append(el("div", "muted", "nothing found"));
 });
+function drawServicesBox(body) {
+    const box = el("div", "services");
+    const again = el("button", "", "Read again");
+    again.type = "button";
+    again.addEventListener("click", () => { servicesAt = 0; readServices(); });
+    body.append(box, again);
+    paintServices({});
+    readServices();
+}
 $("drawerFind").addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === "ArrowDown") { const first = $("drawerBody").querySelector(".hit"); if (first) { e.preventDefault(); if (e.key === "Enter") first.click(); else first.focus(); } }
 });
+// ---- the Services tab: a card per sub service (made by the computer), read live / every Delay / by hand ----
+const SERVICES = [["service", "Service (systemd)"], ["web", "Web access"], ["core", "Core"], ["voice", "Voice"], ["mcp", "MCP servers"], ["outside", "Outside (router / tailscale)"]];
+let servicesAt = 0;
+let servicesReading = false;
+function servicesSetting(key) {
+    const input = $("set-services-" + key);
+    if (input) return input.value;
+    const s = settingsData.find((x) => x.section === "services" && x.key === key);
+    return s ? String(s.value) : "";
+}
+function paintServices(d) {
+    const box = document.querySelector("#drawerBody .services");
+    if (!box) return;
+    box.textContent = "";
+    for (const [name, title] of SERVICES) {
+        const c = (d.cards || {})[name] || {summary: d.error ? "✗ " + d.error : "reading…", lines: [], buttons: []};
+        const card = el("div", "svc-card");
+        const head = el("div", "svc-head");
+        head.append(el("b", "", title), el("span", "svc-state", c.summary));
+        card.append(head);
+        for (const l of c.lines) card.append(el("div", "svc-line " + l.kind, l.text));
+        const row = el("div", "svc-buttons");
+        for (const b of c.buttons) {
+            const button = el("button", "", b.label);
+            button.type = "button";
+            button.addEventListener("click", async () => {
+                if (b.risky && !confirm(b.label + " (" + name + ")?")) return;
+                button.disabled = true;
+                await act({cmd: "service_act", service: name, action: b.action});
+                button.disabled = false;
+                servicesAt = 0;
+            });
+            row.append(button);
+        }
+        card.append(row);
+        box.append(card);
+    }
+}
+async function readServices() {
+    // while its tab is shown: live (0.7 s), interval (every Delay), manual (Read again, after an action)
+    if (servicesReading || settingsTab !== "Services" || $("drawer").classList.contains("hidden") || !document.querySelector("#drawerBody .services")) return;
+    const mode = servicesSetting("refresh");
+    const delay = Math.max(1, parseInt(servicesSetting("delay"), 10) || 2) * 1000;
+    const now = Date.now();
+    if (servicesAt && !(mode === "live" && now - servicesAt >= 700) && !(mode === "interval" && now - servicesAt >= delay)) return;
+    servicesReading = true;
+    try { paintServices(await cmd({cmd: "services"})); } catch (error) { paintServices({error: error.message}); }
+    servicesAt = Date.now();
+    servicesReading = false;
+}
+setInterval(readServices, 250);
 function drawDrawer() {
     const pages = ["This device"].concat([...new Set(settingsData.map((s) => s.page))]);
     const tabs = $("drawerTabs");
@@ -2739,6 +2805,7 @@ function drawDrawer() {
     body.textContent = "";
     $("drawerNote").textContent = settingsChanged.size ? settingsChanged.size + " change(s) not saved" : "";
     if (settingsTab === "This device") return drawDevice(body);
+    if (settingsTab === "Services") servicesAt = 0; // its cards read at once
     for (const s of settingsData.filter((x) => x.page === settingsTab)) {
         if (s.kind === "action") continue;
         const key = s.section + "." + s.key;
@@ -2793,6 +2860,7 @@ function drawDrawer() {
             setTimeout(() => { row.scrollIntoView({block: "center", behavior: "smooth"}); input.focus({preventScroll: true}); }, 30);
         }
     }
+    if (settingsTab === "Services") drawServicesBox(body); // its cards under Refresh / Delay
 }
 function drawDevice(body) {
     // what this browser keeps: its name, its theme, its view, its voice, its notifications

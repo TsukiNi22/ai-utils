@@ -16,6 +16,7 @@ File Description:
 #define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
+#include "cluster/Services.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
@@ -698,6 +699,12 @@ class TtyUi {
         int _selected = 0;
         std::int64_t _prefixUntil = 0;              // Ctrl+B pressed: unix ms until which an arrow moves between sessions
         int _taskSel = 0;                           // the Tasks session: its item chosen by the keys
+        cluster::Json _services;                    // the Services tab of the settings: its state (read by the worker)
+        std::int64_t _servicesAt = 0;               // ms of its last read (0: read again)
+        std::uint64_t _servicesSeen = 0;            // the version of the core it was read at (live: read again when it changes)
+        std::atomic<bool> _servicesReading{false};
+        int _svcButton = 0;                         // the button of the service chosen (←→)
+        std::string _svcConfirm;                    // "service|action" waiting for its y / n
         std::vector<std::pair<int, std::function<void(void)>>> _taskItems; // its items drawn (their part, what Enter does)
         std::vector<cluster::SettingsPage> _pages;  // settings page
         int _page = 0;
@@ -1600,6 +1607,109 @@ class TtyUi {
             this->_mode = Mode::Settings;
         }
 
+        _nodiscard std::string servicesSetting_(const std::string& key) const
+        {
+            // [services] refresh / delay, their change not saved yet taken
+            for (const cluster::SettingsPage& page: this->_pages)
+                for (const cluster::Setting& setting: page.settings)
+                    if (setting.section == "services" && setting.key == key) return this->settingValue_(setting);
+            return "";
+        }
+
+        void servicesRead_(const bool force = false)
+        {
+            // live: when the core changes (0.3 s at most), else every 0.5 s (its slow parts kept Delay s by the core); interval:
+            // every Delay s; manual: R and after each action; read by the worker (the screen never waits)
+            if (this->_servicesReading) return;
+            const std::string mode = this->servicesSetting_("refresh");
+            const std::int64_t delay = static_cast<std::int64_t>(std::max(1, std::atoi(this->servicesSetting_("delay").c_str()))) * 1000;
+            const std::int64_t now = cluster::now_ms();
+            const std::uint64_t version = this->_manager.version();
+            const bool due = force || this->_services.is_null() || this->_servicesAt == 0
+                || (mode == "live" && ((version != this->_servicesSeen && now - this->_servicesAt >= 300) || now - this->_servicesAt >= 500))
+                || (mode == "interval" && now - this->_servicesAt >= delay);
+            if (!due) return;
+            this->_servicesReading = true;
+            this->_servicesSeen = version;
+            this->_worker.push([this]() {
+                cluster::Json got;
+                try {
+                    got = cluster::services(this->_manager);
+                } catch (const utils::exception::IException& e) {
+                    got = {{"error", e.info()}};
+                }
+                this->_screen.Post([this, got]() {
+                    this->_services = got;
+                    this->_servicesAt = cluster::now_ms();
+                    this->_servicesReading = false;
+                });
+                this->_screen.PostEvent(ftxui::Event::Custom);
+            });
+        }
+
+        _nodiscard std::vector<std::pair<std::string, std::string>> svcButtons_(const std::string& name) const
+        {
+            return cluster::service_buttons(name, this->_services); // its buttons: <label, action>
+        }
+
+        void svcRun_(const std::string& name, const std::string& action, const std::string& label)
+        {
+            // the core, a removal: y / n first; run by the worker (its popup), its result in the note, read again after
+            if (cluster::service_risky(name, action) && this->_svcConfirm != name + "|" + action) {
+                this->_svcConfirm = name + "|" + action + "|" + label;
+                this->_note = "svc_confirm";
+                return;
+            }
+            this->_svcConfirm.clear();
+            this->_note = label + "…";
+            this->_worker.push([this, name, action]() {
+                std::string message;
+                bool failed = false;
+                try {
+                    message = cluster::service_act(this->_manager, name, action);
+                } catch (const utils::exception::IException& e) {
+                    message = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+                    failed = true;
+                }
+                this->_screen.Post([this, message, failed]() {
+                    this->_note = (failed ? "✗ " : "") + message;
+                    this->_servicesAt = 0; // read again
+                });
+                this->_screen.PostEvent(ftxui::Event::Custom);
+            });
+        }
+
+        _nodiscard ftxui::Elements svcCard_(const std::string& name, const bool selected, const int index, const int clip)
+        {
+            // its details, its journal greyed, what the voice hears now; its buttons (the one chosen lit when it is chosen)
+            const Theme& t = this->_theme;
+            ftxui::Elements out;
+            for (const cluster::ServiceLine& l: cluster::service_lines(name, this->_services)) {
+                const ftxui::Color color = l.kind == "error" ? t.error : l.kind == "ok" ? t.ok : l.kind == "warn" ? t.warn : l.kind == "heard" ? t.accent : l.kind == "text" ? t.text
+                    : t.muted;
+                out.push_back(ftxui::hbox({ftxui::text("      "), l.kind == "log" ? ftxui::text(cluster::one_line(l.text, 110)) | ftxui::color(color) | ftxui::dim
+                    : ftxui::paragraph(l.text) | ftxui::color(color) | ftxui::flex}));
+            }
+            ftxui::Elements buttons = {ftxui::text("      ")};
+            const std::vector<std::pair<std::string, std::string>> list = this->svcButtons_(name);
+            for (std::size_t b = 0; b < list.size(); ++b) {
+                const bool lit = selected && static_cast<int>(b) == this->_svcButton;
+                const std::string label = list[b].first;
+                const std::string action = list[b].second;
+                const int button = static_cast<int>(b);
+                buttons.push_back(this->tap_(ftxui::text(" " + label + " ") | (lit ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) | ftxui::bold : ftxui::color(t.accent)), 2,
+                    [this, name, action, label, index, button]() {
+                        this->_item = index;
+                        this->_svcButton = button;
+                        this->svcRun_(name, action, label);
+                    }, clip));
+                buttons.push_back(ftxui::text(" "));
+            }
+            out.push_back(ftxui::hbox(std::move(buttons)));
+            out.push_back(ftxui::text(""));
+            return out;
+        }
+
         _nodiscard std::string settingValue_(const cluster::Setting& setting) const
         {
             auto it = this->_changes.find({setting.section, setting.key});
@@ -1786,6 +1896,37 @@ class TtyUi {
                 }
                 return true;
             }
+            // a service action to confirm (the core, a removal): y runs it, any other key leaves it
+            if (this->_note == "svc_confirm") {
+                const std::vector<std::string> parts = cluster::split(this->_svcConfirm, '|');
+                this->_note.clear();
+                if ((event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) && parts.size() == 3) {
+                    this->_svcConfirm = parts[0] + "|" + parts[1];
+                    this->svcRun_(parts[0], parts[1], parts[2]);
+                } else {
+                    this->_svcConfirm.clear();
+                    this->_note = "nothing done";
+                }
+                return true;
+            }
+            if (page.section == "services" && (event == ftxui::Event::Character('R') || event == ftxui::Event::Character('r'))) {
+                this->servicesRead_(true); // read again now
+                return true;
+            }
+            if (count > 0 && page.section == "services" && page.settings[static_cast<std::size_t>(this->_item)].key.starts_with("svc_")
+                && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Return || event == ftxui::Event::Character(' '))) {
+                // a service: ←→ its buttons, Enter / Space the one chosen
+                const std::string name = page.settings[static_cast<std::size_t>(this->_item)].key.substr(4);
+                const std::vector<std::pair<std::string, std::string>> list = this->svcButtons_(name);
+                if (list.empty()) return true;
+                if (event == ftxui::Event::ArrowLeft) this->_svcButton = std::max(0, this->_svcButton - 1);
+                else if (event == ftxui::Event::ArrowRight) this->_svcButton = std::min(static_cast<int>(list.size()) - 1, this->_svcButton + 1);
+                else {
+                    const std::pair<std::string, std::string>& chosen = list[static_cast<std::size_t>(std::clamp(this->_svcButton, 0, static_cast<int>(list.size()) - 1))];
+                    this->svcRun_(name, chosen.second, chosen.first);
+                }
+                return true;
+            }
             // "Save the changes? (y / n)": y saves, any other key drops them
             if (this->_note == "confirm") {
                 if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
@@ -1815,8 +1956,10 @@ class TtyUi {
                 this->_item = 0;
             } else if (event == ftxui::Event::ArrowDown) {
                 this->_item = std::min(this->_item + 1, std::max(0, count - 1));
+                this->_svcButton = 0;
             } else if (event == ftxui::Event::ArrowUp) {
                 this->_item = std::max(this->_item - 1, 0);
+                this->_svcButton = 0;
             } else if (count > 0 && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Return
                 || event == ftxui::Event::Character(' '))) {
                 const cluster::Setting& setting = page.settings[static_cast<std::size_t>(this->_item)];
@@ -1854,6 +1997,10 @@ class TtyUi {
                 }));
             }
             const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
+            if (page.section == "services") { // its state read (live / every Delay / by hand)
+                this->servicesRead_();
+                if (this->servicesSetting_("refresh") != "manual") this->_animating = true;
+            }
             ftxui::Elements rows;
             std::string help;
             std::string choiceHelp; // a choice of engine: what it handles, its limits, its link
@@ -1867,6 +2014,7 @@ class TtyUi {
                 if (selected && this->_editing) value = this->_edit + "▏";
                 else if (setting.kind == cluster::SettingKind::Bool) value = value == "true" ? "Enabled" : "Disabled";
                 else if (setting.kind == cluster::SettingKind::Choice) value = "< " + (value.empty() ? std::string("(agent default)") : value) + " >";
+                else if (setting.kind == cluster::SettingKind::Action && page.section == "services") value = cluster::service_summary(value, this->_services); // a sub service: its state
                 else if (setting.kind == cluster::SettingKind::Action) value = "▶ " + value;
                 else if (value.empty()) value = "(empty)";
                 const bool risky = static_cast<bool>(setting.danger);
@@ -1894,6 +2042,9 @@ class TtyUi {
                     ftxui::filler(),
                 });
                 rows.push_back(selected ? line | ftxui::focus : line);
+                if (page.section == "services" && setting.key.starts_with("svc_"))
+                    for (ftxui::Element& e: this->svcCard_(setting.key.substr(4), selected, index, clip))
+                        rows.push_back(std::move(e));
                 if (selected) {
                     this->_need = need;
                     help = setting.description;
@@ -1955,7 +2106,9 @@ class TtyUi {
                 if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
             }
             std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)"
-                : this->_note == "danger_save" ? std::string() : this->_note;
+                : this->_note == "danger_save" ? std::string() : this->_note == "svc_confirm"
+                ? cluster::split(this->_svcConfirm, '|').back() + " (" + cluster::split(this->_svcConfirm, '|')[0] + ")? [y] yes   [n] / Esc no" : this->_note;
+            if (page.section == "services" && this->_note.empty()) note = "←→ a button · Enter run it · R read again (" + this->servicesSetting_("refresh") + ")";
             ftxui::Elements choice;
             for (const std::string& line: cluster::split(choiceHelp, '\n'))
                 choice.push_back(ftxui::paragraph(line) | (choice.empty() ? ftxui::bold | ftxui::color(t.accent) : ftxui::color(t.text)));

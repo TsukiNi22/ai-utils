@@ -332,6 +332,7 @@ class Manager {
         inline void askRestoreLater(void) {this->_restoreAsk = true;};   // its first interface asks the previous run
         inline void setVoice(cluster::Voice* voice) {this->_voice = voice;};
         _nodiscard inline cluster::Voice* voice(void) const {return this->_voice;};
+        _nodiscard inline std::int64_t startedAt(void) const {return this->_startedAt;};   // the start of this run (unix s)
         _cold inline void notice(const std::string& session, const std::string& text, const bool error = false) {this->notice_(session, text, error);}; // the notices of the interfaces
         inline void requestMachineSync(void) {++this->_machineRequest; ++this->_version;};  // the interfaces ask the user (its popup)
         inline void restartGlobalAfterTurn(void) {this->_restartAfterTurn = true;};          // after the turn running (it asked it)

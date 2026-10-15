@@ -17,6 +17,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Services.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
@@ -58,7 +59,7 @@ _cold static bool foreground_(void)
     return group == -1 || group == ::getpgrp();
 }
 
-_cold static std::vector<int> old_interfaces_(void)
+_cold std::vector<int> cluster::interface_pids(void)
 {
     // the terminals / windows of this install and this core (the same binary path, the same socket), not this one; not the
     // core itself, its service, its MCP servers nor a headless command
@@ -293,7 +294,7 @@ _cold bool cluster::Core::otherBuild_(const bool window)
     }
     if (build == cluster::build_id()) return true;
     if (build.empty() && !older) return true; // never answered (stuck): left to the attach, which tells it
-    const std::vector<int> interfaces = old_interfaces_();
+    const std::vector<int> interfaces = cluster::interface_pids();
     const std::string question = "claude-cluster " + theirs + " runs the core of your sessions; this one is " + cluster::build_id() + ".\n\n"
         "Replace it: its terminals / windows (" + std::to_string(interfaces.size()) + ") and its core stopped (the sessions kept: resumed by this one), "
         "this version started.\nQuit: nothing changed (open the other version, or close it first).\n\nIts service, if any, runs on: claude-cluster service restart.";

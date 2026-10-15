@@ -379,6 +379,36 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "Applied at the next start of the global session", true,
                 [](const cluster::Config& cf) {return join_(cf.mcpServers);}},
         }},
+        {"services", "Services", {
+            {"services", "refresh", "Refresh", SettingKind::Choice, {"live", "interval", "manual"},
+                "live: what changes shown at once (the voice heard, the web, the sessions), the slow parts (systemd, its journal, tailscale) read every Delay;\n"
+                "interval: everything every Delay; manual: R reads it again (and after each action)", false,
+                [](const cluster::Config& cf) {return cf.services.refresh;}},
+            {"services", "delay", "Delay (s)", SettingKind::Int, {}, "seconds between two reads (interval), the slow parts kept so long (live)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.services.delay);}},
+            {"services", "svc_service", "Service (systemd)", SettingKind::Action, {},
+                "the service of your session (systemd --user): it listens for the wake phrase while claude-cluster is closed and opens it when heard.\n"
+                "• Setup: its unit written · Enable: started now and with your session · Disable: stopped, not started any more\n"
+                "• Start / Stop / Restart: now only · Remove: its unit and its detector removed\n"
+                "Its detector is paused while claude-cluster runs (the microphone is the voice's of the core): what is heard now is under Voice", false,
+                [](const cluster::Config&) {return std::string("service");}},
+            {"services", "svc_web", "Web access", SettingKind::Action, {},
+                "the web page and the app of the phone: open / close it now (Open the web access at start: at the start), a new code (the devices "
+                "connected stay), the router asked again (Beyond the LAN)", false, [](const cluster::Config&) {return std::string("web");}},
+            {"services", "svc_core", "Core", SettingKind::Action, {},
+                "the process that runs the sessions, shared by the terminals and windows (Several terminals / windows at once).\n"
+                "• Restart: it stops, its terminals / windows start it again, the sessions resumed (their conversations kept)\n"
+                "• Stop all: the core and every terminal / window closed", false, [](const cluster::Config&) {return std::string("core");}},
+            {"services", "svc_voice", "Voice", SettingKind::Action, {},
+                "the voice of the core: listening or not, what it hears now (what is being said, the transcriptions waiting), what it misses", false,
+                [](const cluster::Config&) {return std::string("voice");}},
+            {"services", "svc_mcp", "MCP servers", SettingKind::Action, {},
+                "the MCP servers given to the global session (MCP > Custom MCP servers): Restart the global session to load them again", false,
+                [](const cluster::Config&) {return std::string("mcp");}},
+            {"services", "svc_outside", "Outside (router / tailscale)", SettingKind::Action, {},
+                "how the web access is reached from outside (Web > Beyond the LAN): ask the router again (UPnP), remove its redirection, "
+                "log this computer in to tailscale", false, [](const cluster::Config&) {return std::string("outside");}},
+        }},
         {"keys", "Keys", {}},
     };
 

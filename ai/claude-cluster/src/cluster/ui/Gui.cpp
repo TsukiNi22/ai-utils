@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
+#include "cluster/Services.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
@@ -1088,6 +1089,16 @@ class Window: public QMainWindow {
             std::vector<std::vector<std::pair<QLabel*, QWidget*>>> placed(pages.size()); // per page, per setting: its label, its widget
             std::vector<QScrollArea*> scrolls;
             std::vector<std::function<void()>> marks; // the dangerous marks, followed while the values change
+            // the Services tab: its cards filled from services() (read by the worker while the tab is shown)
+            struct ServicesView {
+                std::vector<std::function<void(const cluster::Json&)>> fills;
+                std::int64_t at = 0;            // ms of its last read (0: read again)
+                std::uint64_t seen = 0;         // the version of the core it was read at
+                bool reading = false;
+                bool alive = true;              // the dialog still open
+                QWidget* page = nullptr;        // its tab
+            };
+            const std::shared_ptr<ServicesView> svc = std::make_shared<ServicesView>();
 
             for (const cluster::SettingsPage& page: pages) {
                 QWidget* tab = new QWidget(sections);
@@ -1135,6 +1146,75 @@ class Window: public QMainWindow {
                         box->setValue(QString::fromStdString(current).toDouble());
                         read = [box]() {return QString::number(box->value()).toStdString();};
                         widget = box;
+                    } else if (setting.kind == cluster::SettingKind::Action && page.section == "services") {
+                        // a sub service: its card (its state, its lines, its buttons)
+                        const std::string name = setting.key.substr(4);
+                        QFrame* card = new QFrame(tab);
+                        card->setObjectName("svcCard");
+                        card->setStyleSheet("QFrame#svcCard{border:1px solid " + q_(this->theme().border) + ";border-radius:8px;}");
+                        QVBoxLayout* inside = new QVBoxLayout(card);
+                        QLabel* state = new QLabel(card);
+                        state->setTextFormat(Qt::RichText);
+                        state->setWordWrap(true);
+                        state->setTextInteractionFlags(Qt::TextSelectableByMouse);
+                        inside->addWidget(state);
+                        QHBoxLayout* row = new QHBoxLayout();
+                        std::vector<QPushButton*> buttons;
+                        for (int b = 0; b < 6; ++b) {
+                            QPushButton* button = new QPushButton(card);
+                            button->hide();
+                            row->addWidget(button);
+                            buttons.push_back(button);
+                            QObject::connect(button, &QPushButton::clicked, &dialog, [this, button, name, svc, &dialog]() {
+                                const std::string action = button->property("action").toString().toStdString();
+                                const std::string label = button->text().toStdString();
+                                if (cluster::service_risky(name, action)
+                                    && QMessageBox::question(&dialog, q_(label), q_(label + " (" + name + ")?")) != QMessageBox::Yes) return;
+                                button->setEnabled(false);
+                                this->worker.push([this, name, action, button, svc]() { // its progress / failure popups
+                                    std::string done;
+                                    bool failed = false;
+                                    try {
+                                        done = cluster::service_act(this->manager, name, action);
+                                    } catch (const utils::exception::IException& e) {
+                                        done = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+                                        failed = true;
+                                    }
+                                    QMetaObject::invokeMethod(this, [this, done, failed, button, svc]() {
+                                        this->message(done, failed);
+                                        if (!svc->alive) return;
+                                        button->setEnabled(true);
+                                        svc->at = 0; // read again
+                                    }, Qt::QueuedConnection);
+                                });
+                            });
+                        }
+                        row->addStretch(1);
+                        inside->addLayout(row);
+                        const cluster::Style st = this->theme();
+                        svc->fills.push_back([card, state, buttons, name, st](const cluster::Json& all) {
+                            QString html = "<b>" + esc_(cluster::service_summary(name, all)) + "</b>";
+                            for (const cluster::ServiceLine& l: cluster::service_lines(name, all)) {
+                                const std::string color = l.kind == "error" ? st.error : l.kind == "ok" ? st.ok : l.kind == "warn" ? st.warn : l.kind == "heard" ? st.accent
+                                    : l.kind == "text" ? st.text : st.muted;
+                                html += "<br>" + (l.kind == "log" ? "<span style=\"color:" + q_(color) + ";font-family:monospace;font-size:9pt\">" + esc_(l.text) + "</span>"
+                                    : span_(color, esc_(l.text)));
+                            }
+                            state->setText(html);
+                            state->setMinimumHeight(state->heightForWidth(std::max(320, state->width()))); // its lines all shown (wrapped rich text)
+                            card->setMinimumHeight(card->layout()->totalMinimumSize().height()); // the card around them (its buttons under them)
+                            card->updateGeometry();
+                            const std::vector<std::pair<std::string, std::string>> list = cluster::service_buttons(name, all);
+                            for (std::size_t b = 0; b < buttons.size(); ++b) {
+                                buttons[b]->setVisible(b < list.size());
+                                if (b >= list.size()) continue;
+                                buttons[b]->setText(q_(list[b].first));
+                                buttons[b]->setProperty("action", q_(list[b].second));
+                            }
+                        });
+                        svc->fills.back()(cluster::Json()); // "reading…"
+                        read = [current]() {return current;}; // not an option: never a change
+                        widget = card;
                     } else if (setting.kind == cluster::SettingKind::Action) {
                         QPushButton* button = new QPushButton(q_("▶ " + current), tab);
                         const std::string key = setting.key;
@@ -1203,7 +1283,13 @@ class Window: public QMainWindow {
                     fields.emplace_back(setting, read);
                     placed[scrolls.size()].emplace_back(label, widget);
                 }
+                if (page.section == "services") { // read again by hand (Refresh: manual)
+                    QPushButton* again = new QPushButton("Read again", tab);
+                    QObject::connect(again, &QPushButton::clicked, &dialog, [svc]() {svc->at = 0;});
+                    form->addRow(again);
+                }
                 QScrollArea* scroll = new QScrollArea(sections);
+                if (page.section == "services") svc->page = scroll;
                 scrolls.push_back(scroll);
                 scroll->setWidget(tab);
                 scroll->setWidgetResizable(true);
@@ -1216,6 +1302,41 @@ class Window: public QMainWindow {
                     mark();
             });
             marking->start(400);
+            // the Services tab shown: read (live: when the core changes, else every 0.7 s; interval: every Delay; manual: by hand)
+            QObject::connect(&dialog, &QDialog::finished, &dialog, [svc]() {svc->alive = false;});
+            const std::function<std::string(const std::string&)> svcSetting = [&fields](const std::string& key) {
+                for (const auto &[setting, value]: fields)
+                    if (setting.section == "services" && setting.key == key) return value();
+                return std::string();
+            };
+            QTimer* reading = new QTimer(&dialog);
+            QObject::connect(reading, &QTimer::timeout, &dialog, [this, svc, sections, svcSetting]() {
+                if (svc->reading || svc->page == nullptr || sections->currentWidget() != svc->page) return;
+                const std::string mode = svcSetting("refresh");
+                const std::int64_t delay = static_cast<std::int64_t>(std::max(1, std::atoi(svcSetting("delay").c_str()))) * 1000;
+                const std::int64_t now = cluster::now_ms();
+                const std::uint64_t version = this->manager.version();
+                if (svc->at != 0 && !(mode == "live" && ((version != svc->seen && now - svc->at >= 300) || now - svc->at >= 700))
+                    && !(mode == "interval" && now - svc->at >= delay)) return;
+                svc->reading = true;
+                svc->seen = version;
+                this->worker.push([this, svc]() {
+                    cluster::Json got;
+                    try {
+                        got = cluster::services(this->manager);
+                    } catch (const utils::exception::IException& e) {
+                        got = {{"error", e.info()}};
+                    }
+                    QMetaObject::invokeMethod(this, [svc, got]() {
+                        svc->reading = false;
+                        svc->at = cluster::now_ms();
+                        if (!svc->alive) return;
+                        for (const std::function<void(const cluster::Json&)>& fill: svc->fills)
+                            fill(got);
+                    }, Qt::QueuedConnection);
+                });
+            });
+            reading->start(250);
             // a setting shown: its tab, scrolled to it, its field focused, its label lit a moment
             const std::function<void(std::size_t, std::size_t)> showAt = [&sections, &scrolls, &placed, this](const std::size_t p, const std::size_t i) {
                 if (p >= placed.size() || i >= placed[p].size()) return;
@@ -1302,6 +1423,9 @@ class Window: public QMainWindow {
             const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT");
             if (screenshot && *screenshot) {
                 const QString path = QString(screenshot).replace(".png", "-settings.png");
+                if (const char* tab = std::getenv("CLAUDE_CLUSTER_SCREENSHOT_TAB"); tab && *tab) // that tab shown (its title)
+                    for (int i = 0; i < sections->count(); ++i)
+                        if (sections->tabText(i) == QString(tab)) sections->setCurrentIndex(i);
                 QTimer::singleShot(1200, &dialog, [&dialog, path]() {
                     dialog.grab().save(path);
                     dialog.reject();

@@ -741,6 +741,27 @@ again). A request of the control socket (the CLI, a script, the MCP) is told by 
 the failures of its own requests the same way. The web line shows the public address only when it is reached for
 sure (the router opened its port, tailscale connected, *Name from outside* given), else `outside ✕` and why.
 
+**The Services tab** of the settings drives the sub services of claude-cluster, a card each (its state on the right
+of its name, its details, its buttons; the terminal: ↑↓ a service, ←→ a button, Enter runs it, a click too; R reads
+it again; the window, the web page: its buttons):
+- **Service (systemd)**: installed / active / enabled (debug), its last journal lines greyed; Start, Stop, Restart,
+  Enable / Disable, Setup, Remove (asked first). Its detector is paused while claude-cluster runs (the microphone is
+  the voice's of the core): what is heard now is under *Voice*.
+- **Web access**: open or closed, its address and code, outside reached or why not; Open / Close now, New code, Ask
+  the router again.
+- **Core**: its pid, since when, its terminals / windows, its sessions, its build; Restart (its interfaces start it
+  again, the sessions resumed) and Stop all (asked first) - not offered when the core is the interface itself.
+- **Voice**: listening or not, **what it hears now** (what is being said, the transcriptions waiting, live), what is
+  missing; Listen / Stop, Mute.
+- **MCP servers**: the ones given to the global session; Restart the global session.
+- **Outside (router / tailscale)**: reached or why not, upnpc / tailscale present; Ask the router again, Remove the
+  redirection (UPnP), Tailscale up.
+
+Each action runs with the progress popup and, failing, the failure popup (OK / Retry). *Refresh* (`[services]
+refresh`): `live` (what changes at once; the slow parts - systemd, its journal, tailscale - read every *Delay*),
+`interval` (everything every *Delay* seconds), `manual` (R / *Read again*, and after each action). The control:
+`services` (the state, the card of each one), `service_act {service, action}`.
+
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its
 description, the closest first, each hit telling where it matched (*name* / *description*). In the settings page:
 `/` or Ctrl+F (terminal), its field at the top (window, web page; Ctrl+F); Enter / a click opens its page on it. In the

@@ -17,6 +17,7 @@ File Description:
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/External.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Services.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
@@ -643,6 +644,20 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data.push_back({{"section", s.section}, {"key", s.key}, {"label", s.label}, {"page", pages[hit.page].title}, {"help", s.description},
                     {"matched", hit.name ? "name" : "description"}});
             }
+        } else if (cmd == "services") {
+            // its state, and the card of each one made here (the web page draws them as they are)
+            data = cluster::services(manager);
+            for (const char* name: {"service", "web", "core", "voice", "mcp", "outside"}) {
+                cluster::Json lines = cluster::Json::array();
+                for (const cluster::ServiceLine& l: cluster::service_lines(name, data))
+                    lines.push_back({{"text", l.text}, {"kind", l.kind}});
+                cluster::Json buttons = cluster::Json::array();
+                for (const auto &[label, action]: cluster::service_buttons(name, data))
+                    buttons.push_back({{"label", label}, {"action", action}, {"risky", cluster::service_risky(name, action)}});
+                data["cards"][name] = {{"summary", cluster::service_summary(name, data)}, {"lines", lines}, {"buttons", buttons}};
+            }
+        } else if (cmd == "service_act") {
+            data = {{"message", cluster::service_act(manager, arg_(request, "service"), arg_(request, "action"))}};
         } else if (cmd == "failure") {
             // a failure answered: OK (gone), retry (run again)
             manager.failureAnswer(arg_(request, "id"), request.value("answer", std::string("ok")) == "retry");

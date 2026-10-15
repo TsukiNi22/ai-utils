@@ -117,6 +117,11 @@ struct ServiceConf {
     std::string source;             // microphone (PulseAudio / PipeWire source), empty: the default one
 };
 
+struct ServicesConf {
+    std::string refresh = "live";   // the Services tab: live (what changes, at once) | interval (every delay s) | manual (R)
+    int delay = 2;                  // seconds: interval; the slow parts (systemd, its journal, tailscale) kept so long
+};
+
 //----------------------------------------------------------------//
 /* CLASS */
 
@@ -200,6 +205,7 @@ class Config {
 
         cluster::VoiceConf voice;
         cluster::ServiceConf service;
+        cluster::ServicesConf services;
         cluster::WebConf web;
         cluster::UserConf user;
         int machineDays = 30;                   // the map of this computer older: a sync proposed at start (0: never)

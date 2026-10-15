@@ -233,6 +233,8 @@ _cold void cluster::Config::load(void)
     this->service.wakeWord = sv["wake_word"].value_or(this->service.wakeWord);
     this->service.python = sv["python"].value_or(this->service.python);
     this->service.source = sv["source"].value_or(this->service.source);
+    this->services.refresh = table["services"]["refresh"].value_or(this->services.refresh);
+    this->services.delay = std::max(1, table["services"]["delay"].value_or(this->services.delay));
 
     /* mcp */
     this->mcpServers = strings_(table["mcp"]["servers"], {});
