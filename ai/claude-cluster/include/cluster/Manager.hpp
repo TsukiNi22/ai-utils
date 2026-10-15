@@ -117,7 +117,7 @@ class Manager {
         int _nextTask = 1;
         std::atomic<std::uint64_t> _version{1};
         mutable std::mutex _progressMutex;         // the long operation shown (its popup)
-        std::optional<cluster::Progress> _progress;
+        std::vector<cluster::Progress> _progresses; // the long operations (the oldest first), their results kept 1.5 s
         std::uint64_t _progressNext = 1;
         std::deque<std::pair<cluster::Failure, std::function<void(void)>>> _failures; // failed, their retry (under _progressMutex)
         std::uint64_t _failureNext = 1;
@@ -164,6 +164,7 @@ class Manager {
         _cold _nodiscard std::uint64_t replicaVersion_(void) const;
         _cold void notice_(const std::string& session, const std::string& text, const bool error = false);
         _cold void progressNotice_(const cluster::Notice& notice);   // an operation running: the notice under it
+        _cold _nodiscard std::vector<cluster::Progress> progressQueue_(void) const; // this process's ones, then the core's ones
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
         _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
         _cold void writeMcpConfig_(void) const;
@@ -323,7 +324,8 @@ class Manager {
         _cold std::string fail(const std::string& action, const std::string& source, const std::string& error, const std::function<void(void)>& retry = {});
         _cold _nodiscard std::vector<cluster::Failure> failures(void) const;
         _cold void failureAnswer(const std::string& id, const bool retry);
-        _cold _nodiscard std::optional<cluster::Progress> progress(void) const;    // the one shown (running, or ended < 4 s)
+        _cold _nodiscard std::optional<cluster::Progress> progress(void) const;    // the one shown (the first of the queue running 0.4 s, or its result)
+        _cold _nodiscard std::vector<cluster::Progress> progressAll(void) const;   // this process's ones (running, results < 1.5 s)
         _cold _nodiscard std::optional<cluster::Queued> unqueue(const std::string& id); // last queued prompt, removed
 
         // ---------- Function -------- //
@@ -333,6 +335,7 @@ class Manager {
         inline void setVoice(cluster::Voice* voice) {this->_voice = voice;};
         _nodiscard inline cluster::Voice* voice(void) const {return this->_voice;};
         _nodiscard inline std::int64_t startedAt(void) const {return this->_startedAt;};   // the start of this run (unix s)
+        _cold _nodiscard inline bool progressActive(void) const {return !this->progressQueue_().empty();}; // one running or its result shown (the interfaces redraw)
         _cold inline void notice(const std::string& session, const std::string& text, const bool error = false) {this->notice_(session, text, error);}; // the notices of the interfaces
         inline void requestMachineSync(void) {++this->_machineRequest; ++this->_version;};  // the interfaces ask the user (its popup)
         inline void restartGlobalAfterTurn(void) {this->_restartAfterTurn = true;};          // after the turn running (it asked it)

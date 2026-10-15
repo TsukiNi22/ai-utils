@@ -388,21 +388,24 @@ _cold void cluster::Web::open_(const int port)
     if (fd == -1) error = std::strerror(errno);
     else if (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) == -1 || ::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == -1
         || ::listen(fd, 8) == -1) error = std::strerror(errno);
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    this->_port = port;
-    if (!error.empty()) {
-        if (fd != -1) ::close(fd);
-        if (error != this->_error) {
-            this->_manager.notice(GLOBAL_ID, "web access: port " + std::to_string(port) + " not opened (" + error + ")", true);
-            (void)this->_manager.fail("Open the web access", "port " + std::to_string(port) + " of this computer", error
-                + (errno == EADDRINUSE ? " (another program uses it: change Port in the settings, or stop it)" : ""), [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();});
+    const bool inUse = errno == EADDRINUSE;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_port = port;
+        if (!error.empty()) {
+            if (fd != -1) ::close(fd);
+            if (error != this->_error) {
+                this->_manager.notice(GLOBAL_ID, "web access: port " + std::to_string(port) + " not opened (" + error + ")", true);
+                (void)this->_manager.fail("Open the web access", "port " + std::to_string(port) + " of this computer", error
+                    + (inUse ? " (another program uses it: change Port in the settings, or stop it)" : ""), [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();});
+            }
+            this->_error = error;
+            return;
         }
-        this->_error = error;
-        return;
+        this->_error.clear();
     }
-    this->_error.clear();
-    this->_fd = fd;
-    // its steps in a popup (the router: seconds)
+    // its steps in a popup (the router, the certificate: seconds), its lock free meanwhile: the interfaces read its state
+    // (closed until its end), they never wait for it
     cluster::Busy busy(this->_manager, "Opening the web access");
     cluster::busy_step("port " + std::to_string(port) + " opened on this computer");
     this->_httpsWanted = this->_manager.config().web.https;
@@ -410,17 +413,22 @@ _cold void cluster::Web::open_(const int port)
     if (this->_httpsWanted) cluster::busy_step("its certificate (https)");
     const std::string tls = this->_httpsWanted ? this->tls_() : "";
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
-    this->newPin_();
-    this->loadTrusted_();
-    this->loadBanned_();
-    this->_running = true;
-    this->_thread = std::thread(&cluster::Web::serve_, this);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_fd = fd; // open now
+        this->newPin_();
+        this->loadTrusted_();
+        this->loadBanned_();
+        this->_running = true;
+        this->_thread = std::thread(&cluster::Web::serve_, this);
+    }
     this->_manager.notice(GLOBAL_ID, "web access open: " + std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":"
         + std::to_string(port) + " code " + this->_pin.substr(0, 3) + " " + this->_pin.substr(3) + " (this network only; each new device approved here)");
     if (!this->_remoteState.empty()) this->_manager.notice(GLOBAL_ID, "web access from outside: " + this->_remoteState, !this->_remoteOk);
-    busy.end(true, "web access open: " + (this->_remoteOk && !this->_remoteUrl.empty() ? this->_remoteUrl + " (outside), " : std::string())
-        + (this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":" + std::to_string(port));
     const std::string remote = this->_manager.config().web.remote;
+    // its result (outside not reached: ✗, then its failure popup after it)
+    busy.end(remote == "off" || this->_remoteOk, "web access open: " + (this->_remoteOk && !this->_remoteUrl.empty() ? this->_remoteUrl + " (outside), " : std::string())
+        + (this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":" + std::to_string(port) + (remote != "off" && !this->_remoteOk ? " - not reached from outside" : ""));
     if (remote != "off" && !this->_remoteOk) // asked but not reached: its popup (Retry: the router asked again)
         (void)this->_manager.fail(remote == "router" ? "Open the port of the router (the web access from outside)" : "Reach this computer by tailscale (the web access from outside)",
             remote == "router" ? "the router (UPnP, upnpc)" : "tailscale", this->_remoteWhy, [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();});
@@ -1112,7 +1120,7 @@ self.addEventListener("notificationclick", (e) => {
         const auto waiting = std::count_if(planned.begin(), planned.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
         json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"tasks_open", open}, {"schedules_waiting", waiting},
-            {"progress", this->_manager.progress() ? cluster::Json(*this->_manager.progress()) : cluster::Json(nullptr)}, {"failures", this->_manager.failures()},
+            {"progress", this->_manager.progressAll()}, {"now_ms", cluster::now_ms()}, {"failures", this->_manager.failures()},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},

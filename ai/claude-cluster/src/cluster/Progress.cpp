@@ -23,16 +23,34 @@ File Description:
 static thread_local cluster::Manager* busy_manager_ = nullptr;
 static thread_local std::uint64_t busy_id_ = 0;
 
-/* a long operation: its popup (the title, what it does now, its last lines greyed) */
+/* the long operations: a queue of popups (the title, what it does now, its last lines greyed), one shown at a time */
+#define PROGRESS_SHOWN_MS 400   // a faster one: no popup (nothing flashing)
+#define PROGRESS_END_MS 1500    // its result shown so long
+
+_cold static cluster::Progress* progress_find_(std::vector<cluster::Progress>& list, const std::uint64_t id)
+{
+    const std::vector<cluster::Progress>::iterator it = std::find_if(list.begin(), list.end(), [id](const cluster::Progress& p) {return p.id == id;});
+    return it == list.end() ? nullptr : &*it;
+}
+
+_cold static bool progress_visible_(const cluster::Progress& p, const std::int64_t now)
+{
+    // running for 0.4 s at least, then its result 1.5 s (when it ran 0.4 s at least)
+    if (!p.done) return now - p.started >= PROGRESS_SHOWN_MS;
+    return p.ended - p.started >= PROGRESS_SHOWN_MS && now - p.ended < PROGRESS_END_MS;
+}
+
 _cold std::uint64_t cluster::Manager::progressBegin(const std::string& title, const std::string& session)
 {
     std::lock_guard<std::mutex> lock(this->_progressMutex);
+    const std::int64_t now = cluster::now_ms();
+    std::erase_if(this->_progresses, [now](const cluster::Progress& p) {return p.done && now - p.ended >= PROGRESS_END_MS;}); // the old results
     cluster::Progress p;
     p.id = this->_progressNext++;
     p.title = title;
     p.session = session;
-    p.started = cluster::now_ms();
-    this->_progress = p;
+    p.started = now;
+    this->_progresses.push_back(p);
     ++this->_version;
     return p.id;
 }
@@ -40,8 +58,7 @@ _cold std::uint64_t cluster::Manager::progressBegin(const std::string& title, co
 _cold void cluster::Manager::progressStep(const std::uint64_t id, const std::string& now)
 {
     std::lock_guard<std::mutex> lock(this->_progressMutex);
-    if (!this->_progress || this->_progress->id != id) return;
-    this->_progress->now = now;
+    if (cluster::Progress* p = progress_find_(this->_progresses, id)) p->now = now;
     ++this->_version;
 }
 
@@ -49,10 +66,11 @@ _cold void cluster::Manager::progressAdvance(const std::uint64_t id, const std::
 {
     // the step before done (in its log), this one running
     std::lock_guard<std::mutex> lock(this->_progressMutex);
-    if (!this->_progress || this->_progress->id != id) return;
-    if (!this->_progress->now.empty()) this->_progress->log.push_back("✓ " + this->_progress->now);
-    if (this->_progress->log.size() > 8) this->_progress->log.erase(this->_progress->log.begin());
-    this->_progress->now = now;
+    cluster::Progress* p = progress_find_(this->_progresses, id);
+    if (p == nullptr) return;
+    if (!p->now.empty()) p->log.push_back("✓ " + p->now);
+    if (p->log.size() > 8) p->log.erase(p->log.begin());
+    p->now = now;
     ++this->_version;
 }
 
@@ -62,9 +80,10 @@ _cold void cluster::Manager::progressLog(const std::uint64_t id, const std::stri
     const std::string text = cluster::trim(line);
     if (text.empty()) return;
     std::lock_guard<std::mutex> lock(this->_progressMutex);
-    if (!this->_progress || this->_progress->id != id || this->_progress->done) return;
-    this->_progress->log.push_back(cluster::one_line(text, 160));
-    if (this->_progress->log.size() > 8) this->_progress->log.erase(this->_progress->log.begin());
+    cluster::Progress* p = progress_find_(this->_progresses, id);
+    if (p == nullptr || p->done) return;
+    p->log.push_back(cluster::one_line(text, 160));
+    if (p->log.size() > 8) p->log.erase(p->log.begin());
     ++this->_version;
 }
 
@@ -72,11 +91,12 @@ _cold void cluster::Manager::progressEnd(const std::uint64_t id, const bool ok, 
 {
     {
         std::lock_guard<std::mutex> lock(this->_progressMutex);
-        if (!this->_progress || this->_progress->id != id) return;
-        this->_progress->done = true;
-        this->_progress->ok = ok;
-        this->_progress->now = text;
-        this->_progress->ended = cluster::now_ms();
+        cluster::Progress* p = progress_find_(this->_progresses, id);
+        if (p == nullptr) return;
+        p->done = true;
+        p->ok = ok;
+        p->now = text;
+        p->ended = cluster::now_ms();
     }
     if (notice) this->notice_("", text, !ok);
     ++this->_version;
@@ -84,46 +104,55 @@ _cold void cluster::Manager::progressEnd(const std::uint64_t id, const bool ok, 
 
 _cold void cluster::Manager::progressDrop(const std::uint64_t id)
 {
-    // gone without its end shown (fast, or its failure shown instead)
+    // gone without its end shown (fast)
     std::lock_guard<std::mutex> lock(this->_progressMutex);
-    if (!this->_progress || this->_progress->id != id) return;
-    this->_progress.reset();
+    std::erase_if(this->_progresses, [id](const cluster::Progress& p) {return p.id == id;});
     ++this->_version;
 }
 
 _cold void cluster::Manager::progressNotice_(const cluster::Notice& notice)
 {
-    // what is told while an operation runs: under it (its session, or claude-cluster)
+    // what is told while an operation runs: under the last one running (its session, or claude-cluster)
     std::lock_guard<std::mutex> lock(this->_progressMutex);
-    if (!this->_progress || this->_progress->done) return;
-    if (!this->_progress->session.empty() && !notice.session.empty() && notice.session != this->_progress->session) return;
-    this->_progress->log.push_back(cluster::one_line(notice.text, 160));
-    if (this->_progress->log.size() > 8) this->_progress->log.erase(this->_progress->log.begin());
+    for (std::vector<cluster::Progress>::reverse_iterator p = this->_progresses.rbegin(); p != this->_progresses.rend(); ++p) {
+        if (p->done || (!p->session.empty() && !notice.session.empty() && notice.session != p->session)) continue;
+        p->log.push_back(cluster::one_line(notice.text, 160));
+        if (p->log.size() > 8) p->log.erase(p->log.begin());
+        return;
+    }
+}
+
+_cold std::vector<cluster::Progress> cluster::Manager::progressAll(void) const
+{
+    // the ones running and the results not expired (of this process): sent to the interfaces of the core, the web page
+    std::lock_guard<std::mutex> lock(this->_progressMutex);
+    const std::int64_t now = cluster::now_ms();
+    std::vector<cluster::Progress> list;
+    std::copy_if(this->_progresses.begin(), this->_progresses.end(), std::back_inserter(list), [now](const cluster::Progress& p) {
+        return !p.done || now - p.ended < PROGRESS_END_MS;
+    });
+    return list;
+}
+
+_cold std::vector<cluster::Progress> cluster::Manager::progressQueue_(void) const
+{
+    // this process's ones, then the core's ones (an interface of it)
+    std::vector<cluster::Progress> list = this->progressAll();
+    if (this->_replica) {
+        const cluster::Json core = this->replicaState("progress");
+        if (core.is_array())
+            for (const cluster::Json& p: core)
+                list.push_back(p.get<cluster::Progress>());
+    }
+    return list;
 }
 
 _cold std::optional<cluster::Progress> cluster::Manager::progress(void) const
 {
-    // the one shown: running for 0.4 s at least (a fast one: no popup flashing), then its end (1.5 s, 4 s failed); an
-    // interface of the core: its own (an install here) first
-    std::optional<cluster::Progress> mine;
-    {
-        std::lock_guard<std::mutex> lock(this->_progressMutex);
-        mine = this->_progress;
-    }
-    const std::function<bool(const std::optional<cluster::Progress>&)> shown = [](const std::optional<cluster::Progress>& p) {
-        const std::int64_t now = cluster::now_ms();
-        if (!p) return false;
-        if (!p->done) return now - p->started >= 400;
-        return p->ended - p->started >= 400 && now - p->ended < (p->ok ? 1500 : 4000);
-    };
-    if (shown(mine)) return mine;
-    if (this->_replica) {
-        const cluster::Json core = this->replicaState("progress");
-        if (core.is_object()) {
-            std::optional<cluster::Progress> theirs = core.get<cluster::Progress>();
-            if (shown(theirs)) return theirs;
-        }
-    }
+    // the queue: the first one visible (running for 0.4 s, or its result), the next ones after it
+    const std::int64_t now = cluster::now_ms();
+    for (const cluster::Progress& p: this->progressQueue_())
+        if (progress_visible_(p, now)) return p;
     return std::nullopt;
 }
 
@@ -220,10 +249,11 @@ cluster::Busy::~Busy()
 
 void cluster::Busy::end(const bool ok, const std::string& text)
 {
-    // done: its result shown a moment (when it took time); failed: its popup of failure instead (told by the caller)
+    // its result shown a moment (when it took time: done ✓, failed ✗ - then its failure popup); failed without a text:
+    // gone at once
     if (this->_nested || this->_closed) return;
     this->_closed = true;
-    if (ok) this->_manager.progressEnd(this->_id, true, text.empty() ? "done" : cluster::one_line(text, 200), false);
+    if (ok || !text.empty()) this->_manager.progressEnd(this->_id, ok, text.empty() ? "done" : cluster::one_line(text, 200), false);
     else this->_manager.progressDrop(this->_id);
     busy_manager_ = nullptr;
     busy_id_ = 0;

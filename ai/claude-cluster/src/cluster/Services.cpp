@@ -249,9 +249,9 @@ _cold std::string cluster::service_act(cluster::Manager& manager, const std::str
         busy.end(true, message);
         return message;
     } catch (const utils::exception::IException& e) {
-        busy.end(false);
-        slow_forget_();
         const std::string error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+        busy.end(false, error); // its ✗, then its failure popup
+        slow_forget_();
         if (cluster::failure_popups()) (void)manager.fail(title, service == "service" ? "systemctl --user (" SERVICE_UNIT ")" : service, error, [&manager, service, action]() {
             (void)cluster::service_act(manager, service, action);
         });

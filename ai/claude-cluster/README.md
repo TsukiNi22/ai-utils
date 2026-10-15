@@ -732,7 +732,10 @@ settings missing something with the dangerous ones: install, then save / save an
 access and its router, a package installed, the previous run restored) runs without freezing the interface and,
 past 0.4 s, shows a popup in every interface like the map of the computer: its title, a spinner and its time, its
 step now (stopping the agent, starting it, asking the router...), its done steps and what it told greyed scrolling
-under it, then its result; Esc hides it in the terminal (it goes on).
+under it, then its result (✓, or ✗ then its failure popup); Esc hides it in the terminal (it goes on). The popups come
+one after the other: several operations at once wait their turn (one shown at a time, each with its result), a
+failure popup after the progress one; they show while the operation runs (the interfaces redraw meanwhile, the web
+access opened without blocking them).
 
 **What failed of what you did** (an action, a command, a prompt not sent, the settings not saved, a turn ending in
 an error, the port of the router not opened, an install) opens a popup in every interface: what you did, where it

@@ -484,7 +484,7 @@ class Window: public QMainWindow {
                 }
                 return;
             }
-            if (failed.empty()) return;
+            if (failed.empty() || (this->progressBox != nullptr && this->progressBox->isVisible())) return; // after the progress box
             const cluster::Failure f = failed.front();
             const cluster::Style& st = this->theme();
             QMessageBox* box = new QMessageBox(QMessageBox::Critical, q_(f.action + " failed"), "<b>" + esc_(f.action) + "</b> failed"
@@ -512,7 +512,8 @@ class Window: public QMainWindow {
 
         void showProgress(void)
         {
-            // its title, a spinner, what it does now, its last lines greyed
+            // its title, a spinner, what it does now, its last lines greyed; one running: redrawn (its box at 0.4 s)
+            if (this->manager.progressActive()) this->animating = true;
             const std::optional<cluster::Progress> p = this->manager.progress();
             if (!p) {
                 if (this->progressBox != nullptr) this->progressBox->hide();

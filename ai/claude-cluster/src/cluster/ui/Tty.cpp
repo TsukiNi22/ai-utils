@@ -3715,13 +3715,13 @@ class TtyUi {
             const std::optional<cluster::MachineProgress> scan = this->scanShown_();
             // Normal: the note of a sub-session whose question waits on the global session (modal_, empty else)
             ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : ftxui::dbox({document, this->modal_()});
-            // a long operation: its popup over the screen (its spinner turning)
-            if (const std::optional<cluster::Progress> running = this->_manager.progress(); running && running->id != this->_progressHidden) {
-                this->_animating = true;
-                screen = ftxui::dbox({screen, this->progressBox_(*running)});
-            }
-            // what failed of what the user did: over everything (OK / Retry)
-            if (const std::vector<cluster::Failure> failed = this->_manager.failures(); !failed.empty()) screen = ftxui::dbox({screen, this->failureBox_(failed)});
+            // a long operation: its popup over the screen (its spinner turning); one running: redrawn (its popup at 0.4 s)
+            if (this->_manager.progressActive()) this->_animating = true;
+            const std::optional<cluster::Progress> running = this->_manager.progress();
+            const bool busy = running && running->id != this->_progressHidden;
+            if (busy) screen = ftxui::dbox({screen, this->progressBox_(*running)});
+            // what failed of what the user did: over everything (OK / Retry), once its progress popup is gone (one after the other)
+            if (const std::vector<cluster::Failure> failed = this->_manager.failures(); !failed.empty() && !busy) screen = ftxui::dbox({screen, this->failureBox_(failed)});
             if (!scan) return screen;
             this->_animating = true;
             return ftxui::dbox({screen, this->scanBox_(*scan)});
@@ -3740,7 +3740,8 @@ class TtyUi {
             }
             // a failure shown: answered first (Enter / Esc / o: OK, r: Retry); the mouse: its buttons
             if (!event.is_mouse() && event.input() != "\x1b[I" && event.input() != "\x1b[O") // xstyle: ignore LU-ANSI (focus in / out)
-                if (const std::vector<cluster::Failure> failed = this->_manager.failures(); !failed.empty()) {
+                if (const std::vector<cluster::Failure> failed = this->_manager.failures();
+                    !failed.empty() && !(this->_manager.progress() && this->_manager.progress()->id != this->_progressHidden)) { // shown: after the progress one
                     if (event == ftxui::Event::Return || event == ftxui::Event::Escape || event == ftxui::Event::Character('o') || event == ftxui::Event::Character(' '))
                         this->_manager.failureAnswer(failed.front().id, false);
                     else if ((event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R')) && failed.front().retry)

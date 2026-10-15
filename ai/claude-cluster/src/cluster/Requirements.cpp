@@ -81,7 +81,7 @@ _cold std::string cluster::install_package(const std::string& package, cluster::
         : "exit " + std::to_string(code)) + ")";
     if (shown != 0 && error.empty()) manager->progressEnd(shown, true, package + " installed");
     if (shown != 0 && !error.empty()) {
-        manager->progressDrop(shown);
+        manager->progressEnd(shown, false, error, false); // its ✗, then its failure popup
         (void)manager->fail("Install " + package, line, error, [manager, package]() {(void)cluster::install_package(package, manager);});
     }
     return error;

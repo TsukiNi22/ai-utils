@@ -691,7 +691,7 @@ function render(state) {
         list.append(item);
     }
     $("composer").classList.toggle("hidden", current === "tasks"); // the Tasks session: no prompt
-    renderProgress(state.progress);
+    renderProgress(state.progress, state.now_ms);
     renderFailure(state.failures);
     if (current === "tasks") { renderTasks(); return; }
     const s = state.session;
@@ -724,22 +724,35 @@ function render(state) {
 }
 
 // ---- a long operation of the computer: its card (its title, a spinner, what it does now, its last lines greyed) ----
-let progressShown = null;
-function renderProgress(p) {
+let progressList = [];   // the queue of the computer (running, results < 1.5 s), its clock
+let progressNow = 0;
+let progressAt = 0;
+function progressFirst() {
+    // the first one visible: running for 0.4 s, or its result (1.5 s; when it ran 0.4 s)
+    const now = progressNow + (Date.now() - progressAt);
+    return progressList.find((p) => !p.done ? now - p.started >= 400 : p.ended - p.started >= 400 && now - p.ended < 1500) || null;
+}
+function renderProgress(list, now) {
+    if (list !== undefined) {
+        progressList = Array.isArray(list) ? list : list ? [list] : [];
+        progressNow = now || Date.now();
+        progressAt = Date.now();
+    }
+    const p = progressFirst();
     let card = $("progressCard");
-    if (!p) { if (card) card.remove(); progressShown = null; return; }
-    progressShown = p;
+    if (!p) { if (card) card.remove(); return; }
     if (!card) { card = el("div", "progress-card"); card.id = "progressCard"; document.body.append(card); }
+    const clock = progressNow + (Date.now() - progressAt);
     const mark = p.done ? (p.ok ? "✓" : "✗") : "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[Math.floor(Date.now() / 90) % 10];
     card.textContent = "";
     const head = el("div", "head");
     head.append(el("span", "mark " + (p.done ? (p.ok ? "ok" : "bad") : ""), mark), el("b", "", p.title),
-        el("span", "muted", " " + Math.floor(((p.done ? p.ended : Date.now()) - p.started) / 1000) + "s"));
+        el("span", "muted", " " + Math.floor(((p.done ? p.ended : clock) - p.started) / 1000) + "s"));
     card.append(head);
     if (p.now) card.append(el("div", "now" + (p.done ? (p.ok ? " ok" : " bad") : ""), p.now));
     for (const line of p.log || []) card.append(el("div", "log", line));
 }
-setInterval(() => { if (progressShown && !progressShown.done) renderProgress(progressShown); }, 120);
+setInterval(() => { if (progressList.length) { renderProgress(); renderFailure(); } }, 120); // its popup at 0.4 s, its end, then the failure
 
 // ---- what failed of what the user did (here or elsewhere): its card, OK (the default) / Retry ----
 let failureLocal = null;             // a request of this page failed: {action, source, error, retry, request}
@@ -747,7 +760,7 @@ const failureDone = new Set();       // answered here (until the computer forget
 let failureList = [];
 function renderFailure(list) {
     if (list) failureList = list;
-    const f = failureLocal || failureList.find(x => !failureDone.has(x.id));
+    const f = progressFirst() ? null : failureLocal || failureList.find(x => !failureDone.has(x.id)); // after the progress card
     let card = $("failureCard");
     if (!f) { if (card) card.remove(); return; }
     const key = f.id || "local:" + f.error;

@@ -229,7 +229,7 @@ _cold cluster::Json cluster::Manager::syncState(const cluster::Json& request)
         {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()},
         {"machine_request", this->_machineRequest.load()}, {"machine_ask", this->machineAsk()}, {"machine", machine},
         {"restore_ask", this->_restoreAsk.load() && this->restorable()}, {"listening", listening},
-        {"progress", this->progress() ? cluster::Json(*this->progress()) : cluster::Json(nullptr)}, {"failures", this->failures()}};
+        {"progress", this->progressAll()}, {"failures", this->failures()}};
 }
 
 _cold bool cluster::start_core(const std::vector<std::string>& args)
