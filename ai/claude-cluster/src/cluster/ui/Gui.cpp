@@ -556,6 +556,10 @@ class Window: public QMainWindow {
             browser->setOpenLinks(false);
             browser->setFrameShape(QFrame::NoFrame);
             browser->setVisible(false);
+            // without the mouse: its links by the keys (↑↓ / j k / Tab: the next one, Enter: its actions)
+            browser->setTextInteractionFlags(Qt::LinksAccessibleByKeyboard | Qt::LinksAccessibleByMouse | Qt::TextSelectableByMouse);
+            browser->setTabChangesFocus(false);
+            browser->installEventFilter(this);
             QObject::connect(browser, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
                 // a task / a schedule / the archive: its actions (the palette: its reason asked when it takes one); a session: shown
                 const QString link = url.toString();
@@ -567,6 +571,22 @@ class Window: public QMainWindow {
                 }
             });
             return browser;
+        }
+
+        bool eventFilter(QObject* watched, QEvent* event) override
+        {
+            // the Tasks view: ↑↓ / j k move between its links like Tab / Shift+Tab
+            if (watched == this->tasksView && event->type() == QEvent::KeyPress) {
+                const QKeyEvent* key = static_cast<QKeyEvent*>(event);
+                const bool down = key->key() == Qt::Key_Down || key->key() == Qt::Key_J;
+                const bool up = key->key() == Qt::Key_Up || key->key() == Qt::Key_K;
+                if ((down || up) && key->modifiers() == Qt::NoModifier) {
+                    QKeyEvent tab(QEvent::KeyPress, down ? Qt::Key_Tab : Qt::Key_Backtab, down ? Qt::NoModifier : Qt::ShiftModifier);
+                    QCoreApplication::sendEvent(this->tasksView, &tab);
+                    return true;
+                }
+            }
+            return QMainWindow::eventFilter(watched, event);
         }
 
         void showTasks(void)
@@ -1883,6 +1903,7 @@ class Window: public QMainWindow {
             const bool tasksShown = this->active == TASKS_ID && this->tasksView != nullptr;
             if (this->views.contains("") && this->tasksView != nullptr) this->views[""]->setVisible(!tasksShown);
             if (this->tasksView != nullptr) {
+                if (tasksShown && !this->tasksView->isVisible()) QTimer::singleShot(0, this->tasksView, [view = this->tasksView]() {view->setFocus();}); // its keys at once
                 this->tasksView->setVisible(tasksShown);
                 if (tasksShown) this->fillTasks(this->tasksView);
             }

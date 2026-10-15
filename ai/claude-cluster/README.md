@@ -201,6 +201,10 @@ clicked, the palette, the global session or `claude-cluster task add` / `schedul
   counted) or cancelled.
 - **A click on one: its actions** - start now (past the limit of parallel sessions) / run now, cancel or delete
   (a reason asked: told to the session that made it), archive (the archive: *▸ N archived*), open its session.
+- **Without the mouse**: ↑↓ / `j` `k` choose a row (lit `▌`, kept in sight), PgUp / PgDn, Home / End (`g` / `G`),
+  Tab / Shift+Tab the next / previous part, Enter / → / Space its actions (a todo list: its session); the window:
+  ↑↓ / Tab between its links, Enter; the web page: Tab or ↑↓ / `j` `k` between its rows, Enter / Space. With no
+  session yet, the Tasks session is still shown (its queue, its schedules).
 - A session closed: its waiting tasks and schedules cancelled ("its session was closed"); deleted for good: removed.
 - The control: `task_act` / `schedule_act` (cancel, delete, archive, unarchive, force / trigger, a reason), `todos`;
   the MCP: `task_act` (the global session).

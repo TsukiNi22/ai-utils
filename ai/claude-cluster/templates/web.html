@@ -106,6 +106,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker-list { overflow-y: auto; padding: 6px; }
 .picker-row.danger { color: var(--error); }
 .tasks-mark { color: var(--accent); font-weight: 700; }
+.tasks-view [tabindex='0']:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--surface); border-radius: 6px; }
 .failure-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); z-index: 60;
     background: var(--surface); border: 1px solid var(--error); border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
 .failure-card .title { color: var(--error); font-weight: 700; margin-bottom: 8px; }
@@ -778,6 +779,19 @@ function renderFailure(list) {
 }
 
 // ---- the Tasks session: its view in place of the conversation ----
+// without the mouse: its items focusable (Tab), ↑↓ / j k between them, Enter / Space: its actions
+function keyed(row) {
+    row.tabIndex = 0;
+    row.addEventListener("keydown", (e) => {
+        const items = [...document.querySelectorAll(".tasks-view [tabindex='0']")];
+        const at = items.indexOf(row);
+        if (e.key === "Enter" || e.key === " " || e.key === "ArrowRight") { e.preventDefault(); row.click(); }
+        else if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); (items[at + 1] || row).focus(); }
+        else if (e.key === "ArrowUp" || e.key === "k") { e.preventDefault(); (items[at - 1] || row).focus(); }
+        else if (e.key === "Home") { e.preventDefault(); items[0].focus(); }
+        else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus(); }
+    });
+}
 const ago = (s) => { s = Math.max(0, Math.floor(s)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
 let tasksDrawing = false;
 async function renderTasks() {
@@ -806,6 +820,7 @@ async function renderTasks() {
             const head = el("div", "todo-head");
             head.append(el("b", "", t.name), el("span", "muted", "  " + done + "/" + t.todos.length + " done"));
             head.addEventListener("click", () => select(t.session));
+            keyed(head);
             view.append(head);
             for (const d of t.todos) {
                 const row = el("div", "todo " + d.status);
@@ -830,6 +845,7 @@ async function renderTasks() {
                 el("span", "muted", "→ " + (t.session ? nameOf(t.session) : t.target || "any") + " · by " + who(t.by) + " · " + age));
             if (t.reason) row.append(el("div", "reason", "↳ " + t.reason));
             row.addEventListener("click", () => taskMenu(t, who(t.by)));
+            keyed(row);
             view.append(row);
         }
         if (shown.length > 12) view.append(el("div", "muted", "… +" + (shown.length - 12) + " more"));
@@ -847,12 +863,14 @@ async function renderTasks() {
                 + " · by " + who(w.by)));
             if (w.reason) row.append(el("div", "reason", "↳ " + w.reason));
             row.addEventListener("click", () => schedMenu(w, who(w.by)));
+            keyed(row);
             view.append(row);
         }
         const archived = tasks.filter((t) => t.archived).length + schedules.filter((w) => w.archived).length;
         if (archived) {
             const more = el("div", "task-row archived", "▸ " + archived + " archived");
             more.addEventListener("click", () => archiveMenu(tasks.filter((t) => t.archived), schedules.filter((w) => w.archived)));
+            keyed(more);
             view.append(more);
         }
         box.append(view);
