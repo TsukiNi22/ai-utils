@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "cpp-skills",
-      "description": "C++: project setup, classes / architecture, style, comments, CMake",
+      "description": "C++: project setup, classes / architecture, style, comments, CMake (skills: cmake-style, cpp-class, cpp-comments, cpp-project, cpp-style)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -17,7 +17,7 @@
     },
     {
       "name": "libutils-skills",
-      "description": "libutils: API reference, exceptions, install / update, setup in a project",
+      "description": "libutils: API reference, exceptions, install / update, setup in a project (skills: libutils, libutils-exception, libutils-install, libutils-setup)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -26,7 +26,7 @@
     },
     {
       "name": "doc-skills",
-      "description": "Documentation: README, GitHub wiki, uniform HTML docs with the project graph, HTML style, explanation pages (simple + technical), Markdown / PDF reports",
+      "description": "Documentation: README, GitHub wiki, uniform HTML docs with the project graph, HTML style, explanation pages (simple + technical), Markdown / PDF reports (skills: explain-doc, html-doc, html-style, readme-style, report, wiki-style)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -35,7 +35,7 @@
     },
     {
       "name": "ai-skills",
-      "description": "AI context: token-minimal texts and outputs, --rtk modes of programs, questions asked through the built-in QCM / Q&A popup",
+      "description": "AI context: token-minimal texts and outputs, --rtk modes of programs, questions asked through the built-in QCM / Q&A popup (skills: interactive-questions, rtk)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -44,7 +44,7 @@
     },
     {
       "name": "git-skills",
-      "description": "Git conventions (commits, branches, pull requests, changelog) and the CI/CD workflows",
+      "description": "Git conventions (commits, branches, pull requests, changelog), the pre-commit hooks and the CI/CD workflows (skills: ci-cd, git-conventions, pre-commit)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -53,7 +53,7 @@
     },
     {
       "name": "style-skills",
-      "description": "Code style and comments for the other languages",
+      "description": "Code style and comments for the other languages (skills: coding-style, comments)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -62,7 +62,7 @@
     },
     {
       "name": "python-skills",
-      "description": "Python: project setup, files / classes scaffolding, style and comments",
+      "description": "Python: project setup, files / classes scaffolding, style and comments (skills: python-class, python-comments, python-project, python-style)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -71,7 +71,7 @@
     },
     {
       "name": "test-skills",
-      "description": "Unit tests: GoogleTest (C++), the other frameworks, coverage",
+      "description": "Unit tests: GoogleTest (C++), the other frameworks, coverage (skills: coverage, cpp-tests, tests)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -80,7 +80,7 @@
     },
     {
       "name": "audit-skills",
-      "description": "Audits: bugs / UB, quality, dependencies (licenses, vulnerabilities), benchmark / profiling",
+      "description": "Audits: bugs / UB, quality, dependencies (licenses, vulnerabilities), benchmark / profiling (skills: audit-bugs, audit-deps, audit-quality, benchmark)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -89,7 +89,7 @@
     },
     {
       "name": "legal-skills",
-      "description": "License of a project",
+      "description": "License of a project (skills: license)",
       "source": "./",
       "strict": false,
       "skills": [
