@@ -103,7 +103,7 @@ _cold cluster::Voice::Voice(cluster::Manager& manager)
 {
     this->_manager.onGlobalAnswer = [this](const std::string& text) {this->speak(text);};
     const cluster::VoiceConf& conf = this->_manager.config().voice;
-    if (conf.enabled) this->start(); // loaded now: its model takes ~10 s
+    if (conf.enabled && !this->_manager.replica()) this->start(); // loaded now: its model takes ~10 s; a replica: the voice of its core
 }
 
 _cold cluster::Voice::~Voice()
@@ -116,7 +116,7 @@ _cold cluster::Voice::~Voice()
 /* listening */
 _cold void cluster::Voice::start(void)
 {
-    if (this->_listening || !this->_manager.config().voice.enabled) return;
+    if (this->_listening || !this->_manager.config().voice.enabled || this->_manager.replica()) return;
     if (this->_listener.joinable()) this->_listener.join();
     this->_listening = true;
     this->_ready = false;

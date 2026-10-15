@@ -663,15 +663,23 @@ own `[providers.<name>]`. See [`templates/config.toml`](templates/config.toml).
 
 ## How it works
 
+**Several terminals and windows at once** (`[ui] shared_core`, on): the sessions live in a core of their own
+(`claude-cluster serve --linger`, started by the first terminal / window, its log in `<data>/core.log`); every terminal
+and window is an interface of it, all in sync (the same sessions, prompts, questions, notices; sent again only when a
+session changed). Its first interface asks the previous run; closing one leaves the others (the core goes on), the last
+one closed stops it (the service, when it runs, is the core and stays). The core gone (a crash): started again by an
+interface. Two prompts sent at once to one session from two interfaces: told on that session (a minute in its header)
+and in the notices, the second one waits behind the first. Off: a second claude-cluster is refused, as before.
+
 ```
-claude-cluster (one per user: control socket)
+claude-cluster core (one per user: control socket; serve --linger, or the service)
 ├── Manager ── Session g (global) ── claude -p --input-format stream-json ... --mcp-config mcp.json
 │          ├── Session s1 ── claude -p stream-json (permissions: --permission-prompt-tool stdio)
 │          ├── Session s2 ── qwen -p ... -o stream-json -r <id>       (one process per turn)
 │          └── Session s3 ── opencode run --format json -s <id>        (one process per turn)
 ├── Control (unix socket) <── headless commands, claude-cluster mcp (MCP server of the global session)
 ├── Voice ── voice-listen --json / voice-say
-└── front-end: terminal (FTXUI) | window (Qt6) | none (serve)
+└── interfaces: terminals (FTXUI) and windows (Qt6) of other processes (sync: their state; their actions run here), the web page
 ```
 
 - The agents run through `env -C <folder> VAR=...` (provider environment), every pipe end of the cluster is

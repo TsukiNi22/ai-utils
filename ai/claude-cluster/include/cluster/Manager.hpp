@@ -44,6 +44,8 @@ File Description:
 
 namespace cluster { // namespace start
 class Web;
+class Voice;
+struct ReplicaState;                // Manager-Replica.cpp: this process an interface of another one (its core)
 //----------------------------------------------------------------//
 /* STRUCT */
 
@@ -74,6 +76,11 @@ struct Hit {
     std::int64_t time = 0;
     std::string text;
 };
+
+//----------------------------------------------------------------//
+/* FUNCTION */
+
+_cold bool start_core(const std::vector<std::string>& args = {});   // the core in a process of its own (its options), false not started
 
 //----------------------------------------------------------------//
 /* CLASS */
@@ -127,6 +134,14 @@ class Manager {
             std::deque<std::string> queue;              // the sessions to describe
         };
         std::shared_ptr<Describer> _describer = std::make_shared<Describer>();
+        std::shared_ptr<cluster::ReplicaState> _replica; // this process: an interface of another core (null: it is the core)
+        cluster::Voice* _voice = nullptr;               // the voice of this core (its actions run here)
+        std::map<std::string, std::int64_t> _clients;   // the interfaces of other processes: last seen (sync)
+        std::map<std::string, bool> _clientFocus;       // their focus (one in front: no notification)
+        bool _hadClients = false;
+        std::map<std::string, std::pair<std::string, std::int64_t>> _lastSender;   // by session: the interface of its last prompt, when
+        std::atomic<bool> _restoreAsk{false};           // started alone (a core of its own): the previous run asked by its first interface
+        std::string _lastActive;                        // a replica: the session shown, told to the core once
 
         // ---------- Pre-Function -------- //
         _cold _nodiscard std::shared_ptr<cluster::Session> get_(const std::string& id) const;
@@ -136,6 +151,8 @@ class Manager {
         _cold void describeAuto_(const std::string& id);    // written by claude-cluster (its thread)
         _cold void turnCounted_(const std::string& id, const bool failed);
         _cold void describeMissing_(void);
+        _cold _nodiscard std::vector<cluster::Snapshot> replicaSessions_(void) const;
+        _cold _nodiscard std::uint64_t replicaVersion_(void) const;
         _cold void notice_(const std::string& session, const std::string& text, const bool error = false);
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
         _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
@@ -156,6 +173,19 @@ class Manager {
 
         // ---------- Pre-Function -------- //
         _cold void load(void);                              // state.json: trash, tasks, previous sessions, ui choices
+
+        /* several interfaces on one core (Manager-Replica.cpp) */
+        _cold void attach(void);                            // this process an interface of the core running
+        _cold _nodiscard cluster::Json call(cluster::Json request) const;  // a command run by the core (throws: refused, not reached)
+        _cold _nodiscard cluster::Json replicaState(const std::string& key) const;   // a part of the last sync
+        _cold _nodiscard std::string replicaError(void) const;              // the core not reached ("": in sync)
+        _cold void detach_(void);                           // this interface closed: told to the core
+        _cold void clientSeen(const std::string& client);   // the core: an interface synced
+        _cold void clientGone(const std::string& client);
+        _cold void clientFocus(const std::string& client, const bool focused);
+        _cold _nodiscard std::size_t clients(void) const;   // its interfaces alive
+        _cold void noteSender(const std::string& id, const std::string& client); // two interfaces sending at once: told
+        _cold _nodiscard cluster::Json syncState(const cluster::Json& request);  // what an interface gets
 
         /* usage (Manager-Usage.cpp) */
         _cold _nodiscard std::string vendorOf(const std::string& backend) const;   // its provider ("" unknown)
@@ -255,19 +285,28 @@ class Manager {
         _nodiscard int machineAsk(void) const;              // asked at start: 0 no, 1 no map yet (not refused), 2 an old map (sync proposed)
         _nodiscard std::optional<std::pair<cluster::MachineProgress, std::int64_t>> machineProgress(void) const; // the last scan, ms of its end (0: running)
         _cold void restartGlobal(void);                     // its system prompt read again, the same conversation
+        _cold void setFocused(const bool focused);          // the window / terminal has the focus (a replica: told to the core)
+        _cold void noteActive(const std::string& id);       // the session shown (ui_state; a replica: told to the core when it changes)
+        _nodiscard std::pair<std::uint64_t, std::string> focusRequest(void) const;
+        _nodiscard std::uint64_t raiseRequest(void) const;  // a notification clicked: to the front
+        _nodiscard std::uint64_t machineRequest(void) const;
+        _cold void answer(const std::string& id, const std::string& requestId, const std::string& behavior);
+        _cold void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers);
+        _cold void interrupt(const std::string& id);
+        _cold _nodiscard std::optional<cluster::Queued> unqueue(const std::string& id); // last queued prompt, removed
 
         // ---------- Function -------- //
+        _nodiscard inline bool replica(void) const {return this->_replica != nullptr;};
+        _nodiscard inline bool hadClients(void) const {return this->_hadClients;};
+        inline void askRestoreLater(void) {this->_restoreAsk = true;};   // its first interface asks the previous run
+        inline void setVoice(cluster::Voice* voice) {this->_voice = voice;};
+        _nodiscard inline cluster::Voice* voice(void) const {return this->_voice;};
         _cold inline void notice(const std::string& session, const std::string& text, const bool error = false) {this->notice_(session, text, error);}; // the notices of the interfaces
         inline void requestMachineSync(void) {++this->_machineRequest; ++this->_version;};  // the interfaces ask the user (its popup)
-        _nodiscard inline std::uint64_t machineRequest(void) const {return this->_machineRequest;};
         inline void restartGlobalAfterTurn(void) {this->_restartAfterTurn = true;};          // after the turn running (it asked it)
-        inline void setFocused(const bool focused) {this->_focused = focused ? 1 : 0;}; // the window / terminal has the focus
         inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
         inline void machineDecline(void) {this->setUi("machine", "no");};
-        _nodiscard inline std::pair<std::uint64_t, std::string> focusRequest(void) const {return {this->_focusVersion, this->_focus};};
-        _nodiscard inline std::uint64_t raiseRequest(void) const {return this->_raiseVersion;};  // a notification clicked: to the front
         inline void requestRaise(void) {++this->_raiseVersion; ++this->_version;};
-        inline void noteActive(const std::string& id) {this->_active = id;};   // the session shown (ui_state)
         _nodiscard inline std::string active(void) const {return this->_active;};
         _nodiscard inline cluster::Auth& auth(void) {return this->_auth;};
         _nodiscard inline cluster::Config& config(void) {return this->_config;};
@@ -275,10 +314,6 @@ class Manager {
         inline void setWeb(cluster::Web* web) {this->_web = web;};
         _nodiscard inline cluster::Asking& asking(void) {return *this->_asking;};
         _nodiscard inline cluster::Web* web(void) const {return this->_web;};
-        _cold inline void answer(const std::string& id, const std::string& requestId, const std::string& behavior) {this->get_(id)->answer(requestId, behavior);};
-        _cold inline void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers) {this->get_(id)->answerQuestions(requestId, answers);};
-        _cold inline void interrupt(const std::string& id) {this->get_(id)->interrupt();};
-        _cold _nodiscard inline std::optional<cluster::Queued> unqueue(const std::string& id) {return this->get_(id)->unqueue();}; // last queued prompt, removed
 
         // ---------- Constructor -------- //
         _cold Manager(cluster::Config& config);

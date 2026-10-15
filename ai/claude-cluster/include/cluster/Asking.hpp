@@ -82,9 +82,7 @@ class Asking {
         _cold void chatAnswer(const std::string& requestId, const std::string& text); // its answer (the question still shown)
         _cold _nodiscard std::string spoken(const std::string& sentence); // a sentence of the voice on it: what it did, "" not for it
         _cold _nodiscard cluster::Json json(void) const;  // the question shown (null: none): the web page, the commands
-
-        // ------------ Function ---------- //
-        _nodiscard inline std::uint64_t version(void) const {return this->_version;};
+        _nodiscard std::uint64_t version(void) const;      // a replica: the version of its core
 
         // ---------- Constructor -------- //
         _cold explicit Asking(cluster::Manager& manager);

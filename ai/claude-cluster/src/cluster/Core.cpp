@@ -80,6 +80,7 @@ _cold void cluster::App::stop(void)
     this->running = false;
     if (this->ticker.joinable()) this->ticker.join();
     if (this->manager) this->manager->setWeb(nullptr);
+    if (this->manager) this->manager->setVoice(nullptr);
     this->web.reset();      // before the voice: a request of the page may still use it
     this->voice.reset();
     if (this->control) this->control->stop();
@@ -118,6 +119,7 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("follow", {"", "", "follow", ""}, {}, "service logs: the new lines as they come");
     this->_parser.setFlag("yes", {"y", "", "yes", ""}, {}, "machine sync: no question (the scan accepted)");
     this->_parser.setFlag("rescan", {"", "", "rescan", ""}, {}, "Ask at start to sync the map of this computer (even recent or refused)");
+    this->_parser.setFlag("linger", {"", "", "linger", ""}, {}, "serve: the core of the interfaces (started by them): it stops when the last one closes");
     this->_parser.setFlag("every", {"", "", "every", ""}, {{"minutes", true, any}}, "schedule add: repeated every N minutes");
     this->_parser.setFlag("notify", {"", "", "notify", ""}, {}, "schedule add: a desktop notification (not a prompt)");
 
@@ -256,13 +258,39 @@ _cold int cluster::Core::ui_(const bool serve)
         else throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no terminal and no window available");
     }
 
-    // Core: one instance per user (control socket), previous sessions, global session; another one running: told before
-    // anything starts here (no session, no thread left behind)
-    if (cluster::Control::alive())
+    // Core: one per user (control socket), previous sessions, global session. An interface attaches to the core running, or to
+    // one started for it (a process of its own: several terminals / windows at once, all in sync; the core goes on until the
+    // last one closes); a core already running for serve: told before anything starts (no session, no thread left behind)
+    const bool linger = serve && this->_options.values.contains("linger");
+    if (serve && cluster::Control::alive())
         throw utils::exception::ErrorException(utils::exception::InternalCode::AlreadyRunning, "claude-cluster already runs (" + cluster::socket_path().string()
             + "): its terminal or window is open elsewhere, or its service runs (claude-cluster service status); drive it with the headless commands "
             "(claude-cluster list, send...) or its web access, or close it first");
+    std::vector<std::string> coreArgs; // the options of this run that are the core's
+    if (this->_options.restore == "always") coreArgs.push_back("--restore");
+    if (this->_options.restore == "never") coreArgs.push_back("--fresh");
+    if (!this->_options.global) coreArgs.push_back("--no-global");
+    if (this->_options.values.contains("web")) coreArgs.push_back("--web");
+    if (this->_options.values.contains("voice")) coreArgs.insert(coreArgs.end(), {"--voice", this->_options.values.at("voice")});
+    const bool attached = !serve && app.config.sharedCore && (cluster::Control::alive() || cluster::start_core(coreArgs));
     try {
+    if (attached) {
+        // an interface of the core: its state kept in sync, its actions run by the core (its voice, its web access, its sessions)
+        app.manager = std::make_unique<cluster::Manager>(app.config);
+        try {
+            app.manager->attach();
+        } catch (const utils::exception::IException& e) {
+            // a claude-cluster of a version before the shared core: it can't take interfaces
+            throw utils::exception::ErrorException(utils::exception::InternalCode::AlreadyRunning, "a claude-cluster of an older version runs ("
+                + std::string(e.info()) + "): close it (its service: claude-cluster service restart), then open it again");
+        }
+        if (!this->_options.layout.empty()) app.manager->setUi("layout", this->_options.layout);
+        if (!this->_options.style.empty()) app.manager->setUi("style", this->_options.style);
+        app.askRestore = app.manager->restorable();
+        app.askMachine = this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk();
+        app.voice = std::make_unique<cluster::Voice>(*app.manager);
+        app.start();
+    } else {
     app.manager = std::make_unique<cluster::Manager>(app.config);
     app.control = std::make_unique<cluster::Control>(*app.manager);
     app.control->start();
@@ -273,15 +301,18 @@ _cold int cluster::Core::ui_(const bool serve)
     if (app.manager->restorable()) {
         if (restore == "always") app.manager->restorePrevious(true);
         else if (restore == "never") app.manager->restorePrevious(false);
+        else if (linger) app.manager->askRestoreLater(); // the core of the interfaces: its first interface asks
         else if (serve) app.manager->restorePrevious(true); // nobody to ask
         else app.askRestore = true;
     }
-    if (!app.askRestore) app.manager->startGlobal(); // asked: started by the answer (resumed or new)
+    if (!app.askRestore && !(linger && app.manager->restorable())) app.manager->startGlobal(); // asked: started by the answer (resumed or new)
     app.askMachine = serve ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
     app.web = std::make_unique<cluster::Web>(*app.manager, app.voice.get(), this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);
     app.manager->setWeb(app.web.get());
+    app.manager->setVoice(app.voice.get());
     app.start();
+    }
     } catch (...) { // a start failing: what it started stopped (its sessions, its threads)
         app.stop();
         throw;
@@ -292,8 +323,12 @@ _cold int cluster::Core::ui_(const bool serve)
     if (serve) {
         // Headless instance: the commands and the MCP server drive it, until a quit signal
         std::cerr << "claude-cluster: serving on " << cluster::socket_path().string() << " (Ctrl+C to stop)" << std::endl;
-        while (!cluster::quit_requested())
+        const std::int64_t started = cluster::now();
+        while (!cluster::quit_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            // the core of the interfaces: gone with its last one (none came within a minute: gone too)
+            if (linger && app.manager->clients() == 0 && (app.manager->hadClients() || cluster::now() - started > 60)) break;
+        }
         app.stop();
         return 0;
     }

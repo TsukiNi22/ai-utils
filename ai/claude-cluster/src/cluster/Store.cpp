@@ -199,6 +199,7 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         {"id", snap.spec.id}, {"name", snap.spec.name}, {"cwd", snap.spec.cwd}, {"backend", snap.spec.backend},
         {"model", snap.modelUsed.empty() ? snap.spec.model : snap.modelUsed}, {"state", cluster::state_name(snap.state)},
         {"mode", snap.spec.mode}, {"queued", snap.queued}, {"summary", snap.spec.summary}, {"resumable", cluster::resumable(snap)},
+        {"warning", !snap.warning.empty() && cluster::now() - snap.warningAt < 60 ? snap.warning : std::string()},
         {"tokens", {{"last", m.last.total()}, {"current", m.current.total()}, {"total", m.total.total()}}},
         {"context", {{"used", m.contextUsed}, {"window", m.contextWindow}}},
         {"cost_usd", m.costKnown ? cluster::Json(m.cost) : cluster::Json("local / unknown")},

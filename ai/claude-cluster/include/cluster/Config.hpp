@@ -131,6 +131,7 @@ class Config {
     public:
         /* ui */
         std::string frontend = "auto";
+        bool sharedCore = true;         // several terminals / windows at once on one core of its own (false: the first one is the core)
         std::string layout = "list";
         std::string style = "html-dark";
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "usage", "git"};

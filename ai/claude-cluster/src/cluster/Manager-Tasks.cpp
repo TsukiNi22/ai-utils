@@ -15,6 +15,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Wire.hpp"
 #include <algorithm>
 #include <ctime>
 #include <regex>
@@ -64,6 +65,7 @@ _cold void cluster::Manager::cancelTask(const std::string& id)
 
 _cold std::vector<cluster::Task> cluster::Manager::tasks(void) const
 {
+    if (this->_replica) return this->replicaState("tasks").get<std::vector<cluster::Task>>();
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->_tasks;
 }

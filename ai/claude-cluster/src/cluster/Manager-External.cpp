@@ -403,6 +403,17 @@ _cold std::string cluster::Manager::display(const std::string& id, const cluster
 
 _cold std::optional<cluster::Json> cluster::Manager::displayOf(const std::string& id, const std::string& displayId) const
 {
+    if (this->_replica) {
+        const cluster::Json display = this->call({{"cmd", "display_get"}, {"session", id}, {"display", displayId}});
+        return display.is_null() ? std::nullopt : std::optional<cluster::Json>(display);
+    }
+    if (this->_replica) {
+        try {
+            return this->call({{"cmd", "display_get"}, {"session", id}, {"id", displayId}});
+        } catch (const utils::exception::IException&) {
+            return std::nullopt;
+        }
+    }
     const std::optional<cluster::Snapshot> snap = this->snapshot(id);
     if (!snap) return std::nullopt;
     for (auto it = snap->entries.rbegin(); it != snap->entries.rend(); ++it) {
@@ -427,6 +438,12 @@ _cold void cluster::Manager::displayUpdate(const std::string& id, const std::str
 
 _cold std::string cluster::Manager::displayAct(const std::string& id, const std::string& displayId, const cluster::Json& act)
 {
+    if (this->_replica) return this->call({{"cmd", "display_act"}, {"session", id}, {"display", displayId}, {"act", act}}).value("done", std::string("done"));
+    if (this->_replica) {
+        cluster::Json request = act.is_object() ? act : cluster::Json::object();
+        request.update({{"cmd", "display_act"}, {"session", id}, {"id", displayId}});
+        return this->call(request).value("done", std::string("done"));
+    }
     std::optional<cluster::Json> found = this->displayOf(id, displayId);
     if (!found) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no display " + displayId + " in " + id);
     cluster::Json d = *found;

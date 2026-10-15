@@ -112,6 +112,7 @@ _cold void cluster::Config::load(void)
 
     /* ui */
     this->frontend = table["ui"]["frontend"].value_or(this->frontend);
+    this->sharedCore = table["ui"]["shared_core"].value_or(this->sharedCore);
     this->layout = table["ui"]["layout"].value_or(this->layout);
     this->style = table["ui"]["style"].value_or(this->style);
     this->panels = strings_(table["ui"]["panels"], this->panels);

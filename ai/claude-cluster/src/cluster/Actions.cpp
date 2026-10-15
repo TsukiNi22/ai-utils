@@ -24,6 +24,15 @@ File Description:
 /* actions */
 _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, const std::string& session)
 {
+    if (manager.replica()) { // a replica: the palette of its core
+        std::vector<cluster::Action> list;
+        try {
+            for (const cluster::Json& a: manager.call({{"cmd", "actions"}, {"session", session}}))
+                list.push_back({a.value("id", std::string()), a.value("title", std::string()), a.value("input", std::string()), a.value("fill", std::string()),
+                    a.value("ui", false)});
+        } catch (const utils::exception::IException&) {}
+        return list;
+    }
     const cluster::Config& config = manager.config();
     const std::optional<cluster::Snapshot> snap = session.empty() ? std::nullopt : manager.snapshot(session);
     std::vector<cluster::Action> list = {
@@ -189,6 +198,16 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
 _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, cluster::Voice& voice, const std::string& id,
     const std::string& session, const std::string& input)
 {
+    if (manager.replica()) { // a replica: run by its core (its voice, its sessions)
+        cluster::ActionResult result;
+        try {
+            const cluster::Json r = manager.call({{"cmd", "action"}, {"id", id}, {"session", session}, {"input", input}});
+            result = {r.value("message", std::string()), r.value("error", false), r.value("focus", std::string()), r.value("ui", std::string())};
+        } catch (const utils::exception::IException& e) {
+            result = {e.info(), true, "", ""};
+        }
+        return result;
+    }
     const std::string arg = id.find(':') == std::string::npos ? "" : id.substr(id.find(':') + 1);
     const std::string base = id.substr(0, id.find(':'));
     cluster::ActionResult result;
@@ -431,6 +450,13 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
 {
     return [&manager, session](const cluster::CompletionKind kind, const std::string& query) {
         std::vector<cluster::Candidate> items;
+        if (manager.replica()) { // a replica: completed by its core
+            try {
+                for (const cluster::Json& c: manager.call({{"cmd", "complete"}, {"session", session()}, {"kind", static_cast<int>(kind)}, {"query", query}}))
+                    items.push_back({c.value("value", std::string()), c.value("label", std::string()), c.value("description", std::string()), c.value("directory", false)});
+            } catch (const utils::exception::IException&) {}
+            return items;
+        }
         const std::optional<cluster::Snapshot> snap = manager.snapshot(session());
         const std::string cwd = snap ? snap->spec.cwd : cluster::expand_home("~").string();
         const std::string wanted = cluster::lower(query);
@@ -503,6 +529,11 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
 {
     // A local /command runs here; any other /command (skill, command of the agent) is sent as the prompt
     if (!line.starts_with("/")) return std::nullopt;
+    if (manager.replica()) { // a replica: run by its core
+        const cluster::Json r = manager.call({{"cmd", "slash"}, {"session", session}, {"text", line}});
+        if (!r.value("local", false)) return std::nullopt;
+        return cluster::ActionResult{r.value("message", std::string()), r.value("error", false), r.value("focus", std::string()), r.value("ui", std::string())};
+    }
     const std::size_t space = line.find(' ');
     const std::string name = line.substr(1, space == std::string::npos ? std::string::npos : space - 1);
     const std::string arg = space == std::string::npos ? "" : cluster::unescape_path(cluster::trim(line.substr(space + 1)));

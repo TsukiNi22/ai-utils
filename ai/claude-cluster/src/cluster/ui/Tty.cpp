@@ -2380,6 +2380,8 @@ class TtyUi {
                 ftxui::text(this->whereOf_(s) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
             };
             ftxui::Element head = ftxui::hbox(std::move(left));
+            if (!s.warning.empty() && cluster::now() - s.warningAt < 60) // a problem of its interfaces (two prompts at once...)
+                head = ftxui::vbox({head, ftxui::text(" ⚠ " + cluster::one_line(s.warning, 200)) | ftxui::color(this->_theme.warn)});
             if (!s.lastError.empty())
                 return ftxui::vbox({head, ftxui::hbox({ftxui::text(" " + cluster::one_line(s.lastError, 180)) | ftxui::color(this->_theme.error),
                     cluster::resumable(s) == "continue" ? this->tap_(ftxui::text("  " + this->_manager.config().keys.at("resume") + " continue") | ftxui::color(this->_theme.accent), 0,

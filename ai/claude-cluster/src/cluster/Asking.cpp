@@ -49,6 +49,15 @@ _cold cluster::Asking::Asking(cluster::Manager& manager)
 /* the question */
 _cold bool cluster::Asking::check(void)
 {
+    if (this->_manager.replica()) { // a replica: the question of its core (true: a new one)
+        const cluster::Json json = this->_manager.replicaState("asking");
+        const std::string id = json.is_object() ? json.value("request_id", std::string()) : "";
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        const bool fresh = !id.empty() && !this->_offered.contains(id);
+        if (!id.empty()) this->_offered.insert(id);
+        return fresh;
+    }
+
     // the one open answered elsewhere (MCP, the web page, its agent cancelled it): closed; none: the next one waiting
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (this->_ask) {
@@ -86,6 +95,15 @@ _cold std::optional<cluster::Ask> cluster::Asking::current(void) const
 
 _cold void cluster::Asking::move(const int delta)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "move"}, {"delta", delta}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     const int count = static_cast<int>(this->_ask->questions[this->_ask->index].value("options", cluster::Json::array()).size());
@@ -95,6 +113,15 @@ _cold void cluster::Asking::move(const int delta)
 
 _cold void cluster::Asking::choose(const int option)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "choose"}, {"option", option}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     const cluster::Json& q = this->_ask->questions[this->_ask->index];
@@ -107,6 +134,15 @@ _cold void cluster::Asking::choose(const int option)
 
 _cold void cluster::Asking::toggle(void)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "toggle"}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     if (!this->_ask->picked.erase(this->_ask->cursor)) this->_ask->picked.insert(this->_ask->cursor);
@@ -115,6 +151,15 @@ _cold void cluster::Asking::toggle(void)
 
 _cold void cluster::Asking::type(const std::string& text)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "type"}, {"text", text}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     this->_ask->other += text;
@@ -123,6 +168,15 @@ _cold void cluster::Asking::type(const std::string& text)
 
 _cold void cluster::Asking::erase(void)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "erase"}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     std::string& other = this->_ask->other;
@@ -133,6 +187,15 @@ _cold void cluster::Asking::erase(void)
 
 _cold void cluster::Asking::setOther(const std::string& text)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "other"}, {"text", text}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     const cluster::Json& q = this->_ask->questions[this->_ask->index];
@@ -145,6 +208,15 @@ _cold void cluster::Asking::setOther(const std::string& text)
 
 _cold std::string cluster::Asking::next(void)
 {
+    if (this->_manager.replica()) {
+        try {
+            const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "next"}});
+            return r.is_object() ? r.value("why", std::string()) : std::string();
+        } catch (const utils::exception::IException& e) {
+            return e.info();
+        }
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->next_();
 }
@@ -190,6 +262,15 @@ _cold std::string cluster::Asking::next_(void)
 
 _cold void cluster::Asking::back(void)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "back"}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask || this->_ask->index == 0) return;
     cluster::Ask& a = *this->_ask;
@@ -211,6 +292,15 @@ _cold void cluster::Asking::back(void)
 
 _cold void cluster::Asking::decline(void)
 {
+    if (this->_manager.replica()) {
+        cluster::Json request = {{"action", "decline"}};
+        request["cmd"] = "ask";
+        try {
+            (void)this->_manager.call(request);
+        } catch (const utils::exception::IException&) {}
+        return;
+    }
+
     std::optional<cluster::Ask> done;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -226,6 +316,15 @@ _cold void cluster::Asking::decline(void)
 
 _cold std::string cluster::Asking::toGlobal(void)
 {
+    if (this->_manager.replica()) {
+        try {
+            const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "global"}});
+            return r.is_object() ? r.value("done", std::string()) : std::string();
+        } catch (const utils::exception::IException& e) {
+            return e.info();
+        }
+    }
+
     // every question of the set given to the global session (it answers with session_allow), the popup closed
     std::optional<cluster::Ask> ask;
     {
@@ -251,6 +350,15 @@ _cold std::string cluster::Asking::toGlobal(void)
 
 _cold std::string cluster::Asking::chat(const std::string& text)
 {
+    if (this->_manager.replica()) {
+        try {
+            const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "chat"}, {"text", text}});
+            return r.is_object() ? r.value("done", std::string()) : std::string();
+        } catch (const utils::exception::IException& e) {
+            return e.info();
+        }
+    }
+
     // a side chat about the questions with the model of the session: its answer comes back here, the agent sees none of it
     const std::string message = cluster::trim(text);
     if (message.empty()) return "nothing to send";
@@ -283,6 +391,15 @@ _cold void cluster::Asking::chatAnswer(const std::string& requestId, const std::
 
 _cold std::string cluster::Asking::spoken(const std::string& sentence)
 {
+    if (this->_manager.replica()) {
+        try {
+            const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "say"}, {"text", sentence}});
+            return r.is_object() ? r.value("done", std::string()) : std::string();
+        } catch (const utils::exception::IException& e) {
+            return e.info();
+        }
+    }
+
     // a sentence while a question is shown: a word of [send] / [next] (validated), [back], [cancel], [other] <its text>,
     // a number or the label of an option (chosen); anything else: not for it
     const std::optional<cluster::Ask> ask = this->current();
@@ -342,4 +459,11 @@ _cold cluster::Json cluster::Asking::json(void) const
                 chat.push_back({{"role", role}, {"text", text}});
             return chat;
         }()}};
+}
+
+std::uint64_t cluster::Asking::version(void) const
+{
+    if (!this->_manager.replica()) return this->_version;
+    const cluster::Json j = this->_manager.replicaState("asking");
+    return std::hash<std::string>{}(j.dump()); // its content: changed when it changes
 }

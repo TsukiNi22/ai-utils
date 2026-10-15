@@ -106,6 +106,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         {"ui", "Interface", {
             {"ui", "frontend", "Front-end", SettingKind::Choice, {"auto", "tty", "gui"}, "auto: terminal when in a terminal, else a window (--tty / --gui win)", true,
                 [](const cluster::Config& cf) {return cf.frontend;}},
+            {"ui", "shared_core", "Several terminals / windows at once", SettingKind::Bool, {}, "claude-cluster opened again: attached to the one running, every "
+                "terminal and window in sync (the core of the sessions in a process of its own, until the last one closes); off: opened again is refused", true,
+                [](const cluster::Config& cf) {return cf.sharedCore ? std::string("true") : std::string("false");}},
             {"ui", "layout", "Layout", SettingKind::Choice, {"list", "grid", "tabs"}, "list + active panel, every session in a grid, or tabs", false,
                 [](const cluster::Config& cf) {return cf.layout;}},
             {"ui", "style", "Style", SettingKind::Choice, styles, "colors of the interface (own ones: [styles.<name>] in the file)", false,

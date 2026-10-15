@@ -17,11 +17,14 @@ File Description:
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/External.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Actions.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Editor.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Wire.hpp"
 #include "cluster/Web.hpp"
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -319,7 +322,58 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         if (from_global && request.contains("tool") && !manager.config().mcpTool(request.value("tool", std::string())))
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the tool " + request.value("tool", std::string())
                 + " is off in the settings of claude-cluster (MCP page): tell the user, they turn it on there if they want");
-        if (cmd == "face") {
+        // an interface of another process: seen alive (the core stops when none is left)
+        if (request.contains("client") && request["client"].is_string()) manager.clientSeen(request["client"].get<std::string>());
+        if (cmd == "sync") {
+            // its state, waited for up to 10 s until something changes
+            const std::uint64_t seen = request.value("v", std::uint64_t{0});
+            const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            const std::function<std::uint64_t()> now = [&manager]() {return manager.version() + manager.asking().version() * 1000003;};
+            while (seen != 0 && now() == seen && std::chrono::steady_clock::now() < end) {
+                (void)manager.asking().check();
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            data = manager.syncState(request);
+        } else if (cmd == "detach") {
+            manager.clientGone(arg_(request, "client"));
+        } else if (cmd == "client_focus") {
+            manager.clientFocus(arg_(request, "client"), request.value("focused", false));
+        } else if (cmd == "active") {
+            manager.noteActive(arg_(request, "session"));
+        } else if (cmd == "ui_set") {
+            manager.setUi(arg_(request, "key"), request.value("value", std::string()));
+        } else if (cmd == "unqueue") {
+            const std::optional<cluster::Queued> queued = manager.unqueue(session());
+            if (queued) data = *queued;
+        } else if (cmd == "rewind") {
+            data = manager.rewind(session());
+        } else if (cmd == "restore_answer") {
+            manager.answerRestore(request.value("restore", false));
+        } else if (cmd == "restart_global") {
+            manager.restartGlobal();
+        } else if (cmd == "machine_scan") {
+            manager.scanMachine();
+        } else if (cmd == "action") {
+            // the palette of an interface of another process, run here (its voice, its web access, its sessions)
+            if (manager.voice() == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no core here");
+            const cluster::ActionResult result = cluster::run_action(manager, *manager.voice(), arg_(request, "id"), arg_(request, "session", GLOBAL_ID),
+                request.value("input", std::string()));
+            data = {{"message", result.message}, {"error", result.error}, {"focus", result.focus}, {"ui", result.ui}};
+        } else if (cmd == "actions") {
+            data = cluster::Json::array();
+            for (const cluster::Action& action: cluster::actions(manager, arg_(request, "session", GLOBAL_ID)))
+                data.push_back({{"id", action.id}, {"title", action.title}, {"input", action.input}, {"fill", action.fill}, {"ui", action.ui}});
+        } else if (cmd == "slash") {
+            const std::optional<cluster::ActionResult> local = cluster::run_slash(manager, arg_(request, "session", GLOBAL_ID), arg_(request, "text"));
+            data = local ? cluster::Json{{"local", true}, {"message", local->message}, {"error", local->error}, {"focus", local->focus}, {"ui", local->ui}}
+                : cluster::Json{{"local", false}};
+        } else if (cmd == "complete") {
+            const std::string id = arg_(request, "session", GLOBAL_ID);
+            data = cluster::Json::array();
+            for (const cluster::Candidate& c: cluster::completion_provider(manager, [id]() {return id;})(static_cast<cluster::CompletionKind>(request.value("kind", 0)),
+                    request.value("query", std::string())))
+                data.push_back({{"value", c.value}, {"label", c.label}, {"description", c.description}, {"directory", c.directory}});
+        } else if (cmd == "face") {
             // the face of the app now (the web page, claude-cluster icon, a status bar)
             const cluster::AppFace face = manager.appFace(false);
             data = {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge}, {"urgent", face.urgent},
@@ -342,6 +396,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // a local /command (/clear, /model, /mode...) runs here like typed in the prompt, the others go to the agent
             const std::string id = session();
             const std::string text = arg_(request, "text");
+            if (request.value("raw", false)) { // an interface of another process: its /commands already run, its images
+                manager.noteSender(id, arg_(request, "client"));
+                manager.send(id, text, request.value("force", false), request.value("images", std::vector<std::string>()));
+                return {{"ok", true}, {"data", {{"id", id}, {"queued", true}}}};
+            }
             const std::optional<cluster::ActionResult> local = cluster::run_slash(manager, id, cluster::trim(text));
             if (local) {
                 if (local->error) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, local->message);
@@ -563,6 +622,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             (void)asking.check();
             const std::string action = arg_(request, "action");
             if (action == "choose") asking.choose(request.value("option", 0));
+            else if (action == "move") asking.move(request.value("delta", 1));
+            else if (action == "type") asking.type(arg_(request, "text"));
+            else if (action == "erase") asking.erase();
             else if (action == "toggle") asking.toggle();
             else if (action == "other") asking.setOther(arg_(request, "text"));
             else if (action == "back") asking.back();

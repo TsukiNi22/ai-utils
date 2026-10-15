@@ -256,6 +256,9 @@ struct Snapshot {
     std::string bridgeState;            // Remote Control: ready | connected | disconnected... (empty: off)
     int queued = 0;                     // prompts waiting for the end of the running turn
     std::vector<std::string> queue;     // their text (Esc in the prompt: the last one back to edit)
+    std::uint64_t version = 0;          // its version when taken (an interface of another process: sent again when it changed)
+    std::string warning;                // a problem of its interfaces (two prompts at once...), shown a minute on it
+    std::int64_t warningAt = 0;
 };
 
 //----------------------------------------------------------------//

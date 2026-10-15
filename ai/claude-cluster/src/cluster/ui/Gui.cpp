@@ -2591,6 +2591,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             + esc_(cluster::short_path(s.spec.cwd)) + "</a>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(
                 (this->branch.empty() ? std::string() : "  ⎇ " + this->branch) + "  " + cluster::host_name() + (s.pid > 0 ? "  pid " + std::to_string(s.pid) : ""))
             + "</span>") + "&nbsp; <a href=\"cluster-terminal:\" style=\"color:" + q_(st.accent) + ";text-decoration:none;font-size:9pt\">terminal</a>"
+            + (s.warning.empty() || cluster::now() - s.warningAt >= 60 ? QString() : "<br>" + span_(st.warn, "⚠ " + esc_(cluster::one_line(s.warning, 160))))
             + (cluster::resumable(s).empty() ? QString() : "&nbsp; <a href=\"cluster-resume:\" style=\"color:" + q_(st.warn) + ";text-decoration:none;font-weight:600\">"
                 + (cluster::resumable(s) == "retry" ? QString("retry now") : QString("continue")) + "</a>"));
     if (!s.lastError.empty()) head += "<br>" + span_(st.error, esc_(cluster::one_line(s.lastError, 200)));

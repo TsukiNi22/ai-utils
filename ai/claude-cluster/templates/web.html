@@ -608,7 +608,7 @@ function render(state) {
         return;
     }
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
-    $("sessionInfo").textContent = [s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    $("sessionInfo").textContent = [s.warning ? "⚠ " + s.warning : "", s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
     // retry now (an API error retried later) / continue (stopped: interrupted, an error)
     $("resume").classList.toggle("hidden", !s.resumable);
     $("resume").textContent = s.resumable === "retry" ? "Retry now" : "Continue";

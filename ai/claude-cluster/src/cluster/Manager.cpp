@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Wire.hpp"
 #include "cluster/Mcp.hpp"
 #include <filesystem>
 #include <algorithm>
@@ -204,6 +205,10 @@ std::string cluster::Manager::origin(const std::string& id) const
 
 _cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images)
 {
+    if (this->_replica) {
+        (void)this->call({{"cmd", "send"}, {"session", id}, {"text", text}, {"force", force}, {"images", images}, {"raw", true}});
+        return;
+    }
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -858,6 +863,10 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
 
 _cold void cluster::Manager::shutdown(void)
 {
+    if (this->_replica) { // an interface: the core goes on
+        this->detach_();
+        return;
+    }
     // closing: the agents that end now are not "stopped by themselves" (no notice, no restart)
     this->_closing = true;
     {
@@ -877,6 +886,7 @@ _cold void cluster::Manager::shutdown(void)
 
 _cold void cluster::Manager::tick(void)
 {
+    if (this->_replica) return; // the core does it
     static int seconds = 0;
     if (this->_config.reload()) {
         if (this->_config.error().empty()) this->notice_("", "config reloaded");
@@ -891,6 +901,11 @@ _cold void cluster::Manager::tick(void)
 
 std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) const
 {
+    if (this->_replica) {
+        std::vector<cluster::Snapshot> all = this->replicaSessions_();
+        if (!withGlobal) std::erase_if(all, [](const cluster::Snapshot& s) {return s.spec.global;});
+        return all;
+    }
     std::vector<std::shared_ptr<cluster::Session>> sessions;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -908,6 +923,11 @@ std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) con
 
 std::optional<cluster::Snapshot> cluster::Manager::snapshot(const std::string& id) const
 {
+    if (this->_replica) {
+        for (const cluster::Snapshot& snap: this->replicaSessions_())
+            if (snap.spec.id == id || snap.spec.name == id) return snap;
+        return std::nullopt;
+    }
     try {
         return this->get_(id)->snapshot();
     } catch (const utils::exception::IException&) {
@@ -917,12 +937,17 @@ std::optional<cluster::Snapshot> cluster::Manager::snapshot(const std::string& i
 
 std::vector<cluster::SessionSpec> cluster::Manager::trash(void) const
 {
+    if (this->_replica) return this->replicaState("trash").get<std::vector<cluster::SessionSpec>>();
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->_trash;
 }
 
 _cold void cluster::Manager::scanMachine(void)
 {
+    if (this->_replica) {
+        (void)this->call({{"cmd", "machine_scan"}});
+        return;
+    }
     // the home folder takes a few seconds: in the background, a notice when written
     this->setUi("machine", "yes");
     {
@@ -961,6 +986,11 @@ _cold void cluster::Manager::scanMachine(void)
 
 std::optional<std::pair<cluster::MachineProgress, std::int64_t>> cluster::Manager::machineProgress(void) const
 {
+    if (this->_replica) {
+        const cluster::Json machine = this->replicaState("machine");
+        if (!machine.is_object()) return std::nullopt;
+        return std::pair<cluster::MachineProgress, std::int64_t>{machine["progress"].get<cluster::MachineProgress>(), machine.value("end", std::int64_t{0})};
+    }
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_scan) return std::nullopt;
     return std::make_pair(*this->_scan, this->_scanEnd);
@@ -968,6 +998,7 @@ std::optional<std::pair<cluster::MachineProgress, std::int64_t>> cluster::Manage
 
 int cluster::Manager::machineAsk(void) const
 {
+    if (this->_replica) return this->replicaState("machine_ask").is_number() ? this->replicaState("machine_ask").get<int>() : 0;
     const int days = cluster::machine_days_old();
     if (days < 0) return this->ui("machine", "") != "no" ? 1 : 0;
     if (this->_config.machineDays <= 0 || days < this->_config.machineDays) return 0;
@@ -977,6 +1008,10 @@ int cluster::Manager::machineAsk(void) const
 
 _cold void cluster::Manager::restartGlobal(void)
 {
+    if (this->_replica) {
+        (void)this->call({{"cmd", "restart_global"}});
+        return;
+    }
     const std::shared_ptr<cluster::Session> old = this->get_(GLOBAL_ID);
     old->stop();
     const std::shared_ptr<cluster::Session> session = this->make_(old->spec());
@@ -1082,6 +1117,10 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
 
 cluster::AppFace cluster::Manager::appFace(const bool listening) const
 {
+    if (this->_replica) {
+        const cluster::Json face = this->replicaState("face");
+        return face.is_object() ? face.get<cluster::AppFace>() : cluster::AppFace{};
+    }
     // what needs the user first: an error or the safety check, a question / permission, a turn just finished, the voice
     // listening, something running, nothing
     std::vector<std::shared_ptr<cluster::Session>> sessions;
@@ -1143,6 +1182,7 @@ void cluster::Manager::requestFocus(const std::string& id)
 
 _cold cluster::Queued cluster::Manager::rewind(const std::string& id)
 {
+    if (this->_replica) return this->call({{"cmd", "rewind"}, {"session", id}}).get<cluster::Queued>();
     const cluster::Queued prompt = this->get_(id)->rewind();
     this->save(); // the cut is kept over a restart (until the next prompt)
     ++this->_version;
@@ -1151,12 +1191,18 @@ _cold cluster::Queued cluster::Manager::rewind(const std::string& id)
 
 bool cluster::Manager::restorable(void) const
 {
+    if (this->_replica) return this->replicaState("restore_ask") == true;
     std::lock_guard<std::mutex> lock(this->_mutex);
     return std::any_of(this->_previous.begin(), this->_previous.end(), [](const cluster::SessionSpec& s) {return !s.global || !s.claudeId.empty();});
 }
 
 _cold void cluster::Manager::answerRestore(const bool restore)
 {
+    if (this->_replica) {
+        (void)this->call({{"cmd", "restore_answer"}, {"restore", restore}});
+        return;
+    }
+    this->_restoreAsk = false;
     // "start clean": the sessions to the trash, the global session on a new conversation (its transcript archived)
     this->restorePrevious(restore);
     if (!restore) {
@@ -1176,6 +1222,7 @@ _cold void cluster::Manager::answerRestore(const bool restore)
 
 std::vector<cluster::SessionSpec> cluster::Manager::previous(void) const
 {
+    if (this->_replica) return this->replicaState("previous").get<std::vector<cluster::SessionSpec>>();
     std::lock_guard<std::mutex> lock(this->_mutex);
     std::vector<cluster::SessionSpec> list;
     std::copy_if(this->_previous.begin(), this->_previous.end(), std::back_inserter(list), [](const cluster::SessionSpec& s) {return !s.global;});
@@ -1184,6 +1231,13 @@ std::vector<cluster::SessionSpec> cluster::Manager::previous(void) const
 
 std::vector<cluster::Notice> cluster::Manager::notices(const std::size_t max) const
 {
+    if (this->_replica) {
+        // the ones of the core, and the core not reached (told here)
+        std::vector<cluster::Notice> all = this->replicaState("notices").get<std::vector<cluster::Notice>>();
+        if (const std::string error = this->replicaError(); !error.empty()) all.push_back({cluster::now(), "", error, true});
+        if (all.size() > max) all.erase(all.begin(), all.end() - static_cast<std::ptrdiff_t>(max));
+        return all;
+    }
     std::lock_guard<std::mutex> lock(this->_mutex);
     const std::size_t start = this->_notices.size() > max ? this->_notices.size() - max : 0;
     return std::vector<cluster::Notice>(this->_notices.begin() + static_cast<long>(start), this->_notices.end());
@@ -1191,6 +1245,12 @@ std::vector<cluster::Notice> cluster::Manager::notices(const std::size_t max) co
 
 std::string cluster::Manager::resolve(const std::string& idOrName) const
 {
+    if (this->_replica) {
+        for (const cluster::Snapshot& snap: this->replicaSessions_())
+            if (snap.spec.id == idOrName || snap.spec.name == idOrName) return snap.spec.id;
+        if (idOrName.empty() || idOrName == GLOBAL_ID || idOrName == "global") return GLOBAL_ID;
+        throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + idOrName + "'");
+    }
     std::vector<std::pair<std::string, std::string>> sessions; // <id, name>
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -1211,6 +1271,7 @@ std::string cluster::Manager::resolve(const std::string& idOrName) const
 
 std::uint64_t cluster::Manager::version(void) const
 {
+    if (this->_replica) return this->replicaVersion_() + this->_version;
     std::uint64_t version = this->_version;
     std::lock_guard<std::mutex> lock(this->_mutex);
     for (const auto &[id, session]: this->_sessions)
@@ -1220,6 +1281,10 @@ std::uint64_t cluster::Manager::version(void) const
 
 std::string cluster::Manager::ui(const std::string& key, const std::string& fallback) const
 {
+    if (this->_replica) {
+        const cluster::Json ui = this->replicaState("ui");
+        return ui.is_object() && ui.contains(key) && ui[key].is_string() ? ui[key].get<std::string>() : fallback;
+    }
     std::lock_guard<std::mutex> lock(this->_mutex);
     auto it = this->_ui.find(key);
     return it != this->_ui.end() ? it->second : fallback;
@@ -1227,6 +1292,10 @@ std::string cluster::Manager::ui(const std::string& key, const std::string& fall
 
 void cluster::Manager::setUi(const std::string& key, const std::string& value)
 {
+    if (this->_replica) {
+        (void)this->call({{"cmd", "ui_set"}, {"key", key}, {"value", value}});
+        return;
+    }
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_ui[key] = value;

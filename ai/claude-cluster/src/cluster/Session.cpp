@@ -1360,6 +1360,14 @@ _cold void cluster::Session::describe(const std::string& text, const bool given)
     this->touch_();
 }
 
+_cold void cluster::Session::warn(const std::string& text)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_data.warning = text;
+    this->_data.warningAt = cluster::now();
+    this->touch_();
+}
+
 _cold std::int64_t cluster::Session::countTurn(void)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
@@ -1394,7 +1402,9 @@ _cold void cluster::Session::loadHistory(const std::size_t max)
 cluster::Snapshot cluster::Session::snapshot(void) const
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
-    return this->_data;
+    cluster::Snapshot copy = this->_data;
+    copy.version = this->_version;
+    return copy;
 }
 
 cluster::SessionSpec cluster::Session::spec(void) const
