@@ -356,6 +356,8 @@ _cold int cluster::Core::headless_(void)
         request["session"] = w.size() > 1 ? w[1] : "";
     } else if (cmd == "rename") {
         request.update({{"session", word(1, "session")}, {"name", rest(2)}});
+    } else if (cmd == "describe") {
+        request.update({{"session", word(1, "session")}, {"text", rest(2)}});
     } else if (cmd == "mode") {
         request.update({{"session", word(1, "session")}, {"mode", word(2, "mode")}});
     } else if (cmd == "model") {
@@ -464,12 +466,13 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
             const std::string tok = cluster::human_tokens(s["tokens"].value("total", std::int64_t{0}));
             if (rtk) {
                 std::cout << s.value("id", "") << "|" << s.value("name", "") << "|" << s.value("state", "") << "|" << s.value("backend", "") << "|"
-                    << s.value("mode", "") << "|" << tok << "|" << ctx << "|" << cost << "|" << s["permissions"].size() << "|" << cluster::short_path(s.value("cwd", "")) << "\n";
+                    << s.value("mode", "") << "|" << tok << "|" << ctx << "|" << cost << "|" << s["permissions"].size() << "|" << cluster::short_path(s.value("cwd", "")) << "|" << s.value("summary", std::string()) << "\n";
             } else {
                 std::cout << std::left << std::setw(4) << s.value("id", "") << std::setw(18) << cluster::one_line(s.value("name", ""), 17)
                     << std::setw(11) << s.value("state", "") << std::setw(22) << cluster::one_line(s.value("backend", ""), 21)
                     << std::setw(8) << tok << std::setw(6) << (std::to_string(ctx) + "%") << std::setw(9) << cost
-                    << (s["permissions"].empty() ? "" : "[" + std::to_string(s["permissions"].size()) + " perm] ") << cluster::short_path(s.value("cwd", "")) << "\n";
+                    << (s["permissions"].empty() ? "" : "[" + std::to_string(s["permissions"].size()) + " perm] ") << cluster::short_path(s.value("cwd", ""))
+                    << (s.value("summary", std::string()).empty() ? "" : "  " + s.value("summary", std::string())) << "\n";
             }
         }
         if (data.empty() && !rtk) std::cout << "no session" << "\n";
@@ -490,7 +493,8 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
     } else if (cmd == "trash") {
         for (const cluster::Json& s: data)
             std::cout << s.value("id", "") << (rtk ? "|" : "  ") << s.value("name", "") << (rtk ? "|" : "  ") << cluster::human_age(s.value("deleted", std::int64_t{0}))
-                << (rtk ? "|" : "  ") << cluster::short_path(s.value("cwd", "")) << "\n";
+                << (rtk ? "|" : "  ") << cluster::short_path(s.value("cwd", "")) << (s.value("summary", std::string()).empty() ? "" : (rtk ? "|" : "  ") + s.value("summary", std::string()))
+                << "\n";
     } else if (cmd == "providers") {
         for (const cluster::Json& p: data)
             std::cout << (p.value("ready", false) ? "ok" : "--") << (rtk ? "|" : "  ") << std::left << std::setw(rtk ? 0 : 15) << p.value("name", "")

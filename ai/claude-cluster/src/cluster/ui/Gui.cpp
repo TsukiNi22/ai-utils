@@ -1270,8 +1270,10 @@ class Window: public QMainWindow {
                         + (s.permissions.empty() ? QString() : "&nbsp;" + span_(st.warn, "<b>" + QString::number(s.permissions.size()) + "</b>"))
                         + "</td><td align=\"right\">" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::human_tokens(s.metrics.total.total()))
                         + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">"
-                        + esc_(s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd)) + "</span>"));
+                        + esc_(s.spec.summary.empty() ? s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd) : cluster::one_line(s.spec.summary, 44))
+                        + "</span>"));
                     QListWidgetItem* item = new QListWidgetItem(this->list);
+                    item->setToolTip(q_((s.spec.summary.empty() ? std::string() : s.spec.summary + "\n") + cluster::short_path(s.spec.cwd)));
                     item->setSizeHint(QSize(0, row->sizeHint().height() + 4));
                     this->list->setItemWidget(item, row);
                     if (s.spec.id == this->active) this->list->setCurrentRow(this->list->count() - 1);

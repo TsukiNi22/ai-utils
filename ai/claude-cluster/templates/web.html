@@ -95,6 +95,9 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
 .msg.turn { color: var(--accent); font-size: 14px; } .msg.turn .turn-tool, .msg.turn details { color: var(--muted); font-size: 13px; margin-left: 12px; }
 .msg.turn summary { cursor: pointer; }
+#sessionDesc { font-size: 12px; color: var(--muted); font-style: italic; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#sessionDesc.empty { opacity: .55; } #sessionDesc:hover { color: var(--accent); }
+.card-desc { font-size: 12px; color: var(--muted); font-style: italic; margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sessionWhere { font-family: var(--mono, monospace); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .msg.turn .round { font-family: var(--mono, monospace); font-size: 12px; padding-left: 10px; border-left: 2px solid var(--line); margin: 2px 0; }
 .msg.turn .round.current { color: var(--accent); border-left-color: var(--accent); }
@@ -308,6 +311,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
             <button id="sessionName" class="link" title="Sessions" style="border:none;background:none;padding:0;font-weight:600"></button>
             <span class="muted" id="sessionInfo"></span>
             <span class="where" id="sessionWhere"></span>
+            <span class="desc" id="sessionDesc" title="Its short description (click: edit; empty: written again)"></span>
             <span class="grow"></span>
             <button id="fork" title="A copy of this session: its conversation so far, each one goes on apart">Fork</button>
             <button id="interrupt" title="Stop the turn and the reading">Stop</button>
@@ -534,6 +538,15 @@ async function run(id) {
 }
 
 let polling = null;   // the long poll running (aborted when the page asks again at once)
+// its description edited (empty: written again by claude-cluster)
+document.addEventListener("click", async (e) => {
+    if (e.target.id !== "sessionDesc" || current === "g") return;
+    const s = lastState && lastState.session;
+    const text = prompt("Its short description (empty: written again by claude-cluster)", s && s.summary ? s.summary : "");
+    if (text === null) return;
+    try { await cmd({cmd: "describe", session: current, text}); refresh(); } catch (error) { alert(error.message); }
+});
+
 function refresh() {
     version = 0;
     if (polling) polling.abort();
@@ -572,7 +585,8 @@ function render(state) {
         }
         const sub = document.createElement("div");
         sub.className = "sub";
-        sub.textContent = s.state + " · " + (s.cwd || "");
+        sub.textContent = s.summary || s.state + " · " + (s.cwd || "");
+        item.title = [s.summary, s.cwd].filter(Boolean).join("\n");
         item.append(name, sub);
         item.addEventListener("click", () => select(s.id));
         list.append(item);
@@ -587,6 +601,8 @@ function render(state) {
     // where it runs: its folder, its branch, the computer, its process
     const w = s.where || {};
     $("sessionInfo").title = [w.folder, w.branch ? "branch " + w.branch : "", w.host ? "on " + w.host : "", w.pid ? "pid " + w.pid : ""].filter(Boolean).join("\n");
+    $("sessionDesc").textContent = s.id === "g" ? "" : s.summary || "add a description";
+    $("sessionDesc").classList.toggle("empty", !s.summary);
     $("sessionWhere").textContent = [shortPath(w.folder), w.branch ? "⎇ " + w.branch : "", w.host, w.pid ? "pid " + w.pid : ""].filter(Boolean).join(" · ");
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
@@ -1828,6 +1844,7 @@ function card(s, tools) {
     if (tools) head.append(tools);
     head.addEventListener("click", (e) => { if (!e.target.closest(".tile-tools")) openSession(s.id); });
     c.append(head, el("div", "card-meta", [s.model, s.mode, shortPath(s.cwd)].filter(Boolean).join(" · ")));
+    if (s.summary) c.append(el("div", "card-desc", s.summary));
     const body = el("div", "card-body");
     const recent = (s.recent || []).slice(-4);
     if (!recent.length) body.append(el("div", "line tool", "nothing yet"));

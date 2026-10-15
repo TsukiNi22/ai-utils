@@ -202,6 +202,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 }},
         }},
         {"sessions", "Sessions", {
+            {"sessions", "describe", "Short descriptions", SettingKind::Choice, {"model", "prompt", "off"}, "a few words under the name of each session (the trash too), "
+                "to find it again: model: the title Claude Code made, else written by a small model (haiku, its own process, nothing kept) after its 1st, "
+                "3rd, 9th... turn; prompt: its first prompt; off: none written (the ones given kept)", false,
+                [](const cluster::Config& cf) {return cf.describe;}},
             {"sessions", "trash_days", "Trash kept (days)", SettingKind::Int, {}, "a closed session stays restorable this long", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.trashDays);}},
             {"sessions", "max_parallel", "Tasks in parallel", SettingKind::Int, {}, "task queue: sessions working at the same time", false,

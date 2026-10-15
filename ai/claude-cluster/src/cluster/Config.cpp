@@ -160,6 +160,7 @@ _cold void cluster::Config::load(void)
 
     /* sessions */
     this->trashDays = table["sessions"]["trash_days"].value_or(this->trashDays);
+    this->describe = table["sessions"]["describe"].value_or(this->describe);
     this->maxParallel = table["sessions"]["max_parallel"].value_or(this->maxParallel);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
     this->sessionsPrompt = table["sessions"]["prompt"].value_or(this->sessionsPrompt);

@@ -1343,6 +1343,22 @@ _cold void cluster::Session::rename(const std::string& name)
     this->touch_();
 }
 
+_cold void cluster::Session::describe(const std::string& text, const bool given)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (!given && !this->_data.spec.summaryAuto) return;
+    this->_data.spec.summary = text;
+    this->_data.spec.summaryAuto = !given || text.empty();
+    this->_data.spec.summaryTurns = this->_data.spec.turns;
+    this->touch_();
+}
+
+_cold std::int64_t cluster::Session::countTurn(void)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    return ++this->_data.spec.turns;
+}
+
 _cold void cluster::Session::togglePanel(const std::string& panel)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);

@@ -118,11 +118,22 @@ class Manager {
         std::unique_ptr<cluster::Asking> _asking;       // the question of an agent being answered (the interfaces, the voice)
         std::vector<cluster::UsageRecord> _usage;       // the usage ledger (usage.jsonl), in time order
         std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows)
+        struct Describer {                              // the descriptions being written (a thread of their own, one at a time)
+            std::mutex mutex;
+            bool alive = true;                          // false: claude-cluster quits (a description written after it: dropped)
+            bool running = false;
+            std::deque<std::string> queue;              // the sessions to describe
+        };
+        std::shared_ptr<Describer> _describer = std::make_shared<Describer>();
 
         // ---------- Pre-Function -------- //
         _cold _nodiscard std::shared_ptr<cluster::Session> get_(const std::string& id) const;
         _cold _nodiscard std::shared_ptr<cluster::Session> make_(cluster::SessionSpec spec);
         _cold void event_(const cluster::Event& event);
+        _cold bool describe_(const std::string& id, const std::string& text, const bool given); // false: no such session
+        _cold void describeAuto_(const std::string& id);    // written by claude-cluster (its thread)
+        _cold void turnCounted_(const std::string& id, const bool failed);
+        _cold void describeMissing_(void);
         _cold void notice_(const std::string& session, const std::string& text, const bool error = false);
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
         _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
@@ -167,6 +178,7 @@ class Manager {
         _cold _nodiscard std::string restore(const std::string& id);
         _cold void purge(const std::string& id = "");       // delete for good from the trash (empty: the expired ones, "*": all)
         _cold void rename(const std::string& id, const std::string& name);
+        _cold void describe(const std::string& id, const std::string& text); // its short description (empty: written again)
         _cold void setMode(const std::string& id, const std::string& mode);
         _cold _nodiscard cluster::Queued rewind(const std::string& id); // the last turn removed, its prompt back (Esc Esc)
         _cold void cd(const std::string& id, const std::string& cwd);

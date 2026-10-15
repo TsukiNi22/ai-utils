@@ -84,6 +84,7 @@ _cold const std::vector<cluster::Command>& cluster::commands(void)
         {"usage", "[vendor]", "tokens and cost per vendor: today, last 7 days, lifetime; limits left", {}},
         {"interrupt", "<s>", "stop the running turn", {"session"}},
         {"rename", "<s> <name>", "rename a session", {"session", "text"}},
+        {"describe", "<s> [text]", "the short description of a session (none: written again by claude-cluster)", {"session", "text"}},
         {"cd", "<s> <folder>", "move a session to another project", {"session", "folder"}},
         {"close", "<s>", "close a session (to the trash)", {"session"}},
         {"trash", "", "closed sessions that can still be restored", {}},
@@ -141,11 +142,13 @@ _cold void cluster::Core::complete_(const std::string& kind) const
     } else if (kind == "session") {
         if (cluster::Control::alive())
             for (const cluster::Json& s: ask("list"))
-                out.emplace_back(s.value("name", ""), s.value("id", "") + " " + s.value("state", "") + " " + s.value("backend", "") + " " + cluster::short_path(s.value("cwd", "")));
+                out.emplace_back(s.value("name", ""), s.value("id", "") + " " + s.value("state", "") + " " + (s.value("summary", std::string()).empty()
+                    ? s.value("backend", "") + " " + cluster::short_path(s.value("cwd", "")) : cluster::one_line(s.value("summary", std::string()), 60)));
     } else if (kind == "trash") {
         if (cluster::Control::alive())
             for (const cluster::Json& s: ask("trash"))
-                out.emplace_back(s.value("name", ""), "closed " + cluster::human_age(s.value("deleted", std::int64_t{0})) + " ago, " + cluster::short_path(s.value("cwd", "")));
+                out.emplace_back(s.value("name", ""), (s.value("summary", std::string()).empty() ? std::string() : cluster::one_line(s.value("summary", std::string()), 60) + ", ")
+                    + "closed " + cluster::human_age(s.value("deleted", std::int64_t{0})) + " ago, " + cluster::short_path(s.value("cwd", "")));
     } else if (kind == "task") {
         if (cluster::Control::alive())
             for (const cluster::Json& t: ask("task_list"))

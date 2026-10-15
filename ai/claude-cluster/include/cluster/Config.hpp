@@ -175,6 +175,7 @@ class Config {
 
         /* sessions */
         int trashDays = 14;
+        std::string describe = "model";         // the short description of a session: model (a small model) | prompt (its first one) | off
         int maxParallel = 4;
         double budget = 0.0;
         bool questionsToGlobal = true;          // the questions of the sub-sessions shown on the global session (their own one: greyed)

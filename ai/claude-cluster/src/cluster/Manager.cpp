@@ -33,6 +33,7 @@ _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
         {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId}, {"leaf", spec.leaf}, {"resume_at", spec.resumeAt}, {"fork", spec.fork},
         {"model", spec.model}, {"mode", spec.mode}, {"effort", spec.effort}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
         {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
+        {"summary", spec.summary}, {"summary_auto", spec.summaryAuto}, {"summary_turns", spec.summaryTurns}, {"turns", spec.turns},
     };
 }
 
@@ -58,6 +59,10 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.deleted = json.value("deleted", std::int64_t{0});
     spec.cost = json.value("cost", 0.0);
     spec.tokens = json.value("tokens", std::int64_t{0});
+    spec.summary = json.value("summary", std::string());
+    spec.summaryAuto = json.value("summary_auto", true);
+    spec.summaryTurns = json.value("summary_turns", std::int64_t{0});
+    spec.turns = json.value("turns", std::int64_t{0});
     return spec;
 }
 
@@ -592,6 +597,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             break;
         case cluster::Event::Kind::TurnDone:
             this->recordUsage_(event.session);
+            if (event.session != GLOBAL_ID) this->turnCounted_(event.session, event.error || event.interrupted);
             if (event.session == GLOBAL_ID && this->_restartAfterTurn.exchange(false)) {
                 // it changed its own system prompt: started again on it, the same conversation, once its turn is over
                 std::thread([this]() {
@@ -777,6 +783,10 @@ _cold void cluster::Manager::shutdown(void)
 {
     // closing: the agents that end now are not "stopped by themselves" (no notice, no restart)
     this->_closing = true;
+    {
+        std::lock_guard<std::mutex> lock(this->_describer->mutex); // a description being written: dropped
+        this->_describer->alive = false;
+    }
     std::vector<std::shared_ptr<cluster::Session>> sessions;
     this->save();
     {
@@ -798,6 +808,7 @@ _cold void cluster::Manager::tick(void)
     this->schedule_();
     this->fireSchedules_();
     if (++seconds % 300 == 1) this->purge();
+    if (seconds == 5) this->describeMissing_();
 }
 
 std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) const

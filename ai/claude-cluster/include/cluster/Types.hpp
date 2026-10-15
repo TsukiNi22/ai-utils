@@ -175,6 +175,10 @@ struct SessionSpec {
     std::int64_t deleted = 0;       // trash: time of the close
     double cost = 0.0;              // kept over the runs (USD)
     std::int64_t tokens = 0;        // kept over the runs
+    std::string summary;            // a short description (what it works on, holds): given, or written by claude-cluster
+    bool summaryAuto = true;        // written by claude-cluster (false: given by the user or the global session, kept)
+    std::int64_t summaryTurns = 0;  // its turns when it was written (written again after more)
+    std::int64_t turns = 0;         // its turns finished
 };
 
 struct Task {

@@ -46,6 +46,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         }
         list.push_back({"interrupt", "Interrupt the running turn", "", "", false});
         list.push_back({"rename", "Rename the session", "name", snap->spec.name, false});
+        list.push_back({"describe", "Describe the session (its short description: " + (snap->spec.summary.empty() ? std::string("none yet") : cluster::one_line(snap->spec.summary, 50)) + ")",
+            "a few words (empty: written again)", snap->spec.summary, false});
         for (const auto &[mode, description]: cluster::permission_modes())
             list.push_back({"mode:" + mode, "Permission mode: " + mode + " - " + description + (snap->spec.mode == mode ? " (current)" : ""), "", "", false});
         try {
@@ -99,7 +101,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         }
     }
     for (const cluster::SessionSpec& spec: manager.trash()) {
-        list.push_back({"restore:" + spec.id, "Restore " + spec.name + " (" + cluster::short_path(spec.cwd) + ", closed " + cluster::human_age(spec.deleted) + " ago)", "", "", false});
+        list.push_back({"restore:" + spec.id, "Restore " + spec.name + (spec.summary.empty() ? std::string() : " - " + cluster::one_line(spec.summary, 70)) + " ("
+            + cluster::short_path(spec.cwd) + ", closed " + cluster::human_age(spec.deleted) + " ago)", "", "", false});
         list.push_back({"purge:" + spec.id, "Delete for good " + spec.name + " (trash: conversation and history)", "", "", false});
     }
     if (!manager.trash().empty())
@@ -194,6 +197,9 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             voice.mute(); // the answer stopped: its reading too
         } else if (base == "rename") {
             manager.rename(session, input);
+        } else if (base == "describe") {
+            manager.describe(session, input);
+            result.message = cluster::trim(input).empty() ? "its description written again" : "described";
         } else if (base == "mode") {
             manager.setMode(session, arg);
             result.message = "mode " + arg;
@@ -358,6 +364,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"new", "<folder> [backend]: new session"},
         {"mode", "<mode>: permission mode of the session"},
         {"rename", "<name>: rename the session"},
+        {"describe", "[text]: its short description (none: written again)"},
         {"close", "close the session (to the trash)"},
         {"interrupt", "stop the running turn"},
         {"export", "[file]: conversation as Markdown"},
@@ -471,6 +478,9 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
             manager.setMode(session, arg);
         } else if (name == "rename") {
             manager.rename(session, arg);
+        } else if (name == "describe") {
+            manager.describe(session, arg);
+            result.message = cluster::trim(arg).empty() ? "its description written again" : "described";
         } else if (name == "clear") {
             manager.clear(session);
             result.message = "new conversation";

@@ -132,6 +132,8 @@ class Session {
         _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)
         _cold void stop(void);
         _cold void rename(const std::string& name);
+        _cold void describe(const std::string& text, const bool given);     // its short description (written by claude-cluster: not over one given)
+        _cold std::int64_t countTurn(void);                                // a turn finished: its count
         _cold void setClaudeId(const std::string& id);     // the conversation goes on under this id
         _cold void mark(const std::string& text);          // a line of the system in its transcript (and its log)
         _cold void append(const std::vector<cluster::Entry>& entries); // a transcript from elsewhere, shown and logged

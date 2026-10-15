@@ -383,6 +383,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.purge(arg_(request, "session"));
         } else if (cmd == "rename") {
             manager.rename(session(), arg_(request, "name"));
+        } else if (cmd == "describe") {
+            manager.describe(arg_(request, "session"), request.value("text", std::string())); // the trash too
         } else if (cmd == "mode") {
             manager.setMode(session(), arg_(request, "mode"));
         } else if (cmd == "model") {
@@ -440,7 +442,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "trash") {
             data = cluster::Json::array();
             for (const cluster::SessionSpec& spec: manager.trash())
-                data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"deleted", spec.deleted}});
+                data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"deleted", spec.deleted}, {"summary", spec.summary}});
         } else if (cmd == "task_add") {
             data = {{"id", manager.addTask(arg_(request, "prompt"), arg_(request, "target"), request.value("after", std::vector<std::string>()))}};
         } else if (cmd == "task_list") {

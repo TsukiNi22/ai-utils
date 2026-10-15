@@ -1658,7 +1658,8 @@ class TtyUi {
             if (!s.permissions.empty()) row.push_back(ftxui::text("[" + std::to_string(s.permissions.size()) + "]") | ftxui::color(this->_theme.warn) | ftxui::bold);
             ftxui::Element line = ftxui::hbox(std::move(row));
             const std::string backend = s.spec.backend.substr(0, s.spec.backend.find('/'));
-            ftxui::Element sub = ftxui::text("  " + cluster::one_line(backend + " · " + cluster::short_path(s.spec.cwd), 26)) | ftxui::color(this->_theme.muted) | ftxui::dim;
+            ftxui::Element sub = ftxui::text("  " + cluster::one_line(s.spec.summary.empty() ? backend + " · " + cluster::short_path(s.spec.cwd) : s.spec.summary, 26))
+                | ftxui::color(this->_theme.muted) | ftxui::dim;
             const std::string id = s.spec.id;
             ftxui::Element block = this->tap_(ftxui::vbox({line, sub}), 0, [this, id]() {this->_active = id;}, clip); // clicked: shown
             return active ? block | ftxui::bgcolor(this->_theme.surface) : block; // no focus: it would take the cursor of the prompt
