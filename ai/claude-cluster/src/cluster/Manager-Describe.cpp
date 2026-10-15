@@ -72,14 +72,14 @@ _cold static Source source_(const std::string& id)
 }
 
 _cold static std::vector<std::string> one_shot_(const cluster::Config& config, const cluster::Auth& auth, const std::string& backendSpec,
-    const std::string& prompt, const std::filesystem::path& answer)
+    const std::string& prompt, const std::filesystem::path& answer, const bool small = true)
 {
     // one question to a model, its own process, nothing kept: the driver of the provider (claude, codex, opencode, qwen) with its
     // environment (keys, base URL); the provider of Anthropic: its small model (haiku). No tool, no MCP server, no hook of the user
     const cluster::Backend backend = auth.resolve(backendSpec);
     const std::string& driver = backend.provider.driver;
     const bool anthropic = backend.provider.name == "anthropic" || backend.provider.name == "anthropic-api";
-    const std::string model = anthropic && config.describeModel.empty() ? "haiku" : backend.model;
+    const std::string model = small && anthropic && config.describeModel.empty() ? "haiku" : backend.model;
     std::vector<std::string> args = {"env"};
     for (const auto &[key, value]: auth.env(backend))
         args.push_back(key + "=" + value);
@@ -104,6 +104,21 @@ _cold static std::vector<std::string> one_shot_(const cluster::Config& config, c
         return {};
     }
     return args;
+}
+
+_cold static std::string answer_(const std::vector<std::string>& command, const std::filesystem::path& answer)
+{
+    // its whole answer: the file it wrote (codex), else its output, its colors out ("" failed)
+    const cluster::Captured out = cluster::capture(command, cluster::data_dir().string(), 120);
+    if (out.code != 0) return "";
+    std::error_code error;
+    std::string text = out.out;
+    if (std::filesystem::is_regular_file(answer, error)) {
+        std::ifstream in(answer);
+        text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        std::filesystem::remove(answer, error);
+    }
+    return cluster::trim(std::regex_replace(text, std::regex("\x1b\\[[0-9;?]*[A-Za-z]"), ""));
 }
 
 _cold static std::string written_(const std::vector<std::string>& command, const std::filesystem::path& answer)
@@ -267,4 +282,37 @@ _cold void cluster::Manager::describeMissing_(void)
         if (spec.summary.empty()) ids.push_back(spec.id);
     for (std::size_t i = 0; i < ids.size() && i < 12; ++i)
         this->describeAuto_(ids[i]);
+}
+
+/* "Chat about this" */
+_cold void cluster::Manager::chatAbout(const cluster::Ask& ask)
+{
+    // the model of the session (its own one, not a small one) asked once per message: the questions, the last messages of the
+    // session and this chat as context; the conversation of the agent never touched (no fork, no resume), a few tokens a message
+    const std::optional<cluster::Snapshot> snap = this->snapshot(ask.session);
+    if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session " + ask.session);
+    std::string context;
+    std::size_t kept = 0;
+    for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && kept < 8; ++it) {
+        if (it->kind != cluster::EntryKind::User && it->kind != cluster::EntryKind::Assistant) continue;
+        context = std::string(it->kind == cluster::EntryKind::User ? "user: " : "agent: ") + cluster::one_line(it->text, 900) + "\n" + context;
+        ++kept;
+    }
+    std::string chat;
+    for (const auto &[role, text]: ask.chat)
+        chat += (role == "user" ? "user: " : "you: ") + text + "\n";
+    const std::string prompt = "An agent working in " + cluster::short_path(snap->spec.cwd) + " (session " + snap->spec.name + ") asks the user these "
+        "questions before going on: " + ask.questions.dump() + "\n\nThe last messages of that session:\n" + context + "\nThe user talks with you "
+        "about these questions before answering them (you do not answer the agent, you help the user choose: explain the options, their "
+        "consequences, what you would pick and why). Answer the last message of the user, short and clear, in their language.\n\n" + chat;
+    const std::filesystem::path file = cluster::data_dir() / ("chat-" + ask.requestId + ".txt");
+    const std::vector<std::string> command = one_shot_(this->_config, this->_auth, snap->spec.backend, prompt, file, false);
+    if (command.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "its provider can't chat here");
+    std::thread([this, describer = this->_describer, command, file, requestId = ask.requestId]() {
+        const std::string text = answer_(command, file);
+        std::lock_guard<std::mutex> hold(describer->mutex);
+        if (!describer->alive) return; // claude-cluster quits
+        this->asking().chatAnswer(requestId, text.empty() ? "(no answer: the model failed, try again)" : text);
+        ++this->_version;
+    }).detach();
 }

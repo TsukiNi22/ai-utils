@@ -1541,6 +1541,28 @@ class Window: public QMainWindow {
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
             buttons->button(QDialogButtonBox::Ok)->setText("Answer");
             buttons->button(QDialogButtonBox::Cancel)->setText("Decline");
+            // "Chat about this": a side chat about the questions, under them (the session untouched)
+            QWidget* chatBox = new QWidget(&dialog);
+            QVBoxLayout* chatLayout = new QVBoxLayout(chatBox);
+            chatLayout->setContentsMargins(0, 6, 0, 0);
+            QTextBrowser* chatLog = new QTextBrowser(chatBox);
+            chatLog->setMinimumHeight(140);
+            QLineEdit* chatInput = new QLineEdit(chatBox);
+            chatInput->setPlaceholderText("Ask about these questions (Enter)");
+            chatLayout->addWidget(chatLog);
+            chatLayout->addWidget(chatInput);
+            chatBox->hide();
+            layout->insertWidget(layout->count() - 1, chatBox);
+            QObject::connect(chatInput, &QLineEdit::returnPressed, &dialog, [this, chatInput]() {
+                const std::string done = this->manager.asking().chat(chatInput->text().toStdString());
+                if (done.empty()) chatInput->clear();
+                else this->message(done, true);
+            });
+            QPushButton* chatButton = buttons->addButton("Chat about this", QDialogButtonBox::ActionRole);
+            QObject::connect(chatButton, &QPushButton::clicked, &dialog, [chatBox, chatInput]() {
+                chatBox->setVisible(!chatBox->isVisible());
+                if (chatBox->isVisible()) chatInput->setFocus();
+            });
             if (ask.session != GLOBAL_ID) { // the whole set answered by the global session
                 QPushButton* global = buttons->addButton("Global answers", QDialogButtonBox::ActionRole);
                 global->setToolTip("The global session answers them all for you");
@@ -1562,6 +1584,14 @@ class Window: public QMainWindow {
                 }
                 if (model.version() == seen) return;
                 seen = model.version();
+                QString log; // its chat
+                for (const auto &[role, said]: now->chat)
+                    log += "<p><b>" + QString(role == "user" ? "you" : "✻") + "</b> " + q_(said).toHtmlEscaped() + "</p>";
+                if (now->chatting) log += "<p>✻ …</p>";
+                if (chatLog->toHtml() != log) {
+                    chatLog->setHtml(log);
+                    chatLog->moveCursor(QTextCursor::End);
+                }
                 syncing = true;
                 for (std::size_t k = 0; k < rows.size() && k <= now->index; ++k) {
                     const std::string question = rows[k].question.value("question", std::string());

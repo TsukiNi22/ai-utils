@@ -563,14 +563,15 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             else if (action == "back") asking.back();
             else if (action == "decline") asking.decline();
             else if (action == "global") data = {{"done", asking.toGlobal()}};
+            else if (action == "chat") data = {{"done", asking.chat(arg_(request, "text"))}}; // "Chat about this": its answer in the question
             else if (action == "say") data = {{"done", asking.spoken(arg_(request, "text"))}}; // as said to the voice
             else if (action == "next") {
                 const std::string why = asking.next();
                 if (!why.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, why);
             } else if (!action.empty()) {
-                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "ask: choose | toggle | other | next | back | decline | global");
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "ask: choose | toggle | other | next | back | decline | global | chat");
             }
-            if (action != "say" && action != "global") data = asking.json();
+            if (action != "say" && action != "global" && action != "chat") data = asking.json();
         } else if (cmd == "external") {
             // the conversations of the agents opened outside claude-cluster, not the ones opened here
             data = cluster::Json::array();

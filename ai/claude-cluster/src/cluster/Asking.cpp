@@ -66,7 +66,12 @@ _cold bool cluster::Asking::check(void)
             if (p.tool != "AskUserQuestion" || this->_offered.contains(p.requestId) || !p.input.contains("questions") || !p.input["questions"].is_array()
                 || p.input["questions"].empty()) continue;
             this->_offered.insert(p.requestId);
-            this->_ask = cluster::Ask{snap.spec.id, snap.spec.global ? "global" : snap.spec.name, p.requestId, p.input["questions"], 0, 0, {}, "", cluster::Json::object()};
+            cluster::Ask ask;
+            ask.session = snap.spec.id;
+            ask.name = snap.spec.global ? "global" : snap.spec.name;
+            ask.requestId = p.requestId;
+            ask.questions = p.input["questions"];
+            this->_ask = ask;
             ++this->_version;
             return true;
         }
@@ -244,6 +249,38 @@ _cold std::string cluster::Asking::toGlobal(void)
     return "the global session answers it";
 }
 
+_cold std::string cluster::Asking::chat(const std::string& text)
+{
+    // a side chat about the questions with the model of the session: its answer comes back here, the agent sees none of it
+    const std::string message = cluster::trim(text);
+    if (message.empty()) return "nothing to send";
+    cluster::Ask ask;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (!this->_ask) return "no question";
+        if (this->_ask->chatting) return "its answer is still coming";
+        this->_ask->chat.emplace_back("user", message);
+        this->_ask->chatting = true;
+        ++this->_version;
+        ask = *this->_ask;
+    }
+    try {
+        this->_manager.chatAbout(ask);
+    } catch (const utils::exception::IException& e) {
+        this->chatAnswer(ask.requestId, std::string("(no answer: ") + e.info() + ")");
+    }
+    return "";
+}
+
+_cold void cluster::Asking::chatAnswer(const std::string& requestId, const std::string& text)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (!this->_ask || this->_ask->requestId != requestId) return; // answered meanwhile: its chat goes with it
+    this->_ask->chat.emplace_back("assistant", text);
+    this->_ask->chatting = false;
+    ++this->_version;
+}
+
 _cold std::string cluster::Asking::spoken(const std::string& sentence)
 {
     // a sentence while a question is shown: a word of [send] / [next] (validated), [back], [cancel], [other] <its text>,
@@ -298,5 +335,11 @@ _cold cluster::Json cluster::Asking::json(void) const
     const std::optional<cluster::Ask> ask = this->current();
     if (!ask) return nullptr;
     return {{"session", ask->session}, {"name", ask->name}, {"request_id", ask->requestId}, {"questions", ask->questions}, {"index", ask->index},
-        {"cursor", ask->cursor}, {"picked", ask->picked}, {"other", ask->other}, {"answers", ask->answers}};
+        {"cursor", ask->cursor}, {"picked", ask->picked}, {"other", ask->other}, {"answers", ask->answers}, {"chatting", ask->chatting},
+        {"chat", [&ask]() {
+            cluster::Json chat = cluster::Json::array();
+            for (const auto &[role, text]: ask->chat)
+                chat.push_back({{"role", role}, {"text", text}});
+            return chat;
+        }()}};
 }

@@ -95,6 +95,8 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
 .msg.turn { color: var(--accent); font-size: 14px; } .msg.turn .turn-tool, .msg.turn details { color: var(--muted); font-size: 13px; margin-left: 12px; }
 .msg.turn summary { cursor: pointer; }
+.ask-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; border-top: 1px solid var(--border, #444); padding-top: 8px; }
+.ask-chat-user { color: var(--text); } .ask-chat-assistant { color: var(--accent); white-space: pre-wrap; }
 .picker-veil { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
 .picker { background: var(--surface, var(--bg)); border: 1px solid var(--border, #444); border-radius: 12px; width: min(520px, 100%); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); }
 .picker-title { padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border, #444); }
@@ -1274,10 +1276,24 @@ function renderQuestion(a) {
         act({cmd: "ask", action: "next"});
     }), button("Decline", "danger", () => act({cmd: "ask", action: "decline"})));
     if (a.session !== "g") row.append(button("Global answers", "", () => act({cmd: "ask", action: "global"}).then((d) => { if (d && d.done) toast(d.done); })));
+    // "Chat about this": a side chat about the questions, in the popup (the session untouched)
+    const chat = el("div", "ask-chat");
+    for (const m of a.chat || []) chat.append(el("div", "ask-chat-" + m.role, (m.role === "user" ? "you › " : "✻ ") + m.text));
+    if (a.chatting) chat.append(el("div", "ask-chat-assistant", "✻ …"));
+    const chatInput = document.createElement("input");
+    chatInput.placeholder = "Chat about this (Enter)";
+    chatInput.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || !chatInput.value.trim()) return;
+        e.preventDefault();
+        const text = chatInput.value;
+        chatInput.value = "";
+        act({cmd: "ask", action: "chat", text}).then((d) => { if (d && d.done) toast(d.done); });
+    });
+    chat.append(chatInput);
     const hint = document.createElement("small");
-    hint.textContent = "voice: a number or an option · valide / suivant · retour · autre <answer> · annule";
+    hint.textContent = "voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule";
     hint.style.color = "var(--muted)";
-    box.append(row, hint);
+    box.append(row, chat, hint);
 }
 
 function renderAsk(s) {

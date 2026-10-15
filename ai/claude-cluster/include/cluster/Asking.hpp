@@ -24,8 +24,10 @@ File Description:
     #include "Types.hpp"            // cluster::Json
     #include <optional>             // std::optional
     #include <cstdint>              // std::uint64_t
+    #include <utility>              // std::pair
     #include <string>               // std::string
     #include <atomic>               // std::atomic
+    #include <vector>               // std::vector
     #include <mutex>                // std::mutex
     #include <set>                  // std::set
 
@@ -44,6 +46,8 @@ struct Ask {
     std::set<int> picked;           // multi choice: the options ticked
     std::string other;              // the answer typed
     cluster::Json answers = cluster::Json::object();
+    std::vector<std::pair<std::string, std::string>> chat;   // "Chat about this": <user | assistant, text>, the session never touched
+    bool chatting = false;          // an answer of the chat awaited
 };
 
 //----------------------------------------------------------------//
@@ -74,6 +78,8 @@ class Asking {
         _cold void back(void);                  // the previous question
         _cold void decline(void);
         _cold _nodiscard std::string toGlobal(void);    // the whole set answered by the global session (what it did, or why not)
+        _cold _nodiscard std::string chat(const std::string& text);    // "Chat about this": a message (answered in the background; "" sent)
+        _cold void chatAnswer(const std::string& requestId, const std::string& text); // its answer (the question still shown)
         _cold _nodiscard std::string spoken(const std::string& sentence); // a sentence of the voice on it: what it did, "" not for it
         _cold _nodiscard cluster::Json json(void) const;  // the question shown (null: none): the web page, the commands
 

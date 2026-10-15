@@ -320,7 +320,11 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   types it, `[cancel]` declines (`voice-words.txt`). **The global session answers** the whole set for you: the key of the
   global session (Ctrl+G) in the terminal, *Global answers* in the window, the web page and the notification, or a word
   of `[global]` said (*la globale*, *laisse la globale répondre*, *let the global answer*): it chooses from the
-  conversation, the project and `machine.md`, answers with `session_allow`, then tells you what it answered. `[sessions] global_answers` (off): the global session is told those
+  conversation, the project and `machine.md`, answers with `session_allow`, then tells you what it answered.
+  **Chat about this** (Ctrl+T in the terminal, a button in the window, a field in the web page): a chat about the
+  questions inside the popup, with the model of the session (the questions and its last messages as context, a
+  one-shot run per message): the conversation of the agent is never touched (no fork, no resume), the question stays
+  open; its chat is shared by the interfaces and goes with the question once answered. `[sessions] global_answers` (off): the global session is told those
   questions and may choose their answer when it knows what you want;
 - **the safety check of Claude Code** (a removal it cannot resolve, `rm -f $O/*.png`...): only a person may approve it.
   A sub-session in `bypassPermissions` asks for it: the global session decides (`[sessions] bypass_to_global`, on; it

@@ -421,6 +421,8 @@ class TtyUi {
         };
         std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
         std::string _title;                         // the title of the terminal set (its face)
+        bool _askChat = false;                      // a question: its chat being typed ("Chat about this")
+        std::string _askDraft;
         std::string _host = cluster::host_name();   // where the sessions run
         std::map<std::string, std::string> _branches;   // their git branch, read again every 5 s
         std::map<std::string, std::int64_t> _branchAt;
@@ -2636,6 +2638,16 @@ class TtyUi {
                     press(ftxui::text(std::string("Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")), ftxui::Event::Return),
                     a.index > 0 ? press(ftxui::text(" · ← back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
                     press(ftxui::text("Esc decline"), ftxui::Event::Escape)}) | ftxui::color(this->_theme.muted) | ftxui::dim);
+                // "Chat about this": a side chat about the questions, in the popup (the session untouched)
+                for (const auto &[role, said]: a.chat)
+                    lines.push_back(ftxui::paragraph((role == "user" ? " you › " : " ✻ ") + said) | ftxui::color(role == "user" ? this->_theme.text : this->_theme.accent));
+                if (a.chatting) lines.push_back(ftxui::text(" ✻ …") | ftxui::color(this->_theme.muted));
+                if (this->_askChat)
+                    lines.push_back(ftxui::hbox({ftxui::text(" chat › ") | ftxui::color(this->_theme.accent) | ftxui::bold, ftxui::text(this->_askDraft),
+                        ftxui::text("▏") | ftxui::blink, ftxui::filler(), ftxui::text("Enter send · Esc back ") | ftxui::color(this->_theme.muted) | ftxui::dim}));
+                else
+                    lines.push_back(this->tap_(ftxui::text(" Ctrl+T: chat about this (the session untouched)") | ftxui::color(this->_theme.accent), 0,
+                        [this]() {this->_askChat = true;}));
                 if (a.session != GLOBAL_ID)
                     lines.push_back(this->tap_(ftxui::text(" " + this->_manager.config().keys.at("global") + ": the global session answers them all for you")
                         | ftxui::color(this->_theme.accent), 0, [this]() {
@@ -3083,6 +3095,26 @@ class TtyUi {
                     const cluster::Json& q = ask->questions[ask->index];
                     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
                     const bool multi = q.value("multiSelect", false);
+                    if (this->_askChat) { // its chat typed: Enter sent, Esc back to the options
+                        if (event == ftxui::Event::Escape) {
+                            this->_askChat = false;
+                        } else if (event == ftxui::Event::Return) {
+                            const std::string done = asking.chat(this->_askDraft);
+                            if (done.empty()) this->_askDraft.clear();
+                            else this->status_(done, true);
+                        } else if (event == ftxui::Event::Backspace) {
+                            while (!this->_askDraft.empty() && (static_cast<unsigned char>(this->_askDraft.back()) & 0xC0) == 0x80)
+                                this->_askDraft.pop_back();
+                            if (!this->_askDraft.empty()) this->_askDraft.pop_back();
+                        } else if (event.is_character()) {
+                            this->_askDraft += event.character();
+                        }
+                        return true;
+                    }
+                    if (key == "Ctrl+T") {
+                        this->_askChat = true;
+                        return true;
+                    }
                     if (event == ftxui::Event::Escape) {
                         asking.decline();
                         this->status_("question declined");
