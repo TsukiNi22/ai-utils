@@ -659,6 +659,16 @@ the agents, a new session, a session closed.
   from the login page (*trust this computer once*: `/ca.crt` and the steps for Android, iPhone, Firefox, Windows,
   macOS). The code and the conversation are encrypted, and the microphone of the page is allowed (browsers refuse it
   on plain http). A plain `http://` request is sent to `https://`. Off: plain HTTP, no microphone.
+- **The certificate fitting the way it is reached**: with *Beyond the LAN* = `tailscale`, claude-cluster gets the
+  **real certificate of the tailnet** (`tailscale cert <computer>.<tailnet>.ts.net`, Let's Encrypt) and serves it to
+  that name (SNI): **no warning on any device, nothing to install**; renewed every day without closing the port. The
+  LAN address and the router keep the authority of this computer (trusted once per device: no warning, and nobody else
+  can make a certificate it accepts - its key never leaves this computer). Needed once: the HTTPS certificates of the
+  tailnet on (login.tailscale.com › DNS › HTTPS Certificates) and this user allowed to ask for them (*Services ›
+  Outside › Allow tailscale certificates*: `tailscale set --operator=$USER` by the password window). Missing: told in
+  red in the settings, its failure popup (Retry), the authority served meanwhile. Note: a public certificate is listed
+  in the public Certificate Transparency logs - the name of the computer in its tailnet is public, nothing else
+  (reaching it still needs the tailnet). *Services › Web access* tells the certificate served and its fingerprint.
 - A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`; the Fedora
   Workstation zone already lets 1025-65535 in).
 

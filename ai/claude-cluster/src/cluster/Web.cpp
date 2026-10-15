@@ -373,6 +373,8 @@ _cold void cluster::Web::tick(void)
     } else if (!wanted && this->_fd != -1) {
         this->close_();
         this->_manager.notice(GLOBAL_ID, "web access closed");
+    } else if (this->_fd != -1 && this->_tls != nullptr && !this->_sni.name.empty() && cluster::now() - this->_sniAt > 86400) {
+        this->tailnetCert_(); // its certificate of the tailnet: renewed (swapped in, nobody disconnected)
     }
 }
 
@@ -413,6 +415,10 @@ _cold void cluster::Web::open_(const int port)
     if (this->_httpsWanted) cluster::busy_step("its certificate (https)");
     const std::string tls = this->_httpsWanted ? this->tls_() : "";
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
+    if (!this->_certWhy.empty()) // tailscale without its real certificate: the authority of this computer meanwhile (a warning until it is trusted)
+        (void)this->_manager.fail("Get the real certificate of the tailnet (no browser warning)", "tailscale cert", this->_certWhy, [m = &this->_manager]() {
+            if (m->web() != nullptr) m->web()->reopen();
+        });
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_fd = fd; // open now
@@ -463,6 +469,8 @@ _cold void cluster::Web::remote_(void)
     this->_remoteState.clear();
     this->_remoteOk = false;
     this->_remoteWhy.clear();
+    this->_sni.name.clear();
+    this->_certWhy.clear();
     if (conf.remote == "tailscale") {
         cluster::busy_step("tailscale: its address");
         if (!cluster::has_command("tailscale")) {
@@ -480,6 +488,10 @@ _cold void cluster::Web::remote_(void)
         const cluster::Json status = cluster::Json::parse(cluster::capture({"tailscale", "status", "--json"}, "", 10).out, nullptr, false);
         std::string name = status.is_object() && status.contains("Self") && status["Self"].is_object() ? status["Self"].value("DNSName", std::string()) : "";
         while (name.ends_with(".")) name.pop_back();
+        const cluster::Json domains = status.is_object() ? status.value("CertDomains", cluster::Json::array()) : cluster::Json::array();
+        this->_sni.name = domains.is_array() && !domains.empty() && domains[0].is_string() ? cluster::lower(domains[0].get<std::string>()) : "";
+        this->_certWhy = this->_sni.name.empty() ? "the HTTPS certificates of your tailnet are off: turn them on (login.tailscale.com › DNS › HTTPS Certificates), "
+            "then Ask the router again (Services › Outside)" : "";
         if (!name.empty()) this->_remoteNames.push_back(cluster::lower(name));
         this->_remoteUrl = "https://" + (name.empty() ? ip : cluster::lower(name)) + ":" + std::to_string(this->_port);
         this->_remoteState = this->_remoteUrl + " (tailscale: the devices of your tailnet, end to end)";
@@ -541,6 +553,7 @@ _cold void cluster::Web::close_(void)
     this->_fd = -1;
     #ifdef CLUSTER_TLS
         if (this->_tls != nullptr) ::SSL_CTX_free(static_cast<SSL_CTX*>(this->_tls));
+        if (void* old = this->_sni.context.exchange(nullptr)) ::SSL_CTX_free(static_cast<SSL_CTX*>(old));
     #endif
     this->_tls = nullptr;
     this->_access.clear();
@@ -561,6 +574,58 @@ _cold void cluster::Web::serve_(void)
         ++this->_busy;
         std::thread(&cluster::Web::client_, this, client, std::string(text.data())).detach();
     }
+}
+
+#ifdef CLUSTER_TLS
+    _cold static int sni_(SSL* ssl, int*, void* arg)
+    {
+        // the name of the tailnet asked (SNI): its real certificate (Let's Encrypt); any other name / address: the one of the
+        // authority of this computer
+        const cluster::WebSniView* sni = static_cast<const cluster::WebSniView*>(arg);
+        const char* asked = ::SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+        void* context = sni->context->load();
+        if (asked != nullptr && context != nullptr && cluster::lower(asked) == *sni->name) (void)::SSL_set_SSL_CTX(ssl, static_cast<SSL_CTX*>(context));
+        return SSL_TLSEXT_ERR_OK;
+    }
+#endif
+
+_cold void cluster::Web::tailnetCert_(void)
+{
+    // tailscale cert: a real certificate of <computer>.<tailnet>.ts.net (Let's Encrypt, renewed by tailscale), swapped in
+    // without closing the port; not got: why (this user not allowed, the HTTPS certificates of the tailnet off)
+    #ifdef CLUSTER_TLS
+        if (this->_sni.name.empty() || !cluster::has_command("tailscale")) return;
+        const std::filesystem::path dir = cluster::config_dir() / "web";
+        const std::filesystem::path cert = dir / "tailnet-cert.pem";
+        const std::filesystem::path key = dir / "tailnet-key.pem";
+        cluster::busy_step("its real certificate from the tailnet (tailscale cert " + this->_sni.name + ", Let's Encrypt)");
+        const cluster::Captured got = cluster::capture({"tailscale", "cert", "--cert-file", cert.string(), "--key-file", key.string(), this->_sni.name}, "", 120);
+        ::chmod(key.c_str(), S_IRUSR | S_IWUSR);
+        for (const std::string& line: cluster::split(got.out, '\n'))
+            cluster::busy_log(line);
+        this->_sniAt = cluster::now();
+        if (got.code != 0) {
+            const std::string out = cluster::lower(got.out);
+            this->_certWhy = out.find("access denied") != std::string::npos || out.find("operator") != std::string::npos || out.find("permission") != std::string::npos
+                ? "this user may not ask tailscale for certificates: allow it once (Services › Outside › Allow tailscale certificates: tailscale set --operator="
+                    + std::string(std::getenv("USER") != nullptr ? std::getenv("USER") : "you") + ")"
+                : out.find("https") != std::string::npos || out.find("not enabled") != std::string::npos || out.find("support") != std::string::npos
+                ? "the HTTPS certificates of your tailnet are off: turn them on (login.tailscale.com › DNS › HTTPS Certificates)"
+                : "tailscale cert: " + cluster::one_line(got.out, 200);
+            return;
+        }
+        SSL_CTX* context = ::SSL_CTX_new(::TLS_server_method());
+        if (context == nullptr) return;
+        (void)::SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION);
+        if (::SSL_CTX_use_certificate_chain_file(context, cert.c_str()) != 1 || ::SSL_CTX_use_PrivateKey_file(context, key.c_str(), SSL_FILETYPE_PEM) != 1) {
+            ::SSL_CTX_free(context);
+            this->_certWhy = "the certificate of the tailnet unreadable (" + cluster::short_path(dir.string()) + ")";
+            return;
+        }
+        this->_certWhy.clear();
+        // the old one: freed once its connections end (their SSL hold it)
+        if (void* old = this->_sni.context.exchange(context)) ::SSL_CTX_free(static_cast<SSL_CTX*>(old));
+    #endif
 }
 
 _cold std::string cluster::Web::tls_(void)
@@ -638,6 +703,11 @@ _cold std::string cluster::Web::tls_(void)
             }
         this->_fingerprint = fingerprint;
         this->_tls = context;
+        // reached by tailscale: its real certificate too, served to its name (SNI)
+        this->_sniView = {&this->_sni.context, &this->_sni.name};
+        ::SSL_CTX_set_tlsext_servername_callback(context, sni_);
+        ::SSL_CTX_set_tlsext_servername_arg(context, &this->_sniView);
+        this->tailnetCert_();
         return "";
     #else
         return "not built with OpenSSL";
@@ -891,6 +961,8 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     status.url = std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":" + std::to_string(this->_port);
     status.https = this->_tls != nullptr;
     status.fingerprint = this->_fingerprint;
+    status.certificate = this->_tls == nullptr ? "none" : this->_sni.context.load() != nullptr ? "tailscale" : "authority";
+    status.certificateWhy = this->_certWhy;
     status.remoteUrl = this->_remoteUrl;
     status.remoteState = this->_remoteState;
     status.remoteOk = this->_remoteOk;
@@ -1376,6 +1448,8 @@ _cold std::optional<cluster::WebStatus> cluster::web_status(cluster::Manager& ma
         status.error = data.value("error", std::string());
         status.https = data.value("https", false);
         status.fingerprint = data.value("fingerprint", std::string());
+        status.certificate = data.value("certificate", std::string());
+        status.certificateWhy = data.value("certificate_why", std::string());
         status.remoteUrl = data.value("remote_url", std::string());
         status.remoteState = data.value("remote", std::string());
         status.remoteOk = data.value("remote_ok", false);

@@ -107,7 +107,8 @@ _cold cluster::Json cluster::services(cluster::Manager& manager)
     out["web"] = {{"on", web && web->on}, {"url", web ? web->url : ""}, {"pin", web ? web->pin : ""}, {"error", web ? web->error : ""},
         {"remote_url", web ? web->remoteUrl : ""}, {"remote", web ? web->remoteState : ""}, {"remote_ok", web && web->remoteOk},
         {"connected", connected}, {"waiting", waiting}, {"trusted", web ? web->trusted.size() : 0}, {"at_start", c.web.enabled}, {"mode", c.web.remote},
-        {"https", web && web->https}};
+        {"https", web && web->https}, {"certificate", web ? web->certificate : ""}, {"certificate_why", web ? web->certificateWhy : ""},
+        {"fingerprint", web ? web->fingerprint : ""}};
     // core
     out["core"] = {{"pid", ::getpid()}, {"since", manager.startedAt()}, {"version", CLUSTER_VERSION}, {"build", cluster::build_id()},
         {"interfaces", cluster::interface_pids().size()}, {"sessions", manager.list(false).size()}, {"shared", c.sharedCore}};
@@ -183,6 +184,23 @@ _cold static std::string act_(cluster::Manager& manager, const std::string& serv
             const int code = cluster::run_logged({"upnpc", "-d", port, "TCP"}, [](const std::string& line) {cluster::busy_log(line);});
             if (code != 0) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "upnpc -d " + port + ": exit " + std::to_string(code));
             return "the redirection of the port " + port + " removed (Beyond the LAN: off, or it comes back at the next opening)";
+        }
+        if (action == "tailscale_operator") { // this user may ask tailscale for its certificates (the password window), then got
+            const std::string user = std::getenv("USER") != nullptr ? std::getenv("USER") : "";
+            if (user.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no USER: run sudo tailscale set --operator=<you>");
+            cluster::busy_step("pkexec tailscale set --operator=" + user);
+            std::string last;
+            const int code = cluster::run_logged({"pkexec", "tailscale", "set", "--operator=" + user}, [&last](const std::string& line) {
+                cluster::busy_log(line);
+                if (!cluster::trim(line).empty()) last = cluster::trim(line);
+            });
+            if (code != 0) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "tailscale set --operator: "
+                + (last.empty() ? "exit " + std::to_string(code) : last));
+            web->reopen();
+            web->tick(); // its certificate got now
+            const cluster::WebStatus status = web->status();
+            if (!status.certificateWhy.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, status.certificateWhy);
+            return status.certificate == "tailscale" ? "the real certificate of the tailnet served: no warning" : "allowed";
         }
         if (action == "tailscale_up") { // this computer logged in to its tailnet (the password window)
             cluster::busy_step("pkexec tailscale up");
@@ -309,6 +327,15 @@ _cold std::vector<cluster::ServiceLine> cluster::service_lines(const std::string
         } else {
             out.push_back({std::string("closed") + (s.value("at_start", false) ? " (opened at start)" : " (Web > Open the web access at start: off)"), "muted"});
         }
+        if (s.value("on", false)) {
+            const std::string cert = s.value("certificate", std::string());
+            if (cert == "tailscale") out.push_back({"certificate: the real one of the tailnet (Let's Encrypt): no warning, nothing to install; the LAN address: "
+                "the authority of this computer", "ok"});
+            else if (cert == "authority") out.push_back({"certificate: the authority of this computer - trusted once per device (the page: Download the certificate): "
+                "no warning, nobody else can make one · SHA-256 " + s.value("fingerprint", std::string()).substr(0, 23) + "…", "muted"});
+            else out.push_back({"no https (Web › HTTPS off): tailscale still encrypts, the LAN does not; the microphone of the page off", "warn"});
+            if (!s.value("certificate_why", std::string()).empty()) out.push_back({"✗ the real certificate of the tailnet: " + s.value("certificate_why", std::string()), "error"});
+        }
         if (!s.value("error", std::string()).empty()) out.push_back({"✗ " + s.value("error", std::string()), "error"});
     } else if (name == "core") {
         out.push_back({"claude-cluster " + s.value("version", std::string()) + " · build " + s.value("build", std::string()), "muted"});
@@ -343,6 +370,7 @@ _cold std::vector<std::pair<std::string, std::string>> cluster::service_buttons(
     if (name == "core") return s.value("shared", true) ? std::vector<Button>{{"Restart", "restart"}, {"Stop all", "stop"}} : std::vector<Button>{};
     if (name == "voice") return {s.value("listening", false) ? Button{"Stop", "stop"} : Button{"Listen", "listen"}, {"Mute", "mute"}};
     if (name == "mcp") return {{"Restart the global session", "restart_global"}};
-    if (name == "outside") return {{"Ask the router again", "reopen"}, {"Remove the redirection", "unmap"}, {"Tailscale up", "tailscale_up"}};
+    if (name == "outside") return {{"Ask the router again", "reopen"}, {"Remove the redirection", "unmap"}, {"Tailscale up", "tailscale_up"},
+        {"Allow tailscale certificates", "tailscale_operator"}};
     return {};
 }

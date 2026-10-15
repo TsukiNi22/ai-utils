@@ -809,7 +809,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 return out;
             };
             data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
-                {"https", status.https}, {"fingerprint", status.fingerprint}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState}, {"remote_ok", status.remoteOk},
+                {"https", status.https}, {"fingerprint", status.fingerprint}, {"certificate", status.certificate}, {"certificate_why", status.certificateWhy}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState}, {"remote_ok", status.remoteOk},
                 {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
                 {"trusted", list(status.trusted)}, {"banned", list(status.banned)}, {"ping", status.ping}};
         } else if (cmd == "voice_engines") {

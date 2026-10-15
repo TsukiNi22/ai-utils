@@ -39,8 +39,9 @@ _cold cluster::Requirement cluster::setting_requirement(cluster::Manager& manage
     }
     if (key == "web.remote" && value == "tailscale") {
         if (!cluster::has_command("tailscale")) return {"tailscale missing: install it here and on the phone, log both in with the same account", "tailscale"};
-        if (const std::optional<cluster::WebStatus> web = cluster::web_status(manager); web && web->on && web->remoteState.find("not connected") != std::string::npos)
-            return {"tailscale not connected: log this computer in (sudo tailscale up)", ""};
+        const std::optional<cluster::WebStatus> web = cluster::web_status(manager);
+        if (web && web->on && web->remoteState.find("not connected") != std::string::npos) return {"tailscale not connected: log this computer in (sudo tailscale up)", ""};
+        if (web && web->on && !web->certificateWhy.empty()) return {"no real certificate (a browser warning): " + web->certificateWhy, ""};
         return {};
     }
     if ((key == "ui.editor" || key == "ui.image_viewer" || key == "service.terminal" || setting.section == "commands") && !first.empty() && !first.starts_with("/")

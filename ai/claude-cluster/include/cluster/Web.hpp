@@ -61,6 +61,8 @@ struct WebStatus {
     std::string error;              // why the port could not be opened
     bool https = false;             // TLS (self-signed certificate): the microphone of the page works
     std::string fingerprint;        // SHA-256 of the certificate, to compare with the one the browser shows
+    std::string certificate;        // the certificate served: tailscale (a real one of the tailnet) | authority (of this computer) | none
+    std::string certificateWhy;     // tailscale asked but its certificate not got: why (what to do)
     std::string remoteUrl;          // reached from outside ([web] remote), empty: not
     std::string remoteState;        // how it is reached from outside, or why not
     bool remoteOk = false;          // reached from outside for sure (the router opened its port, tailscale on, a name given)
@@ -81,6 +83,12 @@ _cold void web_act(cluster::Manager& manager, const std::string& action, const s
 
 //----------------------------------------------------------------//
 /* CLASS */
+
+// What the TLS callback of the web access reads: the certificate of the tailnet, the name it is served to
+struct WebSniView {
+    const std::atomic<void*>* context = nullptr;
+    const std::string* name = nullptr;
+};
 
 class Web {
     private:
@@ -107,6 +115,13 @@ class Web {
         std::map<std::string, Access> _trusted;     // by device: remembered (config folder / web / trusted.json, 0600)
         std::string _error;
         void* _tls = nullptr;           // SSL_CTX of https (nullptr: plain http)
+        struct Sni {
+            std::atomic<void*> context{nullptr};    // SSL_CTX of the certificate of the tailnet (Let's Encrypt)
+            std::string name;                       // its name (<computer>.<tailnet>.ts.net): asked by it (SNI), served
+        } _sni;
+        std::string _certWhy;                       // the certificate of the tailnet not got: why
+        std::int64_t _sniAt = 0;                    // unix s it was got (renewed every day)
+        cluster::WebSniView _sniView;               // what its TLS callback reads
         bool _httpsWanted = false;      // [web] https when it was opened
         std::string _fingerprint;
         std::string _remoteWanted;                  // [web] remote, remote_host, remote_port when it was opened
@@ -133,6 +148,7 @@ class Web {
         _cold void saveBanned_(void) const;
         _cold _nodiscard bool banned_(const std::string& id, const std::string& peer) const; // its device, or its address from outside
         _cold _nodiscard std::string tls_(void);   // https set up (its certificate made once), error text, empty: on
+        _cold void tailnetCert_(void);              // the certificate of the tailnet got (tailscale cert), swapped in: _sni
         _cold void newPin_(void);
         _cold void expire_(void);       // the devices gone, the waits too old (under _mutex)
         _cold void remote_(void);       // reached from outside: its names, its address, the port of the router (UPnP)
