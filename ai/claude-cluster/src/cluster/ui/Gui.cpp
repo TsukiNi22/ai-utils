@@ -1359,11 +1359,6 @@ class Window: public QMainWindow {
                 top->addWidget(button);
             }
             root->addWidget(topbar);
-            QHBoxLayout* webRow = new QHBoxLayout();
-            webRow->setContentsMargins(14, 0, 14, 0);
-            webRow->addWidget(this->webLabel);
-            webRow->addStretch(1);
-            root->addLayout(webRow);
             QWidget* body = new QWidget(central);
             QVBoxLayout* inner = new QVBoxLayout(body);
             inner->setContentsMargins(10, 0, 10, 0);
@@ -1480,7 +1475,13 @@ class Window: public QMainWindow {
             root->addWidget(composer);
             this->status = new QLabel(central);
             this->status->setObjectName("status");
-            root->addWidget(this->status);
+            this->status->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); // a long one cut, the web access kept
+            // the bottom line: the status / the last notice on the left, the web access on the right
+            QHBoxLayout* bottom = new QHBoxLayout();
+            bottom->setContentsMargins(0, 0, 14, 0);
+            bottom->addWidget(this->status, 1);
+            bottom->addWidget(this->webLabel);
+            root->addLayout(bottom);
             this->setCentralWidget(central);
             this->input->setFocus();
             this->lastVersion = 0;

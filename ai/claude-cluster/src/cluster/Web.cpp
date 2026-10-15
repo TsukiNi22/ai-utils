@@ -1260,7 +1260,16 @@ _cold std::string cluster::web_line(const cluster::WebStatus& status)
         connected += d.state == "connected" ? 1 : 0;
         waiting += d.state == "waiting" ? 1 : 0;
     }
-    return "web " + status.url + " · code " + status.pin + " · " + (connected == 0 ? std::string("nobody") : std::to_string(connected) + " connected")
+    // reached from outside: its public address first (the one to give away from home), the LAN one after; asked but not
+    // reached: told
+    std::string where = status.url;
+    if (!status.remoteUrl.empty()) {
+        std::string lan = status.url.substr(status.url.find("://") == std::string::npos ? 0 : status.url.find("://") + 3);
+        where = status.remoteUrl + " (LAN " + lan + ")";
+    } else if (!status.remoteState.empty()) {
+        where += " · outside ✕";
+    }
+    return "web " + where + " · code " + status.pin + " · " + (connected == 0 ? std::string("nobody") : std::to_string(connected) + " connected")
         + (status.ping >= 0 ? " · ping " + std::to_string(status.ping) + " ms" : "") + (waiting > 0 ? " · " + std::to_string(waiting) + " waiting for you" : "");
 }
 

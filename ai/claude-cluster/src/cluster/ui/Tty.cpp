@@ -391,7 +391,7 @@ class TtyUi {
         std::vector<std::size_t> _chips;            // atoms of the prompt shown as chips (images, pasted texts)
         std::vector<ftxui::Box> _chipBoxes;
         int _hoverChip = -1;
-        int _hover = -1;                            // the click target under the mouse (its index in _clicks), underlined
+        int _hover = -1;                            // the click target under the mouse (its index in _clicks), lit
         std::map<int, std::string> _rowSessions;    // the click targets that are sessions (a right click: their menu)
         struct PromptRow {
             std::size_t from = 0;                   // first byte shown
@@ -658,6 +658,7 @@ class TtyUi {
         bool _finding = false;                      // the search of the settings page (/)
         bool _dangerOk = false;                     // the dangerous changes confirmed (their popup at the save)
         bool _saveExit = true;                      // the save waiting for that popup: the page closed after
+        bool _quitAfter = false;                    // that save asked by the quit key: claude-cluster quits after
         std::string _find;
         std::vector<cluster::SettingHit> _hits;
         int _findHit = 0;
@@ -1072,11 +1073,11 @@ class TtyUi {
         /* mouse clicks */
         ftxui::Element click_(ftxui::Element element, const int layer, const std::function<bool(void)>& act, const int clip = -1)
         {
-            // drawn: its box kept, a click in it runs act (the last drawn first: what is over the rest); under the mouse:
-            // underlined (hover)
+            // drawn: its box kept, a click in it runs act (the last drawn first: what is over the rest); under the mouse: its
+            // background lit, bold (hover)
             const bool hovered = static_cast<int>(this->_clicks.size()) == this->_hover;
             this->_clicks.push_back({ftxui::Box{-1, -1, -1, -1}, layer, clip, act});
-            return (hovered ? element | ftxui::underlined : element) | ftxui::reflect(this->_clicks.back().box);
+            return (hovered ? element | ftxui::bold | ftxui::bgcolor(this->_theme.border) : element) | ftxui::reflect(this->_clicks.back().box);
         }
 
         ftxui::Element tap_(ftxui::Element element, const int layer, const std::function<void(void)>& act, const int clip = -1)
@@ -1635,6 +1636,18 @@ class TtyUi {
                 }
                 return true;
             }
+            // quitting with changes: y saves them (their dangerous ones asked) then quits, n quits without, Esc stays
+            if (this->_note == "confirm_quit") {
+                this->_note.clear();
+                if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
+                    this->_quitAfter = true;
+                    this->saveSettings_();
+                    if (this->_note != "danger_save") this->_screen.Exit();
+                } else if (event == ftxui::Event::Character('n') || event == ftxui::Event::Character('N')) {
+                    this->_screen.Exit();
+                }
+                return true;
+            }
             // the save with dangerous values: y saves them all, n / Esc back to the page (nothing saved, the changes kept)
             if (this->_note == "danger_save") {
                 this->_note.clear();
@@ -1642,9 +1655,11 @@ class TtyUi {
                     this->_dangerOk = true;
                     this->saveSettings_(this->_saveExit);
                     this->_dangerOk = false;
+                    if (this->_quitAfter) this->_screen.Exit();
                 } else {
                     this->_note = "not saved: the changes are kept (Ctrl+S to save them)";
                 }
+                this->_quitAfter = false;
                 return true;
             }
             // "Save the changes? (y / n)": y saves, any other key drops them
@@ -1803,6 +1818,7 @@ class TtyUi {
                 if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
             }
             std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)"
+                : this->_note == "confirm_quit" ? "Quit: save the " + std::to_string(this->_changes.size()) + " change(s) first?"
                 : this->_note == "danger_save" ? std::string() : this->_note;
             ftxui::Elements choice;
             for (const std::string& line: cluster::split(choiceHelp, '\n'))
@@ -1843,6 +1859,9 @@ class TtyUi {
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
                 this->_note == "confirm" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn), keyed(" [y] save ", ftxui::Event::Character('y')) | ftxui::color(t.accent),
                     keyed(" [n] drop ", ftxui::Event::Character('n')) | ftxui::color(t.accent)})
+                : this->_note == "confirm_quit" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn) | ftxui::bold,
+                    keyed(" [y] save and quit ", ftxui::Event::Character('y')) | ftxui::color(t.accent), keyed(" [n] quit without ", ftxui::Event::Character('n')) | ftxui::color(t.error),
+                    keyed(" Esc stay ", ftxui::Event::Escape) | ftxui::color(t.muted)})
                 : ftxui::text(" " + note) | ftxui::color(t.warn),
                 ftxui::hbox({ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   "), keyed("/ search", ftxui::Event::Character('/')),
                     ftxui::text("   "), keyed("Ctrl+S save", ftxui::Event::Special(std::string(1, '\x13'))),
@@ -3121,7 +3140,6 @@ class TtyUi {
                         this->_webConfirm.clear();
                         this->_mode = Mode::WebDevices;
                     }),
-                ftxui::filler(),
             });
             // the global session asked to show a session (ui_focus); the style may have changed (ui_style)
             if (this->_manager.raiseRequest() != this->_raiseSeen) { // a notification clicked: the bell marks this terminal
@@ -3141,18 +3159,22 @@ class TtyUi {
             this->_views.clear(); // filled again by the transcripts drawn
             this->_animating = false;
             this->_reveal.frameStart();
-            const int bodyHeight = size.dimy - 4 - (this->_app.voice->listening() || !this->_app.voice->pending().empty() ? 1 : 0) - (web.empty() ? 0 : 1);
+            const int bodyHeight = size.dimy - 4 - (this->_app.voice->listening() || !this->_app.voice->pending().empty() ? 1 : 0);
             ftxui::Element input = this->prompt_(size.dimx);
+            // the bottom line: the status / the last notice on the left, cut to the room left by the web access on the right
+            const int webWidth = web.empty() ? 0 : ftxui::string_width(web) + 4 + (webState->on ? 11 : 0);
+            const std::size_t room = static_cast<std::size_t>(std::max(10, size.dimx - webWidth - 3));
+            ftxui::Element bottom = ftxui::hbox({ftxui::text(" " + cluster::one_line(status, room)) | ftxui::color(error ? this->_theme.error : this->_theme.muted),
+                ftxui::filler(), webRow});
             ftxui::Element document = ftxui::vbox({
                 top,
-                webRow,
                 this->body_(size.dimx, bodyHeight) | ftxui::flex,
                 this->voice_(),
                 this->completion_(),
                 ftxui::separatorLight() | ftxui::color(this->_theme.border),
                 this->images_(),
                 input,
-                ftxui::text(" " + status) | ftxui::color(error ? this->_theme.error : this->_theme.muted),
+                bottom,
             }) | ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg);
             if (this->_reveal.active()) this->_animating = true;
             // the box of the scan over any screen (started from the settings, the palette, the question at start); its end
@@ -3277,6 +3299,11 @@ class TtyUi {
             // the quit key works everywhere (a dialog open too); a question at start (restore, map of this computer): q /
             // Ctrl+C / Ctrl+D / Ctrl+Z quit too, without answering (asked again at the next start)
             const bool startup = this->_mode == Mode::Restore || (this->_mode == Mode::Machine && this->_machineStartup);
+            if (key == this->_manager.config().keys.at("quit") && this->_mode == Mode::Settings && !this->_changes.empty() && this->_note != "confirm_quit"
+                && this->_note != "danger_save") {
+                this->_note = "confirm_quit"; // the changes not saved: asked before quitting
+                return true;
+            }
             if (key == this->_manager.config().keys.at("quit") || (startup && (event == ftxui::Event::Character('q') || event == ftxui::Event::Character('Q')
                 || key == "Ctrl+C" || key == "Ctrl+D" || key == "Ctrl+Z"))) {
                 this->_screen.Exit();

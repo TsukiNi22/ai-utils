@@ -578,8 +578,8 @@ the agents, a new session, a session closed.
 - **Settings** (⚙): every page of the settings of claude-cluster (saved in its config.toml) and *This device* (its
   name, its theme, its view, its voice). A code block: its *copy* button (on hover; always shown on a phone) or a
   click copies it - the clipboard of the browser (https), of the app, else a hidden field copied (plain http too).
-  Every clickable thing answers the mouse (hover, press, keyboard focus); the terminal underlines what the mouse is
-  over.
+  Every clickable thing answers the mouse (hover, press, keyboard focus); the terminal lights what the mouse is
+  over (its background, bold).
 - **Android app** (`setup.sh install claude-cluster` builds it when the Android SDK is there: `android/build.sh`, no
   Gradle; signed by a key of its own, `~/.config/claude-cluster/android/release.jks`): offered by the page on Android
   (`/app.apk`). The same page in an app: the computer trusted once (its authority pinned after its fingerprint is
@@ -603,10 +603,12 @@ the agents, a new session, a session closed.
   From outside, each new device waits for your approval (even with `approve = false`), 5 wrong codes block its
   address 15 minutes; plain http is refused. Not a TLS-terminating tunnel (Cloudflare...): it would read the traffic.
 - Open: settings page > Web (`[web] enabled`, opened at every start), the palette *Web access: open*, `claude-cluster
-  web on` (this run), `claude-cluster --web`. Its address and its code are shown at the top of every terminal and
-  window (an interface attached to the core too), in the color of the style: `● web https://192.168.1.12:8787 · code
-  123 456 · 2 connected · ping 24 ms · 1 waiting for you` (● someone connected, ○ open, nobody, ✕ the port not
-  opened); a click copies the code (the desktop clipboard: wl-copy, xclip, xsel; the terminal's too, OSC 52: over ssh),
+  web on` (this run), `claude-cluster --web`. Its address and its code are shown at the bottom right of every
+  terminal and window (an interface attached to the core too; the status / notices on its left, cut with … when too
+  long), in the color of the style: `● web https://192.168.1.12:8787 · code 123 456 · 2 connected · ping 24 ms · 1
+  waiting for you` (● someone connected, ○ open, nobody, ✕ the port not opened). Reached from outside (`[web]
+  remote`): its public address first, `web https://pc.tailnet.ts.net:8787 (LAN 192.168.1.12:8787) · ...`; asked but
+  not reached: `· outside ✕` (`claude-cluster web` tells why). A click copies the code (the desktop clipboard: wl-copy, xclip, xsel; the terminal's too, OSC 52: over ssh),
   *devices ›* opens their list.
 - **A 6-digit code**, new at every opening, after 5 wrong ones (each wrong one answered 1 s later) and on a kick of
   every device.
@@ -692,7 +694,7 @@ stay in the file.
 (`remote = router`), its shell, plain http, an MCP server added. A yellow **⚠** next to each setting that can be
 dangerous, its name **red** while its value is the dangerous one. Changing it asks nothing; the save (Ctrl+S, F10,
 Save, Esc then save) shows one popup listing them with their warning: save them, or back (nothing saved, the changes
-kept). `:set` needs `:set!`; the control and the MCP refuse it without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
+kept). The quit key (Ctrl+Q) in the settings with changes asks first: save and quit, quit without, Esc stays. `:set` needs `:set!`; the control and the MCP refuse it without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
 right (the terminal), in lines and steps (Web > Beyond the LAN: how to set up Tailscale or the router).
 
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its
