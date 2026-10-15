@@ -407,7 +407,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (local) {
                 if (local->error) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, local->message);
                 std::string message = local->message.empty() ? "done" : local->message;
-                if (!local->ui.empty() && local->ui != "fill") message += " (" + local->ui + ": only in the interface, not run)";
+                if (!local->ui.empty() && local->ui != "fill" && local->ui != "pick:share:") message += " (" + local->ui + ": only in the interface, not run)";
                 return {{"ok", true}, {"data", {{"id", id}, {"local", true}, {"message", message}, {"ui", local->ui}, {"fill", local->fill}}}};
             }
             const bool reply = request.value("reply", false) && id != GLOBAL_ID;
@@ -447,6 +447,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "apply") {
             // a model / mode / effort where asked (here, global, subs, all, new, a session)
             data = {{"done", manager.applyTo(arg_(request, "kind"), arg_(request, "value"), arg_(request, "scope"), arg_(request, "session", GLOBAL_ID))}};
+        } else if (cmd == "shell_share") {
+            data = {{"done", manager.shareShell(session(), arg_(request, "choice"))}};
         } else if (cmd == "shell") {
             data = manager.shell(session(), arg_(request, "command"));
         } else if (cmd == "resume") {

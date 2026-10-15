@@ -144,7 +144,7 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 
 | Prompt | What it does |
 |---|---|
-| `!<command>` | run by your shell (`$SHELL -c`) in the folder of the session, like `!` in Claude Code: the command and its output go in the conversation and are given to the agent with your next prompt (not shown in it); no session: its output is told. Completion: the commands of your real shell (its aliases, functions, builtins, programs: read once from `zsh -i` / `bash -i`), then files |
+| `!<command>` | run by your shell (`$SHELL -c`) in the folder of the session, like `!` in Claude Code: the command and its output go in the conversation; given to the agent with your next prompt (not shown in it)? asked after it ran: **this time**, **always**, **not this time**, **never** (the palette, a list in the web page, `:share yes/no/always/never`); always / never are written in `[ui] shell_context = ask / always / never` (Settings > Interface: asked again); no session: its output is told. The web page and the app: refused unless `[web] shell = true`. Completion: the commands of your real shell (its aliases, functions, builtins, programs: read once from `zsh -i` / `bash -i`), then files |
 | `:s/old/new/[g][i]` | your last prompt of the conversation changed (a regex, any delimiter, `:%s` = every match), back in the prompt to send |
 | `:r <file>` / `:r !<command>` | the file / the output of the command in the prompt |
 | `:w [file]` · `:e <folder>` · `:q` · `:qa` | export the conversation (Markdown) · the session in another folder · close the session · quit claude-cluster |

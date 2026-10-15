@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Settings.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Voice.hpp"
@@ -344,9 +345,29 @@ _cold cluster::Json cluster::Manager::shell(const std::string& id, const std::st
     const std::int64_t now = cluster::now();
     session->append({{cluster::EntryKind::Tool, "$ " + command, "Shell", now},
         {cluster::EntryKind::ToolResult, (output.empty() ? std::string("(no output)") : output) + (out.code == 0 ? "" : "\n[exit " + std::to_string(out.code) + "]"), "Shell", now}});
-    // like Claude Code: given to the agent with the next prompt
-    session->addContext("<bash-input>" + command + "</bash-input>\n<bash-stdout>" + (output.size() > 6000 ? cluster::tail_utf8(output, 6000) : output)
-        + "</bash-stdout>" + (out.code == 0 ? "" : "\n<bash-exit-code>" + std::to_string(out.code) + "</bash-exit-code>"));
+    // like Claude Code: given to the agent with the next prompt; asked: held until chosen
+    const std::string context = "<bash-input>" + command + "</bash-input>\n<bash-stdout>" + (output.size() > 6000 ? cluster::tail_utf8(output, 6000) : output)
+        + "</bash-stdout>" + (out.code == 0 ? "" : "\n<bash-exit-code>" + std::to_string(out.code) + "</bash-exit-code>");
+    const std::string share = this->config().shellContext;
+    if (share == "always") session->addContext(context);
+    else if (share != "never") session->holdContext(context);
     ++this->_version;
-    return {{"code", out.code}, {"lines", output.empty() ? 0 : std::count(output.begin(), output.end(), '\n') + 1}, {"output", output}, {"shown", true}};
+    return {{"code", out.code}, {"lines", output.empty() ? 0 : std::count(output.begin(), output.end(), '\n') + 1}, {"output", output}, {"shown", true},
+        {"share", share == "always" || share == "never" ? share : "ask"}};
+}
+
+/* the !command held: given to the agent or not (yes / no: this time; always / never: written in [ui] shell_context) */
+_cold std::string cluster::Manager::shareShell(const std::string& id, const std::string& choice)
+{
+    if (this->_replica) return this->call({{"cmd", "shell_share"}, {"session", id}, {"choice", choice}}).value("done", std::string());
+    if (choice != "yes" && choice != "no" && choice != "always" && choice != "never")
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "yes | no | always | never");
+    const bool give = choice == "yes" || choice == "always";
+    const bool held = this->get_(this->resolve(id))->shareContext(give);
+    std::string done = held ? (give ? "given to the agent with your next prompt" : "not given to the agent") : "no !command waiting";
+    if (choice == "always" || choice == "never") {
+        (void)cluster::settings_set(this->config(), "ui", "shell_context", choice);
+        done += std::string(" · from now: ") + (give ? "always given" : "never given") + " (Settings > Interface to be asked again)";
+    }
+    return done;
 }

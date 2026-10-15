@@ -1373,6 +1373,21 @@ _cold void cluster::Session::addContext(const std::string& text)
     this->_context += (this->_context.empty() ? "" : "\n") + text;
 }
 
+_cold void cluster::Session::holdContext(const std::string& text)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_heldContext = text;
+}
+
+_cold bool cluster::Session::shareContext(const bool give)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (this->_heldContext.empty()) return false;
+    if (give) this->_context += (this->_context.empty() ? "" : "\n") + this->_heldContext;
+    this->_heldContext.clear();
+    return true;
+}
+
 _cold void cluster::Session::warn(const std::string& text)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);

@@ -74,6 +74,13 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         } catch (const utils::exception::IException&) {} // an unknown provider: no choice
         for (const char* panel: {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files"})
             list.push_back({std::string("panel:") + panel, std::string("Panel ") + panel + (snap->spec.panels.contains(panel) ? ": hide" : ": show"), "", "", false});
+        // a !command waiting: given to the agent or not
+        if (manager.ui("share", "") == session) {
+            list.push_back({"share:yes", "Give the !command and its output to the agent: this time", "", "", false});
+            list.push_back({"share:always", "Give it to the agent: always (not asked again)", "", "", false});
+            list.push_back({"share:no", "Not given to the agent: this time", "", "", false});
+            list.push_back({"share:never", "Never given to the agent (not asked again)", "", "", false});
+        }
         if (!snap->spec.global) {
             list.push_back({"cd", "Move the session to another folder", "folder", snap->spec.cwd, false});
             list.push_back({"close_session", "Close the session (to the trash)", "", "", false});
@@ -247,6 +254,9 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             if (value.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no " + base);
             manager.setUi("apply", base + ":" + value);
             result.ui = "pick:apply:";
+        } else if (base == "share") {
+            result.message = manager.shareShell(session, arg);
+            manager.setUi("share", "");
         } else if (base == "apply") {
             const std::string pending = manager.ui("apply", "");
             if (pending.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "nothing to apply");

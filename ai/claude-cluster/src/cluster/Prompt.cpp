@@ -101,6 +101,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::ex_comman
         {"qa", "qa: quit claude-cluster"},
         {"set ", "set <key>=<value>: a setting (:set layout=grid, :set ui.notify=false)"},
         {"g/", "g/<text>/: search the conversation"},
+        {"share ", "share yes|no|always|never: the last !command given to the agent or not"},
         {"new ", "new <folder> [backend]: a new session (= /new)"},
         {"model ", "model [model]: the model of the session (= /model)"},
         {"mode ", "mode [mode]: its permission mode (= /mode)"},
@@ -179,6 +180,10 @@ _cold static cluster::ActionResult ex_(cluster::Manager& manager, const std::str
         result.message = std::to_string(std::count(result.fill.begin(), result.fill.end(), '\n') + 1) + " line(s) in the prompt";
         return result;
     }
+    if (name == "share") {
+        result.message = manager.shareShell(session, arg.empty() ? "yes" : arg);
+        return result;
+    }
     if (name == "w" || name == "write") return slash("/export" + (arg.empty() ? "" : " " + arg));
     if (name == "e" || name == "edit" || name == "cd") return slash("/cd " + arg);
     if (name == "q" || name == "q!" || name == "close") return slash("/close");
@@ -233,6 +238,15 @@ _cold cluster::ActionResult cluster::run_shell(cluster::Manager& manager, const 
     if (!done.value("shown", true)) // no session: its output here
         result.message = "exit " + std::to_string(done.value("code", -1)) + (done.value("output", std::string()).empty() ? "" : "\n" + cluster::tail_utf8(done.value("output", std::string()), 4000));
     result.error = done.value("code", -1) != 0;
+    if (done.value("shown", true) && done.value("share", std::string()) == "ask") {
+        result.ui = "pick:share:"; // given to the agent? chosen now
+        manager.setUi("share", manager.resolve(session));
+        result.message = "exit " + std::to_string(done.value("code", -1)) + " · " + std::to_string(done.value("lines", 0)) + " line(s) in the conversation: "
+            "given to the agent?";
+    } else if (done.value("share", std::string()) == "never") {
+        result.message = "exit " + std::to_string(done.value("code", -1)) + " · " + std::to_string(done.value("lines", 0)) + " line(s) in the conversation (not given "
+            "to the agent: Settings > Interface)";
+    }
     return result;
 }
 

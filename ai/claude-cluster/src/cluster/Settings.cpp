@@ -106,6 +106,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         {"ui", "Interface", {
             {"ui", "frontend", "Front-end", SettingKind::Choice, {"auto", "tty", "gui"}, "auto: terminal when in a terminal, else a window (--tty / --gui win)", true,
                 [](const cluster::Config& cf) {return cf.frontend;}},
+            {"ui", "shell_context", "!command given to the agent", SettingKind::Choice, {"ask", "always", "never"}, "a !command typed in the prompt: its "
+                "command and its output given to the agent of the session with your next prompt (like Claude Code); ask: chosen after it ran "
+                "(this time, always, not this time, never: always / never are written here, ask again from here)", false,
+                [](const cluster::Config& cf) {return cf.shellContext;},
+                [](const std::string& v) {return v == "ask" ? std::string("asked after each !command") : v == "always" ? std::string("always given, never asked")
+                    : std::string("never given (only shown in the conversation)");}},
             {"ui", "shared_core", "Several terminals / windows at once", SettingKind::Bool, {}, "claude-cluster opened again: attached to the one running, every "
                 "terminal and window in sync (the core of the sessions in a process of its own, until the last one closes); off: opened again is refused", true,
                 [](const cluster::Config& cf) {return cf.sharedCore ? std::string("true") : std::string("false");}},

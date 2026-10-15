@@ -1460,6 +1460,38 @@ function scope(kind, value) {
     draw();
 }
 
+// a !command ran: its command and output given to the agent or not (this time / always / not this time / never)
+function shareShell() {
+    const items = [{label: "Give it to the agent", description: "this time", choice: "yes"}, {label: "Always give it", description: "not asked again", choice: "always"},
+        {label: "Not this time", description: "only in the conversation", choice: "no"}, {label: "Never give it", description: "not asked again", choice: "never"}];
+    const veil = el("div", "picker-veil");
+    const box = el("div", "picker");
+    box.append(el("div", "picker-title", "!command: give it and its output to the agent?"));
+    const list = el("div", "picker-list");
+    let selected = 0;
+    const close = () => { veil.remove(); document.removeEventListener("keydown", keys, true); };
+    const choose = (item) => { close(); act({cmd: "send", session: current, text: ":share " + item.choice}); };
+    const draw = () => [...list.children].forEach((row, i) => row.classList.toggle("selected", i === selected));
+    items.forEach((item) => {
+        const row = el("div", "picker-row");
+        row.append(el("span", "", item.label), el("small", "", item.description));
+        row.addEventListener("click", () => choose(item));
+        list.append(row);
+    });
+    const keys = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); close(); }
+        else if (e.key === "ArrowDown") { e.preventDefault(); selected = (selected + 1) % items.length; draw(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); selected = (selected + items.length - 1) % items.length; draw(); }
+        else if (e.key === "Enter") { e.preventDefault(); choose(items[selected]); }
+    };
+    document.addEventListener("keydown", keys, true);
+    veil.addEventListener("click", (e) => { if (e.target === veil) close(); });
+    box.append(list);
+    veil.append(box);
+    document.body.append(veil);
+    draw();
+}
+
 // the mode of the prompt: ! a command of the shell, : a command of claude-cluster (its indicator)
 function promptMode() {
     const v = $("prompt").value;
@@ -1479,6 +1511,7 @@ async function send(text, picked) {
     stopReading();
     const data = await act({cmd: "send", session: current, text: text});
     if (data && data.ui === "fill") { $("prompt").value = data.fill || ""; autosize(); } // a :s of the last prompt, a :r
+    if (data && data.ui === "pick:share:") shareShell();
     promptMode();
 }
 

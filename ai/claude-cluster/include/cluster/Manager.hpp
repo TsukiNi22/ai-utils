@@ -215,7 +215,8 @@ class Manager {
         _cold void askGlobal(const std::string& id, const std::string& requestId, const cluster::Json& questions); // its questions answered by the global session
         _cold void chatAbout(const cluster::Ask& ask);
         _cold _nodiscard std::string resume(const std::string& id);   // retry now / continue (what it did)
-        _cold _nodiscard cluster::Json shell(const std::string& id, const std::string& command);  // !command in its folder: {code, lines, output}
+        _cold _nodiscard cluster::Json shell(const std::string& id, const std::string& command);  // !command in its folder: {code, lines, output, share}
+        _cold _nodiscard std::string shareShell(const std::string& id, const std::string& choice); // the !command held: yes | no | always | never
         // a model / mode / effort where asked: here (the session given), global, subs (every sub-session), all, new (the default
         // of the next sub-sessions) or a session id; what it did
         _cold _nodiscard std::string applyTo(const std::string& kind, const std::string& value, const std::string& scope, const std::string& current);      // "Chat about this": its last message answered by the model of the session (background)

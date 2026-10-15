@@ -87,6 +87,7 @@ class Session {
         std::string _stderr;                // tail of the error output
         std::string _lastText;              // last assistant text of the turn
         std::string _context;               // given with the next prompt (the !commands run since the last one)
+        std::string _heldContext;           // a !command waiting for its choice (given or not)
         bool _interrupted = false;          // an interrupt was asked: the end of the turn is not an error
         cluster::Queued _lastPrompt;        // last prompt sent (rewind: back in the prompt with its images)
         std::set<std::string> _sent;        // uuids of the prompts written here (their replay is not shown twice)
@@ -138,6 +139,8 @@ class Session {
         _cold std::int64_t countTurn(void);                                // a turn finished: its count
         _cold void warn(const std::string& text);                           // a problem of its interfaces, shown a minute on it
         _cold void addContext(const std::string& text);                     // given to the agent with its next prompt (a !command and its output)
+        _cold void holdContext(const std::string& text);                    // kept until shareContext() (the choice asked); a new one replaces it
+        _cold bool shareContext(const bool give);                           // the one held given (or dropped); false: none held
         _cold void setClaudeId(const std::string& id);     // the conversation goes on under this id
         _cold void mark(const std::string& text);          // a line of the system in its transcript (and its log)
         _cold void append(const std::vector<cluster::Entry>& entries); // a transcript from elsewhere, shown and logged
