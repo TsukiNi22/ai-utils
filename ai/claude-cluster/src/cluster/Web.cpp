@@ -758,7 +758,8 @@ _cold static cluster::CompletionKind completion_kind_(const std::string& name)
 {
     static const std::map<std::string, cluster::CompletionKind> kinds = {{"file", cluster::CompletionKind::File},
         {"folder", cluster::CompletionKind::Folder}, {"command", cluster::CompletionKind::Command}, {"skill", cluster::CompletionKind::Skill}, {"mode", cluster::CompletionKind::Mode},
-        {"model", cluster::CompletionKind::Model}, {"effort", cluster::CompletionKind::Effort}, {"trash", cluster::CompletionKind::Trash}};
+        {"model", cluster::CompletionKind::Model}, {"effort", cluster::CompletionKind::Effort}, {"trash", cluster::CompletionKind::Trash},
+        {"shell", cluster::CompletionKind::Shell}, {"ex", cluster::CompletionKind::Ex}, {"setting", cluster::CompletionKind::Setting}};
     return kinds.contains(name) ? kinds.at(name) : cluster::CompletionKind::None;
 }
 
@@ -994,8 +995,13 @@ self.addEventListener("notificationclick", (e) => {
             const std::string cwd = cluster::trim(command["cwd"].get<std::string>());
             if (!cwd.starts_with("/") && !cwd.starts_with("~")) command["cwd"] = "~/" + cwd;
         }
+        // a shell of this computer from the page: only when allowed ([web] shell)
+        const std::string text = command.contains("text") && command["text"].is_string() ? cluster::trim(command["text"].get<std::string>()) : "";
+        const bool shell = cmd == "send" && (text.starts_with("!") || (text.starts_with(":") && text.find('!') != std::string::npos));
         if (!allowed.contains(cmd)) {
             json_(conn, 400, {{"ok", false}, {"error", "command not allowed from the web: '" + cmd + "'"}});
+        } else if (shell && !this->_manager.config().web.shell) {
+            json_(conn, 200, {{"ok", false}, {"error", "the shell from the page is off (settings: Web > Shell from the page)"}});
         } else {
             const cluster::Json answer = cluster::Control::handle(this->_manager, command);
             // a prompt of this device: it is the one notified for this session (not the desktop here)

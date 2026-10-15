@@ -454,6 +454,29 @@ _cold void cluster::Editor::refresh_(void)
         kind = cluster::trim(before).empty() ? cluster::CompletionKind::Command : cluster::CompletionKind::Skill;
         this->_start = start + 1;
         query = word.substr(1);
+    } else if ((this->_text.starts_with("!") || this->_text.starts_with(":")) && !this->_anchor) {
+        // the modes of the prompt: !<command of the shell> <files>; :<command> <its argument>
+        const bool shell = this->_text.starts_with("!");
+        const std::string head = before.empty() ? "" : cluster::trim(before.substr(1));
+        if (start == 0) {
+            kind = shell ? cluster::CompletionKind::Shell : cluster::CompletionKind::Ex;
+            this->_start = 1;
+            query = word.substr(1);
+        } else if (shell && head.empty()) {
+            kind = cluster::CompletionKind::Shell;
+            this->_start = start;
+            query = word;
+        } else {
+            const std::string command = cluster::split(head, ' ')[0];
+            this->_start = start;
+            query = cluster::unescape_path(word);
+            if (shell || command == "r" || command == "w" || command == "read" || command == "write") kind = cluster::CompletionKind::File;
+            else if (command == "e" || command == "cd" || command == "new") kind = cluster::CompletionKind::Folder;
+            else if (command == "set" || command == "se") kind = cluster::CompletionKind::Setting;
+            else if (command == "mode") kind = cluster::CompletionKind::Mode;
+            else if (command == "model") kind = cluster::CompletionKind::Model;
+            else if (command == "effort") kind = cluster::CompletionKind::Effort;
+        }
     } else if (words.size() == 1 && !this->_anchor) {
         this->_start = start;
         query = cluster::unescape_path(word);

@@ -341,6 +341,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.web.remoteHost;}},
             {"web", "remote_port", "Port outside", SettingKind::Int, {}, "router: the port opened on the router (0: the same as here)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.remotePort);}},
+            {"web", "shell", "Shell from the page", SettingKind::Bool, {}, "!command (and :r !command) typed in the web page or the app run "
+                "on this computer, in the folder of the session, like in the terminal; off: refused there (a shell of this computer for every "
+                "device trusted, from outside the LAN too)", false,
+                [](const cluster::Config& cf) {return cf.web.shell ? std::string("true") : std::string("false");}},
             {"web", "https", "HTTPS", SettingKind::Bool, {}, "TLS with a certificate of its own (made once, the browser asks to accept it the first time): "
                 "the conversation and the code encrypted, the microphone of the page allowed; off: plain http, no microphone", false,
                 [](const cluster::Config& cf) {return cf.web.https ? std::string("true") : std::string("false");}},

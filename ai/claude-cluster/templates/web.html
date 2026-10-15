@@ -95,6 +95,9 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.display .caption { color: var(--muted); font-size: 13px; font-style: italic; }
 .msg.turn { color: var(--accent); font-size: 14px; } .msg.turn .turn-tool, .msg.turn details { color: var(--muted); font-size: 13px; margin-left: 12px; }
 .msg.turn summary { cursor: pointer; }
+#composer.mode-shell { box-shadow: inset 0 0 0 2px var(--warn, #e0a030); } #composer.mode-ex { box-shadow: inset 0 0 0 2px var(--accent); }
+.mode-badge { font-family: var(--mono, monospace); font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 6px; align-self: center; white-space: nowrap; }
+#composer.mode-shell .mode-badge { color: var(--warn, #e0a030); } #composer.mode-ex .mode-badge { color: var(--accent); }
 .ask-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; border-top: 1px solid var(--border, #444); padding-top: 8px; }
 .ask-chat-user { color: var(--text); } .ask-chat-assistant { color: var(--accent); white-space: pre-wrap; }
 .picker-veil { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
@@ -342,6 +345,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
         <div id="micState"></div>
         <form id="composer">
             <button id="mic" type="button" title="Microphone">🎤</button>
+            <span id="modeBadge" class="mode-badge hidden"></span>
             <textarea id="prompt" rows="1" placeholder="Message (Enter sends, Shift+Enter: new line, @ file, / command)" spellcheck="false"></textarea>
             <button class="primary" type="submit">Send</button>
         </form>
@@ -1456,13 +1460,26 @@ function scope(kind, value) {
     draw();
 }
 
+// the mode of the prompt: ! a command of the shell, : a command of claude-cluster (its indicator)
+function promptMode() {
+    const v = $("prompt").value;
+    const mode = v.startsWith("!") ? "shell" : v.startsWith(":") ? "ex" : "";
+    $("composer").classList.toggle("mode-shell", mode === "shell");
+    $("composer").classList.toggle("mode-ex", mode === "ex");
+    $("modeBadge").textContent = mode === "shell" ? "$ shell" : mode === "ex" ? ": command" : "";
+    $("modeBadge").classList.toggle("hidden", !mode);
+}
+document.addEventListener("input", (e) => { if (e.target && e.target.id === "prompt") promptMode(); });
+
 async function send(text, picked) {
     text = text.trim();
     if (!text) return;
     const alone = /^\/(model|mode|effort|restore)$/.exec(text);
     if (alone && !picked) { pick({model: "model", mode: "mode", effort: "effort", restore: "trash"}[alone[1]], text); return; }
     stopReading();
-    await act({cmd: "send", session: current, text: text});
+    const data = await act({cmd: "send", session: current, text: text});
+    if (data && data.ui === "fill") { $("prompt").value = data.fill || ""; autosize(); } // a :s of the last prompt, a :r
+    promptMode();
 }
 
 $("composer").addEventListener("submit", async (e) => {
@@ -1548,6 +1565,17 @@ function context(input) {
     const start = cursor - word.length;
     const head = before.slice(0, start).trim();
     if (word.startsWith("@")) return {kind: "file", query: word.slice(1), start: start + 1, end: cursor, session: current};
+    // the modes: !<command of the shell> <files>, :<command> <its argument>
+    if (input.id === "prompt" && (text.startsWith("!") || text.startsWith(":"))) {
+        const shell = text.startsWith("!");
+        if (start === 0) return {kind: shell ? "shell" : "ex", query: word.slice(1), start: 1, end: cursor, session: current};
+        const rest = before.slice(1, start).trim();
+        if (shell && !rest) return {kind: "shell", query: word, start, end: cursor, session: current};
+        const command = rest.split(" ")[0];
+        const kinds = {r: "file", w: "file", read: "file", write: "file", e: "folder", cd: "folder", new: "folder", set: "setting", se: "setting", mode: "mode", model: "model", effort: "effort"};
+        const kind = shell ? "file" : kinds[command];
+        return kind ? {kind, query: word, start, end: cursor, session: current} : null;
+    }
     if (word.startsWith("/")) return {kind: head ? "skill" : "command", query: word.slice(1), start: start + 1, end: cursor, session: current};
     const kinds = {"/cd": "folder", "/new": "folder", "/mode": "mode", "/model": "model", "/effort": "effort", "/restore": "trash"};
     if (kinds[head] && !before.slice(0, start).trim().includes(" ")) return {kind: kinds[head], query: word, start: start, end: cursor, session: current};

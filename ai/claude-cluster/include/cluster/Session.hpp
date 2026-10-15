@@ -52,6 +52,7 @@ struct Event {
 struct Queued {
     std::string text;
     std::vector<std::string> images;
+    std::string context{};      // given to the agent before the text, not shown (the !commands run since the last prompt)
 };
 
 struct Launch {
@@ -85,6 +86,7 @@ class Session {
         std::deque<cluster::Queued> _pending;   // prompts waiting for the end of the running turn (kept here: editable)
         std::string _stderr;                // tail of the error output
         std::string _lastText;              // last assistant text of the turn
+        std::string _context;               // given with the next prompt (the !commands run since the last one)
         bool _interrupted = false;          // an interrupt was asked: the end of the turn is not an error
         cluster::Queued _lastPrompt;        // last prompt sent (rewind: back in the prompt with its images)
         std::set<std::string> _sent;        // uuids of the prompts written here (their replay is not shown twice)
@@ -135,6 +137,7 @@ class Session {
         _cold void describe(const std::string& text, const bool given);     // its short description (written by claude-cluster: not over one given)
         _cold std::int64_t countTurn(void);                                // a turn finished: its count
         _cold void warn(const std::string& text);                           // a problem of its interfaces, shown a minute on it
+        _cold void addContext(const std::string& text);                     // given to the agent with its next prompt (a !command and its output)
         _cold void setClaudeId(const std::string& id);     // the conversation goes on under this id
         _cold void mark(const std::string& text);          // a line of the system in its transcript (and its log)
         _cold void append(const std::vector<cluster::Entry>& entries); // a transcript from elsewhere, shown and logged

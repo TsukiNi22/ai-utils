@@ -324,3 +324,29 @@ _cold std::optional<cluster::Queued> cluster::Manager::unqueue(const std::string
     }
     return this->get_(id)->unqueue();
 }
+
+/* !command: the shell of the user in the folder of a session */
+_cold cluster::Json cluster::Manager::shell(const std::string& id, const std::string& command)
+{
+    if (this->_replica) return this->call({{"cmd", "shell"}, {"session", id}, {"command", command}});
+    // no session (the global one off): in the folder of claude-cluster, its output only told
+    std::shared_ptr<cluster::Session> session;
+    try {
+        session = this->get_(this->resolve(id));
+    } catch (const utils::exception::IException&) {}
+    const std::string cwd = session ? cluster::expand_home(session->spec().cwd).string() : std::filesystem::current_path().string();
+    const char* env = std::getenv("SHELL");
+    const cluster::Captured out = cluster::capture({env != nullptr ? env : "/bin/sh", "-c", command}, cwd, 300);
+    std::string output = out.out;
+    if (output.size() > 20000) output = "[...]\n" + cluster::tail_utf8(output, 20000);
+    while (!output.empty() && output.back() == '\n') output.pop_back();
+    if (!session) return {{"code", out.code}, {"lines", output.empty() ? 0 : std::count(output.begin(), output.end(), '\n') + 1}, {"output", output}, {"shown", false}};
+    const std::int64_t now = cluster::now();
+    session->append({{cluster::EntryKind::Tool, "$ " + command, "Shell", now},
+        {cluster::EntryKind::ToolResult, (output.empty() ? std::string("(no output)") : output) + (out.code == 0 ? "" : "\n[exit " + std::to_string(out.code) + "]"), "Shell", now}});
+    // like Claude Code: given to the agent with the next prompt
+    session->addContext("<bash-input>" + command + "</bash-input>\n<bash-stdout>" + (output.size() > 6000 ? cluster::tail_utf8(output, 6000) : output)
+        + "</bash-stdout>" + (out.code == 0 ? "" : "\n<bash-exit-code>" + std::to_string(out.code) + "</bash-exit-code>"));
+    ++this->_version;
+    return {{"code", out.code}, {"lines", output.empty() ? 0 : std::count(output.begin(), output.end(), '\n') + 1}, {"output", output}, {"shown", true}};
+}

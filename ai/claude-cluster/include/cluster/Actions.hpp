@@ -50,7 +50,8 @@ struct ActionResult {
     std::string message;    // shown to the user
     bool error = false;
     std::string focus;      // session to show after the action
-    std::string ui;         // front-end action to run after (settings, restore_menu)
+    std::string ui;         // front-end action to run after (settings, restore_menu, fill: fill in the prompt, quit, search:<text>)
+    std::string fill{};     // ui fill: the text put in the prompt (a :s of the last prompt, a :r)
 };
 
 //----------------------------------------------------------------//
@@ -64,6 +65,11 @@ _cold _nodiscard std::string key_action(const cluster::Config& config, const std
 _cold _nodiscard cluster::CompletionProvider completion_provider(cluster::Manager& manager, std::function<std::string(void)> session);
 _cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager& manager, const std::string& session, const std::string& line);
 _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_commands(void);  // local /commands <usage, description>
+// the modes of the prompt (Prompt.cpp): !<command> in the shell of the session, :<command> like vim
+_cold _nodiscard std::optional<cluster::ActionResult> run_prompt_mode(cluster::Manager& manager, const std::string& session, const std::string& line);
+_cold _nodiscard cluster::ActionResult run_shell(cluster::Manager& manager, const std::string& session, const std::string& command);
+_cold _nodiscard const std::vector<std::pair<std::string, std::string>>& ex_commands(void);   // <:command, description>
+_cold _nodiscard std::vector<cluster::Candidate> shell_commands(const std::string& prefix);    // the commands of the user's shell
 _cold _nodiscard std::string next_mode(const std::string& mode);    // Shift+Tab: auto, acceptEdits, plan, bypassPermissions, manual
 _cold _nodiscard std::string help_text(const cluster::Config& config);   // F1: every key
 _cold _nodiscard cluster::ModelInfo model_info(cluster::Manager& manager, const std::string& session); // throws: no session

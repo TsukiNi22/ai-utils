@@ -858,6 +858,15 @@ class TtyUi {
                     }
                     if (!local) return;
                     if (!local->focus.empty()) this->_active = local->focus;
+                    if (local->ui == "fill") this->_editor.load({local->fill, {}, {}}); // a :s of the last prompt, a :r: in the prompt
+                    else if (local->ui == "quit") this->_screen.Exit();
+                    else if (local->ui.starts_with("search:")) {
+                        this->_search = local->ui.substr(7);
+                        this->_matches.clear();
+                        this->_hit = 0;
+                        this->_mode = Mode::Search;
+                        this->searchUpdate_();
+                    }
                     if (local->ui == "settings") this->openSettings_();
                     else if (local->ui == "restore_menu") this->openRestore_();
                     else if (local->ui == "rewind") this->rewind_();
@@ -881,7 +890,15 @@ class TtyUi {
             const std::string& text = this->_editor.text();
             const std::pair<std::size_t, std::size_t> sel = this->_editor.selection();
             const std::size_t cursor = this->_editor.cursor();
-            const std::string target = this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ";
+            // its mode: ! a command of the shell (in the folder of the session), : a command of claude-cluster (like vim)
+            const char mode = text.starts_with("!") ? '!' : text.starts_with(":") ? ':' : '\0';
+            std::string target = this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ";
+            if (mode == '!') {
+                const std::optional<cluster::Snapshot> here = this->_manager.snapshot(this->_active);
+                target = "shell in " + (here ? cluster::short_path(here->spec.cwd) : std::string("~")) + " ";
+            } else if (mode == ':') {
+                target = "command (:help) ";
+            }
             // its rows: a line longer than the room wrapped (at a space when one is near, never an atom or a character cut),
             // never scrolled sideways: the text stays where it is while typing
             const std::size_t room = static_cast<std::size_t>(std::max(10, width - 4 - static_cast<int>(target.size()) - (this->_editor.vim() != cluster::VimMode::Off ? 16 : 0)));
@@ -928,7 +945,8 @@ class TtyUi {
             for (std::size_t i = first; i < lines.size() && i < first + 8; ++i) {
                 const std::size_t ls = lines[i].start;
                 const std::size_t le = lines[i].end;
-                ftxui::Elements parts = {ftxui::text(i == 0 ? " › " : "   ") | ftxui::color(this->_theme.accent) | ftxui::bold};
+                ftxui::Elements parts = {ftxui::text(i != 0 ? "   " : mode == '!' ? " $ " : mode == ':' ? " : " : " › ")
+                    | ftxui::color(mode == '!' ? this->_theme.warn : this->_theme.accent) | ftxui::bold};
                 this->_promptRows.push_back({ls, le, 3});
                 const std::function<void(std::size_t, std::size_t, bool)> piece = [&](std::size_t x, std::size_t y, bool selected) {
                     x = std::max(x, ls);
@@ -976,7 +994,7 @@ class TtyUi {
                     piece(ls, le, false);
                 }
                 if (text.empty() && this->_mode == Mode::Normal)
-                    parts.push_back(ftxui::text(" @ file · / command · " + this->_manager.config().keys.at("history") + " history · " + this->_manager.config().keys.at("help") + " keys")
+                    parts.push_back(ftxui::text(" @ file · / command · ! shell · : command · " + this->_manager.config().keys.at("history") + " history · " + this->_manager.config().keys.at("help") + " keys")
                         | ftxui::color(this->_theme.muted) | ftxui::dim);
                 parts.push_back(ftxui::filler());
                 if (i == first && this->_editor.vim() != cluster::VimMode::Off) {
@@ -986,7 +1004,8 @@ class TtyUi {
                     parts.push_back(ftxui::text(" -- " + names.at(this->_editor.vim()) + " -- " + this->_editor.vimPending() + " ")
                         | ftxui::color(insert ? this->_theme.muted : this->_theme.warn) | ftxui::bold);
                 }
-                if (i == first) parts.push_back(ftxui::text(target) | ftxui::color(this->_theme.muted) | ftxui::dim);
+                if (i == first) parts.push_back(mode != '\0' ? ftxui::text(" " + target) | ftxui::color(mode == '!' ? this->_theme.warn : this->_theme.accent) | ftxui::bold
+                    : ftxui::text(target) | ftxui::color(this->_theme.muted) | ftxui::dim);
                 rows.push_back(ftxui::hbox(std::move(parts)));
             }
             if (lines.size() > 8)

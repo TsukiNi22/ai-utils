@@ -103,7 +103,8 @@ struct Prepared {
 
 _cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
 {
-    Prepared out{queued.text, queued.text, cluster::Json::array()};
+    const std::string sent = queued.context.empty() ? queued.text : queued.context + "\n\n" + queued.text;
+    Prepared out{queued.text, sent, cluster::Json::array()};
     for (std::size_t i = 0; i < queued.images.size(); ++i) {
         const std::string& path = queued.images[i];
         const std::string token = "[Image #" + std::to_string(i + 1) + "]";
@@ -121,7 +122,7 @@ _cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
         out.content.push_back(cluster::Json::object({{"type", "image"}, {"source", {{"type", "base64"}, {"media_type", media}, {"data", utils::smanip::codec::Base64Codec().encode(bytes)}}}}));
     }
     // one object (an initializer list given to insert() would add its elements: ["type", "text"], refused by the API)
-    if (!out.content.empty()) out.content.insert(out.content.begin(), cluster::Json::object({{"type", "text"}, {"text", queued.text}}));
+    if (!out.content.empty()) out.content.insert(out.content.begin(), cluster::Json::object({{"type", "text"}, {"text", sent}}));
     return out;
 }
 
@@ -1040,7 +1041,13 @@ _cold void cluster::Session::write_(const cluster::Json& message)
 
 _cold void cluster::Session::send(const std::string& text, const std::vector<std::string>& images)
 {
-    const cluster::Queued prompt{text, images};
+    // the !commands run since the last prompt: given with it (like Claude Code)
+    std::string context;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        context.swap(this->_context);
+    }
+    const cluster::Queued prompt{text, images, context};
     if (this->persistent()) {
         if (!this->_worker.joinable() || this->_data.state == cluster::State::Stopped || this->_data.state == cluster::State::Error) {
             if (this->_worker.joinable()) this->_worker.join();
@@ -1093,7 +1100,7 @@ _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
     this->entry_(cluster::EntryKind::User, prepared.shown);
     const std::string uuid = uuid_();
     this->_sent.insert(uuid);
-    this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prompt.text) : prepared.content}}}});
+    this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
     this->_data.state = cluster::State::Working;
     this->_turn = {};
     this->turnStart_();
@@ -1358,6 +1365,12 @@ _cold void cluster::Session::describe(const std::string& text, const bool given)
     this->_data.spec.summaryAuto = !given || text.empty();
     this->_data.spec.summaryTurns = this->_data.spec.turns;
     this->touch_();
+}
+
+_cold void cluster::Session::addContext(const std::string& text)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_context += (this->_context.empty() ? "" : "\n") + text;
 }
 
 _cold void cluster::Session::warn(const std::string& text)

@@ -1030,6 +1030,24 @@ class Window: public QMainWindow {
             });
         }
 
+        void modeTarget(void)
+        {
+            // its mode shown by its target: ! a command of the shell (in the folder of the session), : a command of claude-cluster
+            const std::string text = this->input->plain();
+            const cluster::Style& st = this->theme();
+            if (text.starts_with("!")) {
+                const std::optional<cluster::Snapshot> here = this->manager.snapshot(this->active);
+                this->target->setText(q_("$ shell · " + (here ? cluster::short_path(here->spec.cwd) : std::string("~"))));
+                this->target->setStyleSheet("color:" + q_(st.warn) + ";font-weight:600;");
+            } else if (text.starts_with(":")) {
+                this->target->setText(": command (:help)");
+                this->target->setStyleSheet("color:" + q_(st.accent) + ";font-weight:600;");
+            } else {
+                this->target->setText(q_(this->active == GLOBAL_ID ? "→ global" : "→ " + this->active));
+                this->target->setStyleSheet("");
+            }
+        }
+
         void send(void)
         {
             // the prompt leaves at once (feedback), the send / the local command runs in the worker, its result comes back
@@ -1062,6 +1080,9 @@ class Window: public QMainWindow {
                     }
                     if (local) {
                         if (!local->focus.empty()) this->active = local->focus;
+                        if (local->ui == "fill") this->input->loadDraft({local->fill, {}, {}}); // a :s of the last prompt, a :r: in the prompt
+                        else if (local->ui == "quit") this->close();
+                        else if (local->ui.starts_with("search:")) this->message("search: " + local->ui.substr(7) + " (Ctrl+F in the transcript)", false);
                         if (local->ui == "settings") this->settings();
                         else if (local->ui == "restore_menu") this->openRestore();
                         else if (local->ui == "rewind") this->rewind();
@@ -1202,7 +1223,8 @@ class Window: public QMainWindow {
             root->addWidget(this->voiceLabel);
             QHBoxLayout* bar = new QHBoxLayout();
             this->input = new PromptEdit(this, central);
-            this->input->setPlaceholderText("Prompt (Enter to send, Shift / Alt+Enter new line) · @ file · / command · Ctrl+K palette · F1 keys");
+            QObject::connect(this->input, &QPlainTextEdit::textChanged, this, [this]() {if (this->target) this->modeTarget();}); // its mode (! / :) shown
+            this->input->setPlaceholderText("Prompt (Enter to send, Shift / Alt+Enter new line) · @ file · / command · ! shell · : command · Ctrl+K palette · F1 keys");
             this->input->chipsBar = new QWidget(central);
             new QHBoxLayout(this->input->chipsBar);
             this->input->chipsBar->layout()->setContentsMargins(0, 0, 0, 0);
@@ -1313,7 +1335,7 @@ class Window: public QMainWindow {
                 }
             }
             this->animating = working || this->reveal.active();
-            this->target->setText(q_(this->active == GLOBAL_ID ? "→ global" : "→ " + this->active));
+            this->modeTarget();
 
             // voice bar, last notice
             const cluster::Voice& voice = *this->app.voice;

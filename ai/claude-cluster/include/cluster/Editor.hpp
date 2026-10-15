@@ -43,6 +43,9 @@ enum class CompletionKind {
     Model,      // argument of /model
     Effort,     // argument of /effort
     Trash,      // argument of /restore
+    Shell,      // !command: the commands of the user's shell (its aliases, functions, builtins, programs)
+    Ex,         // :command
+    Setting,    // argument of :set (key=)
 };
 
 enum class VimMode {

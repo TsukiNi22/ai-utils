@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/External.hpp"
+#include "cluster/Settings.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Models.hpp"
@@ -450,6 +451,19 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
 {
     return [&manager, session](const cluster::CompletionKind kind, const std::string& query) {
         std::vector<cluster::Candidate> items;
+        if (kind == cluster::CompletionKind::Shell) return cluster::shell_commands(query); // this computer (a replica too)
+        if (kind == cluster::CompletionKind::Ex) {
+            for (const auto &[ex, description]: cluster::ex_commands())
+                if (ex.starts_with(query) || query.empty()) items.push_back({ex, ":" + cluster::trim(ex), description, ex.ends_with("/") || ex.ends_with(" ")});
+            return items;
+        }
+        if (kind == cluster::CompletionKind::Setting) {
+            for (const cluster::SettingsPage& page: cluster::settings_pages(manager.config()))
+                for (const cluster::Setting& s: page.settings)
+                    if (s.kind != cluster::SettingKind::Action && (s.key.starts_with(query) || (s.section + "." + s.key).starts_with(query)))
+                        items.push_back({s.section + "." + s.key + "=", s.section + "." + s.key, s.label + " (now: " + (s.value ? s.value(manager.config()) : std::string()) + ")", true});
+            return items;
+        }
         if (manager.replica()) { // a replica: completed by its core
             try {
                 for (const cluster::Json& c: manager.call({{"cmd", "complete"}, {"session", session()}, {"kind", static_cast<int>(kind)}, {"query", query}}))
@@ -527,13 +541,17 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
 
 _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& manager, const std::string& session, const std::string& line)
 {
-    // A local /command runs here; any other /command (skill, command of the agent) is sent as the prompt
-    if (!line.starts_with("/")) return std::nullopt;
+    // A local /command runs here; any other /command (skill, command of the agent) is sent as the prompt; !<command> and
+    // :<command>: the modes of the prompt
+    const bool mode = line.starts_with("!") || line.starts_with(":");
+    if (!line.starts_with("/") && !mode) return std::nullopt;
     if (manager.replica()) { // a replica: run by its core
         const cluster::Json r = manager.call({{"cmd", "slash"}, {"session", session}, {"text", line}});
         if (!r.value("local", false)) return std::nullopt;
-        return cluster::ActionResult{r.value("message", std::string()), r.value("error", false), r.value("focus", std::string()), r.value("ui", std::string())};
+        return cluster::ActionResult{r.value("message", std::string()), r.value("error", false), r.value("focus", std::string()), r.value("ui", std::string()),
+            r.value("fill", std::string())};
     }
+    if (mode) return cluster::run_prompt_mode(manager, session, line);
     const std::size_t space = line.find(' ');
     const std::string name = line.substr(1, space == std::string::npos ? std::string::npos : space - 1);
     const std::string arg = space == std::string::npos ? "" : cluster::unescape_path(cluster::trim(line.substr(space + 1)));

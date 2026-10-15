@@ -367,8 +367,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data.push_back({{"id", action.id}, {"title", action.title}, {"input", action.input}, {"fill", action.fill}, {"ui", action.ui}});
         } else if (cmd == "slash") {
             const std::optional<cluster::ActionResult> local = cluster::run_slash(manager, arg_(request, "session", GLOBAL_ID), arg_(request, "text"));
-            data = local ? cluster::Json{{"local", true}, {"message", local->message}, {"error", local->error}, {"focus", local->focus}, {"ui", local->ui}}
-                : cluster::Json{{"local", false}};
+            data = local ? cluster::Json{{"local", true}, {"message", local->message}, {"error", local->error}, {"focus", local->focus}, {"ui", local->ui},
+                {"fill", local->fill}} : cluster::Json{{"local", false}};
         } else if (cmd == "complete") {
             const std::string id = arg_(request, "session", GLOBAL_ID);
             data = cluster::Json::array();
@@ -407,8 +407,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (local) {
                 if (local->error) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, local->message);
                 std::string message = local->message.empty() ? "done" : local->message;
-                if (!local->ui.empty()) message += " (" + local->ui + ": only in the interface, not run)";
-                return {{"ok", true}, {"data", {{"id", id}, {"local", true}, {"message", message}}}};
+                if (!local->ui.empty() && local->ui != "fill") message += " (" + local->ui + ": only in the interface, not run)";
+                return {{"ok", true}, {"data", {{"id", id}, {"local", true}, {"message", message}, {"ui", local->ui}, {"fill", local->fill}}}};
             }
             const bool reply = request.value("reply", false) && id != GLOBAL_ID;
             if (reply) manager.replyTo(id); // before: a short turn could end before it is known
@@ -447,6 +447,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "apply") {
             // a model / mode / effort where asked (here, global, subs, all, new, a session)
             data = {{"done", manager.applyTo(arg_(request, "kind"), arg_(request, "value"), arg_(request, "scope"), arg_(request, "session", GLOBAL_ID))}};
+        } else if (cmd == "shell") {
+            data = manager.shell(session(), arg_(request, "command"));
         } else if (cmd == "resume") {
             data = {{"done", manager.resume(arg_(request, "session"))}};
         } else if (cmd == "describe") {

@@ -140,6 +140,18 @@ the skills and the commands of the agent, then their arguments (`/cd` and `/new`
 closed sessions). In the list: **Tab** completes without validating (into a folder: its content), **Enter** accepts
 and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a space inside a name).
 
+**Modes of the prompt** (the terminal, the window, the web page; its sign and its target show it: `$ shell in <folder>`, `: command`):
+
+| Prompt | What it does |
+|---|---|
+| `!<command>` | run by your shell (`$SHELL -c`) in the folder of the session, like `!` in Claude Code: the command and its output go in the conversation and are given to the agent with your next prompt (not shown in it); no session: its output is told. Completion: the commands of your real shell (its aliases, functions, builtins, programs: read once from `zsh -i` / `bash -i`), then files |
+| `:s/old/new/[g][i]` | your last prompt of the conversation changed (a regex, any delimiter, `:%s` = every match), back in the prompt to send |
+| `:r <file>` / `:r !<command>` | the file / the output of the command in the prompt |
+| `:w [file]` · `:e <folder>` · `:q` · `:qa` | export the conversation (Markdown) · the session in another folder · close the session · quit claude-cluster |
+| `:set <key>=<value>` | a setting (`ui.notify=false`, `layout=grid`; completed with their current value) |
+| `:g/<text>/` | search the conversation |
+| `:new` `:model` `:mode` `:effort` `:clear`... | the `/command` of the same name; `:help`: the list |
+
 | Key | Action |
 |---|---|
 | Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent); while a turn runs the prompt is **queued** (shown under the transcript); the prompt leaves at once ("sent", "/clear…"): the send and the commands run in the background in their order, an error puts the prompt back |
