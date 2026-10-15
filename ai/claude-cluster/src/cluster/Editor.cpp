@@ -13,6 +13,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Editor.hpp"
+#include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include <filesystem>
 #include <functional>
@@ -49,7 +50,7 @@ _cold std::vector<cluster::Candidate> cluster::complete_paths(const std::string&
     const std::string prefix = cluster::lower(slash == std::string::npos ? query : query.substr(slash + 1));
     std::filesystem::path dir = dirPart.starts_with("~") || dirPart.starts_with("/") ? cluster::expand_home(dirPart) : std::filesystem::path(cwd) / dirPart;
     if (dirPart.empty() && (query == "~" || query.starts_with("~"))) dir = cluster::expand_home("~");
-    std::vector<std::pair<int, cluster::Candidate>> found; // <rank, candidate>
+    std::vector<std::pair<float, cluster::Candidate>> found; // <score (lower: closer, a file after a folder), candidate>
     std::error_code error;
 
     for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(dir, error)) {
@@ -58,16 +59,16 @@ _cold std::vector<cluster::Candidate> cluster::complete_paths(const std::string&
         if (name == ".git" || (name.starts_with(".") && !prefix.starts_with("."))) continue;
         const bool isDir = entry.is_directory(error);
         if (foldersOnly && !isDir) continue;
-        const int rank = lowered.starts_with(prefix) ? 0 : lowered.find(prefix) != std::string::npos ? 1 : -1;
-        if (rank < 0) continue;
+        const std::optional<float> score = cluster::match_score(prefix, name); // [ui] matching
+        if (!score) continue;
         cluster::Candidate candidate;
         candidate.value = cluster::escape_path(dirPart + name + (isDir ? "/" : ""));
         candidate.label = name + (isDir ? "/" : "");
         candidate.directory = isDir;
         candidate.description = isDir ? "folder" : cluster::human_tokens(static_cast<std::int64_t>(entry.file_size(error))) + "B";
-        found.emplace_back(rank * 2 + (isDir ? 0 : 1), candidate);
+        found.emplace_back(*score + (isDir ? 0.0F : 0.01F), candidate);
     }
-    std::sort(found.begin(), found.end(), [](const std::pair<int, cluster::Candidate>& a, const std::pair<int, cluster::Candidate>& b) {
+    std::sort(found.begin(), found.end(), [](const std::pair<float, cluster::Candidate>& a, const std::pair<float, cluster::Candidate>& b) {
         return a.first != b.first ? a.first < b.first : a.second.label < b.second.label;
     });
     std::vector<cluster::Candidate> list;

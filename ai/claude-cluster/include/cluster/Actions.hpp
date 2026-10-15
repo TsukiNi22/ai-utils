@@ -58,6 +58,8 @@ struct ActionResult {
 /* FUNCTION */
 
 _cold _nodiscard std::vector<cluster::Action> actions(cluster::Manager& manager, const std::string& session);
+_cold _nodiscard std::optional<float> action_score(const cluster::Action& action, const std::string& filter); // lower: closer ([ui] matching)
+_cold _nodiscard std::vector<cluster::Action> filter_actions(const std::vector<cluster::Action>& actions, const std::string& filter); // ranked
 _cold _nodiscard bool action_matches(const cluster::Action& action, const std::string& filter); // the palette filter ("apply:every": its prefix, then words)
 _cold _nodiscard cluster::ActionResult run_action(cluster::Manager& manager, cluster::Voice& voice, const std::string& id,
     const std::string& session, const std::string& input);

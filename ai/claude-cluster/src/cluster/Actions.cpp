@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Models.hpp"
+#include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
 #include <fstream>
@@ -461,17 +462,38 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
 {
     return [&manager, session](const cluster::CompletionKind kind, const std::string& query) {
         std::vector<cluster::Candidate> items;
+        std::vector<float> scores; // of items: the closest first ([ui] matching)
+        const std::function<void(void)> ranked = [&items, &scores]() {
+            std::vector<std::size_t> order(items.size());
+            for (std::size_t i = 0; i < order.size(); ++i)
+                order[i] = i;
+            std::stable_sort(order.begin(), order.end(), [&scores](const std::size_t a, const std::size_t b) {return scores[a] < scores[b];});
+            std::vector<cluster::Candidate> sorted;
+            for (const std::size_t i: order)
+                sorted.push_back(items[i]);
+            items = std::move(sorted);
+        };
         if (kind == cluster::CompletionKind::Shell) return cluster::shell_commands(query); // this computer (a replica too)
         if (kind == cluster::CompletionKind::Ex) {
             for (const auto &[ex, description]: cluster::ex_commands())
-                if (ex.starts_with(query) || query.empty()) items.push_back({ex, ":" + cluster::trim(ex), description, ex.ends_with("/") || ex.ends_with(" ")});
+                if (const std::optional<float> s = cluster::match_score(query, cluster::trim(ex))) {
+                    items.push_back({ex, ":" + cluster::trim(ex), description, ex.ends_with("/") || ex.ends_with(" ")});
+                    scores.push_back(*s);
+                }
+            ranked();
             return items;
         }
         if (kind == cluster::CompletionKind::Setting) {
             for (const cluster::SettingsPage& page: cluster::settings_pages(manager.config()))
-                for (const cluster::Setting& s: page.settings)
-                    if (s.kind != cluster::SettingKind::Action && (s.key.starts_with(query) || (s.section + "." + s.key).starts_with(query)))
-                        items.push_back({s.section + "." + s.key + "=", s.section + "." + s.key, s.label + " (now: " + (s.value ? s.value(manager.config()) : std::string()) + ")", true});
+                for (const cluster::Setting& s: page.settings) {
+                    if (s.kind == cluster::SettingKind::Action) continue;
+                    const std::optional<float> a = cluster::match_score(query, s.key);
+                    const std::optional<float> b = cluster::match_score(query, s.section + "." + s.key);
+                    if (!a && !b) continue;
+                    items.push_back({s.section + "." + s.key + "=", s.section + "." + s.key, s.label + " (now: " + (s.value ? s.value(manager.config()) : std::string()) + ")", true});
+                    scores.push_back(std::min(a.value_or(1e9F), b.value_or(1e9F)));
+                }
+            ranked();
             return items;
         }
         if (manager.replica()) { // a replica: completed by its core
@@ -485,10 +507,11 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
         const std::string cwd = snap ? snap->spec.cwd : cluster::expand_home("~").string();
         const std::string wanted = cluster::lower(query);
         const std::function<void(const std::string&, const std::string&)> add = [&](const std::string& value, const std::string& description) {
-            const std::string lowered = cluster::lower(value);
-            if (!wanted.empty() && lowered.find(wanted) == std::string::npos) return;
+            const std::optional<float> score = cluster::match_score(wanted, value);
+            if (!score) return;
             if (std::any_of(items.begin(), items.end(), [&](const cluster::Candidate& c) {return c.value == value;})) return;
             items.push_back({value, value, description, false});
+            scores.push_back(*score);
         };
         switch (kind) {
             case cluster::CompletionKind::File:
@@ -537,13 +560,10 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                     for (const std::string& command: snap->slashCommands)
                         add(command, snap->commandHelp.contains(command) ? snap->commandHelp.at(command) : "command of the agent");
                 }
-                // the ones starting with the query first
-                std::stable_sort(items.begin(), items.end(), [&](const cluster::Candidate& a, const cluster::Candidate& b) {
-                    return cluster::lower(a.value).starts_with(wanted) > cluster::lower(b.value).starts_with(wanted);
-                });
                 break;
             default: break;
         }
+        if (!wanted.empty()) ranked(); // the closest first
         if (items.size() > 60) items.resize(60);
         return items;
     };
@@ -719,6 +739,45 @@ _cold cluster::ModelInfo cluster::model_info(cluster::Manager& manager, const st
     info.models = cluster::model_choices(manager.config(), backend.provider);
     info.efforts = cluster::effort_levels(info.driver);
     return info;
+}
+
+_cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<cluster::Action>& actions, const std::string& filter)
+{
+    // the palette: the actions matching, the closest first (no filter: their order)
+    std::vector<std::pair<float, cluster::Action>> found;
+    for (const cluster::Action& action: actions)
+        if (const std::optional<float> score = cluster::action_score(action, filter)) found.emplace_back(*score, action);
+    std::stable_sort(found.begin(), found.end(), [](const std::pair<float, cluster::Action>& a, const std::pair<float, cluster::Action>& b) {return a.first < b.first;});
+    std::vector<cluster::Action> out;
+    for (const auto &[score, action]: found)
+        out.push_back(action);
+    return out;
+}
+
+_cold std::optional<float> cluster::action_score(const cluster::Action& action, const std::string& filter)
+{
+    // a prefix ("apply:", "mode:"): the actions of that kind, the rest matched in their title or id; else the words of the
+    // title / the id ([ui] matching)
+    const std::string wanted = cluster::trim(cluster::lower(filter));
+    if (wanted.empty()) return 0.0F;
+    const std::size_t colon = wanted.find(':');
+    if (colon != std::string::npos && colon > 0 && wanted.find(' ') > colon) {
+        // a kind: its actions first; another action only when it holds the text as typed
+        if (!cluster::lower(action.id).starts_with(wanted.substr(0, colon + 1))) {
+            if (cluster::lower(action.title).find(wanted) == std::string::npos && cluster::lower(action.id).find(wanted) == std::string::npos) return std::nullopt;
+            return 0.0F;
+        }
+        const std::string rest = cluster::trim(wanted.substr(colon + 1));
+        if (rest.empty()) return -1000.0F;
+        const std::optional<float> t = cluster::match_words(rest, action.title);
+        const std::optional<float> i = cluster::match_words(rest, action.id);
+        if (!t && !i) return std::nullopt;
+        return std::min(t.value_or(1e9F), i.value_or(1e9F)) - 1000.0F;
+    }
+    const std::optional<float> t = cluster::match_words(wanted, action.title);
+    const std::optional<float> i = cluster::match_words(wanted, action.id);
+    if (!t && !i) return std::nullopt;
+    return std::min(t.value_or(1e9F), i.value_or(1e9F));
 }
 
 _cold bool cluster::action_matches(const cluster::Action& action, const std::string& filter)

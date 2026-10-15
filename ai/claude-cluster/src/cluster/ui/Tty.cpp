@@ -39,6 +39,7 @@ File Description:
 #include <unistd.h>
 #include <optional>
 #include <iostream>
+#include <csignal>
 #include <fstream>
 #include <sstream>
 #include <cerrno>
@@ -1264,10 +1265,7 @@ class TtyUi {
         void filter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
-            this->_actions.clear();
-            for (const cluster::Action& action: cluster::actions(this->_manager, this->_active))
-                if (cluster::action_matches(action, wanted))
-                    this->_actions.push_back(action);
+            this->_actions = cluster::filter_actions(cluster::actions(this->_manager, this->_active), wanted); // the closest first
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_actions.size()) - 1));
         }
 
@@ -3432,6 +3430,8 @@ class TtyUi {
             this->terminalModes_();
             this->_screen.ForceHandleCtrlC(false);
             this->_screen.ForceHandleCtrlZ(false);
+            // not stopped by a signal either (kill -TSTP, a terminal sending it): it stays in the foreground
+            const sighandler_t stop = std::signal(SIGTSTP, SIG_IGN);
 
             // Redraw when something changed (sessions, voice, git), at least once a second (timers)
             std::atomic<bool> alive{true};
@@ -3454,7 +3454,8 @@ class TtyUi {
                 }
             });
             ftxui::Component root = ftxui::Renderer([this]() {return this->render_();});
-            root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event);});
+            // Ctrl+Z: its action (undo) or nothing, never the interface stopped in the background
+            root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event) || event.input() == "\x1a";});
             this->_screen.Loop(root);
             this->_worker.stop(); // the running job ends before the screen goes
             // the terminal as it was: the frames buffer out first (it hides the cursor), then the modes off, the cursor
@@ -3465,6 +3466,7 @@ class TtyUi {
             if (tty) ::tcsetattr(STDIN_FILENO, TCSANOW, &original);
             alive = false;
             refresher.join();
+            (void)std::signal(SIGTSTP, stop);
             return 0;
         }
 

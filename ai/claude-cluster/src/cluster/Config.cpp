@@ -15,6 +15,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Templates.hpp"
 #include "cluster/Config.hpp"
+#include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include <toml++/toml.hpp>
 #include <optional>
@@ -114,6 +115,8 @@ _cold void cluster::Config::load(void)
     this->frontend = table["ui"]["frontend"].value_or(this->frontend);
     this->sharedCore = table["ui"]["shared_core"].value_or(this->sharedCore);
     this->shellContext = table["ui"]["shell_context"].value_or(this->shellContext);
+    this->matching = table["ui"]["matching"].value_or(this->matching);
+    cluster::set_matching(this->matching);
     this->layout = table["ui"]["layout"].value_or(this->layout);
     this->style = table["ui"]["style"].value_or(this->style);
     this->panels = strings_(table["ui"]["panels"], this->panels);

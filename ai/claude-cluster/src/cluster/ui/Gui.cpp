@@ -673,11 +673,9 @@ class Window: public QMainWindow {
                 const std::string wanted = cluster::lower(filter->text().toStdString());
                 items->clear();
                 shown.clear();
-                for (const cluster::Action& a: all)
-                    if (cluster::action_matches(a, wanted)) {
-                        shown.push_back(a);
-                        items->addItem(q_(a.title));
-                    }
+                shown = cluster::filter_actions(all, wanted); // the closest first
+                for (const cluster::Action& a: shown)
+                    items->addItem(q_(a.title));
                 items->setCurrentRow(0);
             };
             filter->setText(initial);
@@ -1411,7 +1409,9 @@ class Window: public QMainWindow {
                 : startup == 3 && cluster::machine_days_old() >= 0 ? "Sync the map of this computer? (last " + cluster::machine_age() + ")\n\n" : "";
             QMessageBox box(QMessageBox::Question, "claude-cluster", q_(title + cluster::machine_scope()), QMessageBox::Yes | QMessageBox::No, this);
             box.setDefaultButton(QMessageBox::Yes);
-            if (box.exec() != QMessageBox::Yes) {
+            const int picked = box.exec();
+            if (cluster::quit_requested()) return; // closed by a quit: not answered (asked again at the next start)
+            if (picked != QMessageBox::Yes) {
                 if (startup == 2) this->manager.machineLater();
                 else if (startup == 1) this->manager.machineDecline();
                 return;
@@ -1428,6 +1428,7 @@ class Window: public QMainWindow {
                     answer = QInputDialog::getItem(this, "About you (for the global session)", q_(q.question), items,
                         std::max<qsizetype>(0, items.indexOf(q_(q.value))), true, &ok);
                 }
+                if (cluster::quit_requested()) return;
                 if (ok) (void)cluster::settings_set(this->manager.config(), "user", q.key, answer.trimmed().toStdString());
             }
             (void)this->manager.config().reload();
@@ -1676,7 +1677,11 @@ class Window: public QMainWindow {
         void tick(void)
         {
             if (cluster::quit_requested()) { // Ctrl+C in the terminal, kill, the terminal closed: the normal quit
+                // a dialog open (a question at start...): closed without its answer first, else it keeps its own loop running
+                for (int i = 0; i < 8 && QApplication::activeModalWidget() != nullptr; ++i)
+                    QApplication::activeModalWidget()->close();
                 this->close();
+                QCoreApplication::quit();
                 return;
             }
             this->scanProgress();
@@ -2833,9 +2838,11 @@ _cold int cluster::run_gui(cluster::App& app)
     int argc = 1;
     char name[] = "claude-cluster";
     char* argv[] = {name, nullptr};
-    QApplication application(argc, argv);
+    // named before the application exists: registered once with the portal under this id (named after: a second
+    // registration refused, "Connection already associated with an application ID")
     QApplication::setApplicationName("claude-cluster");
     QGuiApplication::setDesktopFileName("claude-cluster"); // the dock: its .desktop and its icon
+    QApplication application(argc, argv);
     Window window(app);
     window.show();
     // tests: a picture of the window after a moment (CLAUDE_CLUSTER_GUI_SHOT=<file.png>)
@@ -2865,6 +2872,7 @@ _cold int cluster::run_gui(cluster::App& app)
         window.refresh(true);
     }
     if (app.askMachine != 0 && !std::getenv("CLAUDE_CLUSTER_SCREENSHOT")) window.askMachine(app.askMachine);
+    if (cluster::quit_requested()) return 0; // a quit signal during a question at start: out (the window already closed)
     // Debug: CLAUDE_CLUSTER_SCREENSHOT=<file.png> saves the window after 3 s then quits (with QT_QPA_PLATFORM=offscreen)
     const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT");
     if (screenshot && *screenshot) {

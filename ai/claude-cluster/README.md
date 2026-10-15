@@ -152,6 +152,16 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 | `:g/<text>/` | search the conversation |
 | `:new` `:model` `:mode` `:effort` `:clear`... | the `/command` of the same name; `:help`: the list |
 
+**Matching of the lists** (`[ui] matching`, Settings > Interface): the completions (`/`, `@`, `!`, `:`, `:set`, the
+models, modes, efforts, the trash), the paths and the palette use **c2dmp-hsm** of libutils (`c2dmp`, the default): a
+typo, a missing, doubled or swapped letter still finds it (`/modle` → model, `@redme` → README.md, `!gti` → git),
+the closest first; the palette matches each word typed against the words of its actions (`mode:` / `share:`... keep
+their kind). `raw`: what starts with the text typed, then what contains it.
+
+**The terminal stays in the foreground**: Ctrl+Z never sends it to the background (in the prompt: undo; at a question of
+the start: quit, asked again next time) and a stop signal is ignored; started with `&` it is refused (in `auto`, the
+window opens instead when there is a display). In the background: `claude-cluster --gui &` or `claude-cluster serve &`.
+
 | Key | Action |
 |---|---|
 | Enter | send (a local `/command` runs in claude-cluster, any other `/command` goes to the agent); while a turn runs the prompt is **queued** (shown under the transcript); the prompt leaves at once ("sent", "/clear…"): the send and the commands run in the background in their order, an error puts the prompt back |

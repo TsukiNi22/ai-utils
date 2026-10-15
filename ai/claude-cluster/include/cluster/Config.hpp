@@ -132,6 +132,7 @@ class Config {
     public:
         /* ui */
         std::string frontend = "auto";
+        std::string matching = "c2dmp";   // completions, palette, settings search: c2dmp (c2dmp-hsm, typos found) | raw (a prefix, contained)
         std::string shellContext = "ask"; // !command given to the agent: ask (after it ran) | always | never
         bool sharedCore = true;         // several terminals / windows at once on one core of its own (false: the first one is the core)
         std::string layout = "list";

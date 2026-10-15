@@ -49,6 +49,13 @@ _cold static bool tty_(void)
     return ::isatty(STDIN_FILENO) && ::isatty(STDOUT_FILENO);
 }
 
+_cold static bool foreground_(void)
+{
+    // the process group the terminal reads for: not started with & (nor sent to the background)
+    const pid_t group = ::tcgetpgrp(STDIN_FILENO);
+    return group == -1 || group == ::getpgrp();
+}
+
 _cold static bool display_(void)
 {
     const char* wayland = std::getenv("WAYLAND_DISPLAY");
@@ -254,10 +261,14 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!serve && frontend == "gui" && !display_())
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "--gui: no display ($WAYLAND_DISPLAY / $DISPLAY)");
     if (!serve && frontend != "tty" && frontend != "gui") {
-        if (tty_()) frontend = "tty";
+        // started with &: a window (it runs fine in the background), never a terminal interface left stopped there
+        if (tty_() && (foreground_() || !gui || !display_())) frontend = "tty";
         else if (gui && display_()) frontend = "gui";
         else throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no terminal and no window available");
     }
+    if (!serve && frontend == "tty" && !foreground_())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the terminal interface runs in the foreground only (not with &): "
+            "claude-cluster alone; in the background: claude-cluster --gui & or claude-cluster serve &");
 
     // Core: one per user (control socket), previous sessions, global session. An interface attaches to the core running, or to
     // one started for it (a process of its own: several terminals / windows at once, all in sync; the core goes on until the

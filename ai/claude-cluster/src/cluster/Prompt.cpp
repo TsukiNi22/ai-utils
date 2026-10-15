@@ -17,6 +17,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Editor.hpp"
+#include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
 #include <fstream>
@@ -78,13 +79,16 @@ _cold std::vector<cluster::Candidate> cluster::shell_commands(const std::string&
             }).detach();
         }
     }
-    std::vector<cluster::Candidate> items;
-    std::lock_guard<std::mutex> lock(shell_mutex_);
-    for (const cluster::Candidate& c: shell_commands_) {
-        if (!c.value.starts_with(prefix)) continue;
-        items.push_back(c);
-        if (items.size() >= 80) break;
+    std::vector<std::pair<float, cluster::Candidate>> found; // the closest first ([ui] matching)
+    {
+        std::lock_guard<std::mutex> lock(shell_mutex_);
+        for (const cluster::Candidate& c: shell_commands_)
+            if (const std::optional<float> score = cluster::match_score(prefix, c.value)) found.emplace_back(*score, c);
     }
+    std::stable_sort(found.begin(), found.end(), [](const std::pair<float, cluster::Candidate>& a, const std::pair<float, cluster::Candidate>& b) {return a.first < b.first;});
+    std::vector<cluster::Candidate> items;
+    for (std::size_t i = 0; i < found.size() && i < 80; ++i)
+        items.push_back(found[i].second);
     return items;
 }
 

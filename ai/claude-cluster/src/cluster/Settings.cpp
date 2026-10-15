@@ -106,6 +106,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         {"ui", "Interface", {
             {"ui", "frontend", "Front-end", SettingKind::Choice, {"auto", "tty", "gui"}, "auto: terminal when in a terminal, else a window (--tty / --gui win)", true,
                 [](const cluster::Config& cf) {return cf.frontend;}},
+            {"ui", "matching", "Matching of the lists", SettingKind::Choice, {"c2dmp", "raw"}, "the completions (/command, @file, !command, :command, "
+                "models...), the palette and the search of the settings: c2dmp (c2dmp-hsm of libutils: typos and misplaced letters found, the "
+                "closest first) or raw (what starts with the text typed, then what contains it)", false,
+                [](const cluster::Config& cf) {return cf.matching;},
+                [](const std::string& v) {return v == "c2dmp" ? std::string("fuzzy, ranked by distance (\"modle\" finds model)") : std::string("a prefix, then contained");}},
             {"ui", "shell_context", "!command given to the agent", SettingKind::Choice, {"ask", "always", "never"}, "a !command typed in the prompt: its "
                 "command and its output given to the agent of the session with your next prompt (like Claude Code); ask: chosen after it ran "
                 "(this time, always, not this time, never: always / never are written here, ask again from here)", false,
