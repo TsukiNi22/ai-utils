@@ -18,6 +18,7 @@ File Description:
 #include <algorithm>
 #include <fstream>
 #include <thread>
+#include <regex>
 
 /* tools */
 struct Source {
@@ -70,17 +71,56 @@ _cold static Source source_(const std::string& id)
     return {prompts.front(), text};
 }
 
-_cold static std::string written_(const std::string& text)
+_cold static std::vector<std::string> one_shot_(const cluster::Config& config, const cluster::Auth& auth, const std::string& backendSpec,
+    const std::string& prompt, const std::filesystem::path& answer)
 {
-    // a few words of a small model, its own process: no history kept, no tool, no MCP server, no setting (hooks) of the user
-    const std::string prompt = "Write a short description, 12 words at most, of what this conversation with a coding agent works on or holds, "
-        "to find it again in a list of sessions. Write it in the language of the user's messages. Answer with the description only: "
-        "no quotes, no final period.\n\n" + text;
-    const cluster::Captured out = cluster::capture({"claude", "-p", "--model", "haiku", "--no-session-persistence", "--tools", "", "--strict-mcp-config",
-        "--setting-sources", "", prompt}, cluster::data_dir().string(), 60);
+    // one question to a model, its own process, nothing kept: the driver of the provider (claude, codex, opencode, qwen) with its
+    // environment (keys, base URL); the provider of Anthropic: its small model (haiku). No tool, no MCP server, no hook of the user
+    const cluster::Backend backend = auth.resolve(backendSpec);
+    const std::string& driver = backend.provider.driver;
+    const bool anthropic = backend.provider.name == "anthropic" || backend.provider.name == "anthropic-api";
+    const std::string model = anthropic && config.describeModel.empty() ? "haiku" : backend.model;
+    std::vector<std::string> args = {"env"};
+    for (const auto &[key, value]: auth.env(backend))
+        args.push_back(key + "=" + value);
+    args.push_back(config.command(driver));
+    if (driver == "claude") {
+        args.insert(args.end(), {"-p", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--setting-sources", ""});
+        if (!model.empty()) args.insert(args.end(), {"--model", model});
+        args.push_back(prompt);
+    } else if (driver == "codex") {
+        args.insert(args.end(), {"exec", "--skip-git-repo-check", "--sandbox", "read-only", "--output-last-message", answer.string()});
+        if (!model.empty()) args.insert(args.end(), {"-m", model});
+        args.push_back(prompt);
+    } else if (driver == "opencode") {
+        args.push_back("run");
+        if (!model.empty()) args.insert(args.end(), {"-m", model});
+        args.insert(args.end(), {"--", prompt});
+    } else if (driver == "qwen") {
+        args.insert(args.end(), {"--auth-type", "openai"});
+        if (!model.empty()) args.insert(args.end(), {"-m", model});
+        args.insert(args.end(), {"-p", prompt});
+    } else {
+        return {};
+    }
+    return args;
+}
+
+_cold static std::string written_(const std::vector<std::string>& command, const std::filesystem::path& answer)
+{
+    // its answer: the file it wrote (codex), else the last line of its output (a warning may come before it), its colors out
+    const cluster::Captured out = cluster::capture(command, cluster::data_dir().string(), 90);
     if (out.code != 0) return "";
-    std::string last; // its last line (a warning may come before it)
-    for (const std::string& line: cluster::split(out.out, '\n'))
+    std::error_code error;
+    std::string text = out.out;
+    if (std::filesystem::is_regular_file(answer, error)) {
+        std::ifstream in(answer);
+        text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        std::filesystem::remove(answer, error);
+    }
+    text = std::regex_replace(text, std::regex("\x1b\\[[0-9;?]*[A-Za-z]"), "");
+    std::string last;
+    for (const std::string& line: cluster::split(text, '\n'))
         if (!cluster::trim(line).empty()) last = cluster::trim(line);
     while (!last.empty() && (last.front() == '"' || last.front() == '\'' || last.front() == '*'))
         last.erase(0, 1);
@@ -152,6 +192,7 @@ _cold void cluster::Manager::describeAuto_(const std::string& id)
             std::string id;
             std::string claudeId;
             std::string mode;
+            std::vector<std::string> command;   // the model that writes it (none: its first prompt)
             Source source;
             {
                 // what it needs read while claude-cluster runs (it quits: nothing more touched)
@@ -163,15 +204,33 @@ _cold void cluster::Manager::describeAuto_(const std::string& id)
                 id = describer->queue.front();
                 describer->queue.pop_front();
                 mode = this->_config.describe;
-                if (const std::optional<cluster::Snapshot> snap = this->snapshot(id)) claudeId = snap->spec.claudeId;
-                else
+                std::string backend;
+                if (const std::optional<cluster::Snapshot> snap = this->snapshot(id)) {
+                    claudeId = snap->spec.claudeId;
+                    backend = snap->spec.backend;
+                } else {
                     for (const cluster::SessionSpec& spec: this->trash())
-                        if (spec.id == id) claudeId = spec.claudeId;
+                        if (spec.id == id) {
+                            claudeId = spec.claudeId;
+                            backend = spec.backend;
+                        }
+                }
                 source = source_(id);
+                // the provider set for it ([sessions] describe_model), else the one of the session
+                if (mode == "model" && !source.first.empty())
+                    try {
+                        command = one_shot_(this->_config, this->_auth, this->_config.describeModel.empty() ? backend : this->_config.describeModel,
+                            "Write a short description, 12 words at most, of what this conversation with a coding agent works on or holds, to find "
+                            "it again in a list of sessions. Write it in the language of the user's messages. Answer with the description only: "
+                            "no quotes, no final period.\n\n" + source.text, cluster::data_dir() / ("describe-" + id + ".txt"));
+                    } catch (const utils::exception::IException&) {} // an unknown provider: its first prompt
             }
             if (source.first.empty()) continue; // nothing said yet
             std::string text = mode == "prompt" ? std::string() : ai_title_(claudeId);
-            if (text.empty() && mode == "model" && cluster::has_command("claude")) text = written_(source.text);
+            // its program: the first word after env and its variables (installed, else its first prompt)
+            const auto program = std::find_if(command.begin() + (command.empty() ? 0 : 1), command.end(), [](const std::string& a) {return a.find('=') == std::string::npos;});
+            if (text.empty() && program != command.end() && cluster::has_command(*program))
+                text = written_(command, cluster::data_dir() / ("describe-" + id + ".txt"));
             if (text.empty()) text = cluster::summary_of(source.first, 90);
             std::lock_guard<std::mutex> hold(describer->mutex);
             if (!describer->alive) {

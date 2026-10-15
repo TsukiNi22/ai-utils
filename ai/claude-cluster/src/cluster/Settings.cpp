@@ -203,9 +203,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         }},
         {"sessions", "Sessions", {
             {"sessions", "describe", "Short descriptions", SettingKind::Choice, {"model", "prompt", "off"}, "a few words under the name of each session (the trash too), "
-                "to find it again: model: the title Claude Code made, else written by a small model (haiku, its own process, nothing kept) after its 1st, "
+                "to find it again: model: the title Claude Code made, else written by a model (Model of the descriptions; its own process, nothing kept) after its 1st, "
                 "3rd, 9th... turn; prompt: its first prompt; off: none written (the ones given kept)", false,
                 [](const cluster::Config& cf) {return cf.describe;}},
+            {"sessions", "describe_model", "Model of the descriptions", SettingKind::Text, {}, "<provider>/<model> writing them, any provider (claude, "
+                "codex / OpenAI, opencode, qwen, a local one: ollama/llama3.2...); empty: the provider of each session (haiku for Anthropic)", false,
+                [](const cluster::Config& cf) {return cf.describeModel;}},
             {"sessions", "trash_days", "Trash kept (days)", SettingKind::Int, {}, "a closed session stays restorable this long", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.trashDays);}},
             {"sessions", "max_parallel", "Parallel sessions", SettingKind::Int, {}, "sub-sessions working at the same time: past it, the tasks (task_add, the "
