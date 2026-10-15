@@ -670,6 +670,7 @@ function render(state) {
         for (const end of ["touchend", "touchmove", "touchcancel"]) item.addEventListener(end, () => { if (pressed) clearTimeout(pressed); });
         list.append(item);
     }
+    $("composer").classList.toggle("hidden", current === "tasks"); // the Tasks session: no prompt
     if (current === "tasks") { renderTasks(); return; }
     const s = state.session;
     if (!s) {
@@ -712,7 +713,7 @@ async function renderTasks() {
         $("sessionName").textContent = "☰ Tasks";
         $("sessionInfo").textContent = "the todo lists of the sessions, the task queue, the schedules";
         $("sessionDesc").textContent = "";
-        $("sessionWhere").textContent = "a row: its actions · the composer: a task (target | prompt), +30m <text>: a reminder";
+        $("sessionWhere").textContent = "a row: its actions";
         for (const id of ["resume", "closeSession", "fork"]) $(id).classList.add("hidden");
         const box = $("transcript");
         box.textContent = "";

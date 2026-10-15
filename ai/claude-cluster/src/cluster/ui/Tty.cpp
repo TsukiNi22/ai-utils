@@ -658,7 +658,6 @@ class TtyUi {
         bool _finding = false;                      // the search of the settings page (/)
         bool _dangerOk = false;                     // the dangerous changes confirmed (their popup at the save)
         bool _saveExit = true;                      // the save waiting for that popup: the page closed after
-        bool _quitAfter = false;                    // that save asked by the quit key: claude-cluster quits after
         std::string _find;
         std::vector<cluster::SettingHit> _hits;
         int _findHit = 0;
@@ -694,14 +693,22 @@ class TtyUi {
             this->_statusTime = cluster::now();
         }
 
+        _nodiscard std::vector<std::string> ring_(void) const
+        {
+            // what next / previous go through: the Tasks session first, then the sessions in their order
+            std::vector<std::string> ids = {TASKS_ID};
+            for (const cluster::Snapshot& s: this->sessions_())
+                ids.push_back(s.spec.id);
+            return ids;
+        }
+
         void move_(const int delta)
         {
-            const std::vector<cluster::Snapshot> list = this->sessions_();
-            if (list.empty()) return;
-            auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
-            int index = it == list.end() ? 0 : static_cast<int>(it - list.begin());
-            index = (index + delta + static_cast<int>(list.size())) % static_cast<int>(list.size());
-            this->_active = list[static_cast<std::size_t>(index)].spec.id;
+            const std::vector<std::string> ids = this->ring_();
+            auto it = std::find(ids.begin(), ids.end(), this->_active);
+            int index = it == ids.end() ? 0 : static_cast<int>(it - ids.begin());
+            index = (index + delta + static_cast<int>(ids.size())) % static_cast<int>(ids.size());
+            this->_active = ids[static_cast<std::size_t>(index)];
         }
 
         void moveDir_(const int dx, const int dy)
@@ -709,11 +716,15 @@ class TtyUi {
             // Session on the left / right / above / below in the current layout (grid: rows and columns; list, tabs: previous / next)
             const std::vector<cluster::Snapshot> list = this->sessions_();
             const int count = static_cast<int>(list.size());
-            if (count == 0) return;
-            auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
-            const int index = it == list.end() ? 0 : static_cast<int>(it - list.begin());
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
             const int columns = layout == "grid" && count > 1 ? static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))) : 1;
+            // the Tasks session: in the ring of next / previous (first); the rows of the grid: its sessions only
+            if (count == 0 || this->_active == TASKS_ID || dx != 0 || columns == 1) {
+                this->move_(dx != 0 ? dx : dy);
+                return;
+            }
+            auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
+            const int index = it == list.end() ? 0 : static_cast<int>(it - list.begin());
             int target = index;
             if (dx != 0 || columns == 1) target = (index + (dx != 0 ? dx : dy) + count) % count;
             else if (index + dy * columns >= 0 && index + dy * columns < count) target = index + dy * columns;
@@ -844,7 +855,7 @@ class TtyUi {
             // the prompt leaves at once (feedback), the send / the local command runs in the worker (it may start or stop
             // a claude: seconds), its result comes back here; an error: the prompt back, nothing lost
             const std::string text = cluster::trim(this->_editor.plain());
-            if (text.empty()) return;
+            if (text.empty() || this->_active == TASKS_ID) return; // the Tasks session: no prompt
             const cluster::Draft draft = this->_editor.draft();
             const std::vector<std::string> images = this->_editor.images();
             const std::string session = this->_active;
@@ -900,6 +911,10 @@ class TtyUi {
                     ftxui::text("▏") | ftxui::blink, ftxui::text("  " + (this->_matches.empty() ? std::string("no match") : std::to_string(this->_hit + 1) + "/" + std::to_string(this->_matches.size()))
                     + "  Enter / ↑ older · ↓ newer · Esc close") | ftxui::color(this->_theme.muted), ftxui::filler()});
             }
+            if (this->_active == TASKS_ID) // the Tasks session: no prompt, what to do instead
+                return ftxui::hbox({ftxui::text(" ☰ ") | ftxui::color(this->_theme.accent) | ftxui::bold,
+                    ftxui::text("Tasks: no prompt here · a click on a row: its actions · " + this->_manager.config().keys.at("next_session") + " / "
+                        + this->_manager.config().keys.at("prev_session") + ", Ctrl+B + an arrow: another session") | ftxui::color(this->_theme.muted), ftxui::filler()});
             const std::string& text = this->_editor.text();
             const std::pair<std::size_t, std::size_t> sel = this->_editor.selection();
             const std::size_t cursor = this->_editor.cursor();
@@ -1638,18 +1653,6 @@ class TtyUi {
                 }
                 return true;
             }
-            // quitting with changes: y saves them (their dangerous ones asked) then quits, n quits without, Esc stays
-            if (this->_note == "confirm_quit") {
-                this->_note.clear();
-                if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
-                    this->_quitAfter = true;
-                    this->saveSettings_();
-                    if (this->_note != "danger_save") this->_screen.Exit();
-                } else if (event == ftxui::Event::Character('n') || event == ftxui::Event::Character('N')) {
-                    this->_screen.Exit();
-                }
-                return true;
-            }
             // the save with dangerous values: y saves them all, n / Esc back to the page (nothing saved, the changes kept)
             if (this->_note == "danger_save") {
                 this->_note.clear();
@@ -1657,11 +1660,9 @@ class TtyUi {
                     this->_dangerOk = true;
                     this->saveSettings_(this->_saveExit);
                     this->_dangerOk = false;
-                    if (this->_quitAfter) this->_screen.Exit();
                 } else {
                     this->_note = "not saved: the changes are kept (Ctrl+S to save them)";
                 }
-                this->_quitAfter = false;
                 return true;
             }
             // "Save the changes? (y / n)": y saves, any other key drops them
@@ -1829,7 +1830,6 @@ class TtyUi {
                 if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
             }
             std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)"
-                : this->_note == "confirm_quit" ? "Quit: save the " + std::to_string(this->_changes.size()) + " change(s) first?"
                 : this->_note == "danger_save" ? std::string() : this->_note;
             ftxui::Elements choice;
             for (const std::string& line: cluster::split(choiceHelp, '\n'))
@@ -1870,9 +1870,6 @@ class TtyUi {
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
                 this->_note == "confirm" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn), keyed(" [y] save ", ftxui::Event::Character('y')) | ftxui::color(t.accent),
                     keyed(" [n] drop ", ftxui::Event::Character('n')) | ftxui::color(t.accent)})
-                : this->_note == "confirm_quit" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn) | ftxui::bold,
-                    keyed(" [y] save and quit ", ftxui::Event::Character('y')) | ftxui::color(t.accent), keyed(" [n] quit without ", ftxui::Event::Character('n')) | ftxui::color(t.error),
-                    keyed(" Esc stay ", ftxui::Event::Escape) | ftxui::color(t.muted)})
                 : ftxui::text(" " + note) | ftxui::color(t.warn),
                 ftxui::hbox({ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   "), keyed("/ search", ftxui::Event::Character('/')),
                     ftxui::text("   "), keyed("Ctrl+S save", ftxui::Event::Special(std::string(1, '\x13'))),
@@ -3465,9 +3462,15 @@ class TtyUi {
             // the quit key works everywhere (a dialog open too); a question at start (restore, map of this computer): q /
             // Ctrl+C / Ctrl+D / Ctrl+Z quit too, without answering (asked again at the next start)
             const bool startup = this->_mode == Mode::Restore || (this->_mode == Mode::Machine && this->_machineStartup);
-            if (key == this->_manager.config().keys.at("quit") && this->_mode == Mode::Settings && !this->_changes.empty() && this->_note != "confirm_quit"
-                && this->_note != "danger_save") {
-                this->_note = "confirm_quit"; // the changes not saved: asked before quitting
+            if (key == this->_manager.config().keys.at("quit") && this->_mode == Mode::Settings) {
+                // the quit key in the settings: the page closed, its changes dropped (not asked, claude-cluster goes on)
+                const std::size_t dropped = this->_changes.size();
+                this->_changes.clear();
+                this->_note.clear();
+                this->_finding = false;
+                this->_editing = false;
+                this->_mode = Mode::Normal;
+                this->status_(dropped > 0 ? "settings closed: " + std::to_string(dropped) + " change(s) not saved" : "settings closed");
                 return true;
             }
             if (key == this->_manager.config().keys.at("quit") || (startup && (event == ftxui::Event::Character('q') || event == ftxui::Event::Character('Q')
@@ -3753,6 +3756,10 @@ class TtyUi {
             if (event == ftxui::Event::Escape && !this->_app.voice->pending().empty()) {
                 this->_app.voice->cancelLast();
                 this->status_("voice prompt dropped (Ctrl+C: all of them)");
+                return true;
+            }
+            if (this->_active == TASKS_ID) { // the Tasks session: no prompt; its shortcuts still (next / previous, Ctrl+B, the palette...)
+                (void)this->shortcut_(cluster::key_action(this->_manager.config(), key));
                 return true;
             }
             this->vimSync_();

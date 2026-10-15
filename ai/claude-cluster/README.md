@@ -188,7 +188,9 @@ clicked) is one more reference to the same `[Image #N]` ("here, here and here"),
 images are numbered in the order of the text when sent.
 
 **The Tasks session** (`☰ Tasks`, first in the list and the tabs; `/tasks`, the palette *Tasks*, the window's *Tasks*
-button - in the grid: a window of its own): what the sessions do and what waits, in place of a conversation.
+button - in the grid: a window of its own; next / previous session and Ctrl+B + an arrow go through it, before the
+global session): what the sessions do and what waits, in place of a conversation. It has no prompt (its rows are
+clicked, the palette, the global session or `claude-cluster task add` / `schedule add` make new ones).
 - **Todo lists**: the list of each session (like claude.ai: ☒ done, ◼ in progress, ☐ to do; its TodoWrite /
   TaskCreate / TaskUpdate - `claude -p` gets its todo tools: `CLAUDE_CODE_ENABLE_TODO_TOOLS`); a session's own: its
   right panel *tasks*.
@@ -198,8 +200,6 @@ button - in the grid: a window of its own): what the sessions do and what waits,
   counted) or cancelled.
 - **A click on one: its actions** - start now (past the limit of parallel sessions) / run now, cancel or delete
   (a reason asked: told to the session that made it), archive (the archive: *▸ N archived*), open its session.
-- **Its prompt**: a task (`target | prompt` for one target), `+30m <text>` / `18:00 <text>` a reminder to the global
-  session (none: a notification).
 - A session closed: its waiting tasks and schedules cancelled ("its session was closed"); deleted for good: removed.
 - The control: `task_act` / `schedule_act` (cancel, delete, archive, unarchive, force / trigger, a reason), `todos`;
   the MCP: `task_act` (the global session).
@@ -711,7 +711,7 @@ stay in the file.
 (`remote = router`), its shell, plain http, an MCP server added. A yellow **⚠** next to each setting that can be
 dangerous, its name **red** while its value is the dangerous one. Changing it asks nothing; the save (Ctrl+S, F10,
 Save, Esc then save) shows one popup listing them with their warning: save them, or back (nothing saved, the changes
-kept). The quit key (Ctrl+Q) in the settings with changes asks first: save and quit, quit without, Esc stays. `:set` needs `:set!`; the control and the MCP refuse it without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
+kept). The quit key (Ctrl+Q) in the settings closes the page without saving (not asked; claude-cluster goes on). `:set` needs `:set!`; the control and the MCP refuse it without `confirmed` (the global session asks you first). Each option shows its help under it (the window) or on the
 right (the terminal), in lines and steps (Web > Beyond the LAN: how to set up Tailscale or the router).
 
 **Search a setting**: by its name (its label, its key: c2dmp-hsm, a typo found) far before the words of its

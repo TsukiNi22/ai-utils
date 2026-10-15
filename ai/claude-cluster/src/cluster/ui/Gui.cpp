@@ -1189,12 +1189,16 @@ class Window: public QMainWindow {
 
         void move(const int delta)
         {
-            const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
-            if (sessions.empty()) return;
-            auto it = std::find_if(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;});
-            int index = it == sessions.end() ? 0 : static_cast<int>(it - sessions.begin());
-            index = (index + delta + static_cast<int>(sessions.size())) % static_cast<int>(sessions.size());
-            this->active = sessions[static_cast<std::size_t>(index)].spec.id;
+            // next / previous: the Tasks session first (not in the grid: its own window), then the sessions
+            std::vector<std::string> ids;
+            if (this->manager.ui("layout", this->manager.config().layout) != "grid") ids.push_back(TASKS_ID);
+            for (const cluster::Snapshot& s: this->manager.list(true))
+                ids.push_back(s.spec.id);
+            if (ids.empty()) return;
+            auto it = std::find(ids.begin(), ids.end(), this->active);
+            int index = it == ids.end() ? 0 : static_cast<int>(it - ids.begin());
+            index = (index + delta + static_cast<int>(ids.size())) % static_cast<int>(ids.size());
+            this->active = ids[static_cast<std::size_t>(index)];
             this->refresh(true);
         }
 
@@ -1390,8 +1394,8 @@ class Window: public QMainWindow {
                 this->target->setText(": command (:help)");
                 this->target->setStyleSheet("color:" + q_(st.accent) + ";font-weight:600;");
             } else if (this->active == TASKS_ID) {
-                this->target->setText("→ a new task · +30m: a reminder");
-                this->target->setStyleSheet("color:" + q_(st.accent) + ";");
+                this->target->setText("☰ Tasks: no prompt");
+                this->target->setStyleSheet("color:" + q_(st.muted) + ";");
             } else {
                 this->target->setText(q_(this->active == GLOBAL_ID ? "→ global" : "→ " + this->active));
                 this->target->setStyleSheet("");
@@ -1403,7 +1407,7 @@ class Window: public QMainWindow {
             // the prompt leaves at once (feedback), the send / the local command runs in the worker, its result comes back
             // here; an error: the prompt back, nothing lost
             const std::string text = cluster::trim(this->input->plain());
-            if (text.empty()) return;
+            if (text.empty() || this->active == TASKS_ID) return; // the Tasks session: no prompt
             const cluster::Draft draft = this->input->draft();
             std::vector<std::string> images;
             for (const auto &[label, path]: this->input->completion.imagesIn(this->input->raw()))
@@ -1741,6 +1745,15 @@ class Window: public QMainWindow {
             }
             if (this->tasksWindow != nullptr && this->tasksWindow->isVisible()) this->fillTasks(this->tasksBrowser);
             this->modeTarget();
+            // the Tasks session: no prompt
+            if (this->input != nullptr) {
+                const bool off = this->active == TASKS_ID;
+                if (this->input->isEnabled() == off) {
+                    this->input->setEnabled(!off);
+                    this->input->setPlaceholderText(off ? "Tasks: no prompt here · a click on a row: its actions · Ctrl+N / Ctrl+P: another session"
+                        : "Prompt (Enter to send, Shift / Alt+Enter new line) · @ file · / command · ! shell · : command · Ctrl+K palette · F1 keys");
+                }
+            }
 
             // voice bar, last notice
             const cluster::Voice& voice = *this->app.voice;
