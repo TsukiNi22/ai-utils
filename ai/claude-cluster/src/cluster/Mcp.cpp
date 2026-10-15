@@ -87,6 +87,22 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"prompt", str_("the task")}, {"target", str_("session or folder (optional)")}, {"after", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "ids of tasks to finish first"}}}},
             {"prompt"}),
         tool_("task_list", "Tasks of the queue and their status.", nullptr, {}),
+        tool_("session_fanout", "A request on several sessions / projects at once (a group): a task each, sent as many at once as the parallel sessions "
+            "allow (the others wait in the task queue); you are woken ONCE with their answers as [group fN ...] to merge them - end your turn after it, "
+            "never poll. tasks: [{session or cwd, prompt (else the common prompt), after: [indexes of tasks of this group it builds on: their answers "
+            "given to it]}]; match: {under: folder, has: a file marking a project (default: a git repository), name: part of its name, max} for every "
+            "project found (its session reused, else created: shown to the user first, then confirmed: true); wait: {mode: all | first | count, count, "
+            "timeout_minutes (then woken with what came), stop_others (the wait met: the others stopped)}; retry (a failed task tried once more, "
+            "default true); merge: here (you) | session (a big merge by a session of its own, its answer to you); table: a comparison table asked too.",
+            {{"label", str_("what the group does, a few words")}, {"prompt", str_("the common prompt")},
+                {"tasks", {{"type", "array"}, {"items", {{"type", "object"}}}, {"description", "[{session | cwd, prompt, after: [index]}]"}}},
+                {"match", {{"type", "object"}, {"description", "{under, has, name, max}"}}},
+                {"wait", {{"type", "object"}, {"description", "{mode: all | first | count, count, timeout_minutes, stop_others}"}}},
+                {"retry", {{"type", "boolean"}}}, {"merge", str_("here | session")}, {"table", {{"type", "boolean"}}},
+                {"confirmed", {{"type", "boolean"}, {"description", "the user agreed to the projects found (match)"}}}}, {"label"}),
+        tool_("group_status", "The progress of a group (its tasks, their state and answers so far); none: every group of this run.", {{"group", str_("fN")}}, {}),
+        tool_("group_cancel", "Stop a group: its tasks not started are cancelled, the running ones interrupted when interrupt is true.",
+            {{"group", str_("fN")}, {"interrupt", {{"type", "boolean"}}}}, {"group"}),
         tool_("schedule_add", "Do something at a time, while claude-cluster runs: a prompt to a session (you by default: a wake up / a reminder you get as "
             "\"[scheduled wN] text\") or a desktop notification; repeated every N minutes or once.",
             {{"when", str_("+30m, +2h, +1d, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM")}, {"text", str_("the prompt / the notification")},
@@ -163,7 +179,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
-        {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_cd", "cd"},
+        {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
         {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},

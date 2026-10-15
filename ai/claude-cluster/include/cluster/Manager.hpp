@@ -98,6 +98,8 @@ class Manager {
         std::atomic<std::uint64_t> _raiseVersion{0};    // a notification clicked: the interface to the front
         std::string _active = "g";                      // the session they show
         std::vector<cluster::Task> _tasks;
+        std::vector<cluster::Group> _groups;            // the requests of the global session on several sessions (this run)
+        int _nextGroup = 1;
         std::vector<cluster::Schedule> _schedules;      // things to do at a time (kept in the state)
         int _nextSchedule = 1;
         std::deque<cluster::Notice> _notices;
@@ -140,7 +142,9 @@ class Manager {
         _cold void writeMcpConfig_(void) const;
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
         _cold void schedule_(void);                         // Manager-Tasks.cpp
-        _cold void taskDone_(const std::string& session, const bool error);
+        _cold void taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text);
+        _cold void groupUpdate_(const std::string& id);     // Manager-Groups.cpp: its card, the global session woken, its end
+        _cold void groupsTick_(void);                       // the groups whose time is over
         _cold void loadUsage_(void);                        // Manager-Usage.cpp
         _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
         void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)
@@ -191,6 +195,9 @@ class Manager {
         _cold _nodiscard std::vector<cluster::Schedule> schedules(void) const;
         _cold void cancelSchedule(const std::string& id);
         _cold void cancelTask(const std::string& id);
+        _cold _nodiscard cluster::Json fanout(const cluster::Json& args);           // several prompts as a group (tasks), woken with their answers
+        _cold _nodiscard cluster::Json groupStatus(const std::string& id) const;   // "": every group
+        _cold void groupCancel(const std::string& id, const bool interrupt);
         _cold _nodiscard std::vector<cluster::Task> tasks(void) const;
 
         /* history (Store.cpp) */

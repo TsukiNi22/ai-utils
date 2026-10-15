@@ -189,6 +189,31 @@ struct Task {
     std::string status = "queued";  // queued | running | done | failed | cancelled
     std::string session;            // session running it
     std::int64_t created = 0;
+    std::string group;              // its group (session_fanout of the global session), "" none
+    std::string label;              // its target told to the global session (the session, the project)
+    std::string answer;             // its answer (the end of its turn)
+    int retries = 0;                // tried again after an error
+    std::int64_t started = 0;
+    std::int64_t ended = 0;
+};
+
+// A request of the global session on several sessions / projects: its tasks, how long it waits for them, their merge
+struct Group {
+    std::string id;                 // f1, f2...
+    std::string label;
+    std::string wait = "all";       // all | first | count: the global session woken when all / the first / count of them are done
+    int count = 1;
+    std::int64_t deadline = 0;      // woken then with what came (0: none)
+    bool stopOthers = false;        // its wait met: the others stopped
+    bool retry = true;              // a task failing: tried once more
+    std::string merge = "here";     // here: merged by the global session | session: by a session of its own
+    bool table = false;             // a comparison table asked too
+    std::vector<std::string> tasks;
+    std::set<std::string> told;     // tasks whose answer was given to the global session
+    bool woken = false;
+    bool finished = false;
+    std::string card;               // its progress card (a display of the global session)
+    std::int64_t created = 0;
 };
 
 // Something to do at a time: a prompt to a session (the global one by default) or a notification, repeated or not

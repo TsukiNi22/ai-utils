@@ -208,8 +208,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.describe;}},
             {"sessions", "trash_days", "Trash kept (days)", SettingKind::Int, {}, "a closed session stays restorable this long", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.trashDays);}},
-            {"sessions", "max_parallel", "Tasks in parallel", SettingKind::Int, {}, "task queue: sessions working at the same time", false,
+            {"sessions", "max_parallel", "Parallel sessions", SettingKind::Int, {}, "sub-sessions working at the same time: past it, the tasks (task_add, the "
+                "groups of the global session) wait in the task queue and are sent as soon as a place is free", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.maxParallel);}},
+            {"sessions", "task_queue", "Task queue", SettingKind::Int, {}, "tasks waiting for a free place, at most (a new one past it is refused)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.taskQueue);}},
             {"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts", false,
                 [](const cluster::Config& cf) {return number_(cf.budget);}},
             {"sessions", "questions_to_global", "Questions on the global session", SettingKind::Bool, {}, "a question of the agent of a "

@@ -651,7 +651,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                     limit ? cluster::Face::Idle : event.error ? cluster::Face::Waiting : cluster::Face::Grin, event.error && !limit,
                     limit ? "message" : event.error ? "dialog-warning" : "complete", {{"open", "Open"}}}, limit ? "limit" : event.error ? "error" : "done");
             }
-            this->taskDone_(event.session, event.error);
+            this->taskDone_(event.session, event.error, event.interrupted, event.text);
             break;
         case cluster::Event::Kind::Exited: {
             // the global session must stay: its process ended by itself (not a stop) -> started again on its conversation
@@ -707,8 +707,17 @@ _cold void cluster::Manager::load(void)
     for (const cluster::Json& spec: state->value("trash", cluster::Json::array()))
         this->_trash.push_back(spec_from_json_(spec));
     for (const cluster::Json& t: state->value("tasks", cluster::Json::array())) {
-        cluster::Task task{t.value("id", std::string()), t.value("prompt", std::string()), t.value("target", std::string()),
-            t.value("after", std::vector<std::string>()), t.value("status", std::string("queued")), t.value("session", std::string()), t.value("created", std::int64_t{0})};
+        cluster::Task task;
+        task.id = t.value("id", std::string());
+        task.prompt = t.value("prompt", std::string());
+        task.target = t.value("target", std::string());
+        task.after = t.value("after", std::vector<std::string>());
+        task.status = t.value("status", std::string("queued"));
+        task.session = t.value("session", std::string());
+        task.created = t.value("created", std::int64_t{0});
+        task.group = t.value("group", std::string());
+        task.label = t.value("label", std::string());
+        task.retries = t.value("retries", 0);
         if (task.status == "running") task.status = "queued"; // interrupted by the end of the previous run
         this->_tasks.push_back(task);
     }
@@ -738,7 +747,8 @@ _cold void cluster::Manager::save(void) const
             state["trash"].push_back(spec_to_json_(spec));
         state["tasks"] = cluster::Json::array();
         for (const cluster::Task& t: this->_tasks)
-            state["tasks"].push_back({{"id", t.id}, {"prompt", t.prompt}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session}, {"created", t.created}});
+            state["tasks"].push_back({{"id", t.id}, {"prompt", t.prompt}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session}, {"created", t.created},
+                {"group", t.group}, {"label", t.label}, {"retries", t.retries}});
         state["ui"] = this->_ui;
     }
     try {
@@ -806,6 +816,7 @@ _cold void cluster::Manager::tick(void)
         else this->notice_("", "config error (previous values kept): " + this->_config.error(), true);
     }
     this->schedule_();
+    this->groupsTick_();
     this->fireSchedules_();
     if (++seconds % 300 == 1) this->purge();
     if (seconds == 5) this->describeMissing_();

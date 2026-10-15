@@ -618,6 +618,11 @@ class Window: public QMainWindow {
                 this->run(action, "");
                 return;
             }
+            if (action.input == "type yes to confirm") { // a confirmation: a yes / no popup
+                if (QMessageBox::question(this, "claude-cluster", q_(action.title + "?"), QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) == QMessageBox::Yes)
+                    this->run(action, "yes");
+                return;
+            }
             bool ok = false;
             const QString value = QInputDialog::getText(this, q_(action.title), q_(action.input),
                 action.id.starts_with("auth_key:") ? QLineEdit::Password : QLineEdit::Normal, q_(action.fill), &ok);

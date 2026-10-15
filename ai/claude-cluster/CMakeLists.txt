@@ -78,6 +78,7 @@ set(SRC
     src/cluster/Manager-Tasks.cpp
     src/cluster/Manager-Usage.cpp
     src/cluster/Manager-Describe.cpp
+    src/cluster/Manager-Groups.cpp
     src/cluster/Manager-External.cpp
     src/cluster/Asking.cpp
     src/cluster/Display.cpp

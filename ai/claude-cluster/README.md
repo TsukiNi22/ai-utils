@@ -271,13 +271,24 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   [The icon and the notifications](#the-icon-and-the-notifications);
 - `/clear` and a new start (`n` at start) only start the context of claude again: the transcript stays, marked
   "new conversation" (the sub-sessions go to the trash as before);
+- **several projects at once**: a request touching several projects is split, a task per project, sent as a group
+  (`session_fanout`): their sessions (or their folders: created; a pattern `match` {under, has, name}: past 10 projects
+  or sessions to create, the list is shown to the user first), a chain (`after`: a task gets the answer it builds on),
+  a wait the global session chooses (`all`, `first`, `count`, `timeout_minutes` with what came, `stop_others`), a failed
+  task tried once more; the global session is woken **once** with their answers and merges them (or a session of its
+  own for a big merge: `merge: session`; `table`: a comparison table too); its progress card in the transcript of the
+  global session, a notification at its end. The tasks go through the task queue: **parallel sessions**
+  (`[sessions] max_parallel`: sub-sessions working at once) past which they wait in the **task queue** (`task_queue`:
+  how many may wait, a new one past it refused), sent as soon as a place is free;
+- **Start over** (the palette, Ctrl+K): every sub-session to the trash (restorable), the queued tasks and groups
+  stopped, a new conversation for the global session - after a yes / no;
 - it **stays**: its process ending by itself (not a stop) starts it again on its conversation (once a minute at most,
   told in the status line);
 - the **MCP server** `claude-cluster mcp`: `session_list`, `session_status`, `session_spawn`, `session_send`,
   `session_allow`, `session_set_mode`, `session_interrupt`, `session_close`, `session_restore`, `session_trash`,
   `session_rename`, `session_cd`, `task_add`, `task_list`, `task_cancel`, `search`, `export`, `providers`,
   `session_wait` (until a session is done: its last answer only), `schedule_add` / `schedule_list` / `schedule_cancel`,
-  `notify` (a desktop notification), and for
+  `notify` (a desktop notification), `session_fanout` / `group_status` / `group_cancel` (below), and for
   the interface and itself: `ui_state`, `ui_focus` (show a sub-session while it goes on talking, `g` to come back),
   `ui_layout`, `ui_style`, `ui_panel`, `remote_control` (its own Remote Control), `settings_get` / `settings_set`
   (every option of the settings page), `cluster_info` (version, paths of its files, global session, agents and their
@@ -614,7 +625,7 @@ stay in the file.
 
 `~/.config/claude-cluster/config.toml` (written commented on the first run, reloaded when saved): interface
 (`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never`, `notify`), `[agent]` default backend
-and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel` of the task
+and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel`: the parallel sessions, `task_queue`: the tasks waiting for a place, of the task
 queue, `budget_usd`, `prompt`: the system prompt of every sub-session, `~/.config/claude-cluster/sessions.md`, an
 empty file: none, edited from the settings page or the palette, taken at the next start of each session), `[voice]`, `[keys]`, own `[styles.<name>]` (built-in: `html-light`, `html-dark`, `nord`,
 `gruvbox`, `solarized-light`, `mono`), `[profiles.<name>]` (folder, backend, mode, first prompt, extra arguments) and

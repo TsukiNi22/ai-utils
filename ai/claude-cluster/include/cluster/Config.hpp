@@ -176,7 +176,8 @@ class Config {
         /* sessions */
         int trashDays = 14;
         std::string describe = "model";         // the short description of a session: model (a small model) | prompt (its first one) | off
-        int maxParallel = 4;
+        int maxParallel = 4;                    // the parallel sessions: sub-sessions working at the same time (the tasks wait past it)
+        int taskQueue = 100;                    // the task queue: tasks waiting for a free place, at most
         double budget = 0.0;
         bool questionsToGlobal = true;          // the questions of the sub-sessions shown on the global session (their own one: greyed)
         bool globalAnswers = false;             // the global session may choose the answer of a question of a sub-session

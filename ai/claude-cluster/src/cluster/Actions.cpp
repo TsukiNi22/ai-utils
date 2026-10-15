@@ -33,6 +33,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"edit_vocabulary", "Vocabulary of the voice: edit it (proper names heard)", "", "", true},
         {"edit_words", "Voice words: edit them (cancel / send said alone)", "", "", true},
         {"restore_menu", "Reopen a closed session (the trash)", "", "", true},
+        {"start_over", "Start over: every sub-session to the trash (restorable), the queued tasks cancelled, a new conversation for the global session",
+            "type yes to confirm", "", false},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
         {"send", "Send a prompt to the session", "prompt", "", false},
@@ -338,6 +340,25 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
         } else if (base == "purge") {
             manager.purge(arg);
             result.message = arg.empty() ? "trash purged (expired sessions)" : "deleted for good";
+        } else if (base == "start_over") {
+            // everything from zero: the sub-sessions closed (the trash keeps them), the tasks and groups stopped, the global session cleared
+            if (cluster::lower(cluster::trim(input)) != "yes") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not confirmed: nothing changed");
+            for (const cluster::Json& group: manager.groupStatus("")) {
+                if (group.value("finished", false)) continue;
+                try {
+                    manager.groupCancel(group.value("group", std::string()), true);
+                } catch (const utils::exception::IException&) {}
+            }
+            for (const cluster::Task& task: manager.tasks())
+                if (task.status == "queued") manager.cancelTask(task.id);
+            std::size_t closed = 0;
+            for (const cluster::Snapshot& snap: manager.list(false)) {
+                manager.close(snap.spec.id);
+                ++closed;
+            }
+            manager.clear(GLOBAL_ID);
+            result.focus = GLOBAL_ID;
+            result.message = "started over: " + std::to_string(closed) + " session(s) to the trash, a new conversation for the global session";
         } else if (base == "purge_all") {
             if (cluster::lower(cluster::trim(input)) != "yes") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not confirmed: the trash is kept");
             manager.purge("*");

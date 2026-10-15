@@ -445,10 +445,17 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"deleted", spec.deleted}, {"summary", spec.summary}});
         } else if (cmd == "task_add") {
             data = {{"id", manager.addTask(arg_(request, "prompt"), arg_(request, "target"), request.value("after", std::vector<std::string>()))}};
+        } else if (cmd == "fanout") {
+            data = manager.fanout(request);
+        } else if (cmd == "group_status") {
+            data = manager.groupStatus(request.value("group", std::string()));
+        } else if (cmd == "group_cancel") {
+            manager.groupCancel(arg_(request, "group"), request.value("interrupt", false));
         } else if (cmd == "task_list") {
             data = cluster::Json::array();
             for (const cluster::Task& t: manager.tasks())
-                data.push_back({{"id", t.id}, {"prompt", cluster::one_line(t.prompt, 200)}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session}});
+                data.push_back({{"id", t.id}, {"prompt", cluster::one_line(t.prompt, 200)}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session},
+                    {"group", t.group}});
         } else if (cmd == "notify") {
             const bool sent = manager.notifyDesktop(arg_(request, "title", "claude-cluster"), arg_(request, "text"), request.value("urgent", false));
             data = {{"sent", sent}};

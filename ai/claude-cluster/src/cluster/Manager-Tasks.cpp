@@ -18,6 +18,7 @@ File Description:
 #include <algorithm>
 #include <ctime>
 #include <regex>
+#include <set>
 #include <map>
 
 /* tasks */
@@ -30,8 +31,19 @@ _cold std::string cluster::Manager::addTask(const std::string& prompt, const std
         for (const std::string& dep: after)
             if (std::none_of(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == dep;}))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no task '" + dep + "'");
+        // the task queue: the tasks waiting for a free place, bounded
+        const std::size_t waiting = std::count_if(this->_tasks.begin(), this->_tasks.end(), [](const cluster::Task& t) {return t.status == "queued";});
+        if (waiting >= static_cast<std::size_t>(std::max(1, this->_config.taskQueue)))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the task queue is full (" + std::to_string(waiting)
+                + " waiting: [sessions] task_queue)");
         id = "t" + std::to_string(this->_nextTask++);
-        this->_tasks.push_back({id, prompt, target, after, "queued", "", cluster::now()});
+        cluster::Task task;
+        task.id = id;
+        task.prompt = prompt;
+        task.target = target;
+        task.after = after;
+        task.created = cluster::now();
+        this->_tasks.push_back(task);
     }
     this->notice_("", "task " + id + " queued: " + cluster::one_line(prompt, 80));
     this->save();
@@ -56,19 +68,36 @@ _cold std::vector<cluster::Task> cluster::Manager::tasks(void) const
     return this->_tasks;
 }
 
-_cold void cluster::Manager::taskDone_(const std::string& session, const bool error)
+_cold void cluster::Manager::taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text)
 {
+    // its answer kept (its group gets it); an error: tried once more in the same session when its group allows it
     bool changed = false;
+    std::set<std::string> groups;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         for (cluster::Task& task: this->_tasks) {
             if (task.session != session || task.status != "running") continue;
-            task.status = error ? "failed" : "done";
             changed = true;
+            task.answer = text;
+            task.ended = cluster::now();
+            if (!task.group.empty()) groups.insert(task.group);
+            const bool retry = error && !interrupted && task.retries < 1 && std::any_of(this->_groups.begin(), this->_groups.end(),
+                [&task](const cluster::Group& g) {return g.id == task.group && g.retry;});
+            if (retry) {
+                ++task.retries;
+                task.status = "queued";
+                task.target = session;
+                continue;
+            }
+            task.status = error || interrupted ? "failed" : "done";
         }
     }
     if (!changed) return;
     this->save();
+    for (const std::string& group: groups)
+        this->groupUpdate_(group);
+    this->schedule_(); // a place free: the next one at once
+    if (!groups.empty()) return; // a group: its own end told
     // the queue done: one summary
     std::size_t done = 0;
     std::size_t failed = 0;
@@ -93,10 +122,16 @@ _cold void cluster::Manager::schedule_(void)
     std::vector<std::pair<std::string, std::string>> spawns;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        std::size_t running = std::count_if(this->_tasks.begin(), this->_tasks.end(), [](const cluster::Task& t) {return t.status == "running";});
+        // the parallel sessions: every sub-session working (or waiting on a permission, starting), and the tasks being started;
+        // past the limit the tasks wait in the queue, sent as soon as a place is free
         std::set<std::string> busy;
+        for (const std::string& id: this->_order) {
+            const cluster::State state = this->_sessions.at(id)->snapshot().state;
+            if (state == cluster::State::Working || state == cluster::State::Waiting || state == cluster::State::Starting) busy.insert(id);
+        }
         for (const cluster::Task& t: this->_tasks)
-            if (t.status == "running") busy.insert(t.session);
+            if (t.status == "running") busy.insert(t.session.empty() ? "task:" + t.id : t.session);
+        std::size_t running = busy.size();
 
         for (cluster::Task& task: this->_tasks) {
             if (task.status != "queued" || running >= static_cast<std::size_t>(std::max(1, this->_config.maxParallel))) continue;
@@ -140,7 +175,13 @@ _cold void cluster::Manager::schedule_(void)
     }
     for (const auto &[taskId, folder]: spawns) {
         try {
-            const std::string id = this->spawn({folder, "task-" + taskId, "", "", "", "", ""});
+            std::string name = "task-" + taskId; // a task of a group: named after its project
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                for (const cluster::Task& task: this->_tasks)
+                    if (task.id == taskId && !task.label.empty()) name = task.label;
+            }
+            const std::string id = this->spawn({folder, name, "", "", "", "", ""});
             std::lock_guard<std::mutex> lock(this->_mutex);
             for (cluster::Task& task: this->_tasks)
                 if (task.id == taskId) {
@@ -155,14 +196,26 @@ _cold void cluster::Manager::schedule_(void)
     }
     for (const auto &[taskId, sessionId]: starts) {
         std::string prompt;
+        std::string group;
         {
+            // the answers of the tasks it comes after: given to it (a chain between projects)
             std::lock_guard<std::mutex> lock(this->_mutex);
-            for (const cluster::Task& task: this->_tasks)
-                if (task.id == taskId) prompt = task.prompt;
+            for (cluster::Task& task: this->_tasks) {
+                if (task.id != taskId) continue;
+                prompt = task.prompt;
+                group = task.group;
+                task.started = cluster::now();
+                for (const std::string& dep: task.after)
+                    for (const cluster::Task& before: this->_tasks)
+                        if (before.id == dep && !before.answer.empty())
+                            prompt += "\n\n[the answer of " + (before.label.empty() ? before.id : before.label) + " (" + before.id + "), this task builds on it]\n"
+                                + (before.answer.size() > 4000 ? before.answer.substr(0, 4000) + "\n[...]" : before.answer);
+            }
         }
         try {
             this->send(sessionId, prompt);
             this->notice_(sessionId, "task " + taskId + " started");
+            if (!group.empty()) this->groupUpdate_(group);
         } catch (const utils::exception::IException& e) {
             std::lock_guard<std::mutex> lock(this->_mutex);
             for (cluster::Task& task: this->_tasks)
