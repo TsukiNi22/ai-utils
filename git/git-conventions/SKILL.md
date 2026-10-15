@@ -1,6 +1,6 @@
 ---
 name: git-conventions
-description: Tsukini's git conventions (from libutils) - commit message format type(scope): message, CI keywords [build]/[release]/[ignore], tags vX.Y.Z / vX.Y.Z-pre, GitHub release descriptions, CHANGELOG entries, branches (solo: main only; team: main protected, dev, sub/, feat/, fix/), pull requests (CHANGELOG-style body, gh assignee/labels), and NO AI attribution. Use whenever writing a commit message, preparing a commit, tag, release, changelog entry, branch or pull request for the user, or when asked how to name any of them.
+description: Tsukini's git conventions (from libutils) - commit message = its title only (type(scope): message, one short line, no body / description), CI keywords [build]/[release]/[ignore], tags vX.Y.Z / vX.Y.Z-pre, GitHub release descriptions, CHANGELOG entries, branches (solo: main only; team: main protected, dev, sub/, feat/, fix/), pull requests (CHANGELOG-style body, gh assignee/labels), and NO AI attribution. Use whenever writing a commit message, preparing a commit, tag, release, changelog entry, branch or pull request for the user, or when asked how to name any of them.
 ---
 
 # Tsukini git conventions
@@ -14,10 +14,9 @@ description: Tsukini's git conventions (from libutils) - commit message format t
 > current message: by default write the message and **suggest** the command.
 
 ## Commits
+**A commit message is its title only**: one short line, no description, no body paragraphs, no bullet list.
 ```
 <type>(<scope>): <message>
-
-<optional body>
 
 <optional CI keyword>
 ```
@@ -39,10 +38,18 @@ description: Tsukini's git conventions (from libutils) - commit message format t
 - **Scope**: optional, the module/section or the class as written in the code
   (`shm`, `ArgParser`, `SharedMemory`, `exception`, `network`, `workflow`, `CHANGELOG`, `packages`).
   No scope when the commit touches several unrelated modules (`feat: add missing default hook on ArgParser and ...`).
-- **Body**: optional, only for big commits: plain paragraphs wrapped at ~76 chars, what changed and why
-  (list the touched modules), no bullet decorations needed.
+- **No body**: the title says it all, even for a big commit (one sentence; a version in parentheses when it
+  goes with one, `... for v4.0.0`, `... (v4.1.0)`). A big one points to the changelog instead of describing it:
+  ```
+  !feat: add the windows support (MinGW cross compilation) and remove the migrations for v4.0.0 (see CHANGELOG for more details)
+  feat(packages): add the mingw64-libutils windows packages built on mingw64-ci for v4.1.0
+  chore(style): apply the xstyle fixes
+  ```
+  The details go in the CHANGELOG / the release / the PR, never in the commit. The only lines allowed after
+  the title (one blank line between): a CI keyword below, and the `Co-Authored-By` trailer in the
+  repositories where the user allows it (ex: `TsukiNi22/ai-utils`) - nothing else.
 - **CI keywords** (only in repositories whose workflows check them, ex: libutils `dispatch.yml`;
-  check `.github/workflows` first), alone on the last line of the body:
+  check `.github/workflows` first), alone on the line after the title:
   | Keyword | Effect |
   |---|---|
   | `[build]` | build and publish the pre-release (unstable) packages |
