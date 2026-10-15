@@ -29,7 +29,10 @@ import android.os.Looper;
 import android.text.InputType;
 import android.util.Base64;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
@@ -39,6 +42,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -197,7 +201,28 @@ public class MainActivity extends Activity {
         box.addView(address);
         box.addView(connect);
         box.addView(message);
-        setContentView(box);
+        setContentView(inset(box));
+    }
+
+    // ---- edge to edge (Android 15): the page kept out of the status bar, the notch, the navigation bar and the keyboard ----
+    private View inset(View content) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(Color.parseColor("#15171b"));
+        frame.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (Build.VERSION.SDK_INT >= 30) {
+            // light icons on its dark bars (the time, the battery)
+            WindowInsetsController bars = getWindow().getInsetsController();
+            if (bars != null) bars.setSystemBarsAppearance(0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            frame.setOnApplyWindowInsetsListener((v, insets) -> {
+                android.graphics.Insets room = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                v.setPadding(room.left, room.top, room.right, room.bottom);
+                return WindowInsets.CONSUMED;
+            });
+            frame.requestApplyInsets();
+        } else {
+            frame.setFitsSystemWindows(true);
+        }
+        return frame;
     }
 
     // ---- the page ----
@@ -246,7 +271,7 @@ public class MainActivity extends Activity {
             }
         });
         web.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        setContentView(web);
+        setContentView(inset(web));
         web.loadUrl(url + "/");
         final Intent first = getIntent();
         web.postDelayed(() -> openSession(first), 2500); // opened by a notification: its session once the page is there
