@@ -138,6 +138,7 @@ class Session {
         _cold void describe(const std::string& text, const bool given);     // its short description (written by claude-cluster: not over one given)
         _cold std::int64_t countTurn(void);                                // a turn finished: its count
         _cold void warn(const std::string& text);                           // a problem of its interfaces, shown a minute on it
+        _cold void taskTool_(const cluster::Json& tool, const std::string& result); // its todo list from TaskCreate / TaskList
         _cold void addContext(const std::string& text);                     // given to the agent with its next prompt (a !command and its output)
         _cold void holdContext(const std::string& text);                    // kept until shareContext() (the choice asked); a new one replaces it
         _cold bool shareContext(const bool give);                           // the one held given (or dropped); false: none held

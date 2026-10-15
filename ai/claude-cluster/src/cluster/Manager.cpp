@@ -292,6 +292,7 @@ _cold void cluster::Manager::close(const std::string& id)
     if (id == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session can't be closed (quit claude-cluster)");
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     session->stop();
+    this->dropFor_(id, false, session->spec().name); // its tasks and schedules: cancelled (closed)
     cluster::SessionSpec spec = session->spec();
     spec.deleted = cluster::now();
     {
@@ -333,16 +334,20 @@ _cold std::string cluster::Manager::restore(const std::string& id)
 _cold void cluster::Manager::purge(const std::string& id)
 {
     std::vector<std::string> removed;
+    std::map<std::string, std::string> names; // <id, name>: its tasks / schedules found by either
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::int64_t limit = cluster::now() - static_cast<std::int64_t>(this->_config.trashDays) * 86400;
         std::erase_if(this->_trash, [&](const cluster::SessionSpec& spec) {
             const bool gone = id == "*" || (id.empty() ? spec.deleted < limit : (spec.id == id || spec.name == id));
             if (gone) removed.push_back(spec.id);
+            if (gone) names[spec.id] = spec.name;
             return gone;
         });
     }
     if (!id.empty() && id != "*" && removed.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + id + "' in the trash");
+    for (const std::string& gone: removed)
+        this->dropFor_(gone, true, names[gone]); // deleted for good: its tasks and schedules too
     std::error_code error;
     for (const std::string& gone: removed) {
         std::filesystem::remove(log_file_(gone), error);
@@ -770,24 +775,13 @@ _cold void cluster::Manager::load(void)
     this->_nextTask = state->value("next_task", 1);
     this->_nextSchedule = state->value("next_schedule", 1);
     for (const cluster::Json& w: state->value("schedules", cluster::Json::array()))
-        this->_schedules.push_back({w.value("id", std::string()), w.value("at", std::int64_t{0}), w.value("every", 0), w.value("action", std::string("prompt")),
-            w.value("session", std::string("g")), w.value("text", std::string())});
+        this->_schedules.push_back(w.get<cluster::Schedule>());
     for (const cluster::Json& spec: state->value("sessions", cluster::Json::array()))
         this->_previous.push_back(spec_from_json_(spec));
     for (const cluster::Json& spec: state->value("trash", cluster::Json::array()))
         this->_trash.push_back(spec_from_json_(spec));
     for (const cluster::Json& t: state->value("tasks", cluster::Json::array())) {
-        cluster::Task task;
-        task.id = t.value("id", std::string());
-        task.prompt = t.value("prompt", std::string());
-        task.target = t.value("target", std::string());
-        task.after = t.value("after", std::vector<std::string>());
-        task.status = t.value("status", std::string("queued"));
-        task.session = t.value("session", std::string());
-        task.created = t.value("created", std::int64_t{0});
-        task.group = t.value("group", std::string());
-        task.label = t.value("label", std::string());
-        task.retries = t.value("retries", 0);
+        cluster::Task task = t.get<cluster::Task>();
         if (task.status == "running") task.status = "queued"; // interrupted by the end of the previous run
         this->_tasks.push_back(task);
     }
@@ -804,7 +798,7 @@ _cold void cluster::Manager::save(void) const
         state["next_schedule"] = this->_nextSchedule;
         state["schedules"] = cluster::Json::array();
         for (const cluster::Schedule& w: this->_schedules)
-            state["schedules"].push_back({{"id", w.id}, {"at", w.at}, {"every", w.every}, {"action", w.action}, {"session", w.session}, {"text", w.text}});
+            state["schedules"].push_back(w);
         state["sessions"] = cluster::Json::array();
         auto global = this->_sessions.find(GLOBAL_ID);
         if (global != this->_sessions.end()) state["sessions"].push_back(spec_to_json_(global->second->spec()));
@@ -817,8 +811,7 @@ _cold void cluster::Manager::save(void) const
             state["trash"].push_back(spec_to_json_(spec));
         state["tasks"] = cluster::Json::array();
         for (const cluster::Task& t: this->_tasks)
-            state["tasks"].push_back({{"id", t.id}, {"prompt", t.prompt}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session}, {"created", t.created},
-                {"group", t.group}, {"label", t.label}, {"retries", t.retries}});
+            state["tasks"].push_back(t);
         state["ui"] = this->_ui;
     }
     try {

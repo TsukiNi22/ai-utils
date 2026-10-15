@@ -412,6 +412,13 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "spawn") {
             data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), arg_(request, "backend"),
                 arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), arg_(request, "effort")})}};
+        } else if (cmd == "send" && arg_(request, "session") == TASKS_ID) {
+            // the Tasks session (the web page): a /command, else a new task / reminder
+            const std::string text = cluster::trim(arg_(request, "text"));
+            std::optional<cluster::ActionResult> local = cluster::run_slash(manager, TASKS_ID, text);
+            if (!local) local = cluster::tasks_prompt(manager, text);
+            if (local->error) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, local->message);
+            data = {{"id", TASKS_ID}, {"local", true}, {"message", local->message}, {"ui", local->ui}, {"focus", local->focus}, {"fill", local->fill}};
         } else if (cmd == "send") {
             // a local /command (/clear, /model, /mode...) runs here like typed in the prompt, the others go to the agent
             const std::string id = session();
@@ -546,7 +553,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             for (const cluster::SessionSpec& spec: manager.trash())
                 data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"deleted", spec.deleted}, {"summary", spec.summary}});
         } else if (cmd == "task_add") {
-            data = {{"id", manager.addTask(arg_(request, "prompt"), arg_(request, "target"), request.value("after", std::vector<std::string>()))}};
+            const std::string by = request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by"); // the global session (MCP), else you
+            data = {{"id", manager.addTask(arg_(request, "prompt"), arg_(request, "target"), request.value("after", std::vector<std::string>()), by)}};
         } else if (cmd == "fanout") {
             data = manager.fanout(request);
         } else if (cmd == "group_status") {
@@ -557,23 +565,35 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = cluster::Json::array();
             for (const cluster::Task& t: manager.tasks())
                 data.push_back({{"id", t.id}, {"prompt", cluster::one_line(t.prompt, 200)}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session},
-                    {"group", t.group}});
+                    {"group", t.group}, {"by", t.by}, {"reason", t.reason}, {"archived", t.archived}, {"created", t.created}, {"started", t.started}, {"ended", t.ended},
+                    {"label", t.label}, {"forced", t.forced}});
         } else if (cmd == "notify") {
             const bool sent = manager.notifyDesktop(arg_(request, "title", "claude-cluster"), arg_(request, "text"), request.value("urgent", false));
             data = {{"sent", sent}};
             if (!sent) data["note"] = "desktop notifications are off ([ui] notify)";
         } else if (cmd == "schedule_add") {
+            const std::string by = request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by");
             data = {{"id", manager.addSchedule(arg_(request, "when"), arg_(request, "action", "prompt"), arg_(request, "session"), arg_(request, "text"),
-                request.value("every", 0))}};
+                request.value("every", 0), by)}};
         } else if (cmd == "schedule_list") {
             data = cluster::Json::array();
             for (const cluster::Schedule& w: manager.schedules())
-                data.push_back({{"id", w.id}, {"at", cluster::clock_time(w.at)}, {"in_minutes", (w.at - cluster::now()) / 60}, {"every_minutes", w.every},
-                    {"action", w.action}, {"session", w.session}, {"text", cluster::one_line(w.text, 200)}});
+                data.push_back({{"id", w.id}, {"at", cluster::clock_time(w.at)}, {"at_unix", w.at}, {"in_minutes", (w.at - cluster::now()) / 60}, {"every_minutes", w.every},
+                    {"action", w.action}, {"session", w.session}, {"text", cluster::one_line(w.text, 200)}, {"by", w.by}, {"status", w.status}, {"reason", w.reason},
+                    {"archived", w.archived}, {"runs", w.runs}, {"last", w.last}});
         } else if (cmd == "schedule_cancel") {
-            manager.cancelSchedule(arg_(request, "id"));
+            data = {{"done", manager.scheduleAct(arg_(request, "id"), "cancel", arg_(request, "reason"))}};
         } else if (cmd == "task_cancel") {
-            manager.cancelTask(arg_(request, "id"));
+            data = {{"done", manager.taskAct(arg_(request, "id"), "cancel", arg_(request, "reason"))}};
+        } else if (cmd == "task_act") {
+            data = {{"done", manager.taskAct(arg_(request, "id"), arg_(request, "action"), arg_(request, "reason"))}};
+        } else if (cmd == "schedule_act") {
+            data = {{"done", manager.scheduleAct(arg_(request, "id"), arg_(request, "action"), arg_(request, "reason"))}};
+        } else if (cmd == "todos") {
+            // the todo list of each session (its TodoWrite now)
+            data = cluster::Json::array();
+            for (const cluster::Snapshot& s: manager.list(true))
+                if (!s.todos.empty()) data.push_back({{"session", s.spec.id}, {"name", s.spec.global ? std::string("global") : s.spec.name}, {"todos", s.todos}});
         } else if (cmd == "search") {
             data = cluster::Json::array();
             for (const cluster::Hit& hit: manager.search(arg_(request, "text")))

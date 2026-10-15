@@ -23,7 +23,7 @@ File Description:
 #include <map>
 
 /* tasks */
-_cold std::string cluster::Manager::addTask(const std::string& prompt, const std::string& target, const std::vector<std::string>& after)
+_cold std::string cluster::Manager::addTask(const std::string& prompt, const std::string& target, const std::vector<std::string>& after, const std::string& by)
 {
     if (cluster::trim(prompt).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "empty task");
     std::string id;
@@ -43,6 +43,7 @@ _cold std::string cluster::Manager::addTask(const std::string& prompt, const std
         task.prompt = prompt;
         task.target = target;
         task.after = after;
+        task.by = by;
         task.created = cluster::now();
         this->_tasks.push_back(task);
     }
@@ -136,7 +137,7 @@ _cold void cluster::Manager::schedule_(void)
         std::size_t running = busy.size();
 
         for (cluster::Task& task: this->_tasks) {
-            if (task.status != "queued" || running >= static_cast<std::size_t>(std::max(1, this->_config.maxParallel))) continue;
+            if (task.status != "queued" || (!task.forced && running >= static_cast<std::size_t>(std::max(1, this->_config.maxParallel)))) continue;
             bool ready = true;
             for (const std::string& dep: task.after) {
                 auto it = std::find_if(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == dep;});
@@ -268,7 +269,8 @@ _cold std::int64_t when_(const std::string& when)
 
 } // namespace
 
-_cold std::string cluster::Manager::addSchedule(const std::string& when, const std::string& action, const std::string& session, const std::string& text, const int every)
+_cold std::string cluster::Manager::addSchedule(const std::string& when, const std::string& action, const std::string& session, const std::string& text, const int every,
+    const std::string& by)
 {
     if (action != "prompt" && action != "notify")
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "action: prompt | notify");
@@ -279,7 +281,15 @@ _cold std::string cluster::Manager::addSchedule(const std::string& when, const s
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         id = "w" + std::to_string(this->_nextSchedule++);
-        this->_schedules.push_back({id, at, std::max(every, 0), action, target, text});
+        cluster::Schedule w;
+        w.id = id;
+        w.at = at;
+        w.every = std::max(every, 0);
+        w.action = action;
+        w.session = target;
+        w.text = text;
+        w.by = by;
+        this->_schedules.push_back(w);
     }
     this->save();
     ++this->_version;
@@ -288,6 +298,7 @@ _cold std::string cluster::Manager::addSchedule(const std::string& when, const s
 
 std::vector<cluster::Schedule> cluster::Manager::schedules(void) const
 {
+    if (this->_replica) return this->replicaState("schedules").get<std::vector<cluster::Schedule>>(); // an interface of the core
     std::lock_guard<std::mutex> lock(this->_mutex);
     std::vector<cluster::Schedule> list = this->_schedules;
     std::sort(list.begin(), list.end(), [](const cluster::Schedule& a, const cluster::Schedule& b) {return a.at < b.at;});
@@ -314,12 +325,15 @@ _cold void cluster::Manager::fireSchedules_(void)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         for (cluster::Schedule& w: this->_schedules) {
-            if (w.at > now) continue;
+            if (w.status != "waiting" || w.at > now) continue;
             due.push_back(w);
+            ++w.runs;
+            w.last = now;
             if (w.every > 0)
                 while (w.at <= now) w.at += static_cast<std::int64_t>(w.every) * 60;
+            else
+                w.status = "done"; // once: kept in the list (its archive), not run again
         }
-        std::erase_if(this->_schedules, [now](const cluster::Schedule& w) {return w.at <= now;});
     }
     for (const cluster::Schedule& w: due) {
         if (w.action == "notify") {
@@ -338,4 +352,128 @@ _cold void cluster::Manager::fireSchedules_(void)
         this->save();
         ++this->_version;
     }
+}
+
+/* the Tasks session: acted on by hand */
+_cold void cluster::Manager::tell_(const std::string& by, const std::string& text)
+{
+    // the session that made it: told (a prompt: it may react); you or a session gone: a notice
+    if (!by.empty() && this->snapshot(by)) {
+        try {
+            this->send(by, text, true);
+            return;
+        } catch (const utils::exception::IException&) {}
+    }
+    this->notice_("", text);
+}
+
+_cold std::string cluster::Manager::taskAct(const std::string& id, const std::string& action, const std::string& reason)
+{
+    if (this->_replica) return this->call({{"cmd", "task_act"}, {"id", id}, {"action", action}, {"reason", reason}}).value("done", std::string());
+    cluster::Task task;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = std::find_if(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == id;});
+        if (it == this->_tasks.end()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no task '" + id + "'");
+        if (action == "cancel") {
+            if (it->status != "queued" && it->status != "running")
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, id + " is " + it->status + ": nothing to cancel");
+            it->status = "cancelled";
+            it->reason = reason;
+            it->ended = cluster::now();
+        } else if (action == "force") {
+            if (it->status != "queued") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, id + " is " + it->status + ": not waiting");
+            it->forced = true;
+        } else if (action == "archive" || action == "unarchive") {
+            it->archived = action == "archive";
+        } else if (action != "delete") {
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "cancel | delete | archive | unarchive | force");
+        }
+        task = *it;
+        if (action == "delete") this->_tasks.erase(it);
+    }
+    this->save();
+    ++this->_version;
+    if (action == "force") this->schedule_(); // started now, past the limit
+    const std::string what = action == "cancel" ? "cancelled" : action == "delete" ? "deleted" : action == "force" ? "started now" : action + "d";
+    if ((action == "cancel" || action == "delete") && !reason.empty())
+        this->tell_(task.by, "[tasks] your task " + id + " (\"" + cluster::one_line(task.prompt, 80) + "\") was " + what + " by the user: " + reason);
+    else
+        this->notice_("", "task " + id + " " + what);
+    return "task " + id + " " + what;
+}
+
+_cold std::string cluster::Manager::scheduleAct(const std::string& id, const std::string& action, const std::string& reason)
+{
+    if (this->_replica) return this->call({{"cmd", "schedule_act"}, {"id", id}, {"action", action}, {"reason", reason}}).value("done", std::string());
+    cluster::Schedule w;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = std::find_if(this->_schedules.begin(), this->_schedules.end(), [&](const cluster::Schedule& s) {return s.id == id;});
+        if (it == this->_schedules.end()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no schedule " + id);
+        if (action == "cancel") {
+            if (it->status != "waiting") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, id + " is " + it->status + ": nothing to cancel");
+            it->status = "cancelled";
+            it->reason = reason;
+        } else if (action == "trigger") {
+            if (it->status != "waiting") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, id + " is " + it->status + ": not waiting");
+            if (it->every == 0) it->at = cluster::now(); // once: now; repeated: one run now, its next time kept
+        } else if (action == "archive" || action == "unarchive") {
+            it->archived = action == "archive";
+        } else if (action != "delete") {
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "cancel | delete | archive | unarchive | trigger");
+        }
+        w = *it;
+        if (action == "delete") this->_schedules.erase(it);
+    }
+    if (action == "trigger" && w.every > 0) { // a repeated one: this run now, its next time kept
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            for (cluster::Schedule& s: this->_schedules)
+                if (s.id == id) {
+                    ++s.runs;
+                    s.last = cluster::now();
+                }
+        }
+        if (w.action == "notify") (void)this->notify({"schedule-" + w.id, "reminder", w.text, cluster::Face::Attentive, false, "message-new-instant"}, "reminder");
+        else this->send(w.session, "[scheduled " + w.id + "] " + w.text, true);
+    }
+    this->save();
+    ++this->_version;
+    if (action == "trigger" && w.every == 0) this->fireSchedules_();
+    const std::string what = action == "cancel" ? "cancelled" : action == "delete" ? "deleted" : action == "trigger" ? "run now" : action + "d";
+    if ((action == "cancel" || action == "delete") && !reason.empty())
+        this->tell_(w.by, "[tasks] your schedule " + id + " (\"" + cluster::one_line(w.text, 80) + "\") was " + what + " by the user: " + reason);
+    else
+        this->notice_("", "schedule " + id + " " + what);
+    return "schedule " + id + " " + what;
+}
+
+_cold void cluster::Manager::dropFor_(const std::string& session, const bool gone, const std::string& name)
+{
+    // a session closed: what waits for it (its target, or what it made) cancelled; deleted for good: removed
+    std::size_t count = 0;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (gone) {
+            count += std::erase_if(this->_tasks, [&](const cluster::Task& t) {return t.target == session || (!name.empty() && t.target == name) || t.by == session || t.session == session;});
+            count += std::erase_if(this->_schedules, [&](const cluster::Schedule& w) {return w.session == session || w.by == session;});
+        } else {
+            for (cluster::Task& t: this->_tasks)
+                if ((t.target == session || (!name.empty() && t.target == name) || t.by == session) && t.status == "queued") {
+                    t.status = "cancelled";
+                    t.reason = "its session was closed";
+                    ++count;
+                }
+            for (cluster::Schedule& w: this->_schedules)
+                if ((w.session == session || w.by == session) && w.status == "waiting") {
+                    w.status = "cancelled";
+                    w.reason = "its session was closed";
+                    ++count;
+                }
+        }
+    }
+    if (count == 0) return;
+    this->notice_("", std::to_string(count) + " task(s) / schedule(s) of " + session + (gone ? " removed with it" : " cancelled (closed)"));
+    ++this->_version;
 }

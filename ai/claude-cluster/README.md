@@ -187,6 +187,23 @@ other agents as `@path`). The images are saved by content (`img-<hash>.png`): th
 clicked) is one more reference to the same `[Image #N]` ("here, here and here"), the image itself is sent once; the
 images are numbered in the order of the text when sent.
 
+**The Tasks session** (`☰ Tasks`, first in the list and the tabs; `/tasks`, the palette *Tasks*, the window's *Tasks*
+button - in the grid: a window of its own): what the sessions do and what waits, in place of a conversation.
+- **Todo lists**: the list of each session (like claude.ai: ☒ done, ◼ in progress, ☐ to do; its TodoWrite /
+  TaskCreate / TaskUpdate - `claude -p` gets its todo tools: `CLAUDE_CODE_ENABLE_TODO_TOOLS`); a session's own: its
+  right panel *tasks*.
+- **Task queue**: running, waiting, done, failed, cancelled (the first ones, `… +n more`), who made each (you, the
+  global session, a session), where it goes, since when, why it was cancelled.
+- **Scheduled**: the reminders and prompts at a time (`schedule_add`), waiting by their time, then the ones run (kept,
+  counted) or cancelled.
+- **A click on one: its actions** - start now (past the limit of parallel sessions) / run now, cancel or delete
+  (a reason asked: told to the session that made it), archive (the archive: *▸ N archived*), open its session.
+- **Its prompt**: a task (`target | prompt` for one target), `+30m <text>` / `18:00 <text>` a reminder to the global
+  session (none: a notification).
+- A session closed: its waiting tasks and schedules cancelled ("its session was closed"); deleted for good: removed.
+- The control: `task_act` / `schedule_act` (cancel, delete, archive, unarchive, force / trigger, a reason), `todos`;
+  the MCP: `task_act` (the global session).
+
 **Sessions by hand**:
 - **A new session on a project**: `/new <name>`, `/cd <name>`, the palette *New session on a project*, the web page,
   `claude-cluster spawn <name>` and the global session (`session_spawn`) take a folder or the name of a project of the

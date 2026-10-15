@@ -19,12 +19,14 @@ File Description:
 #include "cluster/Display.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Wire.hpp"
 #include <sys/epoll.h>
 #include <filesystem>
 #include <algorithm>
 #include <unistd.h>
 #include <signal.h>
 #include <fstream>
+#include <sstream>
 #include <fcntl.h>
 #include <cstdio>
 #include <random>
@@ -235,6 +237,9 @@ _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const 
 {
     // env -C <cwd> VAR=value... <agent> <args>: the child only dup2 then exec (safe after a fork in a threaded program)
     std::vector<std::string> envArgs = {"-C", cluster::expand_home(this->_data.spec.cwd).string()};
+    // claude -p has no todo tools by default: given (its todo list: the Tasks session, its panel)
+    if (std::none_of(this->_launch.env.begin(), this->_launch.env.end(), [](const std::pair<std::string, std::string>& v) {return v.first == "CLAUDE_CODE_ENABLE_TODO_TOOLS";}))
+        envArgs.push_back("CLAUDE_CODE_ENABLE_TODO_TOOLS=true");
     for (const auto &[name, value]: this->_launch.env)
         envArgs.push_back(name + "=" + value);
     envArgs.insert(envArgs.end(), args.begin(), args.end());
@@ -634,6 +639,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             }
             if (!error) this->_noVerdict = 0;
             this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(text, 6000));
+            if (!error && this->_inputs.contains(id)) this->taskTool_(this->_inputs[id], text); // its todo list (TaskCreate, TaskList)
             if (error && text.find("denied by a built-in Claude Code safety check") != std::string::npos && this->_inputs.contains(id)) {
                 // a mode that never asks (auto, dontAsk): the safety check denied it at once; asked here instead, allowed it runs again
                 const cluster::Json& tool = this->_inputs[id];
@@ -873,6 +879,27 @@ _cold void cluster::Session::tool_(const std::string& id, const std::string& nam
     this->_data.tools.push_back({id, name, summary, false, false, cluster::now()});
     if (this->_data.tools.size() > 200) this->_data.tools.erase(this->_data.tools.begin());
     this->entry_(cluster::EntryKind::Tool, name == "TodoWrite" ? todos_(input) : summary, name);
+    if (name == "TodoWrite") { // its list now (the Tasks session, its panel)
+        this->_data.todos.clear();
+        for (const cluster::Json& todo: input.value("todos", cluster::Json::array()))
+            if (todo.is_object())
+                this->_data.todos.push_back({"", todo.value("content", std::string()), todo.value("status", std::string("pending")), todo.value("activeForm", std::string())});
+    }
+    if (name == "TaskUpdate") { // Claude Code 2: its tasks one by one (TaskCreate: its number in the result)
+        const std::string taskId = input.contains("taskId") ? (input["taskId"].is_string() ? input["taskId"].get<std::string>() : input["taskId"].dump()) : "";
+        const std::string status = input.value("status", std::string());
+        for (auto it = this->_data.todos.begin(); it != this->_data.todos.end(); ++it) {
+            if (it->id != taskId) continue;
+            if (status == "deleted") {
+                this->_data.todos.erase(it);
+                break;
+            }
+            if (!status.empty()) it->status = status;
+            if (input.contains("subject") && input["subject"].is_string()) it->content = input["subject"].get<std::string>();
+            if (input.contains("activeForm") && input["activeForm"].is_string()) it->activeForm = input["activeForm"].get<std::string>();
+            break;
+        }
+    }
 
     // Skills loaded and files modified, for their panels
     if (name == "Skill") {
@@ -1470,4 +1497,22 @@ const char* cluster::state_name(cluster::State state)
         case cluster::State::Stopped: return "stopped";
     }
     return "?";
+}
+
+_cold void cluster::Session::taskTool_(const cluster::Json& tool, const std::string& result)
+{
+    // TaskCreate: "Task #N created successfully: <subject>"; TaskList: "#N [status] <subject>" a line each (the whole list)
+    const std::string name = tool.value("name", std::string());
+    const cluster::Json input = tool.value("input", cluster::Json::object());
+    std::smatch match;
+    if (name == "TaskCreate" && std::regex_search(result, match, std::regex(R"(Task #(\d+) created)"))) {
+        this->_data.todos.push_back({match[1].str(), input.value("subject", std::string()), "pending", input.value("activeForm", std::string())});
+    } else if (name == "TaskList") {
+        std::vector<cluster::Todo> list;
+        std::istringstream lines(result);
+        for (std::string line; std::getline(lines, line);)
+            if (std::regex_search(line, match, std::regex(R"(^#(\d+) \[(\w+)\] (.*)$)")))
+                list.push_back({match[1].str(), match[3].str(), match[2].str(), ""});
+        if (!list.empty()) this->_data.todos = list;
+    }
 }

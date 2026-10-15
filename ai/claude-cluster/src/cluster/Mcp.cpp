@@ -105,6 +105,8 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("group_status", "The progress of a group (its tasks, their state and answers so far); none: every group of this run.", {{"group", str_("fN")}}, {}),
         tool_("group_cancel", "Stop a group: its tasks not started are cancelled, the running ones interrupted when interrupt is true.",
             {{"group", str_("fN")}, {"interrupt", {{"type", "boolean"}}}}, {"group"}),
+        tool_("task_act", "Act on a task of the queue: cancel | delete | archive | unarchive | force (started now, past the limit of parallel sessions).",
+            {{"id", str_("task id (task_list)")}, {"action", str_("cancel | delete | archive | unarchive | force")}, {"reason", str_("why (optional)")}}, {"id", "action"}),
         tool_("schedule_add", "Do something at a time, while claude-cluster runs: a prompt to a session (you by default: a wake up / a reminder you get as "
             "\"[scheduled wN] text\") or a desktop notification; repeated every N minutes or once.",
             {{"when", str_("+30m, +2h, +1d, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM")}, {"text", str_("the prompt / the notification")},
@@ -184,7 +186,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
-        {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"search", "search"}, {"export", "export"},
+        {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
         {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
         {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},

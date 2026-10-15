@@ -467,6 +467,155 @@ class Window: public QMainWindow {
             dialog.exec();
         }
 
+        QTextBrowser* tasksView = nullptr;      // the Tasks session (list / tabs)
+        QDialog* tasksWindow = nullptr;         // the Tasks session in a window of its own (grid)
+        QTextBrowser* tasksBrowser = nullptr;
+        std::string tasksShownHtml;
+
+        QTextBrowser* makeTasksView(QWidget* parent)
+        {
+            QTextBrowser* browser = new QTextBrowser(parent);
+            browser->setOpenLinks(false);
+            browser->setFrameShape(QFrame::NoFrame);
+            browser->setVisible(false);
+            QObject::connect(browser, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
+                // a task / a schedule / the archive: its actions (the palette: its reason asked when it takes one); a session: shown
+                const QString link = url.toString();
+                if (link.startsWith("focus:")) {
+                    this->active = link.mid(6).toStdString();
+                    this->refresh(true);
+                } else {
+                    this->palette(link);
+                }
+            });
+            return browser;
+        }
+
+        void showTasks(void)
+        {
+            // the Tasks session: shown in place of a session (list, tabs), a window of its own in the grid
+            if (this->manager.ui("layout", this->manager.config().layout) != "grid") {
+                this->active = TASKS_ID;
+                this->refresh(true);
+                return;
+            }
+            if (this->tasksWindow == nullptr) {
+                this->tasksWindow = new QDialog(this);
+                this->tasksWindow->setWindowTitle("Tasks");
+                this->tasksWindow->resize(820, 640);
+                QVBoxLayout* layout = new QVBoxLayout(this->tasksWindow);
+                this->tasksBrowser = this->makeTasksView(this->tasksWindow);
+                this->tasksBrowser->setVisible(true);
+                layout->addWidget(this->tasksBrowser);
+            }
+            this->fillTasks(this->tasksBrowser);
+            this->tasksWindow->show();
+            this->tasksWindow->raise();
+        }
+
+        void fillTasks(QTextBrowser* browser)
+        {
+            // the todo lists of the sessions, the task queue, the schedules, the archive (a link each: its actions)
+            const cluster::Style& st = this->theme();
+            const std::int64_t now = cluster::now();
+            const std::function<std::string(std::int64_t)> span = [](std::int64_t s) {
+                s = std::max<std::int64_t>(0, s);
+                return s < 60 ? std::to_string(s) + "s" : s < 3600 ? std::to_string(s / 60) + "m" : s < 86400 ? std::to_string(s / 3600) + "h" : std::to_string(s / 86400) + "d";
+            };
+            const std::function<std::string(const std::string&)> who = [this](const std::string& by) {
+                if (by.empty()) return std::string("you");
+                if (by == GLOBAL_ID) return std::string("global");
+                const std::optional<cluster::Snapshot> s = this->manager.snapshot(by);
+                return s ? s->spec.name : by;
+            };
+            const std::function<QString(const std::string&)> link = [&st](const std::string& href) {
+                return "<a href=\"" + q_(href) + "\" style=\"color:" + q_(st.text) + ";text-decoration:none\">";
+            };
+            QString html = "<style>td{padding:3px 8px;} h3{color:" + q_(st.accent) + ";margin:14px 0 4px 0;} .m{color:" + q_(st.muted) + ";}</style>";
+            html += "<p class=m>the todo lists of the sessions, the task queue, the schedules · a click on one: its actions · the prompt: a task "
+                "(target | prompt: for it), +30m &lt;text&gt; / 18:00 &lt;text&gt;: a reminder</p>";
+            // the todo lists
+            QString todos;
+            for (const cluster::Snapshot& s: this->manager.list(true)) {
+                if (s.todos.empty()) continue;
+                const auto done = std::count_if(s.todos.begin(), s.todos.end(), [](const cluster::Todo& d) {return d.status == "completed";});
+                todos += "<p>" + link("focus:" + s.spec.id) + "<b>" + esc_(s.spec.global ? "global" : s.spec.name) + "</b></a> " + span_(st.muted, QString::number(done) + "/"
+                    + QString::number(s.todos.size()) + " done") + "<br>";
+                for (const cluster::Todo& d: s.todos) {
+                    const bool over = d.status == "completed";
+                    const bool doing = d.status == "in_progress";
+                    todos += "&nbsp;&nbsp;" + span_(over ? st.ok : doing ? st.accent : st.muted, over ? "☒" : doing ? "◼" : "☐") + " "
+                        + (over ? "<s>" + span_(st.muted, esc_(d.content)) + "</s>" : doing ? "<b>" + span_(st.accent, esc_(d.activeForm.empty() ? d.content : d.activeForm)) + "</b>"
+                        : esc_(d.content)) + "<br>";
+                }
+                todos += "</p>";
+            }
+            html += "<h3>Todo lists</h3>" + (todos.isEmpty() ? "<p class=m>none: a session writes its list while it works</p>" : todos);
+            // the task queue
+            std::vector<cluster::Task> tasks;
+            std::size_t archived = 0;
+            std::map<std::string, int> count;
+            for (const cluster::Task& t: this->manager.tasks()) {
+                if (t.archived) {
+                    ++archived;
+                    continue;
+                }
+                ++count[t.status];
+                tasks.push_back(t);
+            }
+            const std::function<int(const cluster::Task&)> rank = [](const cluster::Task& x) {return x.status == "running" ? 0 : x.status == "queued" ? 1 : 2;};
+            std::stable_sort(tasks.begin(), tasks.end(), [&rank](const cluster::Task& a, const cluster::Task& b) {
+                return rank(a) != rank(b) ? rank(a) < rank(b) : rank(a) < 2 ? a.created < b.created : a.ended > b.ended;
+            });
+            html += "<h3>Task queue</h3><p class=m>" + QString::number(count["running"]) + " running · " + QString::number(count["queued"]) + " waiting · "
+                + QString::number(count["done"]) + " done" + (count["failed"] ? " · " + QString::number(count["failed"]) + " failed" : QString())
+                + (count["cancelled"] ? " · " + QString::number(count["cancelled"]) + " cancelled" : QString()) + "</p><table width=100%>";
+            for (std::size_t i = 0; i < tasks.size() && i < 12; ++i) {
+                const cluster::Task& t = tasks[i];
+                const std::string tint = t.status == "running" ? st.ok : t.status == "queued" ? st.accent : t.status == "failed" ? st.error : t.status == "cancelled" ? st.warn : st.muted;
+                const std::string mark = t.status == "running" ? "▶" : t.status == "queued" ? (t.forced ? "»" : "◌") : t.status == "done" ? "✓" : t.status == "failed" ? "✗" : "⊘";
+                const std::string where = !t.session.empty() ? (this->manager.snapshot(t.session) ? this->manager.snapshot(t.session)->spec.name : t.session) : t.target.empty() ? "any" : t.target;
+                const std::string age = t.status == "queued" ? "waits " + span(now - t.created) : t.status == "running" ? span(now - t.started) : span(now - t.ended) + " ago";
+                html += "<tr><td width=18>" + span_(tint, q_(mark)) + "</td><td width=\"55%\">" + link("task:" + t.id) + span_(st.muted, q_(t.id)) + " " + esc_(cluster::one_line(t.prompt, 90)) + "</a>"
+                    + (t.reason.empty() ? QString() : "<br>" + span_(st.warn, "↳ " + esc_(t.reason))) + "</td><td class=m>→ " + esc_(where) + "</td><td class=m>by "
+                    + esc_(who(t.by)) + "</td><td class=m>" + q_(age) + "</td></tr>";
+            }
+            html += "</table>" + (tasks.size() > 12 ? "<p class=m>… +" + QString::number(tasks.size() - 12) + " more</p>" : QString())
+                + (tasks.empty() ? "<p class=m>empty: type a prompt below</p>" : QString());
+            // the schedules
+            std::vector<cluster::Schedule> planned;
+            int waiting = 0;
+            for (const cluster::Schedule& w: this->manager.schedules()) {
+                if (w.archived) {
+                    ++archived;
+                    continue;
+                }
+                waiting += w.status == "waiting" ? 1 : 0;
+                planned.push_back(w);
+            }
+            std::stable_sort(planned.begin(), planned.end(), [](const cluster::Schedule& a, const cluster::Schedule& b) {
+                return (a.status == "waiting") != (b.status == "waiting") ? a.status == "waiting" : a.status == "waiting" ? a.at < b.at : a.last > b.last;
+            });
+            html += "<h3>Scheduled</h3><p class=m>" + QString::number(waiting) + " waiting · " + QString::number(planned.size() - static_cast<std::size_t>(waiting)) + " run / cancelled</p><table width=100%>";
+            for (std::size_t i = 0; i < planned.size() && i < 12; ++i) {
+                const cluster::Schedule& w = planned[i];
+                const bool open = w.status == "waiting";
+                const std::string when = open ? "in " + span(w.at - now) + " (" + cluster::clock_time(w.at) + ")" : w.status == "done" ? "run " + span(now - w.last) + " ago" : "cancelled";
+                html += "<tr><td width=18>" + span_(open ? st.accent : w.status == "done" ? st.muted : st.warn, open ? "⏱" : w.status == "done" ? "✓" : "⊘") + "</td><td>" + link("sched:" + w.id)
+                    + span_(st.muted, q_(w.id)) + " " + esc_(cluster::one_line(w.text, 80)) + "</a>" + (w.reason.empty() ? QString() : "<br>" + span_(st.warn, "↳ " + esc_(w.reason)))
+                    + "</td><td class=m width=\"22%\">" + q_(when + (w.every > 0 ? " · every " + span(static_cast<std::int64_t>(w.every) * 60) : "")) + "</td><td class=m>"
+                    + esc_(w.action == "notify" ? std::string("a notification") : "→ " + (w.session == GLOBAL_ID ? std::string("global") : w.session)) + "</td><td class=m>by "
+                    + esc_(who(w.by)) + "</td></tr>";
+            }
+            html += "</table>" + (planned.empty() ? "<p class=m>none</p>" : QString());
+            if (archived > 0) html += "<p>" + link("archive:") + span_(st.accent, "▸ " + QString::number(archived) + " archived: open") + "</a></p>";
+            if (html.toStdString() == this->tasksShownHtml && browser == this->tasksView) return; // unchanged: its scroll kept
+            if (browser == this->tasksView) this->tasksShownHtml = html.toStdString();
+            const int scroll = browser->verticalScrollBar()->value();
+            browser->setHtml(html);
+            browser->verticalScrollBar()->setValue(scroll);
+        }
+
         QLabel* brand = nullptr;                // the top bar: its face and the name
         QLabel* webLabel = nullptr;             // the web access under it
 
@@ -1240,6 +1389,9 @@ class Window: public QMainWindow {
             } else if (text.starts_with(":")) {
                 this->target->setText(": command (:help)");
                 this->target->setStyleSheet("color:" + q_(st.accent) + ";font-weight:600;");
+            } else if (this->active == TASKS_ID) {
+                this->target->setText("→ a new task · +30m: a reminder");
+                this->target->setStyleSheet("color:" + q_(st.accent) + ";");
             } else {
                 this->target->setText(q_(this->active == GLOBAL_ID ? "→ global" : "→ " + this->active));
                 this->target->setStyleSheet("");
@@ -1265,7 +1417,8 @@ class Window: public QMainWindow {
                 std::string error;
                 try {
                     local = cluster::run_slash(this->manager, session, text);
-                    if (!local) this->manager.send(session, text, false, images);
+                    if (!local && session == TASKS_ID) local = cluster::tasks_prompt(this->manager, text); // a new task / reminder
+                    else if (!local) this->manager.send(session, text, false, images);
                     this->manager.addHistory(draft, session); // typed here: in the history (not the ones of the global session / MCP)
                 } catch (const utils::exception::IException& e) {
                     error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
@@ -1281,6 +1434,7 @@ class Window: public QMainWindow {
                         if (local->ui == "fill") this->input->loadDraft({local->fill, {}, {}}); // a :s of the last prompt, a :r: in the prompt
                         else if (local->ui == "quit") this->close();
                         else if (local->ui.starts_with("search:")) this->message("search: " + local->ui.substr(7) + " (Ctrl+F in the transcript)", false);
+                        if (local->focus == TASKS_ID) QTimer::singleShot(0, this, [this]() {this->showTasks();});
                         if (local->ui == "settings") this->settings();
                         else if (local->ui == "restore_menu") this->openRestore();
                         else if (local->ui == "rewind") this->rewind();
@@ -1307,6 +1461,7 @@ class Window: public QMainWindow {
             this->views.clear();
             this->list = nullptr;
             this->tabs = nullptr;
+            this->tasksView = nullptr;
             if (std::none_of(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;}) && !sessions.empty())
                 this->active = sessions.front().spec.id;
 
@@ -1345,13 +1500,14 @@ class Window: public QMainWindow {
                 top->addWidget(seg);
             }
             top->addStretch(1);
-            for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}}) {
+            for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Tasks", "tasks"}, {"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}}) {
                 if (action == "devices" && !cluster::web_status(this->manager)) continue;
                 QPushButton* button = new QPushButton(q_(label), topbar);
                 button->setCursor(Qt::PointingHandCursor);
                 const std::string name = action;
                 QObject::connect(button, &QPushButton::clicked, [this, name]() {
-                    if (name == "devices") this->webDevices();
+                    if (name == "tasks") this->showTasks();
+                    else if (name == "devices") this->webDevices();
                     else if (name == "settings") this->settings();
                     else this->shortcut(name);
                 });
@@ -1378,28 +1534,32 @@ class Window: public QMainWindow {
                 this->tabs = new QTabBar(central);
                 this->tabs->setContextMenuPolicy(Qt::CustomContextMenu);
                 QObject::connect(this->tabs, &QTabBar::customContextMenuRequested, this, [this](const QPoint& pos) {
-                    const int index = this->tabs->tabAt(pos);
+                    const int index = this->tabs->tabAt(pos) - 1; // the Tasks session first
                     const std::vector<cluster::Snapshot> all = this->manager.list(true);
                     if (index >= 0 && static_cast<std::size_t>(index) < all.size()) this->sessionMenu(all[static_cast<std::size_t>(index)].spec.id, this->tabs->mapToGlobal(pos));
                 });
+                this->tabs->addTab("☰ Tasks");
                 for (const cluster::Snapshot& s: sessions)
                     this->tabs->addTab(q_(s.spec.name));
                 QObject::connect(this->tabs, &QTabBar::currentChanged, [this](int index) {
                     const std::vector<cluster::Snapshot> all = this->manager.list(true);
-                    if (index >= 0 && static_cast<std::size_t>(index) < all.size()) this->active = all[static_cast<std::size_t>(index)].spec.id;
+                    if (index == 0) this->active = TASKS_ID;
+                    else if (index > 0 && static_cast<std::size_t>(index - 1) < all.size()) this->active = all[static_cast<std::size_t>(index - 1)].spec.id;
                     this->refresh(true);
                 });
                 root->addWidget(this->tabs);
                 SessionView* view = new SessionView(this, "", false);
                 this->views[""] = view;
                 root->addWidget(view, 1);
+                this->tasksView = this->makeTasksView(central);
+                root->addWidget(this->tasksView, 1);
             } else {
                 QSplitter* splitter = new QSplitter(central);
                 this->list = new QListWidget(splitter);
                 this->list->setContextMenuPolicy(Qt::CustomContextMenu); // a session right-clicked: its menu
                 this->list->setCursor(Qt::PointingHandCursor);
                 QObject::connect(this->list, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-                    const int row = this->list->indexAt(pos).row();
+                    const int row = this->list->indexAt(pos).row() - 1; // the Tasks session first
                     const std::vector<cluster::Snapshot> all = this->manager.list(true);
                     if (row >= 0 && static_cast<std::size_t>(row) < all.size()) this->sessionMenu(all[static_cast<std::size_t>(row)].spec.id, this->list->viewport()->mapToGlobal(pos));
                 });
@@ -1409,15 +1569,22 @@ class Window: public QMainWindow {
                 this->list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
                 QObject::connect(this->list, &QListWidget::currentRowChanged, [this](int row) {
                     const std::vector<cluster::Snapshot> all = this->manager.list(true);
-                    if (row >= 0 && static_cast<std::size_t>(row) < all.size() && all[static_cast<std::size_t>(row)].spec.id != this->active) {
-                        this->active = all[static_cast<std::size_t>(row)].spec.id;
+                    const std::string chosen = row == 0 ? std::string(TASKS_ID) : row > 0 && static_cast<std::size_t>(row - 1) < all.size() ? all[static_cast<std::size_t>(row - 1)].spec.id : "";
+                    if (!chosen.empty() && chosen != this->active) {
+                        this->active = chosen;
                         this->refresh(true);
                     }
                 });
                 SessionView* view = new SessionView(this, "", false);
                 this->views[""] = view;
                 splitter->addWidget(this->list);
-                splitter->addWidget(view);
+                QWidget* side = new QWidget(splitter); // the session shown, or the Tasks session
+                QVBoxLayout* sideLayout = new QVBoxLayout(side);
+                sideLayout->setContentsMargins(0, 0, 0, 0);
+                sideLayout->addWidget(view, 1);
+                this->tasksView = this->makeTasksView(side);
+                sideLayout->addWidget(this->tasksView, 1);
+                splitter->addWidget(side);
                 splitter->setStretchFactor(1, 1);
                 root->addWidget(splitter, 1);
             }
@@ -1500,6 +1667,25 @@ class Window: public QMainWindow {
             if (this->list) {
                 const QSignalBlocker block(this->list);
                 this->list->clear();
+                {
+                    // the Tasks session: first, what runs / waits / is scheduled
+                    const std::vector<cluster::Task> tasks = this->manager.tasks();
+                    const std::vector<cluster::Schedule> planned = this->manager.schedules();
+                    const auto running = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "running";});
+                    const auto queued = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued";});
+                    const auto waiting = std::count_if(planned.begin(), planned.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
+                    QLabel* row = new QLabel(this->list);
+                    row->setTextFormat(Qt::RichText);
+                    row->setAttribute(Qt::WA_TransparentForMouseEvents);
+                    row->setContentsMargins(10, 7, 10, 7);
+                    row->setText(span_(st.accent, "☰") + "&nbsp; <b>Tasks</b>" + (running > 0 ? "&nbsp; " + span_(st.ok, QString::number(running) + " ▶") : QString()) + "<br>"
+                        + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">" + QString::number(queued) + " waiting · " + QString::number(waiting) + " scheduled</span>"));
+                    QListWidgetItem* item = new QListWidgetItem(this->list);
+                    item->setToolTip("the todo lists of the sessions, the task queue, the schedules");
+                    item->setSizeHint(QSize(0, row->sizeHint().height() + 4));
+                    this->list->setItemWidget(item, row);
+                    if (this->active == TASKS_ID) this->list->setCurrentRow(0);
+                }
                 for (const cluster::Snapshot& s: sessions) {
                     const std::string dot = s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting || !s.permissions.empty() ? st.warn
                         : s.state == cluster::State::Error ? st.error : st.muted;
@@ -1524,9 +1710,10 @@ class Window: public QMainWindow {
             }
             if (this->tabs) {
                 const QSignalBlocker block(this->tabs);
-                for (std::size_t i = 0; i < sessions.size() && static_cast<int>(i) < this->tabs->count(); ++i) {
-                    this->tabs->setTabText(static_cast<int>(i), q_(sessions[i].spec.name + (sessions[i].permissions.empty() ? "" : " !")));
-                    if (sessions[i].spec.id == this->active) this->tabs->setCurrentIndex(static_cast<int>(i));
+                if (this->active == TASKS_ID) this->tabs->setCurrentIndex(0);
+                for (std::size_t i = 0; i < sessions.size() && static_cast<int>(i) + 1 < this->tabs->count(); ++i) {
+                    this->tabs->setTabText(static_cast<int>(i) + 1, q_(sessions[i].spec.name + (sessions[i].permissions.empty() ? "" : " !")));
+                    if (sessions[i].spec.id == this->active) this->tabs->setCurrentIndex(static_cast<int>(i) + 1);
                 }
             }
             this->reveal.frameStart();
@@ -1545,6 +1732,14 @@ class Window: public QMainWindow {
                 }
             }
             this->animating = working || this->reveal.active();
+            // the Tasks session shown: its view in place of the session
+            const bool tasksShown = this->active == TASKS_ID && this->tasksView != nullptr;
+            if (this->views.contains("") && this->tasksView != nullptr) this->views[""]->setVisible(!tasksShown);
+            if (this->tasksView != nullptr) {
+                this->tasksView->setVisible(tasksShown);
+                if (tasksShown) this->fillTasks(this->tasksView);
+            }
+            if (this->tasksWindow != nullptr && this->tasksWindow->isVisible()) this->fillTasks(this->tasksBrowser);
             this->modeTarget();
 
             // voice bar, last notice
@@ -3036,6 +3231,16 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             p += "<div>" + span_(!t.done ? st.accent : t.error ? st.error : st.ok, t.done ? (t.error ? "✗ " : "✓ ") : "… ") + span_(st.muted, esc_(cluster::one_line(t.name + " " + t.summary, 36))) + "</div>";
         }
     }
+    if (s.spec.panels.contains("tasks")) {
+        p += title("Tasks");
+        for (const cluster::Todo& d: s.todos)
+            p += "<div>" + span_(d.status == "completed" ? st.ok : d.status == "in_progress" ? st.accent : st.muted, d.status == "completed" ? "☒ " : d.status == "in_progress" ? "◼ " : "☐ ")
+                + esc_(cluster::one_line(d.content, 34)) + "</div>";
+        for (const cluster::Task& task: manager.tasks())
+            if (!task.archived && (task.session == s.spec.id || task.target == s.spec.id) && (task.status == "queued" || task.status == "running"))
+                p += "<div>" + span_(st.muted, q_((task.status == "running" ? "▶ " : "◌ ") + task.id + " " + cluster::one_line(task.prompt, 30))) + "</div>";
+        if (s.todos.empty()) p += "<div>" + span_(st.muted, "no todo list") + "</div>";
+    }
     if (s.spec.panels.contains("files")) {
         p += title("Files");
         for (const std::string& file: s.files)
@@ -3113,6 +3318,7 @@ _cold int cluster::run_gui(cluster::App& app)
     if (screenshot && *screenshot) {
         const QString path = screenshot;
         if (std::getenv("CLAUDE_CLUSTER_SCREENSHOT_SETTINGS")) QTimer::singleShot(1000, &window, [&window]() {window.settings();});
+        if (std::getenv("CLAUDE_CLUSTER_SCREENSHOT_TASKS")) QTimer::singleShot(600, &window, [&window]() {window.showTasks();});
         if (const char* typed = std::getenv("CLAUDE_CLUSTER_SCREENSHOT_TYPE")) QTimer::singleShot(1500, &window, [&window, typed]() {
             window.input->setText(typed); // debug: text typed in the prompt (completion list shown)
             window.input->refreshCompletion();

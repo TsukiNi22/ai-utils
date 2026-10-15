@@ -195,6 +195,10 @@ struct Task {
     int retries = 0;                // tried again after an error
     std::int64_t started = 0;
     std::int64_t ended = 0;
+    std::string by;                 // who queued it: a session (g: the global one), empty: you
+    std::string reason;             // cancelled / deleted: why (told to the session that made it)
+    bool archived = false;          // out of the list (its archive)
+    bool forced = false;            // started without waiting for a free place
 };
 
 // A request of the global session on several sessions / projects: its tasks, how long it waits for them, their merge
@@ -224,6 +228,20 @@ struct Schedule {
     std::string action = "prompt";  // prompt | notify
     std::string session = "g";
     std::string text;
+    std::string by;                 // who made it: a session (g: the global one), empty: you
+    std::string status = "waiting"; // waiting | done (once, it ran) | cancelled
+    std::string reason;             // cancelled: why
+    bool archived = false;
+    int runs = 0;                   // times it ran
+    std::int64_t last = 0;          // its last run
+};
+
+// A todo of a session (its TodoWrite: what it does, what is left)
+struct Todo {
+    std::string id;                 // TaskCreate: its number (TodoWrite: none)
+    std::string content;
+    std::string status;             // pending | in_progress | completed
+    std::string activeForm;
 };
 
 // Copy of a session for the front-ends (taken under the lock of the session)
@@ -259,6 +277,7 @@ struct Snapshot {
     std::uint64_t version = 0;          // its version when taken (an interface of another process: sent again when it changed)
     std::string warning;                // a problem of its interfaces (two prompts at once...), shown a minute on it
     std::int64_t warningAt = 0;
+    std::vector<cluster::Todo> todos;   // its todo list now (its last TodoWrite)
 };
 
 //----------------------------------------------------------------//

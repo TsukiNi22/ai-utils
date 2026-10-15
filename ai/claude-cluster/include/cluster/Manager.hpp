@@ -41,6 +41,7 @@ File Description:
     /* DEFINE */
 
     #define GLOBAL_ID "g" // id of the global session
+    #define TASKS_ID "tasks" // the Tasks session of the interfaces (its todo lists, the task queue, the schedules): not a session
 
 namespace cluster { // namespace start
 class Web;
@@ -229,11 +230,17 @@ class Manager {
         _cold void setRemote(const bool on);
 
         /* tasks (Manager-Tasks.cpp) */
-        _cold _nodiscard std::string addTask(const std::string& prompt, const std::string& target, const std::vector<std::string>& after);
-        _cold _nodiscard std::string addSchedule(const std::string& when, const std::string& action, const std::string& session, const std::string& text, const int every);
+        _cold _nodiscard std::string addTask(const std::string& prompt, const std::string& target, const std::vector<std::string>& after, const std::string& by = "");
+        _cold _nodiscard std::string addSchedule(const std::string& when, const std::string& action, const std::string& session, const std::string& text, const int every, const std::string& by = "");
         _cold _nodiscard std::vector<cluster::Schedule> schedules(void) const;
         _cold void cancelSchedule(const std::string& id);
         _cold void cancelTask(const std::string& id);
+        // cancel | delete | archive | unarchive | force (started now); a reason: told to the session that made it
+        _cold _nodiscard std::string taskAct(const std::string& id, const std::string& action, const std::string& reason = "");
+        // cancel | delete | archive | unarchive | trigger (run now)
+        _cold _nodiscard std::string scheduleAct(const std::string& id, const std::string& action, const std::string& reason = "");
+        _cold void dropFor_(const std::string& session, const bool gone, const std::string& name = ""); // its tasks / schedules: cancelled (closed) or removed
+        _cold void tell_(const std::string& by, const std::string& text);    // a session told (a prompt), else a notice
         _cold _nodiscard cluster::Json fanout(const cluster::Json& args);           // several prompts as a group (tasks), woken with their answers
         _cold _nodiscard cluster::Json groupStatus(const std::string& id) const;   // "": every group
         _cold void groupCancel(const std::string& id, const bool interrupt);

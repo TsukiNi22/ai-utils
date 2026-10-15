@@ -900,7 +900,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
         "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "settings_get", "settings_search", "settings_set", "ui_state", "delete",
-        "projects"};
+        "projects", "task_act", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel"};
     Conn& conn = *static_cast<Conn*>(connection);
     Request request;
     if (!read_request_(conn, request)) return;
@@ -1047,7 +1047,13 @@ self.addEventListener("notificationclick", (e) => {
             {"accent", st.accent}, {"border", st.border}, {"ok", st.ok}, {"warn", st.warn}, {"error", st.error}};
         const cluster::VoiceConf& voice = this->_manager.config().voice;
         const cluster::AppFace face = this->_manager.appFace(false);
+        // the Tasks session of the list: what waits / runs, what is scheduled
+        const std::vector<cluster::Task> tasks = this->_manager.tasks();
+        const std::vector<cluster::Schedule> planned = this->_manager.schedules();
+        const auto open = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued" || t.status == "running";});
+        const auto waiting = std::count_if(planned.begin(), planned.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
         json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
+            {"tasks_open", open}, {"schedules_waiting", waiting},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
@@ -1105,7 +1111,8 @@ self.addEventListener("notificationclick", (e) => {
         } else {
             const cluster::Json answer = cluster::Control::handle(this->_manager, command);
             // a prompt of this device: it is the one notified for this session (not the desktop here)
-            if ((cmd == "send" || cmd == "allow" || cmd == "ask") && answer.value("ok", false) && command.contains("session") && command["session"].is_string())
+            if ((cmd == "send" || cmd == "allow" || cmd == "ask") && answer.value("ok", false) && command.contains("session") && command["session"].is_string()
+                && command["session"].get<std::string>() != TASKS_ID) // the Tasks session: not a session to notify
                 this->_manager.setOrigin(command["session"].get<std::string>(), "web:" + cookie_(request, "cc_dev"));
             json_(conn, 200, answer);
         }

@@ -23,6 +23,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
 #include <fstream>
+#include <regex>
 
 /* actions */
 _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, const std::string& session)
@@ -52,6 +53,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
         {"new_project", "New session on a project of this computer (search it by its name)", "", "", true},
+        {"tasks_view", "Tasks: the todo lists of the sessions, the task queue, the schedules", "", "", false},
         {"send", "Send a prompt to the session", "prompt", "", false},
     };
 
@@ -76,7 +78,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             for (const std::string& level: info.efforts)
                 list.push_back({"effort:" + level, "Effort (thinking): " + level + (info.effort == level ? " (current)" : ""), "", "", false});
         } catch (const utils::exception::IException&) {} // an unknown provider: no choice
-        for (const char* panel: {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files"})
+        for (const char* panel: {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files", "tasks"})
             list.push_back({std::string("panel:") + panel, std::string("Panel ") + panel + (snap->spec.panels.contains(panel) ? ": hide" : ": show"), "", "", false});
         // a !command waiting: given to the agent or not
         if (manager.ui("share", "") == session) {
@@ -275,6 +277,17 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
             result.message = "session " + result.focus + " started in " + cluster::short_path(arg);
         } else if (base == "focus") {
             result.focus = arg;
+        } else if (base == "tasks_view") {
+            result.focus = TASKS_ID;
+        } else if (base == "task_act" || base == "sched_act") {
+            const std::size_t colon = arg.rfind(':');
+            const std::string target = arg.substr(0, colon);
+            const std::string what = colon == std::string::npos ? "" : arg.substr(colon + 1);
+            result.message = base == "task_act" ? manager.taskAct(target, what, cluster::trim(input)) : manager.scheduleAct(target, what, cluster::trim(input));
+        } else if (base == "task_menu") {
+            result.ui = "pick:task:" + arg;
+        } else if (base == "sched_menu") {
+            result.ui = "pick:sched:" + arg;
         } else if (base == "cancel") {
             result.message = "nothing changed";
         } else if (base == "delete_ask") {
@@ -472,6 +485,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
         {"exit", "close the session (= /close)"},
         {"delete", "delete the session for good: asked first (/delete! at once); /close keeps it in the trash"},
+        {"tasks", "the Tasks session: the todo lists, the task queue, the schedules"},
         {"settings", "the settings page"},
         {"vim", "vim mode of the prompt on / off"},
         {"help", "the local commands"},
@@ -626,6 +640,8 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
         if (name == "cd") {
             manager.cd(session, arg);
             result.message = "moved to " + cluster::short_path(arg);
+        } else if (name == "tasks") {
+            result.focus = TASKS_ID;
         } else if (name == "delete" || name == "delete!") {
             if (session == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session can't be deleted");
             if (name == "delete") {
@@ -803,6 +819,46 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
         if (out.empty()) out.push_back({"new_session", "New session: a folder (no project matches" + std::string(query.empty() ? ": map this computer first" : "") + ")", "folder [backend]", ".", false});
         return out;
     }
+    const std::function<std::string(const std::string&)> who = [&manager](const std::string& by) {
+        if (by.empty()) return std::string("you");
+        if (by == GLOBAL_ID) return std::string("the global session");
+        const std::optional<cluster::Snapshot> s = manager.snapshot(by);
+        return s ? s->spec.name : by;
+    };
+    if (cluster::lower(wanted).starts_with("task:")) {
+        const std::string id = cluster::trim(wanted.substr(5));
+        for (const cluster::Task& t: manager.tasks()) {
+            if (t.id != id) continue;
+            const std::string told = "a reason (optional: told to " + who(t.by) + ")";
+            if (t.status == "queued") out.push_back({"task_act:" + id + ":force", "Start " + id + " now (past the limit of parallel sessions)", "", "", false});
+            if (t.status == "queued" || t.status == "running") out.push_back({"task_act:" + id + ":cancel", "Cancel " + id, told, "", false});
+            if (!t.session.empty()) out.push_back({"focus:" + t.session, "Open its session (" + (manager.snapshot(t.session) ? manager.snapshot(t.session)->spec.name : t.session) + ")", "", "", false});
+            out.push_back({"task_act:" + id + (t.archived ? ":unarchive" : ":archive"), t.archived ? "Back in the list" : "Archive " + id, "", "", false});
+            out.push_back({"task_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});
+        }
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("sched:")) {
+        const std::string id = cluster::trim(wanted.substr(6));
+        for (const cluster::Schedule& w: manager.schedules()) {
+            if (w.id != id) continue;
+            const std::string told = "a reason (optional: told to " + who(w.by) + ")";
+            if (w.status == "waiting") out.push_back({"sched_act:" + id + ":trigger", "Run " + id + " now" + (w.every > 0 ? " (its next time kept)" : ""), "", "", false});
+            if (w.status == "waiting") out.push_back({"sched_act:" + id + ":cancel", "Cancel " + id, told, "", false});
+            if (w.action == "prompt") out.push_back({"focus:" + w.session, "Open its session", "", "", false});
+            out.push_back({"sched_act:" + id + (w.archived ? ":unarchive" : ":archive"), w.archived ? "Back in the list" : "Archive " + id, "", "", false});
+            out.push_back({"sched_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});
+        }
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("archive:")) {
+        for (const cluster::Task& t: manager.tasks())
+            if (t.archived) out.push_back({"task_menu:" + t.id, "Task " + t.id + " (" + t.status + ") · " + cluster::one_line(t.prompt, 70), "", "", false});
+        for (const cluster::Schedule& w: manager.schedules())
+            if (w.archived) out.push_back({"sched_menu:" + w.id, "Schedule " + w.id + " (" + w.status + ") · " + cluster::one_line(w.text, 70), "", "", false});
+        if (out.empty()) out.push_back({"cancel", "Nothing archived", "", "", false});
+        return out;
+    }
     const bool menu = cluster::lower(wanted).starts_with("menu:");
     const bool remove = cluster::lower(wanted).starts_with("delete:");
     if (!menu && !remove) return out;
@@ -899,4 +955,26 @@ _cold bool cluster::action_matches(const cluster::Action& action, const std::str
         if (id.starts_with(prefix)) return rest.empty() || title.find(rest) != std::string::npos || id.find(rest) != std::string::npos;
     }
     return title.find(wanted) != std::string::npos || id.find(wanted) != std::string::npos;
+}
+
+_cold cluster::ActionResult cluster::tasks_prompt(cluster::Manager& manager, const std::string& line)
+{
+    // the prompt of the Tasks session: "<when> <text>" a reminder to the global session (+30m, +2h, 18:00...), "<target> |
+    // <prompt>" a task for it, else a task for any free session
+    cluster::ActionResult result;
+    const std::string text = cluster::trim(line);
+    const std::size_t space = text.find(' ');
+    const std::string first = text.substr(0, space);
+    const bool when = space != std::string::npos && (std::regex_match(first, std::regex(R"(\+\d+[smhd])")) || std::regex_match(first, std::regex(R"(\d{1,2}:\d{2})")));
+    if (when) {
+        // a prompt to the global session; none (off): a notification
+        const bool global = manager.snapshot(GLOBAL_ID).has_value();
+        const std::string id = manager.addSchedule(first, global ? "prompt" : "notify", GLOBAL_ID, cluster::trim(text.substr(space + 1)), 0);
+        result.message = "schedule " + id + " at " + first + (global ? ": a prompt to the global session" : ": a notification (no global session)");
+        return result;
+    }
+    const std::size_t bar = text.find(" | ");
+    const std::string id = bar == std::string::npos ? manager.addTask(text, "", {}) : manager.addTask(cluster::trim(text.substr(bar + 3)), cluster::trim(text.substr(0, bar)), {});
+    result.message = "task " + id + " queued" + (bar == std::string::npos ? " (any free session)" : " for " + cluster::trim(text.substr(0, bar)));
+    return result;
 }

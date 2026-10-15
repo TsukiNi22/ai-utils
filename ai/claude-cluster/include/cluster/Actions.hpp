@@ -69,6 +69,7 @@ _cold _nodiscard cluster::CompletionProvider completion_provider(cluster::Manage
 _cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager& manager, const std::string& session, const std::string& line);
 _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_commands(void);  // local /commands <usage, description>
 // the modes of the prompt (Prompt.cpp): !<command> in the shell of the session, :<command> like vim
+_cold _nodiscard cluster::ActionResult tasks_prompt(cluster::Manager& manager, const std::string& line); // the prompt of the Tasks session
 _cold _nodiscard std::optional<cluster::ActionResult> run_prompt_mode(cluster::Manager& manager, const std::string& session, const std::string& line);
 _cold _nodiscard cluster::ActionResult run_shell(cluster::Manager& manager, const std::string& session, const std::string& command);
 _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& ex_commands(void);   // <:command, description>

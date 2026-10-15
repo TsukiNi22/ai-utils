@@ -857,7 +857,8 @@ class TtyUi {
                 std::string error;
                 try {
                     local = cluster::run_slash(this->_manager, session, text);
-                    if (!local) this->_manager.send(session, text, false, images);
+                    if (!local && session == TASKS_ID) local = cluster::tasks_prompt(this->_manager, text); // a new task / reminder
+                    else if (!local) this->_manager.send(session, text, false, images);
                     this->_manager.addHistory(draft, session); // typed here: in the history (not the ones of the global session / MCP)
                 } catch (const utils::exception::IException& e) {
                     error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
@@ -904,7 +905,8 @@ class TtyUi {
             const std::size_t cursor = this->_editor.cursor();
             // its mode: ! a command of the shell (in the folder of the session), : a command of claude-cluster (like vim)
             const char mode = text.starts_with("!") ? '!' : text.starts_with(":") ? ':' : '\0';
-            std::string target = this->_active == GLOBAL_ID ? "to the global session " : "to " + this->_active + " ";
+            std::string target = this->_active == GLOBAL_ID ? "to the global session " : this->_active == TASKS_ID ? "a new task · +30m <text>: a reminder "
+                : "to " + this->_active + " ";
             if (mode == '!') {
                 const std::optional<cluster::Snapshot> here = this->_manager.snapshot(this->_active);
                 target = "shell in " + (here ? cluster::short_path(here->spec.cwd) : std::string("~")) + " ";
@@ -1880,6 +1882,146 @@ class TtyUi {
         }
 
         /* rendering */
+        _nodiscard ftxui::Element tasksRow_(const bool active, const int clip)
+        {
+            // the Tasks session in the list: what runs, waits, is scheduled
+            const std::vector<cluster::Task> tasks = this->_manager.tasks();
+            const std::vector<cluster::Schedule> schedules = this->_manager.schedules();
+            const auto running = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "running";});
+            const auto queued = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued";});
+            const auto waiting = std::count_if(schedules.begin(), schedules.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
+            ftxui::Element line = ftxui::hbox({ftxui::text("☰ ") | ftxui::color(this->_theme.accent), ftxui::text("Tasks") | (active ? ftxui::bold : ftxui::nothing) | ftxui::color(this->_theme.text),
+                ftxui::filler(), ftxui::text(running > 0 ? std::to_string(running) + "▶ " : "") | ftxui::color(this->_theme.ok)});
+            ftxui::Element sub = ftxui::text("  " + std::to_string(queued) + " waiting · " + std::to_string(waiting) + " scheduled") | ftxui::color(this->_theme.muted) | ftxui::dim;
+            ftxui::Element block = this->tap_(ftxui::vbox({line, sub}), 0, [this]() {this->_active = TASKS_ID;}, clip);
+            return active ? block | ftxui::bgcolor(this->_theme.surface) : block;
+        }
+
+        _nodiscard ftxui::Element tasksView_(const int width, const int height)
+        {
+            // the todo lists of the sessions, the task queue, the schedules, the archive; a click on one: its actions
+            const Theme& t = this->_theme;
+            const std::int64_t now = cluster::now();
+            const std::function<std::string(std::int64_t)> span = [](std::int64_t s) {
+                s = std::max<std::int64_t>(0, s);
+                return s < 60 ? std::to_string(s) + "s" : s < 3600 ? std::to_string(s / 60) + "m" : s < 86400 ? std::to_string(s / 3600) + "h" + (s % 3600 >= 60 ? std::to_string(s % 3600 / 60) + "m" : "")
+                    : std::to_string(s / 86400) + "d";
+            };
+            const std::function<std::string(const std::string&)> who = [this](const std::string& by) {
+                if (by.empty()) return std::string("you");
+                if (by == GLOBAL_ID) return std::string("global");
+                const std::optional<cluster::Snapshot> s = this->_manager.snapshot(by);
+                return s ? s->spec.name : by;
+            };
+            const std::vector<cluster::Task> tasks = this->_manager.tasks();
+            const std::vector<cluster::Schedule> schedules = this->_manager.schedules();
+            const int room = std::max(30, width - 4);
+            ftxui::Elements out = {ftxui::hbox({ftxui::text(" ☰ Tasks ") | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent),
+                ftxui::text("  the todo lists of the sessions, the task queue, the schedules") | ftxui::color(t.muted), ftxui::filler()})};
+            const std::function<void(const std::string&, const std::string&)> title = [&](const std::string& name, const std::string& count) {
+                out.push_back(ftxui::text(""));
+                out.push_back(ftxui::hbox({ftxui::text(" " + name + " ") | ftxui::bold | ftxui::color(t.accent), ftxui::text(count) | ftxui::color(t.muted), ftxui::filler()}));
+                out.push_back(ftxui::separatorLight() | ftxui::color(t.border));
+            };
+            // the todo lists (like claude.ai): done / to do of each session
+            std::size_t lists = 0;
+            ftxui::Elements todos;
+            for (const cluster::Snapshot& s: this->_manager.list(true)) {
+                if (s.todos.empty()) continue;
+                ++lists;
+                const auto done = std::count_if(s.todos.begin(), s.todos.end(), [](const cluster::Todo& d) {return d.status == "completed";});
+                const std::string id = s.spec.id;
+                todos.push_back(this->tap_(ftxui::hbox({ftxui::text(" " + (s.spec.global ? std::string("global") : s.spec.name)) | ftxui::bold | ftxui::color(t.text),
+                    ftxui::text("  " + std::to_string(done) + "/" + std::to_string(s.todos.size()) + " done") | ftxui::color(done == static_cast<long>(s.todos.size()) ? t.ok : t.muted),
+                    ftxui::filler()}), 0, [this, id]() {this->_active = id;}));
+                std::size_t shown = 0;
+                for (const cluster::Todo& d: s.todos) {
+                    if (++shown > 8) break;
+                    const bool active = d.status == "in_progress";
+                    const bool over = d.status == "completed";
+                    todos.push_back(ftxui::hbox({ftxui::text(over ? "   ☒ " : active ? "   ◼ " : "   ☐ ") | ftxui::color(over ? t.ok : active ? t.accent : t.muted),
+                        ftxui::text(cluster::one_line(active && !d.activeForm.empty() ? d.activeForm : d.content, static_cast<std::size_t>(room - 6)))
+                        | (over ? ftxui::color(t.muted) | ftxui::dim | ftxui::strikethrough : active ? ftxui::color(t.accent) | ftxui::bold : ftxui::color(t.text))}));
+                }
+                if (s.todos.size() > 8) todos.push_back(ftxui::text("   … +" + std::to_string(s.todos.size() - 8) + " more") | ftxui::color(t.muted) | ftxui::dim);
+            }
+            title("Todo lists", std::to_string(lists) + " session(s)");
+            if (todos.empty()) out.push_back(ftxui::text("   none: a session writes its list while it works (TodoWrite)") | ftxui::color(t.muted) | ftxui::dim);
+            for (ftxui::Element& e: todos)
+                out.push_back(std::move(e));
+            // the task queue: what runs, waits, ended (the first ones)
+            std::vector<cluster::Task> shown;
+            std::map<std::string, int> count;
+            std::size_t archived = 0;
+            for (const cluster::Task& task: tasks) {
+                if (task.archived) {
+                    ++archived;
+                    continue;
+                }
+                ++count[task.status];
+                shown.push_back(task);
+            }
+            const std::function<int(const cluster::Task&)> rank = [](const cluster::Task& x) {return x.status == "running" ? 0 : x.status == "queued" ? 1 : 2;};
+            std::stable_sort(shown.begin(), shown.end(), [&rank](const cluster::Task& a, const cluster::Task& b) {
+                return rank(a) != rank(b) ? rank(a) < rank(b) : rank(a) < 2 ? a.created < b.created : a.ended > b.ended;
+            });
+            title("Task queue", std::to_string(count["running"]) + " running · " + std::to_string(count["queued"]) + " waiting · " + std::to_string(count["done"]) + " done"
+                + (count["failed"] > 0 ? " · " + std::to_string(count["failed"]) + " failed" : "") + (count["cancelled"] > 0 ? " · " + std::to_string(count["cancelled"]) + " cancelled" : ""));
+            if (shown.empty()) out.push_back(ftxui::text("   empty: type a prompt below (a task for a free session; target | prompt: for it)") | ftxui::color(t.muted) | ftxui::dim);
+            for (std::size_t i = 0; i < shown.size() && i < 10; ++i) {
+                const cluster::Task& task = shown[i];
+                const ftxui::Color tint = task.status == "running" ? t.ok : task.status == "queued" ? t.accent : task.status == "done" ? t.muted : task.status == "failed" ? t.error : t.warn;
+                const std::string mark = task.status == "running" ? "▶" : task.status == "queued" ? (task.forced ? "»" : "◌") : task.status == "done" ? "✓" : task.status == "failed" ? "✗" : "⊘";
+                const std::string where = !task.session.empty() ? (this->_manager.snapshot(task.session) ? this->_manager.snapshot(task.session)->spec.name : task.session)
+                    : task.target.empty() ? "any free session" : task.target;
+                const std::string age = task.status == "queued" ? "waits " + span(now - task.created) : task.status == "running" ? span(now - task.started) : span(now - task.ended) + " ago";
+                const std::string id = task.id;
+                out.push_back(this->tap_(ftxui::hbox({ftxui::text("  " + mark + " ") | ftxui::color(tint) | ftxui::bold, ftxui::text(task.id + "  ") | ftxui::color(t.muted),
+                    ftxui::text(cluster::one_line(task.prompt, static_cast<std::size_t>(std::max(20, room - 58)))) | ftxui::color(task.status == "done" ? t.muted : t.text), ftxui::filler(),
+                    ftxui::text("  → " + cluster::one_line(where, 16)) | ftxui::color(t.muted), ftxui::text("  by " + who(task.by)) | ftxui::color(t.muted) | ftxui::dim,
+                    ftxui::text("  " + age + " ") | ftxui::color(t.muted) | ftxui::dim}), 0, [this, id]() {this->pick_("task:" + id);}));
+                if (!task.reason.empty()) out.push_back(ftxui::text("       ↳ " + cluster::one_line(task.reason, static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
+            }
+            if (shown.size() > 10) out.push_back(ftxui::text("     … +" + std::to_string(shown.size() - 10) + " more") | ftxui::color(t.muted) | ftxui::dim);
+            // the schedules: the waiting ones by their time, then the ones run / cancelled
+            std::vector<cluster::Schedule> planned;
+            int waiting = 0;
+            for (const cluster::Schedule& w: schedules) {
+                if (w.archived) {
+                    ++archived;
+                    continue;
+                }
+                waiting += w.status == "waiting" ? 1 : 0;
+                planned.push_back(w);
+            }
+            std::stable_sort(planned.begin(), planned.end(), [](const cluster::Schedule& a, const cluster::Schedule& b) {
+                return (a.status == "waiting") != (b.status == "waiting") ? a.status == "waiting" : a.status == "waiting" ? a.at < b.at : a.last > b.last;
+            });
+            title("Scheduled", std::to_string(waiting) + " waiting · " + std::to_string(planned.size() - static_cast<std::size_t>(waiting)) + " run / cancelled");
+            if (planned.empty()) out.push_back(ftxui::text("   none: +30m <text> or 18:00 <text> below (a prompt to the global session), or ask the global session") | ftxui::color(t.muted) | ftxui::dim);
+            for (std::size_t i = 0; i < planned.size() && i < 10; ++i) {
+                const cluster::Schedule& w = planned[i];
+                const bool open = w.status == "waiting";
+                const std::string when = open ? "in " + span(w.at - now) + " (" + cluster::clock_time(w.at) + ")" : w.status == "done" ? "run " + span(now - w.last) + " ago" : "cancelled";
+                const std::string where = w.action == "notify" ? "a notification" : "→ " + (w.session == GLOBAL_ID ? std::string("global") : (this->_manager.snapshot(w.session) ? this->_manager.snapshot(w.session)->spec.name : w.session));
+                const std::string id = w.id;
+                out.push_back(this->tap_(ftxui::hbox({ftxui::text(open ? "  ⏱ " : w.status == "done" ? "  ✓ " : "  ⊘ ") | ftxui::color(open ? t.accent : w.status == "done" ? t.muted : t.warn) | ftxui::bold,
+                    ftxui::text(w.id + "  ") | ftxui::color(t.muted), ftxui::text(when + (w.every > 0 ? " · every " + span(static_cast<std::int64_t>(w.every) * 60) : "") + "  ") | ftxui::color(open ? t.text : t.muted),
+                    ftxui::text(cluster::one_line(w.text, static_cast<std::size_t>(std::max(20, room - 70)))) | ftxui::color(open ? t.text : t.muted), ftxui::filler(),
+                    ftxui::text("  " + where) | ftxui::color(t.muted), ftxui::text("  by " + who(w.by) + " ") | ftxui::color(t.muted) | ftxui::dim}), 0, [this, id]() {this->pick_("sched:" + id);}));
+                if (!w.reason.empty()) out.push_back(ftxui::text("       ↳ " + cluster::one_line(w.reason, static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
+            }
+            if (planned.size() > 10) out.push_back(ftxui::text("     … +" + std::to_string(planned.size() - 10) + " more") | ftxui::color(t.muted) | ftxui::dim);
+            if (archived > 0) {
+                out.push_back(ftxui::text(""));
+                out.push_back(this->tap_(ftxui::text("  ▸ " + std::to_string(archived) + " archived: open") | ftxui::color(t.accent), 0, [this]() {this->pick_("archive:");}));
+            }
+            out.push_back(ftxui::text(""));
+            out.push_back(ftxui::paragraph("  a click on one: its actions (start / run now, cancel or delete with a reason told to the session that made it, archive) · "
+                "the prompt: a task (target | prompt: for it), +30m <text> / 18:00 <text>: a reminder to the global session") | ftxui::color(t.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(out)) | ftxui::yframe | ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, height) | ftxui::flex;
+        }
+
         _nodiscard ftxui::Element sessionRow_(const cluster::Snapshot& s, const bool active, const int clip)
         {
             const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error
@@ -2553,6 +2695,18 @@ class TtyUi {
                 if (body.empty()) body.push_back(ftxui::text("none yet") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 section("Tools", std::move(body));
             }
+            if (s.spec.panels.contains("tasks")) {
+                ftxui::Elements body;
+                for (const cluster::Todo& d: s.todos)
+                    body.push_back(ftxui::hbox({ftxui::text(d.status == "completed" ? "☒ " : d.status == "in_progress" ? "◼ " : "☐ ")
+                        | ftxui::color(d.status == "completed" ? this->_theme.ok : d.status == "in_progress" ? this->_theme.accent : this->_theme.muted),
+                        ftxui::text(cluster::one_line(d.content, 30)) | ftxui::color(d.status == "completed" ? this->_theme.muted : this->_theme.text)}));
+                for (const cluster::Task& task: this->_manager.tasks())
+                    if (!task.archived && (task.session == s.spec.id || task.target == s.spec.id) && (task.status == "queued" || task.status == "running"))
+                        body.push_back(ftxui::text((task.status == "running" ? "▶ " : "◌ ") + task.id + " " + cluster::one_line(task.prompt, 26)) | ftxui::color(this->_theme.muted));
+                if (body.empty()) body.push_back(ftxui::text("no todo list, no task") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                section("Tasks", std::move(body));
+            }
             if (s.spec.panels.contains("files")) {
                 ftxui::Elements body;
                 for (const std::string& file: s.files)
@@ -2684,12 +2838,14 @@ class TtyUi {
         {
             const std::vector<cluster::Snapshot> list = this->sessions_();
             if (list.empty()) return ftxui::text("no session: " + this->_manager.config().keys.at("new_session") + " to start one") | ftxui::center | ftxui::flex;
+            const bool tasksShown = this->_active == TASKS_ID; // the Tasks session: its view in place of a transcript
             auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
             if (it == list.end()) {
-                this->_active = list.front().spec.id;
+                if (!tasksShown) this->_active = list.front().spec.id;
                 it = list.begin();
             }
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
+            if (tasksShown && layout == "grid") return this->tasksView_(width, height);
 
             if (layout == "grid" && list.size() > 1) {
                 const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(list.size()))));
@@ -2714,6 +2870,9 @@ class TtyUi {
             }
             if (layout == "tabs") {
                 ftxui::Elements tabs;
+                const ftxui::Element first = ftxui::text(" ☰ Tasks ");
+                tabs.push_back(this->tap_(tasksShown ? first | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : first | ftxui::color(this->_theme.muted),
+                    0, [this]() {this->_active = TASKS_ID;}));
                 for (const cluster::Snapshot& s: list) {
                     const bool active = s.spec.id == this->_active;
                     ftxui::Element tab = ftxui::text(" " + state_mark_(s.state) + " " + cluster::one_line(s.spec.name, 14) + (s.permissions.empty() ? "" : " !") + " ");
@@ -2722,11 +2881,12 @@ class TtyUi {
                     tabs.push_back(this->tap_(active ? tab | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : tab | ftxui::color(this->_theme.muted),
                         0, [this, id]() {this->_active = id;}));
                 }
-                return ftxui::vbox({ftxui::hbox(std::move(tabs)), this->session_(*it, width, height - 1, false) | ftxui::flex});
+                return ftxui::vbox({ftxui::hbox(std::move(tabs)), (tasksShown ? this->tasksView_(width, height - 1) : this->session_(*it, width, height - 1, false)) | ftxui::flex});
             }
             // list + active panel
             ftxui::Elements rows = {ftxui::text(" Sessions") | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text("")};
             const int clip = this->clip_();
+            rows.push_back(this->tasksRow_(tasksShown, clip)); // the Tasks session first
             // more sessions than the room: the ones around the one shown (2 lines each)
             const std::size_t room = static_cast<std::size_t>(std::max(1, (height - 3) / 2));
             const std::size_t at = static_cast<std::size_t>(it - list.begin());
@@ -2735,13 +2895,10 @@ class TtyUi {
             for (std::size_t i = first; i < list.size() && i < first + room; ++i)
                 rows.push_back(this->sessionRow_(list[i], list[i].spec.id == this->_active, clip));
             if (first + room < list.size()) rows.push_back(ftxui::text(" ↓ " + std::to_string(list.size() - first - room) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
-            const std::vector<cluster::Task> tasks = this->_manager.tasks();
-            const auto open = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued" || t.status == "running";});
-            if (open > 0) rows.push_back(ftxui::text(" " + std::to_string(open) + " task(s) in the queue") | ftxui::color(this->_theme.muted));
             return ftxui::hbox({
                 ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 30) | ftxui::yframe | this->clipBox_(clip),
                 ftxui::separatorLight() | ftxui::color(this->_theme.border),
-                this->session_(*it, width - 31, height, false) | ftxui::flex,
+                (tasksShown ? this->tasksView_(width - 31, height) : this->session_(*it, width - 31, height, false)) | ftxui::flex,
             });
         }
 

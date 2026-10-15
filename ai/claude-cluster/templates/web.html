@@ -105,6 +105,17 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker-title { padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border, #444); }
 .picker-list { overflow-y: auto; padding: 6px; }
 .picker-row.danger { color: var(--error); }
+.tasks-mark { color: var(--accent); font-weight: 700; }
+.tasks-view { padding: 4px 6px 20px; } .tasks-view h3 { color: var(--accent); margin: 18px 0 2px; font-size: 15px; } .tasks-view .muted { color: var(--muted); font-size: 12px; }
+.todo-head { margin: 8px 0 2px; cursor: pointer; } .todo { padding: 1px 0 1px 14px; } .todo .mark { margin-right: 8px; color: var(--muted); }
+.todo.in_progress { color: var(--accent); font-weight: 600; } .todo.in_progress .mark { color: var(--accent); }
+.todo.completed { color: var(--muted); text-decoration: line-through; } .todo.completed .mark { color: var(--ok, #3fb950); }
+.task-row { display: grid; grid-template-columns: 22px 34px 1fr; gap: 2px 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; align-items: baseline; }
+.task-row:hover { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.task-row > .muted { grid-column: 3; } .task-row .reason { grid-column: 3; color: var(--warn, #e0a030); font-size: 12px; }
+.task-row .id { color: var(--muted); font-family: var(--mono, monospace); font-size: 12px; }
+.task-row.running .mark { color: var(--ok, #3fb950); } .task-row.queued .mark { color: var(--accent); } .task-row.failed .mark { color: var(--error); }
+.task-row.cancelled .mark { color: var(--warn, #e0a030); } .task-row.done .text { color: var(--muted); } .task-row.archived { color: var(--accent); display: block; }
 .picker-row { display: flex; gap: 12px; align-items: baseline; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
 .picker-row small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .picker-row.selected, .picker-row:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -623,6 +634,15 @@ function render(state) {
     if (view !== "chat") renderView(state);
     const list = $("sessions");
     list.textContent = "";
+    {
+        // the Tasks session first: the todo lists, the task queue, the schedules
+        const item = el("div", "session tasks-item" + (current === "tasks" ? " active" : ""));
+        const name = el("div", "name");
+        name.append(el("span", "tasks-mark", "☰"), document.createTextNode("Tasks"));
+        item.append(name, el("div", "sub", (state.tasks_open || 0) + " waiting / running · " + (state.schedules_waiting || 0) + " scheduled"));
+        item.addEventListener("click", () => select("tasks"));
+        list.append(item);
+    }
     for (const s of state.sessions) {
         const item = document.createElement("div");
         item.className = "session" + (s.id === current ? " active" : "");
@@ -650,6 +670,7 @@ function render(state) {
         for (const end of ["touchend", "touchmove", "touchcancel"]) item.addEventListener(end, () => { if (pressed) clearTimeout(pressed); });
         list.append(item);
     }
+    if (current === "tasks") { renderTasks(); return; }
     const s = state.session;
     if (!s) {
         if (current !== "g") select("g");
@@ -674,6 +695,138 @@ function render(state) {
     if (state.ask && (current === "g" || state.ask.session === current)) renderQuestion(state.ask);
     else renderAsk(s);
     readAnswer(s);
+}
+
+// ---- the Tasks session: its view in place of the conversation ----
+const ago = (s) => { s = Math.max(0, Math.floor(s)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
+let tasksDrawing = false;
+async function renderTasks() {
+    if (tasksDrawing) return;
+    tasksDrawing = true;
+    try {
+        const [tasks, schedules, todos] = await Promise.all([cmd({cmd: "task_list"}), cmd({cmd: "schedule_list"}), cmd({cmd: "todos"})]);
+        const sessions = (lastState && lastState.sessions) || [];
+        const nameOf = (id) => id === "g" ? "global" : ((sessions.find((x) => x.id === id) || {}).name || id);
+        const who = (by) => !by ? "you" : nameOf(by);
+        const now = Date.now() / 1000;
+        $("sessionName").textContent = "☰ Tasks";
+        $("sessionInfo").textContent = "the todo lists of the sessions, the task queue, the schedules";
+        $("sessionDesc").textContent = "";
+        $("sessionWhere").textContent = "a row: its actions · the composer: a task (target | prompt), +30m <text>: a reminder";
+        for (const id of ["resume", "closeSession", "fork"]) $(id).classList.add("hidden");
+        const box = $("transcript");
+        box.textContent = "";
+        const view = el("div", "tasks-view");
+        const section = (title, count) => { view.append(el("h3", "", title), el("div", "muted", count)); };
+        // the todo lists
+        section("Todo lists", todos.length + " session(s)");
+        if (!todos.length) view.append(el("div", "muted", "none: a session writes its list while it works"));
+        for (const t of todos) {
+            const done = t.todos.filter((d) => d.status === "completed").length;
+            const head = el("div", "todo-head");
+            head.append(el("b", "", t.name), el("span", "muted", "  " + done + "/" + t.todos.length + " done"));
+            head.addEventListener("click", () => select(t.session));
+            view.append(head);
+            for (const d of t.todos) {
+                const row = el("div", "todo " + d.status);
+                row.append(el("span", "mark", d.status === "completed" ? "☒" : d.status === "in_progress" ? "◼" : "☐"),
+                    el("span", "", d.status === "in_progress" && d.activeForm ? d.activeForm : d.content));
+                view.append(row);
+            }
+        }
+        // the task queue
+        const shown = tasks.filter((t) => !t.archived);
+        const rank = (t) => t.status === "running" ? 0 : t.status === "queued" ? 1 : 2;
+        shown.sort((a, b) => rank(a) - rank(b) || (rank(a) < 2 ? a.created - b.created : b.ended - a.ended));
+        const count = (st) => shown.filter((t) => t.status === st).length;
+        section("Task queue", count("running") + " running · " + count("queued") + " waiting · " + count("done") + " done" + (count("failed") ? " · " + count("failed") + " failed" : "")
+            + (count("cancelled") ? " · " + count("cancelled") + " cancelled" : ""));
+        if (!shown.length) view.append(el("div", "muted", "empty: a prompt below queues one"));
+        for (const t of shown.slice(0, 12)) {
+            const mark = {running: "▶", queued: t.forced ? "»" : "◌", done: "✓", failed: "✗", cancelled: "⊘"}[t.status] || "·";
+            const row = el("div", "task-row " + t.status);
+            const age = t.status === "queued" ? "waits " + ago(now - t.created) : t.status === "running" ? ago(now - t.started) : ago(now - t.ended) + " ago";
+            row.append(el("span", "mark", mark), el("span", "id", t.id), el("span", "text", t.prompt),
+                el("span", "muted", "→ " + (t.session ? nameOf(t.session) : t.target || "any") + " · by " + who(t.by) + " · " + age));
+            if (t.reason) row.append(el("div", "reason", "↳ " + t.reason));
+            row.addEventListener("click", () => taskMenu(t, who(t.by)));
+            view.append(row);
+        }
+        if (shown.length > 12) view.append(el("div", "muted", "… +" + (shown.length - 12) + " more"));
+        // the schedules
+        const planned = schedules.filter((w) => !w.archived);
+        planned.sort((a, b) => ((a.status === "waiting") === (b.status === "waiting") ? (a.status === "waiting" ? a.at_unix - b.at_unix : b.last - a.last) : a.status === "waiting" ? -1 : 1));
+        section("Scheduled", planned.filter((w) => w.status === "waiting").length + " waiting");
+        if (!planned.length) view.append(el("div", "muted", "none: +30m <text> or 18:00 <text> below"));
+        for (const w of planned.slice(0, 12)) {
+            const open = w.status === "waiting";
+            const row = el("div", "task-row " + (open ? "queued" : w.status === "done" ? "done" : "cancelled"));
+            const when = open ? "in " + ago(w.at_unix - now) + " (" + w.at + ")" : w.status === "done" ? "run " + ago(now - w.last) + " ago" : "cancelled";
+            row.append(el("span", "mark", open ? "⏱" : w.status === "done" ? "✓" : "⊘"), el("span", "id", w.id), el("span", "text", w.text),
+                el("span", "muted", when + (w.every_minutes ? " · every " + ago(w.every_minutes * 60) : "") + " · " + (w.action === "notify" ? "a notification" : "→ " + nameOf(w.session))
+                + " · by " + who(w.by)));
+            if (w.reason) row.append(el("div", "reason", "↳ " + w.reason));
+            row.addEventListener("click", () => schedMenu(w, who(w.by)));
+            view.append(row);
+        }
+        const archived = tasks.filter((t) => t.archived).length + schedules.filter((w) => w.archived).length;
+        if (archived) {
+            const more = el("div", "task-row archived", "▸ " + archived + " archived");
+            more.addEventListener("click", () => archiveMenu(tasks.filter((t) => t.archived), schedules.filter((w) => w.archived)));
+            view.append(more);
+        }
+        box.append(view);
+    } catch (error) { toast(error.message); }
+    finally { tasksDrawing = false; }
+}
+
+// a menu of choices (the picker): {label, run, danger}
+function menuOf(title, items) {
+    const veil = el("div", "picker-veil");
+    const box = el("div", "picker");
+    box.append(el("div", "picker-title", title));
+    const list = el("div", "picker-list");
+    const close = () => veil.remove();
+    for (const item of items) {
+        const row = el("div", "picker-row" + (item.danger ? " danger" : ""));
+        row.append(el("span", "", item.label));
+        row.addEventListener("click", () => { close(); item.run(); });
+        list.append(row);
+    }
+    veil.addEventListener("click", (e) => { if (e.target === veil) close(); });
+    box.append(list);
+    veil.append(box);
+    document.body.append(veil);
+}
+async function taskDo(kind, id, action, told) {
+    let reason = "";
+    if (action === "cancel" || action === "delete") {
+        reason = prompt("A reason (optional: told to " + told + ")", "");
+        if (reason === null) return;
+        if (action === "delete" && !confirm("Delete " + id + " for good?")) return;
+    }
+    await act({cmd: kind === "task" ? "task_act" : "schedule_act", id, action, reason});
+    renderTasks();
+}
+function taskMenu(t, told) {
+    const items = [];
+    if (t.status === "queued") items.push({label: "Start it now (past the limit of parallel sessions)", run: () => taskDo("task", t.id, "force")});
+    if (t.status === "queued" || t.status === "running") items.push({label: "Cancel it…", run: () => taskDo("task", t.id, "cancel", told)});
+    if (t.session) items.push({label: "Open its session", run: () => select(t.session)});
+    items.push({label: t.archived ? "Back in the list" : "Archive it", run: () => taskDo("task", t.id, t.archived ? "unarchive" : "archive")});
+    items.push({label: "Delete it for good…", danger: true, run: () => taskDo("task", t.id, "delete", told)});
+    menuOf(t.id + " · " + t.prompt.slice(0, 60), items);
+}
+function schedMenu(w, told) {
+    const items = [];
+    if (w.status === "waiting") items.push({label: "Run it now", run: () => taskDo("sched", w.id, "trigger")}, {label: "Cancel it…", run: () => taskDo("sched", w.id, "cancel", told)});
+    items.push({label: w.archived ? "Back in the list" : "Archive it", run: () => taskDo("sched", w.id, w.archived ? "unarchive" : "archive")});
+    items.push({label: "Delete it for good…", danger: true, run: () => taskDo("sched", w.id, "delete", told)});
+    menuOf(w.id + " · " + w.text.slice(0, 60), items);
+}
+function archiveMenu(tasks, schedules) {
+    menuOf("Archived", tasks.map((t) => ({label: t.id + " (" + t.status + ") · " + t.prompt.slice(0, 60), run: () => taskMenu(t, "")}))
+        .concat(schedules.map((w) => ({label: w.id + " (" + w.status + ") · " + w.text.slice(0, 60), run: () => schedMenu(w, "")}))));
 }
 
 function select(id) {

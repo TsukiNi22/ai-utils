@@ -31,10 +31,13 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Permission, requestId, tool, des
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ToolRun, id, name, summary, done, error, time)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SessionSpec, id, name, cwd, backend, claudeId, leaf, resumeAt, fork, model, mode, effort, profile, extraArgs,
     panels, global, created, deleted, cost, tokens, summary, summaryAuto, summaryTurns, turns)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Todo, id, content, status, activeForm)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Schedule, id, at, every, action, session, text, by, status, reason, archived, runs, last)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Snapshot, spec, state, stopped, metrics, entries, permissions, tools, skillsLoaded, skillsAvailable,
     slashCommands, commandHelp, files, partial, thinking, step, stepSince, stepDetail, turnSince, streamed, thinkingTokens, steps, modelUsed, pid,
-    lastError, remoteUrl, bridgeState, queued, queue, version, warning, warningAt)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Task, id, prompt, target, after, status, session, created, group, label, answer, retries, started, ended)
+    lastError, remoteUrl, bridgeState, queued, queue, version, warning, warningAt, todos)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Task, id, prompt, target, after, status, session, created, group, label, answer, retries, started, ended,
+    by, reason, archived, forced)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Notice, time, session, text, error)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(MachineProgress, id, steps, log, finished, now, next, fraction, done, repos)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(AppFace, face, badge, urgent)
