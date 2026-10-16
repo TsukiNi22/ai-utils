@@ -123,6 +123,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"ui", "shared_core", "Several terminals / windows at once", SettingKind::Bool, {}, "claude-cluster opened again: attached to the one running, every "
                 "terminal and window in sync (the core of the sessions in a process of its own, until the last one closes); off: opened again is refused", true,
                 [](const cluster::Config& cf) {return cf.sharedCore ? std::string("true") : std::string("false");}},
+            {"ui", "gui_mode", "Window mode", SettingKind::Choice, {"gui", "tty"}, "gui: the window and its own interface; tty: the window shows the terminal "
+                "interface (a real terminal inside it, every key of it; -g --tty-mode for one run)", false,
+                [](const cluster::Config& cf) {return cf.guiMode;}},
             {"ui", "layout", "Layout", SettingKind::Choice, {"list", "grid", "tabs", "hub"}, "list + active panel, every session in a grid, tabs, or the hub "
                 "(the window, the web page: a graph of the sessions around the global one; the terminal: the list)", false,
                 [](const cluster::Config& cf) {return cf.layout;}},
@@ -352,6 +355,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.web.approve ? std::string("true") : std::string("false");}},
             {"web", "port", "Port", SettingKind::Int, {}, "the address shown: https://<this computer on the LAN>:<port>", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.port);}},
+            {"web", "tty_port", "Terminal page port", SettingKind::Int, {}, "the terminal interface of claude-cluster in a browser (its own port, the same code and "
+                "approval): a real terminal of this computer, its keys, its mouse; the browser only (never the app); 0: off", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.web.ttyPort);}},
+            {"web", "tty_remote_port", "Terminal page port outside", SettingKind::Int, {}, "router: the port opened outside for the terminal page (0: the same)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.web.ttyRemotePort);}},
             {"web", "remote", "Beyond the LAN", SettingKind::Choice, {"off", "tailscale", "router"}, "the page reached away from home (the app goes there by itself when the LAN is not reached), encrypted end to end.\n"
                 "tailscale (recommended: nothing open to the Internet)\n"
                 "  1. install Tailscale here and on the phone, log in both with the same account\n"
@@ -649,7 +657,7 @@ _cold void cluster::settings_write(const cluster::Config& config,
 _cold bool cluster::setting_protected(const std::string& section, const std::string& key)
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
-    static const std::set<std::string> keys = {"web.shell", "web.settings", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
+    static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || keys.contains(section + "." + key);
@@ -690,4 +698,12 @@ _cold std::vector<std::string> cluster::protected_changes(const std::string& old
         if (value(before, path.substr(0, dot), path.substr(dot + 1)) != value(after, path.substr(0, dot), path.substr(dot + 1))) changed.push_back(path);
     }
     return changed;
+}
+
+_cold bool cluster::web_may(const cluster::Config& config, const std::string& section)
+{
+    // a device of the web page: the sections it may change ([web] settings: "all", or the sections)
+    for (const std::string& s: config.web.settings)
+        if (s == "all" || s == section) return true;
+    return false;
 }

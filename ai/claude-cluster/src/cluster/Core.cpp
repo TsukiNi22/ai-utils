@@ -146,6 +146,7 @@ _cold void cluster::Core::setup_(void)
     /* front-end */
     this->_parser.setFlag("tty", {"t", "", "tty", ""}, {}, "Terminal interface (fails when stdin / stdout are not a terminal)");
     this->_parser.setFlag("gui", {"g", "", "gui", ""}, {}, "Window interface (fails when it is not built or there is no display)");
+    this->_parser.setFlag("ttymode", {"", "", "tty-mode", ""}, {}, "-g: the window shows the terminal interface (a real terminal inside it; [ui] gui_mode = tty keeps it)");
     this->_parser.setFlag("backend", {"b", "", "backend", "CLAUDE_CLUSTER_BACKEND"}, {{"provider[/model]", true, any}},
         "Backend of the new sessions: claude (default), ollama/<model>, openai/<model>, opencode/<p>/<m>, codex... (auth list)");
     this->_parser.setFlag("restore", {"", "", "restore", ""}, {}, "Restore the sessions of the previous run without asking");
@@ -261,6 +262,7 @@ _cold void cluster::Core::run(void)
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
     else if (cmd == "engines") this->_exit = this->engines_();
+    else if (cmd == "vt-test") this->_exit = cluster::vt_test(this->_words);
     else if (cmd == "icon") this->_exit = this->icon_();
     else if (cmd == "web" && this->_words.size() > 1 && (this->_words[1] == "trust-ca" || this->_words[1] == "untrust-ca")) this->_exit = this->trustCa_();
     else if (cmd == "machine") this->_exit = this->machine_();

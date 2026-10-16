@@ -381,6 +381,7 @@ _cold std::string state_mark_(const cluster::State state)
 class TtyUi {
     private:
         cluster::App& _app;
+        const bool _webTty = std::getenv("CLAUDE_CLUSTER_WEB_TTY") != nullptr; // run for the terminal page: its rules (the shell, the settings, the services, the keys)
         cluster::Manager& _manager;
         ftxui::ScreenInteractive _screen = ftxui::ScreenInteractive::Fullscreen();
         Theme _theme{};
@@ -911,6 +912,20 @@ class TtyUi {
             // a claude: seconds), its result comes back here; an error: the prompt back, nothing lost
             const std::string text = cluster::trim(this->_editor.plain());
             if (text.empty() || this->_active == TASKS_ID) return; // the Tasks session: no prompt
+            if (this->_webTty && (text.starts_with("!") || (text.starts_with(":") && text.find('!') != std::string::npos) || text.starts_with(":r ")
+                || text.starts_with(":read ")) && !this->_manager.config().web.shell) {
+                this->status_("the shell from the page is off (settings of the computer: Web > Shell from the page)", true);
+                return;
+            }
+            if (this->_webTty && (text.starts_with(":set") || text.starts_with(":se "))) {
+                const std::size_t equal = text.find('=');
+                const std::string key = equal == std::string::npos ? "" : cluster::trim(text.substr(text.find(' ') + 1, equal - text.find(' ') - 1));
+                const std::string section = key.find('.') != std::string::npos ? key.substr(0, key.find('.')) : "";
+                if (section.empty() || !cluster::web_may(this->_manager.config(), section) || key == "web.settings") {
+                    this->status_("read only from the web page (its section, e.g. ui.layout; the computer allows it: Web > Settings from the page)", true);
+                    return;
+                }
+            }
             const cluster::Draft draft = this->_editor.draft();
             const std::vector<std::string> images = this->_editor.images();
             const std::string session = this->_active;
@@ -1373,6 +1388,11 @@ class TtyUi {
         void run_(const cluster::Action& action, const std::string& input)
         {
             const std::string base = action.id.substr(0, action.id.find(':'));
+            if (this->_webTty && (base.starts_with("auth_") || base == "web_trust_ca" || base == "quit_all")) { // the keys and the computer: from it only
+                this->status_("from the computer only", true);
+                this->_mode = Mode::Normal;
+                return;
+            }
             const std::string arg = action.id.find(':') == std::string::npos ? "" : action.id.substr(action.id.find(':') + 1);
             this->_mode = Mode::Normal;
 
@@ -1654,6 +1674,10 @@ class TtyUi {
 
         void svcRun_(const std::string& name, const std::string& action, const std::string& label)
         {
+            if (this->_webTty && !cluster::web_may(this->_manager.config(), "services")) {
+                this->_note = "read only from the web page: the computer allows it (Web > Settings from the page: services)";
+                return;
+            }
             // the core, a removal: y / n first; run by the worker (its popup), its result in the note, read again after
             if (cluster::service_risky(name, action) && this->_svcConfirm != name + "|" + action) {
                 this->_svcConfirm = name + "|" + action + "|" + label;
@@ -1718,6 +1742,10 @@ class TtyUi {
 
         void setSetting_(const cluster::Setting& setting, const std::string& value)
         {
+            if (this->_webTty && (!cluster::web_may(this->_manager.config(), setting.section) || (setting.section == "web" && setting.key == "settings"))) {
+                this->_note = "read only from the web page: the computer allows it in its settings (Web > Settings from the page)";
+                return;
+            }
             const std::string error = cluster::setting_check(setting, value);
             if (!error.empty()) {
                 this->_note = setting.label + ": " + error;
@@ -1740,6 +1768,10 @@ class TtyUi {
 
         void install_(const std::string& package)
         {
+            if (this->_webTty) {
+                this->_note = "installed from the computer only";
+                return;
+            }
             // a desktop: the password window and its popup here (the interface stays); else in the terminal (sudo asks its
             // password there), the interface back after
             if ((std::getenv("WAYLAND_DISPLAY") != nullptr || std::getenv("DISPLAY") != nullptr) && cluster::has_command("pkexec")) {
@@ -4241,7 +4273,7 @@ class TtyUi {
         {
             this->theme_();
             this->vimSync_();
-            this->_machineStartup = this->_app.askMachine != 0;
+            this->_machineStartup = this->_app.askMachine != 0 && !this->_webTty; // the terminal page never maps the computer
             this->_machineKind = this->_app.askMachine;
             if (this->_app.askRestore) this->_mode = Mode::Restore;
             else if (this->_machineStartup) this->_mode = Mode::Machine;

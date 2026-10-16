@@ -421,7 +421,7 @@ _cold void cluster::Web::tick(void)
     }
 }
 
-_cold void cluster::Web::open_(const int port)
+_cold int cluster::Web::listen_(const int port, std::string& error)
 {
     const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0); // xstyle: ignore LU-SOCKET (HTTP: one thread per request, the peer address)
     const int on = 1;
@@ -429,16 +429,25 @@ _cold void cluster::Web::open_(const int port)
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);  // every interface, the peers outside the LAN refused (same_lan_)
     addr.sin_port = htons(static_cast<std::uint16_t>(port));
-    std::string error;
     if (fd == -1) error = std::strerror(errno);
     else if (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) == -1 || ::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == -1
         || ::listen(fd, 8) == -1) error = std::strerror(errno);
+    if (!error.empty() && fd != -1) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+_cold void cluster::Web::open_(const int port)
+{
+    std::string error;
+    const int fd = cluster::Web::listen_(port, error);
     const bool inUse = errno == EADDRINUSE;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_port = port;
         if (!error.empty()) {
-            if (fd != -1) ::close(fd);
             if (error != this->_error) {
                 this->_manager.notice(GLOBAL_ID, "web access: port " + std::to_string(port) + " not opened (" + error + ")", true);
                 (void)this->_manager.fail("Open the web access", "port " + std::to_string(port) + " of this computer", error
@@ -453,6 +462,14 @@ _cold void cluster::Web::open_(const int port)
     // (closed until its end), they never wait for it
     cluster::Busy busy(this->_manager, "Opening the web access");
     cluster::busy_step("port " + std::to_string(port) + " opened on this computer");
+    // the terminal page: its own port (0: none); taken: told, the page without it
+    this->_ttyPort = this->_manager.config().web.ttyPort;
+    if (this->_ttyPort > 0 && this->_ttyPort != port) {
+        std::string ttyError;
+        this->_ttyFd = cluster::Web::listen_(this->_ttyPort, ttyError);
+        if (this->_ttyFd == -1) this->_manager.notice(GLOBAL_ID, "web access: the terminal page port " + std::to_string(this->_ttyPort) + " not opened (" + ttyError + ")", true);
+        else cluster::busy_step("port " + std::to_string(this->_ttyPort) + " opened for the terminal page");
+    }
     this->_httpsWanted = this->_manager.config().web.https;
     this->remote_(); // its names first: in the certificate
     if (this->_httpsWanted) cluster::busy_step("its certificate (https)");
@@ -550,6 +567,12 @@ _cold void cluster::Web::remote_(void)
                 cluster::busy_log(line);
             if (map.code == 0 && map.out.find("is redirected") != std::string::npos) this->_mapped = outside;
             else this->_remoteWhy = upnp_why_(map);
+            if (conf.ttyPort > 0 && map.code == 0) { // the terminal page too
+                const int ttyOutside = conf.ttyRemotePort > 0 ? conf.ttyRemotePort : conf.ttyPort;
+                cluster::busy_step("asking the router to open its port " + std::to_string(ttyOutside) + " for the terminal page");
+                const cluster::Captured tty = cluster::capture({"upnpc", "-e", "claude-cluster tty", "-r", std::to_string(conf.ttyPort), std::to_string(ttyOutside), "TCP"}, "", 20);
+                if (tty.code == 0 && tty.out.find("is redirected") != std::string::npos) this->_mappedTty = ttyOutside;
+            }
             cluster::busy_step("its public address (UPnP)");
             for (const std::string& line: cluster::split(cluster::capture({"upnpc", "-s"}, "", 20).out, '\n'))
                 if (line.starts_with("ExternalIPAddress = ")) address = cluster::trim(line.substr(20));
@@ -592,6 +615,13 @@ _cold void cluster::Web::close_(void)
         (void)cluster::capture({"upnpc", "-d", std::to_string(this->_mapped), "TCP"}, "", 20);
         this->_mapped = 0;
     }
+    if (this->_mappedTty > 0) {
+        (void)cluster::capture({"upnpc", "-d", std::to_string(this->_mappedTty), "TCP"}, "", 20);
+        this->_mappedTty = 0;
+    }
+    this->_ttys.closeAll(); // the terminals of the page: gone with the port
+    if (this->_ttyFd != -1) ::close(this->_ttyFd);
+    this->_ttyFd = -1;
     std::lock_guard<std::mutex> lock(this->_mutex);
     ::close(this->_fd);
     this->_fd = -1;
@@ -607,11 +637,19 @@ _cold void cluster::Web::serve_(void)
 {
     utils::encapsulation::Poll poll;
     poll.link(this->_fd, EPOLLIN);
+    if (this->_ttyFd != -1) poll.link(this->_ttyFd, EPOLLIN);
+    std::int64_t expired = 0;
     while (this->_running) {
-        if (poll.wait(300).empty()) continue;
+        const std::vector<epoll_event> ready = poll.wait(300);
+        if (cluster::now_ms() - expired > 10000) { // the terminals of the page nobody reads any more
+            expired = cluster::now_ms();
+            this->_ttys.expire();
+        }
+        if (ready.empty()) continue;
+        const bool tty = this->_ttyFd != -1 && ready.front().data.fd == this->_ttyFd;
         sockaddr_in peer{};
         socklen_t size = sizeof(peer);
-        const int client = ::accept4(this->_fd, reinterpret_cast<sockaddr*>(&peer), &size, SOCK_CLOEXEC);
+        const int client = ::accept4(tty ? this->_ttyFd : this->_fd, reinterpret_cast<sockaddr*>(&peer), &size, SOCK_CLOEXEC);
         if (client == -1) continue;
         std::array<char, INET_ADDRSTRLEN> text{};
         ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
@@ -622,7 +660,7 @@ _cold void cluster::Web::serve_(void)
             continue;
         }
         ++this->_busy;
-        std::thread(&cluster::Web::client_, this, client, std::string(text.data())).detach();
+        std::thread(&cluster::Web::client_, this, client, std::string(text.data()), tty).detach();
     }
 }
 
@@ -1068,7 +1106,7 @@ _cold static cluster::CompletionKind completion_kind_(const std::string& name)
     return kinds.contains(name) ? kinds.at(name) : cluster::CompletionKind::None;
 }
 
-_cold void cluster::Web::client_(const int fd, const std::string& peer)
+_cold void cluster::Web::client_(const int fd, const std::string& peer, const bool tty)
 {
     // One request per connection; this LAN only, https when on (a plain request: sent to https)
     Conn conn{fd};
@@ -1091,7 +1129,7 @@ _cold void cluster::Web::client_(const int fd, const std::string& peer)
     #endif
     try {
         if (!this->allowed_(peer)) respond_(conn, 403, "text/plain", "claude-cluster: this network only\n");
-        else if (ready) this->request_(&conn, peer, this->_tls != nullptr && plain);
+        else if (ready) this->request_(&conn, peer, this->_tls != nullptr && plain, tty);
     } catch (const std::exception& e) {
         json_(conn, 500, {{"error", e.what()}});
     }
@@ -1106,7 +1144,7 @@ _cold void cluster::Web::client_(const int fd, const std::string& peer)
     --this->_busy;
 }
 
-_cold void cluster::Web::request_(void* connection, const std::string& peer, const bool toHttps)
+_cold void cluster::Web::request_(void* connection, const std::string& peer, const bool toHttps, const bool tty)
 {
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
@@ -1133,6 +1171,21 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     }
     if (post && !origin.empty() && origin != scheme + host) {
         json_(conn, 403, {{"error", "another site"}});
+        return;
+    }
+    if (tty && request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
+        // the terminal page (the browser only: the app has its page); its script by a nonce too
+        const std::string agent = request.headers.contains("user-agent") ? request.headers.at("user-agent") : "";
+        if (agent.find("claude-cluster-app/") != std::string::npos) {
+            respond_(conn, 403, "text/plain", "claude-cluster: the terminal page is for a browser, not the app (its page: port " + std::to_string(this->_port) + ")\n");
+            return;
+        }
+        const std::string nonce = random_hex_(16);
+        std::string page(cluster::templates::TTY_PAGE);
+        if (const std::size_t at = page.find("<script>"); at != std::string::npos) page.replace(at, 8, "<script nonce=\"" + nonce + "\">");
+        if (const std::size_t at = page.find("__PAGE_PORT__"); at != std::string::npos) page.replace(at, 13, std::to_string(this->_port));
+        respond_(conn, 200, "text/html; charset=utf-8", page, "Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-" + nonce
+            + "'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'\r\n");
         return;
     }
     if (request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
@@ -1211,13 +1264,41 @@ self.addEventListener("notificationclick", (e) => {
         json_(conn, 401, {{"error", "not connected"}});
         return;
     }
-    const cluster::Json body = post && request.path != "/api/listen" ? cluster::Json::parse(request.body.empty() ? "{}" : request.body, nullptr, false)
-        : cluster::Json::object();
+    const cluster::Json body = post && request.path != "/api/listen" && request.path != "/api/tty/write"
+        ? cluster::Json::parse(request.body.empty() ? "{}" : request.body, nullptr, false) : cluster::Json::object();
     const std::function<std::string(const char*)> field = [&body](const char* key) {
         return body.is_object() && body.contains(key) && body[key].is_string() ? body[key].get<std::string>() : std::string();
     };
 
-    if (request.path == "/api/logout") {
+    if (request.path.starts_with("/api/tty/")) {
+        // the terminal of this device (the terminal port only, the browser only)
+        const std::string agent = request.headers.contains("user-agent") ? request.headers.at("user-agent") : "";
+        if (!tty || agent.find("claude-cluster-app/") != std::string::npos) {
+            json_(conn, 404, {{"error", "the terminal page lives on its own port, for a browser"}});
+            return;
+        }
+        const std::string device = cookie_(request, "cc_dev");
+        if (post && request.path == "/api/tty/open") {
+            json_(conn, 200, this->_ttys.open(device, body.value("cols", 120), body.value("rows", 36)));
+        } else if (request.method == "GET" && request.path == "/api/tty/read") {
+            std::uint64_t from = 0;
+            try {
+                from = request.query.contains("from") ? std::stoull(request.query.at("from")) : 0;
+            } catch (const std::exception&) {}
+            json_(conn, 200, this->_ttys.read(device, from, 15000));
+        } else if (post && request.path == "/api/tty/write") {
+            this->_ttys.write(device, request.body);
+            json_(conn, 200, {{"ok", true}});
+        } else if (post && request.path == "/api/tty/resize") {
+            this->_ttys.resize(device, body.value("cols", 120), body.value("rows", 36));
+            json_(conn, 200, {{"ok", true}});
+        } else if (post && request.path == "/api/tty/close") {
+            this->_ttys.close(device);
+            json_(conn, 200, {{"ok", true}});
+        } else {
+            json_(conn, 404, {{"error", "unknown"}});
+        }
+    } else if (request.path == "/api/logout") {
         json_(conn, 200, {{"ok", true}}, "Set-Cookie: cc_web=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure + "\r\n");
     } else if (post && request.path == "/api/ping") {
         // its round trip before this one, measured by the page (the ping of the devices)
@@ -1272,7 +1353,7 @@ self.addEventListener("notificationclick", (e) => {
             {"progress", this->_manager.progressAll()}, {"now_ms", cluster::now_ms()}, {"failures", this->_manager.failures()},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
-            {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
+            {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"tty_port", this->_ttyFd != -1 ? this->_ttyPort : 0}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
     } else if (request.method == "GET" && request.path == "/api/file") {
         // a file of a file display of this session (never another path): sent to download

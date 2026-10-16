@@ -23,6 +23,7 @@ File Description:
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include "WebVoice.hpp"         // cluster::WebVoice
     #include "Manager.hpp"          // cluster::Manager
+    #include "WebTty.hpp"           // cluster::WebTty
     #include "Voice.hpp"            // cluster::Voice
     #include <optional>             // std::optional
     #include <cstdint>              // std::int64_t
@@ -99,6 +100,10 @@ class Web {
         std::mutex _portMutex;          // tick: the ticker and a command (web on / off) never open / close the port together
         int _fd = -1;
         int _port = 0;
+        int _ttyFd = -1;                // the terminal page: its own port ([web] tty_port)
+        int _ttyPort = 0;
+        cluster::WebTty _ttys;          // the terminals of the page
+        int _mappedTty = 0;             // the port of the router opened for it
         std::atomic<bool> _running{false};
         std::atomic<int> _busy{0};      // connections being served (waited for at the end)
         std::thread _thread;
@@ -140,8 +145,9 @@ class Web {
         _cold void open_(const int port);
         _cold void close_(void);
         _cold void serve_(void);
-        _cold void client_(const int fd, const std::string& peer);
-        _cold void request_(void* connection, const std::string& peer, const bool toHttps);
+        _cold void client_(const int fd, const std::string& peer, const bool tty);
+        _cold void request_(void* connection, const std::string& peer, const bool toHttps, const bool tty);
+        _cold _nodiscard static int listen_(const int port, std::string& error);  // a socket listening on every interface, -1: error
         _cold void login_(void* connection, const void* request, const std::string& peer, const std::string& secure);
         _cold void ask_(const std::string& id);    // the host asked to approve it (popup, notification)
         _cold void loadTrusted_(void);

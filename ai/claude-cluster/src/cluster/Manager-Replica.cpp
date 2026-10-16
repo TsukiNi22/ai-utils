@@ -108,6 +108,7 @@ _cold cluster::Json cluster::Manager::call(cluster::Json request) const
 {
     // a command run by the core (this process: an interface of it)
     if (this->_replica) request["client"] = this->_replica->client;
+    if (std::getenv("CLAUDE_CLUSTER_WEB_TTY") != nullptr) request["origin"] = "web"; // the terminal of the web page: its rules
     const cluster::Json response = cluster::Control::request(request);
     if (!response.value("ok", false))
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, response.value("error", std::string("refused by the core")));

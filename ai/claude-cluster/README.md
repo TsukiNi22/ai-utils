@@ -65,6 +65,7 @@ By hand: `cmake -S ai/claude-cluster -B build -DCMAKE_BUILD_TYPE=Optimized && cm
 ```bash
 claude-cluster                          # terminal interface when in a terminal, else a window
 claude-cluster --gui                    # window (fails when Qt6 is not built in or there is no display)
+claude-cluster -g --tty-mode            # the window showing the terminal interface ([ui] gui_mode = tty keeps it)
 claude-cluster --tty --layout grid      # terminal, sessions in a grid (list | grid | tabs)
 claude-cluster --backend ollama/qwen3-coder   # backend of the new sessions for this run
 claude-cluster --restore | --fresh      # previous run: restore / start new (default: asked, Esc = restore)
@@ -680,6 +681,24 @@ the agents, a new session, a session closed.
   (reaching it still needs the tailnet). *Services › Web access* tells the certificate served and its fingerprint.
 - A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`; the Fedora
   Workstation zone already lets 1025-65535 in).
+
+### Terminal mode
+
+The terminal interface of claude-cluster itself (`claude-cluster --tty`: its panels, its keys, its mouse, its popups)
+can run in the browser and in the window, as if you sat at the terminal of the computer.
+
+- **In the browser**: the web access serves a *terminal page* on its own port, `[web] tty_port` (2222 by default; 0:
+  off; outside: `tty_remote_port`, 0: the same port), with the same code and approval as the page; the ⌨ button of the
+  page opens it. A real `claude-cluster --tty` runs in a pty on the computer for each connected device (kept while the
+  page reads it, closed 2 minutes after the page is gone, 8 at once at most); the page draws its screen (a small
+  terminal emulator in the page: 24-bit colors, the cursor, the mouse) and sends every key. **⛶ fullscreen** locks the
+  keyboard (Chrome / Edge): Ctrl+T, Ctrl+N, Ctrl+W... reach the terminal instead of the browser (F11 or Esc held
+  leaves); elsewhere use the Alt doubles (Alt+N, Alt+P). The rules of the page apply inside it: the shell (`!`) only
+  with *Shell from the page*, the settings sections of *Settings from the page* only, the services with `services`, no
+  key (`/login`), nothing installed; the app never gets it (a browser only: its own page is for the phone).
+- **In the window**: `claude-cluster -g --tty-mode` (or `[ui] gui_mode = tty` to keep it) shows the terminal interface
+  inside the window (a pty of this computer, the window stays the core of the sessions): every key of a terminal,
+  the mouse, resized with it; the terminal quit (Ctrl+Q) closes the window.
 
 ## Security
 

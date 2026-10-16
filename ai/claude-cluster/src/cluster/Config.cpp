@@ -119,6 +119,7 @@ _cold void cluster::Config::load(void)
     this->matching = table["ui"]["matching"].value_or(this->matching);
     cluster::set_matching(this->matching);
     this->layout = table["ui"]["layout"].value_or(this->layout);
+    this->guiMode = table["ui"]["gui_mode"].value_or(this->guiMode);
     this->style = table["ui"]["style"].value_or(this->style);
     this->panels = strings_(table["ui"]["panels"], this->panels);
     this->restore = table["ui"]["restore"].value_or(this->restore);
@@ -227,6 +228,8 @@ _cold void cluster::Config::load(void)
     this->web.remotePort = table["web"]["remote_port"].value_or(this->web.remotePort);
     this->web.shell = table["web"]["shell"].value_or(this->web.shell);
     this->web.settings = strings_(table["web"]["settings"], this->web.settings);
+    this->web.ttyPort = table["web"]["tty_port"].value_or(this->web.ttyPort);
+    this->web.ttyRemotePort = table["web"]["tty_remote_port"].value_or(this->web.ttyRemotePort);
 
     /* service */
     toml::node_view<const toml::node> sv = std::as_const(table)["service"];

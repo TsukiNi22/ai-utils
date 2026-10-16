@@ -114,14 +114,6 @@ _cold static std::string arg_(const cluster::Json& request, const char* key, con
     return request[key].is_string() ? request[key].get<std::string>() : request[key].dump();
 }
 
-_cold static bool web_may_(const cluster::Config& config, const std::string& section)
-{
-    // a device of the web page: the sections it may change ([web] settings: "all", or the sections)
-    for (const std::string& s: config.web.settings)
-        if (s == "all" || s == section) return true;
-    return false;
-}
-
 #define WEB_READ_ONLY "read only from the web page: the computer allows it in its settings (Web > Settings from the page)"
 
 /* constructor */
@@ -687,7 +679,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data["cards"][name] = {{"summary", cluster::service_summary(name, data)}, {"lines", lines}, {"buttons", buttons}};
             }
         } else if (cmd == "service_act") {
-            if (from_web && !web_may_(manager.config(), "services")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            if (from_web && !cluster::web_may(manager.config(), "services")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             data = {{"message", cluster::service_act(manager, arg_(request, "service"), arg_(request, "action"))}};
         } else if (cmd == "failure") {
             // a failure answered: OK (gone), retry (run again)
@@ -697,7 +689,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = manager.failures();
         } else if (cmd == "install_package") {
             // what a setting needs: installed here (the password window of the desktop)
-            if (from_web && !web_may_(manager.config(), "services")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            if (from_web && !cluster::web_may(manager.config(), "services")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             const std::string error = cluster::install_package(arg_(request, "package"), &manager);
             if (!error.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, error);
             data = {{"done", arg_(request, "package") + " installed"}};
@@ -711,7 +703,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                         data.push_back({{"section", setting.section}, {"key", setting.key}, {"label", setting.label}, {"value", setting.value(manager.config())},
                             {"problem", cluster::setting_requirement(manager, setting, setting.value(manager.config())).problem},
                             {"package", cluster::setting_requirement(manager, setting, setting.value(manager.config())).package},
-                            {"web_editable", web_may_(manager.config(), setting.section) && !(setting.section == "web" && setting.key == "settings")},
+                            {"web_editable", cluster::web_may(manager.config(), setting.section) && !(setting.section == "web" && setting.key == "settings")},
                             {"danger", [&setting]() {
                                 cluster::Json d = cluster::Json::object(); // the dangerous values of a choice / a switch: their warning
                                 std::vector<std::string> values = setting.choices;
@@ -730,7 +722,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::string key = arg_(request, "key");
             const std::string value = arg_(request, "value");
             const bool confirmed = request.contains("confirmed") && (request["confirmed"] == true || request["confirmed"] == "true");
-            if (from_web && (!web_may_(manager.config(), section) || (section == "web" && key == "settings")))
+            if (from_web && (!cluster::web_may(manager.config(), section) || (section == "web" && key == "settings")))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             if (from_global && cluster::setting_protected(section, key)) // the user alone (the tools of the global session never ask them)
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: " + section + "." + key

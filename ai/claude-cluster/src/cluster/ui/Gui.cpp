@@ -19,6 +19,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/WebTty.hpp"
 #include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Reveal.hpp"
@@ -26,6 +27,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
+#include "cluster/Vt.hpp"
 #include <QGraphicsSimpleTextItem>
 #include <QGraphicsEllipseItem>
 #include <QSyntaxHighlighter>
@@ -262,6 +264,234 @@ class SessionView: public QFrame {
         QString displayHtml(const cluster::Json& display, const std::string& key, const cluster::Style& style, const bool expanded);
         void displayForm(Window* window, const std::string& displayId);    // a form of a display filled, its values sent
         void update(const cluster::Snapshot& s, const cluster::Style& style, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded);
+};
+
+// The terminal interface inside the window: claude-cluster --tty in a pty, its screen drawn (the emulator), every key
+// and the mouse of a terminal given to it, resized with the window
+class TermView: public QWidget {
+    private:
+        cluster::Vt _vt{120, 36};
+        cluster::Pty _pty;
+        std::thread _reader;
+        std::mutex _mutex;
+        std::string _pending;           // what the pty wrote, not fed yet
+        std::atomic<bool> _alive{true};
+        QFont _font;
+        int _cellW = 8;
+        int _cellH = 18;
+        int _pressed = -1;
+
+        void send(const std::string& bytes)
+        {
+            if (this->_pty.fd < 0) return;
+            for (std::size_t written = 0; written < bytes.size();) {
+                const ssize_t size = ::write(this->_pty.fd, bytes.data() + written, bytes.size() - written);
+                if (size <= 0) return;
+                written += static_cast<std::size_t>(size);
+            }
+        }
+
+        void fit(void)
+        {
+            const int cols = std::max(20, this->width() / this->_cellW);
+            const int rows = std::max(5, this->height() / this->_cellH);
+            if (cols == this->_vt.cols() && rows == this->_vt.rows()) return;
+            this->_vt.resize(cols, rows);
+            cluster::pty_resize(this->_pty, cols, rows);
+        }
+
+        _nodiscard std::string mouseReport(const QMouseEvent* event, const int button, const bool release) const
+        {
+            const int x = std::max(1, event->pos().x() / this->_cellW + 1);
+            const int y = std::max(1, event->pos().y() / this->_cellH + 1);
+            return "\x1b[<" + std::to_string(button) + ";" + std::to_string(x) + ";" + std::to_string(y) + (release ? "m" : "M"); // xstyle: ignore LU-ANSI (a mouse report of a terminal)
+        }
+
+    protected:
+        void paintEvent(QPaintEvent*) override
+        {
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                if (!this->_pending.empty()) {
+                    this->_vt.feed(this->_pending);
+                    this->_pending.clear();
+                }
+            }
+            QPainter painter(this);
+            painter.fillRect(this->rect(), QColor(0x15, 0x17, 0x1b));
+            painter.setFont(this->_font);
+            const std::vector<std::vector<cluster::VtCell>>& grid = this->_vt.grid();
+            for (int y = 0; y < this->_vt.rows(); ++y)
+                for (int x = 0; x < this->_vt.cols(); ++x) {
+                    const cluster::VtCell& c = grid[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
+                    QColor fg = c.fgSet ? QColor::fromRgb(static_cast<QRgb>(c.fg)) : QColor(0xe6, 0xe7, 0xea);
+                    QColor bg = c.bgSet ? QColor::fromRgb(static_cast<QRgb>(c.bg)) : QColor(0x15, 0x17, 0x1b);
+                    if (c.inverse) std::swap(fg, bg);
+                    const QRect cell(x * this->_cellW, y * this->_cellH, this->_cellW * (c.ch.empty() ? 1 : cluster::Vt::width(c.ch) == 2 ? 2 : 1), this->_cellH);
+                    if (c.bgSet || c.inverse) painter.fillRect(cell, bg);
+                    if (this->_vt.cursorShown() && x == this->_vt.cursorX() && y == this->_vt.cursorY() && this->hasFocus()) painter.fillRect(cell, QColor(0xe0, 0x8a, 0x55, 140));
+                    if (c.ch.empty() || c.ch == " ") continue;
+                    QFont font = this->_font;
+                    font.setBold(c.bold);
+                    font.setItalic(c.italic);
+                    font.setUnderline(c.underline);
+                    font.setStrikeOut(c.strike);
+                    painter.setFont(font);
+                    if (c.dim) fg.setAlpha(140);
+                    painter.setPen(fg);
+                    painter.drawText(cell, Qt::AlignLeft | Qt::AlignVCenter, QString::fromStdString(c.ch));
+                }
+            if (!this->_alive) {
+                painter.setPen(QColor(0xef, 0x6b, 0x5b));
+                painter.drawText(this->rect(), Qt::AlignCenter, "The terminal interface quit (Ctrl+Q): close this window, or open it again");
+            }
+        }
+
+        void keyPressEvent(QKeyEvent* event) override
+        {
+            // what a terminal sends (arrows, function keys, Ctrl / Alt letters, the text)
+            const bool ctrl = event->modifiers() & Qt::ControlModifier;
+            const bool alt = event->modifiers() & Qt::AltModifier;
+            const bool shift = event->modifiers() & Qt::ShiftModifier;
+            const int mod = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+            const std::string csi = "\x1b["; // xstyle: ignore LU-ANSI (the keys of a terminal)
+            const std::function<std::string(const char*)> arrow = [mod, &csi](const char* letter) {return mod == 1 ? csi + letter : csi + "1;" + std::to_string(mod) + letter;};
+            const std::function<std::string(int)> tilde = [mod, &csi](const int n) {return mod == 1 ? csi + std::to_string(n) + "~" : csi + std::to_string(n) + ";" + std::to_string(mod) + "~";};
+            std::string bytes;
+            switch (event->key()) {
+                case Qt::Key_Up: bytes = arrow("A"); break;
+                case Qt::Key_Down: bytes = arrow("B"); break;
+                case Qt::Key_Right: bytes = arrow("C"); break;
+                case Qt::Key_Left: bytes = arrow("D"); break;
+                case Qt::Key_Home: bytes = arrow("H"); break;
+                case Qt::Key_End: bytes = arrow("F"); break;
+                case Qt::Key_PageUp: bytes = tilde(5); break;
+                case Qt::Key_PageDown: bytes = tilde(6); break;
+                case Qt::Key_Delete: bytes = tilde(3); break;
+                case Qt::Key_Insert: bytes = tilde(2); break;
+                case Qt::Key_F1: bytes = mod == 1 ? "\x1bOP" : csi + "1;" + std::to_string(mod) + "P"; break;
+                case Qt::Key_F2: bytes = mod == 1 ? "\x1bOQ" : csi + "1;" + std::to_string(mod) + "Q"; break;
+                case Qt::Key_F3: bytes = mod == 1 ? "\x1bOR" : csi + "1;" + std::to_string(mod) + "R"; break;
+                case Qt::Key_F4: bytes = mod == 1 ? "\x1bOS" : csi + "1;" + std::to_string(mod) + "S"; break;
+                case Qt::Key_F5: bytes = tilde(15); break;
+                case Qt::Key_F6: bytes = tilde(17); break;
+                case Qt::Key_F7: bytes = tilde(18); break;
+                case Qt::Key_F8: bytes = tilde(19); break;
+                case Qt::Key_F9: bytes = tilde(20); break;
+                case Qt::Key_F10: bytes = tilde(21); break;
+                case Qt::Key_F11: bytes = tilde(23); break;
+                case Qt::Key_F12: bytes = tilde(24); break;
+                case Qt::Key_Return:
+                case Qt::Key_Enter: bytes = alt || shift ? "\x1b\r" : "\r"; break;
+                case Qt::Key_Backspace: bytes = alt ? "\x1b\x7f" : "\x7f"; break;
+                case Qt::Key_Tab: bytes = "\t"; break;
+                case Qt::Key_Backtab: bytes = csi + "Z"; break;
+                case Qt::Key_Escape: bytes = "\x1b"; break;
+                default: {
+                    const QString text = event->text();
+                    if (ctrl) {
+                        const int key = event->key();
+                        if (key >= Qt::Key_A && key <= Qt::Key_Z) bytes = std::string(1, static_cast<char>(key - Qt::Key_A + 1));
+                        else if (key == Qt::Key_Space) bytes = std::string(1, '\0');
+                        else if (key == Qt::Key_BracketLeft) bytes = "\x1b";
+                        else if (key == Qt::Key_Backslash) bytes = "\x1c";
+                        else if (key == Qt::Key_BracketRight) bytes = "\x1d";
+                    } else if (!text.isEmpty()) {
+                        bytes = (alt ? "\x1b" : "") + text.toStdString();
+                    }
+                }
+            }
+            if (bytes.empty()) {
+                QWidget::keyPressEvent(event);
+                return;
+            }
+            this->send(bytes);
+            event->accept();
+        }
+
+        void mousePressEvent(QMouseEvent* event) override
+        {
+            this->setFocus();
+            if (!this->_vt.mouse()) return;
+            this->_pressed = event->button() == Qt::RightButton ? 2 : event->button() == Qt::MiddleButton ? 1 : 0;
+            this->send(this->mouseReport(event, this->_pressed, false));
+        }
+
+        void mouseReleaseEvent(QMouseEvent* event) override
+        {
+            if (!this->_vt.mouse()) return;
+            this->send(this->mouseReport(event, this->_pressed < 0 ? 0 : this->_pressed, true));
+            this->_pressed = -1;
+        }
+
+        void mouseMoveEvent(QMouseEvent* event) override
+        {
+            if (this->_vt.mouse() && this->_pressed >= 0) this->send(this->mouseReport(event, 32 + this->_pressed, false));
+        }
+
+        void wheelEvent(QWheelEvent* event) override
+        {
+            if (!this->_vt.mouse()) return;
+            const int x = std::max(1, static_cast<int>(event->position().x()) / this->_cellW + 1);
+            const int y = std::max(1, static_cast<int>(event->position().y()) / this->_cellH + 1);
+            this->send("\x1b[<" + std::string(event->angleDelta().y() > 0 ? "64" : "65") + ";" + std::to_string(x) + ";" + std::to_string(y) + "M"); // xstyle: ignore LU-ANSI (the wheel of a terminal)
+            event->accept();
+        }
+
+        void resizeEvent(QResizeEvent*) override
+        {
+            this->fit();
+        }
+
+        void focusInEvent(QFocusEvent*) override
+        {
+            this->send("\x1b[I"); // focus reporting: in - xstyle: ignore LU-ANSI (a report of a terminal)
+            this->update();
+        }
+
+        void focusOutEvent(QFocusEvent*) override
+        {
+            this->send("\x1b[O"); // xstyle: ignore LU-ANSI (focus out)
+            this->update();
+        }
+
+    public:
+        explicit TermView(QWidget* parent): QWidget(parent)
+        {
+            this->_font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            this->_font.setPointSize(11);
+            const QFontMetrics metrics(this->_font);
+            this->_cellW = std::max(6, metrics.horizontalAdvance("M"));
+            this->_cellH = std::max(12, metrics.height() + 2);
+            this->setFocusPolicy(Qt::StrongFocus);
+            this->setMouseTracking(true);
+            this->setCursor(Qt::IBeamCursor);
+            this->setAttribute(Qt::WA_OpaquePaintEvent);
+            this->_pty = cluster::pty_spawn(this->_vt.cols(), this->_vt.rows(), false);
+            this->_reader = std::thread([this]() {
+                std::array<char, 16384> chunk{};
+                while (true) {
+                    const ssize_t size = ::read(this->_pty.fd, chunk.data(), chunk.size());
+                    if (size <= 0) break;
+                    {
+                        std::lock_guard<std::mutex> lock(this->_mutex);
+                        this->_pending.append(chunk.data(), static_cast<std::size_t>(size));
+                    }
+                    QMetaObject::invokeMethod(this, [this]() {this->update();}, Qt::QueuedConnection);
+                }
+                this->_alive = false;
+                QMetaObject::invokeMethod(this, [this]() {this->update();}, Qt::QueuedConnection);
+            });
+        }
+
+        ~TermView() override
+        {
+            cluster::pty_kill(this->_pty); // the read ends (EIO), its thread joined, then only the fd closed
+            if (this->_reader.joinable()) this->_reader.join();
+            cluster::pty_close(this->_pty);
+        }
+
+        _nodiscard bool alive(void) const {return this->_alive;};
 };
 
 // The hub: the global session in the middle, the sessions around it, a graph moved (a drag, the arrows, a finger) and
@@ -3784,6 +4014,27 @@ _cold int cluster::run_gui(cluster::App& app)
     QApplication::setApplicationName("claude-cluster");
     QGuiApplication::setDesktopFileName("claude-cluster"); // the dock: its .desktop and its icon
     QApplication application(argc, argv);
+    if (app.options.values.contains("ttymode") || app.config.guiMode == "tty") {
+        // the terminal mode: the terminal interface in a pty fills the window (this process stays the core of the sessions)
+        QMainWindow shell;
+        shell.setWindowTitle("claude-cluster · terminal");
+        TermView* term = new TermView(&shell);
+        shell.setCentralWidget(term);
+        shell.resize(1180, 740);
+        shell.show();
+        term->setFocus();
+        if (const char* screenshot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT"); screenshot && *screenshot) {
+            const QString path = screenshot;
+            QTimer::singleShot(4000, &shell, [&shell, path]() {
+                shell.grab().save(path);
+                QApplication::quit();
+            });
+        }
+        QTimer* watch = new QTimer(&shell);
+        QObject::connect(watch, &QTimer::timeout, &shell, [term, &shell]() {if (!term->alive()) shell.close();}); // the terminal quit: the window too
+        watch->start(500);
+        return application.exec();
+    }
     Window window(app);
     window.show();
     // tests: a picture of the window after a moment (CLAUDE_CLUSTER_GUI_SHOT=<file.png>)

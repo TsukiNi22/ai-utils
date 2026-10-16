@@ -106,6 +106,8 @@ struct WebConf {
     int remotePort = 0;             // router: the port opened outside (0: the same)
     bool shell = false;             // !command / :r !command allowed from the page (a shell of this computer: off by default)
     std::vector<std::string> settings;  // the sections of the settings a device of the page may change ("all"; empty: none, read only there)
+    int ttyPort = 2222;             // the terminal page (the terminal interface in a browser: its own port; 0: off)
+    int ttyRemotePort = 0;          // router: the port opened outside for it (0: the same)
 };
 
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on
@@ -142,6 +144,7 @@ class Config {
         std::string shellContext = "ask"; // !command given to the agent: ask (after it ran) | always | never
         bool sharedCore = true;         // several terminals / windows at once on one core of its own (false: the first one is the core)
         std::string layout = "list";
+        std::string guiMode = "gui";            // the window: gui (its own interface) | tty (the terminal interface in it)
         std::string style = "html-dark";
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "usage", "git"};
         std::string restore = "ask";

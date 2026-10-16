@@ -353,6 +353,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
         <span class="grow"></span>
         <span class="muted" id="who"></span>
         <button id="bell" title="Notifications" aria-label="Notifications">🔔<span id="bellCount" class="count hidden"></span></button>
+        <button id="ttyButton" class="hidden" title="The terminal interface of claude-cluster in this browser (its own port)">⌨</button>
         <button id="settingsButton" title="Settings">⚙</button>
         <button id="logout">Log out</button>
         <div id="settings" class="hidden">
@@ -660,7 +661,16 @@ function stateClass(state) {
     return state === "working" || state === "starting" ? "working" : state === "waiting" ? "waiting" : state === "error" ? "error" : "";
 }
 
+function paintTty(state) {
+    // the terminal page: a browser only (the app has no terminal), when the computer opened its port
+    const button = $("ttyButton");
+    if (!button) return;
+    const port = window.ClusterApp ? 0 : (state.tty_port || 0);
+    button.classList.toggle("hidden", !port);
+    button.onclick = () => { location.href = location.protocol + "//" + location.hostname + ":" + port + "/"; };
+}
 function render(state) {
+    paintTty(state);
     lastState = state;
     if (state.remote && window.ClusterApp && ClusterApp.remote && render.remote !== state.remote) { render.remote = state.remote; ClusterApp.remote(state.remote); }
     if (window.ClusterApp) checkAppUpdate(state.version_app || ""); // inside the app: an older app blocked until it is updated

@@ -125,6 +125,7 @@ class Core {
 
 _cold _nodiscard const std::vector<cluster::Command>& commands(void);  // Core-Completion.cpp
 _cold int run_tty(cluster::App& app);
+_cold int vt_test(const std::vector<std::string>& words);   // vt-test <cols> <rows>: the bytes of stdin through the terminal emulator, its screen out (tests)
 #ifdef CLUSTER_GUI
     _cold int run_gui(cluster::App& app);
     _cold int gui_choice(const std::string& title, const std::string& text, const std::vector<std::string>& choices); // index, -1: closed
