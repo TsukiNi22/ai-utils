@@ -189,6 +189,7 @@ class Manager {
         _cold void attach(void);                            // this process an interface of the core running
         _cold _nodiscard cluster::Json call(cluster::Json request) const;  // a command run by the core (throws: refused, not reached)
         _cold _nodiscard cluster::Json replicaState(const std::string& key) const;   // a part of the last sync
+        _cold _nodiscard std::uint64_t syncVersion(void);          // the core: the version its interfaces wait for (sessions, questions, voice)
         _cold _nodiscard std::string replicaError(void) const;              // the core not reached ("": in sync)
         _cold void detach_(void);                           // this interface closed: told to the core
         _cold void clientSeen(const std::string& client);   // the core: an interface synced

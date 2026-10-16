@@ -84,6 +84,8 @@ class Voice {
         _cold _nodiscard std::string clickAction_(const std::string& text);    // an action shown, said by its label: clicked (what it did)
         _cold _nodiscard bool command_(const std::string& text);    // cancel / send words said alone: done (true)
         _cold _nodiscard std::vector<cluster::Term> terms_(void);   // the vocabulary now (file, projects, sessions, user)
+        _cold _nodiscard cluster::Json remote_(void) const;         // an interface of the core: the state of its voice (last sync)
+        _cold bool forward_(const std::string& action, const std::string& text = "");    // an interface: run by the voice of its core (true)
 
     public:
         // ---------- Pre-Function -------- //
@@ -103,14 +105,16 @@ class Voice {
         _cold _nodiscard std::vector<std::string> sayArgs(const std::string& text) const;
         _nodiscard bool armed(void) const;                 // wake mode: the wake phrase was just heard
         _nodiscard std::vector<cluster::Pending> pending(void) const;
+        _cold _nodiscard cluster::Json json(void) const;   // its state for the interfaces of the core (their sync)
+        // push mode: F5 pressed; other modes: voice-listen runs (an interface: the voice of its core)
+        _nodiscard bool listening(void) const;
 
         // ---------- Function -------- //
-        // push mode: F5 pressed; other modes: voice-listen runs
-        _nodiscard inline bool listening(void) const {return this->_manager.config().voice.mode == "push" ? this->_open.load() && this->_listening.load() : this->_listening.load();};
-        _nodiscard inline bool ready(void) const {return this->_ready;};
-        _nodiscard inline bool running(void) const {return this->_listening;};
-        _nodiscard inline bool speaking(void) const {return this->_sayPid > 0;};
-        _nodiscard inline std::uint64_t version(void) const {return this->_version;};
+        // an interface of the core: the state of the voice of its core
+        _nodiscard inline bool ready(void) const {return this->_manager.replica() ? this->remote_().value("ready", false) : this->_ready.load();};
+        _nodiscard inline bool running(void) const {return this->_manager.replica() ? this->remote_().value("running", false) : this->_listening.load();};
+        _nodiscard inline bool speaking(void) const {return this->_manager.replica() ? this->remote_().value("speaking", false) : this->_sayPid > 0;};
+        _nodiscard inline std::uint64_t version(void) const {return this->_manager.replica() ? this->remote_().value("version", std::uint64_t{0}) : this->_version.load();};
         _cold _nodiscard inline std::string correct(const std::string& text) {return cluster::vocabulary_correct(text, this->terms_());}; // the proper names written back
         _cold _nodiscard inline std::vector<std::string> setup(void) const {return cluster::voice_missing(this->_manager.config());}; // what is missing
 

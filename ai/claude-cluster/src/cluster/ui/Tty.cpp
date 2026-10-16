@@ -911,7 +911,15 @@ class TtyUi {
             // the prompt leaves at once (feedback), the send / the local command runs in the worker (it may start or stop
             // a claude: seconds), its result comes back here; an error: the prompt back, nothing lost
             const std::string text = cluster::trim(this->_editor.plain());
-            if (text.empty() || this->_active == TASKS_ID) return; // the Tasks session: no prompt
+            if (text.empty()) { // an empty prompt: the voice prompt waiting sent now
+                const std::vector<cluster::Pending> voiced = this->_app.voice->pending();
+                if (std::any_of(voiced.begin(), voiced.end(), [](const cluster::Pending& p) {return !p.target.empty();})) {
+                    this->run_({"voice_confirm", "", "", "", false}, "");
+                    this->status_("voice prompt sent");
+                }
+                return;
+            }
+            if (this->_active == TASKS_ID) return; // the Tasks session: no prompt
             if (this->_webTty && (text.starts_with("!") || (text.starts_with(":") && text.find('!') != std::string::npos) || text.starts_with(":r ")
                 || text.starts_with(":read ")) && !this->_manager.config().web.shell) {
                 this->status_("the shell from the page is off (settings of the computer: Web > Shell from the page)", true);
@@ -1085,9 +1093,18 @@ class TtyUi {
                         std::size_t next = cursor;
                         if (next < le) next = this->_editor.atomAt(text, next) ? next + 4 : next + 1;
                         while (next < le && (static_cast<unsigned char>(text[next]) & 0xC0) == 0x80) ++next;
-                        const bool atom = cursor < le && this->_editor.atomAt(text, cursor).has_value();
-                        parts.push_back(ftxui::text(cursor < le ? this->_editor.shown(text.substr(cursor, next - cursor)) : " ")
-                            | ftxui::color(atom ? this->_theme.accent : this->_theme.text) | ftxui::focusCursorBarBlinking);
+                        const std::optional<std::size_t> atom = cursor < le ? this->_editor.atomAt(text, cursor) : std::nullopt;
+                        if (atom) {
+                            // a block ([Image #N], [Pasted text #N]): the cursor on its first cell (the terminal puts it at
+                            // the end of the element it is on: on its "]" before)
+                            const std::string label = this->_editor.atom(*atom).label;
+                            parts.push_back(ftxui::text(label.substr(0, 1)) | ftxui::color(this->_theme.accent) | ftxui::bold | ftxui::bgcolor(this->_theme.surface)
+                                | ftxui::focusCursorBarBlinking);
+                            parts.push_back(ftxui::text(label.substr(1)) | ftxui::color(this->_theme.accent) | ftxui::bold | ftxui::bgcolor(this->_theme.surface));
+                        } else {
+                            parts.push_back(ftxui::text(cursor < le ? this->_editor.shown(text.substr(cursor, next - cursor)) : " ") | ftxui::color(this->_theme.text)
+                                | ftxui::focusCursorBarBlinking);
+                        }
                         piece(next, le, false);
                     } else {
                         piece(cursor, le, false);
@@ -3203,10 +3220,35 @@ class TtyUi {
             });
         }
 
-        _nodiscard ftxui::Element voice_(void) const
+        std::pair<std::string, std::string> _voiceWords;   // the words said to send / drop (shown in the voice bar)
+        std::int64_t _voiceWordsAt = 0;
+
+        _nodiscard const std::pair<std::string, std::string>& voiceWords_(void)
+        {
+            // the words file and the config: read again every 5 s (edited: shown soon)
+            if (cluster::now_ms() - this->_voiceWordsAt < 5000) return this->_voiceWords;
+            this->_voiceWordsAt = cluster::now_ms();
+            const cluster::VoiceConf& conf = this->_manager.config().voice;
+            cluster::VoiceWords words = cluster::voice_words(cluster::voice_words_path(conf.words));
+            words.send.insert(words.send.end(), conf.sendWords.begin(), conf.sendWords.end());
+            words.cancel.insert(words.cancel.end(), conf.cancelWords.begin(), conf.cancelWords.end());
+            this->_voiceWords = {words.send.empty() ? "" : words.send.front(), words.cancel.empty() ? "" : words.cancel.front()};
+            return this->_voiceWords;
+        }
+
+        _nodiscard int voiceLines_(void) const
+        {
+            // the bar (listening, the live text, the reading), then the buttons of the sentences waiting
+            const cluster::Voice& voice = *this->_app.voice;
+            const std::vector<cluster::Pending> pending = voice.pending();
+            if (!voice.listening() && pending.empty() && !voice.speaking()) return 0;
+            return std::any_of(pending.begin(), pending.end(), [](const cluster::Pending& p) {return !p.target.empty();}) ? 2 : 1;
+        }
+
+        _nodiscard ftxui::Element voice_(void)
         {
             const cluster::Voice& voice = *this->_app.voice;
-            if (!voice.listening() && voice.pending().empty() && !voice.speaking()) return ftxui::emptyElement();
+            if (this->voiceLines_() == 0) return ftxui::emptyElement();
             const cluster::VoiceConf& conf = this->_manager.config().voice;
             std::string label = voice.listening() ? " ◉ listening " : " ○ voice ";
             const std::vector<std::string> wake = cluster::split(conf.wakeWord, ',');
@@ -3214,16 +3256,48 @@ class TtyUi {
                 label = voice.armed() ? " ◉ armed: say the command " : " ○ waiting for \"" + (wake.empty() ? std::string("?") : wake.front()) + "\" ";
             if (voice.listening() && !voice.ready()) label = " … loading the speech model (~10 s) ";
             ftxui::Elements row = {ftxui::text(label) | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(voice.armed() || (voice.listening() && conf.mode != "wake") ? this->_theme.ok : this->_theme.muted)};
+            std::string last;       // the last sentence waiting (to correct)
+            int waiting = 0;
             for (const cluster::Pending& p: voice.pending()) {
                 const std::int64_t left = p.deadline == 0 ? -1 : std::max<std::int64_t>(0, (p.deadline - std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count() + 999) / 1000);
-                const std::string target = p.target.empty() ? "" : (p.target == GLOBAL_ID ? "global" : p.target);
-                const std::string when = p.paused ? " (paused while you speak)" : left >= 0 ? " (" + std::to_string(left) + "s, palette: send / drop / correct)" : "";
-                const std::string said = target.empty() ? cluster::tail_utf8(p.text, 110) : cluster::one_line(p.text, 90); // live: its end
-                row.push_back(ftxui::text(" " + (target.empty() ? "" : "→ " + target + ": ") + said + when) | ftxui::color(this->_theme.text));
+                if (p.target.empty()) { // live: what is being said, its end
+                    row.push_back(ftxui::text(" 🎙 " + cluster::tail_utf8(p.text, 110)) | ftxui::italic | ftxui::color(this->_theme.muted));
+                    continue;
+                }
+                ++waiting;
+                last = p.text;
+                const std::string target = p.target == GLOBAL_ID ? "global" : p.target;
+                const std::string when = p.paused ? " (paused while you speak)" : left >= 0 ? " (sent in " + std::to_string(left) + "s)" : " (F5 to end)";
+                row.push_back(ftxui::text(" → " + target + ": ") | ftxui::color(this->_theme.accent));
+                row.push_back(ftxui::text("\"" + cluster::one_line(p.text, 90) + "\"") | ftxui::bold | ftxui::color(this->_theme.text));
+                row.push_back(ftxui::text(when) | ftxui::color(p.paused ? this->_theme.warn : this->_theme.muted));
             }
             if (voice.speaking()) row.push_back(ftxui::text("  speaking (" + this->_manager.config().keys.at("mute") + " mute)") | ftxui::color(this->_theme.muted));
-            return ftxui::hbox(std::move(row)) | ftxui::bgcolor(this->_theme.surface);
+            ftxui::Element bar = ftxui::hbox(std::move(row)) | ftxui::bgcolor(this->_theme.surface);
+            if (waiting == 0) return bar;
+            // its validation: clicked, or by the keys (Escape: the last one, Ctrl+C: all of them)
+            ftxui::Elements buttons = {ftxui::text(" ")};
+            buttons.push_back(this->tap_(ftxui::text(" ✓ Send now ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.ok), 0, [this]() {
+                this->run_({"voice_confirm", "", "", "", false}, "");
+                this->status_("voice prompt sent");
+            }));
+            buttons.push_back(ftxui::text("  "));
+            buttons.push_back(this->tap_(ftxui::text(" ✗ Drop ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.error), 0, [this]() {
+                this->_app.voice->cancelLast();
+                this->status_("voice prompt dropped");
+            }));
+            buttons.push_back(ftxui::text("  "));
+            buttons.push_back(this->tap_(ftxui::text(" ✎ Correct ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent), 0, [this, last]() {
+                this->_pending = {"voice_edit", "Voice: correct the transcription", "text (Enter: sent after the countdown)", last, false};
+                this->_prompt = last;
+                this->_password = false;
+                this->_mode = Mode::Prompt;
+            }));
+            const std::pair<std::string, std::string>& said = this->voiceWords_();
+            buttons.push_back(ftxui::text("   Enter (empty prompt) send · Escape drop" + std::string(waiting > 1 ? " the last (Ctrl+C: all)" : "")
+                + (said.first.empty() || said.second.empty() ? std::string() : " · or say \"" + said.first + "\" / \"" + said.second + "\"")) | ftxui::color(this->_theme.muted));
+            return ftxui::vbox({bar, ftxui::hbox(std::move(buttons)) | ftxui::bgcolor(this->_theme.surface)});
         }
 
         _nodiscard ftxui::Element body_(const int width, const int height)
@@ -3718,7 +3792,7 @@ class TtyUi {
             this->_views.clear(); // filled again by the transcripts drawn
             this->_animating = false;
             this->_reveal.frameStart();
-            const int bodyHeight = size.dimy - 4 - (this->_app.voice->listening() || !this->_app.voice->pending().empty() ? 1 : 0);
+            const int bodyHeight = size.dimy - 4 - this->voiceLines_();
             ftxui::Element input = this->prompt_(size.dimx);
             // the bottom line: the status / the last notice on the left, cut to the room left by the web access on the right
             const int webWidth = web.empty() ? 0 : ftxui::string_width(web) + 4 + (webState->on ? 11 : 0);

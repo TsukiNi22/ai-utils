@@ -1131,6 +1131,25 @@ class Window: public QMainWindow {
 
         void webLink(const QString& link)
         {
+            // the voice bar: the sentence waiting sent now, dropped, corrected
+            if (link == "voice-send") {
+                this->run({"voice_confirm", "", "", "", false}, "");
+                return;
+            }
+            if (link == "voice-drop") {
+                this->app.voice->cancelLast();
+                this->message("voice prompt dropped", false);
+                return;
+            }
+            if (link == "voice-edit") {
+                std::string last;
+                for (const cluster::Pending& p: this->app.voice->pending())
+                    if (!p.target.empty()) last = p.text;
+                bool ok = false;
+                const QString text = QInputDialog::getText(this, "Correct the voice prompt", "What you said (sent after its countdown):", QLineEdit::Normal, q_(last), &ok);
+                if (ok && !text.trimmed().isEmpty()) this->run({"voice_edit", "", "", "", false}, text.trimmed().toStdString());
+                return;
+            }
             // the web line: its code copied (ready to paste in the page), its devices
             const std::optional<cluster::WebStatus> web = cluster::web_status(this->manager);
             if (!web) return;
@@ -2485,11 +2504,22 @@ class Window: public QMainWindow {
             if (voice.listening()) voiceText = span_(st.ok, conf.mode == "wake" ? (voice.armed() ? "◉ armed: say the command" : q_("○ waiting for \"" + conf.wakeWord + "\"")) : "◉ listening", true);
             if (voice.listening() && !voice.ready()) voiceText = span_(st.warn, "… loading the speech model (~10 s)", true);
             const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            int waiting = 0;
             for (const cluster::Pending& p: voice.pending()) {
-                const std::string when = p.paused ? " (paused while you speak)" : p.deadline > 0 ? " (" + std::to_string(std::max<std::int64_t>(0, (p.deadline - now + 999) / 1000)) + "s)" : "";
-                const std::string said = p.target.empty() ? cluster::tail_utf8(p.text, 160) : p.text; // live: its end
-                voiceText += "  " + esc_((p.target.empty() ? "" : "→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ": ") + said + when);
+                if (p.target.empty()) { // live: what is being said, its end
+                    voiceText += "  <i>" + span_(st.muted, esc_("🎙 " + cluster::tail_utf8(p.text, 160))) + "</i>";
+                    continue;
+                }
+                ++waiting;
+                const std::string when = p.paused ? " (paused while you speak)" : p.deadline > 0 ? " (sent in " + std::to_string(std::max<std::int64_t>(0, (p.deadline - now + 999) / 1000)) + "s)"
+                    : " (F5 to end)";
+                voiceText += "  " + span_(st.accent, esc_("→ " + (p.target == GLOBAL_ID ? std::string("global") : p.target) + ":")) + " " + span_(st.text, esc_("\"" + p.text + "\""), true)
+                    + span_(p.paused ? st.warn : st.muted, esc_(when));
             }
+            if (waiting > 0) // its validation: clicked, or Escape (the last one) / Ctrl+C (all)
+                voiceText += "&nbsp;&nbsp;<a href=\"voice-send\" style=\"text-decoration:none\">" + span_(st.ok, "✓ Send now", true) + "</a>&nbsp;&nbsp;"
+                    "<a href=\"voice-drop\" style=\"text-decoration:none\">" + span_(st.error, "✗ Drop", true) + "</a>&nbsp;&nbsp;"
+                    "<a href=\"voice-edit\" style=\"text-decoration:none\">" + span_(st.accent, "✎ Correct", true) + "</a>&nbsp;&nbsp;" + span_(st.muted, "Escape: drop");
             if (voice.speaking()) voiceText += "  " + span_(st.muted, "speaking (" + q_(conf.wakeWord.empty() ? "" : "") + q_(this->manager.config().keys.at("mute")) + " mute)");
             // the web access: its address and code shown while it is open
             const std::optional<cluster::WebStatus> webState = cluster::web_status(this->manager);

@@ -101,7 +101,7 @@ _cold static bool only_punctuation_(const std::string& text)
 _cold cluster::Voice::Voice(cluster::Manager& manager)
     : _manager(manager)
 {
-    this->_manager.onGlobalAnswer = [this](const std::string& text) {this->speak(text);};
+    if (!this->_manager.replica()) this->_manager.onGlobalAnswer = [this](const std::string& text) {this->speak(text);}; // an interface: its core reads them
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     if (conf.enabled && !this->_manager.replica()) this->start(); // loaded now: its model takes ~10 s; a replica: the voice of its core
 }
@@ -135,9 +135,43 @@ _cold void cluster::Voice::stop(void)
     ++this->_version;
 }
 
+/* an interface of the core: the voice of its core */
+_cold cluster::Json cluster::Voice::remote_(void) const
+{
+    const cluster::Json state = this->_manager.replicaState("voice");
+    return state.is_object() ? state : cluster::Json::object();
+}
+
+_cold bool cluster::Voice::forward_(const std::string& action, const std::string& text)
+{
+    if (!this->_manager.replica()) return false;
+    try {
+        (void)this->_manager.call({{"cmd", "voice"}, {"action", action}, {"text", text}});
+    } catch (const utils::exception::IException& e) {
+        this->_manager.notice(GLOBAL_ID, std::string("voice: ") + e.info(), true);
+    }
+    return true;
+}
+
+_cold cluster::Json cluster::Voice::json(void) const
+{
+    cluster::Json pending = cluster::Json::array();
+    for (const cluster::Pending& p: this->pending())
+        pending.push_back({{"text", p.text}, {"target", p.target}, {"deadline", p.deadline}, {"paused", p.paused}});
+    return {{"listening", this->listening()}, {"ready", this->ready()}, {"running", this->running()}, {"speaking", this->speaking()},
+        {"armed", this->armed()}, {"version", this->version()}, {"pending", pending}};
+}
+
+bool cluster::Voice::listening(void) const
+{
+    if (this->_manager.replica()) return this->remote_().value("listening", false);
+    return this->_manager.config().voice.mode == "push" ? this->_open.load() && this->_listening.load() : this->_listening.load();
+}
+
 _cold void cluster::Voice::toggle(void)
 {
     // push mode: voice-listen stays loaded, the key opens / closes what is taken; other modes: pause / resume
+    if (this->forward_("toggle")) return;
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     if (!conf.enabled) return;
     if (conf.mode == "push") {
@@ -452,6 +486,7 @@ _cold std::vector<cluster::Term> cluster::Voice::terms_(void)
 _cold void cluster::Voice::tick(void)
 {
     // voice-listen follows the config: started when the voice is enabled (again 10 s after a crash), stopped when not
+    if (this->_manager.replica()) return; // an interface: its core listens, reads, sends
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     // a new question of an agent: read aloud with its options (answered by voice: a number, valide, retour...)
     (void)this->_manager.asking().check();
@@ -513,6 +548,7 @@ _cold void cluster::Voice::dispatch_(const cluster::Pending& pending)
 
 _cold void cluster::Voice::confirm(void)
 {
+    if (this->forward_("confirm")) return;
     std::vector<cluster::Pending> ready;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -525,6 +561,7 @@ _cold void cluster::Voice::confirm(void)
 
 _cold void cluster::Voice::cancel(void)
 {
+    if (this->forward_("cancel")) return;
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_pending.clear();
     ++this->_version;
@@ -532,6 +569,7 @@ _cold void cluster::Voice::cancel(void)
 
 _cold void cluster::Voice::cancelLast(void)
 {
+    if (this->forward_("cancel_last")) return;
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_pending.empty()) this->_pending.pop_back();
     ++this->_version;
@@ -539,6 +577,7 @@ _cold void cluster::Voice::cancelLast(void)
 
 _cold void cluster::Voice::edit(const std::string& text)
 {
+    if (this->forward_("edit", text)) return;
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (this->_pending.empty()) return;
     this->_pending.back().text = text;
@@ -549,6 +588,7 @@ _cold void cluster::Voice::edit(const std::string& text)
 /* speech */
 _cold void cluster::Voice::speak(const std::string& text)
 {
+    if (this->forward_("speak", text)) return;
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     if (!conf.enabled || !conf.speak || text.empty()) return;
     const std::string summary = cluster::summary_of(text, conf.summaryChars);
@@ -601,6 +641,8 @@ _cold void cluster::Voice::say_(const std::string& text)
 _cold void cluster::Voice::mute(void)
 {
     // the group of voice-say (its piper | pacat): the reading stops at once, claude-cluster closed too
+    if (this->_manager.replica() && !this->speaking()) return; // nothing read by the core: nothing asked (Escape, Ctrl+C)
+    if (this->forward_("mute")) return;
     const pid_t pid = this->_sayPid;
     if (pid <= 0) return;
     if (::kill(-pid, SIGTERM) != 0) ::kill(pid, SIGTERM);
@@ -650,11 +692,18 @@ _cold std::vector<std::string> cluster::voice_missing(const cluster::Config& con
 // xstyle: ignore-next CPP-SINGLE-STATEMENT (uses now_ms_, a helper of this file)
 bool cluster::Voice::armed(void) const
 {
+    if (this->_manager.replica()) return this->remote_().value("armed", false);
     return now_ms_() <= this->_armedUntil;
 }
 
 std::vector<cluster::Pending> cluster::Voice::pending(void) const
 {
+    if (this->_manager.replica()) { // the ones of its core (its live text last, without a target)
+        std::vector<cluster::Pending> list;
+        for (const cluster::Json& p: this->remote_().value("pending", cluster::Json::array()))
+            list.push_back({p.value("text", std::string()), p.value("target", std::string()), p.value("deadline", std::int64_t{0}), p.value("paused", false)});
+        return list;
+    }
     std::lock_guard<std::mutex> lock(this->_mutex);
     std::vector<cluster::Pending> list = this->_pending;
     if (!this->_partial.empty()) list.push_back({this->_partial + " ...", "", 0});

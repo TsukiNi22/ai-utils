@@ -353,7 +353,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // its state, waited for up to 10 s until something changes
             const std::uint64_t seen = request.value("v", std::uint64_t{0});
             const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-            const std::function<std::uint64_t()> now = [&manager]() {return manager.version() + manager.asking().version() * 1000003;};
+            const std::function<std::uint64_t()> now = [&manager]() {return manager.syncVersion();};
             while (seen != 0 && now() == seen && std::chrono::steady_clock::now() < end) {
                 (void)manager.asking().check();
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -379,6 +379,32 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "machine_scan") {
             if (from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the computer is mapped from the computer only");
             manager.scanMachine();
+        } else if (cmd == "voice") {
+            // the voice keys of an interface of another process (F5, send, drop, correct, mute): the voice of this core
+            if (from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the page has its own voice");
+            cluster::Voice* voice = manager.voice();
+            if (voice == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no core here");
+            const std::string action = arg_(request, "action");
+            const std::string text = request.value("text", std::string());
+            if (action == "toggle") {
+                if (!manager.config().voice.enabled) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "voice disabled: [voice] enabled = true in the config");
+                voice->toggle();
+            } else if (action == "confirm") {
+                voice->confirm();
+            } else if (action == "cancel") {
+                voice->cancel();
+            } else if (action == "cancel_last") {
+                voice->cancelLast();
+            } else if (action == "edit") {
+                voice->edit(text);
+            } else if (action == "mute") {
+                voice->mute();
+            } else if (action == "speak") {
+                voice->speak(text);
+            } else {
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "voice: toggle | confirm | cancel | cancel_last | edit | mute | speak");
+            }
+            data = {{"listening", voice->listening()}};
         } else if (cmd == "action") {
             // the palette of an interface of another process, run here (its voice, its web access, its sessions)
             if (manager.voice() == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no core here");

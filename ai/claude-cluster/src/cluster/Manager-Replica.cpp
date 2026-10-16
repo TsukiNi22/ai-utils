@@ -115,6 +115,13 @@ _cold cluster::Json cluster::Manager::call(cluster::Json request) const
     return response.value("data", cluster::Json());
 }
 
+// xstyle: ignore-next CPP-SINGLE-STATEMENT (cluster::Voice is only declared in Manager.hpp)
+_cold std::uint64_t cluster::Manager::syncVersion(void)
+{
+    // what the interfaces wait for: the sessions, the questions, the voice (its live text, its countdown)
+    return this->version() + this->asking().version() * 1000003 + (this->_voice ? this->_voice->version() * 7919 : 0);
+}
+
 _cold cluster::Json cluster::Manager::replicaState(const std::string& key) const
 {
     if (!this->_replica) return {};
@@ -225,7 +232,7 @@ _cold cluster::Json cluster::Manager::syncState(const cluster::Json& request)
     const bool listening = this->_voice && this->_voice->listening();
     cluster::Json machine = nullptr;
     if (const std::optional<std::pair<cluster::MachineProgress, std::int64_t>> progress = this->machineProgress()) machine = {{"progress", progress->first}, {"end", progress->second}};
-    return {{"version", this->version() + this->asking().version() * 1000003}, {"sessions", sessions}, {"notices", this->notices(50)},
+    return {{"version", this->syncVersion()}, {"sessions", sessions}, {"voice", this->_voice ? this->_voice->json() : cluster::Json()}, {"notices", this->notices(50)},
         {"trash", this->trash()}, {"previous", this->previous()}, {"tasks", this->tasks()}, {"schedules", this->schedules()}, {"ui", ui}, {"asking", this->asking().json()},
         {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()},
         {"machine_request", this->_machineRequest.load()}, {"machine_ask", this->machineAsk()}, {"machine", machine},

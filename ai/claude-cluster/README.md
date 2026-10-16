@@ -462,8 +462,11 @@ notification (Open shows the session), a short sound of the desktop theme per ki
 - `only_me = true`: only the enrolled voice of the user (`voice-enroll`).
 - The prompts of the voice reach the global session marked `[voice]` (its system prompt asks again when a word looks
   misheard); the mark is not shown in the transcript nor kept in the history.
-- The transcription is shown `confirm_seconds` before it is sent (palette: send now / drop / correct); the global
-  session gets it as `[voice] ...` and asks when a word looks wrong or the request is ambiguous.
+- What is heard shows live in the voice bar (🎙, in italic), then the sentence waits `confirm_seconds` with its target
+  and its countdown, and its buttons **✓ Send now / ✗ Drop / ✎ Correct** (the terminal and the window, every interface
+  of the core); also Enter on an empty prompt (send), Escape (drop the last one), Ctrl+C (drop them all), the palette,
+  or the send / cancel words said alone. The global session gets it as `[voice] ...` and asks when a word looks wrong
+  or the request is ambiguous.
 - `session <name> <text>` (or `<name>: <text>`) goes straight to that session.
 - **Speech model** (`[voice] listen_model`, settings page > Voice; empty: the choice of `voice-models use`):
   `parakeet` (NVIDIA Parakeet TDT 0.6B v3, int8, 640 MB: French, English and both mixed, the text live while speaking -
