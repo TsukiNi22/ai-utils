@@ -89,6 +89,25 @@ _cold bool cluster::Asking::check(void)
 
 _cold std::optional<cluster::Ask> cluster::Asking::current(void) const
 {
+    if (this->_manager.replica()) { // an interface of the core: the question of its core (its popup shown here too)
+        const cluster::Json j = this->_manager.replicaState("asking");
+        if (!j.is_object() || j.value("request_id", std::string()).empty() || !j.contains("questions") || !j["questions"].is_array() || j["questions"].empty())
+            return std::nullopt;
+        cluster::Ask ask;
+        ask.session = j.value("session", std::string());
+        ask.name = j.value("name", std::string());
+        ask.requestId = j.value("request_id", std::string());
+        ask.questions = j["questions"];
+        ask.index = std::min(j.value("index", std::size_t{0}), ask.questions.size() - 1);
+        ask.cursor = j.value("cursor", 0);
+        ask.picked = j.value("picked", std::set<int>());
+        ask.other = j.value("other", std::string());
+        ask.answers = j.value("answers", cluster::Json::object());
+        ask.chatting = j.value("chatting", false);
+        for (const cluster::Json& m: j.value("chat", cluster::Json::array()))
+            if (m.is_object()) ask.chat.emplace_back(m.value("role", std::string()), m.value("text", std::string()));
+        return ask;
+    }
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->_ask;
 }

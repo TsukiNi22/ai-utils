@@ -443,8 +443,6 @@ class TtyUi {
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
         std::atomic<bool> _sendPending{false};      // Enter waits a few ms: a key right after it is a pasted line break
         std::int64_t _sendAt = 0;                   // ms of that Enter
-        std::int64_t _lastKey = 0;                  // ms of the last key / character, and of the one before
-        std::int64_t _keyBefore = 0;
         std::optional<std::string> _pasting;        // bracketed paste of the terminal: its text until ESC[201~
         cluster::Worker _worker;                    // the sends / commands, in their order, out of the drawing thread
         cluster::Reveal _reveal;                    // the answers typed as they come
@@ -897,12 +895,9 @@ class TtyUi {
 
         void enter_(void)
         {
-            // Enter right after a key (a paste without brackets): a new line; else sent when no key follows (Custom event)
-            if (this->_keyBefore > 0 && this->_lastKey - this->_keyBefore < PASTE_GAP_MS / 3) {
-                this->_editor.insert("\n");
-                return;
-            }
-            this->_sendAt = this->_lastKey;
+            // sent when no key follows it (Custom event); a key right after it (a paste without brackets): a new line. Never
+            // judged by the keys before it: typed keys handled in a burst (the interface busy a moment) look like a paste
+            this->_sendAt = now_ms_();
             this->_sendPending = true;
         }
 
@@ -3897,8 +3892,6 @@ class TtyUi {
                     if (now - this->_sendAt < PASTE_GAP_MS) this->_editor.insert("\n");
                     else this->submit_();
                 }
-                this->_keyBefore = this->_lastKey;
-                this->_lastKey = now;
             }
             if (event.is_mouse()) {
                 const ftxui::Mouse& mouse = event.mouse();
@@ -4230,8 +4223,10 @@ class TtyUi {
                     this->_editor.tab();
                     return true;
                 } else if (event == ftxui::Event::Return) {
+                    // its choice taken; nothing changed (the word already the one listed): Enter sends the prompt
+                    const std::string before = this->_editor.text();
                     this->_editor.accept();
-                    return true;
+                    if (this->_editor.text() != before) return true;
                 } else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown) {
                     this->_editor.select(event == ftxui::Event::ArrowUp ? -1 : 1);
                     return true;
