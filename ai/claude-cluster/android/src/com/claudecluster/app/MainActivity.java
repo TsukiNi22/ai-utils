@@ -317,7 +317,7 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             X509Certificate authority = null;
             try {
-                byte[] pem = fetch(url + "/ca.crt", null);
+                byte[] pem = Net.fetch(url + "/ca.crt", null, null, 60000, true); // the first time: anything, its fingerprint shown
                 authority = (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(pem));
             } catch (Exception e) {
                 authority = null;
@@ -395,8 +395,7 @@ public class MainActivity extends Activity {
     }
 
     private void checkUpdate(String url) {
-        X509Certificate ca = pinned();
-        if (url.startsWith("https") && ca == null) return; // not trusted yet: after
+        X509Certificate ca = pinned(); // none pinned: the authorities of the system (a real certificate), else nothing said
         new Thread(() -> {
             try {
                 String json = new String(fetch(url + "/api/version", ca), StandardCharsets.UTF_8);

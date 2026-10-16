@@ -535,6 +535,18 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (file.name == "config") {
                 const std::string error = cluster::Config::check(content);
                 if (!error.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "config.toml not written, invalid TOML: " + error);
+                if (from_global) { // the protected settings: the user alone
+                    std::ifstream old(file.path);
+                    const std::string before((std::istreambuf_iterator<char>(old)), std::istreambuf_iterator<char>());
+                    const std::vector<std::string> changed = cluster::protected_changes(before, content);
+                    if (!changed.empty()) {
+                        std::string list;
+                        for (const std::string& key: changed)
+                            list += (list.empty() ? "" : ", ") + key;
+                        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "config.toml not written: " + list
+                            + " changed by the user only, in the settings page of claude-cluster: ask them (settings_set for the other options)");
+                    }
+                }
             }
             std::error_code error;
             std::filesystem::create_directories(file.path.parent_path(), error);
@@ -697,6 +709,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::string key = arg_(request, "key");
             const std::string value = arg_(request, "value");
             const bool confirmed = request.contains("confirmed") && (request["confirmed"] == true || request["confirmed"] == "true");
+            if (from_global && cluster::setting_protected(section, key)) // the user alone (the tools of the global session never ask them)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: " + section + "." + key
+                    + " is changed by the user only, in the settings page of claude-cluster (F9, Ctrl+K settings): ask them");
             for (const cluster::SettingsPage& page: cluster::settings_pages(manager.config()))
                 for (const cluster::Setting& setting: page.settings)
                     if (setting.section == section && setting.key == key && value != setting.value(manager.config()) && !confirmed)

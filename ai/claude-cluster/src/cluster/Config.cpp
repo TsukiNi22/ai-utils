@@ -89,7 +89,8 @@ _cold void cluster::Config::load(void)
     std::error_code error;
 
     // First run: the default files, commented, to edit
-    std::filesystem::create_directories(cluster::config_dir(), error);
+    cluster::private_dir(cluster::config_dir()); // this user only
+    cluster::private_dir(cluster::data_dir());
     if (!std::filesystem::exists(this->_path)) std::ofstream(this->_path) << cluster::templates::CONFIG;
     const std::filesystem::path prompt = cluster::config_dir() / "global.md";
     if (!std::filesystem::exists(prompt)) std::ofstream(prompt) << cluster::templates::GLOBAL_PROMPT;

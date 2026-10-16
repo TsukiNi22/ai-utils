@@ -21,10 +21,12 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Types.hpp"
 #include "cluster/Mcp.hpp"
+#include <toml++/toml.hpp>
 #include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <set>
 
 /* tools */
 _cold static std::string join_(const std::vector<std::string>& list)
@@ -615,4 +617,51 @@ _cold void cluster::settings_write(const cluster::Config& config,
     std::error_code error;
     std::filesystem::rename(tmp, config.path(), error);
     if (error) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, config.path().string() + ": " + error.message());
+}
+
+/* the protected settings */
+_cold bool cluster::setting_protected(const std::string& section, const std::string& key)
+{
+    // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
+    static const std::set<std::string> keys = {"web.shell", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
+        "agent.permission_mode", "agent.allow_bypass", "global.permission_mode", "sessions.bypass_to_global", "global.answers", "global.fork", "global.edit",
+        "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
+    return section == "commands" || section == "mcp_tools" || keys.contains(section + "." + key);
+}
+
+_cold std::vector<std::string> cluster::protected_changes(const std::string& oldToml, const std::string& newToml)
+{
+    // the protected settings whose value differs between two config.toml texts (unparsable: everything counts as changed)
+    std::vector<std::string> changed;
+    toml::table before;
+    toml::table after;
+    try {
+        before = toml::parse(oldToml);
+        after = toml::parse(newToml);
+    } catch (const toml::parse_error&) {
+        return {"config.toml (unreadable)"};
+    }
+    const std::function<std::string(const toml::table&, const std::string&, const std::string&)> value = [](const toml::table& table, const std::string& section, const std::string& key) {
+        const toml::node* node = table.at_path(section + "." + key).node();
+        if (node == nullptr) return std::string();
+        std::ostringstream out;
+        out << toml::node_view<const toml::node>(node);
+        return out.str();
+    };
+    std::set<std::string> keys;
+    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice"})
+        for (const toml::table* table: {before.at_path(section).as_table(), after.at_path(section).as_table()})
+            if (table != nullptr)
+                for (const auto &[key, node]: *table)
+                    if (cluster::setting_protected(section, std::string(key.str()))) keys.insert(std::string(section) + "." + std::string(key.str()));
+    for (const char* section: {"commands", "mcp_tools"})
+        for (const toml::table* table: {before.at_path(section).as_table(), after.at_path(section).as_table()})
+            if (table != nullptr)
+                for (const auto &[key, node]: *table)
+                    keys.insert(std::string(section) + "." + std::string(key.str()));
+    for (const std::string& path: keys) {
+        const std::size_t dot = path.find('.');
+        if (value(before, path.substr(0, dot), path.substr(dot + 1)) != value(after, path.substr(0, dot), path.substr(dot + 1))) changed.push_back(path);
+    }
+    return changed;
 }

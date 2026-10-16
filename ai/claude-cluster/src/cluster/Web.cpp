@@ -43,6 +43,7 @@ File Description:
 #include <cstring>
 #include <sstream>
 #include <fstream>
+#include <atomic>
 #include <random>
 #include <chrono>
 #include <array>
@@ -181,13 +182,16 @@ _cold static bool read_request_(Conn& conn, Request& request)
     }
 }
 
+static std::atomic<bool> hsts_on_{false}; // https on: the browsers keep https for a year (Strict-Transport-Security)
+
 _cold static void respond_(Conn& conn, const int code, const std::string& type, const std::string& body, const std::string& extra = "")
 {
     static const std::map<int, std::string> reasons = {{200, "OK"}, {400, "Bad Request"}, {401, "Unauthorized"}, {403, "Forbidden"},
         {301, "Moved Permanently"}, {404, "Not Found"}, {423, "Locked"}, {500, "Internal Server Error"}};
     const std::string reason = reasons.contains(code) ? reasons.at(code) : "Error";
     (void)send_all_(conn, "HTTP/1.1 " + std::to_string(code) + " " + reason + "\r\nContent-Type: " + type + "\r\nContent-Length: " + std::to_string(body.size())
-        + "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n" + extra
+        + "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n"
+        + (hsts_on_ ? "Strict-Transport-Security: max-age=31536000\r\n" : "") + extra
         + "Connection: close\r\n\r\n" + body);
 }
 
@@ -422,6 +426,7 @@ _cold void cluster::Web::open_(const int port)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_fd = fd; // open now
+        hsts_on_ = this->_tls != nullptr;
         this->newPin_();
         this->loadTrusted_();
         this->loadBanned_();
@@ -571,6 +576,12 @@ _cold void cluster::Web::serve_(void)
         if (client == -1) continue;
         std::array<char, INET_ADDRSTRLEN> text{};
         ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
+        if (this->_busy >= 64) { // full: told, closed (one thread per request, never one per attacker)
+            static const std::string full = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: 20\r\nConnection: close\r\n\r\nclaude-cluster: busy\n";
+            (void)::send(client, full.data(), full.size(), MSG_NOSIGNAL);
+            ::close(client);
+            continue;
+        }
         ++this->_busy;
         std::thread(&cluster::Web::client_, this, client, std::string(text.data())).detach();
     }
@@ -1311,9 +1322,9 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
         json_(conn, 403, {{"error", "this device is banned by the computer"}, {"banned", true}});
         return;
     }
-    // from outside: always approved by the host; 5 wrong codes block the address 15 minutes
+    // from outside: always approved by the host; 5 wrong codes block the address 15 minutes (the LAN too: no code rotated on purpose)
     const bool outside = !same_lan_(peer);
-    if (outside && request.method != "GET" && this->_blocked.contains(peer) && this->_blocked.at(peer).second > now_ms_()) {
+    if (request.method != "GET" && this->_blocked.contains(peer) && this->_blocked.at(peer).second > now_ms_()) {
         json_(conn, 429, {{"error", "too many wrong codes from this address: try again later"}});
         return;
     }
@@ -1359,11 +1370,11 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
     if (digits.empty()) {
         json_(conn, 401, {{"error", "the code"}, {"need", "code"}});
     } else if (digits != this->_pin) {
-        if (outside && ++this->_blocked[peer].first >= 5) {
+        if (++this->_blocked[peer].first >= 5) {
             this->_blocked[peer] = {0, now_ms_() + 15 * 60 * 1000};
-            this->_manager.notice(GLOBAL_ID, "web: 5 wrong codes from " + peer + " (outside the LAN): blocked 15 min", true);
-            (void)this->_manager.notify({"web-blocked", "web access", "5 wrong codes from " + peer + " (outside the LAN): blocked 15 min", cluster::Face::Waiting, true,
-                "dialog-warning"}, "web");
+            this->_manager.notice(GLOBAL_ID, "web: 5 wrong codes from " + peer + (outside ? " (outside the LAN)" : "") + ": blocked 15 min", true);
+            (void)this->_manager.notify({"web-blocked", "web access", "5 wrong codes from " + peer + (outside ? " (outside the LAN)" : "") + ": blocked 15 min",
+                cluster::Face::Waiting, true, "dialog-warning"}, "web");
         }
         if (++this->_failures >= 5) {
             this->newPin_();
@@ -1381,7 +1392,7 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
         access.device = {id, name, agent, peer, "waiting", false, now_ms_(), now_ms_()};
         access.token = random_hex_(24);
         const bool approve = this->_manager.config().web.approve || outside;
-        if (outside) this->_blocked.erase(peer);
+        this->_blocked.erase(peer);
         if (!approve) access.device.state = "connected";
         this->_access[id] = access;
         const std::string cookies = "Set-Cookie: cc_dev=" + id + year + "Set-Cookie: cc_web=" + access.token + session;

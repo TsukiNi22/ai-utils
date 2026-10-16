@@ -12,6 +12,7 @@ ones (Qwen Code), opencode and the OpenAI Codex CLI work too.
  - [Backends](#backends)
  - [Global session](#global-session)
  - [Voice](#voice)
+ - [Security](#security)
  - [Background service](#background-service)
  - [Configuration](#configuration)
  - [How it works](#how-it-works)
@@ -672,6 +673,51 @@ the agents, a new session, a session closed.
   (reaching it still needs the tailnet). *Services › Web access* tells the certificate served and its fingerprint.
 - A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`; the Fedora
   Workstation zone already lets 1025-65535 in).
+
+## Security
+
+What protects the three ways of using claude-cluster, and what stays your responsibility.
+
+- **Local** (the terminal, the window, the CLI, the MCP): everything goes through a unix socket of your runtime folder
+  (`0700`, the socket `0600`): only your user (and root) reaches it. Any program running as you - a script, an agent
+  in `bypassPermissions` - may drive claude-cluster through it (read the transcripts, send prompts, allow a tool): the
+  same trust as your account. The API keys live in the keyring (`secret-tool`) or `credentials.json` (`0600`), given
+  to the agents by their environment only, never in `config.toml`, the logs or the transcripts (an agent printing its
+  key in an error would show it in its transcript). The config and data folders (`~/.config/claude-cluster`,
+  `~/.local/share/claude-cluster`: the conversations, the prompt history, the keys of the web access) are `0700`.
+- **Web access on the LAN**: https on by default (the authority of this computer, its key `0600`; TLS 1.2+), a plain
+  request sent to https. A device gets in with the 6-digit code **and** your approval (`[web] approve`, on by
+  default); a trusted device (its 32-byte secret, `trusted.json` `0600`) comes back by itself. The session cookie
+  (24 random bytes, `HttpOnly`, `SameSite=Strict`, `Secure`) is bound to the address of the device. 5 wrong codes:
+  the address blocked 15 min and a new code. Only the private addresses of the subnets of this computer are served;
+  the `Host` is checked (no DNS rebinding), a `POST` needs the right `Origin` (no CSRF), the page has a CSP,
+  `X-Frame-Options: DENY`, `nosniff`, HSTS. 64 requests at once at most (the rest told busy). The page escapes
+  everything it shows (the transcripts as text, the markdown of the displays escaped whole).
+- **Web access from outside**: https required (a plain peer from outside is refused before any handshake);
+  `tailscale`: only the addresses of your tailnet, the real certificate of the tailnet when it is on; `router`: the
+  login page is reachable by anyone on the Internet - the code **and** your approval are needed, 5 wrong codes block
+  the address 15 min and rotate the code. The code, the conversation and the cookies are encrypted end to end; the
+  key of the certificate never leaves this computer. `/ca.crt`, `/app.apk` and `/api/version` are served to anyone
+  (nothing secret in them).
+- **What an approved device can do**: everything you can from the keyboard, except a shell (`!command`, `:r !`)
+  unless *Shell from the page* is on. A trusted phone lost or unlocked = your claude-cluster: *Web devices* › trust
+  no more / ban, and keep the shell off unless you need it.
+- **The global session and its MCP tools** run without a permission prompt (`--allowedTools mcp__claude-cluster`):
+  what it may do is bounded. The **protected settings** - a shell or the web opened wider (`web.shell`, `web.remote`,
+  `web.approve`, `web.https`, `web.enabled`, `web.port`), the permissions of the agents (`agent.permission_mode`,
+  `agent.allow_bypass`, `global.permission_mode`, `sessions.bypass_to_global`, `global.answers / fork / edit`), the
+  programs run as you (`commands.*`, `ui.editor`, `ui.image_viewer`, `service.*`, `voice.*_command`), the MCP servers
+  and tools - are **never changed by it** (`settings_set`, `config_write` refuse them: it asks you, you change them
+  in the settings page). The other dangerous changes ask you (`confirmed`). `[mcp_tools]` turns any of its tools off.
+  A sub-session in `bypassPermissions` with *bypass to global* on lets the global session decide its commands: an
+  injected prompt (a web page read by a session) may then run commands through it - keep `agent.allow_bypass` off
+  when you do not orchestrate.
+- **Privacy**: the map of this computer (`machine.md`: hosts, repositories, the names of environment variables, the
+  packages) is read by the global session, so sent to its API provider; the prompt history (`history.jsonl`) keeps
+  what you typed, in clear, in your data folder.
+- **The Android app**: it pins the authority of the computer the first time (its fingerprint shown, compared with the
+  one of claude-cluster); its own requests trust the authorities of the system (a real certificate) or that authority
+  - never anything else; its updates come from the computer and keep the signing key of the app.
 
 ## Background service
 

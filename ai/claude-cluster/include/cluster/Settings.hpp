@@ -89,6 +89,10 @@ _cold _nodiscard inline std::string setting_danger(const cluster::Setting& setti
 _cold _nodiscard cluster::Requirement setting_requirement(cluster::Manager& manager, const cluster::Setting& setting, const std::string& value);
 _cold _nodiscard std::vector<std::string> install_command(const std::string& package);   // dnf / apt-get / pacman / zypper, empty: none
 _cold _nodiscard std::string install_package(const std::string& package, cluster::Manager* manager = nullptr); // pkexec (its popup): its error, empty: ok
+// the settings only the user changes (a shell, the web open to the Internet, a program run as the user...): never by the
+// global session (MCP: settings_set, config_write) - it asks the user to change them in the settings page
+_cold _nodiscard bool setting_protected(const std::string& section, const std::string& key);
+_cold _nodiscard std::vector<std::string> protected_changes(const std::string& oldToml, const std::string& newToml); // "section.key" changed
 _cold void settings_write(const cluster::Config& config, const std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes);
 
 } // namespace end

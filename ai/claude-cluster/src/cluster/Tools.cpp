@@ -376,6 +376,14 @@ _cold std::optional<cluster::Json> cluster::read_json(const std::filesystem::pat
     }
 }
 
+_cold void cluster::private_dir(const std::filesystem::path& dir)
+{
+    // the conversations, the history, the config and the keys of the web: this user only (the home folder is often 0755)
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    ::chmod(dir.c_str(), S_IRWXU);
+}
+
 _cold void cluster::write_json(const std::filesystem::path& path, const cluster::Json& data)
 {
     std::error_code error;
