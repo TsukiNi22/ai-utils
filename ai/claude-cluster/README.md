@@ -695,8 +695,14 @@ can run in the browser and in the window, as if you sat at the terminal of the c
 - **In the browser**: the web access serves a *terminal page* on its own port, `[web] tty_port` (2222 by default; 0:
   off; outside: `tty_remote_port`, 0: the same port), with the same code and approval as the page; the ⌨ button of the
   page opens it. A real `claude-cluster --tty` runs in a pty on the computer for each connected device (kept while the
-  page reads it, closed 2 minutes after the page is gone, 8 at once at most); the page draws its screen (a small
-  terminal emulator in the page: 24-bit colors, the cursor, the mouse) and sends every key. **⛶ fullscreen** locks the
+  page reads it, closed 2 minutes after the page is gone, 8 at once at most). One encrypted WebSocket (`wss://`, the
+  same port and cookie) carries every key and the screen: the computer keeps the screen (its own terminal emulator) and
+  sends only the rows changed, at once when the terminal ends a frame (about 10x fewer bytes than its raw output, a key
+  echoed in about one network round trip instead of several), the page draws only those rows; its bar shows `live ·
+  ping … ms · … fps`. Without a WebSocket (a plain http build, a proxy that drops it) it falls back to polling. The
+  socket is checked like the page: the device connected (its cookie, its address; kicked, logged out or banned: closed
+  at once), the Origin of this page only (no other site may open it), never the app, masked frames of 1 MB at most, 4
+  per device, closed after 30 s of silence. **⛶ fullscreen** locks the
   keyboard (Chrome / Edge): Ctrl+T, Ctrl+N, Ctrl+W... reach the terminal instead of the browser (F11 or Esc held
   leaves); elsewhere use the Alt doubles (Alt+N, Alt+P). The rules of the page apply inside it: the shell (`!`) only
   with *Shell from the page*, the settings sections of *Settings from the page* only, the services with `services`, no

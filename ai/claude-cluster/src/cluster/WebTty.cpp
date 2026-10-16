@@ -16,6 +16,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/WebTty.hpp"
 #include "cluster/Tools.hpp"
+#include <sys/eventfd.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <algorithm>
@@ -27,6 +28,44 @@ File Description:
 #include <pty.h>
 
 #define OUT_KEPT 524288
+
+/* tools */
+_cold static void tell_(const std::vector<int>& watchers)
+{
+    const std::uint64_t one = 1;
+    for (const int fd: watchers)
+        (void)!::write(fd, &one, sizeof(one));
+}
+
+_cold static cluster::Json row_(const std::vector<cluster::VtCell>& row)
+{
+    // its runs of one style: [text, fg (-1: default), bg (-1), flags: bold 1, dim 2, italic 4, underline 8, strike 16,
+    // inverse 32]; the default blanks at its end left out (the page clears the row first)
+    std::size_t end = row.size();
+    while (end > 0 && (row[end - 1].ch == " " || row[end - 1].ch.empty()) && !row[end - 1].bgSet && !row[end - 1].inverse && !row[end - 1].underline)
+        --end;
+    cluster::Json runs = cluster::Json::array();
+    std::string text;
+    long fg = -2;
+    long bg = -2;
+    int flags = -1;
+    for (std::size_t x = 0; x < end; ++x) {
+        const cluster::VtCell& c = row[x];
+        const long cfg = c.fgSet ? static_cast<long>(c.fg) : -1;
+        const long cbg = c.bgSet ? static_cast<long>(c.bg) : -1;
+        const int cflags = (c.bold ? 1 : 0) | (c.dim ? 2 : 0) | (c.italic ? 4 : 0) | (c.underline ? 8 : 0) | (c.strike ? 16 : 0) | (c.inverse ? 32 : 0);
+        if (cfg != fg || cbg != bg || cflags != flags) {
+            if (!text.empty() || flags >= 0) runs.push_back({text, fg, bg, flags});
+            text.clear();
+            fg = cfg;
+            bg = cbg;
+            flags = cflags;
+        }
+        text += c.ch; // a wide character: its second cell empty (the page gives it 2 cells)
+    }
+    if (flags >= 0) runs.push_back({text, fg, bg, flags});
+    return runs;
+}
 
 /* the pty */
 _cold cluster::Pty cluster::pty_spawn(const int cols, const int rows, const bool web)
@@ -110,9 +149,12 @@ _cold void cluster::WebTty::read_(Session* session)
         if (size <= 0) { // the end (the terminal quit, the pty closed)
             session->alive = false;
             session->changed.notify_all();
+            tell_(session->watchers);
             return;
         }
         session->out.append(chunk.data(), static_cast<std::size_t>(size));
+        session->vt.feed(std::string(chunk.data(), static_cast<std::size_t>(size)));
+        tell_(session->watchers);
         if (session->out.size() > OUT_KEPT) { // the oldest dropped (a page far behind draws from what is left)
             const std::size_t drop = session->out.size() - OUT_KEPT;
             session->out.erase(0, drop);
@@ -124,6 +166,10 @@ _cold void cluster::WebTty::read_(Session* session)
 
 _cold void cluster::WebTty::drop_(const std::shared_ptr<Session>& session)
 {
+    {
+        std::lock_guard<std::mutex> lock(session->mutex);
+        tell_(session->watchers); // its WebSockets see it gone
+    }
     cluster::pty_kill(session->pty); // the read ends (EIO), its thread joined, then only its fd closed (never reused under a read)
     if (session->reader.joinable()) session->reader.join();
     if (session->pty.fd >= 0) ::close(session->pty.fd);
@@ -134,6 +180,7 @@ _cold void cluster::WebTty::resize_(Session& session, const int cols, const int 
 {
     session.cols = std::clamp(cols, 20, 500);
     session.rows = std::clamp(rows, 5, 200);
+    session.vt.resize(session.cols, session.rows);
     cluster::pty_resize(session.pty, session.cols, session.rows);
 }
 
@@ -159,6 +206,7 @@ _cold cluster::Json cluster::WebTty::open(const std::string& device, const int c
     std::shared_ptr<Session> session = std::make_shared<Session>();
     session->cols = std::clamp(cols, 20, 500);
     session->rows = std::clamp(rows, 5, 200);
+    session->vt.resize(session->cols, session->rows);
     session->pty = cluster::pty_spawn(session->cols, session->rows, true);
     session->seen = cluster::now_ms();
     Session* raw = session.get();
@@ -270,4 +318,74 @@ _cold std::size_t cluster::WebTty::count(void)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->_sessions.size();
+}
+
+_cold int cluster::WebTty::watch(const std::string& device)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    auto it = this->_sessions.find(device);
+    if (it == this->_sessions.end()) return -1;
+    const int fd = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (fd < 0) return -1;
+    std::lock_guard<std::mutex> hold(it->second->mutex);
+    it->second->watchers.push_back(fd);
+    return fd;
+}
+
+_cold void cluster::WebTty::unwatch(const std::string& device, const int fd)
+{
+    if (fd < 0) return;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = this->_sessions.find(device);
+        if (it != this->_sessions.end()) {
+            std::lock_guard<std::mutex> hold(it->second->mutex);
+            std::erase(it->second->watchers, fd);
+        }
+    }
+    ::close(fd);
+}
+
+_cold cluster::Json cluster::WebTty::frame(const std::string& device, std::vector<std::string>& sent, const bool full)
+{
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = this->_sessions.find(device);
+        if (it == this->_sessions.end()) return {{"t", "f"}, {"alive", false}, {"none", true}};
+        session = it->second;
+    }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    session->seen = cluster::now_ms(); // read: kept
+    const std::vector<std::vector<cluster::VtCell>>& grid = session->vt.grid();
+    const bool all = full || sent.size() != grid.size() + 1;
+    if (all) sent.assign(grid.size() + 1, std::string());
+    cluster::Json rows = cluster::Json::array();
+    for (std::size_t y = 0; y < grid.size(); ++y) {
+        cluster::Json row = row_(grid[y]);
+        std::string dumped = row.dump(-1, ' ', false, cluster::Json::error_handler_t::replace);
+        if (!all && dumped == sent[y]) continue;
+        sent[y] = std::move(dumped);
+        rows.push_back({y, std::move(row)});
+    }
+    const cluster::Json state = {session->vt.cols(), session->vt.rows(), session->vt.cursorX(), session->vt.cursorY(), session->vt.cursorShown(),
+        session->vt.mouse(), session->vt.bracketedPaste(), session->alive};
+    const std::string stateText = state.dump();
+    if (!all && rows.empty() && stateText == sent.back()) return nullptr;
+    sent.back() = stateText;
+    return {{"t", "f"}, {"full", all}, {"cols", session->vt.cols()}, {"rows", session->vt.rows()}, {"x", session->vt.cursorX()}, {"y", session->vt.cursorY()},
+        {"cur", session->vt.cursorShown()}, {"mouse", session->vt.mouse()}, {"paste", session->vt.bracketedPaste()}, {"alive", session->alive}, {"r", std::move(rows)}};
+}
+
+_cold bool cluster::WebTty::settled(const std::string& device)
+{
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = this->_sessions.find(device);
+        if (it == this->_sessions.end()) return true;
+        session = it->second;
+    }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    return !session->vt.synchronizing() || !session->alive;
 }

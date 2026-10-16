@@ -355,6 +355,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.web.approve ? std::string("true") : std::string("false");}},
             {"web", "port", "Port", SettingKind::Int, {}, "the address shown: https://<this computer on the LAN>:<port>", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.port);}},
+            {"web", "remote_port", "Port outside", SettingKind::Int, {}, "router: the port opened on the router (0: the same as here)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.web.remotePort);}},
             {"web", "tty_port", "Terminal page port", SettingKind::Int, {}, "the terminal interface of claude-cluster in a browser (its own port, the same code and "
                 "approval): a real terminal of this computer, its keys, its mouse; the browser only (never the app); 0: off", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.ttyPort);}},
@@ -372,8 +374,6 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"web", "remote_host", "Name from outside", SettingKind::Text, {}, "router: a dynamic DNS name pointing at your router (duckdns, no-ip...).\n"
                 "• empty: its public address\n• put in the certificate (the browser checks it)", false,
                 [](const cluster::Config& cf) {return cf.web.remoteHost;}},
-            {"web", "remote_port", "Port outside", SettingKind::Int, {}, "router: the port opened on the router (0: the same as here)", false,
-                [](const cluster::Config& cf) {return std::to_string(cf.web.remotePort);}},
             {"web", "shell", "Shell from the page", SettingKind::Bool, {}, "!command (and :r !command) typed in the web page or the app run on this computer.\n"
                 "• in the folder of the session, like in the terminal\n"
                 "• off (default): refused there - on, every device connected gets a shell of this computer, from outside the LAN too", false,

@@ -250,6 +250,7 @@ _cold void cluster::Vt::csi_(const std::string& sequence)
             else if (p == 7) this->_wrap = final == 'h';
             else if (p == 1000 || p == 1002 || p == 1003 || p == 1006) this->_mouse = final == 'h';
             else if (p == 2004) this->_paste = final == 'h';
+            else if (p == 2026) this->_sync = final == 'h';
             else if (p == 1049 || p == 47 || p == 1047) {
                 if (final == 'h') this->erase_(0, 0, this->_cols - 1, this->_rows - 1); // the alternate screen: blank
                 this->_x = this->_y = 0;

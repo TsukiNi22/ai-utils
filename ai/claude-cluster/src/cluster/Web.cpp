@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #define _Encapsulation
+#define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Templates.hpp"
 #include "cluster/Control.hpp"
@@ -28,7 +29,9 @@ File Description:
     #include <openssl/ssl.h>
     #include <openssl/pem.h>
     #include <openssl/err.h>
+    #include <openssl/evp.h>
 #endif
+#include <netinet/tcp.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -40,9 +43,11 @@ File Description:
 #include <unistd.h>
 #include <net/if.h>
 #include <iterator>
+#include <fcntl.h>
 #include <cstring>
 #include <sstream>
 #include <fstream>
+#include <poll.h>
 #include <atomic>
 #include <random>
 #include <chrono>
@@ -218,6 +223,89 @@ _cold static bool read_request_(Conn& conn, Request& request)
         if (size <= 0) return false;
         data.append(chunk.data(), static_cast<std::size_t>(size));
     }
+}
+
+/* the WebSocket of the terminal page: its socket non-blocking, read and written by one thread (a TLS connection
+   never by two) */
+_cold static ssize_t conn_read_now_(Conn& conn, char* data, const std::size_t size)
+{
+    // what is there: n bytes, 0 nothing now, -1 closed / an error
+    #ifdef CLUSTER_TLS
+        if (conn.ssl != nullptr) {
+            const int got = ::SSL_read(conn.ssl, data, static_cast<int>(size));
+            if (got > 0) return got;
+            const int error = ::SSL_get_error(conn.ssl, got);
+            return error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE ? 0 : -1;
+        }
+    #endif
+    const ssize_t got = ::recv(conn.fd, data, size, MSG_DONTWAIT);
+    if (got > 0) return got;
+    return got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? 0 : -1;
+}
+
+_cold static bool conn_pending_(Conn& conn)
+{
+    // TLS: bytes already decrypted, the socket itself empty
+    #ifdef CLUSTER_TLS
+        if (conn.ssl != nullptr) return ::SSL_pending(conn.ssl) > 0;
+    #endif
+    (void)conn;
+    return false;
+}
+
+_cold static bool conn_write_now_(Conn& conn, const std::string& data)
+{
+    // all of it, waiting while the socket is full (5 s at most: a page that reads nothing is dropped)
+    const std::int64_t end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + 5000;
+    std::size_t sent = 0;
+    while (sent < data.size()) {
+        ssize_t size = 0;
+        bool wait = false;
+        bool written = false;   // by TLS
+        #ifdef CLUSTER_TLS
+            if (conn.ssl != nullptr) {
+                written = true;
+                size = ::SSL_write(conn.ssl, data.data() + sent, static_cast<int>(data.size() - sent));
+                if (size <= 0) {
+                    const int error = ::SSL_get_error(conn.ssl, static_cast<int>(size));
+                    if (error != SSL_ERROR_WANT_WRITE && error != SSL_ERROR_WANT_READ) return false;
+                    wait = true;
+                }
+            }
+        #endif
+        if (!written) {
+            size = ::send(conn.fd, data.data() + sent, data.size() - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+            if (size < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) return false;
+            wait = size < 0;
+        }
+        if (wait) {
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() > end) return false;
+            pollfd room{conn.fd, POLLOUT | POLLIN, 0};
+            (void)::poll(&room, 1, 50);
+            continue;
+        }
+        sent += static_cast<std::size_t>(size);
+    }
+    return true;
+}
+
+_cold static bool ws_send_(Conn& conn, const int opcode, const std::string& payload)
+{
+    // one frame of the server (final, never masked)
+    std::string frame(1, static_cast<char>(0x80 | opcode));
+    const std::uint64_t size = payload.size();
+    if (size < 126) {
+        frame += static_cast<char>(size);
+    } else if (size < 65536) {
+        frame += static_cast<char>(126);
+        frame += static_cast<char>((size >> 8) & 0xFF);
+        frame += static_cast<char>(size & 0xFF);
+    } else {
+        frame += static_cast<char>(127);
+        for (int i = 7; i >= 0; --i)
+            frame += static_cast<char>((size >> (8 * i)) & 0xFF);
+    }
+    return conn_write_now_(conn, frame + payload);
 }
 
 static std::atomic<bool> hsts_on_{false}; // https on: the browsers keep https for a year (Strict-Transport-Security)
@@ -1113,8 +1201,10 @@ _cold void cluster::Web::client_(const int fd, const std::string& peer, const bo
     Conn conn{fd};
     const timeval receive{10, 0};
     const timeval send{30, 0};
+    const int nodelay = 1;
     (void)::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &receive, sizeof(receive));
     (void)::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &send, sizeof(send));
+    (void)::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)); // a key, a frame: sent at once (no Nagle wait)
     bool plain = true;
     bool ready = true;
     #ifdef CLUSTER_TLS
@@ -1185,8 +1275,10 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         std::string page(cluster::templates::TTY_PAGE);
         if (const std::size_t at = page.find("<script>"); at != std::string::npos) page.replace(at, 8, "<script nonce=\"" + nonce + "\">");
         if (const std::size_t at = page.find("__PAGE_PORT__"); at != std::string::npos) page.replace(at, 13, std::to_string(this->_port));
+        // its WebSocket: this host only (wss / ws of the address it was opened by)
+        const std::string socket = (this->_tls != nullptr ? "wss://" : "ws://") + host;
         respond_(conn, 200, "text/html; charset=utf-8", page, "Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-" + nonce
-            + "'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'\r\n");
+            + "'; img-src 'self' data:; connect-src 'self' " + socket + "; object-src 'none'; base-uri 'none'; form-action 'self'\r\n");
         return;
     }
     if (request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
@@ -1279,7 +1371,9 @@ self.addEventListener("notificationclick", (e) => {
             return;
         }
         const std::string device = cookie_(request, "cc_dev");
-        if (post && request.path == "/api/tty/open") {
+        if (request.method == "GET" && request.path == "/api/tty/ws") {
+            this->ws_(connection, &request, device, peer);
+        } else if (post && request.path == "/api/tty/open") {
             json_(conn, 200, this->_ttys.open(device, body.value("cols", 120), body.value("rows", 36)));
         } else if (request.method == "GET" && request.path == "/api/tty/read") {
             std::uint64_t from = 0;
@@ -1646,4 +1740,228 @@ _cold void cluster::web_act(cluster::Manager& manager, const std::string& action
     (void)manager.call({{"cmd", "web"}, {"action", action}, {"ids", joined}, {"id", id}, {"answer", answer}});
     std::lock_guard<std::mutex> lock(web_cache_mutex_);
     web_cache_at_ = 0; // its new state at the next look
+}
+
+/* the WebSocket of the terminal page */
+_cold void cluster::Web::ws_(void* connection, const void* data, const std::string& device, const std::string& peer)
+{
+    // its upgrade: from the page of this computer only (its Origin: a WebSocket is never stopped by the browser for
+    // another site), a WebSocket of version 13; its terminal opened (or kept), then its frames
+    Conn& conn = *static_cast<Conn*>(connection);
+    const Request& request = *static_cast<const Request*>(data);
+    const std::function<std::string(const char*)> header = [&request](const char* name) {
+        return request.headers.contains(name) ? request.headers.at(name) : std::string();
+    };
+    const std::string scheme = this->_tls == nullptr ? "http://" : "https://";
+    if (header("origin") != scheme + header("host")) {
+        json_(conn, 403, {{"error", "another site"}});
+        return;
+    }
+    if (cluster::lower(header("upgrade")) != "websocket" || cluster::lower(header("connection")).find("upgrade") == std::string::npos
+        || header("sec-websocket-version") != "13" || header("sec-websocket-key").size() != 24) {
+        json_(conn, 400, {{"error", "a WebSocket (version 13) only"}});
+        return;
+    }
+    #ifndef CLUSTER_TLS
+        json_(conn, 501, {{"error", "no WebSocket in this build: the page polls"}});
+        (void)device;
+        (void)peer;
+    #else
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (this->_sockets[device] >= 4) {
+                json_(conn, 429, {{"error", "4 terminal pages of this device at once at most"}});
+                return;
+            }
+            ++this->_sockets[device];
+        }
+        try {
+            int cols = 120;
+            int rows = 36;
+            try {
+                if (request.query.contains("cols")) cols = std::stoi(request.query.at("cols"));
+                if (request.query.contains("rows")) rows = std::stoi(request.query.at("rows"));
+            } catch (const std::exception&) {}
+            (void)this->_ttys.open(device, cols, rows);
+            // Sec-WebSocket-Accept: base64(SHA-1(key + the GUID of RFC 6455))
+            const std::string text = header("sec-websocket-key") + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+            std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+            unsigned int size = 0;
+            if (::EVP_Digest(text.data(), text.size(), digest.data(), &size, ::EVP_sha1(), nullptr) == 1) {
+                const std::string accept = utils::smanip::codec::Base64Codec().encode(std::string(reinterpret_cast<const char*>(digest.data()), size));
+                if (send_all_(conn, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n"))
+                    this->wsLoop_(connection, device, peer, cookie_(request, "cc_web"));
+            }
+        } catch (const std::exception& e) {
+            json_(conn, 500, {{"error", e.what()}});
+        }
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (--this->_sockets[device] <= 0) this->_sockets.erase(device);
+    #endif
+}
+
+_cold void cluster::Web::wsLoop_(void* connection, const std::string& device, const std::string& peer, const std::string& token)
+{
+    // one thread: the keys and the messages of the page read, the frames of its terminal sent (the rows changed, 60
+    // fps at most, at once after a quiet time); its device checked every second, the page silent 30 s: closed
+    Conn& conn = *static_cast<Conn*>(connection);
+    const int flags = ::fcntl(conn.fd, F_GETFL, 0);
+    (void)::fcntl(conn.fd, F_SETFL, flags | O_NONBLOCK);
+    const std::function<std::int64_t()> now = []() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    };
+    int watcher = this->_ttys.watch(device);
+    std::vector<std::string> sent;
+    bool full = true;
+    bool dirty = true;
+    std::int64_t dirtySince = now();  // its first output not sent yet
+    std::int64_t nextFrame = 0;
+    std::int64_t heard = now();
+    std::int64_t checked = now();
+    std::string in;
+    std::string message;    // a message in fragments
+    int messageOp = 0;
+    std::array<char, 16384> chunk{};
+    const std::function<void(int, const std::string&)> close = [&conn](const int code, const std::string& why) {
+        std::string payload(1, static_cast<char>((code >> 8) & 0xFF));
+        payload += static_cast<char>(code & 0xFF);
+        payload += why.substr(0, 100);
+        (void)ws_send_(conn, 0x8, payload);
+    };
+    // one message of the page: its keys (binary), {t: resize | ping | full} (text)
+    const std::function<bool(int, const std::string&)> handle = [&](const int op, const std::string& payload) {
+        if (op == 0x2) {
+            this->_ttys.write(device, payload);
+            return true;
+        }
+        const cluster::Json json = cluster::Json::parse(payload, nullptr, false);
+        if (!json.is_object()) return true;
+        const std::string type = json.value("t", std::string());
+        if (type == "resize") {
+            this->_ttys.resize(device, json.value("cols", 120), json.value("rows", 36));
+            dirty = true;
+        } else if (type == "ping") { // the page measures its latency: answered at once
+            return ws_send_(conn, 0x1, cluster::Json{{"t", "pong"}, {"n", json.value("n", 0.0)}}.dump());
+        } else if (type == "full") {
+            full = true;
+            dirty = true;
+        }
+        return true;
+    };
+    while (this->_running) {
+        // the device still connected (kicked, logged out, banned, another address: closed); seen: kept
+        if (now() - checked >= 1000) {
+            checked = now();
+            bool still = false;
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                auto it = this->_access.find(device);
+                still = it != this->_access.end() && it->second.device.state == "connected" && !token.empty() && same_secret_(it->second.token, token)
+                    && it->second.device.address == peer;
+                if (still) it->second.device.seen = now_ms_();
+            }
+            if (!still) {
+                close(4001, "not connected");
+                break;
+            }
+            if (now() - heard > 30000) { // the page gone without a word
+                close(4002, "silent");
+                break;
+            }
+            if (watcher < 0) watcher = this->_ttys.watch(device); // its terminal opened again elsewhere
+        }
+        // a frame waiting: sent once the terminal ended its update (at once), 2 ms polls meanwhile
+        const int wait = conn_pending_(conn) ? 0 : dirty ? std::max(1, static_cast<int>(std::max<std::int64_t>(0, nextFrame - now()))) : 250;
+        std::array<pollfd, 2> fds{pollfd{conn.fd, POLLIN, 0}, pollfd{watcher, POLLIN, 0}};
+        (void)::poll(fds.data(), watcher >= 0 ? 2 : 1, wait);
+        if (watcher >= 0 && (fds[1].revents & POLLIN) != 0) {
+            std::uint64_t count = 0;
+            (void)!::read(watcher, &count, sizeof(count));
+            if (!dirty) dirtySince = now();
+            dirty = true;
+        }
+        if ((fds[0].revents & (POLLIN | POLLHUP | POLLERR)) != 0 || conn_pending_(conn)) {
+            bool gone = false;
+            while (true) {
+                const ssize_t got = conn_read_now_(conn, chunk.data(), chunk.size());
+                if (got < 0) gone = true;
+                if (got <= 0) break;
+                in.append(chunk.data(), static_cast<std::size_t>(got));
+                if (in.size() > 2000000) gone = true;
+                if (gone) break;
+            }
+            // its frames: masked (a page), 1 MB at most, no extension bit
+            bool stop = gone;
+            while (!stop && in.size() >= 2) {
+                const unsigned char b0 = static_cast<unsigned char>(in[0]);
+                const unsigned char b1 = static_cast<unsigned char>(in[1]);
+                const bool fin = (b0 & 0x80) != 0;
+                const int op = b0 & 0x0F;
+                std::uint64_t length = b1 & 0x7F;
+                std::size_t at = 2;
+                if ((b0 & 0x70) != 0 || (b1 & 0x80) == 0) {
+                    close(1002, "protocol");
+                    stop = true;
+                    break;
+                }
+                if (length == 126) {
+                    if (in.size() < 4) break;
+                    length = (static_cast<std::uint64_t>(static_cast<unsigned char>(in[2])) << 8) | static_cast<unsigned char>(in[3]);
+                    at = 4;
+                } else if (length == 127) {
+                    if (in.size() < 10) break;
+                    length = 0;
+                    for (std::size_t i = 2; i < 10; ++i)
+                        length = (length << 8) | static_cast<unsigned char>(in[i]);
+                    at = 10;
+                }
+                if (length > 1000000 || message.size() + length > 1000000) {
+                    close(1009, "too big");
+                    stop = true;
+                    break;
+                }
+                if (in.size() < at + 4 + length) break;
+                std::string payload = in.substr(at + 4, static_cast<std::size_t>(length));
+                for (std::size_t i = 0; i < payload.size(); ++i)
+                    payload[i] = static_cast<char>(payload[i] ^ in[at + (i % 4)]);
+                in.erase(0, at + 4 + static_cast<std::size_t>(length));
+                heard = now();
+                if (op == 0x8) { // closed by the page
+                    close(1000, "bye");
+                    stop = true;
+                } else if (op == 0x9) {
+                    stop = !ws_send_(conn, 0xA, payload);
+                } else if (op == 0x0) { // the next fragment
+                    message += payload;
+                    if (fin) {
+                        stop = !handle(messageOp, message);
+                        message.clear();
+                    }
+                } else if (op == 0x1 || op == 0x2) {
+                    if (fin) {
+                        stop = !handle(op, payload);
+                    } else {
+                        messageOp = op;
+                        message = payload;
+                    }
+                }
+            }
+            if (stop) break;
+        }
+        // the screen whole (its update ended) or waited 50 ms; 4 ms between two frames at least (250 / s)
+        if (dirty && now() >= nextFrame && (this->_ttys.settled(device) || now() - dirtySince > 50)) {
+            const cluster::Json frame = this->_ttys.frame(device, sent, full);
+            full = false;
+            dirty = false;
+            nextFrame = now() + 4;
+            if (!frame.is_null()) {
+                if (!ws_send_(conn, 0x1, frame.dump(-1, ' ', false, cluster::Json::error_handler_t::replace))) break;
+                if (!frame.value("alive", true)) { // the terminal quit: told, closed
+                    close(1000, "the terminal quit");
+                    break;
+                }
+            }
+        }
+    }
+    this->_ttys.unwatch(device, watcher);
 }

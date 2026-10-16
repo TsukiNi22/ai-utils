@@ -141,6 +141,7 @@ class Web {
         std::string _remoteWhy;                     // why not
         std::map<std::string, std::pair<int, std::int64_t>> _blocked; // a peer from outside: its wrong codes, blocked until (ms)
         std::map<std::string, cluster::WebDevice> _banned;              // by device (config folder / web / banned.json)
+        std::map<std::string, int> _sockets;        // the WebSockets of the terminal page, by device (4 at most)
 
         // ---------- Pre-Function -------- //
         _cold void open_(const int port);
@@ -150,6 +151,8 @@ class Web {
         _cold void request_(void* connection, const std::string& peer, const bool toHttps, const bool tty);
         _cold _nodiscard static int listen_(const int port, std::string& error);  // a socket listening on every interface, -1: error
         _cold void login_(void* connection, const void* request, const std::string& peer, const std::string& secure);
+        _cold void ws_(void* connection, const void* request, const std::string& device, const std::string& peer);  // the WebSocket of the terminal page
+        _cold void wsLoop_(void* connection, const std::string& device, const std::string& peer, const std::string& token);
         _cold void ask_(const std::string& id);    // the host asked to approve it (popup, notification)
         _cold void loadTrusted_(void);
         _cold void saveTrusted_(void) const;

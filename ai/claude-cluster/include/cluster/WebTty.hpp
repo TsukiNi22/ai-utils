@@ -19,6 +19,7 @@ File Description:
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include "Types.hpp"            // cluster::Json
+    #include "Vt.hpp"               // cluster::Vt
     #include <condition_variable>   // std::condition_variable
     #include <cstdint>              // std::uint64_t
     #include <memory>               // std::shared_ptr
@@ -66,6 +67,8 @@ class WebTty {
             std::mutex mutex;
             std::condition_variable changed;
             std::thread reader;
+            cluster::Vt vt{80, 24};         // its screen (the WebSocket of the page: the rows changed only)
+            std::vector<int> watchers;      // eventfds told at each output (the WebSockets of the page)
         };
         std::map<std::string, std::shared_ptr<Session>> _sessions;  // by device id (shared: a long poll keeps its session alive)
         std::mutex _mutex;
@@ -89,6 +92,13 @@ class WebTty {
         _cold void resize(const std::string& device, const int cols, const int rows);
         _cold void close(const std::string& device);
         _cold void expire(void);                // the ones not read for 2 min: closed
+        // the WebSocket of the page: an eventfd told at each output of its terminal (-1: none), given back by unwatch
+        _cold _nodiscard int watch(const std::string& device);
+        _cold void unwatch(const std::string& device, const int fd);
+        // the rows changed since `sent` (the rows a connection has, serialized; updated), the cursor and the modes; null:
+        // nothing changed; {alive: false}: the terminal is gone
+        _cold _nodiscard cluster::Json frame(const std::string& device, std::vector<std::string>& sent, const bool full);
+        _cold _nodiscard bool settled(const std::string& device);  // its screen whole (no synchronized update half written)
         _cold void closeAll(void);
         _cold _nodiscard std::size_t count(void);
 };

@@ -194,11 +194,16 @@ class Term {
 }
 if (typeof module !== "undefined") module.exports = {Term, palette};
 
-// ---- drawn on a canvas: a grid of cells, the font measured once ----
+// ---- drawn on a canvas: the rows changed only, the font measured once ----
 const canvas = $("screen");
-const ctx = canvas.getContext("2d");
+const ctx = canvas.getContext("2d", {alpha: false});
 const FONT = '14px "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", Menlo, monospace';
-let cellW = 8, cellH = 18, dpr = 1, term = null, needDraw = false;
+const BG = "#15171b", FG = "#e6e7ea";
+let cellW = 8, cellH = 18, dpr = 1, needDraw = false;
+// the screen shown: a WebSocket's (rows sent by the computer) or the Term of the polling mode - both {cols, rows, grid, x, y, cursor, mouse, paste}
+let view = null, term = null;
+const dirty = new Set();
+let allDirty = true, drawnCursor = null;
 const hex = (c) => "#" + c.toString(16).padStart(6, "0");
 function measure() {
     dpr = window.devicePixelRatio || 1;
@@ -211,42 +216,72 @@ function fit() {
     canvas.width = Math.floor(box.width * dpr); canvas.height = Math.floor(box.height * dpr);
     canvas.style.width = box.width + "px"; canvas.style.height = box.height + "px";
     const cols = Math.max(20, Math.floor(box.width / cellW)), rows = Math.max(5, Math.floor(box.height / cellH));
-    if (term && (term.cols !== cols || term.rows !== rows)) { term.resize(cols, rows); sendResize(cols, rows); }
-    needDraw = true;
+    if (view && (view.cols !== cols || view.rows !== rows)) { resizeView(cols, rows); sendResize(cols, rows); }
+    allDirty = true; needDraw = true;
     return {cols, rows};
 }
-function draw() {
-    if (!term) return;
-    ctx.save(); ctx.scale(dpr, dpr); ctx.font = FONT; ctx.textBaseline = "middle";
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg").trim() || "#15171b";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const fgDefault = "#e6e7ea";
-    for (let y = 0; y < term.rows; y++) {
-        const row = term.grid[y];
-        for (let x = 0; x < term.cols; x++) {
-            const c = row[x];
-            if (!c) continue;
-            let fg = c.fgSet ? hex(c.fg) : fgDefault, bg = c.bgSet ? hex(c.bg) : null;
-            if (c.inverse) { const t = bg || "#15171b"; bg = fg; fg = t; }
-            const cursorHere = term.cursor && x === term.x && y === term.y && document.activeElement === $("term");
-            if (bg) { ctx.fillStyle = bg; ctx.fillRect(x * cellW, y * cellH, cellW * (c.ch === "" ? 0 : (charWidth(c.ch) === 2 ? 2 : 1)), cellH); }
-            if (cursorHere) { ctx.fillStyle = "rgba(224,138,85,.55)"; ctx.fillRect(x * cellW, y * cellH, cellW, cellH); }
-            if (c.ch && c.ch !== " ") {
-                ctx.fillStyle = c.dim ? "rgba(230,231,234,.55)" : fg;
-                ctx.font = (c.italic ? "italic " : "") + (c.bold ? "bold " : "") + FONT;
-                ctx.fillText(c.ch, x * cellW, y * cellH + cellH / 2);
-                if (c.underline) { ctx.fillStyle = fg; ctx.fillRect(x * cellW, y * cellH + cellH - 2, cellW, 1); }
-                if (c.strike) { ctx.fillStyle = fg; ctx.fillRect(x * cellW, y * cellH + cellH / 2, cellW, 1); }
-            }
+function blankRow(cols) { return Array.from({length: cols}, blank); }
+function resizeView(cols, rows) {
+    if (view === term && term) { term.resize(cols, rows); return; }
+    view.cols = cols; view.rows = rows;
+    view.grid.length = Math.min(view.grid.length, rows);
+    while (view.grid.length < rows) view.grid.push(blankRow(cols));
+    for (const row of view.grid) { row.length = Math.min(row.length, cols); while (row.length < cols) row.push(blank()); }
+    allDirty = true;
+}
+function drawRow(y) {
+    const row = view.grid[y];
+    const top = y * cellH;
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, top, canvas.width / dpr, cellH);
+    if (!row) return;
+    let font = "";
+    for (let x = 0; x < view.cols; x++) {
+        const c = row[x];
+        if (!c || c.ch === "") continue;
+        let fg = c.fgSet ? hex(c.fg) : FG, bg = c.bgSet ? hex(c.bg) : null;
+        if (c.inverse) { const t = bg || BG; bg = fg; fg = t; }
+        const wide = charWidth(c.ch || " ") === 2 ? 2 : 1;
+        if (bg) { ctx.fillStyle = bg; ctx.fillRect(x * cellW, top, cellW * wide, cellH); }
+        if (view.cursor && x === view.x && y === view.y && document.activeElement === $("term")) { ctx.fillStyle = "rgba(224,138,85,.55)"; ctx.fillRect(x * cellW, top, cellW, cellH); }
+        if (c.ch !== " ") {
+            const want = (c.italic ? "italic " : "") + (c.bold ? "bold " : "") + FONT;
+            if (want !== font) { ctx.font = want; font = want; }
+            ctx.fillStyle = c.dim ? "rgba(230,231,234,.55)" : fg;
+            ctx.fillText(c.ch, x * cellW, top + cellH / 2);
+            if (c.underline) { ctx.fillStyle = fg; ctx.fillRect(x * cellW, top + cellH - 2, cellW * wide, 1); }
+            if (c.strike) { ctx.fillStyle = fg; ctx.fillRect(x * cellW, top + cellH / 2, cellW * wide, 1); }
         }
     }
-    ctx.restore();
+    // the cursor on a blank cell
+    if (view.cursor && y === view.y && document.activeElement === $("term") && (!row[view.x] || row[view.x].ch === " " || row[view.x].ch === "")) {
+        ctx.fillStyle = "rgba(224,138,85,.55)"; ctx.fillRect(view.x * cellW, top, cellW, cellH);
+    }
 }
+function draw() {
+    if (!view) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textBaseline = "middle";
+    // the cursor moved: its old row and its new one drawn again
+    const cursor = view.cursor ? view.x + "," + view.y : "";
+    if (cursor !== drawnCursor) {
+        if (drawnCursor) dirty.add(Number(drawnCursor.split(",")[1]));
+        if (view.cursor) dirty.add(view.y);
+        drawnCursor = cursor;
+    }
+    if (allDirty) { ctx.fillStyle = BG; ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr); }
+    const rows = allDirty ? Array.from({length: view.rows}, (_, i) => i) : [...dirty];
+    for (const y of rows) if (y >= 0 && y < view.rows) drawRow(y);
+    dirty.clear(); allDirty = false;
+    drawn++;
+}
+let drawn = 0;
 function frame() { if (needDraw) { needDraw = false; draw(); } requestAnimationFrame(frame); }
 requestAnimationFrame(frame);
 
-// ---- the computer: the terminal opened, its output read (long polls), the keys written ----
-let next = 0, reading = false, writes = Promise.resolve(), opened = false;
+// ---- the computer: one WebSocket (the keys, the rows changed, its ping); polling when it can't ----
+let ws = null, mode = "", opened = false, next = 0, reading = false, writes = Promise.resolve();
+let rtt = 0, frames = 0, fps = 0, retries = 0, pinger = null;
 async function api(path, body, raw) {
     const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": raw ? "application/octet-stream" : "application/json"}, body};
     const response = await fetch(path, Object.assign({credentials: "same-origin", cache: "no-store"}, options));
@@ -255,39 +290,121 @@ async function api(path, body, raw) {
     if (!response.ok) throw new Error(data.error || response.statusText);
     return data;
 }
-function sendKeys(text) { // in order, never two at once
-    writes = writes.then(() => api("/api/tty/write", new TextEncoder().encode(text), true)).catch(() => {});
+const encoder = new TextEncoder();
+function sendKeys(text) {
+    if (mode === "ws" && ws && ws.readyState === 1) { // binary: the bytes of the keys, in order
+        const bytes = encoder.encode(text);
+        for (let at = 0; at < bytes.length; at += 512 * 1024) ws.send(bytes.subarray(at, at + 512 * 1024));
+        return;
+    }
+    writes = writes.then(() => api("/api/tty/write", encoder.encode(text), true)).catch(() => {}); // in order, never two at once
 }
-function sendResize(cols, rows) { if (opened) api("/api/tty/resize", JSON.stringify({cols, rows})).catch(() => {}); }
+function sendResize(cols, rows) {
+    if (mode === "ws" && ws && ws.readyState === 1) ws.send(JSON.stringify({t: "resize", cols, rows}));
+    else if (opened) api("/api/tty/resize", JSON.stringify({cols, rows})).catch(() => {});
+}
+function showStats() {
+    $("status").textContent = (mode === "ws" ? "live" : "polling") + (mode === "ws" && rtt ? " · ping " + Math.round(rtt) + " ms" : "") + (fps ? " · " + fps + " fps" : "");
+}
+setInterval(() => { fps = frames; frames = 0; if (opened) showStats(); }, 1000);
+function cellsOf(runs, cols) {
+    // a row sent by the computer: its runs [text, fg, bg, flags] -> its cells (a wide character: 2 cells)
+    const row = blankRow(cols);
+    let x = 0;
+    for (const [text, fg, bg, flags] of runs) {
+        for (const ch of text) {
+            const w = charWidth(ch);
+            if (w === 0) { if (x > 0) row[x - 1].ch += ch; continue; }
+            if (x >= cols) break;
+            const cell = {ch, fg: fg < 0 ? 0 : fg, bg: bg < 0 ? 0 : bg, fgSet: fg >= 0, bgSet: bg >= 0, bold: (flags & 1) > 0, dim: (flags & 2) > 0,
+                italic: (flags & 4) > 0, underline: (flags & 8) > 0, strike: (flags & 16) > 0, inverse: (flags & 32) > 0};
+            row[x] = cell;
+            if (w === 2 && x + 1 < cols) row[x + 1] = Object.assign({}, cell, {ch: ""});
+            x += w;
+        }
+    }
+    return row;
+}
+function applyFrame(f) {
+    if (f.cols && f.rows && (f.cols !== view.cols || f.rows !== view.rows)) resizeView(f.cols, f.rows);
+    for (const [y, runs] of f.r || []) { if (y < view.rows) { view.grid[y] = cellsOf(runs, view.cols); dirty.add(y); } }
+    if (f.full) allDirty = true;
+    if (f.x !== undefined) { view.x = f.x; view.y = f.y; view.cursor = f.cur; view.mouse = f.mouse; view.paste = f.paste; }
+    frames++; needDraw = true;
+    if (f.alive === false) { mode = ""; closed(f.none ? "No terminal here: open it again." : "The terminal interface quit (Ctrl+Q), or was closed."); }
+}
+function connectWs(size) {
+    return new Promise((resolve, reject) => {
+        let up = false;
+        const sock = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/tty/ws?cols=" + size.cols + "&rows=" + size.rows);
+        sock.binaryType = "arraybuffer";
+        sock.onopen = () => { up = true; resolve(sock); };
+        sock.onmessage = (e) => {
+            let message;
+            try { message = JSON.parse(e.data); } catch (error) { return; }
+            if (message.t === "f") applyFrame(message);
+            else if (message.t === "pong") { rtt = performance.now() - message.n; showStats(); }
+        };
+        sock.onclose = (e) => {
+            if (!up) { reject(new Error("no WebSocket")); return; }
+            if (ws !== sock) return; // replaced
+            clearInterval(pinger);
+            if (e.code === 4001) { opened = false; showLogin(""); return; }
+            if (e.code === 1000 || mode !== "ws") { if (opened) closed(e.reason || "The terminal was closed."); return; }
+            // the connection lost (the network, the computer asleep): again, its terminal kept on the computer
+            if (opened && retries < 5) { retries++; $("status").textContent = "reconnecting…"; setTimeout(() => open().catch((err) => closed(err.message)), 400 * retries); }
+            else if (opened) closed("The connection was lost.");
+        };
+    });
+}
 async function open() {
     measure();
     const size = fit();
-    term = new Term(size.cols, size.rows);
     $("closed").classList.add("hidden"); $("again").classList.add("hidden");
-    const info = await api("/api/tty/open", JSON.stringify({cols: size.cols, rows: size.rows}));
-    next = info.kept ? Math.max(0, info.next - 200000) : 0; // kept: the recent output drawn again
-    opened = true;
-    $("status").textContent = info.kept ? "attached" : "open";
+    try {
+        if (!window.WebSocket) throw new Error("no WebSocket");
+        view = {cols: size.cols, rows: size.rows, grid: Array.from({length: size.rows}, () => blankRow(size.cols)), x: 0, y: 0, cursor: true, mouse: false, paste: false};
+        term = null;
+        const sock = await connectWs(size);
+        if (ws && ws !== sock) { try { ws.close(); } catch (e) { /* gone */ } }
+        ws = sock; mode = "ws"; opened = true; retries = 0; allDirty = true;
+        clearInterval(pinger);
+        pinger = setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({t: "ping", n: performance.now()})); }, 2000);
+        ws.send(JSON.stringify({t: "ping", n: performance.now()}));
+    } catch (error) {
+        // polling: the terminal opened, its output read by long polls (raw bytes, the emulator of this page)
+        mode = "poll";
+        term = new Term(size.cols, size.rows);
+        view = term;
+        const info = await api("/api/tty/open", JSON.stringify({cols: size.cols, rows: size.rows}));
+        next = info.kept ? Math.max(0, info.next - 200000) : 0; // kept: the recent output drawn again
+        opened = true;
+        readLoop();
+    }
+    showStats();
     $("term").focus();
-    readLoop();
 }
 async function readLoop() {
     if (reading) return;
     reading = true;
-    while (opened) {
+    while (opened && mode === "poll") {
         let got;
         try { got = await api("/api/tty/read?from=" + next); } catch (error) { await new Promise((r) => setTimeout(r, 1000)); if (error.message === "not connected") break; continue; }
-        if (got.data) { term.feedBytes(Uint8Array.from(atob(got.data), (c) => c.charCodeAt(0))); needDraw = true; }
+        if (got.data) { term.feedBytes(Uint8Array.from(atob(got.data), (c) => c.charCodeAt(0))); allDirty = true; needDraw = true; frames++; }
         next = got.next;
         if (!got.alive) { closed(got.none ? "No terminal here: open it again." : "The terminal interface quit (Ctrl+Q), or was closed."); break; }
     }
     reading = false;
 }
-function closed(why) { opened = false; $("closedWhy").textContent = why; $("closed").classList.remove("hidden"); $("again").classList.remove("hidden"); $("status").textContent = "closed"; }
-$("reopen").addEventListener("click", () => open().catch((e) => closed(e.message)));
-$("again").addEventListener("click", () => open().catch((e) => closed(e.message)));
+function closed(why) {
+    opened = false; clearInterval(pinger);
+    if (ws) { const old = ws; ws = null; try { old.close(); } catch (e) { /* gone */ } }
+    $("closedWhy").textContent = why; $("closed").classList.remove("hidden"); $("again").classList.remove("hidden"); $("status").textContent = "closed";
+}
+$("reopen").addEventListener("click", () => { retries = 0; open().catch((e) => closed(e.message)); });
+$("again").addEventListener("click", () => { retries = 0; open().catch((e) => closed(e.message)); });
 $("page").addEventListener("click", () => { location.href = location.protocol + "//" + location.hostname + ":" + (PAGE_PORT || "8787") + "/"; });
-$("logout").addEventListener("click", async () => { try { await api("/api/tty/close", "{}"); await api("/api/logout", "{}"); } catch (e) { /* out anyway */ } showLogin("Logged out"); });
+$("logout").addEventListener("click", async () => { opened = false; if (ws) ws.close(); try { await api("/api/tty/close", "{}"); await api("/api/logout", "{}"); } catch (e) { /* out anyway */ } showLogin("Logged out"); });
 
 // ---- the keys: what a terminal sends ----
 const CSI = "\x1b[";
@@ -325,16 +442,16 @@ $("term").addEventListener("paste", (e) => {
     const text = (e.clipboardData || window.clipboardData).getData("text");
     if (!text) return;
     e.preventDefault();
-    sendKeys(term && term.paste ? "\x1b[200~" + text + "\x1b[201~" : text);
+    sendKeys(view && view.paste ? "\x1b[200~" + text + "\x1b[201~" : text);
 });
 // the mouse: SGR reports when the terminal asked for it (clicks, the wheel, a drag)
 function mouseCell(e) { const r = canvas.getBoundingClientRect(); return {x: Math.max(1, Math.floor((e.clientX - r.left) / cellW) + 1), y: Math.max(1, Math.floor((e.clientY - r.top) / cellH) + 1)}; }
 let pressed = -1;
-canvas.addEventListener("mousedown", (e) => { $("term").focus(); if (!term || !term.mouse) return; e.preventDefault(); const p = mouseCell(e); pressed = e.button; sendKeys(CSI + "<" + e.button + ";" + p.x + ";" + p.y + "M"); });
-canvas.addEventListener("mouseup", (e) => { if (!term || !term.mouse) return; const p = mouseCell(e); sendKeys(CSI + "<" + e.button + ";" + p.x + ";" + p.y + "m"); pressed = -1; });
-canvas.addEventListener("mousemove", (e) => { if (!term || !term.mouse || pressed < 0) return; const p = mouseCell(e); sendKeys(CSI + "<" + (32 + pressed) + ";" + p.x + ";" + p.y + "M"); });
-canvas.addEventListener("wheel", (e) => { if (!term || !term.mouse) return; e.preventDefault(); const p = mouseCell(e); sendKeys(CSI + "<" + (e.deltaY < 0 ? 64 : 65) + ";" + p.x + ";" + p.y + "M"); }, {passive: false});
-canvas.addEventListener("contextmenu", (e) => { if (term && term.mouse) e.preventDefault(); });
+canvas.addEventListener("mousedown", (e) => { $("term").focus(); if (!view || !view.mouse) return; e.preventDefault(); const p = mouseCell(e); pressed = e.button; sendKeys(CSI + "<" + e.button + ";" + p.x + ";" + p.y + "M"); });
+canvas.addEventListener("mouseup", (e) => { if (!view || !view.mouse) return; const p = mouseCell(e); sendKeys(CSI + "<" + e.button + ";" + p.x + ";" + p.y + "m"); pressed = -1; });
+canvas.addEventListener("mousemove", (e) => { if (!view || !view.mouse || pressed < 0) return; const p = mouseCell(e); sendKeys(CSI + "<" + (32 + pressed) + ";" + p.x + ";" + p.y + "M"); });
+canvas.addEventListener("wheel", (e) => { if (!view || !view.mouse) return; e.preventDefault(); const p = mouseCell(e); sendKeys(CSI + "<" + (e.deltaY < 0 ? 64 : 65) + ";" + p.x + ";" + p.y + "M"); }, {passive: false});
+canvas.addEventListener("contextmenu", (e) => { if (view && view.mouse) e.preventDefault(); });
 // fullscreen: the keyboard locked (Chrome / Edge): Ctrl+T, Ctrl+N, Ctrl+W reach the terminal
 $("full").addEventListener("click", async () => {
     try {
@@ -345,10 +462,10 @@ $("full").addEventListener("click", async () => {
     setTimeout(fit, 100);
 });
 document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); setTimeout(fit, 100); });
-window.addEventListener("resize", () => { if (term) fit(); });
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { measure(); if (term) fit(); }); // the font once loaded: the cells measured again
-$("term").addEventListener("focus", () => { needDraw = true; });
-$("term").addEventListener("blur", () => { needDraw = true; });
+window.addEventListener("resize", () => { if (view) fit(); });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { measure(); if (view) fit(); }); // the font once loaded: the cells measured again
+$("term").addEventListener("focus", () => { if (view) dirty.add(view.y); needDraw = true; });
+$("term").addEventListener("blur", () => { if (view) dirty.add(view.y); needDraw = true; });
 
 // ---- the login: the code, then the approval of the computer ----
 function showLogin(error) { opened = false; $("login").classList.remove("hidden"); $("loginError").textContent = error || ""; $("pin").focus(); }
