@@ -15,7 +15,10 @@ Extracted from the user's real code: libutils / context-forge (C++, CMake, shell
 - Above-the-block comment: one line, starts with an upper case letter (`# Determine branches`,
   `// Get a new id`), placed right above the block it describes, after an empty line.
 - Trailing comment: on declarations / values / options to give the meaning, unit, default or constraint
-  (`SOCKET_TIMEOUT 7 // Timeout in seconds`, `find_package(OpenSSL REQUIRED) # Used for encryption purpose`).
+  (`SOCKET_TIMEOUT 7 // Timeout in seconds`, `find_package(OpenSSL REQUIRED) # Used for encryption purpose`),
+  **glued to the code** (one space before the marker), never padded to a shared column: on variables and
+  functions each comment follows its own line; only include / import blocks (and the CMake option lists below)
+  align theirs.
 - Notations: `->` consequence / mapping (`# compinit already done -> only register the completion`),
   `=` value meaning (`0 = unlimited`, `-1 = closed`), `<a, b>` tuple/pair fields, `a | b` alternatives,
   `(...)` precision (`(failsafe)`, `(default: 4096)`), `word: precision` for a nuance (`Not an error: only ...`).

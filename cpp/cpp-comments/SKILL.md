@@ -53,6 +53,15 @@ virtual void reset(void) = 0; // reset fd (DOES NOT CLOSE!!!)
 std::vector<std::tuple<std::string, bool, std::vector<std::string>>> arguments; // <id, option(true)|flag(false), {option}>
 template<bool force = false> // Can't override an exiting one by default, throw of error
 ```
+- **Glued to the code**: one space before `//`, on members, functions and one-liners alike; **never a column of
+  comments** (the only aligned trailing comments are the includes, below):
+  ```cpp
+  std::vector<brain::BrainNeuron> _neurons; // every neuron of the 2d space
+  std::pair<brain::FType, brain::FType> _size = {1.0, 1.0}; // <width, height> of the 2d space
+  brain::UIType _neuron = 0; // number of neurons
+  _cold inline void seed(const brain::IType seed) {this->_seed = seed;}; // seed of the random generator (0 = random)
+  ```
+  not `_neurons;                 // every neuron` padded to the longest line.
 - Tuples / pairs described with `<field, field>`, alternatives with `|`, mappings with `->`,
   values with `=` (`0 = unlimited`, `-1 = every fd`), precisions in `(...)`.
 - Emphasis on a dangerous behavior in upper case + `!!!` or `(only!)`.

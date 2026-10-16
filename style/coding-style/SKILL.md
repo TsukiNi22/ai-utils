@@ -22,6 +22,12 @@ local style wins. Comments: the `comments` skill. Everything (code, identifiers,
   `255` special/fatal), early returns, failsafe options rather than crashes.
 - Short functions, early returns, no magic number (named constant with a trailing comment), no dead code (kept
   commented only when it is a real alternative).
+- **Alignment**: columns only within a group of consecutive lines of the same category (the setters, the getters,
+  the cases of one switch), **tight** (the longest line of the group + one space), **every line of the group on
+  that column**, none when one line is much longer than the others (leave it unaligned or split the group rather
+  than pad everything). **Trailing comments are glued** to the code, one space before the marker
+  (`timeout = 7 # seconds`, `int fd = -1; // closed`), never on a shared column; the exceptions are the include /
+  import comments (one column per block) and formats whose own convention aligns (CMake option lists).
 - Imports / includes explicit (no wildcard import), always in this order (same rule as the C++ includes of
   `cpp-style`):
   1. what the **personal libraries** need before being imported (a C `#define`, an environment variable, a path

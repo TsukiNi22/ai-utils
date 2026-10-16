@@ -91,7 +91,7 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
 - `&`/`*` glued to the type: `const std::string& name`, `char* buf`, `auto &[a, b]` for structured bindings.
 - `template<typename T>` without space. `(void)` for an empty parameter list, always.
 - One-liners: no space inside the braces and a `;` after: `{return this->_fd;};`, `{this->_help = false;};`.
-- Consecutive similar lines are aligned in columns (overloads, getters, `using`, `case`, include comments):
+- Consecutive similar lines of **one group** share a column (overloads, the setters, the getters, `using`, `case`):
   ```cpp
   _hot _nodiscard bool hasAcceptOverload(void) const override {return false;};
   _hot _nodiscard bool hasRecvOverload(void) const override   {return false;};
@@ -103,7 +103,20 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
   _cold _nodiscard rtype::engine::IWindow& getWindow(void) {return *this->_window;};
   _cold _nodiscard rtype::engine::Layout& getRoot(void)    {return this->_root;};
   ```
+  - **Every line of the group on that column**: no line of the group left further right or left (a group whose
+    setters sit on one column and two of its getters on another is wrong).
+  - A group is a run of consecutive lines of the **same category** (`/* setter */`, `/* getter */`, the overloads
+    of one name, one `enum`'s `case`s): a blank line or a `/* label */` starts a new column; the setters are never
+    aligned on the getters.
+  - **Not when the spread is too wide**: when one signature is much longer than the rest (the column would push
+    the whole group far right, 30+ columns of spaces on the short lines), leave the long one unaligned or split
+    the group, rather than pad every other line to it. No space is ever "for later".
+  - The trailing comment of a one-liner is **glued**: one space after `};`, never a second column of comments:
+    `_cold inline void seed(const brain::IType seed) {this->_seed = seed;}; // seed of the random generator`.
   Include comments keep their own alignment (see `cpp-comments`), this rule is only for functions.
+- Trailing comments of members and declarations are glued to the code too (one space before `//`, no column):
+  `brain::UIType _neuron = 0; // number of neurons` right under
+  `std::vector<brain::BrainNeuron> _neurons; // every neuron of the 2d space`.
 - **A function whose body is a single statement goes in the header**, never in the .cpp: a definition that would
   fit in 2 lines in the .cpp (signature, then `{return ...;}`) is written as a one-liner in the `Function` block of
   the `.hpp`, with `inline` after the attributes (not on a `virtual` / `override` method, defined there without
