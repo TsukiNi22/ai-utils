@@ -93,6 +93,24 @@ _cold static std::string random_hex_(const std::size_t bytes)
     return out;
 }
 
+_cold static bool same_secret_(const std::string& a, const std::string& b)
+{
+    // compared whole whatever matches: its time tells nothing (the code, the secret of a trusted device)
+    volatile unsigned char diff = static_cast<unsigned char>(a.size() ^ b.size());
+    for (std::size_t i = 0; i < std::max(a.size(), b.size()); ++i)
+        diff = static_cast<unsigned char>(diff | ((i < a.size() ? static_cast<unsigned char>(a[i]) : 0) ^ (i < b.size() ? static_cast<unsigned char>(b[i]) : 0)));
+    return diff == 0;
+}
+
+_cold static std::string safe_filename_(const std::string& name)
+{
+    // in a header: printable ASCII only, no quote (a name made by an agent: no header injected)
+    std::string out;
+    for (const char c: name)
+        out += (c >= 0x20 && c < 0x7F && c != '"' && c != '\\') ? c : '_';
+    return out.empty() ? std::string("file") : out;
+}
+
 _cold static std::string url_decode_(const std::string& text)
 {
     std::string out;
@@ -628,6 +646,7 @@ _cold void cluster::Web::tailnetCert_(void)
         SSL_CTX* context = ::SSL_CTX_new(::TLS_server_method());
         if (context == nullptr) return;
         (void)::SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION);
+        (void)::SSL_CTX_set_options(context, SSL_OP_NO_RENEGOTIATION | SSL_OP_CIPHER_SERVER_PREFERENCE);
         if (::SSL_CTX_use_certificate_chain_file(context, cert.c_str()) != 1 || ::SSL_CTX_use_PrivateKey_file(context, key.c_str(), SSL_FILETYPE_PEM) != 1) {
             ::SSL_CTX_free(context);
             this->_certWhy = "the certificate of the tailnet unreadable (" + cluster::short_path(dir.string()) + ")";
@@ -698,6 +717,7 @@ _cold std::string cluster::Web::tls_(void)
         SSL_CTX* context = ::SSL_CTX_new(::TLS_server_method());
         if (context == nullptr) return "OpenSSL";
         (void)::SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION);
+        (void)::SSL_CTX_set_options(context, SSL_OP_NO_RENEGOTIATION | SSL_OP_CIPHER_SERVER_PREFERENCE);
         if (::SSL_CTX_use_certificate_chain_file(context, cert.c_str()) != 1 || ::SSL_CTX_use_PrivateKey_file(context, key.c_str(), SSL_FILETYPE_PEM) != 1) {
             ::SSL_CTX_free(context);
             std::filesystem::remove(cert, error);   // made again at the next opening
@@ -736,6 +756,9 @@ _cold void cluster::Web::expire_(void)
 {
     // connected: gone after 30 s without a request (its page asks every 15 s); waiting: 3 min; denied: told, then gone
     const std::int64_t now = now_ms_();
+    // the addresses blocked: forgotten once their time is over (never a map growing with every attacker)
+    std::erase_if(this->_blocked, [now](const std::pair<const std::string, std::pair<int, std::int64_t>>& b) {return b.second.second != 0 && b.second.second < now;});
+    if (this->_blocked.size() > 10000) std::erase_if(this->_blocked, [](const std::pair<const std::string, std::pair<int, std::int64_t>>& b) {return b.second.second == 0;});
     for (auto it = this->_access.begin(); it != this->_access.end();) {
         const cluster::WebDevice& d = it->second.device;
         const bool gone = (d.state == "connected" && now - d.seen > 30000) || (d.state == "waiting" && now - d.since > 180000) || (d.state == "denied" && now - d.since > 60000);
@@ -1074,9 +1097,13 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         return;
     }
     if (request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
-        respond_(conn, 200, "text/html; charset=utf-8", std::string(cluster::templates::WEB_PAGE),
-            "Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; "
-            "media-src 'self' blob:; worker-src 'self'\r\nPermissions-Policy: microphone=(self)\r\n");
+        // its script allowed by a nonce of this response alone: a script injected in the page (an escaping bug) never runs
+        const std::string nonce = random_hex_(16);
+        std::string page(cluster::templates::WEB_PAGE);
+        if (const std::size_t at = page.find("<script>"); at != std::string::npos) page.replace(at, 8, "<script nonce=\"" + nonce + "\">");
+        respond_(conn, 200, "text/html; charset=utf-8", page,
+            "Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-" + nonce + "'; img-src 'self' data: blob:; "
+            "media-src 'self' data: blob:; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'\r\nPermissions-Policy: microphone=(self)\r\n");
         return;
     }
     if (request.path == "/api/login") {
@@ -1231,8 +1258,7 @@ self.addEventListener("notificationclick", (e) => {
         } else {
             std::ifstream in(path, std::ios::binary);
             const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            std::string name = path.filename().string();
-            std::replace(name.begin(), name.end(), '"', '_');
+            const std::string name = safe_filename_(path.filename().string());
             respond_(conn, 200, file.value("mime", std::string("application/octet-stream")), bytes, "Content-Disposition: attachment; filename=\"" + name + "\"\r\n");
         }
     } else if (request.method == "GET" && request.path == "/api/display") {
@@ -1351,7 +1377,7 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
         if (std::isdigit(static_cast<unsigned char>(c))) digits += c;
     // remembered: its secret
     auto trusted = this->_trusted.find(id);
-    if (trusted != this->_trusted.end() && !cookie_(request, "cc_trust").empty() && cookie_(request, "cc_trust") == trusted->second.secret) {
+    if (trusted != this->_trusted.end() && !cookie_(request, "cc_trust").empty() && same_secret_(cookie_(request, "cc_trust"), trusted->second.secret)) {
         Access access = trusted->second;
         access.device.state = "connected";
         access.device.address = peer;
@@ -1369,7 +1395,7 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
     }
     if (digits.empty()) {
         json_(conn, 401, {{"error", "the code"}, {"need", "code"}});
-    } else if (digits != this->_pin) {
+    } else if (!same_secret_(digits, this->_pin)) {
         if (++this->_blocked[peer].first >= 5) {
             this->_blocked[peer] = {0, now_ms_() + 15 * 60 * 1000};
             this->_manager.notice(GLOBAL_ID, "web: 5 wrong codes from " + peer + (outside ? " (outside the LAN)" : "") + ": blocked 15 min", true);

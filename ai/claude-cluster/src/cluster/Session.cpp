@@ -235,14 +235,27 @@ _cold std::vector<std::string> cluster::Session::args_(const std::string& prompt
 
 _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const bool input)
 {
-    // env -C <cwd> VAR=value... <agent> <args>: the child only dup2 then exec (safe after a fork in a threaded program)
-    std::vector<std::string> envArgs = {"-C", cluster::expand_home(this->_data.spec.cwd).string()};
+    // sh reads its environment (the API key...) on a pipe (fd 3), goes to <cwd> and execs <agent> <args>: nothing secret in
+    // a command line (/proc/<pid>/cmdline is readable by every user of the computer); the child only dup2 then exec
+    // (safe after a fork in a threaded program)
+    std::string variables;
     // claude -p has no todo tools by default: given (its todo list: the Tasks session, its panel)
     if (std::none_of(this->_launch.env.begin(), this->_launch.env.end(), [](const std::pair<std::string, std::string>& v) {return v.first == "CLAUDE_CODE_ENABLE_TODO_TOOLS";}))
-        envArgs.push_back("CLAUDE_CODE_ENABLE_TODO_TOOLS=true");
+        variables += "CLAUDE_CODE_ENABLE_TODO_TOOLS=true\n";
     for (const auto &[name, value]: this->_launch.env)
-        envArgs.push_back(name + "=" + value);
+        if (name.find('\n') == std::string::npos && value.find('\n') == std::string::npos) variables += name + "=" + value + "\n";
+    std::vector<std::string> envArgs = {"-c", "while IFS= read -r v; do export \"$v\"; done <&3; exec 3<&-; cd \"$1\" || exit 126; shift; exec \"$@\"", "sh",
+        cluster::expand_home(this->_data.spec.cwd).string()};
     envArgs.insert(envArgs.end(), args.begin(), args.end());
+    utils::encapsulation::Pipe environment;
+    environment.trigger();
+    cloexec_(environment.getWrite());
+    for (std::size_t written = 0; written < variables.size();) {
+        const ssize_t size = ::write(environment.getWrite(), variables.data() + written, variables.size() - written);
+        if (size <= 0) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, "the environment of the agent not written");
+        written += static_cast<std::size_t>(size);
+    }
+    environment.closeWrite();
 
     utils::encapsulation::Pipe in;
     utils::encapsulation::Pipe out;
@@ -258,17 +271,20 @@ _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const 
     utils::encapsulation::Dup toIn(in.getRead(), STDIN_FILENO);
     utils::encapsulation::Dup toOut(out.getWrite(), STDOUT_FILENO);
     utils::encapsulation::Dup toErr(err.getWrite(), STDERR_FILENO);
+    utils::encapsulation::Dup toEnv(environment.getRead(), 3);
     this->_process->dup(toIn);
     this->_process->dup(toOut);
     this->_process->dup(toErr);
+    this->_process->dup(toEnv);
     // a session of its own (setsid, same pid: exec without a fork): the signals of the terminal (its tab closed: SIGHUP)
     // never reach the agent, claude-cluster stops it itself
     if (cluster::has_command("setsid")) {
-        envArgs.insert(envArgs.begin(), "env");
+        envArgs.insert(envArgs.begin(), "sh");
         this->_data.pid = static_cast<int>(this->_process->spawn("setsid", envArgs));
     } else {
-        this->_data.pid = static_cast<int>(this->_process->spawn("env", envArgs));
+        this->_data.pid = static_cast<int>(this->_process->spawn("sh", envArgs));
     }
+    environment.closeRead();
 
     // Parent: keep the write end of stdin and the read ends of the outputs (released from the Pipe objects)
     in.closeRead();

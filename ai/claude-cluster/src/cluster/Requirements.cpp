@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
 #include <cstdlib>
+#include <set>
 
 _cold cluster::Requirement cluster::setting_requirement(cluster::Manager& manager, const cluster::Setting& setting, const std::string& value)
 {
@@ -66,7 +67,9 @@ _cold std::vector<std::string> cluster::install_command(const std::string& packa
 _cold std::string cluster::install_package(const std::string& package, cluster::Manager* manager)
 {
     // as root by the password window of the desktop (pkexec), its output live in the popup of the interfaces; its error
-    // told, empty: installed
+    // told, empty: installed; the packages a setting needs only (the password window names dnf, not the package)
+    static const std::set<std::string> known = {"miniupnpc", "tailscale"};
+    if (!known.contains(package)) return "not a package a setting needs (" + package + "): install it yourself";
     const std::vector<std::string> command = cluster::install_command(package);
     if (command.empty()) return "no package manager known here (dnf, apt-get, pacman, zypper): install " + package + " yourself";
     if (!cluster::has_command("pkexec")) return "pkexec missing: run sudo " + command[0] + " install " + package + " yourself";

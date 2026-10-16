@@ -472,8 +472,12 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void save(String path, String name) {
-            // a file of the computer (the app, a file display): Download/claude-cluster
+            // a file of the computer (the app, a file display): Download/claude-cluster; a path of the page only (never another host)
             final String url = base;
+            if (path == null || !path.startsWith("/") || path.startsWith("//") || path.contains("@") || path.contains("\\") || path.contains("..")) {
+                ui.post(() -> android.widget.Toast.makeText(MainActivity.this, "refused: not a file of the computer", android.widget.Toast.LENGTH_LONG).show());
+                return;
+            }
             new Thread(() -> {
                 String done;
                 try {

@@ -683,16 +683,22 @@ What protects the three ways of using claude-cluster, and what stays your respon
   in `bypassPermissions` - may drive claude-cluster through it (read the transcripts, send prompts, allow a tool): the
   same trust as your account. The API keys live in the keyring (`secret-tool`) or `credentials.json` (`0600`), given
   to the agents by their environment only, never in `config.toml`, the logs or the transcripts (an agent printing its
-  key in an error would show it in its transcript). The config and data folders (`~/.config/claude-cluster`,
-  `~/.local/share/claude-cluster`: the conversations, the prompt history, the keys of the web access) are `0700`.
+  key in an error would show it in its transcript); an agent gets them on a pipe, never on its command line
+  (`/proc/<pid>/cmdline` is readable by every user of the computer). The config and data folders
+  (`~/.config/claude-cluster`, `~/.local/share/claude-cluster`: the conversations, the prompt history, the keys of the
+  web access) are `0700`. The programs run with your rights (`commands.*`, the editor, the image viewer, the
+  terminal / python of the service, the voice commands) are confirmed before they change.
 - **Web access on the LAN**: https on by default (the authority of this computer, its key `0600`; TLS 1.2+), a plain
   request sent to https. A device gets in with the 6-digit code **and** your approval (`[web] approve`, on by
   default); a trusted device (its 32-byte secret, `trusted.json` `0600`) comes back by itself. The session cookie
   (24 random bytes, `HttpOnly`, `SameSite=Strict`, `Secure`) is bound to the address of the device. 5 wrong codes:
   the address blocked 15 min and a new code. Only the private addresses of the subnets of this computer are served;
   the `Host` is checked (no DNS rebinding), a `POST` needs the right `Origin` (no CSRF), the page has a CSP,
-  `X-Frame-Options: DENY`, `nosniff`, HSTS. 64 requests at once at most (the rest told busy). The page escapes
-  everything it shows (the transcripts as text, the markdown of the displays escaped whole).
+  `X-Frame-Options: DENY`, `nosniff`, HSTS; TLS without renegotiation. 64 requests at once at most (the rest told
+  busy). The page escapes everything it shows (the transcripts as text, the markdown of the displays escaped whole),
+  and its script is the only one allowed (a CSP nonce of each response: an injected script never runs). The code and
+  the secrets are compared in constant time; the names of the files downloaded are cleaned (no header injected).
+  `install_package` installs the packages a setting needs only (the password window names `dnf`, not the package).
 - **Web access from outside**: https required (a plain peer from outside is refused before any handshake);
   `tailscale`: only the addresses of your tailnet, the real certificate of the tailnet when it is on; `router`: the
   login page is reachable by anyone on the Internet - the code **and** your approval are needed, 5 wrong codes block

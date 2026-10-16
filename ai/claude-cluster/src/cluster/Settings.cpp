@@ -436,6 +436,13 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             "network (anyone on it can read them); no microphone") : std::string();}},
         {"mcp.servers", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("an MCP server runs a program (or "
             "reaches a site) with the rights of the global session: only the ones you trust");}},
+        // a program run with your rights: the one you mean only (a path, a name of the PATH)
+        {"ui.editor", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights (Ctrl+E)");}},
+        {"ui.image_viewer", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights (a picture opened)");}},
+        {"service.terminal", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights by the service");}},
+        {"service.python", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program runs the wake word detector with your rights");}},
+        {"voice.listen_command", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program hears the microphone, with your rights");}},
+        {"voice.say_command", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights (the voice)");}},
     };
     for (cluster::SettingsPage& page: pages)
         for (cluster::Setting& setting: page.settings)
@@ -453,7 +460,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
     for (const auto &[driver, command]: c.commands) {
         const std::string name = driver;
         std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& page) {return page.section == "commands";})->settings.push_back({"commands", name, name, SettingKind::Text, {}, "program of the " + name + " driver", true,
-            [name](const cluster::Config& cf) {return cf.command(name);}});
+            [name](const cluster::Config& cf) {return cf.command(name);}, {},
+            [name](const std::string& v) {return cluster::trim(v).empty() ? std::string() : "this program is run as the " + name + " agent, with your rights, in your projects";}});
     }
     // the tools of the global session (claude-cluster MCP): each one on / off
     for (cluster::SettingsPage& page: pages) {
