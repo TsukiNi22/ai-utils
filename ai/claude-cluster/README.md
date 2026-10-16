@@ -594,8 +594,10 @@ the agents, a new session, a session closed.
 - **Views** (its header; a tab bar on a phone): *Chat* (a session and its conversation), *Grid* (every session as a
   card: its state and face, its model and folder, its last messages, its turn, a message sent to it from the card),
   *Board* (your dashboard: tiles moved by drag and drop or ◀ ▶, sized S / M / L, hidden; kept in this browser), *Hub*
-  (the global session in the middle, the sessions around it, colored by their state), *Tree* (the sessions by project
-  folder). Its colors are the ones of the style of claude-cluster (*This device* may keep its own light / dark).
+  (a graph: the global session in the middle, the sessions around it, colored by their state; moved by a drag, the
+  arrows or a finger, zoomed by the wheel, `a` / `e`, two fingers or its + − buttons, double click / ⌂: the whole
+  graph; its view kept on this device; a node clicked opens its session; the notes - no sub-session, the keys - at the
+  bottom), *Tree* (the sessions by project folder). Its colors are the ones of the style of claude-cluster (*This device* may keep its own light / dark).
 - **Notifications**: a center (🔔, the notices, unseen ones counted; a click opens the session) and the notifications
   of the browser while the page is not in front (a session finished, waiting for you, an error).
 - **Settings** (⚙): every page of the settings of claude-cluster (saved in its config.toml) and *This device* (its

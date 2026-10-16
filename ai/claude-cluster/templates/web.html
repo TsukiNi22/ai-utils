@@ -223,8 +223,13 @@ header .muted { color: var(--muted); font-size: 13px; }
 .tile-tools button { padding: 2px 7px; font-size: 12px; font-family: var(--mono); }
 .grip { cursor: grab; color: var(--muted); font-family: var(--mono); user-select: none; }
 .hiddenTiles { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.hub svg { width: 100%; height: auto; max-height: calc(100vh - 140px); }
-.hub .node { cursor: pointer; } .hub .node:hover circle { stroke-width: 3; }
+.hub { position: relative; display: flex; flex-direction: column; height: calc(100vh - 150px); min-height: 320px; }
+.hub svg { flex: 1; width: 100%; height: 100%; min-height: 0; touch-action: none; cursor: grab; user-select: none; outline: none; }
+.hub svg:active { cursor: grabbing; } .hub .node { cursor: pointer; } .hub .node:hover circle { stroke-width: 3; }
+.hub-tools { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; gap: 4px; }
+.hub-tools button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; }
+.hub-notes { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; padding: 8px 4px 2px; font-size: 13px; color: var(--text); }
+.hub-notes .muted { color: var(--muted); font-size: 12px; }
 .tree { font-size: 14px; } .tree ul { list-style: none; margin: 0; padding-left: 20px; border-left: 1px dashed var(--line); }
 .tree > ul { border-left: none; padding-left: 0; }
 .tree li { margin: 4px 0; } .tree .row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; min-width: 0; }
@@ -2371,6 +2376,23 @@ $("sayMode").addEventListener("change", (e) => {
 $("settingsButton").addEventListener("click", () => openDrawer());
 
 // ---- the views: chat, grid, board (arranged per device), hub, tree ----
+// the keys of the hub (shown, nothing typed): the arrows move, a / e zoom, 0 the whole graph
+document.addEventListener("keydown", (e) => {
+    if (view !== "hub" || !hubWorld || e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = e.target;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+    const step = 40 / hubView.k;
+    if (e.key === "ArrowLeft") hubView.x += step * hubView.k;
+    else if (e.key === "ArrowRight") hubView.x -= step * hubView.k;
+    else if (e.key === "ArrowUp") hubView.y += step * hubView.k;
+    else if (e.key === "ArrowDown") hubView.y -= step * hubView.k;
+    else if (e.key === "a" || e.key === "+" || e.key === "=") { hubZoom(1.2, 450, 310); e.preventDefault(); return; }
+    else if (e.key === "e" || e.key === "-") { hubZoom(1 / 1.2, 450, 310); e.preventDefault(); return; }
+    else if (e.key === "0") { hubReset(); e.preventDefault(); return; }
+    else return;
+    e.preventDefault();
+    hubApply();
+});
 let view = store.get("cc-view", "chat");
 let lastState = null;
 const shortName = (s) => (s.id === "g" ? "global" : s.name || s.id);
@@ -2446,8 +2468,9 @@ function card(s, tools) {
 
 function renderView(state) {
     const pane = $("viewPane");
-    // a field being typed in: not drawn again under the fingers
+    // a field being typed in, the hub moved by a finger: not drawn again under the fingers
     if (pane.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+    if (view === "hub" && hubBusy) return;
     pane.textContent = "";
     const sessions = state.sessions || [];
     if (view === "grid") {
@@ -2529,15 +2552,37 @@ function renderBoard(pane, sessions) {
     }
 }
 
+// ---- the hub: a graph moved (a drag, the arrows, a finger) and zoomed (the wheel, a / e, two fingers, + -), its view kept ----
+const hubView = Object.assign({x: 0, y: 0, k: 1}, (() => { try { return JSON.parse(store.get("cc-hub-view", "{}")); } catch (e) { return {}; } })());
+let hubBusy = false;            // a drag / a pinch going on: the page not redrawn under the fingers
+let hubWorld = null;            // the <g> moved and zoomed
+function hubApply() {
+    if (hubWorld) hubWorld.setAttribute("transform", `translate(${hubView.x},${hubView.y}) scale(${hubView.k})`);
+    clearTimeout(hubApply.save);
+    hubApply.save = setTimeout(() => store.set("cc-hub-view", JSON.stringify(hubView)), 300);
+}
+function hubZoom(factor, cx, cy) {
+    // zoomed around a point of the svg (the cursor, the middle of two fingers, the middle of the view)
+    const k = Math.min(6, Math.max(0.2, hubView.k * factor));
+    const real = k / hubView.k;
+    hubView.x = cx - (cx - hubView.x) * real;
+    hubView.y = cy - (cy - hubView.y) * real;
+    hubView.k = k;
+    hubApply();
+}
+function hubReset() { hubView.x = 0; hubView.y = 0; hubView.k = 1; hubApply(); }
 function renderHub(pane, sessions) {
     // the global session in the middle, the sessions around it; the line and the ring colored by their state
     const W = 900, H = 620, cx = W / 2, cy = H / 2;
     const global = sessions.find((s) => s.id === "g");
     const others = sessions.filter((s) => s.id !== "g");
-    const svg = svgOf("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "The sessions around the global session"});
+    const svg = svgOf("svg", {viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "xMidYMid meet", role: "img", "aria-label": "The sessions around the global session", tabindex: 0});
+    const world = svgOf("g", {class: "world"});
+    svg.append(world);
     const color = (s) => (s.permissions && s.permissions.length ? "var(--warn)" : s.state === "working" || s.state === "starting" ? "var(--ok)"
         : s.state === "error" ? "var(--error)" : "var(--muted)");
-    const radius = Math.min(250, 120 + others.length * 12);
+    const radius = Math.max(170, others.length * 92 / (2 * Math.PI)); // the nodes never glued (zoom out for many)
+    let moved = false; // a drag: no session opened at its end
     const node = (s, x, y, r) => {
         const g = svgOf("g", {class: "node", transform: `translate(${x},${y})`});
         g.append(svgOf("circle", {r, fill: "var(--surface)", stroke: color(s), "stroke-width": 2}));
@@ -2550,34 +2595,83 @@ function renderHub(pane, sessions) {
         const title = svgOf("title", {});
         title.textContent = shortName(s) + " · " + s.state + " · " + shortPath(s.cwd);
         g.append(face, name, sub, title);
-        g.addEventListener("click", () => openSession(s.id));
+        g.addEventListener("click", () => { if (!moved) openSession(s.id); });
         return g;
     };
     others.forEach((s, i) => {
         const a = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
         const x = cx + Math.cos(a) * radius, y = cy + Math.sin(a) * radius * 0.78;
-        svg.append(svgOf("line", {x1: cx, y1: cy, x2: x, y2: y, stroke: color(s), "stroke-width": s.state === "working" ? 2.5 : 1.5,
+        world.append(svgOf("line", {x1: cx, y1: cy, x2: x, y2: y, stroke: color(s), "stroke-width": s.state === "working" ? 2.5 : 1.5,
             "stroke-dasharray": s.state === "working" ? "" : "4 5", opacity: 0.8}));
     });
     others.forEach((s, i) => {
         const a = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
-        svg.append(node(s, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius * 0.78, 30));
+        world.append(node(s, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius * 0.78, 30));
     });
     if (global) {
-        svg.append(node(global, cx, cy, 46));
+        world.append(node(global, cx, cy, 46));
     } else { // no global session: claude-cluster itself in the middle
         const g = svgOf("g", {transform: `translate(${cx},${cy})`});
         g.append(svgOf("circle", {r: 40, fill: "var(--surface)", stroke: "var(--accent)", "stroke-width": 2, "stroke-dasharray": "3 4"}));
         const face = svgOf("text", {"text-anchor": "middle", y: 5, "font-family": "var(--mono)", "font-size": 15, fill: "var(--accent)"});
         face.textContent = lastState && lastState.face ? lastState.face.text : "^_^";
         const name = svgOf("text", {"text-anchor": "middle", y: 58, "font-size": 12, fill: "var(--muted)"});
-        name.textContent = "claude-cluster (no global session)";
+        name.textContent = "claude-cluster";
         g.append(face, name);
-        svg.append(g);
+        world.append(g);
     }
+    hubWorld = world;
+    hubApply();
+    // the pointer: a drag moves, two fingers zoom (the middle of them), the wheel zooms around the cursor
+    const point = (e) => { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+    const fingers = new Map();
+    let pinch = null;
+    svg.addEventListener("pointerdown", (e) => {
+        fingers.set(e.pointerId, point(e));
+        svg.setPointerCapture(e.pointerId);
+        moved = false;
+        hubBusy = true;
+        if (fingers.size === 2) { const [a, b] = [...fingers.values()]; pinch = {d: Math.hypot(a.x - b.x, a.y - b.y), k: hubView.k}; }
+    });
+    svg.addEventListener("pointermove", (e) => {
+        if (!fingers.has(e.pointerId)) return;
+        const before = fingers.get(e.pointerId);
+        const now = point(e);
+        fingers.set(e.pointerId, now);
+        if (fingers.size === 1) {
+            if (Math.abs(now.x - before.x) + Math.abs(now.y - before.y) > 0.5) moved = true;
+            hubView.x += now.x - before.x;
+            hubView.y += now.y - before.y;
+            hubApply();
+        } else if (fingers.size === 2 && pinch) {
+            moved = true;
+            const [a, b] = [...fingers.values()];
+            const d = Math.hypot(a.x - b.x, a.y - b.y);
+            if (d > 0) hubZoom((pinch.k * d / pinch.d) / hubView.k, (a.x + b.x) / 2, (a.y + b.y) / 2);
+        }
+    });
+    const lift = (e) => { fingers.delete(e.pointerId); if (fingers.size < 2) pinch = null; if (!fingers.size) { hubBusy = false; setTimeout(() => { moved = false; }, 0); } };
+    svg.addEventListener("pointerup", lift);
+    svg.addEventListener("pointercancel", lift);
+    svg.addEventListener("wheel", (e) => { e.preventDefault(); const p = point(e); hubZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, {passive: false});
+    svg.addEventListener("dblclick", (e) => { if (e.target === svg) hubReset(); });
     const box = el("div", "hub");
-    box.append(svg);
-    if (!others.length) box.append(el("p", "label", "No sub-session yet: ask the global session, or create one (Chat › New session)"));
+    const tools = el("div", "hub-tools");
+    for (const [label, title, run] of [["+", "zoom in (a, the wheel, two fingers)", () => hubZoom(1.25, cx, cy)], ["−", "zoom out (e)", () => hubZoom(1 / 1.25, cx, cy)],
+        ["⌂", "the whole graph again (double click)", hubReset]]) {
+        const b = el("button", "", label);
+        b.type = "button";
+        b.title = title;
+        b.addEventListener("click", run);
+        tools.append(b);
+    }
+    box.append(svg, tools);
+    // the notes at the bottom: what is missing, how to move
+    const notes = el("div", "hub-notes");
+    if (!others.length) notes.append(el("span", "", "No sub-session yet: ask the global session, or create one (Chat › New session)"));
+    if (!global) notes.append(el("span", "", "No global session (settings › Global session)"));
+    notes.append(el("span", "muted", "drag · wheel · arrows · a / e zoom · two fingers · double click: whole"));
+    box.append(notes);
     pane.append(box);
 }
 

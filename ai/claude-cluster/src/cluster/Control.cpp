@@ -637,7 +637,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const cluster::Config& config = manager.config();
             data = {{"shown", manager.active()}, {"layout", manager.ui("layout", config.layout)}, {"style", manager.ui("style", config.style)},
                 {"remote", manager.remote()}, {"vim", manager.ui("vim", config.vim ? "true" : "false") == "true"},
-                {"layouts", {"list", "grid", "tabs"}}, {"panels", {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files"}}};
+                {"layouts", {"list", "grid", "tabs", "hub"}}, {"panels", {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files"}}};
             data["styles"] = cluster::Json::array();
             for (const auto &[name, style]: config.styles)
                 data["styles"].push_back(name);
@@ -645,7 +645,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.requestFocus(arg_(request, "session", "g"));
         } else if (cmd == "ui_layout") {
             const std::string layout = arg_(request, "layout");
-            if (layout != "list" && layout != "grid" && layout != "tabs")
+            if (layout != "list" && layout != "grid" && layout != "tabs" && layout != "hub")
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "layout: list | grid | tabs");
             manager.setUi("layout", layout);
         } else if (cmd == "ui_style") {

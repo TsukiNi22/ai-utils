@@ -203,7 +203,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     list.push_back({"voice_edit", "Voice: correct the transcription", "text", "", false});
     list.push_back({"mute", "Voice: stop speaking", "", "", false});
     list.push_back({"voice_setup", "Voice: what is missing to set it up", "", "", false});
-    for (const char* layout: {"list", "grid", "tabs"})
+    for (const char* layout: {"list", "grid", "tabs", "hub"})
         list.push_back({std::string("layout:") + layout, std::string("Layout: ") + layout, "", "", true});
     for (const auto &[name, style]: config.styles)
         list.push_back({"style:" + name, "Style: " + name + (style.dark ? " (dark)" : " (light)"), "", "", true});

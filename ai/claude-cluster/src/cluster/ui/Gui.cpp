@@ -26,13 +26,19 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
+#include <QGraphicsSimpleTextItem>
+#include <QGraphicsEllipseItem>
 #include <QSyntaxHighlighter>
+#include <QGraphicsLineItem>
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDoubleSpinBox>
 #include <QPlainTextEdit>
+#include <QGraphicsScene>
 #include <QFontDatabase>
 #include <QTextDocument>
+#include <QGestureEvent>
+#include <QGraphicsView>
 #include <QPainterPath>
 #include <QApplication>
 #include <QTextBrowser>
@@ -52,6 +58,7 @@ File Description:
 #include <QTextCursor>
 #include <QScrollArea>
 #include <QFileDialog>
+#include <QWheelEvent>
 #include <QScrollBar>
 #include <functional>
 #include <QTabWidget>
@@ -255,6 +262,172 @@ class SessionView: public QFrame {
         QString displayHtml(const cluster::Json& display, const std::string& key, const cluster::Style& style, const bool expanded);
         void displayForm(Window* window, const std::string& displayId);    // a form of a display filled, its values sent
         void update(const cluster::Snapshot& s, const cluster::Style& style, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded);
+};
+
+// The hub: the global session in the middle, the sessions around it, a graph moved (a drag, the arrows, a finger) and
+// zoomed (the wheel, a / e, two fingers, + -; double click: whole); a click on a node opens its session
+class HubView: public QGraphicsView {
+    private:
+        QGraphicsScene _scene;
+        QPoint _pressed;
+        std::string _pressedId;
+
+        void zoomBy(const double factor)
+        {
+            const double now = this->transform().m11();
+            const double wanted = std::clamp(now * factor, 0.2, 6.0);
+            this->scale(wanted / now, wanted / now);
+        }
+
+    protected:
+        void wheelEvent(QWheelEvent* event) override
+        {
+            this->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+            this->zoomBy(event->angleDelta().y() > 0 ? 1.15 : 1 / 1.15);
+            event->accept();
+        }
+
+        void keyPressEvent(QKeyEvent* event) override
+        {
+            const int step = 40;
+            this->setTransformationAnchor(QGraphicsView::AnchorViewCenter);
+            if (event->key() == Qt::Key_Left) this->horizontalScrollBar()->setValue(this->horizontalScrollBar()->value() - step);
+            else if (event->key() == Qt::Key_Right) this->horizontalScrollBar()->setValue(this->horizontalScrollBar()->value() + step);
+            else if (event->key() == Qt::Key_Up) this->verticalScrollBar()->setValue(this->verticalScrollBar()->value() - step);
+            else if (event->key() == Qt::Key_Down) this->verticalScrollBar()->setValue(this->verticalScrollBar()->value() + step);
+            else if (event->key() == Qt::Key_A || event->key() == Qt::Key_Plus || event->key() == Qt::Key_Equal) this->zoomBy(1.2);
+            else if (event->key() == Qt::Key_E || event->key() == Qt::Key_Minus) this->zoomBy(1 / 1.2);
+            else if (event->key() == Qt::Key_0) this->whole();
+            else {
+                QGraphicsView::keyPressEvent(event);
+                return;
+            }
+            event->accept();
+        }
+
+        void mousePressEvent(QMouseEvent* event) override
+        {
+            // a node pressed: opened at the release when the mouse did not move (a drag moves the graph)
+            this->_pressed = event->pos();
+            this->_pressedId.clear();
+            for (QGraphicsItem* item: this->items(event->pos()))
+                if (!item->data(0).toString().isEmpty()) {
+                    this->_pressedId = item->data(0).toString().toStdString();
+                    break;
+                }
+            QGraphicsView::mousePressEvent(event);
+        }
+
+        void mouseReleaseEvent(QMouseEvent* event) override
+        {
+            QGraphicsView::mouseReleaseEvent(event);
+            if (!this->_pressedId.empty() && (event->pos() - this->_pressed).manhattanLength() < 6 && this->onOpen) this->onOpen(this->_pressedId);
+            this->_pressedId.clear();
+        }
+
+        void mouseDoubleClickEvent(QMouseEvent* event) override
+        {
+            if (this->items(event->pos()).empty()) this->whole();
+            else QGraphicsView::mouseDoubleClickEvent(event);
+        }
+
+        bool event(QEvent* event) override
+        {
+            // two fingers: zoomed around the middle of the view
+            if (event->type() == QEvent::Gesture)
+                if (QPinchGesture* pinch = static_cast<QPinchGesture*>(static_cast<QGestureEvent*>(event)->gesture(Qt::PinchGesture))) {
+                    this->setTransformationAnchor(QGraphicsView::AnchorViewCenter);
+                    this->zoomBy(pinch->scaleFactor());
+                    return true;
+                }
+            return QGraphicsView::event(event);
+        }
+
+    public:
+        std::function<void(const std::string&)> onOpen;
+
+        explicit HubView(QWidget* parent): QGraphicsView(parent)
+        {
+            this->setScene(&this->_scene);
+            this->setSceneRect(-1400, -1000, 2800, 2000);
+            this->setRenderHint(QPainter::Antialiasing);
+            this->setDragMode(QGraphicsView::ScrollHandDrag);
+            this->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            this->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            this->setFrameShape(QFrame::NoFrame);
+            this->setFocusPolicy(Qt::StrongFocus);
+            this->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+            this->grabGesture(Qt::PinchGesture);
+            this->setToolTip("drag · wheel · arrows · a / e zoom · two fingers · double click: whole");
+        }
+
+        void whole(void)
+        {
+            this->resetTransform();
+            this->centerOn(0, 0);
+        }
+
+        void populate(const std::vector<cluster::Snapshot>& sessions, const cluster::Style& st, const std::string& active)
+        {
+            // drawn again (the view kept where it is): the lines, the nodes around, the middle one
+            this->_scene.clear();
+            this->_scene.setBackgroundBrush(QColor(QString::fromStdString(st.bg)));
+            const cluster::Snapshot* global = nullptr;
+            std::vector<const cluster::Snapshot*> others;
+            for (const cluster::Snapshot& s: sessions)
+                (s.spec.id == GLOBAL_ID ? global : others.emplace_back()) = &s;
+            const std::function<QColor(const cluster::Snapshot&)> color = [&st](const cluster::Snapshot& s) {
+                return QColor(QString::fromStdString(!s.permissions.empty() ? st.warn : s.state == cluster::State::Working || s.state == cluster::State::Starting ? st.ok
+                    : s.state == cluster::State::Error ? st.error : st.muted));
+            };
+            const double radius = std::max(170.0, static_cast<double>(others.size()) * 92.0 / (2.0 * M_PI));
+            const std::function<void(const cluster::Snapshot&, double, double, double)> node = [this, &st, &color, &active](const cluster::Snapshot& s, const double x, const double y, const double r) {
+                QGraphicsEllipseItem* ring = this->_scene.addEllipse(x - r, y - r, 2 * r, 2 * r, QPen(color(s), s.spec.id == active ? 3.5 : 2), QBrush(QColor(QString::fromStdString(st.surface))));
+                ring->setData(0, QString::fromStdString(s.spec.id));
+                ring->setCursor(Qt::PointingHandCursor);
+                ring->setToolTip(QString::fromStdString(s.spec.name + " · " + cluster::state_name(s.state) + " · " + cluster::short_path(s.spec.cwd)));
+                const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
+                QGraphicsSimpleTextItem* faceItem = this->_scene.addSimpleText(face, QFont(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(), r > 40 ? 13 : 10));
+                faceItem->setBrush(color(s));
+                faceItem->setPos(x - faceItem->boundingRect().width() / 2, y - faceItem->boundingRect().height() / 2);
+                faceItem->setData(0, QString::fromStdString(s.spec.id));
+                QFont bold;
+                bold.setBold(true);
+                QGraphicsSimpleTextItem* name = this->_scene.addSimpleText(QString::fromStdString(cluster::one_line(s.spec.global ? std::string("global") : s.spec.name, 22)), bold);
+                name->setBrush(QColor(QString::fromStdString(st.text)));
+                name->setPos(x - name->boundingRect().width() / 2, y + r + 6);
+                name->setData(0, QString::fromStdString(s.spec.id));
+                QGraphicsSimpleTextItem* state = this->_scene.addSimpleText(QString::fromStdString(s.state == cluster::State::Working ? cluster::turn_state(s).value("verb", std::string("working"))
+                    : cluster::state_name(s.state)));
+                state->setBrush(QColor(QString::fromStdString(st.muted)));
+                state->setPos(x - state->boundingRect().width() / 2, y + r + 24);
+            };
+            for (std::size_t i = 0; i < others.size(); ++i) {
+                const double a = (static_cast<double>(i) / static_cast<double>(std::max<std::size_t>(1, others.size()))) * 2.0 * M_PI - M_PI / 2.0;
+                const double x = std::cos(a) * radius;
+                const double y = std::sin(a) * radius * 0.78;
+                QPen pen(color(*others[i]), others[i]->state == cluster::State::Working ? 2.5 : 1.5);
+                if (others[i]->state != cluster::State::Working) pen.setStyle(Qt::DashLine);
+                this->_scene.addLine(0, 0, x, y, pen);
+            }
+            for (std::size_t i = 0; i < others.size(); ++i) {
+                const double a = (static_cast<double>(i) / static_cast<double>(std::max<std::size_t>(1, others.size()))) * 2.0 * M_PI - M_PI / 2.0;
+                node(*others[i], std::cos(a) * radius, std::sin(a) * radius * 0.78, 30);
+            }
+            if (global != nullptr) {
+                node(*global, 0, 0, 46);
+            } else { // no global session: claude-cluster itself in the middle
+                QPen pen(QColor(QString::fromStdString(st.accent)), 2);
+                pen.setStyle(Qt::DotLine);
+                this->_scene.addEllipse(-40, -40, 80, 80, pen, QBrush(QColor(QString::fromStdString(st.surface))));
+                QGraphicsSimpleTextItem* face = this->_scene.addSimpleText("^_^", QFont(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(), 12));
+                face->setBrush(QColor(QString::fromStdString(st.accent)));
+                face->setPos(-face->boundingRect().width() / 2, -face->boundingRect().height() / 2);
+                QGraphicsSimpleTextItem* name = this->_scene.addSimpleText("claude-cluster");
+                name->setBrush(QColor(QString::fromStdString(st.muted)));
+                name->setPos(-name->boundingRect().width() / 2, 46);
+            }
+        }
 };
 
 class Window: public QMainWindow {
@@ -548,6 +721,8 @@ class Window: public QMainWindow {
         }
 
         QTextBrowser* tasksView = nullptr;      // the Tasks session (list / tabs)
+        HubView* hub = nullptr;                 // the hub layout: the graph
+        QLabel* hubNote = nullptr;              // its notes at the bottom (no sub-session, the keys)
         QDialog* tasksWindow = nullptr;         // the Tasks session in a window of its own (grid)
         QTextBrowser* tasksBrowser = nullptr;
         std::string tasksShownHtml;
@@ -1500,7 +1675,7 @@ class Window: public QMainWindow {
             else if (action == "send_next") this->run({"send_next", "", "", "", false}, "");
             else if (action == "layout") {
                 const std::string layout = this->manager.ui("layout", this->manager.config().layout);
-                this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
+                this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : layout == "tabs" ? "hub" : "list");
             } else if (action == "settings") this->settings();
             else if (action == "restore") this->openRestore();
             else if (action == "interrupt") {
@@ -1752,6 +1927,8 @@ class Window: public QMainWindow {
             this->list = nullptr;
             this->tabs = nullptr;
             this->tasksView = nullptr;
+            this->hub = nullptr;
+            this->hubNote = nullptr;
             if (std::none_of(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;}) && !sessions.empty())
                 this->active = sessions.front().spec.id;
 
@@ -1776,7 +1953,7 @@ class Window: public QMainWindow {
             this->webLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
             this->webLabel->setVisible(false);
             QObject::connect(this->webLabel, &QLabel::linkActivated, this, [this](const QString& link) {this->webLink(link);});
-            for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"tabs", "Tabs"}}) {
+            for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"tabs", "Tabs"}, {"hub", "Hub"}}) {
                 QPushButton* seg = new QPushButton(q_(label), topbar);
                 seg->setObjectName("seg");
                 seg->setCheckable(true);
@@ -1820,6 +1997,20 @@ class Window: public QMainWindow {
                     grid->addWidget(view, static_cast<int>(i) / columns, static_cast<int>(i) % columns);
                 }
                 root->addLayout(grid, 1);
+            } else if (layout == "hub") {
+                // the graph; a node clicked: its session shown in the list layout
+                this->hub = new HubView(central);
+                this->hub->onOpen = [this](const std::string& id) {
+                    this->active = id;
+                    this->manager.setUi("layout", "list");
+                    this->refresh(true);
+                };
+                root->addWidget(this->hub, 1);
+                this->hubNote = new QLabel(central);
+                this->hubNote->setAlignment(Qt::AlignCenter);
+                this->hubNote->setWordWrap(true);
+                root->addWidget(this->hubNote);
+                QTimer::singleShot(0, this->hub, [hub = this->hub]() {hub->whole();});
             } else if (layout == "tabs") {
                 this->tabs = new QTabBar(central);
                 this->tabs->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1954,6 +2145,14 @@ class Window: public QMainWindow {
             const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
             const cluster::Style& st = this->theme();
 
+            if (this->hub != nullptr) {
+                this->hub->populate(sessions, st, this->active);
+                const bool global = std::any_of(sessions.begin(), sessions.end(), [](const cluster::Snapshot& s) {return s.spec.id == GLOBAL_ID;});
+                QString note;
+                if (sessions.size() <= (global ? 1U : 0U)) note += "No sub-session yet: ask the global session, or create one (Ctrl+T). ";
+                if (!global) note += "No global session (settings › Global session). ";
+                this->hubNote->setText(esc_(note.toStdString()) + span_(st.muted, "drag · wheel · arrows · a / e zoom · two fingers · double click: whole"));
+            }
             if (this->list) {
                 const QSignalBlocker block(this->list);
                 this->list->clear();
