@@ -485,7 +485,7 @@ _cold cluster::ActionResult cluster::run_action(cluster::Manager& manager, clust
     std::replace(title.begin(), title.end(), '_', ' ');
     if (!title.empty()) title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
     if (id.find(':') != std::string::npos) title += " " + id.substr(id.find(':') + 1);
-    if (!cluster::trim(input).empty() && input.size() < 60) title += " " + cluster::trim(input);
+    if (!cluster::trim(input).empty() && input.size() < 60 && !id.starts_with("auth_")) title += " " + cluster::trim(input); // never a key
     cluster::Busy busy(manager, title, session);
     const cluster::ActionResult result = run_action_(manager, voice, id, session, input);
     busy.end(!result.error, result.message);

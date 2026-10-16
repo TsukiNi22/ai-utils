@@ -192,7 +192,7 @@ _cold void cluster::Control::client_(const int fd)
         cluster::Json response;
         try {
             response = cluster::Control::handle(this->_manager, cluster::Json::parse(*line));
-        } catch (const cluster::Json::exception& e) {
+        } catch (const std::exception& e) { // not JSON, or anything a request may throw: told, the core goes on
             response = {{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
         }
         if (!send_line_(fd, response.dump())) break;
@@ -857,6 +857,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         }
     } catch (const utils::exception::IException& e) {
         return {{"ok", false}, {"error", std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info())}};
+    } catch (const std::exception& e) {
+        // a number out of range, a wrong type...: told, the core goes on (a request never stops every session)
+        return {{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
     }
     return {{"ok", true}, {"data", data}};
 }

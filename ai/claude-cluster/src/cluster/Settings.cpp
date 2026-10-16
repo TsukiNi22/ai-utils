@@ -637,7 +637,7 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
-        "agent.permission_mode", "agent.allow_bypass", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
+        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || keys.contains(section + "." + key);
 }

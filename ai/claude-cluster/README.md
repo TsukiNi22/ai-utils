@@ -699,7 +699,14 @@ What protects the three ways of using claude-cluster, and what stays your respon
   and its script is the only one allowed (a CSP nonce of each response: an injected script never runs). The code and
   the secrets are compared in constant time; the names of the files downloaded are cleaned (no header injected).
   `install_package` installs the packages a setting needs only (the password window names `dnf`, not the package).
-  A body bigger than 4 KB is read for a connected device only; 8 connections at once per address.
+  A body bigger than 4 KB is read for a connected device only; 8 connections at once per address. A request of the
+  control socket never stops the core (anything it throws is answered). A key typed in the palette is never shown
+  (no popup, no notice).
+- **The global session runs in `bypassPermissions`** by default (`global.permission_mode`: *never asked*): what reaches
+  it (your prompts, the replies of the sub-sessions, a context) is obeyed with your rights, commands included. That
+  is the point of an orchestrator, and its risk: a prompt injected in a sub-session (a web page it read) comes back
+  to it as a reply. `auto` there makes it ask you before a command (the MCP tools of claude-cluster stay bounded
+  anyway).
 - **Web access from outside**: https required (a plain peer from outside is refused before any handshake);
   `tailscale`: only the addresses of your tailnet, the real certificate of the tailnet when it is on; `router`: the
   login page is reachable by anyone on the Internet - the code **and** your approval are needed, 5 wrong codes block
