@@ -699,6 +699,7 @@ What protects the three ways of using claude-cluster, and what stays your respon
   and its script is the only one allowed (a CSP nonce of each response: an injected script never runs). The code and
   the secrets are compared in constant time; the names of the files downloaded are cleaned (no header injected).
   `install_package` installs the packages a setting needs only (the password window names `dnf`, not the package).
+  A body bigger than 4 KB is read for a connected device only; 8 connections at once per address.
 - **Web access from outside**: https required (a plain peer from outside is refused before any handshake);
   `tailscale`: only the addresses of your tailnet, the real certificate of the tailnet when it is on; `router`: the
   login page is reachable by anyone on the Internet - the code **and** your approval are needed, 5 wrong codes block
@@ -715,6 +716,11 @@ What protects the three ways of using claude-cluster, and what stays your respon
   programs run as you (`commands.*`, `ui.editor`, `ui.image_viewer`, `service.*`, `voice.*_command`), the MCP servers
   and tools - are **never changed by it** (`settings_set`, `config_write` refuse them: it asks you, you change them
   in the settings page). The other dangerous changes ask you (`confirmed`). `[mcp_tools]` turns any of its tools off.
+  It never writes a file but a `.md` / `.txt` out of the hidden folders (`export`: no `~/.bashrc`, no
+  `~/.ssh/authorized_keys`), never gives a hidden file (`~/.ssh`, `~/.config`, `~/.aws`, the folders of
+  claude-cluster) to a session as a context nor to the page as a download, and rewrites the system prompts (what every
+  session obeys at its start) only when *Global session can rewrite the system prompts* is on (off by default: a
+  prompt injected once could stay for good) - it gives you the text instead.
   A sub-session in `bypassPermissions` with *bypass to global* on lets the global session decide its commands: an
   injected prompt (a web page read by a session) may then run commands through it - keep `agent.allow_bypass` off
   when you do not orchestrate.

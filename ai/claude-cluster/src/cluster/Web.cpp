@@ -102,6 +102,24 @@ _cold static bool same_secret_(const std::string& a, const std::string& b)
     return diff == 0;
 }
 
+// the connections of each address at once (8 at most: one attacker never takes every thread)
+static std::mutex per_ip_mutex_;
+static std::map<std::string, int> per_ip_;
+
+_cold static bool ip_take_(const std::string& peer)
+{
+    std::lock_guard<std::mutex> lock(per_ip_mutex_);
+    if (per_ip_[peer] >= 8) return false;
+    ++per_ip_[peer];
+    return true;
+}
+
+_cold static void ip_give_(const std::string& peer)
+{
+    std::lock_guard<std::mutex> lock(per_ip_mutex_);
+    if (--per_ip_[peer] <= 0) per_ip_.erase(peer);
+}
+
 _cold static std::string safe_filename_(const std::string& name)
 {
     // in a header: printable ASCII only, no quote (a name made by an agent: no header injected)
@@ -186,6 +204,8 @@ _cold static bool read_request_(Conn& conn, Request& request)
                 return false;
             }
             if (length > (request.path == "/api/listen" ? 16000000U : 1000000U)) return false;
+            // a big body (a recording, a prompt): a device connected only (its cookie); a stranger: a few KB, 10 s
+            if (length > 4096 && !(request.headers.contains("cookie") && request.headers.at("cookie").find("cc_web=") != std::string::npos)) return false;
             if (length > 1000000) end = now_ms_() + 60000;
         }
         if (head != std::string::npos && data.size() >= head + 4 + length) {
@@ -594,7 +614,7 @@ _cold void cluster::Web::serve_(void)
         if (client == -1) continue;
         std::array<char, INET_ADDRSTRLEN> text{};
         ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
-        if (this->_busy >= 64) { // full: told, closed (one thread per request, never one per attacker)
+        if (this->_busy >= 64 || !ip_take_(text.data())) { // full, or this address alone takes too many: told, closed
             static const std::string full = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: 20\r\nConnection: close\r\n\r\nclaude-cluster: busy\n";
             (void)::send(client, full.data(), full.size(), MSG_NOSIGNAL);
             ::close(client);
@@ -1064,6 +1084,7 @@ _cold void cluster::Web::client_(const int fd, const std::string& peer)
         }
     #endif
     ::close(fd);
+    ip_give_(peer);
     --this->_busy;
 }
 

@@ -531,6 +531,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // the whole file replaced (read it first); config.toml checked before; the global prompt: started again after the turn
             const ConfigFile file = config_file_(manager, arg_(request, "name"));
             if (!file.editable) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, file.name + " is read only (" + file.what + ")");
+            if (from_global && (file.name == "global_prompt" || file.name == "sessions_prompt") && !manager.config().globalPrompts)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the user did not let the global session rewrite the "
+                    "system prompts (settings page > Sessions > Global session can rewrite the system prompts): give them the text, they edit it (Ctrl+K, edit the system prompt)");
             const std::string content = arg_(request, "content");
             if (file.name == "config") {
                 const std::string error = cluster::Config::check(content);
@@ -617,6 +620,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "export") {
             const std::string markdown = manager.exportMarkdown(arg_(request, "session"));
             const std::string path = arg_(request, "path");
+            // the global session: a .md / .txt file out of the hidden folders only (never ~/.bashrc, ~/.ssh/authorized_keys...)
+            if (from_global && !path.empty() && (cluster::hidden_path(path) || !(path.ends_with(".md") || path.ends_with(".txt"))))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the global session writes .md / .txt files out of the "
+                    "hidden folders only (" + path + "): give the markdown to the user, or another path");
             if (path.empty()) {
                 data = {{"markdown", markdown}};
             } else {
@@ -730,6 +737,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             cluster::Json display = request.contains("display") && request["display"].is_object() ? request["display"]
                 : cluster::Json{{"type", "markdown"}, {"text", arg_(request, "text")}};
             if (request.contains("title") && !display.contains("title")) display["title"] = arg_(request, "title");
+            if (from_global && display.contains("files") && display["files"].is_array()) // never a hidden file offered to the page
+                for (const cluster::Json& f: display["files"])
+                    if (f.is_object() && cluster::hidden_path(f.value("path", std::string())))
+                        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never offered to download ("
+                            + f.value("path", std::string()) + ")");
             data = {{"id", manager.display(session(), display)}};
         } else if (cmd == "display_update") {
             // a display replaced (the steps of a long work, a progress, a checklist...), its id kept
@@ -782,6 +794,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "transcript") {
             data = manager.transcript(session(), request.value("from", -50L), static_cast<std::size_t>(std::clamp(request.value("count", 50), 1, 500)));
         } else if (cmd == "context") {
+            // the global session: never a hidden file (keys, credentials, configs) given to a session (and to its API)
+            if (const std::string source = arg_(request, "source"); from_global && !source.starts_with("session:") && (source.starts_with("/") || source.starts_with("~")
+                || source.starts_with(".") || source.find(':') == std::string::npos) && cluster::hidden_path(source))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never given as a context (" + source + ")");
             manager.loadContext(session(), arg_(request, "source"));
             data = {{"sent", true}};
         } else if (cmd == "messages") {

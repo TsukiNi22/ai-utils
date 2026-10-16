@@ -252,6 +252,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"sessions", "global_edit", "Global session can edit", SettingKind::Bool, {}, "the global session may rewrite the conversation of a sub-session "
                 "of Claude Code (MCP session_edit: texts replaced, messages deleted, its end cut; a new conversation, the old one kept)", false,
                 [](const cluster::Config& cf) {return cf.globalEdit ? std::string("true") : std::string("false");}},
+            {"sessions", "global_prompts", "Global session can rewrite the system prompts", SettingKind::Bool, {}, "the global session may rewrite its own "
+                "system prompt and the one of the sub-sessions (MCP config_write): what they obey at every start. Off: it asks you (Ctrl+K: edit the system prompt)",
+                false, [](const cluster::Config& cf) {return cf.globalPrompts ? std::string("true") : std::string("false");}},
             {"sessions", "prompt", "System prompt file", SettingKind::Text, {}, "system prompt of every sub-session (claude driver), added to CLAUDE.md; empty file: none", false,
                 [](const cluster::Config& cf) {return cf.sessionsPrompt;}},
             {"sessions", "edit_sessions_prompt", "System prompt (edit)", SettingKind::Action, {},
@@ -432,6 +435,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             "the page (the code, your approval and the bans still apply). Tailscale opens nothing") : std::string();}},
         {"web.shell", [](const std::string& v) {return v == "true" ? std::string("every device connected runs commands on this computer "
             "(!command), from outside the LAN too") : std::string();}},
+        {"sessions.global_prompts", [](const std::string& v) {return v == "true" ? std::string("the global session rewrites what every session obeys "
+            "at its start: a prompt injected once (a web page read) could stay for good") : std::string();}},
         {"web.https", [](const std::string& v) {return v == "false" ? std::string("the conversation, the code and the cookies go in clear on the "
             "network (anyone on it can read them); no microphone") : std::string();}},
         {"mcp.servers", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("an MCP server runs a program (or "
@@ -632,7 +637,7 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
-        "agent.permission_mode", "agent.allow_bypass", "global.permission_mode", "sessions.bypass_to_global", "global.answers", "global.fork", "global.edit",
+        "agent.permission_mode", "agent.allow_bypass", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || keys.contains(section + "." + key);
 }

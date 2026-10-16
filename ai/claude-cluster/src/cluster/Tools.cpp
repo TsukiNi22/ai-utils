@@ -384,6 +384,16 @@ _cold void cluster::private_dir(const std::filesystem::path& dir)
     ::chmod(dir.c_str(), S_IRWXU);
 }
 
+_cold bool cluster::hidden_path(const std::string& path)
+{
+    // a component starting with a dot (the keys, the configs, the credentials of everything), the folders of claude-cluster
+    const std::filesystem::path full = std::filesystem::absolute(cluster::expand_home(path)).lexically_normal();
+    for (const std::filesystem::path& part: full)
+        if (part.string().size() > 1 && part.string().starts_with(".")) return true;
+    const std::string text = full.string();
+    return text.starts_with(cluster::config_dir().string()) || text.starts_with(cluster::data_dir().string());
+}
+
 _cold void cluster::write_json(const std::filesystem::path& path, const cluster::Json& data)
 {
     std::error_code error;

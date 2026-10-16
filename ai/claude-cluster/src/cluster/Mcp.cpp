@@ -69,7 +69,8 @@ _cold cluster::Json cluster::mcp_tools(void)
             "words of the voice, config.toml, the map of this computer (read only); their path, what they hold, when a change is taken.", {}, {}),
         tool_("config_read", "The content of one of them (config_files).", {{"name", str_("global_prompt | sessions_prompt | vocabulary | voice_words | config | machine_map")}}, {"name"}),
         tool_("config_write", "Replace one of them with this content: read it first (config_read) and keep what the user did not ask to change. "
-            "config is checked (TOML) before it is written; your own system prompt: you are started again on it after this turn.",
+            "config is checked (TOML) before it is written, its protected settings stay the user's; the system prompts only when the user allowed it "
+            "(settings: Global session can rewrite the system prompts), else give them the text; your own system prompt: you are started again on it after this turn.",
             {{"name", str_("global_prompt | sessions_prompt | vocabulary | voice_words | config")}, {"content", str_("the whole new content")}}, {"name", "content"}),
         tool_("machine_sync", "Ask the user to map this computer again (when asked to, or the map is clearly outdated): its question is shown "
             "in the interface (yes / no), the scan then runs as started by hand.", {}, {}),
@@ -118,7 +119,8 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("schedule_cancel", "Cancel a schedule.", {{"id", str_("schedule id (w1...)")}}, {"id"}),
         tool_("task_cancel", "Cancel a task.", {{"id", str_("task id (t1...)")}}, {"id"}),
         tool_("search", "Full-text search in the history of every session.", {{"text", str_("text to find")}}, {"text"}),
-        tool_("export", "Export the conversation of a session as Markdown (to a file when path is given).", {{"session", session}, {"path", str_("file (optional)")}}, {"session"}),
+        tool_("export", "Export the conversation of a session as Markdown (to a file when path is given: a .md / .txt out of the hidden folders).",
+            {{"session", session}, {"path", str_("file (optional)")}}, {"session"}),
         tool_("providers", "Providers / backends and whether they are ready (logged in, key stored, server up).", nullptr, {}),
         tool_("web_access", "The web access of claude-cluster on this LAN (a browser of the same network drives it after a 6-digit code, one at a "
             "time): its address, code and the browser connected; action on / off (this run), kick (the browser out, a new code), pin (a new code). "

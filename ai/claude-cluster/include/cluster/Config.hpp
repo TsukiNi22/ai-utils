@@ -197,6 +197,7 @@ class Config {
         bool bypassToGlobal = true;             // the permissions a sub-session in bypassPermissions still asks: decided by the global session
         bool globalFork = false;                // the global session may fork a sub-session (MCP session_fork)
         bool globalEdit = false;                // the global session may rewrite the conversation of a sub-session (MCP session_edit)
+        bool globalPrompts = false;             // the global session may rewrite the system prompts (MCP config_write global_prompt / sessions_prompt)
         std::string sessionsPrompt = "~/.config/claude-cluster/sessions.md"; // system prompt of the sub-sessions (empty: none)
 
         /* mcp */

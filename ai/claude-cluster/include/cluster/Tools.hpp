@@ -47,6 +47,7 @@ _cold _nodiscard std::filesystem::path data_dir(void);       // ~/.local/share/c
 _cold _nodiscard std::filesystem::path runtime_dir(void);    // $XDG_RUNTIME_DIR/claude-cluster (or /tmp)
 _cold _nodiscard std::filesystem::path socket_path(void);
 _cold void private_dir(const std::filesystem::path& dir);     // made, this user only (0700): the config, the data, the runtime folder
+_cold _nodiscard bool hidden_path(const std::string& path);    // a hidden file / folder (~/.ssh, ~/.config...), the folders of claude-cluster: never given to an agent by the global session
 // the MCP config of the global session, next to the socket: an instance of its own (CLAUDE_CLUSTER_SOCKET) never
 // overwrites the one of another
 _cold _nodiscard inline std::filesystem::path mcp_config_path(void) {return cluster::socket_path().parent_path() / "mcp.json";};
