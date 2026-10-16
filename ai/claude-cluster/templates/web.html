@@ -113,6 +113,9 @@ header .muted { color: var(--muted); font-size: 13px; }
 .svc-line.error { color: var(--error); } .svc-line.ok { color: var(--ok, #3fb950); } .svc-line.warn { color: #e5b400; }
 .svc-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; } .svc-buttons button { font-size: 13px; padding: 4px 10px; }
 .tasks-view [tabindex='0']:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--surface); border-radius: 6px; }
+.app-update { position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, .78); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.app-update .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; max-width: 420px; width: 100%; }
+.app-update h2 { margin: 0 0 8px; } .app-update p { margin: 0 0 12px; } .app-update .muted { font-size: 13px; margin-top: 10px; }
 .failure-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); z-index: 60;
     background: var(--surface); border: 1px solid var(--error); border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
 .failure-card .title { color: var(--error); font-weight: 700; margin-bottom: 8px; }
@@ -648,6 +651,7 @@ function stateClass(state) {
 function render(state) {
     lastState = state;
     if (state.remote && window.ClusterApp && ClusterApp.remote && render.remote !== state.remote) { render.remote = state.remote; ClusterApp.remote(state.remote); }
+    if (window.ClusterApp) checkAppUpdate(state.version_app || ""); // inside the app: an older app blocked until it is updated
     applyStyle(state.style);
     watchAlerts(state);
     if (state.face) $("brandFace").textContent = state.face.text;
@@ -795,6 +799,45 @@ function renderFailure(list) {
     card.append(buttons);
     card.addEventListener("keydown", (e) => { if (e.key === "Escape") answer(false); });
     ok.focus();
+}
+
+// ---- inside the Android app: an app older than the one the computer serves blocks the page until it is updated ----
+let appUpdateFor = null;
+function versionNewer(a, b) {
+    const x = String(a).split(/[^0-9]+/).filter(Boolean).map(Number);
+    const y = String(b).split(/[^0-9]+/).filter(Boolean).map(Number);
+    for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+}
+async function checkAppUpdate(coreVersion) {
+    if (!window.ClusterApp || appUpdateFor === coreVersion) return;
+    appUpdateFor = coreVersion;
+    let info;
+    try { info = await (await fetch("/api/version", {cache: "no-store", credentials: "same-origin"})).json(); } catch (e) { appUpdateFor = null; return; }
+    let mine = "";
+    try { mine = String(window.ClusterApp.version ? window.ClusterApp.version() : ""); } catch (e) { mine = ""; }
+    const theirs = info.app_version || "";
+    const old = $("appUpdate");
+    if (!info.app || !theirs || !mine || !versionNewer(theirs, mine)) { if (old) old.remove(); return; }
+    const veil = old || el("div", "app-update");
+    veil.id = "appUpdate";
+    veil.textContent = "";
+    const card = el("div", "card");
+    card.append(el("h2", "", "Update the app"), el("p", "", "The computer has claude-cluster " + theirs + "; this app is " + mine + ". Install the new one to go on."));
+    const button = el("button", "primary button", "Update now");
+    button.addEventListener("click", () => {
+        button.disabled = true;
+        button.textContent = "Installing… (Android asks you)";
+        try {
+            if (window.ClusterApp.update) window.ClusterApp.update();
+            else window.ClusterApp.save("/app.apk", "claude-cluster.apk"); // an old app: saved in Downloads, open it there
+        } catch (e) { /* an old app */ }
+        setTimeout(() => { button.disabled = false; button.textContent = "Update now"; }, 8000);
+    });
+    card.append(button);
+    if (!window.ClusterApp.update) card.append(el("p", "muted", "This app is too old to install it itself: open claude-cluster.apk from Downloads."));
+    veil.append(card);
+    if (!old) document.body.append(veil);
 }
 
 // ---- the Tasks session: its view in place of the conversation ----

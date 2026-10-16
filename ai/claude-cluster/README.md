@@ -606,7 +606,9 @@ the agents, a new session, a session closed.
 - **Android app** (`setup.sh install claude-cluster` builds it when the Android SDK is there: `android/build.sh`, no
   Gradle; signed by a key of its own, `~/.config/claude-cluster/android/release.jks`): offered by the page on Android
   (`/app.apk`; edge to edge on Android 15: its page kept out of the status bar, the notch, the navigation bar and the
-  keyboard). The same page in an app: the computer trusted once (its authority pinned after its fingerprint is
+  keyboard). An app older than the one the computer serves is blocked by a popup until it is updated (*Install*: the
+  APK of the computer, Android asks once) - checked when it opens, when it comes back in front, and live by the page
+  (the same popup in the page inside the app; nothing in a browser). The same page in an app: the computer trusted once (its authority pinned after its fingerprint is
   shown: no warning), its notifications, its microphone; a newer app on the computer is offered (never an older one),
   and an app too old for this claude-cluster says so.
 - **Completion** like in the terminal: `@file`, `/command`, the argument of `/cd` `/new` `/mode` `/model` `/effort`

@@ -123,6 +123,7 @@ public class MainActivity extends Activity {
         super.onResume();
         front = true;
         stopService(new Intent(this, WatchService.class));
+        if (!base.isEmpty()) checkUpdate(base); // the computer updated while the app slept: asked again
         // back in front: the state asked again at once (a long poll of the page frozen in the background never holds it)
         if (web != null) web.evaluateJavascript("if (typeof refresh === 'function' && !document.getElementById('app').classList.contains('hidden')) refresh();", null);
     }
@@ -404,22 +405,28 @@ public class MainActivity extends Activity {
                 String app = info.optString("app_version", "");
                 ui.post(() -> {
                     if (min > PROTOCOL) {
-                        new AlertDialog.Builder(this).setTitle("This app is too old")
-                            .setMessage("claude-cluster " + info.optString("version") + " no longer supports this app (" + BuildConfig.VERSION
-                                + "): install the new one.")
-                            .setPositiveButton("Install", (d, w) -> install(url))
-                            .setCancelable(false).show();
+                        askUpdate(url, "This app is too old", "claude-cluster " + info.optString("version") + " no longer supports this app ("
+                            + BuildConfig.VERSION + "): install the new one to go on.");
                     } else if (!app.isEmpty() && newer(app, BuildConfig.VERSION)) {
-                        new AlertDialog.Builder(this).setTitle("A new version")
-                            .setMessage("The computer has the app " + app + " (this one: " + BuildConfig.VERSION + "). Install it?")
-                            .setPositiveButton("Install", (d, w) -> install(url))
-                            .setNegativeButton("Later", null).show();
+                        askUpdate(url, "Update the app", "The computer has claude-cluster " + app + "; this app is " + BuildConfig.VERSION
+                            + ". Install the new one to go on.");
                     }
                 });
             } catch (Exception e) {
                 // an older claude-cluster, offline: nothing said
             }
         }).start();
+    }
+
+    // an older app: blocked until it is updated (Install: the APK of the computer, Android asks once; Another computer: its address)
+    private AlertDialog updateDialog = null;
+
+    private void askUpdate(String url, String title, String message) {
+        if (updateDialog != null && updateDialog.isShowing()) return;
+        updateDialog = new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+            .setPositiveButton("Install", (d, w) -> install(url))
+            .setNeutralButton("Another computer", (d, w) -> showSetup(""))
+            .setCancelable(false).show();
     }
 
     private void install(String url) {
@@ -439,7 +446,11 @@ public class MainActivity extends Activity {
                     session.commit(pending.getIntentSender());
                 }
             } catch (Exception e) {
-                ui.post(() -> new AlertDialog.Builder(this).setTitle("Not installed").setMessage(String.valueOf(e.getMessage())).show());
+                // not installed: told, then asked again (the app stays blocked while it is older)
+                ui.post(() -> new AlertDialog.Builder(this).setTitle("Not installed").setMessage(String.valueOf(e.getMessage()))
+                    .setPositiveButton("Try again", (d, w) -> install(url))
+                    .setNeutralButton("Another computer", (d, w) -> showSetup(""))
+                    .setCancelable(false).show());
             }
         }).start();
     }
