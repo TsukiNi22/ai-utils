@@ -120,6 +120,8 @@ class Web {
             std::string name;                       // its name (<computer>.<tailnet>.ts.net): asked by it (SNI), served
         } _sni;
         std::string _certWhy;                       // the certificate of the tailnet not got: why
+        std::thread _certThread;                    // getting it (tailscale cert: seconds, a minute): never the web waiting
+        std::atomic<bool> _certBusy{false};
         std::int64_t _sniAt = 0;                    // unix s it was got (renewed every day)
         cluster::WebSniView _sniView;               // what its TLS callback reads
         bool _httpsWanted = false;      // [web] https when it was opened
@@ -149,6 +151,7 @@ class Web {
         _cold _nodiscard bool banned_(const std::string& id, const std::string& peer) const; // its device, or its address from outside
         _cold _nodiscard std::string tls_(void);   // https set up (its certificate made once), error text, empty: on
         _cold void tailnetCert_(void);              // the certificate of the tailnet got (tailscale cert), swapped in: _sni
+        _cold void certAsync_(void);                // the same in a thread of its own, its popup, its failure told
         _cold void newPin_(void);
         _cold void expire_(void);       // the devices gone, the waits too old (under _mutex)
         _cold void remote_(void);       // reached from outside: its names, its address, the port of the router (UPnP)

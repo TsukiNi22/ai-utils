@@ -47,7 +47,7 @@ done
 "$tools/aapt2" compile --dir "$work/res" -o "$work/res.zip"
 "$tools/aapt2" link -I "$android" --manifest "$here/AndroidManifest.xml" -o "$work/base.apk" --java "$work/gen" \
     --min-sdk-version 29 --target-sdk-version 35 --version-code "$code" --version-name "$version" "$work/res.zip"
-printf 'package com.claudecluster.app;\npublic final class BuildConfig {\n    public static final String VERSION = "%s";\n}\n' "$version" \
+printf 'package com.claudecluster.app;\npublic final class BuildConfig {\n    public static final String VERSION = "%s";\n    public static final int CODE = %d;\n    public static final String BUILT = "%s";\n}\n' "$version" "$code" "$(date +%Y-%m-%d\ %H:%M)" \
     > "$work/gen/com/claudecluster/app/BuildConfig.java"
 javac --release 17 -nowarn -classpath "$android" -d "$work/classes" $(find "$here/src" "$work/gen" -name '*.java') 2> "$work/javac.log" \
     || { cat "$work/javac.log"; exit 1; }

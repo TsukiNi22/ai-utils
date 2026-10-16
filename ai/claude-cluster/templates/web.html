@@ -273,6 +273,13 @@ a:hover { text-decoration: underline; }
 .setting .help { grid-column: 1 / 3; color: var(--muted); font-size: 12.5px; }
 .setting .help.next { color: var(--warn); }
 .setting input[type=text], .setting input[type=number], .setting select { max-width: 210px; }
+.setting.readonly { opacity: .72; } .readonly-note { color: var(--warn, #e5b400); font-size: 13px; margin: 8px 0 4px; }
+@media (min-width: 1100px) { /* a desktop: the settings wide, like the window */
+    .panel { width: min(820px, 58vw); }
+    #drawerBody { padding: 10px 22px 24px; }
+    .setting { grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr); }
+    .setting input[type=text], .setting input[type=number], .setting select { max-width: none; width: 100%; }
+}
 .setting.changed { box-shadow: inset 3px 0 0 var(--accent); padding-left: 8px; }
 .switch { appearance: none; width: 38px; height: 22px; border-radius: 11px; background: var(--line); position: relative; cursor: pointer; border: none; padding: 0; }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left .15s; }
@@ -995,6 +1002,7 @@ function archiveMenu(tasks, schedules) {
 }
 
 function select(id) {
+    store.set("cc-last-chat", id); // the Chat tab of a phone: back to it
     current = id;
     shownAsk = "";
     lastKey = -1;
@@ -2414,6 +2422,7 @@ for (const b of document.querySelectorAll("#tabbar button"))
     b.addEventListener("click", () => {
         const tab = b.dataset.tab;
         if (tab === "sessions") { setView("chat"); $("side").classList.add("open"); }
+        else if (tab === "chat") { $("side").classList.remove("open"); setView("chat"); select(store.get("cc-last-chat", "g") || "g"); } // the last chat opened
         else if (tab === "alerts") openAlerts();
         else if (tab === "settings") openDrawer();
         else setView(tab);
@@ -2900,6 +2909,7 @@ function servicesSetting(key) {
     const s = settingsData.find((x) => x.section === "services" && x.key === key);
     return s ? String(s.value) : "";
 }
+function webMay(section) { return settingsData.some((s) => s.section === section && s.web_editable !== false); }
 function paintServices(d) {
     const box = document.querySelector("#drawerBody .services");
     if (!box) return;
@@ -2915,6 +2925,7 @@ function paintServices(d) {
         for (const b of c.buttons) {
             const button = el("button", "", b.label);
             button.type = "button";
+            if (!webMay("services")) { button.disabled = true; button.title = "allowed on the computer: Web › Settings from the page (services)"; }
             button.addEventListener("click", async () => {
                 if (b.risky && !confirm(b.label + " (" + name + ")?")) return;
                 button.disabled = true;
@@ -2956,6 +2967,8 @@ function drawDrawer() {
     $("drawerNote").textContent = settingsChanged.size ? settingsChanged.size + " change(s) not saved" : "";
     if (settingsTab === "This device") return drawDevice(body);
     if (settingsTab === "Services") servicesAt = 0; // its cards read at once
+    if (settingsData.some((s) => s.page === settingsTab && s.web_editable === false))
+        body.append(el("div", "readonly-note", "Read only from this page: the computer allows it in its settings (Web › Settings from the page)."));
     for (const s of settingsData.filter((x) => x.page === settingsTab)) {
         if (s.kind === "action") continue;
         const key = s.section + "." + s.key;
@@ -2985,6 +2998,7 @@ function drawDrawer() {
             input.addEventListener("change", () => { settingsChanged.set(key, input.value); drawDrawer(); });
         }
         input.id = id;
+        if (s.web_editable === false) { input.disabled = true; row.classList.add("readonly"); } // the computer did not allow this section from the page
         row.append(label, input, el("div", "help" + (s.at_next_start ? " next" : ""), s.help + (s.at_next_start ? " · applied at the next start" : "")));
         if (s.problem) { // what its value needs and is missing, its install
             const need = el("div", "need", "✗ " + s.problem);
@@ -3041,9 +3055,32 @@ function drawDevice(body) {
     body.append(el("div", "label", "Voice"), voice);
     // the Android app: offered on Android (no warning, notifications, updates), or its own actions inside it
     if (window.ClusterApp) {
+        // the app: what it is (version, build, this phone), its updates checked and installed from here
+        let info = {};
+        try { info = JSON.parse(window.ClusterApp.info ? window.ClusterApp.info() : "{}"); } catch (e) { info = {}; }
+        const version = info.version || (window.ClusterApp.version ? window.ClusterApp.version() : "?");
+        const check = el("button", "primary button", "Check for updates");
+        check.addEventListener("click", async () => {
+            check.disabled = true;
+            check.textContent = "Checking…";
+            try {
+                const served = await (await fetch("/api/version", {cache: "no-store", credentials: "same-origin"})).json();
+                if (served.app && served.app_version && versionNewer(served.app_version, version)) {
+                    check.textContent = "Installing " + served.app_version + "… (Android asks you)";
+                    if (window.ClusterApp.update) window.ClusterApp.update();
+                    else window.ClusterApp.save("/app.apk", "claude-cluster.apk");
+                } else {
+                    toast(served.app ? "The app is up to date (" + version + ")" : "No app built on the computer (the Android SDK)");
+                }
+            } catch (error) { toast("The computer did not answer: " + error.message); }
+            setTimeout(() => { check.disabled = false; check.textContent = "Check for updates"; }, 6000);
+        });
+        field("The app " + version, "build " + (info.code || "?") + (info.built ? " · built " + info.built : "") + " · " + (info.package || "com.claudecluster.app")
+            + " · its updates come from this computer (installed from here, nothing to download)", check);
+        field("This phone", (info.model || "") + (info.android ? " · Android " + info.android : "") + (info.sdk ? " (API " + info.sdk + ")" : ""), el("span", "", ""));
         const change = el("button", "", "Another computer");
         change.addEventListener("click", () => window.ClusterApp.changeComputer());
-        field("The app " + window.ClusterApp.version(), "its updates come from this computer (a newer one only)", change);
+        field("Computer", location.host, change);
     } else if (/Android/i.test(navigator.userAgent)) {
         const link = el("a", "primary button", "Install the app");
         link.href = "#";

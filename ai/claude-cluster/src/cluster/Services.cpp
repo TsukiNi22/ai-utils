@@ -197,10 +197,8 @@ _cold static std::string act_(cluster::Manager& manager, const std::string& serv
             if (code != 0) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "tailscale set --operator: "
                 + (last.empty() ? "exit " + std::to_string(code) : last));
             web->reopen();
-            web->tick(); // its certificate got now
-            const cluster::WebStatus status = web->status();
-            if (!status.certificateWhy.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, status.certificateWhy);
-            return status.certificate == "tailscale" ? "the real certificate of the tailnet served: no warning" : "allowed";
+            web->tick(); // its certificate asked now (apart: its popup tells when it is served)
+            return "allowed: the certificate of the tailnet is being got (its popup tells when it is served)";
         }
         if (action == "tailscale_up") { // this computer logged in to its tailnet (the password window)
             cluster::busy_step("pkexec tailscale up");

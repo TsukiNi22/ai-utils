@@ -516,6 +516,24 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String info() {
+            // the app and this phone, for the This device page
+            try {
+                org.json.JSONObject info = new org.json.JSONObject();
+                info.put("version", BuildConfig.VERSION);
+                info.put("code", BuildConfig.CODE);
+                info.put("built", BuildConfig.BUILT);
+                info.put("package", getPackageName());
+                info.put("android", Build.VERSION.RELEASE);
+                info.put("sdk", Build.VERSION.SDK_INT);
+                info.put("model", Build.MANUFACTURER + " " + Build.MODEL);
+                return info.toString();
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
         public void update() {
             ui.post(() -> install(base));
         }

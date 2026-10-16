@@ -393,6 +393,7 @@ _cold cluster::Web::Web(cluster::Manager& manager, cluster::Voice* voice, const 
 _cold cluster::Web::~Web()
 {
     this->close_();
+    if (this->_certThread.joinable()) this->_certThread.join();
 }
 
 /* port */
@@ -416,7 +417,7 @@ _cold void cluster::Web::tick(void)
         this->close_();
         this->_manager.notice(GLOBAL_ID, "web access closed");
     } else if (this->_fd != -1 && this->_tls != nullptr && !this->_sni.name.empty() && cluster::now() - this->_sniAt > 86400) {
-        this->tailnetCert_(); // its certificate of the tailnet: renewed (swapped in, nobody disconnected)
+        this->certAsync_(); // its certificate of the tailnet: renewed (swapped in, nobody disconnected)
     }
 }
 
@@ -678,6 +679,23 @@ _cold void cluster::Web::tailnetCert_(void)
     #endif
 }
 
+_cold void cluster::Web::certAsync_(void)
+{
+    // the real certificate of the tailnet got apart (tailscale cert waits for Let's Encrypt: seconds, a minute): the page
+    // served meanwhile with the authority of this computer; its popup, its failure told (Retry: again)
+    if (this->_sni.name.empty() || !cluster::has_command("tailscale") || this->_certBusy.exchange(true)) return;
+    if (this->_certThread.joinable()) this->_certThread.join();
+    this->_certThread = std::thread([this]() {
+        cluster::Busy busy(this->_manager, "The real certificate of the tailnet (" + this->_sni.name + ")");
+        this->tailnetCert_();
+        const std::string why = this->_certWhy;
+        busy.end(why.empty(), why.empty() ? "served to " + this->_sni.name + " (no browser warning)" : why);
+        if (!why.empty())
+            (void)this->_manager.fail("Get the real certificate of the tailnet (no browser warning)", "tailscale cert", why, [this]() {this->certAsync_();});
+        this->_certBusy = false;
+    });
+}
+
 _cold std::string cluster::Web::tls_(void)
 {
     // a self-signed certificate made once (config folder / web, its key 0600): the browser asks to accept it the first
@@ -758,7 +776,7 @@ _cold std::string cluster::Web::tls_(void)
         this->_sniView = {&this->_sni.context, &this->_sni.name};
         ::SSL_CTX_set_tlsext_servername_callback(context, sni_);
         ::SSL_CTX_set_tlsext_servername_arg(context, &this->_sniView);
-        this->tailnetCert_();
+        this->certAsync_();
         return "";
     #else
         return "not built with OpenSSL";
@@ -1293,6 +1311,7 @@ self.addEventListener("notificationclick", (e) => {
         else respond_(conn, 200, "application/json; charset=utf-8", snap->entries[index].text, "Cache-Control: private, max-age=86400\r\n");
     } else if (post && request.path == "/api/cmd") {
         cluster::Json command = body.is_object() ? body : cluster::Json::object();
+        command["origin"] = "web"; // a device of the page (never the global session nor an interface, whatever it says)
         const std::string cmd = command.value("cmd", std::string());
         if (cmd == "spawn" && command.contains("cwd") && command["cwd"].is_string()) { // a relative folder: from the home folder
             const std::string cwd = cluster::trim(command["cwd"].get<std::string>());

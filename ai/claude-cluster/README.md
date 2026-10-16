@@ -608,7 +608,9 @@ the agents, a new session, a session closed.
 - **Android app** (`setup.sh install claude-cluster` builds it when the Android SDK is there: `android/build.sh`, no
   Gradle; signed by a key of its own, `~/.config/claude-cluster/android/release.jks`): offered by the page on Android
   (`/app.apk`; edge to edge on Android 15: its page kept out of the status bar, the notch, the navigation bar and the
-  keyboard). An app older than the one the computer serves is blocked by a popup until it is updated (*Install*: the
+  keyboard; its *Chat* tab: the last chat opened, the global session at first; *Sessions*: the list; *This device*:
+  the app - version, build, this phone -, *Check for updates*: installed from the computer, nothing to download).
+  An app older than the one the computer serves is blocked by a popup until it is updated (*Install*: the
   APK of the computer, Android asks once) - checked when it opens, when it comes back in front, and live by the page
   (the same popup in the page inside the app; nothing in a browser). The same page in an app: the computer trusted once (its authority pinned after its fingerprint is
   shown: no warning), its notifications, its microphone; a newer app on the computer is offered (never an older one),
@@ -667,7 +669,8 @@ the agents, a new session, a session closed.
   on plain http). A plain `http://` request is sent to `https://`. Off: plain HTTP, no microphone.
 - **The certificate fitting the way it is reached**: with *Beyond the LAN* = `tailscale`, claude-cluster gets the
   **real certificate of the tailnet** (`tailscale cert <computer>.<tailnet>.ts.net`, Let's Encrypt) and serves it to
-  that name (SNI): **no warning on any device, nothing to install**; renewed every day without closing the port. The
+  that name (SNI): **no warning on any device, nothing to install**; got apart (its own popup: Let's Encrypt takes
+  seconds, a minute; the authority of this computer serves meanwhile), renewed every day without closing the port. The
   LAN address and the router keep the authority of this computer (trusted once per device: no warning, and nobody else
   can make a certificate it accepts - its key never leaves this computer). Needed once: the HTTPS certificates of the
   tailnet on (login.tailscale.com › DNS › HTTPS Certificates) and this user allowed to ask for them (*Services ›
@@ -718,7 +721,9 @@ What protects the three ways of using claude-cluster, and what stays your respon
   key of the certificate never leaves this computer. `/ca.crt`, `/app.apk` and `/api/version` are served to anyone
   (nothing secret in them).
 - **What an approved device can do**: everything you can from the keyboard, except a shell (`!command`, `:r !`)
-  unless *Shell from the page* is on. A trusted phone lost or unlocked = your claude-cluster: *Web devices* › trust
+  unless *Shell from the page* is on, and except the settings of claude-cluster: read only from the page unless
+  `[web] settings` names the sections it may change (`all`, or `ui, notify, services...`; `services`: the actions of
+  the Services tab; *Settings from the page* itself never from the page). *This device* stays the page's own. A trusted phone lost or unlocked = your claude-cluster: *Web devices* › trust
   no more / ban, and keep the shell off unless you need it.
 - **The global session and its MCP tools** run without a permission prompt (`--allowedTools mcp__claude-cluster`):
   what it may do is bounded. The **protected settings** - a shell or the web opened wider (`web.shell`, `web.remote`,
@@ -735,6 +740,8 @@ What protects the three ways of using claude-cluster, and what stays your respon
   A sub-session in `bypassPermissions` with *bypass to global* on lets the global session decide its commands: an
   injected prompt (a web page read by a session) may then run commands through it - keep `agent.allow_bypass` off
   when you do not orchestrate.
+- **The programs run for an answer** (`capture`: the shell asked for its aliases, upnpc, tailscale, git...) get no
+  controlling terminal (`setsid`): an interactive shell could take the terminal of the interface and kill its keyboard.
 - **Privacy**: the map of this computer (`machine.md`: hosts, repositories, the names of environment variables, the
   packages) is read by the global session, so sent to its API provider; the prompt history (`history.jsonl`) keeps
   what you typed, in clear, in your data folder.

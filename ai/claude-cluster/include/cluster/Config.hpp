@@ -105,6 +105,7 @@ struct WebConf {
     std::string remoteHost;         // the name the devices use from outside (router: a dynamic DNS name; empty: its public address)
     int remotePort = 0;             // router: the port opened outside (0: the same)
     bool shell = false;             // !command / :r !command allowed from the page (a shell of this computer: off by default)
+    std::vector<std::string> settings;  // the sections of the settings a device of the page may change ("all"; empty: none, read only there)
 };
 
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on

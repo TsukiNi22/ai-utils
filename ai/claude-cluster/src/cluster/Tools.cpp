@@ -294,7 +294,15 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     std::vector<std::string> envArgs;
     if (!cwd.empty()) envArgs = {"-C", cwd};
     envArgs.insert(envArgs.end(), args.begin(), args.end());
-    running.pid = process.spawn("env", envArgs);
+    // setsid: no controlling terminal for the child (an interactive shell asked for its aliases would take the terminal
+    // of the interface - tcsetpgrp - and its keyboard would be lost); the output is a pipe anyway
+    static const bool setsid = cluster::has_command("setsid");
+    if (setsid) {
+        envArgs.insert(envArgs.begin(), "env");
+        running.pid = process.spawn("setsid", envArgs);
+    } else {
+        running.pid = process.spawn("env", envArgs);
+    }
     {
         std::lock_guard<std::mutex> lock(captures_mutex_);
         captures_.insert(running.pid);

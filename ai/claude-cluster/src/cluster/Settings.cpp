@@ -370,6 +370,16 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "• in the folder of the session, like in the terminal\n"
                 "• off (default): refused there - on, every device connected gets a shell of this computer, from outside the LAN too", false,
                 [](const cluster::Config& cf) {return cf.web.shell ? std::string("true") : std::string("false");}},
+            {"web", "settings", "Settings from the page", SettingKind::List, {}, "the sections of the settings a device of the web page (the app) may change; "
+                "empty (default): none, the settings read only there (This device stays its own).\n"
+                "• sections: ui, notify, agent, commands, global, sessions, voice, user, service, web, mcp, services (the actions of the Services tab: "
+                "start / stop, open / close, restart...)\n• all: every one (web itself: never this option from the page)", false,
+                [](const cluster::Config& cf) {
+                    std::string out;
+                    for (const std::string& s: cf.web.settings)
+                        out += (out.empty() ? "" : ", ") + s;
+                    return out;
+                }},
             {"web", "https", "HTTPS", SettingKind::Bool, {}, "TLS with a certificate of its own, made once.\n"
                 "• the conversation and the code encrypted, the microphone of the page allowed\n"
                 "• the browser asks to accept it the first time (or: the palette, Web access: trust its certificate)\n"
@@ -438,6 +448,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             "(!command), from outside the LAN too") : std::string();}},
         {"sessions.global_prompts", [](const std::string& v) {return v == "true" ? std::string("the global session rewrites what every session obeys "
             "at its start: a prompt injected once (a web page read) could stay for good") : std::string();}},
+        {"web.settings", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("every device connected to the page changes "
+            "these settings of this computer (" + cluster::trim(v) + "): a phone lost or unlocked changes them too");}},
         {"web.https", [](const std::string& v) {return v == "false" ? std::string("the conversation, the code and the cookies go in clear on the "
             "network (anyone on it can read them); no microphone") : std::string();}},
         {"mcp.servers", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("an MCP server runs a program (or "
@@ -637,7 +649,7 @@ _cold void cluster::settings_write(const cluster::Config& config,
 _cold bool cluster::setting_protected(const std::string& section, const std::string& key)
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
-    static const std::set<std::string> keys = {"web.shell", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
+    static const std::set<std::string> keys = {"web.shell", "web.settings", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || keys.contains(section + "." + key);
