@@ -299,6 +299,7 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     static const bool setsid = cluster::has_command("setsid");
     if (setsid) {
         envArgs.insert(envArgs.begin(), "env");
+        envArgs.insert(envArgs.begin(), "-w"); // waited for: its exit code kept whatever setsid does (a fork when it leads a group)
         running.pid = process.spawn("setsid", envArgs);
     } else {
         running.pid = process.spawn("env", envArgs);

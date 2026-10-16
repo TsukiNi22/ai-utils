@@ -305,6 +305,7 @@ function keyBytes(e) {
     if (e.key === "Tab") return shift ? CSI + "Z" : "\t";
     if (e.key === "Escape") return "\x1b";
     if (e.key.length !== 1 || meta) return null;
+    if (ctrl && shift && (e.key === "V" || e.key === "C" || e.key === "v" || e.key === "c")) return null; // the browser pastes / copies, like a terminal
     if (ctrl) {
         const c = e.key.toLowerCase();
         if (c >= "a" && c <= "z") return String.fromCharCode(c.charCodeAt(0) - 96);
@@ -345,6 +346,7 @@ $("full").addEventListener("click", async () => {
 });
 document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); setTimeout(fit, 100); });
 window.addEventListener("resize", () => { if (term) fit(); });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { measure(); if (term) fit(); }); // the font once loaded: the cells measured again
 $("term").addEventListener("focus", () => { needDraw = true; });
 $("term").addEventListener("blur", () => { needDraw = true; });
 

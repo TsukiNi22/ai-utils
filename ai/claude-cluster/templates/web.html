@@ -661,6 +661,9 @@ function stateClass(state) {
     return state === "working" || state === "starting" ? "working" : state === "waiting" ? "waiting" : state === "error" ? "error" : "";
 }
 
+// a phone (the app, a touch screen): Enter in the prompt is a new line, only the Send button sends
+const PHONE = Boolean(window.ClusterApp) || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+if (PHONE) { const prompt = $("prompt"); if (prompt) prompt.placeholder = "Message (Send sends, Enter: new line, @ file, / command)"; }
 function paintTty(state) {
     // the terminal page: a browser only (the app has no terminal), when the computer opened its port
     const button = $("ttyButton");
@@ -2137,6 +2140,7 @@ for (const input of [$("prompt"), $("newCwd")]) {
             e.preventDefault();
             closeComplete();
         } else if (input.id === "prompt" && e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+            if (PHONE) return; // a phone: Enter is a new line, the Send button sends
             e.preventDefault();
             $("composer").requestSubmit();
         }

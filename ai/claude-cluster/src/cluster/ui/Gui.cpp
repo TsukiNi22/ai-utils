@@ -443,6 +443,11 @@ class TermView: public QWidget {
             this->fit();
         }
 
+        bool focusNextPrevChild(bool) override
+        {
+            return false; // Tab / Shift+Tab: keys of the terminal, never the focus chain
+        }
+
         void focusInEvent(QFocusEvent*) override
         {
             this->send("\x1b[I"); // focus reporting: in - xstyle: ignore LU-ANSI (a report of a terminal)

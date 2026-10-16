@@ -544,8 +544,10 @@ _cold std::string cluster::setting_check(const cluster::Setting& setting, const 
     try {
         std::size_t used = 0;
         if (setting.kind == cluster::SettingKind::Int) {
-            (void)std::stol(value, &used);
+            const long number = std::stol(value, &used);
             if (used != cluster::trim(value).size()) return "not an integer";
+            if (setting.key.ends_with("port") && (number < 0 || number > 65535)) return "a port: 0 to 65535";
+            if (number < 0) return "0 or more";
         } else if (setting.kind == cluster::SettingKind::Float) {
             (void)std::stod(value, &used);
             if (used != cluster::trim(value).size()) return "not a number";

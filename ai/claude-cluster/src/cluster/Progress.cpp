@@ -294,7 +294,9 @@ _cold int cluster::run_logged(const std::vector<std::string>& args, const std::f
             quoted += c == '\'' ? std::string("'\\''") : std::string(1, c);
         command += (command.empty() ? "" : " ") + quoted + "'";
     }
-    command += " 2>&1";
+    // never the terminal of the interface (a program asking something: it reads nothing, its own session)
+    static const bool setsid = cluster::has_command("setsid");
+    command = (setsid ? "setsid -w " : "") + command + " < /dev/null 2>&1"; // -w: its exit code kept whatever setsid does
     FILE* pipe = ::popen(command.c_str(), "r");
     if (pipe == nullptr) return -1;
     char buffer[1024];

@@ -921,7 +921,7 @@ class TtyUi {
                 const std::size_t equal = text.find('=');
                 const std::string key = equal == std::string::npos ? "" : cluster::trim(text.substr(text.find(' ') + 1, equal - text.find(' ') - 1));
                 const std::string section = key.find('.') != std::string::npos ? key.substr(0, key.find('.')) : "";
-                if (section.empty() || !cluster::web_may(this->_manager.config(), section) || key == "web.settings") {
+                if (equal != std::string::npos && (section.empty() || !cluster::web_may(this->_manager.config(), section) || key == "web.settings")) {
                     this->status_("read only from the web page (its section, e.g. ui.layout; the computer allows it: Web > Settings from the page)", true);
                     return;
                 }

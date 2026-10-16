@@ -1070,6 +1070,7 @@ _cold cluster::WebStatus cluster::Web::status(void) const
     }
     status.url = std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":" + std::to_string(this->_port);
     status.https = this->_tls != nullptr;
+    status.ttyPort = this->_ttyFd != -1 ? this->_ttyPort : 0;
     status.fingerprint = this->_fingerprint;
     status.certificate = this->_tls == nullptr ? "none" : this->_sni.context.load() != nullptr ? "tailscale" : "authority";
     status.certificateWhy = this->_certWhy;
@@ -1605,6 +1606,7 @@ _cold std::optional<cluster::WebStatus> cluster::web_status(cluster::Manager& ma
         status.client = data.value("client", std::string());
         status.error = data.value("error", std::string());
         status.https = data.value("https", false);
+        status.ttyPort = data.value("tty_port", 0);
         status.fingerprint = data.value("fingerprint", std::string());
         status.certificate = data.value("certificate", std::string());
         status.certificateWhy = data.value("certificate_why", std::string());

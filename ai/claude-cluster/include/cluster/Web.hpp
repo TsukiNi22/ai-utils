@@ -61,6 +61,7 @@ struct WebStatus {
     std::vector<cluster::WebDevice> trusted;    // remembered
     std::string error;              // why the port could not be opened
     bool https = false;             // TLS (self-signed certificate): the microphone of the page works
+    int ttyPort = 0;                // the terminal page served on this port (0: none)
     std::string fingerprint;        // SHA-256 of the certificate, to compare with the one the browser shows
     std::string certificate;        // the certificate served: tailscale (a real one of the tailnet) | authority (of this computer) | none
     std::string certificateWhy;     // tailscale asked but its certificate not got: why (what to do)

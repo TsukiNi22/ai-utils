@@ -377,6 +377,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "restart_global") {
             manager.restartGlobal();
         } else if (cmd == "machine_scan") {
+            if (from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the computer is mapped from the computer only");
             manager.scanMachine();
         } else if (cmd == "action") {
             // the palette of an interface of another process, run here (its voice, its web access, its sessions)
@@ -428,6 +429,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // a local /command (/clear, /model, /mode...) runs here like typed in the prompt, the others go to the agent
             const std::string id = session();
             const std::string text = arg_(request, "text");
+            if (const std::string typed = cluster::trim(text); from_web && !manager.config().web.shell && (typed.starts_with("!")
+                || (typed.starts_with(":") && typed.find('!') != std::string::npos))) // the page and its terminal: the shell only when the computer allows it
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page)");
             if (request.value("raw", false)) { // an interface of another process: its /commands already run, its images
                 manager.noteSender(id, arg_(request, "client"));
                 manager.send(id, text, request.value("force", false), request.value("images", std::vector<std::string>()));
@@ -494,6 +498,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "shell_share") {
             data = {{"done", manager.shareShell(session(), arg_(request, "choice"))}};
         } else if (cmd == "shell") {
+            if (from_web && !manager.config().web.shell) // the page (its terminal too): only when the computer allows it
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page)");
             data = manager.shell(session(), arg_(request, "command"));
         } else if (cmd == "send_next") {
             manager.sendNext(session());
@@ -525,6 +531,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                     {"editable", file.editable}, {"exists", std::filesystem::exists(file.path, error)}});
             }
         } else if (cmd == "config_read") {
+            if (from_web && !cluster::web_may(manager.config(), "config")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             const ConfigFile file = config_file_(manager, arg_(request, "name"));
             std::ifstream in(file.path);
             std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -532,6 +539,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = {{"name", file.name}, {"path", file.path.string()}, {"content", content}};
         } else if (cmd == "config_write") {
             // the whole file replaced (read it first); config.toml checked before; the global prompt: started again after the turn
+            if (from_web && !cluster::web_may(manager.config(), "config")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             const ConfigFile file = config_file_(manager, arg_(request, "name"));
             if (!file.editable) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, file.name + " is read only (" + file.what + ")");
             if (from_global && (file.name == "global_prompt" || file.name == "sessions_prompt") && !manager.config().globalPrompts)
@@ -561,6 +569,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.notice(GLOBAL_ID, cluster::short_path(file.path.string()) + " written by the global session");
             data = {{"name", file.name}, {"path", file.path.string()}, {"applied", file.applied}};
         } else if (cmd == "machine_sync") {
+            if (from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the computer is mapped from the computer only");
             manager.requestMachineSync();
             data = {{"asked", "the question is shown in the interface: the user answers it (the scan then runs, its progress shown)"}};
         } else if (cmd == "allow") {
@@ -624,8 +633,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::string markdown = manager.exportMarkdown(arg_(request, "session"));
             const std::string path = arg_(request, "path");
             // the global session: a .md / .txt file out of the hidden folders only (never ~/.bashrc, ~/.ssh/authorized_keys...)
-            if (from_global && !path.empty() && (cluster::hidden_path(path) || !(path.ends_with(".md") || path.ends_with(".txt"))))
-                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the global session writes .md / .txt files out of the "
+            if ((from_global || from_web) && !path.empty() && (cluster::hidden_path(path) || !(path.ends_with(".md") || path.ends_with(".txt"))))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the global session and the page write .md / .txt files out of the "
                     "hidden folders only (" + path + "): give the markdown to the user, or another path");
             if (path.empty()) {
                 data = {{"markdown", markdown}};
@@ -745,7 +754,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             cluster::Json display = request.contains("display") && request["display"].is_object() ? request["display"]
                 : cluster::Json{{"type", "markdown"}, {"text", arg_(request, "text")}};
             if (request.contains("title") && !display.contains("title")) display["title"] = arg_(request, "title");
-            if (from_global && display.contains("files") && display["files"].is_array()) // never a hidden file offered to the page
+            if ((from_global || from_web) && display.contains("files") && display["files"].is_array()) // never a hidden file offered to the page
                 for (const cluster::Json& f: display["files"])
                     if (f.is_object() && cluster::hidden_path(f.value("path", std::string())))
                         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never offered to download ("
@@ -803,7 +812,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = manager.transcript(session(), request.value("from", -50L), static_cast<std::size_t>(std::clamp(request.value("count", 50), 1, 500)));
         } else if (cmd == "context") {
             // the global session: never a hidden file (keys, credentials, configs) given to a session (and to its API)
-            if (const std::string source = arg_(request, "source"); from_global && !source.starts_with("session:") && (source.starts_with("/") || source.starts_with("~")
+            if (const std::string source = arg_(request, "source"); (from_global || from_web) && !source.starts_with("session:") && (source.starts_with("/") || source.starts_with("~")
                 || source.starts_with(".") || source.find(':') == std::string::npos) && cluster::hidden_path(source))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never given as a context (" + source + ")");
             manager.loadContext(session(), arg_(request, "source"));
@@ -848,7 +857,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 return out;
             };
             data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
-                {"https", status.https}, {"fingerprint", status.fingerprint}, {"certificate", status.certificate}, {"certificate_why", status.certificateWhy}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState}, {"remote_ok", status.remoteOk},
+                {"https", status.https}, {"tty_port", status.ttyPort}, {"fingerprint", status.fingerprint}, {"certificate", status.certificate}, {"certificate_why", status.certificateWhy}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState}, {"remote_ok", status.remoteOk},
                 {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
                 {"trusted", list(status.trusted)}, {"banned", list(status.banned)}, {"ping", status.ping}};
         } else if (cmd == "voice_engines") {

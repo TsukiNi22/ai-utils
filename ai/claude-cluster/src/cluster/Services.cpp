@@ -107,7 +107,7 @@ _cold cluster::Json cluster::services(cluster::Manager& manager)
     out["web"] = {{"on", web && web->on}, {"url", web ? web->url : ""}, {"pin", web ? web->pin : ""}, {"error", web ? web->error : ""},
         {"remote_url", web ? web->remoteUrl : ""}, {"remote", web ? web->remoteState : ""}, {"remote_ok", web && web->remoteOk},
         {"connected", connected}, {"waiting", waiting}, {"trusted", web ? web->trusted.size() : 0}, {"at_start", c.web.enabled}, {"mode", c.web.remote},
-        {"https", web && web->https}, {"certificate", web ? web->certificate : ""}, {"certificate_why", web ? web->certificateWhy : ""},
+        {"https", web && web->https}, {"tty_port", web ? web->ttyPort : 0}, {"certificate", web ? web->certificate : ""}, {"certificate_why", web ? web->certificateWhy : ""},
         {"fingerprint", web ? web->fingerprint : ""}};
     // core
     out["core"] = {{"pid", ::getpid()}, {"since", manager.startedAt()}, {"version", CLUSTER_VERSION}, {"build", cluster::build_id()},
@@ -289,7 +289,8 @@ _cold std::string cluster::service_summary(const std::string& name, const cluste
     if (name == "service") return !s.value("installed", false) ? "not installed" : s.value("active", std::string()) + " · " + s.value("enabled", std::string())
         + (s.value("debug", false) ? " · debug" : "");
     if (name == "web") return s.value("on", false) ? "open · " + std::to_string(s.value("connected", 0)) + " connected"
-        + (s.value("waiting", 0) > 0 ? " · " + std::to_string(s.value("waiting", 0)) + " waiting" : "") : std::string("closed");
+        + (s.value("waiting", 0) > 0 ? " · " + std::to_string(s.value("waiting", 0)) + " waiting" : "")
+        + (s.value("tty_port", 0) > 0 ? " · terminal page :" + std::to_string(s.value("tty_port", 0)) : "") : std::string("closed");
     if (name == "core") {
         if (!s.value("shared", true)) return "in this interface";
         const std::int64_t up = cluster::now() - s.value("since", cluster::now());

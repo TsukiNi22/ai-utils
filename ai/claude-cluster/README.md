@@ -592,6 +592,8 @@ A browser of the same network (a phone, a tablet, another computer of the LAN) d
 their state, the transcript, a message sent to any session, Stop, the permissions (Allow / Deny) and the questions of
 the agents, a new session, a session closed.
 
+- **The prompt**: Enter sends, Shift+Enter is a new line; on a phone (the app, a touch screen) Enter is a new line and
+  only the Send button sends.
 - **Views** (its header; a tab bar on a phone): *Chat* (a session and its conversation), *Grid* (every session as a
   card: its state and face, its model and folder, its last messages, its turn, a message sent to it from the card),
   *Board* (your dashboard: tiles moved by drag and drop or ◀ ▶, sized S / M / L, hidden; kept in this browser), *Hub*
