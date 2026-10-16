@@ -241,6 +241,20 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Bridge(), "ClusterApp");
         web.setWebViewClient(new WebViewClient() {
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                // the page of the computer only in the app (its bridge ClusterApp): any other link opens in the browser
+                final android.net.Uri target = request.getUrl();
+                final android.net.Uri home = android.net.Uri.parse(url);
+                if (target.getHost() != null && target.getHost().equals(home.getHost()) && target.getPort() == home.getPort()) return false;
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, target));
+                } catch (Exception e) {
+                    // no browser: nothing
+                }
+                return true;
+            }
+
+            @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 trust(url, handler, error);
             }
