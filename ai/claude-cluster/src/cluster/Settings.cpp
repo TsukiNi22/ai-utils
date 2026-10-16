@@ -403,6 +403,21 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "Applied at the next start of the global session", true,
                 [](const cluster::Config& cf) {return join_(cf.mcpServers);}},
         }},
+        {"usage", "Usage", {
+            {"usage", "account", "Account windows", SettingKind::Bool, {}, "the 5 h / 7 d windows of the Claude account logged in here (the usage endpoint of claude.ai, "
+                "the token of Claude Code: ~/.claude/.credentials.json, never shown), read every 5 min and after each turn; off: the ones the last turn told only", false,
+                [](const cluster::Config& cf) {return cf.usage.account ? std::string("true") : std::string("false");}},
+            {"usage", "transcripts", "Claude Code transcripts", SettingKind::List, {}, "the folders of the transcripts of Claude Code (~/.claude/projects): every answer's usage "
+                "(the API's own numbers: input, cache written / read, output, thinking) summed by day and model, every session of this computer - in claude-cluster or not; "
+                "empty: the ledger of claude-cluster's own sessions only.\nThe prices: [usage.prices] in config.toml (model = $ per million input tokens), else the ones learned "
+                "from the cost Claude Code tells, else the public table", false,
+                [](const cluster::Config& cf) {
+                    std::string out;
+                    for (const std::string& s: cf.usage.transcripts)
+                        out += (out.empty() ? "" : ", ") + s;
+                    return out;
+                }},
+        }},
         {"services", "Services", {
             {"services", "refresh", "Refresh", SettingKind::Choice, {"live", "interval", "manual"},
                 "live: what changes shown at once (the voice heard, the web, the sessions), the slow parts (systemd, its journal, tailscale) read every Delay;\n"
@@ -659,7 +674,7 @@ _cold void cluster::settings_write(const cluster::Config& config,
 _cold bool cluster::setting_protected(const std::string& section, const std::string& key)
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
-    static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
+    static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || keys.contains(section + "." + key);
@@ -685,7 +700,7 @@ _cold std::vector<std::string> cluster::protected_changes(const std::string& old
         return out.str();
     };
     std::set<std::string> keys;
-    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice"})
+    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice", "usage"})
         for (const toml::table* table: {before.at_path(section).as_table(), after.at_path(section).as_table()})
             if (table != nullptr)
                 for (const auto &[key, node]: *table)

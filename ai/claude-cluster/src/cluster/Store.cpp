@@ -192,6 +192,11 @@ _cold std::size_t cluster::Manager::stashSize(void) const
     return stash && stash->is_array() ? stash->size() : 0;
 }
 
+_cold static cluster::Json usage_json_(const cluster::Usage& u)
+{
+    return {{"input", u.input}, {"cache_write", u.cacheCreation}, {"cache_write_1h", u.cacheCreation1h}, {"cache_read", u.cacheRead}, {"output", u.output}, {"thinking", u.thinking}};
+}
+
 _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, const bool full) const
 {
     const cluster::Metrics& m = snap.metrics;
@@ -200,7 +205,8 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         {"model", snap.modelUsed.empty() ? snap.spec.model : snap.modelUsed}, {"state", cluster::state_name(snap.state)},
         {"mode", snap.spec.mode}, {"queued", snap.queued}, {"summary", snap.spec.summary}, {"resumable", cluster::resumable(snap)},
         {"warning", !snap.warning.empty() && cluster::now() - snap.warningAt < 60 ? snap.warning : std::string()},
-        {"tokens", {{"last", m.last.total()}, {"current", m.current.total()}, {"total", m.total.total()}}},
+        {"tokens", {{"last", m.last.total()}, {"current", m.current.total()}, {"total", m.total.total()},
+            {"detail", {{"last", usage_json_(m.last)}, {"current", usage_json_(m.current)}, {"total", usage_json_(m.total)}}}}},
         {"context", {{"used", m.contextUsed}, {"window", m.contextWindow}}},
         {"cost_usd", m.costKnown ? cluster::Json(m.cost) : cluster::Json("local / unknown")},
     };

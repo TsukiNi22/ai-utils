@@ -65,6 +65,7 @@ class WebTty {
             bool alive = true;
             std::int64_t seen = 0;      // ms of the last read by the page
             std::mutex mutex;
+            std::mutex writing;             // the keys written (in order), the fd kept open meanwhile
             std::condition_variable changed;
             std::thread reader;
             cluster::Vt vt{80, 24};         // its screen (the WebSocket of the page: the rows changed only)

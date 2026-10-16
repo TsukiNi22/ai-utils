@@ -3034,8 +3034,18 @@ class TtyUi {
                 const std::function<std::string(const cluster::Usage&)> split = [](const cluster::Usage& u) {
                     return cluster::human_tokens(u.input + u.cacheCreation + u.output) + (u.cacheRead > 0 ? " +" + cluster::human_tokens(u.cacheRead) + " cache" : "");
                 };
-                section("Tokens", {line("last turn", split(m.last)), line("current", split(m.current)), line("total", split(m.total)),
-                    line("turns", std::to_string(m.turns))});
+                ftxui::Elements tokens = {line("last turn", split(m.last))};
+                const std::function<void(const cluster::Usage&)> detail = [&](const cluster::Usage& u) {
+                    const std::pair<std::string, std::string> two = cluster::usage_detail2(u);
+                    tokens.push_back(ftxui::text(" " + two.first) | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    tokens.push_back(ftxui::text(" " + two.second) | ftxui::color(this->_theme.muted) | ftxui::dim);
+                };
+                if (m.last.total() > 0) detail(m.last);
+                tokens.push_back(line("current", split(m.current)));
+                tokens.push_back(line("total", split(m.total)));
+                if (m.total.total() > 0) detail(m.total);
+                tokens.push_back(line("turns", std::to_string(m.turns)));
+                section("Tokens", std::move(tokens));
             }
             if (s.spec.panels.contains("context")) {
                 const float ratio = m.contextWindow > 0 ? static_cast<float>(m.contextUsed) / static_cast<float>(m.contextWindow) : 0.0f;
@@ -4226,7 +4236,7 @@ class TtyUi {
                     // its choice taken; nothing changed (the word already the one listed): Enter sends the prompt
                     const std::string before = this->_editor.text();
                     this->_editor.accept();
-                    if (this->_editor.text() != before) return true;
+                    if (cluster::trim(this->_editor.text()) != cluster::trim(before)) return true;
                 } else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown) {
                     this->_editor.select(event == ftxui::Event::ArrowUp ? -1 : 1);
                     return true;

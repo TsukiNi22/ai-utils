@@ -1818,6 +1818,7 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
     std::int64_t nextFrame = 0;
     std::int64_t heard = now();
     std::int64_t checked = now();
+    std::int64_t pinged = now();
     std::string in;
     std::string message;    // a message in fragments
     int messageOp = 0;
@@ -1864,9 +1865,13 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
                 close(4001, "not connected");
                 break;
             }
-            if (now() - heard > 30000) { // the page gone without a word
+            if (now() - heard > 30000) { // the page gone without a word (its pongs included)
                 close(4002, "silent");
                 break;
+            }
+            if (now() - pinged >= 10000) { // a ping of the server: a page in a background tab answers it, throttled or not
+                pinged = now();
+                if (!ws_send_(conn, 0x9, "")) break;
             }
             if (watcher < 0) watcher = this->_ttys.watch(device); // its terminal opened again elsewhere
         }
@@ -1931,6 +1936,7 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
                     stop = true;
                 } else if (op == 0x9) {
                     stop = !ws_send_(conn, 0xA, payload);
+                } else if (op == 0xA) { // the pong of our ping: heard (above), nothing else
                 } else if (op == 0x0) { // the next fragment
                     message += payload;
                     if (fin) {

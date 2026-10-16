@@ -382,6 +382,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "voice") {
             // the voice keys of an interface of another process (F5, send, drop, correct, mute): the voice of this core
             if (from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the page has its own voice");
+            if (from_global) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the voice is driven by the user only");
             cluster::Voice* voice = manager.voice();
             if (voice == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no core here");
             const std::string action = arg_(request, "action");
@@ -407,6 +408,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = {{"listening", voice->listening()}};
         } else if (cmd == "action") {
             // the palette of an interface of another process, run here (its voice, its web access, its sessions)
+            if (from_global || from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the palette is the user's (its keys, its web access)");
             if (manager.voice() == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no core here");
             const cluster::ActionResult result = cluster::run_action(manager, *manager.voice(), arg_(request, "id"), arg_(request, "session", GLOBAL_ID),
                 request.value("input", std::string()));
@@ -546,6 +548,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             for (const auto &[model, description]: info.models)
                 data["models"].push_back({{"model", model}, {"description", description}});
         } else if (cmd == "usage") {
+            manager.usageRefresh(); // what grew since, the account (in the background: the next read has it)
             data = manager.usageJson(arg_(request, "vendor"));
         } else if (cmd == "cluster_info") {
             data = cluster_info_(manager);

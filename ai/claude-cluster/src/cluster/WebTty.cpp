@@ -172,6 +172,7 @@ _cold void cluster::WebTty::drop_(const std::shared_ptr<Session>& session)
     }
     cluster::pty_kill(session->pty); // the read ends (EIO), its thread joined, then only its fd closed (never reused under a read)
     if (session->reader.joinable()) session->reader.join();
+    std::lock_guard<std::mutex> lock(session->writing); // a write in flight ends first
     if (session->pty.fd >= 0) ::close(session->pty.fd);
     session->pty.fd = -1;
 }
@@ -244,8 +245,8 @@ _cold void cluster::WebTty::write(const std::string& device, const std::string& 
         if (it == this->_sessions.end()) return;
         session = it->second;
     }
-    std::lock_guard<std::mutex> lock(session->mutex); // the keys in order; the others never wait on a slow pty
-    if (session->pty.fd < 0) return;
+    std::lock_guard<std::mutex> lock(session->writing); // the keys in order; never the screen mutex: a full pty (a big paste
+    if (session->pty.fd < 0) return;                     // the terminal is not reading yet) would stop its reader too
     for (std::size_t written = 0; written < bytes.size();) {
         const ssize_t size = ::write(session->pty.fd, bytes.data() + written, bytes.size() - written);
         if (size <= 0) return;

@@ -23,6 +23,7 @@ File Description:
 #include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Reveal.hpp"
+#include "cluster/Usage.hpp"
 #include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
@@ -3935,8 +3936,11 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         const std::function<std::string(const cluster::Usage&)> split = [](const cluster::Usage& u) {
             return cluster::human_tokens(u.input + u.cacheCreation + u.output) + (u.cacheRead > 0 ? " +" + cluster::human_tokens(u.cacheRead) + " cache" : "");
         };
-        p += title("Tokens") + "<table width=\"100%\">" + line("last turn", split(m.last)) + line("current", split(m.current))
-            + line("total", split(m.total)) + line("turns", std::to_string(m.turns)) + "</table>";
+        p += title("Tokens") + "<table width=\"100%\">" + line("last turn", split(m.last))
+            + (m.last.total() > 0 ? "<tr><td colspan=\"2\">" + span_(st.muted, esc_(cluster::usage_detail2(m.last).first)) + "<br>" + span_(st.muted, esc_(cluster::usage_detail2(m.last).second)) + "</td></tr>" : QString())
+            + line("current", split(m.current)) + line("total", split(m.total))
+            + (m.total.total() > 0 ? "<tr><td colspan=\"2\">" + span_(st.muted, esc_(cluster::usage_detail2(m.total).first)) + "<br>" + span_(st.muted, esc_(cluster::usage_detail2(m.total).second)) + "</td></tr>" : QString())
+            + line("turns", std::to_string(m.turns)) + "</table>";
     }
     if (s.spec.panels.contains("context")) {
         const int percent = m.contextWindow > 0 ? static_cast<int>(100 * m.contextUsed / m.contextWindow) : 0;

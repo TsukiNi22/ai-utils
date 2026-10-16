@@ -239,6 +239,18 @@ _cold void cluster::Config::load(void)
     this->service.wakeWord = sv["wake_word"].value_or(this->service.wakeWord);
     this->service.python = sv["python"].value_or(this->service.python);
     this->service.source = sv["source"].value_or(this->service.source);
+    this->usage.account = table["usage"]["account"].value_or(this->usage.account);
+    if (table["usage"]["transcripts"].as_array()) this->usage.transcripts = strings_(table["usage"]["transcripts"], this->usage.transcripts);
+    else if (const char* env = std::getenv("CLAUDE_CLUSTER_TRANSCRIPTS")) // the environment of the core (tests): folders apart by ':', empty: none
+        this->usage.transcripts = cluster::split(env, ':');
+    if (const toml::table* prices = table["usage"]["prices"].as_table()) {
+        this->usage.prices.clear();
+        for (const auto &[name, node]: *prices) {
+            if (const std::optional<double> input = node.value<double>()) this->usage.prices[std::string(name.str())] = {*input, 0.0};
+            else if (const toml::array* pair = node.as_array(); pair && pair->size() >= 1)
+                this->usage.prices[std::string(name.str())] = {(*pair)[0].value<double>().value_or(0.0), pair->size() >= 2 ? (*pair)[1].value<double>().value_or(0.0) : 0.0};
+        }
+    }
     this->services.refresh = table["services"]["refresh"].value_or(this->services.refresh);
     this->services.delay = std::max(1, table["services"]["delay"].value_or(this->services.delay));
 

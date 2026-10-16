@@ -500,6 +500,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
 {
     static const std::vector<std::pair<std::string, std::string>> list = {
         {"cd", "<folder>: move the session to another project"},
+        {"pwd", "where the session runs (its folder, the computer, its pid) - shown here only, nothing sent to the agent"},
         {"new", "<folder> [backend]: new session"},
         {"mode", "[mode]: permission mode of the session; none: pick it"},
         {"rename", "<name>: rename the session"},
@@ -674,6 +675,11 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
         if (name == "cd") {
             manager.cd(session, arg);
             result.message = "moved to " + cluster::short_path(arg);
+        } else if (name == "pwd") {
+            // where it runs: shown in the status line, never a prompt (the context untouched)
+            const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+            if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no such session");
+            result.message = cluster::expand_home(snap->spec.cwd).string() + " · " + cluster::host_name() + (snap->pid > 0 ? " · pid " + std::to_string(snap->pid) : "");
         } else if (name == "now") {
             manager.sendNext(session);
             result.message = "the next queued prompt sent now";

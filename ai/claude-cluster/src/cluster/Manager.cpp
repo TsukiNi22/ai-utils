@@ -90,7 +90,7 @@ _cold static std::vector<std::string> prompt_args_(const std::string& file)
 
 /* constructor */
 _cold cluster::Manager::Manager(cluster::Config& config)
-    : _config(config), _auth(config), _asking(std::make_unique<cluster::Asking>(*this))
+    : _config(config), _auth(config), _asking(std::make_unique<cluster::Asking>(*this)), _transcripts(config.usage.transcripts, cluster::data_dir() / "usage-scan.json")
 {
     this->loadUsage_();
 }
@@ -98,6 +98,9 @@ _cold cluster::Manager::Manager(cluster::Config& config)
 _cold cluster::Manager::~Manager()
 {
     this->shutdown();
+    this->_usageStop = true; // the threads of the usage (a scan, a read of the account) end before anything of this manager goes
+    if (this->_scanThread.joinable()) this->_scanThread.join();
+    if (this->_accountThread.joinable()) this->_accountThread.join();
 }
 
 /* sessions */
@@ -910,6 +913,8 @@ _cold void cluster::Manager::tick(void)
     this->groupsTick_();
     this->fireSchedules_();
     if (++seconds % 300 == 1) this->purge();
+    if (seconds % 60 == 2) this->scanTranscripts_();        // the transcripts of Claude Code: what grew
+    if (seconds % 300 == 3) this->refreshAccount_();        // the windows of the account
     if (seconds == 5) this->describeMissing_();
 }
 

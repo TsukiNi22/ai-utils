@@ -51,6 +51,10 @@ _cold static cluster::Usage usage_of_(const cluster::Json& usage)
     result.output = usage.value("output_tokens", std::int64_t{0});
     result.cacheRead = usage.value("cache_read_input_tokens", std::int64_t{0});
     result.cacheCreation = usage.value("cache_creation_input_tokens", std::int64_t{0});
+    if (usage.contains("cache_creation") && usage["cache_creation"].is_object())
+        result.cacheCreation1h = usage["cache_creation"].value("ephemeral_1h_input_tokens", std::int64_t{0});
+    if (usage.contains("output_tokens_details") && usage["output_tokens_details"].is_object())
+        result.thinking = usage["output_tokens_details"].value("thinking_tokens", std::int64_t{0});
     return result;
 }
 
@@ -60,6 +64,8 @@ _cold static void add_(cluster::Usage& to, const cluster::Usage& from)
     to.output += from.output;
     to.cacheRead += from.cacheRead;
     to.cacheCreation += from.cacheCreation;
+    to.cacheCreation1h += from.cacheCreation1h;
+    to.thinking += from.thinking;
 }
 
 _cold static std::string tool_summary_(const std::string& name, const cluster::Json& input)

@@ -190,6 +190,7 @@ _cold static cluster::ActionResult ex_(cluster::Manager& manager, const std::str
     }
     if (name == "w" || name == "write") return slash("/export" + (arg.empty() ? "" : " " + arg));
     if (name == "e" || name == "edit" || name == "cd") return slash("/cd " + arg);
+    if (name == "pwd") return slash("/pwd");
     if (name == "q" || name == "q!" || name == "close") return slash("/close");
     if (name == "qa" || name == "qa!" || name == "quit" || name == "wqa") return {"", false, "", "quit", ""};
     if (name == "g" || name.starts_with("g/")) {

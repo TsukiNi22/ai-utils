@@ -26,6 +26,7 @@ File Description:
     #include "Asking.hpp"           // cluster::Asking
     #include "Types.hpp"            // cluster::Snapshot, cluster::Task
     #include "Icons.hpp"            // cluster::Notification, cluster::AppFace
+    #include "Usage.hpp"            // cluster::Transcripts
     #include "Auth.hpp"             // cluster::Auth
     #include <functional>           // std::function
     #include <optional>             // std::optional
@@ -135,7 +136,14 @@ class Manager {
         cluster::Web* _web = nullptr;                   // the web access of this instance (owned by the App)
         std::unique_ptr<cluster::Asking> _asking;       // the question of an agent being answered (the interfaces, the voice)
         std::vector<cluster::UsageRecord> _usage;       // the usage ledger (usage.jsonl), in time order
-        std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows)
+        std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows), the account's
+        cluster::Transcripts _transcripts;              // the transcripts of Claude Code (every session of this computer)
+        std::atomic<bool> _usageBusy{false};            // a scan of the transcripts running
+        std::atomic<bool> _accountBusy{false};          // a read of the account running
+        std::atomic<bool> _usageStop{false};            // the manager ends: the scan stops, the threads joined
+        std::thread _scanThread;                        // the scan of the transcripts (joined before the next one, at the end)
+        std::thread _accountThread;                     // the read of the account
+        mutable std::map<std::string, std::pair<std::int64_t, cluster::UsageReport>> _usageCache;   // an interface of the core: the report of the core, 2 s
         struct Describer {                              // the descriptions being written (a thread of their own, one at a time)
             std::mutex mutex;
             bool alive = true;                          // false: claude-cluster quits (a description written after it: dropped)
@@ -174,6 +182,8 @@ class Manager {
         _cold void groupUpdate_(const std::string& id);     // Manager-Groups.cpp: its card, the global session woken, its end
         _cold void groupsTick_(void);                       // the groups whose time is over
         _cold void loadUsage_(void);                        // Manager-Usage.cpp
+        _cold void scanTranscripts_(void);                  // in a thread: what grew
+        _cold void refreshAccount_(void);                   // in a thread: the windows of the account
         _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
         void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)
         _cold void relaunch_(const std::string& id, const cluster::SessionSpec& spec); // started again with this spec (same conversation)
@@ -205,6 +215,7 @@ class Manager {
         _cold _nodiscard std::vector<std::string> usageVendors(void) const;         // the ones in the ledger
         _cold _nodiscard std::vector<std::pair<std::string, std::string>> usageLines(const cluster::Snapshot& snap) const; // panel "usage"
         _cold _nodiscard cluster::Json usageJson(const std::string& vendor) const;  // every vendor when empty
+        _cold void usageRefresh(void);              // now: the transcripts, the account (a panel opened, the command)
         _cold void save(void) const;
         _cold void restorePrevious(const bool restore);     // restore the previous sessions, or move them to the trash
         _cold void answerRestore(const bool restore);       // the question at start: + the global session (resumed or new)

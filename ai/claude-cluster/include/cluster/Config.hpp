@@ -120,6 +120,12 @@ struct ServiceConf {
     std::string source;             // microphone (PulseAudio / PipeWire source), empty: the default one
 };
 
+struct UsageConf {
+    bool account = true;            // the windows of the Claude account read from its usage endpoint (the token of Claude Code), every 5 min
+    std::vector<std::string> transcripts = {"~/.claude/projects"};  // the transcripts of Claude Code summed (every session of this computer); empty: the ledger of claude-cluster only
+    std::map<std::string, std::pair<double, double>> prices;        // [usage.prices] model = input $/M tokens (output 5x), or [input, output]
+};
+
 struct ServicesConf {
     std::string refresh = "live";   // the Services tab: live (what changes, at once) | interval (every delay s) | manual (R)
     int delay = 2;                  // seconds: interval; the slow parts (systemd, its journal, tailscale) kept so long
@@ -211,6 +217,7 @@ class Config {
         cluster::VoiceConf voice;
         cluster::ServiceConf service;
         cluster::ServicesConf services;
+        cluster::UsageConf usage;
         cluster::WebConf web;
         cluster::UserConf user;
         int machineDays = 30;                   // the map of this computer older: a sync proposed at start (0: never)

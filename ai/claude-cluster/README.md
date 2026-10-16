@@ -182,7 +182,7 @@ window opens instead when there is a display). In the background: `claude-cluste
 | Ctrl+S / Ctrl+P | stash the prompt / take the last one back (kept over the runs) |
 | Ctrl+R | history of the prompts sent to the session shown (type to filter, Enter puts it in the prompt; Tab: every session) |
 
-Local commands: `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
+Local commands: `/pwd` (where the session runs: its folder, the computer, its pid - shown only, nothing sent), `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
 `/export [file]`, `/restore [session]`, `/clear` (a new conversation: the transcript emptied, archived in `logs/archive/` for `search`), `/model <name>` (same
 conversation, another model), `/cost`, `/context`, `/rewind` (= Esc Esc on an empty prompt), `/exit` (= `/close`),
 `/settings`, `/vim`, `/help`; the commands of the agent (`/compact`, skills...) are completed too. A pasted image goes to Claude as an image block (to the
@@ -254,10 +254,25 @@ has at once; `typewriter = false`: shown as received.
 
 Panels of a session (each one enabled per session from the palette): **tokens** (last prompt, current one, total),
 **context** (used / window), **cost** (session, last turn, budget, 5 h / 7 d limits), **usage** (the vendor of the
-session over every session and run: tokens and cost today, the last 7 days, lifetime - ledger
-`~/.local/share/claude-cluster/usage.jsonl` -; the 5 h / 7 d limits left and their reset when the vendor tells them; the
-budget left), **skills** (loaded, available), **git** (branch, graph of the commits), **diff** (`git diff --stat` +
-diff), **tools** (timeline), **files** (modified).
+session: tokens and cost today, the last 7 days, lifetime, with the breakdown the API gives - input, cache written (5
+min / 1 h), cache read, output, thinking; the windows of the account; the budget left), **skills** (loaded,
+available), **git** (branch, graph of the commits), **diff** (`git diff --stat` + diff), **tools** (timeline),
+**files** (modified).
+
+The numbers of **tokens** are the API's own (the `usage` of each answer: input, cache written 5 min / 1 h, cache read,
+output and its thinking part), shown per turn and per session with their breakdown. The **usage** of Anthropic is
+read from the transcripts of Claude Code (`~/.claude/projects`, `[usage] transcripts`, or `CLAUDE_CLUSTER_TRANSCRIPTS` in
+the environment of the core - folders apart by `:`, empty: none): every session of this
+computer, in claude-cluster or not, summed by day and model as the files grow (a message streamed is counted once).
+Its **cost** uses the price of each model: `[usage.prices]` in `config.toml` (`"claude-opus-5-5" = 15` $ per million
+input tokens, the output 5x, the cache written 1.25x / 2x, read 0.1x; or `[input, output]`), else the price **learned**
+from the cost Claude Code tells for its own turns (`prices.json`, exact for its table), else the public table of the
+known models; unknown: the cost says so. The **windows of the account** (5 h, 7 d, a model's 7 d, the extra usage
+credits) come from the usage endpoint of claude.ai with the token of Claude Code (`~/.claude/.credentials.json`, sent
+to that endpoint only, never shown or logged), read every 5 minutes, after a turn and when the usage is asked
+(`[usage] account = false` keeps the ones the last turn told). The other vendors (codex, ollama...) keep the ledger of
+claude-cluster (`usage.jsonl`, with the same breakdown from now on). `claude-cluster usage [vendor]` and the `usage`
+tool give all of it as JSON (the breakdown, the windows, the source).
 
 Model and thinking effort of a session (the same conversation goes on, the session started again): the palette
 (*Model: ...* - the Claude aliases and ids, `ollama list`, `opencode models`, the `[models]` of the config - and
@@ -755,6 +770,13 @@ What protects the three ways of using claude-cluster, and what stays your respon
   `[web] settings` names the sections it may change (`all`, or `ui, notify, services...`; `services`: the actions of
   the Services tab; *Settings from the page* itself never from the page). *This device* stays the page's own. A trusted phone lost or unlocked = your claude-cluster: *Web devices* › trust
   no more / ban, and keep the shell off unless you need it.
+- **The user's own controls stay the user's**: the voice keys (listen, send / drop / correct a voice prompt, mute) and
+  the palette actions (log in / out, quit everything, start over...) are run by the core for its terminals and windows
+  only - never by the global session (its tools) nor by the web page. The token of Claude Code (`~/.claude/.credentials.json`)
+  is read for the usage endpoint of claude.ai only, sent by a header file readable by you alone from its first byte,
+  removed at once, never logged; its endpoint is never taken from the config (a test one: the environment of the
+  core). The folders of the transcripts (`[usage] transcripts`) are read under your home folder only, and only the
+  `usage` numbers of their lines.
 - **The global session and its MCP tools** run without a permission prompt (`--allowedTools mcp__claude-cluster`):
   what it may do is bounded. The **protected settings** - a shell or the web opened wider (`web.shell`, `web.remote`,
   `web.approve`, `web.https`, `web.enabled`, `web.port`), the permissions of the agents (`agent.permission_mode`,

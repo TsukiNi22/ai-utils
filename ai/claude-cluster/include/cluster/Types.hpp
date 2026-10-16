@@ -64,7 +64,9 @@ struct Usage {
     std::int64_t input = 0;
     std::int64_t output = 0;
     std::int64_t cacheRead = 0;
-    std::int64_t cacheCreation = 0;
+    std::int64_t cacheCreation = 0;     // written to the cache (5 min and 1 h)
+    std::int64_t cacheCreation1h = 0;   // the part kept 1 h (priced 2x, the 5 min one 1.25x)
+    std::int64_t thinking = 0;          // of the output
 
     _nodiscard std::int64_t total(void) const {return input + output + cacheRead + cacheCreation;};
     _nodiscard std::int64_t context(void) const {return input + cacheRead + cacheCreation + output;};
@@ -96,6 +98,12 @@ struct UsageRecord {
     std::int64_t cache = 0;         // read again from the cache
     double cost = 0.0;              // USD (0: local / unknown)
     bool costKnown = true;
+    std::int64_t input = 0;         // its breakdown (0 on the records of older runs)
+    std::int64_t cacheWrite = 0;
+    std::int64_t cacheWrite1h = 0;
+    std::int64_t cacheRead = 0;
+    std::int64_t output = 0;
+    std::int64_t thinking = 0;
 };
 
 struct UsageSum {
@@ -104,6 +112,22 @@ struct UsageSum {
     double cost = 0.0;
     bool costKnown = true;          // false: some turns of a local / unknown price
     int turns = 0;
+    std::int64_t input = 0;         // its breakdown
+    std::int64_t cacheWrite = 0;
+    std::int64_t cacheWrite1h = 0;
+    std::int64_t cacheRead = 0;
+    std::int64_t output = 0;
+    std::int64_t thinking = 0;
+};
+
+// A window of the account (5 h, 7 d, 7 d of a model, the extra usage): what is used of it, when it resets
+struct UsageWindow {
+    std::string name;               // "5 h", "7 d", "7 d opus", "7 d sonnet", "extra usage"
+    double used = -1.0;             // 0..1 (-1 unknown)
+    std::int64_t reset = 0;         // unix seconds (0 unknown)
+    double usedDollars = -1.0;      // the extra usage: credits used / its limit (-1: none)
+    double limitDollars = -1.0;
+    std::string locked;             // why it is locked (empty: not)
 };
 
 // The usage of a vendor: today (since midnight), the last 7 days, its whole life; its limits when it tells them
@@ -117,6 +141,9 @@ struct UsageReport {
     double limit7d = -1.0;
     std::int64_t reset5h = 0;
     std::int64_t reset7d = 0;
+    std::vector<cluster::UsageWindow> windows;  // the account (the OAuth usage endpoint): every window it tells
+    std::int64_t accountAt = 0;     // unix seconds of the last read of the account (0: never)
+    std::string source;             // where the sums come from
 };
 
 // A prompt as written: its text (images as [Image #N] in the order of the text, pastes in full), its images, its pasted
