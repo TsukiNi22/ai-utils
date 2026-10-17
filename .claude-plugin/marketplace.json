@@ -97,6 +97,15 @@
       ]
     },
     {
+      "name": "system-skills",
+      "description": "System: free space on the computer and in the data of Claude Code / claude-cluster, chosen in a QCM (skills: computer-clean)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./system/"
+      ]
+    },
+    {
       "name": "audit",
       "description": "Router /audit: Router running the audits of the current project",
       "source": "./routers/audit",

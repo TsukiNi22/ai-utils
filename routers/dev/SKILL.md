@@ -62,6 +62,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | explanation page (how something works), simple + technical | `explain-doc` | `doc` |
 | protocol of a networking project (frames, handshake, codes, commands, storage) | `protocol-doc` | `doc` |
 | any other HTML page, palette / color / font | `html-style` | `doc` |
+| free space: caches, Docker, old builds, Claude Code / claude-cluster leftovers | `computer-clean` | - |
 | commit, branch, PR, tag, release, CHANGELOG | `git-conventions` | `git` |
 | several needs (ex: "add the feature, document it and prepare the commit") | every matching skill, in the order of the work: code -> docs -> git | - |
 | no skill matches (other language/tool) | none: say it, follow the conventions of the project | - |

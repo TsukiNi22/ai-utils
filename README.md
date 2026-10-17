@@ -48,6 +48,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`html-style`](docs/html-style/SKILL.md) | My visual style for any HTML page (from `html-doc`): light / dark color tokens, system fonts and type scale, layout, components, SVG diagram classes, sun/moon and EN/FR switches, rules (self-contained, WCAG contrast); `scripts/new_page.py` builds a self-contained page, `scripts/check_style.py` checks a page or a palette (tokens, contrast, unreadable inherited colors, external resources). |
 | [`explain-doc`](docs/explain-doc/SKILL.md) | Explanation pages (how something works) in two levels switched in place, **Simple** (analogies, plain words, numbers) and **Technical** (terms, formulas, complexity, edge cases, code, sources), with SVG diagrams, step-by-step animations, MathML formulas, interactive playgrounds / simulations checking the formulas, quizzes and a glossary. Built on `html-style`. |
 | [`protocol-doc`](docs/protocol-doc/SKILL.md) | Protocol / wire format documentation (from the 2ETP doc of my networking projects): framing with the control bytes, the payload types table, one section per message type (grammar + fields), the code tables (errors, events, commands), every frame in one block, the handshake step by step with a sequence diagram, the client / server commands, the storage format; always asks the output - Markdown, PDF (report style) or sections of the existing HTML docs (html-doc) - and checks it (`check_protocol.py`: anchors, types, frames, codes). |
+| [`computer-clean`](system/computer-clean/SKILL.md) | Frees space on the computer and in the data of Claude Code / claude-cluster: caches, trash, old build outputs (never a git-tracked file), Docker / Podman, journal, dnf, flatpak, big old downloads, old conversations, finished jobs, worktrees without changes, claude-cluster leftovers - listed with size and why, chosen in a QCM, then deleted for good. |
 | [`cpp-project`](cpp/cpp-project/SKILL.md) | Sets up a new C++ project with the `setup.sh` of [cpp_project_template](https://github.com/TsukiNi22/cpp_project_template) (never committing): renaming, binary / `.a` / `.so` / header-only, RPM/DEB packages of every variant, Linux + Windows (MinGW-w64) builds and packages, libutils (v4.1) or not, exceptions, GTest, the template's workflows (dispatch, unit tests, build, packages, GitHub release from the CHANGELOG, docs), optional gh-pages branch (signed packages repository + docs), README/CHANGELOG/docs, using the other skills. |
 | [`cmake-style`](cpp/cmake-style/SKILL.md) | `CMakeLists.txt` in my style: section order, explicit sources, Debug/Asan/Optimized modes, release targets, GTest tests, install + `find_package` config, CPack RPM/DEB stable/pre channels, with app/lib/tests templates. |
 | [`cpp-tests`](tests/cpp-tests/SKILL.md) | C++ unit tests like libutils: GoogleTest setup (CMake, CI, `unit_tests`), one test file per module, isolation of the blocking cases, known bugs kept as failing tests, `scripts/untested.py` to list what is never tested. |
@@ -195,6 +196,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 | `test-skills` | tests, cpp-tests, coverage |
 | `audit-skills` | audit-bugs, audit-quality, audit-deps, benchmark |
 | `legal-skills` | license |
+| `system-skills` | computer-clean |
 | `dev`, `cpp`, `python`, `setup-project`, `doc`, `git`, `style`, `legal`, `audit` | the routers (`/dev`, `/cpp`...) |
 
 The skills of a plugin are named `<plugin>:<skill>` (e.g. `cpp-skills:cpp-class`); each plugin carries the whole
@@ -228,6 +230,7 @@ docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, protocol
 git/       git-conventions, ci-cd, pre-commit
 audit/     audit-bugs, audit-quality, audit-deps, benchmark
 legal/     license
+system/    computer-clean
 ai/        rtk, claude-cluster (tool)
 context/   global context of Claude Code (CLAUDE.md, RTK.md, hooks, sudo-askpass), installed by setup.sh
 ```
