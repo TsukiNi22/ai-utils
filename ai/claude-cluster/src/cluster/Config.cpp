@@ -115,6 +115,7 @@ _cold void cluster::Config::load(void)
     /* ui */
     this->frontend = table["ui"]["frontend"].value_or(this->frontend);
     this->sharedCore = table["ui"]["shared_core"].value_or(this->sharedCore);
+    this->quitBackground = table["ui"]["quit_background"].value_or(this->quitBackground);
     this->shellContext = table["ui"]["shell_context"].value_or(this->shellContext);
     this->matching = table["ui"]["matching"].value_or(this->matching);
     cluster::set_matching(this->matching);
@@ -171,6 +172,7 @@ _cold void cluster::Config::load(void)
     this->describeModel = table["sessions"]["describe_model"].value_or(this->describeModel);
     this->maxParallel = table["sessions"]["max_parallel"].value_or(this->maxParallel);
     this->taskQueue = table["sessions"]["task_queue"].value_or(this->taskQueue);
+    this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
     this->sessionsPrompt = table["sessions"]["prompt"].value_or(this->sessionsPrompt);
     this->globalFork = table["sessions"]["global_fork"].value_or(this->globalFork);

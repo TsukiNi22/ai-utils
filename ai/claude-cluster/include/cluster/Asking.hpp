@@ -30,6 +30,7 @@ File Description:
     #include <vector>               // std::vector
     #include <mutex>                // std::mutex
     #include <set>                  // std::set
+    #include <map>                  // std::map                  // std::set
 
 namespace cluster { // namespace start
 class Manager;
@@ -48,6 +49,12 @@ struct Ask {
     cluster::Json answers = cluster::Json::object();
     std::vector<std::pair<std::string, std::string>> chat;   // "Chat about this": <user | assistant, text>, the session never touched
     bool chatting = false;          // an answer of the chat awaited
+    struct Given {                  // what was chosen on a question (back shows it again, Enter goes on with it)
+        int cursor = 0;
+        std::set<int> picked;
+        std::string other;
+    };
+    std::map<std::size_t, Given> given;  // by question index
 };
 
 //----------------------------------------------------------------//

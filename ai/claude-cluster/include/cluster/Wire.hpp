@@ -28,7 +28,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Metrics, last, current, total, c
     reset5h, reset7d, turns)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Entry, kind, text, tool, time)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Permission, requestId, tool, description, input, suggestions, time, reason, safety)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ToolRun, id, name, summary, done, error, time)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ToolRun, id, name, summary, done, error, time, image)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SessionSpec, id, name, cwd, backend, claudeId, leaf, resumeAt, fork, model, mode, effort, profile, extraArgs,
     panels, global, created, deleted, cost, tokens, summary, summaryAuto, summaryTurns, turns)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Todo, id, content, status, activeForm)
@@ -37,7 +37,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Failure, id, action, source, err
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Schedule, id, at, every, action, session, text, by, status, reason, archived, runs, last)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Snapshot, spec, state, stopped, metrics, entries, permissions, tools, skillsLoaded, skillsAvailable,
     slashCommands, commandHelp, files, partial, thinking, step, stepSince, stepDetail, turnSince, streamed, thinkingTokens, steps, modelUsed, pid,
-    lastError, remoteUrl, bridgeState, queued, queue, version, warning, warningAt, todos)
+    lastError, remoteUrl, bridgeState, queued, queue, queueGiven, version, warning, warningAt, todos)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Task, id, prompt, target, after, status, session, created, group, label, answer, retries, started, ended,
     by, reason, archived, forced)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Notice, time, session, text, error)

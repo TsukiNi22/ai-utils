@@ -434,10 +434,20 @@ _cold int cluster::Core::ui_(const bool serve)
         // Headless instance: the commands and the MCP server drive it, until a quit signal
         std::cerr << "claude-cluster: serving on " << cluster::socket_path().string() << " (Ctrl+C to stop)" << std::endl;
         const std::int64_t started = cluster::now();
+        std::int64_t idleSince = 0;
         while (!cluster::quit_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            // the core of the interfaces: gone with its last one (none came within a minute: gone too)
-            if (linger && app.manager->clients() == 0 && (app.manager->hadClients() || cluster::now() - started > 60)) break;
+            // the core of the interfaces: gone with its last one (none came within a minute: gone too); kept in background by
+            // its last interface: gone once every session is idle for 5 s (an interface back meanwhile: kept as usual)
+            if (linger && app.manager->clients() == 0 && (app.manager->hadClients() || cluster::now() - started > 60)) {
+                if (!app.manager->background()) break;
+                if (app.manager->busy()) idleSince = 0;
+                else if (idleSince == 0) idleSince = cluster::now();
+                else if (cluster::now() - idleSince >= 5) {
+                    (void)app.manager->notifyDesktop("claude-cluster", "the sessions kept in background finished: the core stopped");
+                    break;
+                }
+            }
         }
         app.stop();
         return 0;
@@ -451,6 +461,22 @@ _cold int cluster::Core::ui_(const bool serve)
     } catch (...) {
         app.stop();
         throw;
+    }
+    if (app.manager->background() && !app.manager->replica() && !cluster::quit_requested()) {
+        // the core of this process kept: without interface, until every session is idle (the terminal stays busy; closed: they go on)
+        std::cerr << "claude-cluster: the sessions keep running in background (this terminal stays busy until they finish; closing it is fine); "
+            "Ctrl+C stops them" << std::endl;
+        cluster::ignore_hangup();
+        std::int64_t idleSince = 0;
+        while (!cluster::quit_requested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            if (app.manager->busy()) idleSince = 0;
+            else if (idleSince == 0) idleSince = cluster::now();
+            else if (cluster::now() - idleSince >= 5) {
+                (void)app.manager->notifyDesktop("claude-cluster", "the sessions kept in background finished: the core stopped");
+                break;
+            }
+        }
     }
     app.stop();
     return code;

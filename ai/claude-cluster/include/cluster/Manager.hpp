@@ -127,6 +127,10 @@ class Manager {
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::map<std::string, std::string> _notifyIds;  // the notification shown per session (replaced by the next one)
+        std::map<std::string, std::pair<cluster::Notification, std::string>> _notifyShown;   // by its DBus id: the notification, its token when clicked
+        std::thread _notifyMonitor;                     // gdbus monitor: the clicks of the notifications (ActionInvoked, ActivationToken)
+        std::atomic<bool> _notifyMonitorUp{false};
+        std::string _raiseToken;                        // the activation token of the last click (XDG_ACTIVATION_TOKEN: the window to the front)
         std::map<std::string, std::string> _origin;     // who sent the last prompt of a session: "host" or "web:<device>" (notified)
         std::pair<cluster::Face, std::int64_t> _moment{cluster::Face::Idle, 0};   // a finished turn / a global answer: shown a moment
         std::map<std::string, int> _limitLevel;         // a limit close: the level already told (80, 95, 100)
@@ -156,6 +160,8 @@ class Manager {
         std::map<std::string, std::int64_t> _clients;   // the interfaces of other processes: last seen (sync)
         std::map<std::string, bool> _clientFocus;       // their focus (one in front: no notification)
         bool _hadClients = false;
+        bool _background = false;                       // kept without interface: the web closed, stopped by itself once every session is idle
+        bool _webBeforeBackground = false;              // the web access was open when the core went in background: opened again by an interface back
         std::map<std::string, std::pair<std::string, std::int64_t>> _lastSender;   // by session: the interface of its last prompt, when
         std::atomic<bool> _restoreAsk{false};           // started alone (a core of its own): the previous run asked by its first interface
         std::string _lastActive;                        // a replica: the session shown, told to the core once
@@ -206,6 +212,9 @@ class Manager {
         _cold void clientGone(const std::string& client);
         _cold void clientFocus(const std::string& client, const bool focused);
         _cold _nodiscard std::size_t clients(void) const;   // its interfaces alive
+        _cold void setBackground(const bool on); // the core kept without interface: its web access closed; off: an interface came back
+        _cold void requestBackground(void); // an interface quitting with sessions running: its core kept (a replica: told)
+        _cold _nodiscard bool busy(void) const; // a session working, or with prompts queued: something to finish
         _cold void noteSender(const std::string& id, const std::string& client); // two interfaces sending at once: told
         _cold _nodiscard cluster::Json syncState(const cluster::Json& request);  // what an interface gets
 
@@ -320,6 +329,9 @@ class Manager {
         _cold void noteActive(const std::string& id);       // the session shown (ui_state; a replica: told to the core when it changes)
         _nodiscard std::pair<std::uint64_t, std::string> focusRequest(void) const;
         _nodiscard std::uint64_t raiseRequest(void) const;  // a notification clicked: to the front
+        _nodiscard std::string raiseToken(void) const;      // its activation token (Wayland: the window may take the focus with it; empty: none)
+        _cold void notifyAction_(const cluster::Notification& n, const std::string& chosen, const std::string& token);  // a button / the body clicked
+        _cold void notifyMonitor_(void);                    // the signals of the notification daemon, for the life of the core
         _nodiscard std::uint64_t machineRequest(void) const;
         _cold void answer(const std::string& id, const std::string& requestId, const std::string& behavior);
         _cold void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers);
@@ -343,6 +355,7 @@ class Manager {
         // ---------- Function -------- //
         _nodiscard inline bool replica(void) const {return this->_replica != nullptr;};
         _nodiscard inline bool hadClients(void) const {return this->_hadClients;};
+        _nodiscard inline bool background(void) const {return this->_background;};
         inline void askRestoreLater(void) {this->_restoreAsk = true;};   // its first interface asks the previous run
         inline void setVoice(cluster::Voice* voice) {this->_voice = voice;};
         _nodiscard inline cluster::Voice* voice(void) const {return this->_voice;};
@@ -353,7 +366,7 @@ class Manager {
         inline void restartGlobalAfterTurn(void) {this->_restartAfterTurn = true;};          // after the turn running (it asked it)
         inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
         inline void machineDecline(void) {this->setUi("machine", "no");};
-        inline void requestRaise(void) {++this->_raiseVersion; ++this->_version;};
+        inline void requestRaise(const std::string& token = "") {{std::lock_guard<std::mutex> lock(this->_mutex); this->_raiseToken = token;} ++this->_raiseVersion; ++this->_version;};
         _nodiscard inline std::string active(void) const {return this->_active;};
         _nodiscard inline cluster::Auth& auth(void) {return this->_auth;};
         _nodiscard inline cluster::Config& config(void) {return this->_config;};

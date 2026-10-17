@@ -179,6 +179,7 @@ struct ToolRun {
     bool done = false;
     bool error = false;
     std::int64_t time = 0;
+    std::string image;              // a picture it read or made (a screenshot): its path, opened from the rounds of the turn
 };
 
 // Description of a session, saved in state.json (restore / trash)
@@ -324,6 +325,7 @@ struct Snapshot {
     std::string bridgeState;            // Remote Control: ready | connected | disconnected... (empty: off)
     int queued = 0;                     // prompts waiting for the end of the running turn
     std::vector<std::string> queue;     // their text (Esc in the prompt: the last one back to edit)
+    int queueGiven = 0;                 // the first ones already given to the agent (taken at its next step): not editable
     std::uint64_t version = 0;          // its version when taken (an interface of another process: sent again when it changed)
     std::string warning;                // a problem of its interfaces (two prompts at once...), shown a minute on it
     std::int64_t warningAt = 0;

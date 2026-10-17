@@ -203,7 +203,7 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
     cluster::Json json = {
         {"id", snap.spec.id}, {"name", snap.spec.name}, {"cwd", snap.spec.cwd}, {"backend", snap.spec.backend},
         {"model", snap.modelUsed.empty() ? snap.spec.model : snap.modelUsed}, {"state", cluster::state_name(snap.state)},
-        {"mode", snap.spec.mode}, {"queued", snap.queued}, {"summary", snap.spec.summary}, {"resumable", cluster::resumable(snap)},
+        {"mode", snap.spec.mode}, {"queued", snap.queued}, {"queue_given", snap.queueGiven}, {"summary", snap.spec.summary}, {"resumable", cluster::resumable(snap)},
         {"warning", !snap.warning.empty() && cluster::now() - snap.warningAt < 60 ? snap.warning : std::string()},
         {"tokens", {{"last", m.last.total()}, {"current", m.current.total()}, {"total", m.total.total()},
             {"detail", {{"last", usage_json_(m.last)}, {"current", usage_json_(m.current)}, {"total", usage_json_(m.total)}}}}},

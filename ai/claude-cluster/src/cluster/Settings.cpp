@@ -123,6 +123,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"ui", "shared_core", "Several terminals / windows at once", SettingKind::Bool, {}, "claude-cluster opened again: attached to the one running, every "
                 "terminal and window in sync (the core of the sessions in a process of its own, until the last one closes); off: opened again is refused", true,
                 [](const cluster::Config& cf) {return cf.sharedCore ? std::string("true") : std::string("false");}},
+            {"ui", "quit_background", "Quit with sessions running", SettingKind::Choice, {"ask", "always", "never"}, "the last terminal / window closed while a "
+                "session works (or has prompts queued):\n• ask: a popup - keep them running in background (the core goes on without interface, its web access closed, "
+                "stopped by itself once every session is idle; claude-cluster opened again meanwhile shows them) / stop everything / back\n• always: kept without asking\n"
+                "• never: stopped (the turns interrupted, the sessions kept for the next start)", false,
+                [](const cluster::Config& cf) {return cf.quitBackground;}},
             {"ui", "gui_mode", "Window mode", SettingKind::Choice, {"gui", "tty"}, "gui: the window and its own interface; tty: the window shows the terminal "
                 "interface (a real terminal inside it, every key of it; -g --tty-mode for one run)", false,
                 [](const cluster::Config& cf) {return cf.guiMode;}},
@@ -235,6 +240,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"sessions", "max_parallel", "Parallel sessions", SettingKind::Int, {}, "sub-sessions working at the same time: past it, the tasks (task_add, the "
                 "groups of the global session) wait in the task queue and are sent as soon as a place is free", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.maxParallel);}},
+            {"sessions", "queue_given", "Queued prompts", SettingKind::Choice, {"step", "end"}, "a prompt typed while the turn runs (Claude Code sessions):\n"
+                "• step: given to claude after 1.5 s (Esc edits it before), taken at its next step - between two tool calls - like the queue of Claude Code\n"
+                "• end: held here until the end of the turn (editable until then), then sent", false,
+                [](const cluster::Config& cf) {return cf.queueGiven;}},
             {"sessions", "task_queue", "Task queue", SettingKind::Int, {}, "tasks waiting for a free place, at most (a new one past it is refused)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.taskQueue);}},
             {"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts", false,

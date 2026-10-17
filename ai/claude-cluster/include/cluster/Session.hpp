@@ -53,6 +53,8 @@ struct Queued {
     std::string text;
     std::vector<std::string> images;
     std::string context{};      // given to the agent before the text, not shown (the !commands run since the last prompt)
+    std::int64_t at = 0;        // unix ms when it was queued
+    bool given = false;         // written to the agent while its turn runs (taken at its next step): no longer editable
 };
 
 struct Launch {
@@ -115,6 +117,7 @@ class Session {
         _cold void codex_(const cluster::Json& event);
         _cold void entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool = "");
         _cold void tool_(const std::string& id, const std::string& name, const cluster::Json& input);
+        _cold void picture_(const std::string& id, const cluster::Json& block, const bool error); // a picture in a tool result (or made by its command): kept on the call
         _cold void turnDone_(const std::string& text, const bool error);
         _cold void dispatch_(const cluster::Queued& prompt);  // claude: written now (lock held)
         _cold void queue_(void);                                // snapshot of the queue
@@ -133,6 +136,7 @@ class Session {
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);
         _cold void sendNext(void);                                         // the next queued prompt now: the turn interrupted, it sent
+        _cold void giveQueued(const int delayMs);                          // a claude turn running: the prompts queued for delayMs given to it (its next step); < 0: never
         _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)
         _cold void stop(void);
         _cold void rename(const std::string& name);

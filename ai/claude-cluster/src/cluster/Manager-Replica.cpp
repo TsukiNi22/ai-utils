@@ -19,6 +19,7 @@ File Description:
 #include "cluster/Voice.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Wire.hpp"
+#include "cluster/Web.hpp"
 #include <sys/socket.h>
 #include <unistd.h>
 #include <thread>
@@ -165,9 +166,18 @@ _cold void cluster::Manager::detach_(void)
 _cold void cluster::Manager::clientSeen(const std::string& client)
 {
     if (client.empty()) return;
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    this->_clients[client] = cluster::now();
-    this->_hadClients = true;
+    bool webBack = false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (this->_background && (!this->_clients.contains(client) || cluster::now() - this->_clients[client] > 20)) { // an interface back: kept as usual
+            this->_background = false;
+            webBack = this->_webBeforeBackground;
+            this->_webBeforeBackground = false;
+        }
+        this->_clients[client] = cluster::now();
+        this->_hadClients = true;
+    }
+    if (webBack && this->_web != nullptr) this->_web->setOn(true); // the web access closed by the background: open again (outside the lock)
 }
 
 _cold void cluster::Manager::clientGone(const std::string& client)
@@ -184,6 +194,36 @@ _cold void cluster::Manager::clientFocus(const std::string& client, const bool f
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_clientFocus[client] = focused;
     this->_focused = std::any_of(this->_clientFocus.begin(), this->_clientFocus.end(), [](const std::pair<const std::string, bool>& f) {return f.second;}) ? 1 : 0;
+}
+
+_cold bool cluster::Manager::busy(void) const
+{
+    for (const cluster::Snapshot& s: this->list(true))
+        if (s.state == cluster::State::Working || s.queued > 0) return true;
+    return false;
+}
+
+_cold void cluster::Manager::setBackground(const bool on)
+{
+    // the web access closed meanwhile (nobody to approve a device, nothing to show); open again when an interface comes back
+    if (on && !this->_background && this->_web != nullptr) {
+        const bool open = this->_web->status().on;
+        this->_web->setOn(false);
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_webBeforeBackground = open;
+    }
+    this->_background = on;
+}
+
+_cold void cluster::Manager::requestBackground(void)
+{
+    if (this->_replica) {
+        try {
+            (void)this->call({{"cmd", "background"}});
+        } catch (const utils::exception::IException&) {} // the core gone already: nothing to keep
+        return;
+    }
+    this->setBackground(true);
 }
 
 _cold std::size_t cluster::Manager::clients(void) const
@@ -234,7 +274,7 @@ _cold cluster::Json cluster::Manager::syncState(const cluster::Json& request)
     if (const std::optional<std::pair<cluster::MachineProgress, std::int64_t>> progress = this->machineProgress()) machine = {{"progress", progress->first}, {"end", progress->second}};
     return {{"version", this->syncVersion()}, {"sessions", sessions}, {"voice", this->_voice ? this->_voice->json() : cluster::Json()}, {"notices", this->notices(50)},
         {"trash", this->trash()}, {"previous", this->previous()}, {"tasks", this->tasks()}, {"schedules", this->schedules()}, {"ui", ui}, {"asking", this->asking().json()},
-        {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()},
+        {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()}, {"raise_token", this->raiseToken()},
         {"machine_request", this->_machineRequest.load()}, {"machine_ask", this->machineAsk()}, {"machine", machine},
         {"restore_ask", this->_restoreAsk.load() && this->restorable()}, {"listening", listening},
         {"progress", this->progressAll()}, {"failures", this->failures()}};
@@ -291,6 +331,16 @@ std::uint64_t cluster::Manager::raiseRequest(void) const
     if (!this->_replica) return this->_raiseVersion;
     const cluster::Json raise = this->replicaState("raise");
     return raise.is_number() ? raise.get<std::uint64_t>() : 0;
+}
+
+std::string cluster::Manager::raiseToken(void) const
+{
+    if (this->_replica) {
+        const cluster::Json token = this->replicaState("raise_token");
+        return token.is_string() ? token.get<std::string>() : "";
+    }
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    return this->_raiseToken;
 }
 
 std::uint64_t cluster::Manager::machineRequest(void) const

@@ -686,7 +686,7 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
     const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     cluster::Json tools = cluster::Json::array();
     for (const cluster::ToolRun& run: s.tools)
-        if (!run.done && run.time * 1000 >= s.turnSince - 2000) tools.push_back({{"name", run.name}, {"summary", run.summary}, {"ms", (cluster::now() - run.time) * 1000}});
+        if (!run.done && run.time * 1000 >= s.turnSince - 2000) tools.push_back({{"name", run.name}, {"summary", run.summary}, {"ms", (cluster::now() - run.time) * 1000}, {"image", run.image}});
     const std::string step = s.step;
     std::string verb = "Waiting for the model";
     if (step == "thinking" || !s.thinking.empty()) verb = "Thinking";
@@ -745,6 +745,29 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
         std::int64_t other = 0;     // hooks, retries, compacting
         std::vector<std::pair<std::string, int>> tools;  // their names, how many times
         std::vector<std::string> notes;                  // a retry, a hook, the context compacted
+        std::vector<std::string> did;                    // its calls in words (ran..., read..., edited...)
+        std::vector<std::string> pictures;               // the pictures its calls read or made (a screenshot)
+    };
+    // a call in words: what it did (the tool, its command / file / question)
+    const std::function<std::string(const cluster::ToolRun&)> describe = [](const cluster::ToolRun& run) {
+        const std::string tool = run.name.starts_with("mcp__") ? run.name.substr(run.name.rfind("__") + 2) : run.name;
+        const std::string path = run.summary.starts_with("/") || run.summary.starts_with("~") ? cluster::short_path(run.summary) : run.summary;
+        std::string text;
+        if (tool == "Bash" || tool == "Shell" || tool == "shell_command" || tool == "Execute") text = "ran `" + run.summary + "`";
+        else if (tool == "Read" || tool == "NotebookRead") text = "read " + path;
+        else if (tool == "Edit" || tool == "MultiEdit" || tool == "NotebookEdit") text = "edited " + path;
+        else if (tool == "Write") text = "wrote " + path;
+        else if (tool == "Grep") text = "searched \"" + run.summary + "\"";
+        else if (tool == "Glob") text = "listed " + run.summary;
+        else if (tool == "WebFetch") text = "fetched " + run.summary;
+        else if (tool == "WebSearch") text = "searched the web: " + run.summary;
+        else if (tool == "Skill") text = "skill " + run.summary;
+        else if (tool == "AskUserQuestion") text = "asked: " + run.summary;
+        else if (tool == "Agent" || tool == "Task") text = "an agent: " + run.summary;
+        else if (tool == "TodoWrite") text = "updated its todo list";
+        else if (tool == "TaskCreate" || tool == "TaskUpdate") text = "a task: " + run.summary;
+        else text = tool + (run.summary.empty() ? "" : ": " + run.summary);
+        return text + (run.error ? " (failed)" : "");
     };
     std::vector<Round> rounds;
     std::vector<std::pair<std::string, std::int64_t>> all = s.steps;
@@ -769,6 +792,19 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
             r.writing += duration;
         }
     }
+    // the calls of each round (the last calls are the last rounds': matched from the end)
+    std::size_t at = s.tools.size();
+    for (std::size_t i = rounds.size(); i-- > 0;) {
+        std::size_t count = 0;
+        for (const auto &[tool, times]: rounds[i].tools)
+            count += static_cast<std::size_t>(times);
+        const std::size_t from = at >= count ? at - count : 0;
+        for (std::size_t k = from; k < at; ++k) {
+            rounds[i].did.push_back(describe(s.tools[k]));
+            if (!s.tools[k].image.empty()) rounds[i].pictures.push_back(s.tools[k].image);
+        }
+        at = from;
+    }
     cluster::Json lines = cluster::Json::array();
     const std::size_t first = rounds.size() > 8 ? rounds.size() - 8 : 0;
     if (first > 0) lines.push_back({{"text", std::to_string(first) + " earlier round(s)"}, {"current", false}});
@@ -791,7 +827,12 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
         std::string text = "#" + std::to_string(i + 1);
         for (std::size_t k = 0; k < parts.size(); ++k)
             text += (k == 0 ? "  " : " · ") + parts[k];
-        lines.push_back({{"text", text + (i + 1 == rounds.size() && !step.empty() ? " …" : "")}, {"current", i + 1 == rounds.size() && !step.empty()}});
+        std::string did;
+        for (std::size_t k = 0; k < r.did.size() && k < 4; ++k)
+            did += (k ? " · " : "") + r.did[k];
+        if (r.did.size() > 4) did += " · +" + std::to_string(r.did.size() - 4) + " more";
+        lines.push_back({{"text", text + (i + 1 == rounds.size() && !step.empty() ? " …" : "")}, {"current", i + 1 == rounds.size() && !step.empty()},
+            {"did", cluster::one_line(did, 200)}, {"pictures", r.pictures}});
     }
     return {{"verb", verb}, {"step", step.empty() ? std::string() : word(step)}, {"detail", why}, {"step_ms", stepMs}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
         {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"rounds", lines}, {"hidden_thinking", (step == "thinking") && s.thinking.empty() && s.stepDetail.empty()}};

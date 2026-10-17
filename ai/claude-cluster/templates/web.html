@@ -146,6 +146,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 #sessionWhere { font-family: var(--mono, monospace); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .msg.turn .round { font-family: var(--mono, monospace); font-size: 12px; padding-left: 10px; border-left: 2px solid var(--line); margin: 2px 0; }
 .msg.turn .round.current { color: var(--accent); border-left-color: var(--accent); }
+.msg.turn .round-did { opacity: .75; padding-left: 1.6em; white-space: normal; }
 .msg.display pre.term { background: #1e1e1e; color: #e5e5e5; }
 .msg.display .diff-add { color: var(--ok); } .msg.display .diff-del { color: var(--error); } .msg.display .diff-hunk { color: var(--accent); }
 .msg.display .steps div { padding: 2px 0; } .msg.display .done { color: var(--ok); } .msg.display .current { color: var(--accent); font-weight: 600; }
@@ -1584,6 +1585,8 @@ function renderTurn(turn, ticking) {
             const line = document.createElement("div");
             line.className = "round" + (r.current ? " current" : "");
             line.textContent = r.text;
+            if (r.did) { const did = document.createElement("div"); did.className = "round-did"; did.textContent = "↳ " + r.did; line.append(did); }
+            for (const picture of r.pictures || []) { const p = document.createElement("div"); p.className = "round-did"; p.textContent = "📷 " + picture + " (on the computer)"; line.append(p); }
             body.append(line);
         }
         if (turn.hidden_thinking) body.append(Object.assign(document.createElement("div"), {textContent: "the text of its thinking is not sent by the model: its tokens only"}));

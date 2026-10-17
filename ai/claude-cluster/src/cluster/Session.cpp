@@ -58,6 +58,13 @@ _cold static cluster::Usage usage_of_(const cluster::Json& usage)
     return result;
 }
 
+_cold static void fit_window_(cluster::Metrics& metrics)
+{
+    // the window Claude Code tells (modelUsage.contextWindow) may lag behind what the API accepted (a 1M model told 200k):
+    // a request larger than the window shown means the next tier
+    if (metrics.contextUsed > metrics.contextWindow && metrics.contextWindow <= 200000) metrics.contextWindow = 1000000;
+}
+
 _cold static void add_(cluster::Usage& to, const cluster::Usage& from)
 {
     to.input += from.input;
@@ -81,6 +88,29 @@ _cold static std::string tool_summary_(const std::string& name, const cluster::J
     for (const char* key: {"command", "file_path", "filePath", "notebook_path", "path", "pattern", "url", "query", "skill", "description", "prompt"})
         if (input.contains(key) && input[key].is_string()) return cluster::one_line(input[key].get<std::string>(), 120);
     return name == "TodoWrite" ? "todo list" : cluster::one_line(input.dump(), 120);
+}
+
+_cold static bool is_picture_(const std::string& path)
+{
+    std::string extension = std::filesystem::path(path).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
+    return extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".webp" || extension == ".gif";
+}
+
+_cold static std::string picture_in_(const std::string& command, const std::filesystem::path& cwd)
+{
+    // a screenshot made by a command (gnome-screenshot -f x.png, grim, spectacle -o, import...): the picture it names, when it exists now
+    for (const std::string& word: cluster::split(command, ' ')) {
+        std::string path = word;
+        while (!path.empty() && (path.back() == '\'' || path.back() == '"' || path.back() == ';' || path.back() == ')')) path.pop_back();
+        while (!path.empty() && (path.front() == '\'' || path.front() == '"' || path.front() == '(')) path.erase(0, 1);
+        if (path.empty() || !is_picture_(path)) continue;
+        std::error_code error;
+        const std::filesystem::path full = std::filesystem::path(path).is_absolute() ? std::filesystem::path(path) : cwd / path;
+        if (std::filesystem::is_regular_file(full, error) && std::filesystem::last_write_time(full, error) + std::chrono::minutes(10) > std::filesystem::file_time_type::clock::now())
+            return full.lexically_normal().string();
+    }
+    return "";
 }
 
 _cold static std::string clip_(const std::string& text, const std::size_t max)
@@ -550,6 +580,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         if (kind == "message_start" && e.contains("message")) {
             this->_live = usage_of_(e["message"].value("usage", cluster::Json::object()));
             metrics.contextUsed = this->_live.context();
+            fit_window_(metrics);
             // the model has the request: it reads it (and thinks, its text maybe not sent) before its first words
             const std::int64_t context = this->_live.context();
             this->step_("reading");
@@ -565,6 +596,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 this->_live.cacheCreation = delta.cacheCreation;
             }
             metrics.contextUsed = this->_live.context();
+            fit_window_(metrics);
         } else if (kind == "message_stop") {
             add_(this->_turn, this->_live);
             this->_live = {};
@@ -656,6 +688,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             else if (block.contains("content") && block["content"].is_array())
                 for (const cluster::Json& part: block["content"])
                     text += part.value("text", std::string());
+            this->picture_(id, block, error);
             if (error && text.find("auto mode classifier gave no verdict") != std::string::npos) {
                 this->noVerdict_(this->_inputs.contains(id) ? this->_inputs[id].value("name", std::string("a tool")) : std::string("a tool"));
                 continue;
@@ -790,6 +823,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             this->_data.state = asked ? cluster::State::Waiting : cluster::State::Idle;
             this->_data.stopped = error || interrupted; // to continue (Continue / F4)
             this->emit_(cluster::Event::Kind::TurnDone, text, error, interrupted);
+            if (std::erase_if(this->_pending, [](const cluster::Queued& q) {return q.given;}) > 0) this->queue_(); // given: claude has them
             if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) {
                 const cluster::Queued next = this->_pending.front();
                 this->_pending.pop_front();
@@ -835,6 +869,7 @@ _cold void cluster::Session::opencode_(const cluster::Json& event)
         add_(this->_turn, usage);
         this->_data.metrics.current = this->_turn;
         this->_data.metrics.contextUsed = usage.context();
+        fit_window_(this->_data.metrics);
         const double cost = part.value("cost", 0.0);
         if (cost > 0) this->_data.metrics.costKnown = true; // a paid provider of opencode gives its real cost
         this->_data.metrics.cost += cost;
@@ -890,16 +925,48 @@ _cold void cluster::Session::codex_(const cluster::Json& event)
         turn.output = usage.value("output_tokens", std::int64_t{0});
         this->_turn = turn;
         this->_data.metrics.contextUsed = turn.context();
+        fit_window_(this->_data.metrics);
     } else if (type == "turn.failed" || type == "error") {
         const cluster::Json error = event.value("error", cluster::Json::object());
         this->entry_(cluster::EntryKind::Error, error.is_object() ? error.value("message", event.dump()) : event.value("message", event.dump()));
     }
 }
 
+_cold void cluster::Session::picture_(const std::string& id, const cluster::Json& block, const bool error)
+{
+    // the picture of a tool result (an image block: saved in the data folder; a command that made a screenshot: its file) kept on the call
+    for (cluster::ToolRun& run: this->_data.tools) {
+        if (run.id != id) continue;
+        if (block.contains("content") && block["content"].is_array()) {
+            for (const cluster::Json& part: block["content"]) {
+                if (part.value("type", std::string()) != "image" || !part.contains("source") || !part["source"].is_object()) continue;
+                const cluster::Json& source = part["source"];
+                if (source.value("type", std::string()) != "base64" || !source.contains("data") || !source["data"].is_string()) continue;
+                const std::string media = source.value("media_type", std::string("image/png"));
+                const std::string extension = media == "image/jpeg" ? ".jpg" : media == "image/gif" ? ".gif" : media == "image/webp" ? ".webp" : ".png";
+                try {
+                    const std::filesystem::path folder = cluster::data_dir() / "pictures";
+                    std::filesystem::create_directories(folder);
+                    const std::filesystem::path path = folder / (this->_data.spec.id + "-" + std::to_string(cluster::now()) + extension);
+                    std::ofstream(path, std::ios::binary) << utils::smanip::codec::Base64Codec().decode(source["data"].get<std::string>());
+                    run.image = path.string();
+                } catch (const std::exception&) {}
+                break;
+            }
+        }
+        if (run.image.empty() && !error && (run.name == "Bash" || run.name == "Shell" || run.name == "shell_command" || run.name == "Execute"))
+            run.image = picture_in_(run.summary, this->_data.spec.cwd);
+        if (!run.image.empty()) this->entry_(cluster::EntryKind::Tool, "[Image: " + run.image + "]", "picture");
+        return;
+    }
+}
+
 _cold void cluster::Session::tool_(const std::string& id, const std::string& name, const cluster::Json& input)
 {
     const std::string summary = tool_summary_(name, input);
-    this->_data.tools.push_back({id, name, summary, false, false, cluster::now()});
+    this->_data.tools.push_back({id, name, summary, false, false, cluster::now(), ""});
+    if (name == "Read" && input.contains("file_path") && input["file_path"].is_string() && is_picture_(input["file_path"].get<std::string>()))
+        this->_data.tools.back().image = input["file_path"].get<std::string>(); // a picture read: shown from the rounds of the turn
     if (this->_data.tools.size() > 200) this->_data.tools.erase(this->_data.tools.begin());
     this->entry_(cluster::EntryKind::Tool, name == "TodoWrite" ? todos_(input) : summary, name);
     if (name == "TodoWrite") { // its list now (the Tasks session, its panel)
@@ -1097,7 +1164,8 @@ _cold void cluster::Session::send(const std::string& text, const std::vector<std
         std::lock_guard<std::mutex> lock(this->_mutex);
         context.swap(this->_context);
     }
-    const cluster::Queued prompt{text, images, context};
+    cluster::Queued prompt{text, images, context};
+    prompt.at = cluster::now_ms();
     if (this->persistent()) {
         if (!this->_worker.joinable() || this->_data.state == cluster::State::Stopped || this->_data.state == cluster::State::Error) {
             if (this->_worker.joinable()) this->_worker.join();
@@ -1159,15 +1227,47 @@ _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
 _cold void cluster::Session::queue_(void)
 {
     this->_data.queue.clear();
-    for (const cluster::Queued& queued: this->_pending)
+    this->_data.queueGiven = 0;
+    for (const cluster::Queued& queued: this->_pending) {
         this->_data.queue.push_back(queued.text);
+        if (queued.given) ++this->_data.queueGiven;
+    }
     this->_data.queued = static_cast<int>(this->_pending.size());
+}
+
+_cold void cluster::Session::giveQueued(const int delayMs)
+{
+    // like the queue of Claude Code: a prompt typed while the turn runs is given to claude (its stdin) after a moment,
+    // claude takes it at its next step (between two tool calls); shown as given until then, no longer editable
+    if (delayMs < 0 || !this->persistent() || this->_launch.backend.provider.driver != "claude") return;
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (this->_in == -1 || (this->_data.state != cluster::State::Working && this->_data.state != cluster::State::Waiting)) return;
+    bool changed = false;
+    for (cluster::Queued& queued: this->_pending) {
+        if (queued.given || cluster::now_ms() - queued.at < delayMs) continue;
+        const Prepared prepared = prepare_(queued, true);
+        const std::string uuid = uuid_();
+        this->_sent.insert(uuid);
+        try {
+            this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
+        } catch (const utils::exception::IException&) {
+            return; // not written: kept, sent at the end of the turn
+        }
+        queued.given = true;
+        this->_lastPrompt = queued;
+        this->entry_(cluster::EntryKind::User, prepared.shown);
+        changed = true;
+    }
+    if (changed) {
+        this->queue_();
+        this->touch_();
+    }
 }
 
 _cold std::optional<cluster::Queued> cluster::Session::unqueue(void)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
-    if (this->_pending.empty()) return std::nullopt;
+    if (this->_pending.empty() || this->_pending.back().given) return std::nullopt; // given to the agent: no longer here to edit
     const cluster::Queued last = this->_pending.back();
     this->_pending.pop_back();
     this->queue_();

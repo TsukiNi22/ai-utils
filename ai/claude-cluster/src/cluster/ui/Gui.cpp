@@ -57,6 +57,7 @@ File Description:
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QMessageBox>
+#include <QCloseEvent>
 #include <QFormLayout>
 #include <QTextCursor>
 #include <QScrollArea>
@@ -688,6 +689,7 @@ class Window: public QMainWindow {
         cluster::Reveal reveal;                 // the answers typed as they come
         bool animating = false;                 // typing / a turn running: drawn at every tick
         bool expanded = false;                  // Ctrl+O: thinking and tool results in full
+        bool quitDecided = false;               // the sessions running asked about once (keep them in background / stop)
         int historyAt = -1;                     // Up / Down: -1 the prompt being written, else an index of the history
         std::vector<cluster::Draft> historyList;
         std::string historySession;             // the session of that list
@@ -721,6 +723,33 @@ class Window: public QMainWindow {
             this->historyAt = -1;
             this->historyEdits.clear();
             this->historyList.clear();
+        }
+
+        void closeEvent(QCloseEvent* event) override
+        {
+            // sessions running (a turn, prompts queued): keep them in background / stop everything / back ([ui] quit_background)
+            const std::string& mode = this->manager.config().quitBackground;
+            if (!this->quitDecided && mode != "never" && !cluster::quit_requested() && this->manager.busy()) {
+                if (mode == "ask") {
+                    QMessageBox box(QMessageBox::Question, "claude-cluster", "Sessions are still running.\n\nKeep them running in background? The core goes on "
+                        "without window, closes its web access and stops by itself once every session is idle (opening claude-cluster meanwhile shows them again).",
+                        QMessageBox::NoButton, this);
+                    QPushButton* keep = box.addButton("Keep in background", QMessageBox::AcceptRole);
+                    QPushButton* stop = box.addButton("Stop everything", QMessageBox::DestructiveRole);
+                    box.addButton(QMessageBox::Cancel);
+                    box.setDefaultButton(keep);
+                    box.exec();
+                    if (box.clickedButton() == keep) this->manager.requestBackground();
+                    else if (box.clickedButton() != stop) {
+                        event->ignore();
+                        return;
+                    }
+                } else {
+                    this->manager.requestBackground();
+                }
+            }
+            this->quitDecided = true;
+            QMainWindow::closeEvent(event);
         }
 
         Window(cluster::App& application)
@@ -2866,11 +2895,13 @@ class Window: public QMainWindow {
             const std::pair<std::uint64_t, std::string> focus = this->manager.focusRequest();
             if (this->manager.raiseRequest() != this->raiseSeen) { // a notification clicked: this window to the front
                 this->raiseSeen = this->manager.raiseRequest();
+                const std::string token = this->manager.raiseToken(); // Wayland: the focus is given with the token of the click
+                if (!token.empty()) qputenv("XDG_ACTIVATION_TOKEN", QByteArray::fromStdString(token));
                 if (this->isMinimized()) this->showNormal();
                 this->show();
                 this->raise();
                 this->activateWindow();
-                QApplication::alert(this);
+                if (token.empty()) QApplication::alert(this);
             }
             if (focus.first != this->focusSeen) {
                 this->focusSeen = focus.first;
@@ -3677,6 +3708,16 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
         // a display: tick / click (cluster-act:<display>/<item>), its form (cluster-form:<display>), its audio (cluster-play:<display>)
         const std::string scheme = url.scheme().toStdString();
         const std::string path = url.path().toStdString();
+        if (scheme == "cluster-picture") { // a picture a tool read or made: the viewer (ui.image_viewer, else the desktop's)
+            const std::string viewer = cluster::trim(window->manager.config().imageViewer);
+            if (viewer.empty()) QDesktopServices::openUrl(QUrl::fromLocalFile(q_(path)));
+            else {
+                std::vector<std::string> command = cluster::split(viewer, ' ');
+                command.push_back(path);
+                cluster::detach(command);
+            }
+            return;
+        }
         if (scheme == "cluster-open" || scheme == "cluster-reveal" || scheme == "cluster-save") {
             // a file of a file display: opened, its folder, saved elsewhere
             const std::size_t slash = path.rfind('/');
@@ -3899,8 +3940,13 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                 html += "<br>" + span_(st.muted, esc_("  ⎿ " + tool.value("name", std::string()) + "  " + cluster::one_line(tool.value("summary", std::string()), 110)
                     + "  " + cluster::took(tool.value("ms", 0LL))));
             if (expanded) {
-                for (const cluster::Json& round: turn["rounds"]) // a line per request to the model
+                for (const cluster::Json& round: turn["rounds"]) { // a line per request to the model, what it did, its pictures (a link opens one)
                     html += "<br>" + span_(round.value("current", false) ? st.accent : st.muted, esc_("  │ " + round.value("text", std::string())));
+                    if (const std::string did = round.value("did", std::string()); !did.empty()) html += "<br>" + span_(st.muted, esc_("  │    ↳ " + did));
+                    for (const cluster::Json& picture: round.value("pictures", cluster::Json::array()))
+                        html += "<br>" + span_(st.muted, "  │    ") + "<a href=\"cluster-picture:" + QString::fromUtf8(QUrl::toPercentEncoding(q_(picture.get<std::string>())))
+                            + "\">" + esc_("📷 " + cluster::short_path(picture.get<std::string>())) + "</a>";
+                }
                 if (turn.value("hidden_thinking", false)) html += "<br>" + span_(st.muted, "<i>the text of its thinking is not sent by the model: its tokens only</i>");
             }
             html += "</p>";

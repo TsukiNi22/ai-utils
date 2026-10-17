@@ -22,6 +22,7 @@ File Description:
     #include "Types.hpp"            // cluster::Json
     #include <filesystem>           // std::filesystem::path
     #include <optional>             // std::optional
+    #include <csignal>              // std::signal, SIGHUP, SIG_IGN
     #include <cstdint>              // std::int64_t
     #include <atomic>               // std::atomic
     #include <chrono>               // std::chrono
@@ -112,6 +113,7 @@ _cold void open_folder(const std::filesystem::path& folder);           // the fi
 _cold _nodiscard std::string open_terminal(const std::filesystem::path& folder); // a terminal there: the one opened ("" none found)
 inline std::atomic<bool> quit_signal{false}; // set by catch_quit_signals
 _cold void complete_path(void);         // PATH + the folders of the user's tools (~/.local/bin...) it lacks
+_cold inline void ignore_hangup(void) {(void)std::signal(SIGHUP, SIG_IGN);}; // the terminal closed leaves the process running (the core kept in background)
 _cold void catch_quit_signals(void);    // SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: quit_requested() (reset by exec)
 _nodiscard inline bool quit_requested(void) {return quit_signal;}; // a signal asked to quit: the interface closes as with its quit key
 

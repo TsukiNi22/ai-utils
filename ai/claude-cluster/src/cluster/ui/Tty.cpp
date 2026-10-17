@@ -57,7 +57,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk};
 
 struct Theme {
     ftxui::Color bg;
@@ -402,6 +402,12 @@ class TtyUi {
         };
         std::vector<PromptRow> _promptRows;         // the rows of the prompt drawn (mouse -> position)
         ftxui::Box _promptBox;
+        ftxui::Box _panelBox;                       // the side panels of the session shown (the wheel over them scrolls them)
+        int _panelScroll = 0;                       // lines hidden at their top
+        ftxui::Box _askChatBox;                     // the chat of a question popup (the wheel over it scrolls it)
+        int _askChatScroll = 0;                     // its lines hidden below (0: the newest shown)
+        std::size_t _askChatSeen = 0;               // its messages when drawn last (a new one: back to the newest)
+        int _panelHidden = 0;                       // lines below the room at the last drawing
         using Hit = std::tuple<int, int, std::function<void(void)>>;   // the cells [from, to] of a line clicked: what it does
         struct View {
             ftxui::Box box;
@@ -428,7 +434,39 @@ class TtyUi {
         std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
         std::string _title;                         // the title of the terminal set (its face)
         bool _askChat = false;                      // a question: its chat being typed ("Chat about this")
-        std::string _askDraft;
+        // a line typed in a popup, edited with a cursor (the answer on Other, the chat draft)
+        struct Line {
+            std::string text;
+            std::size_t cursor = 0;     // byte offset
+
+            void insert(const std::string& what) {this->text.insert(this->cursor, what); this->cursor += what.size();};
+            void left(void) {while (this->cursor > 0 && (static_cast<unsigned char>(this->text[--this->cursor]) & 0xC0) == 0x80) {}};
+            void right(void) {if (this->cursor < this->text.size()) {++this->cursor; while (this->cursor < this->text.size() && (static_cast<unsigned char>(this->text[this->cursor]) & 0xC0) == 0x80) ++this->cursor;}};
+            void backspace(void) {if (this->cursor == 0) return; const std::size_t end = this->cursor; this->left(); this->text.erase(this->cursor, end - this->cursor);};
+            void del(void) {if (this->cursor >= this->text.size()) return; const std::size_t start = this->cursor; this->right(); this->text.erase(start, this->cursor - start); this->cursor = start;};
+            void word(void) {while (this->cursor > 0 && this->text[this->cursor - 1] == ' ') this->backspace(); while (this->cursor > 0 && this->text[this->cursor - 1] != ' ') this->backspace();};
+            void set(const std::string& what) {this->text = what; this->cursor = what.size();};
+            void clear(void) {this->text.clear(); this->cursor = 0;};
+            _nodiscard std::string shown(void) const {return this->text.substr(0, this->cursor) + "▏" + this->text.substr(this->cursor);};
+            // the keys of an editor: true when it was one of them
+            bool key(const ftxui::Event& event, const std::string& name)
+            {
+                if (event == ftxui::Event::ArrowLeft) this->left();
+                else if (event == ftxui::Event::ArrowRight) this->right();
+                else if (event == ftxui::Event::Home || name == "Ctrl+A") this->cursor = 0;
+                else if (event == ftxui::Event::End || name == "Ctrl+E") this->cursor = this->text.size();
+                else if (event == ftxui::Event::Backspace) this->backspace();
+                else if (event == ftxui::Event::Delete) this->del();
+                else if (name == "Ctrl+U") this->clear();
+                else if (name == "Ctrl+W") this->word();
+                else if (event.is_character()) this->insert(event.character());
+                else return false;
+                return true;
+            };
+        };
+        Line _askDraft;
+        Line _askOther;                 // the answer on Other, edited here, pushed to the question at each change
+        std::string _askOtherKey;       // the question it belongs to (request:index)
         std::string _host = cluster::host_name();   // where the sessions run
         std::map<std::string, std::string> _branches;   // their git branch, read again every 5 s
         std::map<std::string, std::int64_t> _branchAt;
@@ -734,6 +772,30 @@ class TtyUi {
             return this->_manager.list(true);
         }
 
+        void quit_(void)
+        {
+            // sessions running (a turn, prompts queued): asked what to do with them ([ui] quit_background), else the quit
+            const std::string& mode = this->_manager.config().quitBackground;
+            if (mode != "never" && this->_manager.busy()) {
+                if (mode == "ask") {
+                    this->_mode = Mode::QuitAsk;
+                    return;
+                }
+                this->_manager.requestBackground();
+            }
+            this->_screen.Exit();
+        }
+
+        void openPicture_(const std::string& path)
+        {
+            // the viewer of the desktop (ui.image_viewer, else xdg-open)
+            const std::string viewer = cluster::trim(this->_manager.config().imageViewer);
+            std::vector<std::string> command = viewer.empty() ? std::vector<std::string>{"xdg-open"} : cluster::split(viewer, ' ');
+            command.push_back(path);
+            cluster::detach(command);
+            this->status_("opened " + std::filesystem::path(path).filename().string());
+        }
+
         void status_(const std::string& text, const bool error = false)
         {
             if (text.find('\n') != std::string::npos) {
@@ -959,7 +1021,7 @@ class TtyUi {
                     if (!local) return;
                     if (!local->focus.empty()) this->_active = local->focus;
                     if (local->ui == "fill") this->_editor.load({local->fill, {}, {}}); // a :s of the last prompt, a :r: in the prompt
-                    else if (local->ui == "quit") this->_screen.Exit();
+                    else if (local->ui == "quit") this->quit_();
                     else if (local->ui.starts_with("search:")) {
                         this->_search = local->ui.substr(7);
                         this->_matches.clear();
@@ -1436,7 +1498,7 @@ class TtyUi {
                 this->_webConfirm.clear();
                 this->_mode = Mode::WebDevices;
             } else if (base == "quit") {
-                this->_screen.Exit();
+                this->quit_();
             } else if (base == "auth_login" || base == "auth_logout") {
                 // the login of an agent is interactive: run in the terminal, the interface comes back after
                 this->_screen.WithRestoredIO([&]() {
@@ -1599,7 +1661,7 @@ class TtyUi {
             } else if (action == "settings") {
                 this->openSettings_();
             } else if (action == "quit") {
-                this->_screen.Exit();
+                this->quit_();
             } else {
                 return false;
             }
@@ -2955,18 +3017,30 @@ class TtyUi {
                 if (tools.size() > most) lines.push_back({"  ⎿ … " + std::to_string(tools.size() - most) + " more", ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
                 if (this->_expanded) {
                     // the rounds of the turn: one request to the model a line (its wait, its thinking, the tools it called)
-                    for (const cluster::Json& round: turn["rounds"])
+                    for (const cluster::Json& round: turn["rounds"]) {
                         lines.push_back({"  │ " + cluster::one_line(round.value("text", std::string()), room - 6), round.value("current", false)
                             ? ftxui::color(this->_theme.accent) : ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
+                        // what it did, in a sentence; a picture read or made: a click opens it
+                        if (const std::string did = round.value("did", std::string()); !did.empty())
+                            lines.push_back({"  │    ↳ " + cluster::one_line(did, room - 9), ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
+                        for (const cluster::Json& picture: round.value("pictures", cluster::Json::array())) {
+                            const std::string path = picture.get<std::string>();
+                            lines.push_back({"  │    📷 " + cluster::one_line(cluster::short_path(path), room - 28) + "  (a click: open)", ftxui::color(this->_theme.accent), "\n"});
+                            lines.back().hits.emplace_back(0, 100000, [this, path]() {this->openPicture_(path);});
+                        }
+                    }
                     if (turn.value("hidden_thinking", false))
                         lines.push_back({"  (the text of its thinking is not sent by the model: its tokens only)", ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
                 }
                 this->_animating = true;
             }
             for (std::size_t q = 0; q < s.queue.size(); ++q) {
-                // the first one: clicked (or F8), sent now
-                const std::string now = q == 0 && !compact ? "  (" + config.keys.at("send_next") + " / a click: send it now · Esc: edit)" : compact ? "" : "  (Esc: edit)";
-                Row row{"⧗ queued: " + cluster::one_line(s.queue[q], static_cast<std::size_t>(std::max(10, width - 60))) + now, ftxui::color(this->_theme.warn), "\n"};
+                // the first one: clicked (or F8), sent now; given to claude already: taken at its next step
+                const bool given = static_cast<int>(q) < s.queueGiven;
+                const std::string now = given ? (compact ? "" : "  (given to claude: taken at its next step)")
+                    : q == 0 && !compact ? "  (" + config.keys.at("send_next") + " / a click: send it now · Esc: edit)" : compact ? "" : "  (Esc: edit)";
+                Row row{std::string(given ? "↳ given: " : "⧗ queued: ") + cluster::one_line(s.queue[q], static_cast<std::size_t>(std::max(10, width - 60))) + now,
+                    ftxui::color(given ? this->_theme.muted : this->_theme.warn), "\n"};
                 if (q == 0) row.hits.emplace_back(0, std::max(10, width), [this]() {(void)this->shortcut_("send_next");});
                 lines.push_back(row);
             }
@@ -3016,13 +3090,15 @@ class TtyUi {
             return ftxui::vbox(std::move(shown)) | ftxui::yflex | ftxui::reflect(view.box);
         }
 
-        _nodiscard ftxui::Element panels_(const cluster::Snapshot& s)
+        _nodiscard ftxui::Element panels_(const cluster::Snapshot& s, const int height)
         {
             static cluster::Git git; // lives as long as the program (its refresh threads)
             const cluster::Metrics& m = s.metrics;
-            ftxui::Elements blocks;
+            ftxui::Elements blocks;  // one line each: scrolled when there are more than the room
             const std::function<void(const std::string&, ftxui::Elements)> section = [&](const std::string& name, ftxui::Elements body) {
-                blocks.push_back(ftxui::vbox({ftxui::text(name) | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::vbox(std::move(body))}));
+                blocks.push_back(ftxui::text(name) | ftxui::bold | ftxui::color(this->_theme.accent));
+                for (ftxui::Element& element: body)
+                    blocks.push_back(std::move(element));
                 blocks.push_back(ftxui::text(""));
             };
             const std::function<ftxui::Element(const std::string&, const std::string&)> line = [&](const std::string& left, const std::string& right) {
@@ -3129,7 +3205,20 @@ class TtyUi {
                 section("Files", std::move(body));
             }
             if (blocks.empty()) return ftxui::emptyElement();
-            return ftxui::vbox(std::move(blocks)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 36) | ftxui::yframe;
+            // the lines of the room, from the scroll: "▲ n" above, "▼ n more" below (the wheel over them, Ctrl+↑ / ↓)
+            const int room = std::max(3, height);
+            const int total = static_cast<int>(blocks.size());
+            this->_panelScroll = std::clamp(this->_panelScroll, 0, std::max(0, total - room));
+            ftxui::Elements shown;
+            if (this->_panelScroll > 0) shown.push_back(ftxui::text("▲ " + std::to_string(this->_panelScroll) + " above") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            const int from = this->_panelScroll + (this->_panelScroll > 0 ? 1 : 0);
+            const int fit = room - (this->_panelScroll > 0 ? 1 : 0);
+            const bool more = total - from > fit;
+            for (int i = from; i < total && static_cast<int>(shown.size()) < (more ? room - 1 : room); ++i)
+                shown.push_back(std::move(blocks[static_cast<std::size_t>(i)]));
+            this->_panelHidden = more ? total - from - (room - 1 - (this->_panelScroll > 0 ? 1 : 0)) : 0;
+            if (more) shown.push_back(ftxui::text("▼ " + std::to_string(this->_panelHidden) + " more (wheel, Ctrl+↓)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(shown)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 36) | ftxui::reflect(this->_panelBox);
         }
 
         _nodiscard std::string whereOf_(const cluster::Snapshot& s)
@@ -3214,7 +3303,7 @@ class TtyUi {
 
         _nodiscard ftxui::Element session_(const cluster::Snapshot& s, const int width, const int height, const bool compact)
         {
-            ftxui::Element panels = compact ? ftxui::emptyElement() : this->panels_(s);
+            ftxui::Element panels = compact ? ftxui::emptyElement() : this->panels_(s, height - 2);
             const int panelWidth = compact || s.spec.panels.empty() ? 0 : 37;
             const int bodyHeight = std::max(3, height - (s.permissions.empty() ? 2 : 3) - (s.lastError.empty() ? 0 : 1));
             return ftxui::vbox({
@@ -3465,24 +3554,42 @@ class TtyUi {
                 return box(ftxui::vbox(std::move(lines)), 90);
             }
             const std::optional<cluster::Ask> asked = this->_manager.asking().current();
+            this->_askChatBox = ftxui::Box{};
             if (this->_mode == Mode::Question && asked) {
                 // like the questions of Claude Code: one at a time, its options, other (typed); the keys, the mouse and the voice
                 const cluster::Ask& a = *asked;
                 const cluster::Json& q = a.questions[a.index];
                 const cluster::Json options = q.value("options", cluster::Json::array());
                 const bool multi = q.value("multiSelect", false);
+                const std::string askKey = a.requestId + ":" + std::to_string(a.index);
+                if (askKey != this->_askOtherKey || (a.other != this->_askOther.text && a.cursor != static_cast<int>(options.size()))) { // another question, or typed elsewhere
+                    this->_askOther.set(a.other);
+                    this->_askOtherKey = askKey;
+                }
                 ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + a.name + " asks") | ftxui::bold,
                     ftxui::text(a.questions.size() > 1 ? "  (" + std::to_string(a.index + 1) + "/" + std::to_string(a.questions.size()) + ")" : "") | ftxui::color(this->_theme.muted),
                     ftxui::text(a.session != this->_active ? "  (it waits for your answer)" : "") | ftxui::color(this->_theme.warn),
                     ftxui::filler(), ftxui::text(q.value("header", std::string()) + " ") | ftxui::color(this->_theme.accent)}), ftxui::text(""),
                     ftxui::paragraph(" " + q.value("question", std::string())) | ftxui::color(this->_theme.text), ftxui::text("")};
+                // the options: the label, then its description, each wrapped on the width of the popup (never cut); Other: what
+                // is typed, wrapped too, the cursor at its end
+                const std::size_t inner = static_cast<std::size_t>(std::max(30, std::min(92, this->_screen.dimx() - 8)));
                 for (int i = 0; i <= static_cast<int>(options.size()); ++i) {
                     const bool other = i == static_cast<int>(options.size());
                     const std::string mark = multi ? (a.picked.contains(i) || (other && !a.other.empty()) ? "[x] " : "[ ] ") : (i == a.cursor ? "› " : "  ");
-                    const std::string label = other ? "Other: " + a.other + (i == a.cursor ? "▏" : "") : options[static_cast<std::size_t>(i)].value("label", std::string());
+                    const std::string head = " " + mark + std::to_string(i + 1) + ". ";
+                    const std::string indent(static_cast<std::size_t>(width_(head)), ' ');
+                    const std::string label = other ? "Other: " + (i == a.cursor ? this->_askOther.shown() : a.other) : options[static_cast<std::size_t>(i)].value("label", std::string());
                     const std::string description = other ? "" : options[static_cast<std::size_t>(i)].value("description", std::string());
-                    ftxui::Element row = ftxui::hbox({ftxui::text(" " + mark + std::to_string(i + 1) + ". " + label + " "),
-                        ftxui::text(description.empty() ? "" : "- " + cluster::one_line(description, 70)) | ftxui::color(this->_theme.muted)});
+                    std::vector<std::string> labelLines = wrap_(label, inner - static_cast<std::size_t>(width_(head)));
+                    if (labelLines.empty()) labelLines.push_back("");
+                    ftxui::Elements rows;
+                    for (std::size_t l = 0; l < labelLines.size(); ++l)
+                        rows.push_back(ftxui::text((l == 0 ? head : indent) + labelLines[l]));
+                    const std::vector<std::string> descriptionLines = description.empty() ? std::vector<std::string>() : wrap_(description, inner - static_cast<std::size_t>(width_(head)) - 2);
+                    for (std::size_t l = 0; l < descriptionLines.size(); ++l)
+                        rows.push_back(ftxui::text(indent + (l == 0 ? "- " : "  ") + descriptionLines[l]) | ftxui::color(this->_theme.muted));
+                    ftxui::Element row = ftxui::vbox(std::move(rows));
                     const int count = static_cast<int>(options.size());
                     // clicked: chosen (one choice: answered; several: ticked; Other: typed on)
                     lines.push_back(this->tap_(i == a.cursor ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row | ftxui::color(this->_theme.text), 1,
@@ -3492,18 +3599,76 @@ class TtyUi {
                         }));
                 }
                 lines.push_back(ftxui::text(""));
-                lines.push_back(ftxui::hbox({ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space tick · " : "")),
-                    press(ftxui::text(std::string("Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")), ftxui::Event::Return),
+                lines.push_back(ftxui::hbox({ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space / Enter / a click tick · " : "")),
+                    press(ftxui::text(std::string(multi ? "Enter on a ticked one " : "Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")), ftxui::Event::Return),
                     a.index > 0 ? press(ftxui::text(" · ← back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
                     press(ftxui::text("Esc decline"), ftxui::Event::Escape)}) | ftxui::color(this->_theme.muted) | ftxui::dim);
-                // "Chat about this": a side chat about the questions, in the popup (the session untouched)
-                for (const auto &[role, said]: a.chat)
-                    lines.push_back(ftxui::paragraph((role == "user" ? " you › " : " ✻ ") + said) | ftxui::color(role == "user" ? this->_theme.text : this->_theme.accent));
-                if (a.chatting) lines.push_back(ftxui::text(" ✻ …") | ftxui::color(this->_theme.muted));
-                if (this->_askChat)
-                    lines.push_back(ftxui::hbox({ftxui::text(" chat › ") | ftxui::color(this->_theme.accent) | ftxui::bold, ftxui::text(this->_askDraft),
-                        ftxui::text("▏") | ftxui::blink, ftxui::filler(), ftxui::text("Enter send · Esc back ") | ftxui::color(this->_theme.muted) | ftxui::dim}));
-                else
+                // "Chat about this": a side chat about the questions (the session untouched), in its own area: wrapped, within a
+                // height that keeps the popup inside the screen, scrolled (the newest at the bottom)
+                if (!a.chat.empty() || a.chatting) {
+                    if (a.chat.size() != this->_askChatSeen) {
+                        this->_askChatSeen = a.chat.size();
+                        this->_askChatScroll = 0;
+                    }
+                    struct ChatLine {
+                        std::string head;
+                        std::string text;
+                        bool user;
+                    };
+                    std::vector<ChatLine> chat;
+                    for (const auto &[role, said]: a.chat) {
+                        const bool user = role == "user";
+                        if (!chat.empty()) chat.push_back({"", "", user});
+                        std::string clean = said;
+                        for (std::size_t at = clean.find("**"); at != std::string::npos; at = clean.find("**", at))
+                            clean.erase(at, 2); // the markdown stars: the text alone
+                        const std::string head = user ? " you › " : " ✻ ";
+                        const std::string indent(static_cast<std::size_t>(width_(head)), ' ');
+                        bool first = true;
+                        for (const std::string& paragraph: cluster::split(clean, '\n')) {
+                            std::vector<std::string> wrapped = wrap_(paragraph, inner - static_cast<std::size_t>(width_(head)) - 2);
+                            if (wrapped.empty()) wrapped.push_back("");
+                            for (const std::string& line: wrapped) {
+                                chat.push_back({first ? head : indent, line, user});
+                                first = false;
+                            }
+                        }
+                    }
+                    if (a.chatting) chat.push_back({" ✻ ", "…", false});
+                    // the room left: the screen minus the rest of the popup (its frame, the question, the options, the hints)
+                    int used = 6;
+                    for (const ftxui::Element& line: lines) {
+                        line->ComputeRequirement();
+                        used += std::max(1, line->requirement().min_y);
+                    }
+                    used += (this->_askChat ? 2 : 1) + (a.session != GLOBAL_ID ? 1 : 0) + (this->_manager.config().voice.enabled ? 1 : 0);
+                    const int room = std::clamp(this->_screen.dimy() - used, 3, 16);
+                    const int total = static_cast<int>(chat.size());
+                    const int shown = std::min(total, room);
+                    this->_askChatScroll = std::clamp(this->_askChatScroll, 0, std::max(0, total - shown));
+                    const int last = total - this->_askChatScroll;
+                    const int first = std::max(0, last - shown);
+                    ftxui::Elements area;
+                    if (first > 0)
+                        area.push_back(ftxui::text(" ▲ " + std::to_string(first) + " line(s) above (PgUp, the wheel)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    for (int k = first; k < last; ++k) {
+                        const ChatLine& c = chat[static_cast<std::size_t>(k)];
+                        area.push_back(ftxui::hbox({ftxui::text(c.head) | ftxui::color(c.user ? this->_theme.text : this->_theme.accent) | ftxui::bold,
+                            ftxui::text(c.text) | ftxui::color(c.user ? this->_theme.text : this->_theme.accent)}));
+                    }
+                    if (this->_askChatScroll > 0)
+                        area.push_back(ftxui::text(" ▼ " + std::to_string(this->_askChatScroll) + " newer line(s) (PgDn)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    lines.push_back(ftxui::text(""));
+                    lines.push_back(ftxui::window(ftxui::text(" chat about this ") | ftxui::color(this->_theme.muted), ftxui::vbox(std::move(area)))
+                        | ftxui::color(this->_theme.border) | ftxui::reflect(this->_askChatBox));
+                }
+                if (this->_askChat) {
+                    std::vector<std::string> draft = wrap_(this->_askDraft.shown(), inner - 8);
+                    if (draft.empty()) draft.push_back("▏");
+                    for (std::size_t l = 0; l < draft.size(); ++l)
+                        lines.push_back(ftxui::hbox({ftxui::text(l == 0 ? " chat › " : "        ") | ftxui::color(this->_theme.accent) | ftxui::bold, ftxui::text(draft[l]),
+                            ftxui::filler(), l == 0 ? ftxui::text("Enter send · Esc back ") | ftxui::color(this->_theme.muted) | ftxui::dim : ftxui::emptyElement()}));
+                } else
                     lines.push_back(this->tap_(ftxui::text(" Ctrl+T: chat about this (the session untouched)") | ftxui::color(this->_theme.accent), 0,
                         [this]() {this->_askChat = true;}));
                 if (a.session != GLOBAL_ID)
@@ -3593,6 +3758,21 @@ class TtyUi {
                 }
                 lines.push_back(ftxui::text(" ↑↓ · Space / a click: tick · none ticked: the one under the cursor · ping: the round trip of its page") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 100);
+            }
+            if (this->_mode == Mode::QuitAsk) {
+                ftxui::Elements lines = {ftxui::text(" Sessions still running") | ftxui::bold, ftxui::text("")};
+                for (const cluster::Snapshot& s: this->_manager.list(true))
+                    if (s.state == cluster::State::Working || s.queued > 0)
+                        lines.push_back(ftxui::text("   " + s.spec.name + "  " + (s.state == cluster::State::Working ? "working" : "idle")
+                            + (s.queued > 0 ? " · " + std::to_string(s.queued) + " prompt(s) queued" : std::string())) | ftxui::color(this->_theme.muted));
+                lines.push_back(ftxui::text(""));
+                lines.push_back(press(ftxui::text(" [b] / Enter  keep them running in background: the core goes on without interface, its web access closed, and stops")
+                    | ftxui::color(this->_theme.accent), ftxui::Event::Character('b')));
+                lines.push_back(ftxui::text("              by itself once every session is idle (claude-cluster opened again meanwhile shows them)") | ftxui::color(this->_theme.muted));
+                lines.push_back(press(ftxui::text(" [s] / " + this->_manager.config().keys.at("quit") + "  stop everything: the turns interrupted, the sessions kept for the next start")
+                    | ftxui::color(this->_theme.warn), ftxui::Event::Character('s')));
+                lines.push_back(press(ftxui::text(" [Esc]  back") | ftxui::color(this->_theme.muted), ftxui::Event::Escape));
+                return box(ftxui::vbox(std::move(lines)), 110);
             }
             if (this->_mode == Mode::Restore) {
                 const std::vector<cluster::SessionSpec> previous = this->_manager.previous();
@@ -3780,9 +3960,11 @@ class TtyUi {
                     }),
             });
             // the global session asked to show a session (ui_focus); the style may have changed (ui_style)
-            if (this->_manager.raiseRequest() != this->_raiseSeen) { // a notification clicked: the bell marks this terminal
+            if (this->_manager.raiseRequest() != this->_raiseSeen) { // a notification clicked: this terminal to the front (X11), else marked
                 this->_raiseSeen = this->_manager.raiseRequest();
-                std::cout << "\a" << std::flush;
+                static const char* windowId = std::getenv("WINDOWID");
+                if (windowId != nullptr && *windowId != '\0' && cluster::has_command("wmctrl")) cluster::detach({"wmctrl", "-i", "-a", windowId});
+                std::cout << "\a" << std::flush; // the bell: the terminal asks for the attention (its urgency hint)
             }
             const std::pair<std::uint64_t, std::string> focus = this->_manager.focusRequest();
             if (focus.first != this->_focusSeen) {
@@ -3910,14 +4092,22 @@ class TtyUi {
                 for (std::size_t i = 0; i < this->_chipBoxes.size(); ++i)
                     if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);
                 const bool list = this->_mode == Mode::Settings || this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Question;
+                const bool onPanels = this->_mode == Mode::Normal && this->_panelBox.Contain(mouse.x, mouse.y);
+                if (this->_mode == Mode::Question && this->_askChatBox.Contain(mouse.x, mouse.y)
+                    && (mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown)) { // the chat of the popup
+                    this->_askChatScroll = mouse.button == ftxui::Mouse::WheelUp ? this->_askChatScroll + 3 : std::max(0, this->_askChatScroll - 3);
+                    return true;
+                }
                 if (mouse.button == ftxui::Mouse::WheelUp) {
                     if (list) return this->event_(ftxui::Event::ArrowUp);   // the item above
-                    this->_scroll[this->_active] += 3;
+                    if (onPanels) this->_panelScroll = std::max(0, this->_panelScroll - 3);
+                    else this->_scroll[this->_active] += 3;
                     return true;
                 }
                 if (mouse.button == ftxui::Mouse::WheelDown) {
                     if (list) return this->event_(ftxui::Event::ArrowDown);
-                    this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 3);
+                    if (onPanels) this->_panelScroll += 3; // clamped at the drawing
+                    else this->_scroll[this->_active] = std::max(0, this->_scroll[this->_active] - 3);
                     return true;
                 }
                 if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Right && this->_mode == Mode::Normal) {
@@ -3938,11 +4128,7 @@ class TtyUi {
                     const std::size_t index = this->_chips[static_cast<std::size_t>(this->_hoverChip)];
                     const cluster::Atom& atom = this->_editor.atom(index);
                     if (mouse.button == ftxui::Mouse::Right && !atom.image.empty()) {
-                        const std::string viewer = cluster::trim(this->_manager.config().imageViewer);
-                        std::vector<std::string> command = viewer.empty() ? std::vector<std::string>{"xdg-open"} : cluster::split(viewer, ' ');
-                        command.push_back(atom.image);
-                        cluster::detach(command);
-                        this->status_("opened " + std::filesystem::path(atom.image).filename().string());
+                        this->openPicture_(atom.image);
                     } else if (mouse.button == ftxui::Mouse::Left) {
                         this->_editor.insertAtom(index); // an image already there: one more reference (sent once)
                     }
@@ -3970,10 +4156,21 @@ class TtyUi {
             }
             if (key == this->_manager.config().keys.at("quit") || (startup && (event == ftxui::Event::Character('q') || event == ftxui::Event::Character('Q')
                 || key == "Ctrl+C" || key == "Ctrl+D" || key == "Ctrl+Z"))) {
-                this->_screen.Exit();
+                if (this->_mode == Mode::QuitAsk || startup) this->_screen.Exit(); // asked already (the quit key again: everything stopped)
+                else this->quit_();
                 return true;
             }
             switch (this->_mode) {
+                case Mode::QuitAsk:
+                    if (event == ftxui::Event::Character('b') || event == ftxui::Event::Character('B') || event == ftxui::Event::Return) {
+                        this->_manager.requestBackground();
+                        this->_screen.Exit();
+                    } else if (event == ftxui::Event::Character('s') || event == ftxui::Event::Character('S')) {
+                        this->_screen.Exit();
+                    } else if (event == ftxui::Event::Escape) {
+                        this->_mode = Mode::Normal;
+                    }
+                    return true;
                 case Mode::Restore:
                     // Esc keeps everything (never a loss by mistake); n: a new start
                     if (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R') || event == ftxui::Event::Return || event == ftxui::Event::Escape)
@@ -4045,19 +4242,23 @@ class TtyUi {
                     const cluster::Json& q = ask->questions[ask->index];
                     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
                     const bool multi = q.value("multiSelect", false);
-                    if (this->_askChat) { // its chat typed: Enter sent, Esc back to the options
+                    if (event == ftxui::Event::PageUp || event == ftxui::Event::ArrowUpCtrl) { // the chat about it: older lines
+                        this->_askChatScroll += event == ftxui::Event::PageUp ? 8 : 2; // clamped at the drawing
+                        return true;
+                    }
+                    if (event == ftxui::Event::PageDown || event == ftxui::Event::ArrowDownCtrl) {
+                        this->_askChatScroll = std::max(0, this->_askChatScroll - (event == ftxui::Event::PageDown ? 8 : 2));
+                        return true;
+                    }
+                    if (this->_askChat) { // its chat typed (a cursor: arrows, Home / End, Delete...): Enter sent, Esc back to the options
                         if (event == ftxui::Event::Escape) {
                             this->_askChat = false;
                         } else if (event == ftxui::Event::Return) {
-                            const std::string done = asking.chat(this->_askDraft);
+                            const std::string done = asking.chat(this->_askDraft.text);
                             if (done.empty()) this->_askDraft.clear();
                             else this->status_(done, true);
-                        } else if (event == ftxui::Event::Backspace) {
-                            while (!this->_askDraft.empty() && (static_cast<unsigned char>(this->_askDraft.back()) & 0xC0) == 0x80)
-                                this->_askDraft.pop_back();
-                            if (!this->_askDraft.empty()) this->_askDraft.pop_back();
-                        } else if (event.is_character()) {
-                            this->_askDraft += event.character();
+                        } else {
+                            (void)this->_askDraft.key(event, key);
                         }
                         return true;
                     }
@@ -4077,14 +4278,15 @@ class TtyUi {
                         asking.move(-1);
                     } else if (event == ftxui::Event::ArrowDown || event == ftxui::Event::Tab) {
                         asking.move(1);
-                    } else if (event == ftxui::Event::ArrowLeft && ask->cursor != count) {
-                        asking.back();
+                    } else if (event == ftxui::Event::ArrowLeft && (ask->cursor != count || (this->_askOther.text.empty() && ask->index > 0))) {
+                        asking.back(); // ← on an option, or on an empty Other: the question before
                     } else if (event == ftxui::Event::Return) {
-                        this->askNext_();
-                    } else if (ask->cursor == count && event == ftxui::Event::Backspace) {
-                        asking.erase();
-                    } else if (ask->cursor == count && event.is_character()) {
-                        asking.type(event.character()); // on Other: the answer typed (digits and spaces too)
+                        // several choices: Enter ticks the option under the cursor and stays (Enter on a ticked one, or on Other: the answer)
+                        if (multi && ask->cursor < count && !ask->picked.contains(ask->cursor)) asking.toggle();
+                        else this->askNext_();
+                    } else if (ask->cursor == count && this->_askOther.key(event, key)) {
+                        // on Other: the answer edited with its cursor (digits and spaces too), the question told at each change
+                        if (this->_askOther.text != ask->other) asking.setOther(this->_askOther.text);
                     } else if (event.is_character() && event.character().size() == 1 && event.character()[0] >= '1' && event.character()[0] <= '9') {
                         const int pick = event.character()[0] - '1';
                         if (pick <= count) {
@@ -4248,6 +4450,10 @@ class TtyUi {
             if (event == ftxui::Event::Escape && this->_app.voice->speaking()) {
                 this->_app.voice->mute();
                 this->status_("reading stopped");
+                return true;
+            }
+            if (this->_mode == Mode::Normal && (event == ftxui::Event::ArrowUpCtrl || event == ftxui::Event::ArrowDownCtrl)) { // the side panels scrolled
+                this->_panelScroll = std::max(0, this->_panelScroll + (event == ftxui::Event::ArrowDownCtrl ? 3 : -3));
                 return true;
             }
             if (event == ftxui::Event::Escape && !this->_app.voice->pending().empty()) {

@@ -80,6 +80,11 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
   unless the user explicitly asks to send it to a session.
 - Routing: a request about a project goes to the session of that project (`session_list`); several sessions on
   the same project are told apart by their name; no session yet: spawn one, named after the topic.
+- A doubt on the routing - several sessions could take it, none fits well, or a new one may be better: **ask the
+  user with `AskUserQuestion`** (one question, 2 to 4 options) instead of guessing: one option per candidate session
+  (its name, then what it would do with the request), and one "new session <name>" option telling the folder and what
+  it will do; then dispatch (or `session_spawn`) as answered. The same when the request could mean two different
+  jobs for one session.
 - Local commands of claude-cluster sent with `session_send` (`/clear`, `/model <m>`, `/mode <m>`, `/rename <n>`,
   `/cd <dir>`, `/close`, `/cost`, `/context`, `/export`) run at once, as typed in the session's prompt: "clear the
   session X" is `session_send` of `/clear` to X (a new conversation, no reply).

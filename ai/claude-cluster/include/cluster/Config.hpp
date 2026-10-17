@@ -149,6 +149,7 @@ class Config {
         std::string matching = "c2dmp";   // completions, palette, settings search: c2dmp (c2dmp-hsm, typos found) | raw (a prefix, contained)
         std::string shellContext = "ask"; // !command given to the agent: ask (after it ran) | always | never
         bool sharedCore = true;         // several terminals / windows at once on one core of its own (false: the first one is the core)
+        std::string quitBackground = "ask"; // quit with sessions running: ask (keep them in background / stop) | always (kept) | never (stopped)
         std::string layout = "list";
         std::string guiMode = "gui";            // the window: gui (its own interface) | tty (the terminal interface in it)
         std::string style = "html-dark";
@@ -201,6 +202,7 @@ class Config {
         std::string describeModel;              // the <provider>/<model> writing them (empty: the provider of the session, haiku for Anthropic)
         int maxParallel = 4;                    // the parallel sessions: sub-sessions working at the same time (the tasks wait past it)
         int taskQueue = 100;                    // the task queue: tasks waiting for a free place, at most
+        std::string queueGiven = "step";        // a prompt queued while the turn runs: step (given to claude after 1.5 s, taken at its next step) | end (after the turn)
         double budget = 0.0;
         bool questionsToGlobal = true;          // the questions of the sub-sessions shown on the global session (their own one: greyed)
         bool globalAnswers = false;             // the global session may choose the answer of a question of a sub-session

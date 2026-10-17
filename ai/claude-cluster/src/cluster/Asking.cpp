@@ -262,11 +262,13 @@ _cold std::string cluster::Asking::next_(void)
     }
     if (value.empty()) return "type the answer (other), or choose an option";
     a.answers[q.value("question", std::string())] = value;
+    a.given[a.index] = {a.cursor, a.picked, a.other}; // kept: back shows it, Enter goes on with it
     ++this->_version;
     if (++a.index < a.questions.size()) {
-        a.cursor = 0;
-        a.picked.clear();
-        a.other.clear();
+        const auto kept = a.given.find(a.index); // answered before (back, then forward again): as it was
+        a.cursor = kept != a.given.end() ? kept->second.cursor : 0;
+        a.picked = kept != a.given.end() ? kept->second.picked : std::set<int>();
+        a.other = kept != a.given.end() ? kept->second.other : std::string();
         return "";
     }
     const cluster::Ask done = a;
@@ -293,19 +295,35 @@ _cold void cluster::Asking::back(void)
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask || this->_ask->index == 0) return;
     cluster::Ask& a = *this->_ask;
+    a.given[a.index] = {a.cursor, a.picked, a.other}; // what is on this one so far: kept for the way forward
     --a.index;
-    // its answer back in the choices
-    const cluster::Json& q = a.questions[a.index];
-    const std::string previous = a.answers.value(q.value("question", std::string()), std::string());
-    const cluster::Json options = q.value("options", cluster::Json::array());
-    a.cursor = 0;
-    a.picked.clear();
-    a.other.clear();
-    for (std::size_t i = 0; i < options.size(); ++i)
-        if (previous == options[i].value("label", std::string()) || previous.find(options[i].value("label", std::string()) + ", ") != std::string::npos) {
-            a.cursor = static_cast<int>(i);
-            a.picked.insert(static_cast<int>(i));
+    // its answer back as it was given (the option, the ticks, the Other text)
+    const auto kept = a.given.find(a.index);
+    if (kept != a.given.end()) {
+        a.cursor = kept->second.cursor;
+        a.picked = kept->second.picked;
+        a.other = kept->second.other;
+    } else { // answered by another way (the voice, the page): from its text
+        const cluster::Json& q = a.questions[a.index];
+        const std::string previous = a.answers.value(q.value("question", std::string()), std::string());
+        const cluster::Json options = q.value("options", cluster::Json::array());
+        a.cursor = 0;
+        a.picked.clear();
+        a.other.clear();
+        bool found = false;
+        for (std::size_t i = 0; i < options.size(); ++i) {
+            const std::string label = options[i].value("label", std::string());
+            if (previous == label || previous.find(label + ", ") != std::string::npos || previous.ends_with(", " + label)) {
+                a.cursor = static_cast<int>(i);
+                a.picked.insert(static_cast<int>(i));
+                found = true;
+            }
         }
+        if (!found && !previous.empty()) { // a typed answer: on Other
+            a.cursor = static_cast<int>(options.size());
+            a.other = previous;
+        }
+    }
     ++this->_version;
 }
 

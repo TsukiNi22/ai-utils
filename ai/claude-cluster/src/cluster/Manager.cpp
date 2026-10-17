@@ -24,6 +24,7 @@ File Description:
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <cstdio>
 #include <thread>
 #include <chrono>
 #include <regex>
@@ -101,6 +102,7 @@ _cold cluster::Manager::~Manager()
     this->_usageStop = true; // the threads of the usage (a scan, a read of the account) end before anything of this manager goes
     if (this->_scanThread.joinable()) this->_scanThread.join();
     if (this->_accountThread.joinable()) this->_accountThread.join();
+    if (this->_notifyMonitor.joinable()) this->_notifyMonitor.detach(); // gdbus monitor dies with this process (its pipe closed): never waited for
 }
 
 /* sessions */
@@ -913,6 +915,17 @@ _cold void cluster::Manager::tick(void)
     this->groupsTick_();
     this->fireSchedules_();
     if (++seconds % 300 == 1) this->purge();
+    {
+        // the prompts queued while a turn runs: given to claude after a moment (its next step)
+        std::vector<std::shared_ptr<cluster::Session>> sessions;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            for (const auto &[id, session]: this->_sessions)
+                sessions.push_back(session);
+        }
+        for (const std::shared_ptr<cluster::Session>& session: sessions)
+            session->giveQueued(this->_config.queueGiven == "end" ? -1 : 1500);
+    }
     if (seconds % 60 == 2) this->scanTranscripts_();        // the transcripts of Claude Code: what grew
     if (seconds % 300 == 3) this->refreshAccount_();        // the windows of the account
     if (seconds == 5) this->describeMissing_();
@@ -1059,7 +1072,8 @@ _cold static std::string markup_(const std::string& text)
 
 bool cluster::Manager::notify(const cluster::Notification& n, const std::string& kind)
 {
-    // failsafe: no notify-send, no desktop... nothing said; its buttons answered in a thread of its own (notify-send waits)
+    // failsafe: no notification daemon, no desktop... nothing said; by DBus (gdbus) when it is there - its clicks come
+    // back with their activation token (the window takes the focus with it); else notify-send, its buttons waited for
     if (n.face == cluster::Face::Grin || n.face == cluster::Face::Happy) this->_moment = {n.face, cluster::now()};
     if (!this->_config.notify) return false;
     const cluster::Config& c = this->_config;
@@ -1071,6 +1085,50 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     if (kind != "web" && kind != "ready" && !n.session.empty() && this->origin(n.session).starts_with("web:")) return false;
     if (c.notifyWhen != "always" && this->_focused == 1) return false; // in front of the user: its popups there
     const std::string key = n.session.empty() ? "-" : n.session;
+    if (this->_config.notifySound && !n.sound.empty()) {
+        if (cluster::has_command("canberra-gtk-play")) {
+            cluster::detach({"canberra-gtk-play", "-i", n.sound});
+        } else {
+            const std::string file = "/usr/share/sounds/freedesktop/stereo/" + n.sound + ".oga";
+            if (std::filesystem::exists(file)) cluster::detach({cluster::has_command("pw-play") ? "pw-play" : "paplay", file});
+        }
+    }
+    static const bool dbus = cluster::has_command("gdbus");
+    if (dbus) {
+        // org.freedesktop.Notifications.Notify: the one of this session replaced, the body clickable (default), its buttons
+        std::string replaces = "0";
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (this->_notifyIds.contains(key)) replaces = this->_notifyIds.at(key);
+        }
+        const std::function<std::string(const std::string&)> quoted = [](const std::string& text) {
+            std::string out = "'";
+            for (const char ch: text)
+                out += ch == '\'' ? std::string("\\'") : ch == '\\' ? std::string("\\\\") : std::string(1, ch);
+            return out + "'";
+        };
+        std::string actions = "[" + quoted("default") + ", " + quoted("Open");
+        for (const auto &[action, label]: n.actions)
+            actions += ", " + quoted(action) + ", " + quoted(label);
+        actions += "]";
+        const std::string hints = "{'desktop-entry': <'claude-cluster'>, 'urgency': <byte " + std::string(n.urgent ? "2" : "1") + ">}";
+        const cluster::Captured got = cluster::capture({"gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications",
+            "--method", "org.freedesktop.Notifications.Notify", "claude-cluster", replaces, cluster::face_file(n.face).string(), n.title, cluster::one_line(n.body, 400),
+            actions, hints, n.urgent ? "0" : "-1"}, "", 10);
+        std::string id;
+        for (const char ch: got.out)
+            if (ch >= '0' && ch <= '9') id += ch;
+            else if (!id.empty()) break;
+        if (got.code != 0 || id.empty()) return false;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_notifyIds[key] = id;
+            this->_notifyShown[id] = {n, ""};
+            if (this->_notifyShown.size() > 50) this->_notifyShown.erase(this->_notifyShown.begin());
+        }
+        if (!this->_notifyMonitorUp.exchange(true)) this->_notifyMonitor = std::thread(&cluster::Manager::notifyMonitor_, this);
+        return true;
+    }
     std::vector<std::string> args = {"notify-send", "-a", "claude-cluster", "-i", cluster::face_file(n.face).string(), "-h", "string:desktop-entry:claude-cluster",
         "-u", n.urgent ? "critical" : "normal", "-p"};
     {
@@ -1082,56 +1140,98 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
         args.insert(args.end(), {"-A", action + "=" + label});
     args.push_back(n.title);
     args.push_back(markup_(cluster::one_line(n.body, 400)));
-    if (this->_config.notifySound && !n.sound.empty()) {
-        if (cluster::has_command("canberra-gtk-play")) {
-            cluster::detach({"canberra-gtk-play", "-i", n.sound});
-        } else {
-            const std::string file = "/usr/share/sounds/freedesktop/stereo/" + n.sound + ".oga";
-            if (std::filesystem::exists(file)) cluster::detach({cluster::has_command("pw-play") ? "pw-play" : "paplay", file});
-        }
-    }
     std::thread([this, args, n, key]() {
         const cluster::Captured out = cluster::capture(args, "", 3600); // its buttons (and its body): waited for
         std::string chosen;
         for (const std::string& raw: cluster::split(out.out, '\n')) {
             const std::string line = cluster::trim(raw);
-            if (!line.empty() && std::all_of(line.begin(), line.end(), [](const char c) {return c >= '0' && c <= '9';})) {
+            if (!line.empty() && std::all_of(line.begin(), line.end(), [](const char ch) {return ch >= '0' && ch <= '9';})) {
                 std::lock_guard<std::mutex> lock(this->_mutex);
                 this->_notifyIds[key] = line;
             } else if (line == "default" || std::any_of(n.actions.begin(), n.actions.end(), [&line](const std::pair<std::string, std::string>& a) {return a.first == line;})) {
                 chosen = line;
             }
         }
-        if (chosen.empty()) return;
-        // its button: its owner (a device to approve...), else the session shown, its permission or question answered
-        try {
-            if (n.onAction && chosen != "default") {
-                n.onAction(chosen);
-                ++this->_version;
-                return;
-            }
-            if (!n.session.empty() && n.session != "ready" && n.session != "map" && n.session != "voice" && this->snapshot(n.session)) this->requestFocus(n.session);
-            if (chosen == "default" || chosen == "open") this->requestRaise();
-            if (chosen == "allow" || chosen == "deny" || chosen == "always") {
-                this->answer(n.session, n.requestId, chosen);
-            } else if (chosen == "global") {
-                const std::optional<cluster::Ask> ask = this->asking().current();
-                if (ask && ask->session == n.session) (void)this->asking().toGlobal();
-                else if (const std::optional<cluster::Snapshot> s = this->snapshot(n.session); s && !s->permissions.empty())
-                    this->askGlobal(n.session, s->permissions.back().requestId, s->permissions.back().input.value("questions", cluster::Json::array()));
-            } else if (chosen.starts_with("opt")) {
-                const std::optional<cluster::Ask> ask = this->asking().current();
-                if (ask && ask->session == n.session) {
-                    this->asking().choose(std::stoi(chosen.substr(3)));
-                    (void)this->asking().next();
-                }
-            }
-        } catch (const std::exception& e) {
-            this->notice_(n.session.empty() ? GLOBAL_ID : n.session, std::string("notification: ") + e.what(), true);
-        }
-        ++this->_version;
+        if (!chosen.empty()) this->notifyAction_(n, chosen, "");
     }).detach();
     return true;
+}
+
+_cold void cluster::Manager::notifyMonitor_(void)
+{
+    // the signals of the daemon, for the life of the core: ActivationToken (id, token) just before ActionInvoked (id, key)
+    FILE* pipe = ::popen("gdbus monitor --session --dest org.freedesktop.Notifications 2>/dev/null", "r");
+    if (pipe == nullptr) {
+        this->_notifyMonitorUp = false;
+        return;
+    }
+    std::array<char, 4096> buffer{};
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+        const std::string line(buffer.data());
+        // "/org/freedesktop/Notifications: org.freedesktop.Notifications.ActionInvoked (uint32 623, 'default')"
+        const std::size_t signal = line.find("org.freedesktop.Notifications.");
+        if (signal == std::string::npos) continue;
+        const std::string rest = line.substr(signal + 30);
+        const std::string name = rest.substr(0, rest.find(' '));
+        const std::size_t number = rest.find("uint32 ");
+        if (number == std::string::npos) continue;
+        std::string id;
+        for (std::size_t i = number + 7; i < rest.size() && rest[i] >= '0' && rest[i] <= '9'; ++i)
+            id += rest[i];
+        std::string text;
+        if (const std::size_t open = rest.find('\'', number); open != std::string::npos) {
+            const std::size_t close = rest.rfind('\'');
+            if (close > open) text = rest.substr(open + 1, close - open - 1);
+        }
+        if (name == "ActivationToken") {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (this->_notifyShown.contains(id)) this->_notifyShown[id].second = text;
+        } else if (name == "ActionInvoked") {
+            std::optional<std::pair<cluster::Notification, std::string>> shown;
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                if (this->_notifyShown.contains(id)) shown = this->_notifyShown[id];
+            }
+            if (shown) this->notifyAction_(shown->first, text, shown->second);
+        } else if (name == "NotificationClosed") {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_notifyShown.erase(id);
+        }
+    }
+    (void)::pclose(pipe);
+    this->_notifyMonitorUp = false;
+}
+
+_cold void cluster::Manager::notifyAction_(const cluster::Notification& n, const std::string& chosen, const std::string& token)
+{
+    // its button: its owner (a device to approve...), else the session shown, its permission or question answered;
+    // the body (default) or Open: the interface to the front (with the token of the click on Wayland)
+    try {
+        if (n.onAction && chosen != "default") {
+            n.onAction(chosen);
+            ++this->_version;
+            return;
+        }
+        if (!n.session.empty() && n.session != "ready" && n.session != "map" && n.session != "voice" && this->snapshot(n.session)) this->requestFocus(n.session);
+        if (chosen == "default" || chosen == "open") this->requestRaise(token);
+        if (chosen == "allow" || chosen == "deny" || chosen == "always") {
+            this->answer(n.session, n.requestId, chosen);
+        } else if (chosen == "global") {
+            const std::optional<cluster::Ask> ask = this->asking().current();
+            if (ask && ask->session == n.session) (void)this->asking().toGlobal();
+            else if (const std::optional<cluster::Snapshot> s = this->snapshot(n.session); s && !s->permissions.empty())
+                this->askGlobal(n.session, s->permissions.back().requestId, s->permissions.back().input.value("questions", cluster::Json::array()));
+        } else if (chosen.starts_with("opt")) {
+            const std::optional<cluster::Ask> ask = this->asking().current();
+            if (ask && ask->session == n.session) {
+                this->asking().choose(std::stoi(chosen.substr(3)));
+                (void)this->asking().next();
+            }
+        }
+    } catch (const std::exception& e) {
+        this->notice_(n.session.empty() ? GLOBAL_ID : n.session, std::string("notification: ") + e.what(), true);
+    }
+    ++this->_version;
 }
 
 cluster::AppFace cluster::Manager::appFace(const bool listening) const
