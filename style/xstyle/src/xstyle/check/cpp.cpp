@@ -936,7 +936,7 @@ _hot static void classes_(const xstyle::SourceFile& file, xstyle::check::Issues&
             }
         }
 
-        // An empty constructor / destructor / operator of a class on several lines -> one line: sig : init { /* Nothing */ }; // comment
+        // An empty constructor / destructor / operator of a class on several lines -> one line: sig: init { /* Nothing */ }; // comment
         if (brace.kind == xstyle::Scope::Function && brace.closeLine != NO_INDEX && brace.closeLine > brace.openLine && brace.parent != NO_INDEX
             && (braces[brace.parent].kind == xstyle::Scope::Class || braces[brace.parent].kind == xstyle::Scope::Struct)) {
             std::string comment;    // its body: a comment (/* Nothing */), or nothing; an operator: then its return (return *this;)
@@ -966,14 +966,28 @@ _hot static void classes_(const xstyle::SourceFile& file, xstyle::check::Issues&
                 if (std::regex_search(head, special) && head.find(';') == std::string::npos && head.find('{') == std::string::npos) {
                     std::string joined = head;
                     while (!joined.empty() && std::isspace(static_cast<unsigned char>(joined.back()))) joined.pop_back();
-                    for (const std::string& init: inits)
-                        joined += (init.starts_with(",") ? "" : " ") + init;
+                    for (const std::string& init: inits) // the : glued to the ) (sig): init), the next ones after their comma
+                        joined += init.starts_with(",") ? init : init.starts_with(":") && joined.ends_with(")") ? init : " " + init;
                     joined += back.empty() ? " { " + (comment.empty() ? std::string("/* Nothing */") : comment) + " };" : " {" + back + "};";
                     if (mark != std::string::npos) joined += " " + xstyle::trim(signature.substr(mark));
                     issues.push_back(xstyle::check::make_issue(file, brace.openLine, 0, "CPP-EMPTY-BODY", "Empty constructor / destructor / operator on several lines",
                         "one line: its signature, its initializers, { /* Nothing */ }; then its comment",
                         xstyle::check::replace_lines(first, brace.closeLine - first + 1, {joined})));
                 }
+            }
+        }
+
+        // A constructor and its init list on one line in a class: its : glued to the ) -> Name(int a): _a{a} {...};
+        if (brace.kind == xstyle::Scope::Function && brace.parent != NO_INDEX
+            && (braces[brace.parent].kind == xstyle::Scope::Class || braces[brace.parent].kind == xstyle::Scope::Struct)) {
+            static const std::regex spaced(R"(\)\s+:\s*(?=[A-Za-z_:]))");
+            const std::string& line = lines[brace.openLine];
+            const std::string head = code[brace.openLine].substr(0, brace.openColumn);
+            std::smatch match;
+            if (head.find('?') == std::string::npos && std::regex_search(head, match, spaced)) {
+                const std::size_t at = static_cast<std::size_t>(match.position(0));
+                issues.push_back(xstyle::check::make_issue(file, brace.openLine, at, "CPP-INIT-COLON", "Init list colon not glued to the )", "Name(...): _a{a}",
+                    xstyle::check::replace_line(brace.openLine, line.substr(0, at) + "): " + line.substr(at + static_cast<std::size_t>(match.length(0))))));
             }
         }
 

@@ -97,7 +97,7 @@ system (`bash SKILL_DIR/scripts/list_attributes.sh <project_root>`), then only t
    and keep the include comments aligned.
 3. In `std` mode, convert every macro (`_hot` -> `[[gnu::hot]]`, ...) and drop the Attribute include.
 4. Bodies: always empty (`/* Nothing */` + minimal return), never logic, see the rule at the top; an empty
-   constructor / destructor / operator defined in its class on one line: `Name(...) : _a{a} { /* Nothing */ }; // comment`.
+   constructor / destructor / operator defined in its class on one line: `Name(...): _a{a} { /* Nothing */ }; // comment` (`:` glued to the `)`).
 5. Remove every section with nothing linked to it (class blocks `// --- X --- //`, file sections
    `/* DEFINE */`, `/* PROTOTYPE */`..., empty visibilities and `/* group */` labels): the template
    blocks are not mandatory, only the ones holding a declaration are kept.

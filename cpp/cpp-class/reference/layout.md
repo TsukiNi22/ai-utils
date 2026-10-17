@@ -13,7 +13,7 @@ even when the user describes the behavior:
   `return {};`, `return *this;` (operators), `return false;`...
 - The described behavior goes in a trailing comment on the declaration (`void cancel(std::size_t id); // cancel given task`), never in the body.
 - A constructor / destructor / operator **defined in its class** (a header, a template) with an empty body is one
-  line: `Name(const int value) : _value{value} { /* Nothing */ }; // what it does`, `~Name() noexcept { /* Nothing */ };`,
+  line: `Name(const int value): _value{value} { /* Nothing */ }; // what it does` (the `:` glued to the `)`), `~Name() noexcept { /* Nothing */ };`,
   an operator `Name& operator=(Name&& other) noexcept {return *this;};` - never the `{` / `/* Nothing */` / `};`
   block on several lines (`cpp-style`, xstyle `CPP-EMPTY-BODY`). The `.cpp` definitions keep the block form below.
 - Only allowed, because it is not logic:

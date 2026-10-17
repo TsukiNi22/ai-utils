@@ -95,14 +95,17 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
 - **An empty constructor / destructor / operator defined in its class is one line**, never a `{` / `/* Nothing */` /
   `};` block on several lines: its signature, its init list on the same line, `{ /* Nothing */ };` (a space inside
   the braces: a comment, not a statement), then its trailing comment; an operator that only returns: `{return *this;};`.
+  The `:` of an init list on the line of its constructor is **glued to the `)`** (like `class A: public B`), never
+  `) :`: `HybridMemory(const std::size_t size, const MemoryMode mode = MemoryMode::Auto): HybridMemory(mode) {this->allocate_(size);}; // ...`
+  (`xstyle` rule `CPP-INIT-COLON`).
   The declarations keep their blank line between them (`xstyle` rule `CPP-EMPTY-BODY`, auto fix):
   ```cpp
   HybridMemory& operator=(HybridMemory&& other) noexcept {return *this;}; // take the memory and the handler of other
 
   // ---------- Constructor --------- //
-  HybridMemory(const utils::system::MemoryMode mode = utils::system::MemoryMode::Auto) : _requested{mode} { /* Nothing */ }; // select the backend
+  HybridMemory(const utils::system::MemoryMode mode = utils::system::MemoryMode::Auto): _requested{mode} { /* Nothing */ }; // select the backend
 
-  HybridMemory(const std::size_t size, std::shared_ptr<utils::system::IGpu> gpu) : _requested{utils::system::MemoryMode::Custom}, _gpu{gpu} { /* Nothing */ }; // a user handler
+  HybridMemory(const std::size_t size, std::shared_ptr<utils::system::IGpu> gpu): _requested{utils::system::MemoryMode::Custom}, _gpu{gpu} { /* Nothing */ }; // a user handler
 
   HybridMemory(HybridMemory&& other) noexcept { /* Nothing */ }; // take the memory and the handler of other
 

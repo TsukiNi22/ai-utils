@@ -105,7 +105,7 @@ For a note, a legend or a kept formula:
 
 ## 5. Misc
 - Empty body: `/* Nothing */` (an empty constructor / destructor / operator defined in its class: on its line,
-  `{ /* Nothing */ };` then its trailing comment).
+  `{ /* Nothing */ };` then its trailing comment; an init list there: `Name(int a): _a{a} { /* Nothing */ };`).
 - Disabled code kept with `//` and no space (`//add_library(${TARGET} SHARED ${SRC})`).
 - No `TODO`/`FIXME` tags in the code: describe the limitation in a normal comment instead.
 - No decorative boxes or banners except the file header and the separators above.
