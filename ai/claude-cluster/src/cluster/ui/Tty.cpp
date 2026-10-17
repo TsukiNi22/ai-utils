@@ -3652,7 +3652,7 @@ class TtyUi {
                     }
                     lines.push_back(ftxui::text(" Ready to submit your answers?") | ftxui::bold);
                     lines.push_back(ftxui::text(""));
-                    lines.push_back(ftxui::hbox({this->tap_(ftxui::text(" 1. Submit (Enter) ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent), 0,
+                    lines.push_back(ftxui::hbox({this->tap_(ftxui::text(" 1. Submit (Enter) ") | ftxui::color(this->_theme.ok), 0,
                             [this]() {this->askNext_();}), ftxui::text("   "),
                         this->tap_(ftxui::text(" 2. Cancel (Esc) ") | ftxui::color(this->_theme.error), 0, [this]() {
                             this->_manager.asking().decline();
