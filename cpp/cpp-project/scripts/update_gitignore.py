@@ -97,6 +97,12 @@ def main() -> int:
     found = {"executables": set(), "libraries": set(), "dirs": set(), "generated": set(), "cpack": False}
     scan(root, "", {"CMAKE_SOURCE_DIR": root, "PROJECT_SOURCE_DIR": root}, found)
 
+    # a MinGW toolchain (the Windows build of the template): the .exe at the same place, its build directory
+    toolchains = os.path.join(root, "cmake", "toolchain")
+    windows = os.path.isdir(toolchains) and any("mingw" in f.lower() for f in os.listdir(toolchains))
+    if windows:
+        found["executables"] |= {e + ".exe" for e in found["executables"]}
+
     block = []
     if found["executables"]:
         block += ["# Executables"] + sorted(found["executables"])
@@ -108,7 +114,7 @@ def main() -> int:
         block += ["# Generated files"] + sorted(found["generated"])
     if found["cpack"]:
         block += ["# Packages (CPack)", "*.rpm", "*.deb", "_CPack_Packages/"]
-    block += ["# Build", "/build"]
+    block += ["# Build", "/build"] + (["/build-windows"] if windows else [])
 
     gi = os.path.join(root, ".gitignore")
     content = open(gi, encoding="utf-8").read() if os.path.exists(gi) else ""

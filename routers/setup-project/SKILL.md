@@ -28,7 +28,8 @@ Only what the request and the context don't already say; up to 4 questions per c
 answers are **passed to the skills**: their own questions already answered are skipped (say "déjà répondu" mentally,
 never ask twice).
 - **Langage / type** (when unknown): `C++ (cpp-project)` · `Python (python-project)` · `Autre (préciser)`; then the
-  type question of the project skill (binary / packages / library / header-only, package / application / script).
+  type question of the project skill (C++: binary / library `.a` / `.so` / header-only, and the gh-pages publication of
+  the signed packages + docs; Python: package / application / script).
 - **Licence** (when not given in the request): the first question of `license` (needs: commercial use, copyleft,
   attribution...), or `Pas de licence (tous droits réservés)`; a license named in the request is used directly.
 - **Git** (multiSelect): `git init + .gitignore + CHANGELOG (Recommandé)` · `Dépôt GitHub (gh repo create)` ·
@@ -48,8 +49,11 @@ The pre-commit options (fail / warn levels, scope...) are asked by `pre-commit` 
 | 5 | CI/CD | `ci-cd` (GitHub only; it asks the jobs) | workflows valid (its `check_workflows.py`) |
 | 6 | README | `readme-style` | README with setup / usage |
 | 7 | first commit / GitHub | `git-conventions` (only if chosen: never commit / push / create a repository otherwise) | |
-A step already done by the project skill (ex: `cpp-project` writes the tests, the README or the workflows when they are
-chosen) is not repeated: check it and complete it.
+A step already done by the project skill is not repeated: check it and complete it. C++: the `setup.sh` of
+cpp_project_template (run by `cpp-project`) already writes the unit tests (one test of the core class), the workflows
+(dispatch, unit tests, build, packages, GitHub release, docs; Linux and Windows), `README.md`, `CHANGELOG.md`, `docs/`,
+`LICENSE` (MIT: replaced at step 3 when another license is chosen) and the `gh-pages` branch when chosen; steps 2, 5
+and 6 complete them (`cpp-tests`, `ci-cd` on top of its workflows, `readme-style`), never rewrite them.
 
 ## 4. Simplified architecture audit (always, at the end, in the answer - no report file)
 Fast checks of what was set up, one line each, `OK` / `KO` + the fix (fix the `KO` that belong to this setup):
@@ -60,11 +64,11 @@ Fast checks of what was set up, one line each, `OK` / `KO` + the fix (fix the `K
 | tests compile and pass | `ctest` / `pytest -q` |
 | style | `xstyle --rtk -S -r .` (installed only): no unforgivable / major |
 | build outputs ignored, no source ignored | `git status --ignored --short` after the build |
-| no placeholder left | `grep -rn '{{' . --exclude-dir=.git` and the template names (`template`, `Core`) |
+| no placeholder left | `grep -rn '{{' . --exclude-dir=.git` and the template names (`template`, `TEMPLATE_`, `Core` as whole words) |
 | license / README / CHANGELOG present and consistent (name, version, license id) | read them |
 | CI files valid | `ci-cd/scripts/check_workflows.py` |
-End with the tree (2 levels), the chosen options, what the user still has to do (secrets, `RUNNER` variable, push,
-`pre-commit` demo) and propose `/audit` (`audit-quality`) for a full audit later.
+End with the tree (2 levels), the chosen options, what the user still has to do (secrets, `RUNNER` variable, GitHub
+Pages and the push of `gh-pages` for a C++ project with it, push, `pre-commit` demo) and propose `/audit` (`audit-quality`) for a full audit later.
 
 ## Say it
 Start the answer with one line: the language detected and the skills that will be loaded in order (ex: "Projet C++ :

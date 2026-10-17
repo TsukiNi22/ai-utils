@@ -8,8 +8,11 @@ description: CI and CD of a GitHub repository in Tsukini's way - the CI (build c
 `SKILL_DIR` = the directory of this file. Templates: CI `templates/style.yml` (xstyle), `templates/python.yml` (pytest);
 CD `templates/release.yml` (GitHub release from the CHANGELOG section of the tag), `templates/pypi.yml` (trusted
 publishing), `templates/container.yml` (image on ghcr.io, docker-image way), `templates/dispatch-repository.yml`
-(repository_dispatch to another repository); the C/C++ build / tests / packages / dispatch workflows are the templates
-of the `cpp-project` skill (`<cpp-project>/templates/workflows/`, its section 6 says which file for which choice).
+(repository_dispatch to another repository); the C/C++ build / tests / packages / dispatch / release / docs workflows are
+those of **cpp_project_template** (`.github/workflows/` of a project made by `cpp-project`, already there; for another
+C++ project: copied from the local clone `~/personal_delivery/cpp/cpp_project_template` or its GitHub repository, then
+`template` / `TEMPLATE_` / `Core` renamed and the `# Don't run on template repository` condition removed, like its
+`setup.sh`; section 5 of `cpp-project` says what each one does).
 
 **Called by the project setup skills** (`cpp-project`, `python-project`) when the project is a GitHub repository
 (`git remote -v` shows `github.com`, or the user creates it with `gh repo create`): they hand over the CI/CD step here.
@@ -80,10 +83,13 @@ that is not clean yet: start with `--fail-on unforgivable` or the PR-only trigge
 ## 5. CD (deployment)
 - **Versions**: one tag per release (`vX.Y.Z`, `vX.Y.Z-pre` for a pre-release; `<image>/vX.Y.Z` for an image of a
   multi-image repository), the version in the sources bumped with the CHANGELOG in the same commit (`git-conventions`).
-- **GitHub release** (`release.yml`): on a `v*` tag, the notes are the `## [X.Y.Z]` section of `CHANGELOG.md` (the job
-  fails without it), `-pre` tags are pre-releases, `{{ASSETS}}` = files to attach (binaries, `dist/*`, packages) or empty.
-- **Packages RPM/DEB** (C/C++): the `dispatch` / `build-packages` workflows of `cpp-project` (stable on tag, pre-release on
-  `[build]`), signed, published in the gh-pages repository (GPG secrets: see `cpp-project`).
+- **GitHub release** (`release.yml`): on a `v*` tag, the notes are the section of the tag in `CHANGELOG.md` (the
+  `git-conventions` format: `## vX.Y.Z - date`, `## [vX.Y.Z-pre] - date`; the job fails without it), a tag with a suffix
+  (`vX.Y.Z-pre`, `-rc1`...) is a pre-release, `{{ASSETS}}` = files to attach (binaries, `dist/*`, packages) or empty.
+  A C++ project of the template already has its own `release.yml` (run by `dispatch.yml` after the packages).
+- **Packages RPM/DEB** (C/C++): the `dispatch` / `build-packages` workflows of cpp_project_template (Linux and Windows
+  `mingw64-*`, stable on a `vX.Y.Z` tag, pre-release on `[build]` or a `vX.Y.Z-<suffix>` tag), signed and published in
+  the gh-pages repository when the project has one (GPG secrets, Pages: see `cpp-project`), else artifacts of the run.
 - **Container image** (`container.yml`): the docker-image pattern (version in the workflow, `<image>/vX.Y.Z` tag pushed by
   the job, `latest` + version tags, GHA cache).
 - **PyPI** (`pypi.yml`): trusted publishing (the project configured on pypi.org with this repository / workflow /

@@ -23,7 +23,12 @@ Code style of the tests: `cpp-style` + `cpp-comments`, file header with `cpp-cla
     and `#error` in the test if it is missing.
 - Root CMake: `option(BUILD_TESTS "Build unit tests" OFF)` + `if(BUILD_TESTS) enable_testing() add_subdirectory(tests) endif()`.
 - `.gitignore`: `python3 <cpp-project>/scripts/update_gitignore.py .` (adds `/unit_tests`).
-- CI: `cpp-project/templates/workflows/unit-tests.yml` (Debug + `BUILD_TESTS=ON`, checks `./unit_tests`, `ctest --output-on-failure --timeout 30`).
+- A project of cpp_project_template already has `tests/CMakeLists.txt` and its first test: the unit tests link the
+  library target (`<name>_lib`) when it exists, else build the shared sources of the parent (`SRC_SHARED`, never
+  `main.cpp`); cross compiled (MinGW): GTest from the sysroot or fetched from its sources (`FetchContent`), the tests
+  listed when `ctest` runs (`DISCOVERY_MODE PRE_TEST`, under `wine`), `-static` link of the `.exe`.
+- CI: the `unit-tests.yml` of cpp_project_template (Linux `unit-tests` image, Windows `mingw64-unit-tests` under `wine`;
+  Debug + `BUILD_TESTS=ON`, checks `./unit_tests`, `ctest --output-on-failure`).
 - Helpers shared by the tests in `tests/tools/` (namespace `tests::tools`): `templates/tools/TempDir.hpp`
   (temporary directory + `ScopedEnv` for environment variables), `templates/tools/StepSynchronizer.hpp` (order the
   steps of several threads), mocks `tests/tools/Mock<Interface>.hpp`.

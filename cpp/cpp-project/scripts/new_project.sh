@@ -1,130 +1,105 @@
 #!/bin/bash
-# Create a new C++ project from cpp_project_template (same renaming as its setup.sh, without git actions).
+# Create a new C++ project with the setup.sh of cpp_project_template (never commits nor pushes).
 #
-# Usage: new_project.sh <target_dir> <project_name> <core_name> [--source <path|url>] [--no-libutils]
+# Usage: new_project.sh <target_dir> <project_name> <core_name> [--kind binary|library|header-only]
+#                       [--gh-pages|--no-gh-pages] [--repo <owner/repo>] [--source <path|url>] [--no-libutils]
 #
-#   <target_dir>    directory of the new project (created, must be empty if it exists)
-#   <project_name>  replaces 'template' (target, namespace, folders), ex: virtual-os
-#   <core_name>     replaces 'Core' (main class), ex: Os
+#   <target_dir>    directory of the new project (created; existing: only a .git, a LICENSE or hidden files in it)
+#   <project_name>  replaces 'template' (target, namespace, folders, packages): a C++ identifier, ex: virtual_os
+#   <core_name>     replaces 'Core' (main class): a C++ identifier, ex: Os
+#   --kind          binary (default), library (.a / .so + headers) or header-only
+#   --gh-pages      the gh-pages branch (signed packages repository + docs) and its workflows (default: none)
+#   --repo          owner/repo of the GitHub repository (default: the origin remote of <target_dir>, else
+#                   TsukiNi22/<project_name>): workflows, docs, packages repository
 #   --source        template repository (default: ~/personal_delivery/cpp/cpp_project_template if present,
-#                   otherwise https://github.com/TsukiNi22/cpp_project_template.git)
-#   --no-libutils   remove the libutils parts (find_package, exception generation, ArgParser init)
+#                   otherwise https://github.com/TsukiNi22/cpp_project_template.git); a local clone gives its
+#                   committed files only (HEAD), never its work in progress
+#   --no-libutils   remove the exception generation of libutils (the CMake / main.cpp / init to rewrite: told)
 
 set -euo pipefail
 
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 [[ $# -lt 3 ]] && usage 1
-TARGET="$1"; NAME="$2"; CORE="$3"; shift 3
+TARGET="$1"
+NAME="$2"
+CORE="$3"
+shift 3
+KIND="binary"
+PAGES="--no-gh-pages"
+REPO=""
 SOURCE=""
 LIBUTILS=true
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --source) SOURCE="$2"; shift ;;
+        --kind) [[ $# -ge 2 ]] || usage 1; KIND="$2"; shift ;;
+        --gh-pages|--no-gh-pages) PAGES="$1" ;;
+        --repo) [[ $# -ge 2 ]] || usage 1; REPO="$2"; shift ;;
+        --source) [[ $# -ge 2 ]] || usage 1; SOURCE="$2"; shift ;;
         --no-libutils) LIBUTILS=false ;;
         -h|--help) usage 0 ;;
-        *) echo "Error: unknown argument '$1'" >&2; usage 1 ;;
+        *) echo "error: unknown option '$1'" >&2; usage 1 ;;
     esac
     shift
 done
 
-[[ "$NAME" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "Error: project name must be lower case (a-z, 0-9, '-', '_')" >&2; exit 1; }
-[[ "$CORE" =~ ^[A-Z][A-Za-z0-9]*$ ]] || { echo "Error: core name must be PascalCase" >&2; exit 1; }
-# Like the setup.sh of the template: a C++ keyword or a name of the project (std, utils) can't be a namespace / class
-CPP_RESERVED="alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t char16_t char32_t class \
-compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete \
-do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace \
-new noexcept not not_eq nullptr operator or or_eq private protected public register reinterpret_cast requires return short \
-signed sizeof static static_assert static_cast struct switch template this thread_local throw true try typedef typeid \
-typename union unsigned using virtual void volatile wchar_t while xor xor_eq std utils"
-for word in "$(echo "$NAME" | tr -d '-')" "$CORE"; do
-    if [[ " $CPP_RESERVED " == *" $word "* ]]; then
-        echo "Error: '$word' is a C++ keyword or a name reserved by the project (std, utils)" >&2; exit 1
+# =========================
+# Checks
+# =========================
+case "$KIND" in
+    binary|library|header-only) ;;
+    *) echo "error: --kind binary, library or header-only (not '$KIND')" >&2; exit 1 ;;
+esac
+for name in "$NAME" "$CORE"; do
+    if ! [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "error: '$name' is not a C++ identifier (namespace / class): use '_' instead of '-', ex: ${name//-/_}" >&2
+        exit 1
     fi
 done
-if [[ -d "$TARGET" ]] && [[ -n "$(ls -A "$TARGET" 2>/dev/null | grep -v '^\.git$' || true)" ]]; then
-    echo "Error: $TARGET is not empty" >&2; exit 1
+if [[ -d "$TARGET" ]] && [[ -n "$(find "$TARGET" -mindepth 1 -maxdepth 1 ! -name '.*' ! -name LICENSE -print -quit)" ]]; then
+    echo "error: '$TARGET' is not empty (only a .git, a LICENSE or hidden files are kept): the project would be mixed with it" >&2
+    exit 1
 fi
 
 # =========================
-# Copy the template (committed files only)
+# The template: committed files of a local clone, or its repository
 # =========================
-LOCAL="$HOME/personal_delivery/cpp/cpp_project_template"
+LOCAL_DEFAULT="$HOME/personal_delivery/cpp/cpp_project_template"
 if [[ -z "$SOURCE" ]]; then
-    [[ -d "$LOCAL/.git" ]] && SOURCE="$LOCAL" || SOURCE="https://github.com/TsukiNi22/cpp_project_template.git"
+    if [[ -d "$LOCAL_DEFAULT/.git" ]]; then SOURCE="$LOCAL_DEFAULT"; else SOURCE="https://github.com/TsukiNi22/cpp_project_template.git"; fi
 fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 if [[ -d "$SOURCE/.git" ]]; then
-    git -C "$SOURCE" archive --format=tar HEAD | tar -x -C "$TMP"
-    FROM="$SOURCE @ $(git -C "$SOURCE" rev-parse --short HEAD)"
+    \git -C "$SOURCE" archive HEAD | tar -x -C "$TMP"
+    FROM="$SOURCE (HEAD $(\git -C "$SOURCE" log -1 --format=%h))"
+    [[ -n "$(\git -C "$SOURCE" status --porcelain 2> /dev/null)" ]] && echo "note: the clone has uncommitted changes: not used (HEAD only)" >&2
 else
-    git clone -q --depth 1 "$SOURCE" "$TMP/clone"
-    FROM="$SOURCE @ $(git -C "$TMP/clone" rev-parse --short HEAD)"
-    rm -rf "$TMP/clone/.git"
-    mv "$TMP/clone"/* "$TMP/clone"/.[!.]* "$TMP"/ 2>/dev/null || true
-    rmdir "$TMP/clone"
+    \git clone -q --depth 1 "$SOURCE" "$TMP"
+    rm -rf "$TMP/.git"
+    FROM="$SOURCE"
 fi
-
-# Template only files
-rm -f "$TMP/setup.sh" "$TMP/.github/workflows/setup.yml" "$TMP/scripts.zip"
-sed -i "/# Don't run on template repository/{N;d;}" "$TMP/.github/workflows/build.yml"
+[[ -f "$TMP/setup.sh" ]] || { echo "error: no setup.sh in the template ($FROM): too old, update the clone" >&2; exit 1; }
 
 # =========================
-# Rename 'template' -> <project_name> and 'Core' -> <core_name>
+# The setup.sh of the template, in the target (no question: every choice given; never --push)
 # =========================
-rename() { # <from> <to>: whole words only (CoreUtils.hpp kept), never inside include/utils
-    find "$TMP" -mindepth 1 -depth -name "*$1*" -not -path "*/.git/*" -not -path "*/include/utils/*" | while read -r path; do
-        new="$(dirname "$path")/$(basename "$path" | sed "s/\\b$1\\b/$2/g")"
-        [[ "$path" != "$new" ]] && mv "$path" "$new"
-    done
-}
-replace() { # <from> <to> <include patterns...>
-    local from="$1" to="$2"; shift 2
-    local args=()
-    for p in "$@"; do args+=(--include="$p"); done
-    grep -rlZE "${args[@]}" "\\b$from\\b" "$TMP" 2>/dev/null | xargs -0 -r sed -i "s/\\b$from\\b/$to/g"
-}
-rename template "$NAME"
-replace template "$NAME" "*.cpp" "*.hpp" "CMakeLists.txt" ".gitignore" "*.yml"
-rename Core "$CORE"
-replace Core "$CORE" "*.cpp" "*.hpp" "CMakeLists.txt"
-GUARD="$(echo "$CORE" | tr '[:lower:]' '[:upper:]')"
-grep -rlZ "CORE_H" "$TMP" 2>/dev/null | xargs -0 -r sed -i "s/\\bCORE_H\\b/${GUARD}_H/g"
-
-# A namespace can't contain '-': use the project name without it
-NS="$(echo "$NAME" | tr -d '-')"
-if [[ "$NS" != "$NAME" ]]; then
-    grep -rlZE --include="*.cpp" --include="*.hpp" "namespace $NAME\\b|\\b$NAME::" "$TMP" 2>/dev/null \
-        | xargs -0 -r sed -i "s/namespace $NAME\\b/namespace $NS/g; s/\\b$NAME::/$NS::/g"
-fi
+command mkdir -p "$TARGET"
+TARGET="$(cd "$TARGET" && pwd)"
+(
+    cd "$TARGET"
+    export TEMPLATE_DIR="$TMP"
+    [[ -n "$REPO" ]] && export GITHUB_REPO="$REPO"
+    bash "$TMP/setup.sh" "$NAME" "$CORE" --kind "$KIND" "$PAGES" < /dev/null
+)
 
 # =========================
 # Without libutils
 # =========================
 if ! $LIBUTILS; then
-    rm -rf "$TMP/cmake/config" "$TMP/cmake/scripts/const.py" "$TMP/cmake/scripts/generate_exception_header.py" "$TMP/cmake/scripts/requirements.txt"
-    echo "warning: --no-libutils: rewrite main.cpp / ${CORE}-init.cpp and the CMakeLists.txt (cmake-style / cpp-class std mode)" >&2
+    rm -rf "$TARGET/cmake/config" "$TARGET/cmake/scripts/const.py" "$TARGET/cmake/scripts/generate_exception_header.py" "$TARGET/cmake/scripts/requirements.txt"
+    echo "warning: --no-libutils: rewrite main.cpp / ${CORE}-init.cpp, the CMakeLists.txt and tests/CMakeLists.txt (cmake-style, cpp-class std mode)" >&2
 fi
 
-# Doxygen project name
-[[ -f "$TMP/Doxyfile" ]] && sed -i "s|^PROJECT_NAME *=.*|PROJECT_NAME           = \"$NAME\"|" "$TMP/Doxyfile"
-
-# Edition date of the headers = today (like the nvim header update)
-TODAY="$(date +%d/%m/%Y)"
-grep -rlZ --include="*.cpp" --include="*.hpp" "@date .* by @author" "$TMP" 2>/dev/null \
-    | xargs -0 -r sed -i "s|##  @date [0-9/]* by @author|##  @date $TODAY by @author|"
-
-# =========================
-# Basic README
-# =========================
-cat > "$TMP/README.md" <<EOF
-# ${NAME}
-
-Project ${NAME}, look for future update...
-EOF
-
-command mkdir -p "$TARGET"
-cp -r "$TMP"/. "$TARGET"/
 python3 "$(dirname "$0")/update_gitignore.py" "$TARGET" > /dev/null || echo "warning: .gitignore not updated" >&2
-echo "Project '$NAME' (core '$CORE', namespace '$NS') created in '$TARGET' from $FROM"
+echo "Project '$NAME' ($KIND, core '$CORE', ${PAGES#--}) created in '$TARGET' from $FROM"

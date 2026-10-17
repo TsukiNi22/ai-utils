@@ -7,6 +7,12 @@ description: Write or edit CMakeLists.txt in Tsukini's style (from libutils, con
 
 `<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
 
+**A new project**: the `CMakeLists.txt` of **cpp_project_template** (made by `cpp-project`) is the reference and is kept
+as generated - one file for every kind (`<NAME>_KIND` binary / library / header-only, `<NAME>_PACKAGE_BIN` / `_LIB` /
+`_DEV`, `<NAME>_SHARED_LIB`), `SRC` / `SRC_SHARED`, the `release` / `install_release` / `package_release` targets, CPack
+with the `-op` / `-db` / `-as` variants and the `mingw64-` packages, the MinGW toolchain `cmake/toolchain/mingw-w64.cmake`.
+The templates below are for an existing project or a CMake written by hand, in the same style.
+
 Templates (copy, then replace `<name>` = target/package name, `<NAME>` = upper-case option prefix,
 `<x.y.z>` = version, `<summary>` = package description, `<utils-version>` = minimal libutils version):
 
@@ -66,9 +72,11 @@ it is ignored (or re-runs the configuration). Sections, each introduced by the 3
 
 ## Rules
 - **Sources are listed explicitly** in `set(SRC ...)`, grouped by comments: `# Group` or `## Group`,
+  `SRC` = the executable only (its `main.cpp`) and `SRC_SHARED` = what the executable and the library share (the
+  library target `<name>_lib` is built from it, the executable links it) when a project has both (the template);
   `## Group (sub-part: x)` for a sub-folder, one empty line between groups. Never `file(GLOB ...)` for the
   sources (only for configs, with `CONFIGURE_DEPENDS`); the `get_unregistered_files` target lists the
-  `.cpp` missing from `SRC`. To add a file: `python3 <cpp-class>/scripts/cmake_add.py CMakeLists.txt src/<path>/X.cpp`.
+  `.cpp` missing from `SRC` / `SRC_SHARED`. To add a file: `python3 <cpp-class>/scripts/cmake_add.py CMakeLists.txt src/<path>/X.cpp`.
 - Build types: `Debug` (`-g -ggdb3`), `Asan` (`-fsanitize=address -fno-omit-frame-pointer -g -ggdb3` + link option),
   `Optimized` (`-O3 -ffast-math -funroll-loops -pipe -DNDEBUG`, `-march=native` only for a binary not distributed,
   `-fno-plt` for a library), all through generator expressions `$<$<CONFIG:Debug>:...>`. No `Release` type:
@@ -81,14 +89,21 @@ it is ignored (or re-runs the configuration). Sections, each introduced by the 3
 - libutils dependency: `find_package(utils <min version> CONFIG REQUIRED) # Check utils dependencies existance`
   + `utils::utils`; `<min version>` is `4.0.0` at least for a new project (libutils v4: no v3 compatibility names,
   `SameMajorVersion`: a v3 requirement refuses an installed v4).
-- Windows (libutils v4.1.0: packages `mingw64-libutils*` in the MinGW sysroot): the same CMake builds for Windows
-  x86_64 with a MinGW toolchain (`mingw64-cmake` on Fedora, else `-DCMAKE_TOOLCHAIN_FILE=`; a source build of
+- Windows (libutils v4.1.0: packages `mingw64-libutils*` in the MinGW sysroot; `set(LIBUTILS_VERSION 4.1.0)` then for a
+  project built for Windows): the same CMake builds for Windows x86_64 with a MinGW toolchain (the template's
+  `cmake/toolchain/mingw-w64.cmake` copied into a project without one, `mingw64-cmake` on Fedora, else
+  `-DCMAKE_TOOLCHAIN_FILE=`; a source build of
   `libutils-install windows` into a prefix: `+ -DCMAKE_FIND_ROOT_PATH=<prefix>`): its compiler wins over the
   `clang++` set before `project()`, the executable is
-  `<name>.exe` (`.gitignore`: `/<name>.exe`, `/build-windows`); no Asan with MinGW (built like Debug).
+  `<name>.exe` (`.gitignore`: `/<name>.exe`, `/build-windows`); no Asan with MinGW (built like Debug); the `.exe`
+  linked `-static-libgcc -static-libstdc++ -static` (no MinGW runtime dll), `if(WIN32)` / `if(NOT WIN32)` for what
+  differs, CPack with the MinGW sysroot prefix (`cmake/package/CPackProjectConfig.cmake` of the template).
 - Tests: `if(BUILD_TESTS)` -> `enable_testing()` + `add_subdirectory(tests)`; `tests/CMakeLists.txt` builds
-  `unit_tests` (GTest, `gtest_discover_tests`), reuses the parent `SRC` without `main.cpp`.
-- Header-only library: `src/nothing.cpp` in `SRC` to keep a target, a `message(WARNING ...)` explaining that only
+  `unit_tests` (GTest, `gtest_discover_tests`), links the library target when it exists, else reuses the parent
+  `SRC_SHARED` (or `SRC` without `main.cpp`); cross compiling: GTest by `FetchContent` when the sysroot has none,
+  `gtest_discover_tests(... DISCOVERY_MODE PRE_TEST)` (run under the emulator, `wine`).
+- Header-only library: an `INTERFACE` library target (the template: `add_library(${TARGET_LIB} INTERFACE)`, only the
+  headers and the CMake config packaged); in an older CMake: `src/nothing.cpp` in `SRC` to keep a target, a `message(WARNING ...)` explaining that only
   `--target install` is meaningful, and `target_include_directories(${TARGET} PUBLIC include)`.
 - Library install: `install(TARGETS ... EXPORT ${TARGET}Targets ...)`, headers `install(DIRECTORY include/ ... PATTERN "*.in" EXCLUDE)`,
   `install(EXPORT ... NAMESPACE ${TARGET}:: ...)`, `configure_package_config_file` + `write_basic_package_version_file`
