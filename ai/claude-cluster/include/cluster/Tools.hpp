@@ -113,6 +113,13 @@ _cold void open_folder(const std::filesystem::path& folder);           // the fi
 _cold _nodiscard std::string open_terminal(const std::filesystem::path& folder); // a terminal there: the one opened ("" none found)
 inline std::atomic<bool> quit_signal{false}; // set by catch_quit_signals
 _cold void complete_path(void);         // PATH + the folders of the user's tools (~/.local/bin...) it lacks
+// Debug mode ([debug] enabled / topics): lines of <data>/debug.log, the process named (core, terminal, window, web terminal)
+_cold void debug_configure(const bool on, const std::vector<std::string>& topics); // set by the config (its reload too)
+_cold void debug_role(const std::string& role);                                     // what this process is (core, terminal...)
+_cold _nodiscard bool debug_on(const std::string& topic);                           // core, interfaces, render, voice, service, web, platform
+_cold void debug(const std::string& topic, const std::string& text);                // one line, only when its topic is on
+_cold _nodiscard std::string platform_summary(void);                                // OS, session (wayland / x11), desktop, terminal
+_cold _nodiscard inline std::filesystem::path debug_log_path(void) {return cluster::data_dir() / "debug.log";};
 _cold inline void ignore_hangup(void) {(void)std::signal(SIGHUP, SIG_IGN);}; // the terminal closed leaves the process running (the core kept in background)
 _cold void catch_quit_signals(void);    // SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: quit_requested() (reset by exec)
 _nodiscard inline bool quit_requested(void) {return quit_signal;}; // a signal asked to quit: the interface closes as with its quit key

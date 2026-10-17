@@ -2211,9 +2211,7 @@ class TtyUi {
                 }
                 if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
             }
-            std::string note = this->_note == "confirm" ? "Save the " + std::to_string(this->_changes.size()) + " change(s)? (y / n)"
-                : this->_note == "danger_save" ? std::string() : this->_note == "svc_confirm"
-                ? cluster::split(this->_svcConfirm, '|').back() + " (" + cluster::split(this->_svcConfirm, '|')[0] + ")? [y] yes   [n] / Esc no" : this->_note;
+            std::string note = this->_note == "confirm" || this->_note == "danger_save" || this->_note == "svc_confirm" ? std::string() : this->_note; // those: a popup
             if (page.section == "services" && this->_note.empty()) note = "←→ a button · Enter run it · R read again (" + this->servicesSetting_("refresh") + ")";
             ftxui::Elements choice;
             for (const std::string& line: cluster::split(choiceHelp, '\n'))
@@ -2247,7 +2245,8 @@ class TtyUi {
                         installable |= !need.package.empty();
                         lines.push_back(ftxui::hbox({ftxui::text(" ✗ ") | ftxui::color(t.error) | ftxui::bold, ftxui::text(change.first.label) | ftxui::bold,
                             ftxui::text(" = " + cluster::one_line(change.second, 40) + (need.package.empty() ? "" : "  (install: " + need.package + ")")) | ftxui::color(t.text)}));
-                        lines.push_back(ftxui::paragraph("   " + need.problem) | ftxui::color(t.muted));
+                        for (const std::string& line: wrap_(need.problem, 80)) // text lines: a paragraph lets the page show through its spaces
+                            lines.push_back(ftxui::text("   " + line + " ") | ftxui::color(t.muted));
                         lines.push_back(ftxui::text(""));
                     }
                 }
@@ -2258,7 +2257,8 @@ class TtyUi {
                 for (const auto &[setting, value]: this->dangerous_()) {
                     lines.push_back(ftxui::hbox({ftxui::text(" ⚠ ") | ftxui::color(t.warn) | ftxui::bold, ftxui::text(setting.label) | ftxui::bold | ftxui::color(t.error),
                         ftxui::text(" = " + (value.empty() ? std::string("(empty)") : cluster::one_line(value, 50))) | ftxui::color(t.text)}));
-                    lines.push_back(ftxui::paragraph("   " + cluster::setting_danger(setting, value)) | ftxui::color(t.muted));
+                    for (const std::string& line: wrap_(cluster::setting_danger(setting, value), 80)) // text lines: a paragraph lets the page show through its spaces
+                        lines.push_back(ftxui::text("   " + line + " ") | ftxui::color(t.muted));
                     lines.push_back(ftxui::text(""));
                 }
                 lines.push_back(ftxui::hbox({installable ? keyed(" [i] install, then save ", ftxui::Event::Character('i')) | ftxui::color(t.ok) | ftxui::bold : ftxui::text(""),
@@ -2266,6 +2266,40 @@ class TtyUi {
                     keyed(missing.empty() ? " [y] save them " : " [y] save anyway ", ftxui::Event::Character('y')) | ftxui::color(t.error) | ftxui::bold, ftxui::text("   "),
                     keyed(" [n] / Esc back (nothing saved) ", ftxui::Event::Character('n')) | ftxui::color(t.accent)}));
                 popup = ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.warn) | ftxui::bgcolor(t.bg) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 90)
+                    | ftxui::center;
+            } else if (this->_note == "confirm") {
+                // leaving with changes not saved: each one listed, saved or dropped
+                ftxui::Elements lines = {ftxui::text(" Save the " + std::to_string(this->_changes.size()) + " change(s)? ") | ftxui::bold | ftxui::color(t.accent), ftxui::text("")};
+                std::size_t shown = 0;
+                for (const auto &[key, change]: this->_changes) {
+                    if (++shown > 12) {
+                        lines.push_back(ftxui::text("   … " + std::to_string(this->_changes.size() - 12) + " more") | ftxui::color(t.muted));
+                        break;
+                    }
+                    lines.push_back(ftxui::hbox({ftxui::text("   " + change.first.label) | ftxui::bold | ftxui::color(t.text),
+                        ftxui::text(" = " + (change.second.empty() ? std::string("(empty)") : cluster::one_line(change.second, 46))) | ftxui::color(t.muted)}));
+                }
+                lines.push_back(ftxui::text(""));
+                lines.push_back(ftxui::hbox({keyed(" [y] save ", ftxui::Event::Character('y')) | ftxui::color(t.ok) | ftxui::bold, ftxui::text("   "),
+                    keyed(" [n] drop them ", ftxui::Event::Character('n')) | ftxui::color(t.error)}));
+                popup = ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.accent) | ftxui::bgcolor(t.bg) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 80)
+                    | ftxui::center;
+            } else if (this->_note == "svc_confirm") {
+                // a risky action of the Services tab (the core, a removal): what it does, y runs it
+                const std::vector<std::string> parts = cluster::split(this->_svcConfirm, '|');
+                const std::string service = parts.empty() ? std::string() : parts[0];
+                const std::string action = parts.size() > 1 ? parts[1] : std::string();
+                const std::string label = parts.size() > 2 ? parts[2] : action;
+                const std::string what = service == "core" && action == "restart" ? "the core stops and its terminals / windows start it again: the turns running are interrupted, the sessions resumed"
+                    : service == "core" && action == "stop" ? "the core and every terminal / window of it stop: the turns running are interrupted (the sessions kept for the next start)"
+                    : service == "service" && action == "remove" ? "the systemd service of the wake phrase removed (Setup writes it again)" : label;
+                ftxui::Elements lines = {ftxui::text(" " + label + " (" + service + ")? ") | ftxui::bold | ftxui::color(t.warn), ftxui::text("")};
+                for (const std::string& line: wrap_(what, 70)) // text lines (a paragraph lets the page show through its spaces)
+                    lines.push_back(ftxui::text(" " + line + " ") | ftxui::color(t.text));
+                lines.push_back(ftxui::text(""));
+                lines.push_back(ftxui::hbox({keyed(" [y] yes ", ftxui::Event::Character('y')) | ftxui::color(t.error) | ftxui::bold, ftxui::text("   "),
+                    keyed(" [n] / Esc no ", ftxui::Event::Character('n')) | ftxui::color(t.accent), ftxui::filler()}));
+                popup = ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.warn) | ftxui::bgcolor(t.bg) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 80)
                     | ftxui::center;
             }
             return ftxui::dbox({ftxui::vbox({
@@ -2275,9 +2309,7 @@ class TtyUi {
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
                 ftxui::hbox({ftxui::vbox(std::move(rows)) | ftxui::yframe | this->clipBox_(clip) | ftxui::flex, ftxui::separatorLight() | ftxui::color(t.border), helpBox}) | ftxui::flex,
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
-                this->_note == "confirm" ? ftxui::hbox({ftxui::text(" " + note + "  ") | ftxui::color(t.warn), keyed(" [y] save ", ftxui::Event::Character('y')) | ftxui::color(t.accent),
-                    keyed(" [n] drop ", ftxui::Event::Character('n')) | ftxui::color(t.accent)})
-                : ftxui::text(" " + note) | ftxui::color(t.warn),
+                ftxui::text(" " + note) | ftxui::color(t.warn),
                 ftxui::hbox({ftxui::hbox({ftxui::text(" ↑↓ select   ←→ / Enter change   Enter edit text   Tab / Shift+Tab section   "), keyed("/ search", ftxui::Event::Character('/')),
                     ftxui::text("   "), keyed("Ctrl+S save", ftxui::Event::Special(std::string(1, '\x13'))),
                     ftxui::text("   "), keyed("F10 save & exit", ftxui::Event::F10), ftxui::text("   "), keyed("Esc exit (asks to save) ", ftxui::Event::Escape)})
@@ -4601,6 +4633,7 @@ class TtyUi {
             ftxui::Component root = ftxui::Renderer([this]() {return this->render_();});
             // Ctrl+Z: its action (undo) or nothing, never the interface stopped in the background
             root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event) || event.input() == "\x1a";});
+            cluster::debug("render", "terminal " + std::to_string(this->_screen.dimx()) + "x" + std::to_string(this->_screen.dimy()) + " (" + cluster::platform_summary() + ")");
             this->_screen.Loop(root);
             this->_worker.stop(); // the running job ends before the screen goes
             // the terminal as it was: the frames buffer out first (it hides the cursor), then the modes off, the cursor
@@ -4624,8 +4657,33 @@ class TtyUi {
 } // namespace
 
 /* entry */
+namespace {
+    // what the terminal gets back when the interface ends abnormally (a crash, an abort): no mouse reports, the main screen,
+    // the cursor, no bracketed paste / focus events (async signal safe: one write)
+    constexpr const char TERMINAL_RESET[] = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?2004l\x1b[?1004l\x1b[?1049l\x1b[?25h\x1b[0m";
+
+    void terminal_reset_(void)
+    {
+        (void)!::write(STDOUT_FILENO, TERMINAL_RESET, sizeof(TERMINAL_RESET) - 1);
+    }
+
+    void terminal_fatal_(const int signal)
+    {
+        terminal_reset_();
+        (void)std::signal(signal, SIG_DFL);
+        (void)::raise(signal);
+    }
+}
+
 _cold int cluster::run_tty(cluster::App& app)
 {
+    // a crash or an abort never leaves the terminal of the user reporting the mouse (its shell full of escape codes)
+    for (const int signal: {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL})
+        (void)std::signal(signal, terminal_fatal_);
+    std::set_terminate([]() {
+        terminal_reset_();
+        std::abort();
+    });
     TtyUi ui(app);
     return ui.run();
 }

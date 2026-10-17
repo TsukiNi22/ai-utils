@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #include <utils/utils.hpp>
 #include "cluster/Tools.hpp"
+#include <sys/utsname.h>
 #include <sys/epoll.h>
 #include <sys/stat.h>
 #include <algorithm>
@@ -28,8 +29,10 @@ File Description:
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <mutex>
 #include <array>
 #include <ctime>
+#include <set>
 
 /* paths */
 _cold std::filesystem::path cluster::expand_home(const std::string& path)
@@ -495,4 +498,75 @@ _cold std::string cluster::build_id(void)
         return std::string(CLUSTER_VERSION) + "+" + std::to_string(seconds);
     }();
     return id;
+}
+
+/* debug mode */
+namespace {
+    std::mutex debugMutex;
+    std::atomic<bool> debugAll{false};
+    std::set<std::string> debugTopics;
+    std::string debugRole = "process";
+    bool debugHeader = false;
+}
+
+_cold std::string cluster::platform_summary(void)
+{
+    // what changes the behaviour: the OS, the graphic session, the desktop, the terminal
+    struct utsname name{};
+    const std::string os = ::uname(&name) == 0 ? std::string(name.sysname) + " " + name.release : std::string("unknown OS");
+    const std::function<std::string(const char*)> env = [](const char* key) {return std::getenv(key) != nullptr ? std::string(std::getenv(key)) : std::string();};
+    const std::string session = !env("XDG_SESSION_TYPE").empty() ? env("XDG_SESSION_TYPE") : !env("WAYLAND_DISPLAY").empty() ? "wayland" : !env("DISPLAY").empty() ? "x11" : "no display";
+    std::string out = os + " · " + session;
+    if (!env("XDG_CURRENT_DESKTOP").empty()) out += " · " + env("XDG_CURRENT_DESKTOP");
+    if (!env("TERM").empty()) out += " · TERM " + env("TERM") + (env("COLORTERM").empty() ? "" : " (" + env("COLORTERM") + ")");
+    if (!env("TERM_PROGRAM").empty()) out += " · " + env("TERM_PROGRAM");
+    return out;
+}
+
+_cold void cluster::debug_configure(const bool on, const std::vector<std::string>& topics)
+{
+    {
+        std::lock_guard<std::mutex> lock(debugMutex);
+        debugTopics.clear();
+        for (const std::string& topic: topics)
+            if (!cluster::trim(topic).empty()) debugTopics.insert(cluster::trim(topic));
+    }
+    const bool was = debugAll.exchange(on);
+    if (on && !was) cluster::debug("platform", "debug on (" + cluster::platform_summary() + ")");
+}
+
+_cold void cluster::debug_role(const std::string& role)
+{
+    std::lock_guard<std::mutex> lock(debugMutex);
+    debugRole = role;
+}
+
+_cold bool cluster::debug_on(const std::string& topic)
+{
+    if (!debugAll) return false;
+    std::lock_guard<std::mutex> lock(debugMutex);
+    return debugTopics.empty() || debugTopics.contains("all") || debugTopics.contains(topic);
+}
+
+_cold void cluster::debug(const std::string& topic, const std::string& text)
+{
+    if (!cluster::debug_on(topic)) return;
+    std::lock_guard<std::mutex> lock(debugMutex);
+    const std::filesystem::path path = cluster::debug_log_path();
+    std::error_code error;
+    if (std::filesystem::exists(path, error) && std::filesystem::file_size(path, error) > 4 * 1024 * 1024) // kept small: the last 4 MB + the previous ones
+        std::filesystem::rename(path, path.string() + ".1", error);
+    std::ofstream out(path, std::ios::app);
+    if (!out) return;
+    const std::int64_t ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    const std::time_t seconds = static_cast<std::time_t>(ms / 1000);
+    std::tm local{};
+    (void)::localtime_r(&seconds, &local);
+    char stamp[32] = {};
+    (void)std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
+    if (!debugHeader) { // the first line of this process: what it runs on
+        debugHeader = true;
+        out << stamp << " [" << debugRole << " " << ::getpid() << "] platform: " << cluster::platform_summary() << " · claude-cluster " CLUSTER_VERSION "\n";
+    }
+    out << stamp << "." << std::setw(3) << std::setfill('0') << ms % 1000 << " [" << debugRole << " " << ::getpid() << "] " << topic << ": " << text << "\n";
 }

@@ -162,6 +162,7 @@ class Manager {
         bool _hadClients = false;
         bool _background = false;                       // kept without interface: the web closed, stopped by itself once every session is idle
         bool _webBeforeBackground = false;              // the web access was open when the core went in background: opened again by an interface back
+        std::int64_t _backgroundSince = 0;              // unix s: when it went in background (0: not)
         std::map<std::string, std::pair<std::string, std::int64_t>> _lastSender;   // by session: the interface of its last prompt, when
         std::atomic<bool> _restoreAsk{false};           // started alone (a core of its own): the previous run asked by its first interface
         std::string _lastActive;                        // a replica: the session shown, told to the core once
@@ -356,6 +357,7 @@ class Manager {
         _nodiscard inline bool replica(void) const {return this->_replica != nullptr;};
         _nodiscard inline bool hadClients(void) const {return this->_hadClients;};
         _nodiscard inline bool background(void) const {return this->_background;};
+        _nodiscard inline std::int64_t backgroundSince(void) const {return this->_background ? this->_backgroundSince : 0;};
         inline void askRestoreLater(void) {this->_restoreAsk = true;};   // its first interface asks the previous run
         inline void setVoice(cluster::Voice* voice) {this->_voice = voice;};
         _nodiscard inline cluster::Voice* voice(void) const {return this->_voice;};

@@ -81,6 +81,47 @@ _cold static void slow_forget_(void)
     slow_at_ = 0;
 }
 
+_cold static std::string read_proc_(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+_cold static cluster::Json core_info_(cluster::Manager& manager)
+{
+    // the core: what it is, where it runs, since when, in background or not, its interfaces by kind, its sessions, its memory
+    const cluster::Config& c = manager.config();
+    cluster::Json interfaces = cluster::Json::array();
+    for (const int pid: cluster::interface_pids()) {
+        const std::string cmdline = read_proc_("/proc/" + std::to_string(pid) + "/cmdline");
+        const std::string variables = read_proc_("/proc/" + std::to_string(pid) + "/environ");
+        const bool gui = cmdline.find(std::string("--gui") + '\0') != std::string::npos || cmdline.find(std::string("-g") + '\0') != std::string::npos;
+        const std::string kind = variables.find("CLAUDE_CLUSTER_WEB_TTY=") != std::string::npos ? "web terminal"
+            : gui ? (cmdline.find("--tty-mode") != std::string::npos ? "window (terminal mode)" : "window") : "terminal";
+        interfaces.push_back({{"pid", pid}, {"kind", kind}});
+    }
+    int working = 0;
+    int queued = 0;
+    std::size_t sessions = 0;
+    for (const cluster::Snapshot& s: manager.list(false)) {
+        ++sessions;
+        working += s.state == cluster::State::Working ? 1 : 0;
+        queued += s.queued;
+    }
+    const std::string self = read_proc_("/proc/self/cmdline");
+    const std::string startedBy = !c.sharedCore ? "this interface (shared core off)" : read_proc_("/proc/self/cgroup").find("claude-cluster.service") != std::string::npos ? "the systemd service"
+        : self.find(std::string("--linger") + '\0') != std::string::npos ? "an interface (it stops with the last one)" : "claude-cluster serve";
+    std::int64_t rss = 0;
+    for (const std::string& line: cluster::split(read_proc_("/proc/self/status"), '\n'))
+        if (line.starts_with("VmRSS:")) rss = std::atoll(line.substr(6).c_str());
+    return {{"pid", ::getpid()}, {"since", manager.startedAt()}, {"version", CLUSTER_VERSION}, {"build", cluster::build_id()},
+        {"interfaces", interfaces.size()}, {"interface_list", interfaces}, {"sessions", sessions}, {"working", working}, {"queued", queued},
+        {"shared", c.sharedCore}, {"background", manager.background()}, {"background_since", manager.backgroundSince()}, {"busy", working > 0 || queued > 0},
+        {"started_by", startedBy}, {"platform", cluster::platform_summary()}, {"rss_kb", rss}, {"socket", cluster::socket_path().string()},
+        {"log", (cluster::data_dir() / "core.log").string()}, {"debug", c.debug}, {"debug_log", cluster::debug_log_path().string()},
+        {"quit_background", c.quitBackground}};
+}
+
 _cold cluster::Json cluster::services(cluster::Manager& manager)
 {
     if (manager.replica()) return manager.call({{"cmd", "services"}});
@@ -110,8 +151,7 @@ _cold cluster::Json cluster::services(cluster::Manager& manager)
         {"https", web && web->https}, {"tty_port", web ? web->ttyPort : 0}, {"certificate", web ? web->certificate : ""}, {"certificate_why", web ? web->certificateWhy : ""},
         {"fingerprint", web ? web->fingerprint : ""}};
     // core
-    out["core"] = {{"pid", ::getpid()}, {"since", manager.startedAt()}, {"version", CLUSTER_VERSION}, {"build", cluster::build_id()},
-        {"interfaces", cluster::interface_pids().size()}, {"sessions", manager.list(false).size()}, {"shared", c.sharedCore}};
+    out["core"] = core_info_(manager);
     // voice (of the core): what it hears now (what is being said, the transcriptions waiting)
     cluster::Voice* voice = manager.voice();
     cluster::Json heard = cluster::Json::array();
@@ -215,6 +255,18 @@ _cold static std::string act_(cluster::Manager& manager, const std::string& serv
     if (service == "core") {
         if (!c.sharedCore) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
             "the core is this interface (Several terminals / windows at once: off): close it and open claude-cluster again");
+        if (action == "background_on" || action == "background_off") {
+            manager.setBackground(action == "background_on");
+            return action == "background_on" ? "kept in background: once its interfaces are closed, it stops when every session is idle (web access closed meanwhile)"
+                : "no longer in background: it stops with its last interface";
+        }
+        if (action == "log" || action == "debug_log") {
+            const std::filesystem::path path = action == "log" ? cluster::data_dir() / "core.log" : cluster::debug_log_path();
+            if (!std::filesystem::exists(path)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no " + path.string()
+                + (action == "debug_log" ? " yet (Debug > Debug mode)" : ""));
+            cluster::detach({"xdg-open", path.string()});
+            return "opened " + cluster::short_path(path.string());
+        }
         need(action == "restart" || action == "stop");
         const std::vector<int> interfaces = cluster::interface_pids();
         std::thread([action, interfaces]() {
@@ -259,13 +311,16 @@ _cold std::string cluster::service_act(cluster::Manager& manager, const std::str
     const std::string title = (service == "service" ? std::string("Service (systemd)") : service == "web" ? std::string("Web access") : service == "core" ? std::string("Core")
         : service == "voice" ? std::string("Voice") : service == "mcp" ? std::string("MCP") : std::string("Outside")) + ": " + action;
     cluster::Busy busy(manager, title);
+    cluster::debug("service", title);
     try {
         const std::string message = act_(manager, service, action);
+        cluster::debug("service", title + ": " + message);
         slow_forget_();
         busy.end(true, message);
         return message;
     } catch (const utils::exception::IException& e) {
         const std::string error = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
+        cluster::debug("service", title + " failed: " + error);
         busy.end(false, error); // its ✗, then its failure popup
         slow_forget_();
         if (cluster::failure_popups()) (void)manager.fail(title, service == "service" ? "systemctl --user (" SERVICE_UNIT ")" : service, error, [&manager, service, action]() {
@@ -281,6 +336,12 @@ _cold static cluster::Json part_(const std::string& name, const cluster::Json& a
     return all.is_object() && all.contains(name) && all[name].is_object() ? all[name] : cluster::Json::object();
 }
 
+_cold static std::string duration_(const std::int64_t seconds)
+{
+    return seconds < 60 ? std::to_string(seconds) + "s" : seconds < 3600 ? std::to_string(seconds / 60) + "m"
+        : std::to_string(seconds / 3600) + "h" + std::to_string(seconds % 3600 / 60) + "m";
+}
+
 _cold std::string cluster::service_summary(const std::string& name, const cluster::Json& all)
 {
     if (!all.is_object()) return "reading…";
@@ -294,8 +355,9 @@ _cold std::string cluster::service_summary(const std::string& name, const cluste
     if (name == "core") {
         if (!s.value("shared", true)) return "in this interface";
         const std::int64_t up = cluster::now() - s.value("since", cluster::now());
-        return "pid " + std::to_string(s.value("pid", 0)) + " · up " + (up < 3600 ? std::to_string(up / 60) + "m" : std::to_string(up / 3600) + "h" + std::to_string(up % 3600 / 60))
-            + " · " + std::to_string(s.value("interfaces", 0)) + " interface(s) · " + std::to_string(s.value("sessions", 0)) + " session(s)";
+        return "pid " + std::to_string(s.value("pid", 0)) + " · up " + duration_(up) + " · " + std::to_string(s.value("interfaces", 0)) + " interface(s) · "
+            + std::to_string(s.value("working", 0)) + "/" + std::to_string(s.value("sessions", 0)) + " session(s) working"
+            + (s.value("background", false) ? " · in background" : "");
     }
     if (name == "voice") return !s.value("enabled", false) ? std::string("off (Voice > enabled)") : s.value("listening", false) ? std::string("listening")
         : s.value("running", false) ? "on (" + s.value("mode", std::string()) + ")" : std::string("stopped");
@@ -337,8 +399,22 @@ _cold std::vector<cluster::ServiceLine> cluster::service_lines(const std::string
         }
         if (!s.value("error", std::string()).empty()) out.push_back({"✗ " + s.value("error", std::string()), "error"});
     } else if (name == "core") {
-        out.push_back({"claude-cluster " + s.value("version", std::string()) + " · build " + s.value("build", std::string()), "muted"});
+        out.push_back({"claude-cluster " + s.value("version", std::string()) + " · build " + s.value("build", std::string()) + " · started by "
+            + s.value("started_by", std::string()), "muted"});
+        out.push_back({"on " + s.value("platform", std::string()) + " · " + std::to_string(s.value("rss_kb", 0) / 1024) + " MB", "muted"});
         if (!s.value("shared", true)) out.push_back({"the core is this interface (Interface > Several terminals / windows at once: off): Restart / Stop all not offered", "warn"});
+        if (s.value("background", false))
+            out.push_back({"in background for " + duration_(cluster::now() - s.value("background_since", cluster::now())) + ": "
+                + (s.value("busy", false) ? "it stops once every session is idle (" + std::to_string(s.value("working", 0)) + " working, "
+                    + std::to_string(s.value("queued", 0)) + " prompt(s) queued)" : "nothing running: it stops in a few seconds"), "warn"});
+        std::string list;
+        for (const cluster::Json& i: s.value("interface_list", cluster::Json::array()))
+            list += (list.empty() ? "" : " · ") + i.value("kind", std::string()) + " " + std::to_string(i.value("pid", 0));
+        out.push_back({list.empty() ? std::string("no interface attached") : "interfaces: " + list, "text"});
+        out.push_back({"quit with a session working: " + s.value("quit_background", std::string("ask")) + " (Interface > Quit with sessions running)", "muted"});
+        out.push_back({"socket " + cluster::short_path(s.value("socket", std::string())) + " · log " + cluster::short_path(s.value("log", std::string())), "log"});
+        out.push_back(s.value("debug", false) ? cluster::ServiceLine{"debug on: " + cluster::short_path(s.value("debug_log", std::string())), "warn"}
+            : cluster::ServiceLine{"debug off (Debug > Debug mode)", "log"});
     } else if (name == "voice") {
         const cluster::Json heard = s.value("heard", cluster::Json::array());
         if (heard.empty()) out.push_back({s.value("listening", false) ? "(nothing heard now)" : "(not listening)", "log"});
@@ -366,7 +442,16 @@ _cold std::vector<std::pair<std::string, std::string>> cluster::service_buttons(
     if (name == "service") return {{"Start", "start"}, {"Stop", "stop"}, {"Restart", "restart"}, s.value("enabled", std::string()) == "enabled" ? Button{"Disable", "disable"}
         : Button{"Enable", "enable"}, {"Setup", "setup"}, {"Remove", "remove"}};
     if (name == "web") return {s.value("on", false) ? Button{"Close", "off"} : Button{"Open", "on"}, {"New code", "renew"}, {"Ask the router again", "reopen"}};
-    if (name == "core") return s.value("shared", true) ? std::vector<Button>{{"Restart", "restart"}, {"Stop all", "stop"}} : std::vector<Button>{};
+    if (name == "core") {
+        std::vector<Button> buttons;
+        if (s.value("shared", true)) {
+            buttons = {{"Restart", "restart"}, {"Stop all", "stop"}};
+            buttons.push_back(s.value("background", false) ? Button{"Leave background", "background_off"} : Button{"Keep in background", "background_on"});
+        }
+        buttons.push_back({"Open its log", "log"});
+        if (s.value("debug", false)) buttons.push_back({"Open the debug log", "debug_log"});
+        return buttons;
+    }
     if (name == "voice") return {s.value("listening", false) ? Button{"Stop", "stop"} : Button{"Listen", "listen"}, {"Mute", "mute"}};
     if (name == "mcp") return {{"Restart the global session", "restart_global"}};
     if (name == "outside") return {{"Ask the router again", "reopen"}, {"Remove the redirection", "unmap"}, {"Tailscale up", "tailscale_up"},

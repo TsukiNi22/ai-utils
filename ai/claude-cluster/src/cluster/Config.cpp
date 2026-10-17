@@ -116,6 +116,13 @@ _cold void cluster::Config::load(void)
     this->frontend = table["ui"]["frontend"].value_or(this->frontend);
     this->sharedCore = table["ui"]["shared_core"].value_or(this->sharedCore);
     this->quitBackground = table["ui"]["quit_background"].value_or(this->quitBackground);
+    this->debug = table["debug"]["enabled"].value_or(this->debug);
+    if (const toml::array* topics = table["debug"]["topics"].as_array()) {
+        this->debugTopics.clear();
+        for (const toml::node& topic: *topics)
+            if (topic.is_string()) this->debugTopics.push_back(topic.as_string()->get());
+    }
+    cluster::debug_configure(this->debug, this->debugTopics); // every process reads it (and its reload)
     this->shellContext = table["ui"]["shell_context"].value_or(this->shellContext);
     this->matching = table["ui"]["matching"].value_or(this->matching);
     cluster::set_matching(this->matching);

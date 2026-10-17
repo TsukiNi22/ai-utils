@@ -48,7 +48,7 @@ _cold _nodiscard std::vector<int> interface_pids(void); // the terminals / windo
 _cold _nodiscard std::string service_summary(const std::string& name, const cluster::Json& all);
 _cold _nodiscard std::vector<cluster::ServiceLine> service_lines(const std::string& name, const cluster::Json& all);
 _cold _nodiscard std::vector<std::pair<std::string, std::string>> service_buttons(const std::string& name, const cluster::Json& all);
-_cold _nodiscard inline bool service_risky(const std::string& name, const std::string& action) {return name == "core" || (name == "service" && action == "remove");};
+_cold _nodiscard inline bool service_risky(const std::string& name, const std::string& action) {return (name == "core" && (action == "restart" || action == "stop")) || (name == "service" && action == "remove");};
 
 } // namespace end
 #endif /* SERVICES_H */

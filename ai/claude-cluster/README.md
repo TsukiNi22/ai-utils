@@ -891,18 +891,33 @@ sure (the router opened its port, tailscale connected, *Name from outside* given
 **The Services tab** of the settings drives the sub services of claude-cluster, a card each (its state on the right
 of its name, its details, its buttons; the terminal: ↑↓ a service, ←→ a button, Enter runs it, a click too; R reads
 it again; the window, the web page: its buttons):
-- **Service (systemd)**: installed / active / enabled (debug), its last journal lines greyed; Start, Stop, Restart,
+- **Service (systemd)**: the wake phrase while claude-cluster is closed (its detector hears it and opens a window or a
+  terminal: the *Service* page of the settings - what it opens, the terminal, its microphone, its wake phrase, empty =
+  the one of *Voice*); installed / active / enabled (debug), its last journal lines greyed; Start, Stop, Restart,
   Enable / Disable, Setup, Remove (asked first). Its detector is paused while claude-cluster runs (the microphone is
   the voice's of the core): what is heard now is under *Voice*.
 - **Web access**: open or closed, its address and code, outside reached or why not; Open / Close now, New code, Ask
   the router again.
-- **Core**: its pid, since when, its terminals / windows, its sessions, its build; Restart (its interfaces start it
-  again, the sessions resumed) and Stop all (asked first) - not offered when the core is the interface itself.
+- **Core**: its pid, since when, its version / build, who started it (an interface, the systemd service, `serve`), the
+  platform it runs on (OS, Wayland / X11, desktop, terminal), its memory, **its interfaces by kind** (terminal, window,
+  web terminal, with their pid), its sessions working / queued, **in background since when** and when it will stop,
+  the quit choice, its socket and log, the debug state; Restart (its interfaces start it again, the sessions resumed)
+  and Stop all (both asked first, in a popup telling what they do) - not offered when the core is the interface
+  itself; Keep in background / Leave background; Open its log, Open the debug log (from the computer only).
 - **Voice**: listening or not, **what it hears now** (what is being said, the transcriptions waiting, live), what is
   missing; Listen / Stop, Mute.
 - **MCP servers**: the ones given to the global session; Restart the global session.
 - **Outside (router / tailscale)**: reached or why not, upnpc / tailscale present; Ask the router again, Remove the
   redirection (UPnP), Tailscale up.
+
+**Debug mode** (settings > *Debug*: `[debug] enabled`, `topics`): every process - the core, each terminal, window and
+web terminal - writes what it does in `~/.local/share/claude-cluster/debug.log` (4 MB kept, then `debug.log.1`), each
+line with its time, the process (`core`, `terminal`, `window`, `web terminal` + pid) and its topic: **core** (started
+by whom, in background, why it stops), **interfaces** (attached / detached, sync errors), **render** (the terminal size,
+the Qt platform and scale of the window), **voice**, **service** (the actions of the Services tab and their result),
+**web** (open / closed / errors), **platform** (the first line of each process: OS, Wayland / X11, desktop, terminal).
+The questions of the settings are popups (save the changes, a risky action of the Services tab, dangerous values),
+and the terminal is given back clean (mouse, screen, cursor) even when the interface crashes.
 
 Each action runs with the progress popup and, failing, the failure popup (OK / Retry). *Refresh* (`[services]
 refresh`): `live` (what changes at once; the slow parts - systemd, its journal, tailscale - read every *Delay*),

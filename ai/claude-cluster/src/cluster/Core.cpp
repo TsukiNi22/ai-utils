@@ -383,6 +383,10 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!serve && app.config.sharedCore && cluster::Control::alive() && !this->otherBuild_(frontend == "gui"))
         return 0; // a core of another build kept: quit without anything
     const bool attached = !serve && app.config.sharedCore && (cluster::Control::alive() || cluster::start_core(coreArgs));
+    cluster::debug_role(serve ? "core" : attached ? (std::getenv("CLAUDE_CLUSTER_WEB_TTY") != nullptr ? "web terminal" : frontend == "gui" ? "window" : "terminal")
+        : (frontend == "gui" ? "window+core" : "terminal+core"));
+    cluster::debug("core", serve ? std::string("started (") + (linger ? "by an interface: it stops with the last one" : "claude-cluster serve") + ")"
+        : attached ? "interface attached to the core " + cluster::socket_path().string() : "this interface is the core (shared core off)");
     try {
     if (attached) {
         // an interface of the core: its state kept in sync, its actions run by the core (its voice, its web access, its sessions)
@@ -440,15 +444,20 @@ _cold int cluster::Core::ui_(const bool serve)
             // the core of the interfaces: gone with its last one (none came within a minute: gone too); kept in background by
             // its last interface: gone once every session is idle for 5 s (an interface back meanwhile: kept as usual)
             if (linger && app.manager->clients() == 0 && (app.manager->hadClients() || cluster::now() - started > 60)) {
-                if (!app.manager->background()) break;
+                if (!app.manager->background()) {
+                    cluster::debug("core", app.manager->hadClients() ? "stops: its last interface closed" : "stops: no interface came within a minute");
+                    break;
+                }
                 if (app.manager->busy()) idleSince = 0;
                 else if (idleSince == 0) idleSince = cluster::now();
                 else if (cluster::now() - idleSince >= 5) {
+                    cluster::debug("core", "stops: every session kept in background is idle");
                     (void)app.manager->notifyDesktop("claude-cluster", "the sessions kept in background finished: the core stopped");
                     break;
                 }
             }
         }
+        if (cluster::quit_requested()) cluster::debug("core", "stops: a quit signal (Ctrl+C, kill, Stop all / Restart)");
         app.stop();
         return 0;
     }

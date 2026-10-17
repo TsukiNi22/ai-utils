@@ -4099,6 +4099,8 @@ _cold int cluster::run_gui(cluster::App& app)
     QApplication::setApplicationName("claude-cluster");
     QGuiApplication::setDesktopFileName("claude-cluster"); // the dock: its .desktop and its icon
     QApplication application(argc, argv);
+    cluster::debug("render", "window: Qt " + std::string(qVersion()) + " on " + QGuiApplication::platformName().toStdString() + ", scale "
+        + std::to_string(application.devicePixelRatio()).substr(0, 4) + ", " + (app.options.values.contains("ttymode") || app.config.guiMode == "tty" ? "terminal mode" : "gui mode"));
     if (app.options.values.contains("ttymode") || app.config.guiMode == "tty") {
         // the terminal mode: the terminal interface in a pty fills the window (this process stays the core of the sessions)
         QMainWindow shell;

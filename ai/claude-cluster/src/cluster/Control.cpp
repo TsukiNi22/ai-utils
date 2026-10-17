@@ -723,6 +723,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             }
         } else if (cmd == "service_act") {
             if (from_web && !cluster::web_may(manager.config(), "services")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            if (from_web && arg_(request, "service") == "core" && (arg_(request, "action") == "log" || arg_(request, "action") == "debug_log"))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the logs are opened on the computer only");
             data = {{"message", cluster::service_act(manager, arg_(request, "service"), arg_(request, "action"))}};
         } else if (cmd == "failure") {
             // a failure answered: OK (gone), retry (run again)

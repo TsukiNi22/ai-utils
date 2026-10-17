@@ -532,6 +532,7 @@ _cold void cluster::Web::open_(const int port)
     std::string error;
     const int fd = cluster::Web::listen_(port, error);
     const bool inUse = errno == EADDRINUSE;
+    cluster::debug("web", fd >= 0 ? "open on the port " + std::to_string(port) : "not opened on the port " + std::to_string(port) + ": " + error);
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_port = port;
@@ -695,6 +696,7 @@ _cold bool cluster::Web::allowed_(const std::string& peer) const
 _cold void cluster::Web::close_(void)
 {
     if (this->_fd == -1) return;
+    cluster::debug("web", "closed");
     this->_running = false;
     if (this->_thread.joinable()) this->_thread.join();
     for (int i = 0; i < 50 && this->_busy > 0; ++i) // the requests being served end (a waiting state returns within 0.2 s)

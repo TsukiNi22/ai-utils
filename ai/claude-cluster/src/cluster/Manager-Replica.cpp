@@ -53,7 +53,10 @@ _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& repli
     }
     const cluster::Json response = cluster::Control::request({{"cmd", "sync"}, {"client", replica->client}, {"v", seen}, {"known", known},
         {"build", cluster::build_id()}}, &replica->fd);
-    if (!response.value("ok", false)) throw utils::exception::ErrorException(utils::exception::InternalCode::Communication, response.value("error", std::string("sync")));
+    if (!response.value("ok", false)) {
+        cluster::debug("interfaces", "sync failed: " + response.value("error", std::string("sync")));
+        throw utils::exception::ErrorException(utils::exception::InternalCode::Communication, response.value("error", std::string("sync")));
+    }
     cluster::Json data = response.value("data", cluster::Json::object());
     std::lock_guard<std::mutex> lock(replica->mutex);
     std::vector<cluster::Snapshot> sessions;
@@ -155,6 +158,7 @@ _cold void cluster::Manager::detach_(void)
 {
     // this interface closed: told to the core (it stops when no interface is left, unless it is the service)
     if (!this->_replica || this->_replica->detached.exchange(true)) return;
+    cluster::debug("interfaces", "this interface closes (" + this->_replica->client + ")");
     this->_replica->running = false;
     if (const int fd = this->_replica->fd; fd >= 0) (void)::shutdown(fd, SHUT_RDWR); // the sync waiting: it ends now
     if (this->_replica->thread.joinable()) this->_replica->thread.join();
@@ -170,6 +174,7 @@ _cold void cluster::Manager::clientSeen(const std::string& client)
     bool webBack = false;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
+        if (!this->_clients.contains(client)) cluster::debug("interfaces", "attached: " + client + (this->_background ? " (the core was in background: kept as usual again)" : ""));
         if (this->_background && (!this->_clients.contains(client) || cluster::now() - this->_clients[client] > 20)) { // an interface back: kept as usual
             this->_background = false;
             webBack = this->_webBeforeBackground;
@@ -183,6 +188,7 @@ _cold void cluster::Manager::clientSeen(const std::string& client)
 
 _cold void cluster::Manager::clientGone(const std::string& client)
 {
+    cluster::debug("interfaces", "detached: " + client);
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_clients.erase(client);
     this->_clientFocus.erase(client);
@@ -213,6 +219,8 @@ _cold void cluster::Manager::setBackground(const bool on)
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_webBeforeBackground = open;
     }
+    if (on && !this->_background) this->_backgroundSince = cluster::now();
+    if (on != this->_background) cluster::debug("core", on ? "in background: it stops once every session is idle and no interface is left" : "background left");
     this->_background = on;
 }
 

@@ -427,6 +427,22 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                     return out;
                 }},
         }},
+        {"debug", "Debug", {
+            {"debug", "enabled", "Debug mode", SettingKind::Bool, {}, "every process (the core, the terminals, the windows, the web terminal) writes what it does "
+                "in <data>/debug.log (kept to 4 MB + the previous one): why the core stops or stays in background, the interfaces attached / gone, the "
+                "rendering (terminal size, slow frames, the platform of the window), the voice, the services, the web access; its first line tells the "
+                "platform (OS, Wayland / X11, desktop, terminal). Services > Core: Open the debug log", false,
+                [](const cluster::Config& cf) {return cf.debug ? std::string("true") : std::string("false");}},
+            {"debug", "topics", "Topics", SettingKind::List, {}, "what is traced (comma separated): core (start, stop, background), interfaces (attach, "
+                "detach, sync errors), render (terminal / window), voice, service (the actions of the Services tab), web (open, close, errors), "
+                "platform; all = everything", false,
+                [](const cluster::Config& cf) {
+                    std::string list;
+                    for (const std::string& topic: cf.debugTopics)
+                        list += (list.empty() ? "" : ", ") + topic;
+                    return list;
+                }},
+        }},
         {"services", "Services", {
             {"services", "refresh", "Refresh", SettingKind::Choice, {"live", "interval", "manual"},
                 "live: what changes shown at once (the voice heard, the web, the sessions), the slow parts (systemd, its journal, tailscale) read every Delay;\n"

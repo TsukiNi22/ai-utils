@@ -123,11 +123,13 @@ _cold void cluster::Voice::start(void)
     this->_loadStart = cluster::now();
     this->_lastStart = now_ms_();
     this->_listener = std::thread(&cluster::Voice::listen_, this);
+    cluster::debug("voice", "listening started (" + this->_manager.config().voice.listenCommand + ")");
     ++this->_version;
 }
 
 _cold void cluster::Voice::stop(void)
 {
+    if (this->_listening) cluster::debug("voice", "listening stopped");
     this->_listening = false;
     const pid_t pid = this->_listenPid;
     if (pid > 0) ::kill(pid, SIGTERM);
