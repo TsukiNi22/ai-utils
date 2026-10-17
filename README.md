@@ -19,7 +19,7 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`/python`](routers/python/SKILL.md) | `python-project`, `python-class`, `python-style`, `python-comments`, `tests`, `ci-cd`, `benchmark` |
 | [`/setup-project`](routers/setup-project/SKILL.md) | a whole new project in order: architecture (`cpp-project` / `python-project` / `coding-style`), base unit tests (`cpp-tests` / `tests`), `license`, `git-conventions` + `pre-commit`, `ci-cd`, `readme-style`, then a quick architecture audit |
 | [`/git`](routers/git/SKILL.md) | `git-conventions`, `ci-cd`, `pre-commit` |
-| [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `html-style`, `explain-doc`, `report`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
+| [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `html-style`, `explain-doc`, `protocol-doc`, `report`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
 | [`/style`](routers/style/SKILL.md) | `cpp-style`, `python-style`, `python-comments`, `coding-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
 | [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps` (and the future legal skills) |
 | [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-quality`, `audit-deps`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/` |
@@ -47,6 +47,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`html-doc`](docs/html-doc/SKILL.md) | One uniform style for the HTML documentation: an optional user guide, the technical documentation and an interactive 2D/3D project graph of any common stack (C / C++, Python, JS / TS / web, Java, C#, Go, Rust, PHP, Ruby) with execution / inheritance / flame diagrams (filters by category/group/relation, rebuilt from the GitHub repository with an update button), all static self-contained pages with a sun/moon theme button. |
 | [`html-style`](docs/html-style/SKILL.md) | My visual style for any HTML page (from `html-doc`): light / dark color tokens, system fonts and type scale, layout, components, SVG diagram classes, sun/moon and EN/FR switches, rules (self-contained, WCAG contrast); `scripts/new_page.py` builds a self-contained page, `scripts/check_style.py` checks a page or a palette (tokens, contrast, unreadable inherited colors, external resources). |
 | [`explain-doc`](docs/explain-doc/SKILL.md) | Explanation pages (how something works) in two levels switched in place, **Simple** (analogies, plain words, numbers) and **Technical** (terms, formulas, complexity, edge cases, code, sources), with SVG diagrams, step-by-step animations, MathML formulas, interactive playgrounds / simulations checking the formulas, quizzes and a glossary. Built on `html-style`. |
+| [`protocol-doc`](docs/protocol-doc/SKILL.md) | Protocol / wire format documentation (from the 2ETP doc of my networking projects): framing with the control bytes, the payload types table, one section per message type (grammar + fields), the code tables (errors, events, commands), every frame in one block, the handshake step by step with a sequence diagram, the client / server commands, the storage format; always asks the output - Markdown, PDF (report style) or sections of the existing HTML docs (html-doc) - and checks it (`check_protocol.py`: anchors, types, frames, codes). |
 | [`cpp-project`](cpp/cpp-project/SKILL.md) | Sets up a new C++ project with the `setup.sh` of [cpp_project_template](https://github.com/TsukiNi22/cpp_project_template) (never committing): renaming, binary / `.a` / `.so` / header-only, RPM/DEB packages of every variant, Linux + Windows (MinGW-w64) builds and packages, libutils (v4.1) or not, exceptions, GTest, the template's workflows (dispatch, unit tests, build, packages, GitHub release from the CHANGELOG, docs), optional gh-pages branch (signed packages repository + docs), README/CHANGELOG/docs, using the other skills. |
 | [`cmake-style`](cpp/cmake-style/SKILL.md) | `CMakeLists.txt` in my style: section order, explicit sources, Debug/Asan/Optimized modes, release targets, GTest tests, install + `find_package` config, CPack RPM/DEB stable/pre channels, with app/lib/tests templates. |
 | [`cpp-tests`](tests/cpp-tests/SKILL.md) | C++ unit tests like libutils: GoogleTest setup (CMake, CI, `unit_tests`), one test file per module, isolation of the blocking cases, known bugs kept as failing tests, `scripts/untested.py` to list what is never tested. |
@@ -181,7 +182,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 |---|---|
 | `cpp-skills` | cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style |
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
-| `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, report |
+| `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report |
 | `git-skills` | git-conventions, ci-cd, pre-commit |
 | `ai-skills` | rtk |
 | `style-skills` | coding-style, comments |
@@ -218,7 +219,7 @@ python/    python-project, python-class, python-style, python-comments
 libutils/  libutils, libutils-exception, libutils-install, libutils-setup
 tests/     tests, cpp-tests, coverage
 style/     coding-style, comments, xstyle (tool)
-docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, report
+docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report
 git/       git-conventions, ci-cd, pre-commit
 audit/     audit-bugs, audit-quality, audit-deps, benchmark
 legal/     license

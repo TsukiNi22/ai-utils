@@ -60,6 +60,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | GitHub wiki | `wiki-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |
 | explanation page (how something works), simple + technical | `explain-doc` | `doc` |
+| protocol of a networking project (frames, handshake, codes, commands, storage) | `protocol-doc` | `doc` |
 | any other HTML page, palette / color / font | `html-style` | `doc` |
 | commit, branch, PR, tag, release, CHANGELOG | `git-conventions` | `git` |
 | several needs (ex: "add the feature, document it and prepare the commit") | every matching skill, in the order of the work: code -> docs -> git | - |

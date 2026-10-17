@@ -22,6 +22,7 @@ Load the skills with the Skill tool (never the other routers: they are manual-on
 | `CMakeLists.txt`, `*.cmake`, `*.cmake.in` | `cmake-style` |
 | Markdown docs | `readme-style` |
 | HTML docs | `html-doc` |
+| protocol docs (frames, codes, commands: Markdown / PDF / HTML) | `protocol-doc` |
 | commit messages | `git-conventions` |
 | whole project review with a report | `audit-quality` (PDF) |
 

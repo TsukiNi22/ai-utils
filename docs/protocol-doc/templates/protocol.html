@@ -1,0 +1,140 @@
+<!--
+  Protocol sections for the technical page of html-doc (docs/technical.html, or index.html without a guide).
+  Paste them after the last <section> (renumber N, N+1...), add their links to <aside class="sidebar">, keep both
+  languages. Placeholders: {{NAME}}, {{VERSION}}, {{ACRONYM_EN}} / {{ACRONYM_FR}}. Arrows: data-from / data-to only.
+-->
+
+<!-- N -->
+<section id="protocol">
+  <h2><span data-lang="en">N. {{NAME}} protocol (v{{VERSION}})</span><span data-lang="fr">N. Protocole {{NAME}} (v{{VERSION}})</span></h2>
+  <p><span data-lang="en">{{ACRONYM_EN}}: an application-layer protocol for typed messages over a reliable transport.</span><span data-lang="fr">{{ACRONYM_FR}} : un protocole applicatif de messages typés sur un transport fiable.</span></p>
+
+  <h3 id="protocol-payload"><span data-lang="en">N.1 Payload</span><span data-lang="fr">N.1 Trame</span></h3>
+<pre data-title="Transmission"><code>ENQ &lt;tag&gt; ETB &lt;payload&gt; EOT</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th><span data-lang="en">Element</span><span data-lang="fr">Élément</span></th><th>Byte (hexa)</th><th><span data-lang="en">Role</span><span data-lang="fr">Rôle</span></th></tr></thead>
+    <tbody>
+      <tr><td><code>ENQ</code></td><td><code>0x05</code></td><td><span data-lang="en">Start of transmission</span><span data-lang="fr">Début de transmission</span></td></tr>
+      <tr><td><code>ETB</code></td><td><code>0x17</code></td><td><span data-lang="en">Separator</span><span data-lang="fr">Séparateur</span></td></tr>
+      <tr><td><code>EOT</code></td><td><code>0x04</code></td><td><span data-lang="en">End of transmission</span><span data-lang="fr">Fin de transmission</span></td></tr>
+      <tr><td><code>&lt;tag&gt;</code></td><td>—</td><td><span data-lang="en">Integrity tag (Base64)</span><span data-lang="fr">Tag d'intégrité (Base64)</span></td></tr>
+      <tr><td><code>&lt;payload&gt;</code></td><td>—</td><td><span data-lang="en">Message content (Base64)</span><span data-lang="fr">Contenu du message (Base64)</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="protocol-types"><span data-lang="en">N.2 Payload types</span><span data-lang="fr">N.2 Types de message</span></h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Byte (hexa)</th><th>Type</th><th><span data-lang="en">Grammar</span><span data-lang="fr">Grammaire</span></th></tr></thead>
+    <tbody>
+      <tr><td><code>SYN</code> (<code>0x16</code>)</td><td><span data-lang="en">Connection</span><span data-lang="fr">Connexion</span></td><td><code>SYN</code></td></tr>
+      <tr><td><code>NAK</code> (<code>0x15</code>)</td><td><span data-lang="en">Error</span><span data-lang="fr">Erreur</span></td><td><code>NAK &lt;code&gt; ETB &lt;message&gt;</code></td></tr>
+      <tr><td><code>SOH</code> (<code>0x01</code>)</td><td><span data-lang="en">Command</span><span data-lang="fr">Commande</span></td><td><code>SOH &lt;code&gt; ETB &lt;data&gt; *(ETB &lt;data&gt;)</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><p><span data-lang="en">A peer receiving an unknown type byte answers with an error (<code>127</code>).</span><span data-lang="fr">Un pair qui reçoit un type inconnu répond par une erreur (<code>127</code>).</span></p></div>
+
+  <h3 id="protocol-codes"><span data-lang="en">N.3 Codes</span><span data-lang="fr">N.3 Codes</span></h3>
+  <div class="ctabs" data-tabs="codes">
+    <button type="button" data-tab="errors"><span data-lang="en">Errors</span><span data-lang="fr">Erreurs</span></button>
+    <button type="button" data-tab="events"><span data-lang="en">Events</span><span data-lang="fr">Événements</span></button>
+  </div>
+  <div class="ctab-panel" data-tabs="codes" data-tab="errors">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Code (0-127)</th><th><span data-lang="en">Error</span><span data-lang="fr">Erreur</span></th></tr></thead>
+      <tbody>
+        <tr><td><code>127</code></td><td><span data-lang="en">Unknown error</span><span data-lang="fr">Erreur inconnue</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="ctab-panel" data-tabs="codes" data-tab="events">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Code (0-127)</th><th><span data-lang="en">Event</span><span data-lang="fr">Événement</span></th><th><span data-lang="en">Data sent</span><span data-lang="fr">Données envoyées</span></th></tr></thead>
+      <tbody>
+        <tr><td><code>0</code></td><td><span data-lang="en">Client logged in</span><span data-lang="fr">Client connecté</span></td><td><code>user_uuid</code>, <code>user_name</code></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <h3 id="protocol-summary"><span data-lang="en">N.4 Every frame</span><span data-lang="fr">N.4 Toutes les trames</span></h3>
+<pre data-title="Frames"><code>/* Connection */ ENQ &lt;tag&gt; ETB SYN EOT
+/* Error      */ ENQ &lt;tag&gt; ETB NAK &lt;code&gt; ETB &lt;message&gt; EOT
+/* Command    */ ENQ &lt;tag&gt; ETB SOH &lt;code&gt; ETB &lt;data&gt; *(ETB &lt;data&gt;) EOT</code></pre>
+</section>
+
+<!-- N+1 -->
+<section id="handshake">
+  <h2><span data-lang="en">N+1. Handshake</span><span data-lang="fr">N+1. Poignée de main</span></h2>
+  <figure>
+    <svg viewBox="0 0 760 328" role="img" aria-label="Handshake between the client and the server">
+      <defs>
+        <marker id="arr-hs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="arrow" d="M0 0L10 5L0 10z"/>
+        </marker>
+      </defs>
+      <rect class="box" x="70" y="16" width="160" height="40" rx="8"/>
+      <text class="lbl" x="150" y="41" text-anchor="middle">Client</text>
+      <rect class="box-alt" x="530" y="16" width="160" height="40" rx="8"/>
+      <text class="lbl" x="610" y="41" text-anchor="middle">Server</text>
+      <path class="edge dash" d="M150 56V322"/>
+      <path class="edge dash" d="M610 56V322"/>
+      <!-- one message a row: an activation box on each lifeline at the same height, the arrow joins them (data-from / data-to) -->
+      <rect id="c1" class="box" x="144" y="84" width="12" height="18"/>
+      <rect id="s1" class="box-alt" x="604" y="84" width="12" height="18"/>
+      <rect id="c2" class="box" x="144" y="124" width="12" height="18"/>
+      <rect id="s2" class="box-alt" x="604" y="124" width="12" height="18"/>
+      <rect id="c3" class="box" x="144" y="164" width="12" height="18"/>
+      <rect id="s3" class="box-alt" x="604" y="164" width="12" height="18"/>
+      <rect id="c4" class="box" x="144" y="204" width="12" height="18"/>
+      <rect id="s4" class="box-alt" x="604" y="204" width="12" height="18"/>
+      <rect id="c5" class="box" x="144" y="244" width="12" height="18"/>
+      <rect id="s5" class="box-alt" x="604" y="244" width="12" height="18"/>
+      <rect id="c6" class="box" x="144" y="284" width="12" height="18"/>
+      <rect id="s6" class="box-alt" x="604" y="284" width="12" height="18"/>
+      <path id="m1" class="edge" data-from="c1:right" data-to="s1:left" marker-end="url(#arr-hs)"/>
+      <text class="small" data-label-for="m1" data-offset="-7" text-anchor="middle">ENQ ETB SYN EOT</text>
+      <path id="m2" class="edge" data-from="s2:left" data-to="c2:right" marker-end="url(#arr-hs)"/>
+      <text class="small" data-label-for="m2" data-offset="-7" text-anchor="middle">ENQ ETB ACK EOT</text>
+      <path id="m3" class="edge" data-from="c3:right" data-to="s3:left" marker-end="url(#arr-hs)"/>
+      <text class="small" data-label-for="m3" data-offset="-7" text-anchor="middle">ENQ ETB SO &lt;RSA public key&gt; EOT</text>
+      <path id="m4" class="edge-accent" data-from="s4:left" data-to="c4:right" marker-end="url(#arr-hs)"/>
+      <text class="small" data-label-for="m4" data-offset="-7" text-anchor="middle">ENQ ETB SO &lt;AES key&gt; ETB &lt;iv&gt; EOT</text>
+      <path id="m5" class="edge-accent" data-from="c5:right" data-to="s5:left" marker-end="url(#arr-hs)"/>
+      <text class="small" data-label-for="m5" data-offset="-7" text-anchor="middle">ENQ &lt;tag&gt; ETB SOH ... EOT (AES)</text>
+      <path id="m6" class="edge-accent" data-from="s6:left" data-to="c6:right" marker-end="url(#arr-hs)"/>
+      <text class="small" data-label-for="m6" data-offset="-7" text-anchor="middle">ENQ &lt;tag&gt; ETB ACK EOT (AES)</text>
+    </svg>
+    <figcaption><span data-lang="en">Figure N: the handshake, then the encrypted exchange.</span><span data-lang="fr">Figure N : la poignée de main, puis l'échange chiffré.</span></figcaption>
+  </figure>
+
+  <h3 id="handshake-first"><span data-lang="en">N+1.1 First step (tag = 0 byte)</span><span data-lang="fr">N+1.1 Première étape (tag = 0 octet)</span></h3>
+  <ol class="steps">
+    <li><strong><span data-lang="en">Client</span><span data-lang="fr">Client</span></strong> <span data-lang="en">sends a connection request</span><span data-lang="fr">envoie une demande de connexion</span> <code>ENQ ETB SYN EOT</code></li>
+    <li><strong><span data-lang="en">Server</span><span data-lang="fr">Serveur</span></strong> <span data-lang="en">answers</span><span data-lang="fr">répond</span> <code>ENQ ETB ACK EOT</code></li>
+  </ol>
+  <div class="callout warn"><p><span data-lang="en">Any other request: the server answers <code>ENQ ETB EM EOT</code> and closes the connection.</span><span data-lang="fr">Toute autre requête : le serveur répond <code>ENQ ETB EM EOT</code> et ferme la connexion.</span></p></div>
+</section>
+
+<!-- N+2 -->
+<section id="commands">
+  <h2><span data-lang="en">N+2. Commands</span><span data-lang="fr">N+2. Commandes</span></h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Code</th><th><span data-lang="en">Command</span><span data-lang="fr">Commande</span></th><th><span data-lang="en">Purpose</span><span data-lang="fr">Rôle</span></th><th><span data-lang="en">Answer</span><span data-lang="fr">Réponse</span></th></tr></thead>
+    <tbody>
+      <tr><td><code>1</code></td><td><code>login "user_name"</code></td><td><span data-lang="en">Log the client as the user (created when missing)</span><span data-lang="fr">Connecte le client avec cet utilisateur (créé s'il n'existe pas)</span></td><td><code>ACK</code> + event <code>0</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- N+3 -->
+<section id="storage">
+  <h2><span data-lang="en">N+3. Storage</span><span data-lang="fr">N+3. Stockage</span></h2>
+  <div class="callout warn"><p><span data-lang="en">The storage is not encrypted.</span><span data-lang="fr">Le stockage n'est pas chiffré.</span></p></div>
+<pre data-title="Files"><code>.server_save/
+└── users.data</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Byte (hexa)</th><th><span data-lang="en">Usage</span><span data-lang="fr">Usage</span></th></tr></thead>
+    <tbody>
+      <tr><td><code>GS</code> (<code>0x1D</code>)</td><td><span data-lang="en">End of a data record</span><span data-lang="fr">Fin d'un enregistrement</span></td></tr>
+    </tbody>
+  </table></div>
+</section>

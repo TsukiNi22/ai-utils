@@ -6,8 +6,9 @@ description: Explanation pages in the user's HTML style (html-style) that make a
 # Explanation pages (Simple | Technical)
 
 `SKILL_DIR` = directory of this file. Built on **`html-style`** (`../html-style`: tokens, components, rules,
-`new_page.py`, `check_style.py`): load it first. Not for API references or user guides (`html-doc`) nor for
-reports (`report`).
+`new_page.py`, `check_style.py`): load it first. Not for API references or user guides (`html-doc`), nor for
+the reference of a protocol - its frames, codes, commands (`protocol-doc`; an explanation page can link to it), nor
+for reports (`report`).
 
 ## 1. Ask (one AskUserQuestion call, French), unless already given
 1. **Public visé par défaut** (level shown at the first visit): `Simple (Recommandé)` · `Technique`.

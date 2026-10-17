@@ -9,7 +9,7 @@ Usage:
   conversion, md only validates the Markdown and writes no PDF.
 
 - Markdown: tables, fenced code, nested lists (4 spaces), attributes ({: .warn} after a blockquote, {: .page}
-  after a heading to start it on a new page), raw HTML allowed.
+  after a heading to start it on a new page), GitHub callouts (> [!NOTE], [!TIP], [!WARNING]...), raw HTML allowed.
 - Footer: "<first H1 text> — page / pages" (--footer to replace the H1 text).
 - Fonts: Noto Sans / Noto Sans Mono / Noto Serif (installed on the system).
 """
@@ -37,6 +37,42 @@ def commonmark_lists(src: str) -> str:
         prev = line
     return "\n".join(out)
 
+CALLOUTS = {"NOTE": ("Note", ""), "TIP": ("Tip", "ok"), "IMPORTANT": ("Important", ""), "WARNING": ("Warning", "warn"),
+            "CAUTION": ("Caution", "warn")}
+
+def github_callouts(src: str) -> str:
+    """GitHub callouts (> [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]): a titled callout, coloured by its kind."""
+    out, fence, kind = [], False, ""
+    marker = re.compile(r"^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$")
+    for line in src.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+        if kind and not line.startswith(">"): # the end of the callout: its colour
+            if CALLOUTS[kind][1]:
+                out.append("{: ." + CALLOUTS[kind][1] + "}")
+            kind = ""
+        found = None if fence else marker.match(line)
+        if found:
+            kind = found.group(1)
+            out.append("> **" + CALLOUTS[kind][0] + "**")
+            out.append(">")
+            continue
+        out.append(line)
+    if kind and CALLOUTS[kind][1]:
+        out.append("{: ." + CALLOUTS[kind][1] + "}")
+    return "\n".join(out)
+
+def callout_classes(body: str) -> str:
+    """{: .warn} / {: .ok} after a callout lands on its last paragraph (a lazy continuation line): moved to the blockquote."""
+    def move(match: re.Match) -> str:
+        inner = match.group(1)
+        found = re.search(r'<p class="(warn|ok)">((?:(?!<p[ >]).)*?)</p>\s*$', inner, re.S)
+        if not found:
+            return match.group(0)
+        inner = inner[:found.start()] + "<p>" + found.group(2) + "</p>" + inner[found.end():]
+        return f'<blockquote class="{found.group(1)}">{inner}</blockquote>'
+    return re.sub(r"<blockquote>(.*?)</blockquote>", move, body, flags=re.S)
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("input")
@@ -48,12 +84,13 @@ def main() -> int:
     ap.add_argument("--format", choices=["both", "pdf", "md"], default="both")
     a = ap.parse_args()
 
-    src = commonmark_lists(open(a.input, encoding="utf-8").read())
+    src = github_callouts(commonmark_lists(open(a.input, encoding="utf-8").read()))
     if a.format == "md":
         print(a.input)
         return 0
     body = markdown.markdown(src, extensions=["tables", "fenced_code", "sane_lists", "attr_list", "md_in_html"],
                              tab_length=4, output_format="html5")
+    body = callout_classes(body)
     title = re.search(r"<h1[^>]*>(.*?)</h1>", body, re.S)
     plain = re.sub(r"<[^>]+>", "", title.group(1)).strip() if title else os.path.splitext(os.path.basename(a.input))[0]
     extra = ""

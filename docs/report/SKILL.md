@@ -40,7 +40,8 @@ python3 SKILL_DIR/scripts/md2pdf.py <report.md> --format both|pdf|md [-o report.
 - Tables rather than prose for anything with several attributes; `—` for empty cells, `n/a` when not measurable.
 - Code, paths, commands, identifiers in backticks.
 - Variants: `{: .warn}` / `{: .ok}` on the line after a callout (orange / green bar), `{: .page}` after an H2 to
-  start it on a new page.
+  start it on a new page. GitHub callouts (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) are
+  rendered too (titled, warning / caution orange, tip green): a README or a `protocol-doc` Markdown converts as is.
 
 ## 6. Check
 - Convert a page to an image (`pdftoppm -r 60 -png -f 1 -l 2 report.pdf /tmp/p`) and look at it: title rule present,

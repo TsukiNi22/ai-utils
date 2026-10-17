@@ -82,7 +82,8 @@ For people who just want to **use** the tool: no jargon, no internal detail, tas
   by the top tabs and the previous / next cards.
 - `h2` / `h3` with an `id` (or in a `section[id]`) get a `#` anchor link on hover.
 - One `<section id="...">` card per topic, preceded by `<!-- N -->`, `<h2>N. Title</h2>`, sub-parts `<h3>N.M</h3>`.
-  Usual order: overview, split into libraries/modules, each module, network/protocol, build. 5-9 sections.
+  Usual order: overview, split into libraries/modules, each module, network/protocol (the sections of `protocol-doc`:
+  frames, types, codes, handshake sequence diagram, commands, storage), build. 5-9 sections.
 - Components:
 
   | Need | Component |
@@ -95,7 +96,8 @@ For people who just want to **use** the tool: no jargon, no internal detail, tas
   | titled code block (file name, command role) | `<pre data-title="Install"><code>...</code></pre>` |
   | alternatives (OS, package manager, language) | content tabs `<div class="ctabs" data-tabs="g"><button data-tab="a">` + `<div class="ctab-panel" data-tabs="g" data-tab="a">` |
   | architecture, flow, tree, loop | inline `<svg>` in `<figure>` + `<figcaption>Figure N: ...` |
-- SVG arrows: computed with `data-from` / `data-to` (see `html-style`), never typed coordinates; run
+- SVG arrows: computed with `data-from` / `data-to` (see `html-style`; the engine `window.docDiagram` of `base.js` is
+  inlined in the templates: keep it in sync after a change of `base.js`), never typed coordinates; run
   `python3 ../html-style/scripts/check_style.py docs/*.html` (0 error: arrows on their shapes, text inside).
 - SVG: `viewBox="0 0 760 H"`, `role="img"` + `aria-label`, only the template classes (`box`, `box-alt`, `group`,
   `lbl`, `small`, `title`, `edge`, `edge-accent`, `dash`, `arrow`, `arrow-accent`), markers once in `<defs>`.
