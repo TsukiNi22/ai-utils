@@ -36,6 +36,7 @@ struct cluster::ReplicaState {
     std::atomic<std::uint64_t> version{1};      // changed at each sync that brought something (the interfaces redraw)
     std::atomic<int> fd{-1};                    // the socket of the sync waiting (shut down at the quit: it ends at once)
     std::thread thread;                         // the sync (joined at the quit)
+    std::atomic<bool> detached{false};          // told the core it closed: once (a second detach would look like an interface back)
 };
 
 _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& replica, const bool wait)
@@ -153,7 +154,7 @@ _cold std::uint64_t cluster::Manager::replicaVersion_(void) const
 _cold void cluster::Manager::detach_(void)
 {
     // this interface closed: told to the core (it stops when no interface is left, unless it is the service)
-    if (!this->_replica) return;
+    if (!this->_replica || this->_replica->detached.exchange(true)) return;
     this->_replica->running = false;
     if (const int fd = this->_replica->fd; fd >= 0) (void)::shutdown(fd, SHUT_RDWR); // the sync waiting: it ends now
     if (this->_replica->thread.joinable()) this->_replica->thread.join();

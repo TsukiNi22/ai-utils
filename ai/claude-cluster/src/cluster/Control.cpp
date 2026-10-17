@@ -342,7 +342,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the tool " + request.value("tool", std::string())
                 + " is off in the settings of claude-cluster (MCP page): tell the user, they turn it on there if they want");
         // an interface of another process: seen alive (the core stops when none is left)
-        if (request.contains("client") && request["client"].is_string()) manager.clientSeen(request["client"].get<std::string>());
+        // (its detach never: an interface closing is not one coming back, which would end the background of the core)
+        if (cmd != "detach" && request.contains("client") && request["client"].is_string()) manager.clientSeen(request["client"].get<std::string>());
         if (cmd == "hello") {
             // who this core is: an interface of another build asks before attaching
             return {{"ok", true}, {"data", {{"version", CLUSTER_VERSION}, {"build", cluster::build_id()}, {"pid", ::getpid()}, {"binary", cluster::self_exe().string()}}}};
