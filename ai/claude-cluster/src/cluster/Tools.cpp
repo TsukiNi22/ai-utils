@@ -369,6 +369,66 @@ _cold void cluster::complete_path(void)
     ::setenv("PATH", path.c_str(), 1);
 }
 
+/* the hot upgrade */
+static std::vector<std::string> program_args_;     // NOLINT: this run, as started
+static std::atomic<bool> upgrade_wanted_{false};    // NOLINT
+static std::atomic<bool> upgrade_restore_{false};   // NOLINT
+
+// xstyle: ignore-next CPP-SINGLE-STATEMENT (its state is private to Tools.cpp)
+_cold void cluster::set_program_args(const int argc, char** argv)
+{
+    program_args_.assign(argv, argv + argc);
+}
+
+_cold void cluster::upgrade_request(const bool restore)
+{
+    upgrade_restore_ = restore;
+    upgrade_wanted_ = true;
+}
+
+// xstyle: ignore-next CPP-SINGLE-STATEMENT (its state is private to Tools.cpp)
+_cold bool cluster::upgrade_requested(void)
+{
+    return upgrade_wanted_;
+}
+
+_cold void cluster::upgrade_exec(void)
+{
+    // the binary on disk (the new one) in place of this process: the same arguments; a core: its sessions restored at once
+    if (program_args_.empty()) return;
+    std::vector<std::string> args = program_args_;
+    args[0] = cluster::self_exe().string();
+    if (upgrade_restore_ && std::find(args.begin(), args.end(), "--restore") == args.end()) args.push_back("--restore");
+    ::setenv("CLAUDE_CLUSTER_UPGRADED_FROM", CLUSTER_VERSION, 1);
+    std::vector<char*> argv;
+    for (std::string& arg: args)
+        argv.push_back(arg.data());
+    argv.push_back(nullptr);
+    ::execv(args[0].c_str(), argv.data());
+    std::cerr << "claude-cluster: the update failed (" << std::strerror(errno) << "): start it again" << std::endl;
+}
+
+_cold int cluster::version_compare(const std::string& a, const std::string& b)
+{
+    const std::vector<std::string> x = cluster::split(a, '.');
+    const std::vector<std::string> y = cluster::split(b, '.');
+    for (std::size_t i = 0; i < std::max(x.size(), y.size()); ++i) {
+        const long u = i < x.size() ? std::strtol(x[i].c_str(), nullptr, 10) : 0;
+        const long v = i < y.size() ? std::strtol(y[i].c_str(), nullptr, 10) : 0;
+        if (u != v) return u < v ? -1 : 1;
+    }
+    return 0;
+}
+
+_cold std::string cluster::binary_version(const std::filesystem::path& binary)
+{
+    const cluster::Captured got = cluster::capture({binary.string(), "--version"}, "", 10);
+    const std::size_t at = got.out.find("claude-cluster ");
+    if (got.code != 0 || at == std::string::npos) return "";
+    const std::string version = cluster::trim(got.out.substr(at + 15, got.out.find('\n', at) == std::string::npos ? std::string::npos : got.out.find('\n', at) - at - 15));
+    return version.find_first_not_of("0123456789.") == std::string::npos && !version.empty() ? version : "";
+}
+
 _cold void cluster::catch_quit_signals(void)
 {
     // only a flag here (async signal safe): the interface sees it and quits the normal way (terminal restored, saved)

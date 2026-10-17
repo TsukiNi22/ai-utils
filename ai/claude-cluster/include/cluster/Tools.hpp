@@ -124,6 +124,12 @@ _cold _nodiscard std::string platform_summary(void);                            
 _cold _nodiscard inline std::filesystem::path debug_log_path(void) {return cluster::data_dir() / "debug.log";};
 _cold inline void ignore_hangup(void) {(void)std::signal(SIGHUP, SIG_IGN);}; // the terminal closed leaves the process running (the core kept in background)
 _cold void catch_quit_signals(void);    // SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: quit_requested() (reset by exec)
+_cold void set_program_args(const int argc, char** argv);   // the arguments of this run (an update runs them again)
+_cold void upgrade_request(const bool restore);             // after the quit: the binary on disk run again, its arguments (+ --restore)
+_cold _nodiscard bool upgrade_requested(void);
+_cold void upgrade_exec(void);                              // the exec of it (main, after the quit); back only when it failed
+_cold _nodiscard int version_compare(const std::string& a, const std::string& b);    // "1.4.18" vs "1.4.17": > 0
+_cold _nodiscard std::string binary_version(const std::filesystem::path& binary);   // its --version ("1.4.18"); empty: not one
 _nodiscard inline bool quit_requested(void) {return quit_signal;}; // a signal asked to quit: the interface closes as with its quit key
 
 /* json files */

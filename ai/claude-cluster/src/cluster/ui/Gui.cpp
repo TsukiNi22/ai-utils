@@ -212,7 +212,7 @@ class AtomHighlighter: public QSyntaxHighlighter {
         }
 
     public:
-        AtomHighlighter(PromptEdit* owner) : QSyntaxHighlighter(owner->document()), _edit(owner) { /* Nothing */ };
+        AtomHighlighter(PromptEdit* owner): QSyntaxHighlighter(owner->document()), _edit(owner) { /* Nothing */ };
 };
 
 // The outline of a card, painted over its content (the clicks go through it)
@@ -2133,7 +2133,7 @@ class Window: public QMainWindow {
                 const std::optional<cluster::Snapshot> here = this->manager.snapshot(this->active);
                 this->target->setText(q_("$ shell · " + (here ? cluster::short_path(here->spec.cwd) : std::string("~"))));
                 this->target->setStyleSheet("color:" + q_(st.warn) + ";font-weight:600;");
-            } else if (text.starts_with(":")) {
+            } else if (text.starts_with(":") && !text.starts_with("::")) {
                 this->target->setText(": command (:help)");
                 this->target->setStyleSheet("color:" + q_(st.accent) + ";font-weight:600;");
             } else if (this->active == TASKS_ID) {
@@ -2920,6 +2920,30 @@ class Window: public QMainWindow {
         std::int64_t lastInterrupt = 0;     // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
 
         QMessageBox* linkBox = nullptr;   // the core lost: Reconnecting (Retry now / Quit), closed once it is back
+        std::string upgradeAsked;         // the newer version already offered in this window
+
+        void showUpgrade(void)
+        {
+            // a newer claude-cluster installed: Update (default) / Ignore this version / Quit
+            const cluster::UpgradeOffer offer = this->manager.upgradeOffer();
+            if (offer.version.empty() || offer.started || offer.version == this->upgradeAsked || QApplication::activeModalWidget() != nullptr) return;
+            this->upgradeAsked = offer.version;
+            QMessageBox box(QMessageBox::Information, "claude-cluster", q_("<b>A newer claude-cluster is installed</b><br>" + std::string(CLUSTER_VERSION) + " → "
+                + offer.version + "<br><br>Update: the turns running end first, the sessions are saved, the core and every terminal / window switch to "
+                "the new version by themselves, the sessions resumed."), QMessageBox::NoButton, this);
+            QPushButton* update = box.addButton("Update", QMessageBox::AcceptRole);
+            QPushButton* ignore = box.addButton("Ignore this version", QMessageBox::RejectRole);
+            QPushButton* quit = box.addButton("Quit", QMessageBox::DestructiveRole);
+            box.setDefaultButton(update);
+            box.exec();
+            const std::string action = box.clickedButton() == update ? "update" : box.clickedButton() == ignore ? "ignore" : box.clickedButton() == quit ? "quit" : "";
+            if (action.empty()) return;
+            try {
+                this->message(this->manager.upgradeAct(action), false);
+            } catch (const utils::exception::IException& e) {
+                this->message(e.info(), true);
+            }
+        }
 
         void showLink(void)
         {
@@ -2947,6 +2971,10 @@ class Window: public QMainWindow {
                 this->linkBox->show();
             }
             const std::int64_t now = cluster::now_ms();
+            if (link.upgrading) {
+                this->linkBox->setText(q_("<b>Updating claude-cluster…</b><br>the core runs the new version; this window switches to it as soon as it is up"));
+                return;
+            }
             this->linkBox->setText(q_("<b>Reconnecting to claude-cluster…</b><br>its core is not reached since " + cluster::took(now - link.since) + "<br>try "
                 + std::to_string(link.tries) + " · the next one in " + std::to_string((std::max<std::int64_t>(0, link.next - now) + 999) / 1000)
                 + " s (the core started again when it is gone: the sessions resumed)"));
@@ -2964,6 +2992,7 @@ class Window: public QMainWindow {
             }
             this->scanProgress();
             this->showLink();
+            this->showUpgrade();
             // the global session asked to show a session (ui_focus) or another style (ui_style)
             const std::pair<std::uint64_t, std::string> focus = this->manager.focusRequest();
             if (this->manager.raiseRequest() != this->raiseSeen) { // a notification clicked: this window to the front
@@ -3043,7 +3072,7 @@ void PromptEdit::refreshCompletion(void)
         this->popup->setVisible(false);
         return;
     }
-    const std::string prefix = this->completion.kind() == cluster::CompletionKind::File ? "@" : this->completion.kind() == cluster::CompletionKind::Command || this->completion.kind() == cluster::CompletionKind::Skill ? "/" : "";
+    const std::string prefix = this->completion.kind() == cluster::CompletionKind::Session ? "::" : this->completion.kind() == cluster::CompletionKind::File ? "@" : this->completion.kind() == cluster::CompletionKind::Command || this->completion.kind() == cluster::CompletionKind::Skill ? "/" : "";
     this->popup->clear();
     for (const cluster::Candidate& c: this->completion.items())
         this->popup->addItem(q_(prefix + c.label + "    " + cluster::one_line(c.description, 80)));

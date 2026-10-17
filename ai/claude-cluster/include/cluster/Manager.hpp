@@ -52,8 +52,15 @@ struct ReplicaState;                // Manager-Replica.cpp: this process an inte
 //----------------------------------------------------------------//
 /* STRUCT */
 
+struct UpgradeOffer {               // a newer claude-cluster installed over the running one
+    std::string version;            // empty: none (or ignored)
+    bool started = false;           // Update chosen: the turns running end first
+    bool upgrading = false;         // the core about to run the new binary (the interfaces follow it)
+};
+
 struct Link {                       // an interface and its core
     bool lost = false;              // not reached: reconnecting
+    bool upgrading = false;         // lost because the core is being updated: this interface follows it
     int tries = 0;
     std::int64_t since = 0;         // unix ms
     std::int64_t next = 0;          // unix ms of the next try
@@ -132,6 +139,11 @@ class Manager {
         std::set<std::string> _failureGone;        // the ones of the core answered here (until its next sync)
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
         std::atomic<bool> _pluginsBusy{false};     // plugins of repositories: listed / installed by a thread
+        std::string _upgradeVersion;               // a newer binary installed (offered), its version ignored, the binary seen
+        std::string _upgradeIgnored;
+        std::int64_t _exeStamp = 0;
+        std::atomic<bool> _upgradeStarted{false};
+        std::atomic<bool> _upgrading{false};
         bool _pluginsSeen = false;
         std::vector<std::string> _pluginRepos;     // the [plugins] last applied
         std::map<std::string, bool> _pluginSelect;
@@ -199,6 +211,7 @@ class Manager {
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
         _cold void schedule_(void);                         // Manager-Tasks.cpp
         _cold void pluginsSync_(void);                      // [plugins] changed: listed / installed (a thread)
+        _cold void upgradeCheck_(void);                     // the binary on disk newer: offered (Manager-Upgrade.cpp)
         _cold void taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text);
         _cold void groupUpdate_(const std::string& id);     // Manager-Groups.cpp: its card, the global session woken, its end
         _cold void groupsTick_(void);                       // the groups whose time is over
@@ -239,6 +252,8 @@ class Manager {
         _cold _nodiscard std::string vendorOf(const std::string& backend) const;   // its provider ("" unknown)
         _cold _nodiscard cluster::UsageReport usage(const std::string& vendor) const;
         _cold void pluginsRefresh(void);                     // the plugin sources pulled / listed again, the ticks applied
+        _cold _nodiscard cluster::UpgradeOffer upgradeOffer(void) const;    // a newer claude-cluster installed (the core's)
+        _cold std::string upgradeAct(const std::string& action);            // update | ignore | quit
         _cold _nodiscard std::vector<std::string> usageVendors(void) const;         // the ones in the ledger
         _cold _nodiscard std::vector<std::pair<std::string, std::string>> usageLines(const cluster::Snapshot& snap) const; // panel "usage"
         _cold _nodiscard cluster::Json usageJson(const std::string& vendor) const;  // every vendor when empty

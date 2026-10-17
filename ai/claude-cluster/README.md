@@ -192,8 +192,10 @@ conversation, another model), `/cost`, `/context`, `/rewind` (= Esc Esc on an em
 agent (nothing in its conversation, nothing spent): `/usage` (the 5 h / 7 d windows of the account, today, 7 days, this
 session), `/status` (agent, model, effort, mode, folder, conversation), `/skills` (the skills of the user and of the
 project, the plugins of Claude Code), `/mcp`, `/plugins` (the browser below); the commands of the agent (`/compact`,
-skills...) are completed too. In the prompt, a `/command` at its start and the `@files` are drawn in the accent colour
-on the surface, like the pasted images and texts. A pasted image goes to Claude as an image block (to the
+skills...) are completed too. `::` completes the sessions (open ones with their state and folder, then the closed
+ones) to point at one in a prompt (`ask ::backend to run its tests`; the agents are told what `::name` means). In the
+prompt, a `/command` at its start, the `@files` and the `::sessions` are drawn in the accent colour on the surface,
+like the pasted images and texts. A pasted image goes to Claude as an image block (to the
 other agents as `@path`). The images are saved by content (`img-<hash>.png`): the same image pasted again (or its chip
 clicked) is one more reference to the same `[Image #N]` ("here, here and here"), the image itself is sent once; the
 images are numbered in the order of the text when sent.
@@ -611,6 +613,18 @@ to the next field then Submit (Ctrl+S at once), Esc to cancel; its values are se
 
 The pictures of the terminal need `chafa`, the diagrams `dot` (Graphviz); a display is kept in the log of the session
 (searched and exported as text), the web page gets its picture once (`/api/display`).
+
+## Updates
+
+A newer claude-cluster installed over the running one (`setup.sh`, a package: the binary on disk replaced, its version
+higher; a rebuild of the same version or an older one: nothing) is seen by the core within seconds and offered in
+every terminal and window: **Update** (the default: Enter / `u`), **Ignore** this version (offered again for a newer
+one), **Quit** (everything stopped, to start again by hand), Esc later (the palette: *Update claude-cluster*). Update:
+a progress popup - the turns running end first (their sessions named), the sessions saved, then the core runs the new
+binary in its own place (same pid: a systemd service keeps running, same arguments, the sessions resumed at once), its
+terminals and windows follow it by themselves (an *Updating claude-cluster…* popup while it starts, then each one runs
+the new binary too, same pid, same terminal) and the web pages reload; the conversations go on (`--resume`), a notice
+says `updated: 1.4.17 -> 1.4.18`. Never from the web page or the global session (the user only).
 
 ## Plugins and skills
 

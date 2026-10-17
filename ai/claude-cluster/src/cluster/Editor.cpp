@@ -446,7 +446,11 @@ _cold void cluster::Editor::refresh_(void)
     cluster::CompletionKind kind = cluster::CompletionKind::None;
     std::string query;
 
-    if (word.starts_with("@")) {
+    if (word.starts_with("::")) {
+        kind = cluster::CompletionKind::Session;
+        this->_start = start + 2;
+        query = word.substr(2);
+    } else if (word.starts_with("@")) {
         kind = cluster::CompletionKind::File;
         this->_start = start + 1;
         query = cluster::unescape_path(word.substr(1));
@@ -455,7 +459,7 @@ _cold void cluster::Editor::refresh_(void)
         kind = cluster::trim(before).empty() ? cluster::CompletionKind::Command : cluster::CompletionKind::Skill;
         this->_start = start + 1;
         query = word.substr(1);
-    } else if ((this->_text.starts_with("!") || this->_text.starts_with(":")) && !this->_anchor) {
+    } else if ((this->_text.starts_with("!") || (this->_text.starts_with(":") && !this->_text.starts_with("::"))) && !this->_anchor) {
         // the modes of the prompt: !<command of the shell> <files>; :<command> <its argument>
         const bool shell = this->_text.starts_with("!");
         const std::string head = before.empty() ? "" : cluster::trim(before.substr(1));

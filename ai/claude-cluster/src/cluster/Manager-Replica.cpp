@@ -42,6 +42,7 @@ struct cluster::ReplicaState {
     std::atomic<std::int64_t> nextTry{0};       // unix ms of the next one
     std::atomic<bool> retryNow{false};          // Retry now asked (the popup)
     std::atomic<bool> starting{false};          // the core being started again (in a thread of its own)
+    std::atomic<std::int64_t> follow{0};        // unix ms: the core said it is being updated (this interface follows it)
 };
 
 _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& replica, const bool wait)
@@ -79,8 +80,15 @@ _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& repli
     const bool changed = data.value("version", std::uint64_t{0}) != replica->seen || !replica->error.empty();
     replica->seen = data.value("version", std::uint64_t{0});
     replica->state = std::move(data);
+    if (replica->state.contains("upgrade") && replica->state["upgrade"].is_object() && replica->state["upgrade"].value("upgrading", false))
+        replica->follow = cluster::now_ms();
     replica->error.clear();
     if (changed) ++replica->version;
+}
+
+_cold static cluster::Json upgrade_json_(const cluster::UpgradeOffer& offer)
+{
+    return {{"version", offer.version}, {"started", offer.started}, {"upgrading", offer.upgrading}};
 }
 
 _cold void cluster::Manager::attach(void)
@@ -110,6 +118,20 @@ _cold void cluster::Manager::attach(void)
                 const std::int64_t now = cluster::now_ms();
                 if (replica->lostSince == 0) replica->lostSince = now;
                 ++replica->tries;
+                // the core being updated: never started from here; the new one up: this interface runs the new binary too
+                const bool following = replica->follow > 0 && now - replica->follow < 120000;
+                if (following && cluster::Control::alive()) {
+                    cluster::upgrade_request(false);
+                    cluster::quit_signal = true;
+                    ++replica->version;
+                    return;
+                }
+                if (following) {
+                    replica->nextTry = now + 300;
+                    ++replica->version;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                    continue;
+                }
                 // the core gone (the last interface closed it, a crash): started again (at the first try, then every 5, Retry now), its sessions resumed
                 if ((failures++ % 5 == 0 || replica->retryNow) && replica->running && !cluster::Control::alive() && !replica->starting.exchange(true))
                     std::thread([replica]() { // never waited here: the tries and Retry now go on meanwhile
@@ -155,7 +177,8 @@ _cold cluster::Json cluster::Manager::replicaState(const std::string& key) const
 _cold cluster::Link cluster::Manager::link(void) const
 {
     if (!this->_replica || this->_replica->lostSince == 0) return {};
-    return {true, this->_replica->tries, this->_replica->lostSince, this->_replica->nextTry};
+    const bool upgrading = this->_replica->follow > 0 && cluster::now_ms() - this->_replica->follow < 120000;
+    return {true, upgrading, this->_replica->tries, this->_replica->lostSince, this->_replica->nextTry};
 }
 
 // xstyle: ignore-next CPP-SINGLE-STATEMENT (cluster::ReplicaState is only declared in Manager.hpp)
@@ -316,7 +339,7 @@ _cold cluster::Json cluster::Manager::syncState(const cluster::Json& request)
         {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()}, {"raise_token", this->raiseToken()},
         {"machine_request", this->_machineRequest.load()}, {"machine_ask", this->machineAsk()}, {"machine", machine},
         {"restore_ask", this->_restoreAsk.load() && this->restorable()}, {"listening", listening},
-        {"progress", this->progressAll()}, {"failures", this->failures()}};
+        {"progress", this->progressAll()}, {"failures", this->failures()}, {"upgrade", upgrade_json_(this->upgradeOffer())}};
 }
 
 _cold bool cluster::start_core(const std::vector<std::string>& args)

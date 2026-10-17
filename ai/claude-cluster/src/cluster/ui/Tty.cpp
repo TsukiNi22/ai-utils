@@ -554,6 +554,7 @@ class TtyUi {
         std::vector<FormField> _form;
         std::size_t _formFocus = 0;                 // a field, then Submit (size), Cancel (size + 1)
         std::map<std::string, std::int64_t> _audioStart; // an audio playing here: when it started (its display id)
+        std::string _upgradeLater;                  // the newer version put off (Esc): not asked again in this run
         std::vector<cluster::PluginRepo> _plug;     // the plugins browser: the sources listed (the index of the core)
         std::int64_t _plugRead = 0;
         std::size_t _plugSel = 0;                   // its row (a source, an item)
@@ -1165,7 +1166,7 @@ class TtyUi {
                 return;
             }
             if (this->_active == TASKS_ID) return; // the Tasks session: no prompt
-            if (this->_webTty && (text.starts_with("!") || (text.starts_with(":") && text.find('!') != std::string::npos) || text.starts_with(":r ")
+            if (this->_webTty && (text.starts_with("!") || (text.starts_with(":") && !text.starts_with("::") && text.find('!') != std::string::npos) || text.starts_with(":r ")
                 || text.starts_with(":read ")) && !this->_manager.config().web.shell) {
                 this->status_("the shell from the page is off (settings of the computer: Web > Shell from the page)", true);
                 return;
@@ -1251,7 +1252,7 @@ class TtyUi {
             const std::pair<std::size_t, std::size_t> sel = this->_editor.selection();
             const std::size_t cursor = this->_editor.cursor();
             // its mode: ! a command of the shell (in the folder of the session), : a command of claude-cluster (like vim)
-            const char mode = text.starts_with("!") ? '!' : text.starts_with(":") ? ':' : '\0';
+            const char mode = text.starts_with("!") ? '!' : text.starts_with(":") && !text.starts_with("::") ? ':' : '\0';
             std::string target = this->_active == GLOBAL_ID ? "to the global session " : this->_active == TASKS_ID ? "a new task · +30m <text>: a reminder "
                 : "to " + this->_active + " ";
             if (mode == '!') {
@@ -1320,12 +1321,12 @@ class TtyUi {
                         for (std::size_t k = x; k < at;) {
                             std::size_t end = k;
                             const bool lead = text[k] == '/' && text.find_first_not_of(" \n") == k;
-                            const bool file = text[k] == '@' && (k == 0 || text[k - 1] == ' ' || text[k - 1] == '\n');
+                            const bool file = (text[k] == '@' || text.compare(k, 2, "::") == 0) && (k == 0 || text[k - 1] == ' ' || text[k - 1] == '\n');
                             if (lead || file) {
                                 end = text.find_first_of(" \n", k);
                                 end = std::min(end == std::string::npos ? at : end, at);
                             } else {
-                                while (end < at && !(text[end] == '@' && (end == 0 || text[end - 1] == ' ' || text[end - 1] == '\n'))
+                                while (end < at && !((text[end] == '@' || text.compare(end, 2, "::") == 0) && (end == 0 || text[end - 1] == ' ' || text[end - 1] == '\n'))
                                     && !(text[end] == '/' && text.find_first_not_of(" \n") == end))
                                     ++end;
                             }
@@ -1875,7 +1876,7 @@ class TtyUi {
             ftxui::Elements rows;
             for (int i = start; i < static_cast<int>(items.size()) && i < start + 8; ++i) {
                 const cluster::Candidate& c = items[static_cast<std::size_t>(i)];
-                const std::string prefix = this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command || this->_editor.kind() == cluster::CompletionKind::Skill ? "/" : "";
+                const std::string prefix = this->_editor.kind() == cluster::CompletionKind::Session ? "::" : this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command || this->_editor.kind() == cluster::CompletionKind::Skill ? "/" : "";
                 ftxui::Element row = ftxui::hbox({ftxui::text("  " + prefix + c.label + "  "), ftxui::text(cluster::one_line(c.description, 70)) | ftxui::dim, ftxui::filler()});
                 rows.push_back(i == selected ? row | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : row | ftxui::color(this->_theme.text));
             }
@@ -4321,6 +4322,27 @@ class TtyUi {
             const std::function<ftxui::Element(ftxui::Element, const ftxui::Event&)> press = [&](ftxui::Element element, const ftxui::Event& key) {
                 return this->tap_(std::move(element), 1, [this, key]() {(void)this->event_(key);});
             };
+            if (this->upgradeShown_()) {
+                const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
+                return box(ftxui::vbox({ftxui::text(" A newer claude-cluster is installed") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text(""),
+                    ftxui::text(std::string(" ") + CLUSTER_VERSION + "  →  " + offer.version) | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text(""),
+                    ftxui::paragraph(" Update: the turns running end first, the sessions are saved, the core and every terminal / window switch to the new "
+                        "version by themselves, the sessions resumed - nothing to start again by hand.") | ftxui::color(this->_theme.text),
+                    ftxui::text(""),
+                    ftxui::hbox({press(ftxui::text(" [u] / Enter  Update ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
+                            ftxui::Event::Character('u')), ftxui::text("   "),
+                        press(ftxui::text(" [i]  Ignore this version ") | ftxui::color(this->_theme.text), ftxui::Event::Character('i')), ftxui::text("   "),
+                        press(ftxui::text(" [q]  Quit claude-cluster ") | ftxui::color(this->_theme.error), ftxui::Event::Character('q'))}),
+                    ftxui::text(" Esc: later (the palette or a new start ask again)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 92);
+            }
+            if (const cluster::Link link = this->_manager.link(); link.lost && link.upgrading) {
+                // the core being updated: this terminal follows it (the new binary run in place of this one)
+                this->_animating = true;
+                static const std::array<const char*, 10> turn = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+                return box(ftxui::vbox({ftxui::text(std::string(" ") + turn[static_cast<std::size_t>(cluster::now_ms() / 100 % 10)] + " Updating claude-cluster…")
+                    | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text(""),
+                    ftxui::text(" the core runs the new version; this terminal switches to it as soon as it is up") | ftxui::color(this->_theme.text)}), 84);
+            }
             if (const cluster::Link link = this->_manager.link(); link.lost) {
                 // the core lost: over everything, until it is back (Retry now / Quit)
                 this->_animating = true;
@@ -5073,9 +5095,32 @@ class TtyUi {
             return ftxui::dbox({screen, this->scanBox_(*scan)});
         }
 
+        _nodiscard bool upgradeShown_(void) const
+        {
+            const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
+            return !offer.version.empty() && !offer.started && offer.version != this->_upgradeLater && this->_mode == Mode::Normal && !this->_manager.link().lost;
+        }
+
+        void upgrade_(const std::string& action)
+        {
+            try {
+                this->status_(this->_manager.upgradeAct(action));
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
+            }
+        }
+
         /* events */
         bool event_(ftxui::Event event)
         {
+            if (event != ftxui::Event::Custom && !event.is_mouse() && this->upgradeShown_()) {
+                // a newer claude-cluster installed: u / Enter update, i ignore it, q quit everything, Esc later
+                if (event == ftxui::Event::Character('u') || event == ftxui::Event::Return) this->upgrade_("update");
+                else if (event == ftxui::Event::Character('i')) this->upgrade_("ignore");
+                else if (event == ftxui::Event::Character('q')) this->upgrade_("quit");
+                else if (event == ftxui::Event::Escape) this->_upgradeLater = this->_manager.upgradeOffer().version;
+                return true;
+            }
             if (event != ftxui::Event::Custom && !event.is_mouse() && this->_manager.link().lost) {
                 // the core lost: its popup only (r / Enter: retry now, q / the quit key: quit)
                 if (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R') || event == ftxui::Event::Return) this->_manager.retryNow();
@@ -5693,7 +5738,7 @@ class TtyUi {
             return 0;
         }
 
-        TtyUi(cluster::App& app) : _app(app), _manager(*app.manager) { /* Nothing */ };
+        TtyUi(cluster::App& app): _app(app), _manager(*app.manager) { /* Nothing */ };
 };
 
 } // namespace

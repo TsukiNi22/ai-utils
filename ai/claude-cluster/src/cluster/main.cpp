@@ -36,8 +36,10 @@ _cold int main(int argc, char* argv[])
 
     try {
         // Call to the main endpoint
+        cluster::set_program_args(argc, argv);
         core.init(argc, argv);
         core.run();
+        if (cluster::upgrade_requested()) cluster::upgrade_exec(); // updated: the new binary in place of this one (back here: it failed)
     } catch (const utils::exception::IException& e) { // Custom error
         if (e.isNone() && e.getCode() == utils::exception::InternalCode::Exit) return OK; // Exit - no error
         if (rtk_mode(argc, argv)) std::cerr << "claude-cluster: error: " << e.what() << ": " << e.info() << std::endl; // one plain line

@@ -1193,7 +1193,7 @@ _cold static cluster::CompletionKind completion_kind_(const std::string& name)
     static const std::map<std::string, cluster::CompletionKind> kinds = {{"file", cluster::CompletionKind::File},
         {"folder", cluster::CompletionKind::Folder}, {"command", cluster::CompletionKind::Command}, {"skill", cluster::CompletionKind::Skill}, {"mode", cluster::CompletionKind::Mode},
         {"model", cluster::CompletionKind::Model}, {"effort", cluster::CompletionKind::Effort}, {"trash", cluster::CompletionKind::Trash},
-        {"shell", cluster::CompletionKind::Shell}, {"ex", cluster::CompletionKind::Ex}, {"setting", cluster::CompletionKind::Setting}};
+        {"shell", cluster::CompletionKind::Shell}, {"ex", cluster::CompletionKind::Ex}, {"setting", cluster::CompletionKind::Setting}, {"session", cluster::CompletionKind::Session}};
     return kinds.contains(name) ? kinds.at(name) : cluster::CompletionKind::None;
 }
 

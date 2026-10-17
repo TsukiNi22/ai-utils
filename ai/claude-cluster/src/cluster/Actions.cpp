@@ -44,6 +44,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     std::vector<cluster::Action> list = {
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
         {"plugins", "Plugins: sources (a repository, a folder, a .zip), install / remove, on / off, their files", "", "", true},
+        {"upgrade", "Update claude-cluster to the newer version installed (the sessions kept, nothing to restart)", "", "", false},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
@@ -380,6 +381,8 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
                 if (equal != std::string::npos) values[cluster::trim(pair.substr(0, equal))] = cluster::trim(pair.substr(equal + 1));
             }
             result.message = manager.displayAct(session, arg, {{"values", values}});
+        } else if (base == "upgrade") {
+            result.message = manager.upgradeAct("update"); // the newer claude-cluster installed: switched to it
         } else if (base == "fork") {
             result.focus = manager.forkSession(session, "");
             result.message = "forked";
@@ -634,6 +637,18 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                     }
                 } catch (const utils::exception::IException&) {}
                 break;
+            case cluster::CompletionKind::Session: {
+                // the sessions: open ones first (their state, their folder), then the closed ones; a name with a space: its id
+                const std::function<std::string(const cluster::SessionSpec&)> handle = [](const cluster::SessionSpec& spec) {
+                    return spec.name.find_first_of(" \t") == std::string::npos && !spec.name.empty() ? spec.name : spec.id;
+                };
+                for (const cluster::Snapshot& s: manager.list(false))
+                    if (!s.spec.global) add(handle(s.spec), std::string("open · ") + cluster::state_name(s.state) + " · " + cluster::short_path(s.spec.cwd)
+                        + (s.spec.summary.empty() ? std::string() : " · " + cluster::one_line(s.spec.summary, 60)));
+                for (const cluster::SessionSpec& spec: manager.trash())
+                    add(handle(spec), "closed " + cluster::human_age(spec.deleted) + " ago · " + cluster::short_path(spec.cwd));
+                break;
+            }
             case cluster::CompletionKind::Trash:
                 for (const cluster::SessionSpec& spec: manager.trash())
                     add(spec.name, "closed " + cluster::human_age(spec.deleted) + " ago, " + cluster::short_path(spec.cwd));
@@ -662,7 +677,7 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
 {
     // A local /command runs here; any other /command (skill, command of the agent) is sent as the prompt; !<command> and
     // :<command>: the modes of the prompt
-    const bool mode = line.starts_with("!") || line.starts_with(":");
+    const bool mode = line.starts_with("!") || (line.starts_with(":") && !line.starts_with("::"));
     if (!line.starts_with("/") && !mode) return std::nullopt;
     if (manager.replica()) { // a replica: run by its core
         const cluster::Json r = manager.call({{"cmd", "slash"}, {"session", session}, {"text", line}, {"ui", true}});
@@ -855,7 +870,7 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
 _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& manager, const std::string& session, const std::string& line)
 {
     // a local command run here: its popup while it takes time, its failure (OK / Retry); else sent as the prompt
-    if (manager.replica() || !(line.starts_with("/") || line.starts_with("!") || line.starts_with(":"))) return run_slash_(manager, session, line);
+    if (manager.replica() || !(line.starts_with("/") || line.starts_with("!") || (line.starts_with(":") && !line.starts_with("::")))) return run_slash_(manager, session, line);
     cluster::Busy busy(manager, cluster::one_line(line, 70), session);
     const std::optional<cluster::ActionResult> result = run_slash_(manager, session, line);
     if (!result) return result; // not a local one (its popup dropped: never shown)

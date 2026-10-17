@@ -46,6 +46,7 @@ enum class CompletionKind {
     Shell,      // !command: the commands of the user's shell (its aliases, functions, builtins, programs)
     Ex,         // :command
     Setting,    // argument of :set (key=)
+    Session,    // ::name: a session of claude-cluster (open or closed)
 };
 
 enum class VimMode {

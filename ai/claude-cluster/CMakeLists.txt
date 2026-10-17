@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.17 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.18 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -87,6 +87,7 @@ set(SRC
     src/cluster/Services.cpp
     src/cluster/Showcase.cpp
     src/cluster/Plugins.cpp
+    src/cluster/Manager-Upgrade.cpp
     src/cluster/Usage.cpp
     src/cluster/WebTty.cpp
     src/cluster/Vt.cpp

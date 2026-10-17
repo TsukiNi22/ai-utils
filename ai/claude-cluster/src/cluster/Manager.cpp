@@ -988,6 +988,7 @@ _cold void cluster::Manager::tick(void)
     this->groupsTick_();
     this->fireSchedules_();
     if (++seconds % 300 == 1) this->purge();
+    if (seconds % 3 == 0) this->upgradeCheck_();
     {
         // the prompts queued while a turn runs: given to claude after a moment (its next step)
         std::vector<std::shared_ptr<cluster::Session>> sessions;

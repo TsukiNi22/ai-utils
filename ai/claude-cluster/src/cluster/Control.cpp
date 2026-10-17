@@ -806,6 +806,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display_update: session, id, display {type, ...}");
             manager.displayUpdate(session(), arg_(request, "id"), request["display"]);
             data = {{"id", arg_(request, "id")}};
+        } else if (cmd == "upgrade") {
+            // a newer claude-cluster installed: update / ignore / quit (the user, in an interface of this computer)
+            if (from_web || from_global)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the update is chosen by the user, in a terminal or a window of claude-cluster");
+            data = {{"done", manager.upgradeAct(arg_(request, "action"))}};
         } else if (cmd == "plugins_refresh") {
             manager.pluginsRefresh();
         } else if (cmd == "display_act") {

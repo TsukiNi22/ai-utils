@@ -726,6 +726,8 @@ function render(state) {
     lastState = state;
     if (state.remote && window.ClusterApp && ClusterApp.remote && render.remote !== state.remote) { render.remote = state.remote; ClusterApp.remote(state.remote); }
     if (window.ClusterApp) checkAppUpdate(state.version_app || ""); // inside the app: an older app blocked until it is updated
+    if (state.version_app && render.core && render.core !== state.version_app) { location.reload(); return; } // the core updated: its page
+    if (state.version_app) render.core = state.version_app;
     applyStyle(state.style);
     watchAlerts(state);
     if (state.face) $("brandFace").textContent = state.face.text;
@@ -2095,9 +2097,10 @@ function context(input) {
     const word = before.match(/(?:\\ |[^\s])*$/)[0];
     const start = cursor - word.length;
     const head = before.slice(0, start).trim();
+    if (word.startsWith("::")) return {kind: "session", query: word.slice(2), start: start + 2, end: cursor, session: current};
     if (word.startsWith("@")) return {kind: "file", query: word.slice(1), start: start + 1, end: cursor, session: current};
     // the modes: !<command of the shell> <files>, :<command> <its argument>
-    if (input.id === "prompt" && (text.startsWith("!") || text.startsWith(":"))) {
+    if (input.id === "prompt" && (text.startsWith("!") || (text.startsWith(":") && !text.startsWith("::")))) {
         const shell = text.startsWith("!");
         if (start === 0) return {kind: shell ? "shell" : "ex", query: word.slice(1), start: 1, end: cursor, session: current};
         const rest = before.slice(1, start).trim();

@@ -1,6 +1,10 @@
 
 # claude-cluster - how your answers are shown
 
+A `::name` in a prompt of the user is a session of claude-cluster (by its name or its id, open or closed): the one the
+user points at (the global session: its tools reach it - session_list, session_send...; a sub-session: the user means
+that other session, ask the global session or the user when you need it).
+
 The user reads your answers in claude-cluster (a terminal, a window, a web page, a phone), which draws Markdown:
 - **Code blocks**: a fenced block with its language (```` ```cpp ````, ```` ```python ````, ```` ```bash ````,
   ```` ```json ````, ```` ```diff ````...) is drawn in a box, coloured by language, with its language and a
