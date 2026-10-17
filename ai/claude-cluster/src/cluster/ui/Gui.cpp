@@ -15,6 +15,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
+#include "cluster/Showcase.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
@@ -1678,7 +1679,10 @@ class Window: public QMainWindow {
                     } else if (setting.kind == cluster::SettingKind::Action) {
                         QPushButton* button = new QPushButton(q_("▶ " + current), tab);
                         const std::string key = setting.key;
-                        QObject::connect(button, &QPushButton::clicked, [this, key]() {this->settingAction(key);});
+                        QObject::connect(button, &QPushButton::clicked, [this, key, button]() {
+                            if (key.starts_with("showcase_")) button->window()->close(); // the settings closed: the showcase seen where it happens
+                            this->settingAction(key);
+                        });
                         read = [current]() {return current;}; // not an option: never a change
                         widget = button;
                     } else {
@@ -2645,7 +2649,21 @@ class Window: public QMainWindow {
         void settingAction(const std::string& key)
         {
             // an action of the settings: the map of this computer, the system prompt of the global session or of the
-            // sub-sessions (edited here)
+            // sub-sessions (edited here), the showcase of the Debug page (in a thread: the window never frozen)
+            if (key.starts_with("showcase_")) {
+                std::thread([this, what = key.substr(9)]() {
+                    std::string done;
+                    bool error = false;
+                    try {
+                        done = cluster::showcase(this->manager, what, "window");
+                    } catch (const utils::exception::IException& e) {
+                        done = e.info();
+                        error = true;
+                    }
+                    QMetaObject::invokeMethod(this, [this, done, error]() {this->message(done, error);}, Qt::QueuedConnection);
+                }).detach();
+                return;
+            }
             if (key == "machine_sync") {
                 this->askMachine(0);
                 return;
@@ -2845,7 +2863,41 @@ class Window: public QMainWindow {
                 syncing = false;
             });
             timer.start(200);
-            const int result = dialog.exec();
+            int result = 0;
+            cluster::Json answers = cluster::Json::object();
+            for (;;) {
+                result = dialog.exec();
+                if (result != QDialog::Accepted) break;
+                answers = cluster::Json::object();
+                for (const Row& row: rows) {
+                    std::string value;
+                    const cluster::Json options = row.question.value("options", cluster::Json::array());
+                    for (std::size_t i = 0; i < row.options.size(); ++i)
+                        if (row.options[i]->isChecked()) value += (value.empty() ? "" : ", ") + options[i].value("label", std::string());
+                    const std::string typed = cluster::trim(row.text->text().toStdString());
+                    if (row.other->isChecked() && !typed.empty()) value += (value.empty() ? "" : ", ") + typed;
+                    answers[row.question.value("question", std::string())] = value;
+                }
+                if (rows.size() < 2) break;
+                // like Claude Code: every answer reviewed, Submit / Back (to the questions) / Cancel
+                QString summary;
+                for (const Row& row: rows) {
+                    const std::string answer = answers.value(row.question.value("question", std::string()), std::string());
+                    summary += "<p>" + q_(row.question.value("question", std::string())).toHtmlEscaped() + "<br><b>→ "
+                        + (answer.empty() ? QString("(no answer)") : q_(answer).toHtmlEscaped()) + "</b></p>";
+                }
+                QMessageBox review(QMessageBox::Question, q_(ask.name + " asks · review your answers"), summary + "<p>Ready to submit your answers?</p>",
+                    QMessageBox::NoButton, this);
+                review.setTextFormat(Qt::RichText);
+                QPushButton* submit = review.addButton("Submit", QMessageBox::AcceptRole);
+                QPushButton* back = review.addButton("Back", QMessageBox::RejectRole);
+                QPushButton* cancel = review.addButton("Cancel", QMessageBox::DestructiveRole);
+                review.setDefaultButton(submit);
+                review.exec();
+                if (review.clickedButton() == back) continue;
+                if (review.clickedButton() == cancel) result = QDialog::Rejected;
+                break;
+            }
             timer.stop();
             if (result == 2) {
                 this->message("question answered", false);
@@ -2861,16 +2913,6 @@ class Window: public QMainWindow {
                 this->message("question declined", false);
                 return;
             }
-            cluster::Json answers = cluster::Json::object();
-            for (const Row& row: rows) {
-                std::string value;
-                const cluster::Json options = row.question.value("options", cluster::Json::array());
-                for (std::size_t i = 0; i < row.options.size(); ++i)
-                    if (row.options[i]->isChecked()) value += (value.empty() ? "" : ", ") + options[i].value("label", std::string());
-                const std::string typed = cluster::trim(row.text->text().toStdString());
-                if (row.other->isChecked() && !typed.empty()) value += (value.empty() ? "" : ", ") + typed;
-                answers[row.question.value("question", std::string())] = value;
-            }
             try {
                 this->manager.answerQuestions(ask.session, ask.requestId, answers);
                 this->message("answered", false);
@@ -2879,6 +2921,39 @@ class Window: public QMainWindow {
             }
         }
         std::int64_t lastInterrupt = 0;     // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
+
+        QMessageBox* linkBox = nullptr;   // the core lost: Reconnecting (Retry now / Quit), closed once it is back
+
+        void showLink(void)
+        {
+            const cluster::Link link = this->manager.link();
+            if (!link.lost) {
+                if (this->linkBox != nullptr) {
+                    this->linkBox->deleteLater();
+                    this->linkBox = nullptr;
+                    this->message("the core of claude-cluster is back", false);
+                }
+                return;
+            }
+            if (this->linkBox == nullptr) {
+                this->linkBox = new QMessageBox(QMessageBox::Warning, "claude-cluster", "", QMessageBox::NoButton, this);
+                QPushButton* retry = this->linkBox->addButton("Retry now", QMessageBox::AcceptRole);
+                QPushButton* quit = this->linkBox->addButton("Quit", QMessageBox::RejectRole);
+                QObject::disconnect(retry, nullptr, nullptr, nullptr); // its buttons never close it: only the core back does
+                QObject::disconnect(quit, nullptr, nullptr, nullptr);
+                QObject::connect(retry, &QPushButton::clicked, this, [this]() {this->manager.retryNow();});
+                QObject::connect(quit, &QPushButton::clicked, this, [this]() {
+                    this->close();
+                    QCoreApplication::quit();
+                });
+                this->linkBox->setWindowModality(Qt::WindowModal);
+                this->linkBox->show();
+            }
+            const std::int64_t now = cluster::now_ms();
+            this->linkBox->setText(q_("<b>Reconnecting to claude-cluster…</b><br>its core is not reached since " + cluster::took(now - link.since) + "<br>try "
+                + std::to_string(link.tries) + " · the next one in " + std::to_string((std::max<std::int64_t>(0, link.next - now) + 999) / 1000)
+                + " s (the core started again when it is gone: the sessions resumed)"));
+        }
 
         void tick(void)
         {
@@ -2891,6 +2966,7 @@ class Window: public QMainWindow {
                 return;
             }
             this->scanProgress();
+            this->showLink();
             // the global session asked to show a session (ui_focus) or another style (ui_style)
             const std::pair<std::uint64_t, std::string> focus = this->manager.focusRequest();
             if (this->manager.raiseRequest() != this->raiseSeen) { // a notification clicked: this window to the front

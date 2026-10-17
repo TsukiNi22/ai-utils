@@ -530,6 +530,12 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void quit() {
+            // the computer lost (its Reconnecting popup): the app closed
+            ui.post(() -> finishAndRemoveTask());
+        }
+
+        @JavascriptInterface
         public String info() {
             // the app and this phone, for the This device page
             try {

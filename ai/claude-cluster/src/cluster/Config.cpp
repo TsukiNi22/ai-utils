@@ -179,6 +179,8 @@ _cold void cluster::Config::load(void)
     this->describeModel = table["sessions"]["describe_model"].value_or(this->describeModel);
     this->maxParallel = table["sessions"]["max_parallel"].value_or(this->maxParallel);
     this->taskQueue = table["sessions"]["task_queue"].value_or(this->taskQueue);
+    this->historyLimit = std::max(0, table["sessions"]["history_limit"].value_or(this->historyLimit));
+    this->transcriptLimitMb = std::max(0, table["sessions"]["transcript_limit_mb"].value_or(this->transcriptLimitMb));
     this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
     this->sessionsPrompt = table["sessions"]["prompt"].value_or(this->sessionsPrompt);
@@ -242,12 +244,13 @@ _cold void cluster::Config::load(void)
 
     /* service */
     toml::node_view<const toml::node> sv = std::as_const(table)["service"];
-    this->service.frontend = sv["frontend"].value_or(this->service.frontend);
-    this->service.terminal = sv["terminal"].value_or(this->service.terminal);
-    this->service.voiceMode = sv["voice_mode"].value_or(this->service.voiceMode);
-    this->service.wakeWord = sv["wake_word"].value_or(this->service.wakeWord);
+    // merged into Interface / Voice (one setting each): the old [service] keys still read when they are in the file
+    this->service.frontend = sv["frontend"].value_or(this->frontend == "tty" ? std::string("tty") : this->frontend == "gui" ? std::string("gui") : std::string("auto"));
+    this->service.terminal = table["ui"]["terminal"].value_or(sv["terminal"].value_or(this->service.terminal));
+    this->service.voiceMode = sv["voice_mode"].value_or(this->voice.mode == "push" ? std::string("auto") : this->voice.mode); // opened by the voice: it listens
+    this->service.wakeWord = sv["wake_word"].value_or(std::string());
     this->service.python = sv["python"].value_or(this->service.python);
-    this->service.source = sv["source"].value_or(this->service.source);
+    this->service.source = table["voice"]["source"].value_or(sv["source"].value_or(this->service.source));
     this->usage.account = table["usage"]["account"].value_or(this->usage.account);
     if (table["usage"]["transcripts"].as_array()) this->usage.transcripts = strings_(table["usage"]["transcripts"], this->usage.transcripts);
     else if (const char* env = std::getenv("CLAUDE_CLUSTER_TRANSCRIPTS")) // the environment of the core (tests): folders apart by ':', empty: none

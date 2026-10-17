@@ -113,6 +113,8 @@ _cold void open_folder(const std::filesystem::path& folder);           // the fi
 _cold _nodiscard std::string open_terminal(const std::filesystem::path& folder); // a terminal there: the one opened ("" none found)
 inline std::atomic<bool> quit_signal{false}; // set by catch_quit_signals
 _cold void complete_path(void);         // PATH + the folders of the user's tools (~/.local/bin...) it lacks
+// A JSONL file kept to its newest lines: at most maxLines (0: any) and maxBytes (0: any); true when it was cut
+_cold bool keep_newest(const std::filesystem::path& path, const std::size_t maxLines, const std::uintmax_t maxBytes);
 // Debug mode ([debug] enabled / topics): lines of <data>/debug.log, the process named (core, terminal, window, web terminal)
 _cold void debug_configure(const bool on, const std::vector<std::string>& topics); // set by the config (its reload too)
 _cold void debug_role(const std::string& role);                                     // what this process is (core, terminal...)

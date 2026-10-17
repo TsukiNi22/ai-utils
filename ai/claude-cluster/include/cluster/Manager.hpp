@@ -52,6 +52,13 @@ struct ReplicaState;                // Manager-Replica.cpp: this process an inte
 //----------------------------------------------------------------//
 /* STRUCT */
 
+struct Link {                       // an interface and its core
+    bool lost = false;              // not reached: reconnecting
+    int tries = 0;
+    std::int64_t since = 0;         // unix ms
+    std::int64_t next = 0;          // unix ms of the next try
+};
+
 struct SpawnRequest {
     std::string cwd;
     std::string name;
@@ -160,6 +167,7 @@ class Manager {
         std::map<std::string, std::int64_t> _clients;   // the interfaces of other processes: last seen (sync)
         std::map<std::string, bool> _clientFocus;       // their focus (one in front: no notification)
         bool _hadClients = false;
+        std::size_t _historyWrites = 0;                 // prompts added since the history was last cut
         bool _background = false;                       // kept without interface: the web closed, stopped by itself once every session is idle
         bool _webBeforeBackground = false;              // the web access was open when the core went in background: opened again by an interface back
         std::int64_t _backgroundSince = 0;              // unix s: when it went in background (0: not)
@@ -208,6 +216,8 @@ class Manager {
         _cold _nodiscard cluster::Json replicaState(const std::string& key) const;   // a part of the last sync
         _cold _nodiscard std::uint64_t syncVersion(void);          // the core: the version its interfaces wait for (sessions, questions, voice)
         _cold _nodiscard std::string replicaError(void) const;              // the core not reached ("": in sync)
+        _cold _nodiscard cluster::Link link(void) const;                    // an interface: the core lost (since, tries, the next one)
+        _cold void retryNow(void);                                          // an interface: the next try now (the core started again if gone)
         _cold void detach_(void);                           // this interface closed: told to the core
         _cold void clientSeen(const std::string& client);   // the core: an interface synced
         _cold void clientGone(const std::string& client);
@@ -336,6 +346,8 @@ class Manager {
         _nodiscard std::uint64_t machineRequest(void) const;
         _cold void answer(const std::string& id, const std::string& requestId, const std::string& behavior);
         _cold void answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers);
+        _cold void showcasePermission(const std::string& id, const cluster::Permission& permission); // the showcase (Showcase.cpp)
+        _cold void showcaseState(const std::string& id, const cluster::State state);
         _cold void interrupt(const std::string& id);
         _cold void sendNext(const std::string& id);   // its next queued prompt now (the running turn interrupted)
         // a long operation: its popup in every interface (begin, what it does now, a line of its log, its end)

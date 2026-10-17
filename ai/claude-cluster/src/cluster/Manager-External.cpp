@@ -450,6 +450,18 @@ _cold std::string cluster::Manager::displayAct(const std::string& id, const std:
     const std::string type = d.value("type", std::string());
     const std::size_t item = act.value("item", static_cast<std::size_t>(0));
     std::string done;
+    if (const std::optional<cluster::Snapshot> owner = this->snapshot(id); owner && owner->spec.name == "showcase" && (type == "actions" || type == "form")) {
+        // the showcase: what it would do, said; nothing sent to an agent
+        const std::string what = type == "actions" && item < d["buttons"].size() ? "its prompt would be sent: " + d["buttons"][item].value("prompt", std::string())
+            : "its values would go to the global session: " + act.value("values", cluster::Json::object()).dump();
+        this->notice(id, "showcase: " + what);
+        if (type == "form") {
+            d["values"] = act.value("values", cluster::Json::object());
+            d["submitted"] = true;
+            this->displayUpdate(id, displayId, d);
+        }
+        return "showcase: " + what;
+    }
     if (type == "checklist") {
         if (item >= d["items"].size()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no item " + std::to_string(item));
         cluster::Json& entry = d["items"][item];

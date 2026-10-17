@@ -104,6 +104,7 @@ _cold std::optional<cluster::Ask> cluster::Asking::current(void) const
         ask.other = j.value("other", std::string());
         ask.answers = j.value("answers", cluster::Json::object());
         ask.chatting = j.value("chatting", false);
+        ask.review = j.value("review", false);
         for (const cluster::Json& m: j.value("chat", cluster::Json::array()))
             if (m.is_object()) ask.chat.emplace_back(m.value("role", std::string()), m.value("text", std::string()));
         return ask;
@@ -271,6 +272,11 @@ _cold std::string cluster::Asking::next_(void)
         a.other = kept != a.given.end() ? kept->second.other : std::string();
         return "";
     }
+    a.index = a.questions.size() - 1;
+    if (a.questions.size() > 1 && !a.review) { // like Claude Code: every answer reviewed before it is sent
+        a.review = true;
+        return "";
+    }
     const cluster::Ask done = a;
     this->_ask.reset();
     try {
@@ -293,6 +299,11 @@ _cold void cluster::Asking::back(void)
     }
 
     std::lock_guard<std::mutex> lock(this->_mutex);
+    if (this->_ask && this->_ask->review) { // the review left: the last question, as answered
+        this->_ask->review = false;
+        ++this->_version;
+        return;
+    }
     if (!this->_ask || this->_ask->index == 0) return;
     cluster::Ask& a = *this->_ask;
     a.given[a.index] = {a.cursor, a.picked, a.other}; // what is on this one so far: kept for the way forward
@@ -489,7 +500,7 @@ _cold cluster::Json cluster::Asking::json(void) const
     const std::optional<cluster::Ask> ask = this->current();
     if (!ask) return nullptr;
     return {{"session", ask->session}, {"name", ask->name}, {"request_id", ask->requestId}, {"questions", ask->questions}, {"index", ask->index},
-        {"cursor", ask->cursor}, {"picked", ask->picked}, {"other", ask->other}, {"answers", ask->answers}, {"chatting", ask->chatting},
+        {"cursor", ask->cursor}, {"picked", ask->picked}, {"other", ask->other}, {"answers", ask->answers}, {"chatting", ask->chatting}, {"review", ask->review},
         {"chat", [&ask]() {
             cluster::Json chat = cluster::Json::array();
             for (const auto &[role, text]: ask->chat)

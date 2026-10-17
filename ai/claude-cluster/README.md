@@ -400,6 +400,9 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   global session (Ctrl+G) in the terminal, *Global answers* in the window, the web page and the notification, or a word
   of `[global]` said (*la globale*, *laisse la globale répondre*, *let the global answer*): it chooses from the
   conversation, the project and `machine.md`, answers with `session_allow`, then tells you what it answered.
+  **Review** (several questions, like Claude Code): after the last one, every answer on one page - *Submit* (Enter, 1)
+  sends them, *Cancel* (Esc, 2) declines, ← goes back to edit the last one (the window: Answer opens the review, Back
+  returns to the questions; the voice: *valide* submits).
   **Chat about this** (Ctrl+T in the terminal, a button in the window, a field in the web page): a chat about the
   questions inside the popup, with the model of the session (the questions and its last messages as context, a
   one-shot run per message): the conversation of the agent is never touched (no fork, no resume), the question stays
@@ -892,8 +895,8 @@ sure (the router opened its port, tailscale connected, *Name from outside* given
 of its name, its details, its buttons; the terminal: ↑↓ a service, ←→ a button, Enter runs it, a click too; R reads
 it again; the window, the web page: its buttons):
 - **Service (systemd)**: the wake phrase while claude-cluster is closed (its detector hears it and opens a window or a
-  terminal: the *Service* page of the settings - what it opens, the terminal, its microphone, its wake phrase, empty =
-  the one of *Voice*); installed / active / enabled (debug), its last journal lines greyed; Start, Stop, Restart,
+  terminal: what it opens is *Interface > Front-end*, the terminal *Interface > Terminal emulator*, its microphone
+  *Voice > Microphone*, its wake phrase *Voice > Wake phrase*: no page of its own, nothing set twice); installed / active / enabled (debug), its last journal lines greyed; Start, Stop, Restart,
   Enable / Disable, Setup, Remove (asked first). Its detector is paused while claude-cluster runs (the microphone is
   the voice's of the core): what is heard now is under *Voice*.
 - **Web access**: open or closed, its address and code, outside reached or why not; Open / Close now, New code, Ask
@@ -910,14 +913,28 @@ it again; the window, the web page: its buttons):
 - **Outside (router / tailscale)**: reached or why not, upnpc / tailscale present; Ask the router again, Remove the
   redirection (UPnP), Tailscale up.
 
-**Debug mode** (settings > *Debug*: `[debug] enabled`, `topics`): every process - the core, each terminal, window and
-web terminal - writes what it does in `~/.local/share/claude-cluster/debug.log` (4 MB kept, then `debug.log.1`), each
-line with its time, the process (`core`, `terminal`, `window`, `web terminal` + pid) and its topic: **core** (started
-by whom, in background, why it stops), **interfaces** (attached / detached, sync errors), **render** (the terminal size,
-the Qt platform and scale of the window), **voice**, **service** (the actions of the Services tab and their result),
-**web** (open / closed / errors), **platform** (the first line of each process: OS, Wayland / X11, desktop, terminal).
-The questions of the settings are popups (save the changes, a risky action of the Services tab, dangerous values),
-and the terminal is given back clean (mouse, screen, cursor) even when the interface crashes.
+**Limits** (settings > *Sessions*): the prompt history (↑, Ctrl+R: `history.jsonl`) keeps its newest **1000** prompts
+(`history_limit`), each conversation kept here (`logs/<session>.jsonl`, with its pictures and display blocks) its
+newest entries within **25 MB** (`transcript_limit_mb`, checked at its start and every minute); the conversation of the
+agent itself is never touched; 0 = no limit.
+
+**The core lost** by a terminal, a window or the page (killed, crashed, being restarted): a *Reconnecting* popup over
+everything - since when, the tries, the next one (1, 2, 4... 10 s apart; the core started again when it is gone, its
+sessions resumed), **Retry now** (r / Enter) and **Quit** (q); it closes by itself once the core answers.
+
+**Debug** (settings > *Debug*): a **showcase** of everything claude-cluster can show, shown for real on the interface
+you are on (the terminal, the window, the web terminal, the page or the app), in a session of its own (*showcase*, its
+agent never asked anything: nothing spent, delete it when done): *Show everything* in a row, or one by one -
+*Display blocks* (every block the agents use: markdown, callouts, code, table, bar / line / pie charts, progress,
+metrics, heatmap, image, svg, Graphviz diagram, diff, json, tree, terminal output, checklist, steps, timeline, kanban,
+buttons, form, details, compare, math, audio, files - with a table of how this platform draws each one),
+*Questions popup* (a single choice, a multiple choice, Other, the chat about them, the review, answered here and sent
+to nobody), *Permission popup* (Allow / Always / Deny, nothing run), *Session states* (working, waiting, error, idle:
+the icons, the titles, the face), *Progress popup*, *Failure popup* (OK / Retry), *Notifications* (the desktop or
+the phone, the notices). The buttons and forms of the showcase say what they would do instead of sending it. The
+questions of the settings are popups too (save the changes, a risky action of Services, dangerous values), and the
+terminal is given back clean (mouse, screen, cursor) even when the interface crashes. A trace file for a bug report
+stays possible from `config.toml` only (`[debug] enabled = true`, `topics`: `~/.local/share/claude-cluster/debug.log`).
 
 Each action runs with the progress popup and, failing, the failure popup (OK / Retry). *Refresh* (`[services]
 refresh`): `live` (what changes at once; the slow parts - systemd, its journal, tailscale - read every *Delay*),

@@ -37,6 +37,11 @@ struct cluster::ReplicaState {
     std::atomic<int> fd{-1};                    // the socket of the sync waiting (shut down at the quit: it ends at once)
     std::thread thread;                         // the sync (joined at the quit)
     std::atomic<bool> detached{false};          // told the core it closed: once (a second detach would look like an interface back)
+    std::atomic<std::int64_t> lostSince{0};     // unix ms: the core not reached since (0: in sync)
+    std::atomic<int> tries{0};                  // the tries since
+    std::atomic<std::int64_t> nextTry{0};       // unix ms of the next one
+    std::atomic<bool> retryNow{false};          // Retry now asked (the popup)
+    std::atomic<bool> starting{false};          // the core being started again (in a thread of its own)
 };
 
 _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& replica, const bool wait)
@@ -93,16 +98,29 @@ _cold void cluster::Manager::attach(void)
         while (replica->running) {
             try {
                 sync_once_(replica, true);
+                if (failures > 0) ++replica->version; // back: the popup closed
                 failures = 0;
+                replica->lostSince = 0;
+                replica->tries = 0;
             } catch (const std::exception& e) {
                 {
                     std::lock_guard<std::mutex> lock(replica->mutex);
                     replica->error = std::string("the core of claude-cluster not reached (") + e.what() + "): reconnecting";
                 }
+                const std::int64_t now = cluster::now_ms();
+                if (replica->lostSince == 0) replica->lostSince = now;
+                ++replica->tries;
+                // the core gone (the last interface closed it, a crash): started again (at the first try, then every 5, Retry now), its sessions resumed
+                if ((failures++ % 5 == 0 || replica->retryNow) && replica->running && !cluster::Control::alive() && !replica->starting.exchange(true))
+                    std::thread([replica]() { // never waited here: the tries and Retry now go on meanwhile
+                        (void)cluster::start_core();
+                        replica->starting = false;
+                    }).detach();
+                replica->retryNow = false;
+                const int wait = std::min(10000, 1000 << std::min(failures - 1, 4)); // 1, 2, 4, 8, 10 s
+                replica->nextTry = now + wait;
                 ++replica->version;
-                // the core gone (the last interface closed it, a crash): started again once in a while, its sessions resumed
-                if (++failures % 5 == 1 && replica->running && !cluster::Control::alive()) cluster::start_core();
-                for (int i = 0; i < 10 && replica->running; ++i)
+                for (int i = 0; i < wait / 100 && replica->running && !replica->retryNow; ++i)
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
@@ -132,6 +150,18 @@ _cold cluster::Json cluster::Manager::replicaState(const std::string& key) const
     if (!this->_replica) return {};
     std::lock_guard<std::mutex> lock(this->_replica->mutex);
     return this->_replica->state.value(key, cluster::Json());
+}
+
+_cold cluster::Link cluster::Manager::link(void) const
+{
+    if (!this->_replica || this->_replica->lostSince == 0) return {};
+    return {true, this->_replica->tries, this->_replica->lostSince, this->_replica->nextTry};
+}
+
+// xstyle: ignore-next CPP-SINGLE-STATEMENT (cluster::ReplicaState is only declared in Manager.hpp)
+_cold void cluster::Manager::retryNow(void)
+{
+    if (this->_replica) this->_replica->retryNow = true;
 }
 
 _cold std::string cluster::Manager::replicaError(void) const

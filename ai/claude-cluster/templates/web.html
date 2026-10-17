@@ -315,6 +315,12 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
     #who { display: none; }
 }
 }
+.review-question { color: var(--muted); margin-top: 8px; }
+.review-answer { font-weight: 600; color: var(--ok, #3fb950); margin-left: 12px; }
+.review-answer.none { color: var(--warn, #d29922); }
+.review-ready { font-weight: 600; margin: 12px 0 6px; }
+.link-lost { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.link-card { background: var(--surface, #1b1e24); border: 1px solid var(--warn, #d29922); border-radius: 10px; padding: 16px 18px; max-width: 90vw; display: flex; flex-direction: column; gap: 8px; }
 </style>
 </head>
 <body>
@@ -493,17 +499,59 @@ async function reconnect() {
     showLogin("Disconnected: the code again");
 }
 
-// the round trip of this page, measured every 5 s, the last one sent with the next: the ping shown on the computer
+// the round trip of this page, measured every 5 s, the last one sent with the next: the ping shown on the computer; two
+// failing: the computer lost - a Reconnecting popup (its tries, the next one, Retry now / Quit) until it answers again
 let pingLast = -1;
-setInterval(async () => {
-    if (document.hidden || $("app").classList.contains("hidden")) return;
+const link = {fails: 0, since: 0, next: 0, timer: 0};
+async function pingOnce() {
     const start = performance.now();
     try {
-        await fetch("/api/ping", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json"},
+        const r = await fetch("/api/ping", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json"},
             body: JSON.stringify({rtt: pingLast})});
+        if (r.status >= 500) throw new Error("the computer: " + r.status);
         pingLast = Math.round(performance.now() - start);
         $("who").title = "ping " + pingLast + " ms";
-    } catch (error) { /* offline: the state loop reconnects */ }
+        if (link.fails >= 2) { refresh(); toast("the computer is back"); }
+        link.fails = 0;
+        drawLink();
+    } catch (error) {
+        if (link.fails++ === 0) link.since = Date.now();
+        drawLink();
+    }
+}
+function drawLink() {
+    let box = $("linkLost");
+    if (link.fails < 2) { if (box) box.remove(); clearInterval(link.timer); link.timer = 0; return; }
+    if (!box) {
+        box = el("div", "link-lost");
+        box.id = "linkLost";
+        box.setAttribute("role", "alertdialog");
+        document.body.append(box);
+        link.timer = setInterval(drawLink, 500);
+    }
+    const wait = Math.max(0, Math.ceil((link.next - Date.now()) / 1000));
+    box.textContent = "";
+    const card = el("div", "link-card");
+    card.append(el("b", "", "Reconnecting to the computer…"),
+        el("div", "", "not reached since " + Math.round((Date.now() - link.since) / 1000) + " s · try " + link.fails + " · the next one in " + wait + " s"));
+    const row = el("div", "row");
+    const retry = el("button", "primary", "Retry now");
+    retry.type = "button";
+    retry.addEventListener("click", () => { link.next = Date.now() + 5000; pingOnce(); });
+    row.append(retry);
+    if (window.ClusterApp && typeof window.ClusterApp.quit === "function") {
+        const quit = el("button", "danger", "Quit");
+        quit.type = "button";
+        quit.addEventListener("click", () => window.ClusterApp.quit());
+        row.append(quit);
+    }
+    card.append(row);
+    box.append(card);
+}
+setInterval(() => {
+    if (document.hidden || $("app").classList.contains("hidden")) return;
+    link.next = Date.now() + 5000;
+    pingOnce();
 }, 5000);
 
 function showLogin(message) {
@@ -1628,6 +1676,22 @@ function renderQuestion(a) {
     shownAsk = "";
     box.textContent = "";
     box.classList.remove("hidden");
+    if (a.review) {
+        // like Claude Code: every answer, then Submit / Cancel (Back: the last question to edit)
+        box.append(el("div", "what", a.name + " asks · review your answers" + (a.session !== current ? " - it waits for your answer" : "")));
+        for (const each of a.questions) {
+            box.append(el("div", "review-question", (each.header ? each.header + " · " : "") + each.question));
+            const answer = (a.answers || {})[each.question] || "";
+            box.append(el("div", "review-answer" + (answer ? "" : " none"), "→ " + (answer || "(no answer)")));
+        }
+        box.append(el("div", "review-ready", "Ready to submit your answers?"));
+        const actions = el("div", "row");
+        const make = (text, cls, request) => { const b = el("button", cls, text); b.type = "button"; b.addEventListener("click", request); return b; };
+        actions.append(make("Submit", "primary", () => act({cmd: "ask", action: "next"})), make("Back", "", () => act({cmd: "ask", action: "back"})),
+            make("Cancel", "danger", () => act({cmd: "ask", action: "decline"})));
+        box.append(actions);
+        return;
+    }
     const q = a.questions[a.index];
     const options = q.options || [];
     const multi = !!q.multiSelect;
@@ -2987,6 +3051,20 @@ function drawDrawer() {
     if (settingsData.some((s) => s.page === settingsTab && s.web_editable === false))
         body.append(el("div", "readonly-note", "Read only from this page: the computer allows it in its settings (Web › Settings from the page)."));
     for (const s of settingsData.filter((x) => x.page === settingsTab)) {
+        if (s.kind === "action" && s.key.startsWith("showcase_")) {
+            // the Debug page: everything claude-cluster can show, shown here (this page or the app)
+            const row = el("div", "setting");
+            const go = el("button", "", "▶ " + s.label.trim());
+            go.type = "button";
+            go.title = s.help || "";
+            go.addEventListener("click", async () => {
+                closePanels(); // the showcase seen where it happens (act tells its message)
+                await act({cmd: "showcase", what: s.key.slice(9), platform: window.ClusterApp ? "app" : "web"});
+            });
+            row.append(go, el("div", "setting-help", s.help || ""));
+            body.append(row);
+            continue;
+        }
         if (s.kind === "action") continue;
         const key = s.section + "." + s.key;
         const row = el("div", "setting" + (settingsChanged.has(key) ? " changed" : ""));

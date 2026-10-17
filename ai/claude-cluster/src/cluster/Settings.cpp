@@ -107,8 +107,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
 
     std::vector<cluster::SettingsPage> pages = {
         {"ui", "Interface", {
-            {"ui", "frontend", "Front-end", SettingKind::Choice, {"auto", "tty", "gui"}, "auto: terminal when in a terminal, else a window (--tty / --gui win)", true,
+            {"ui", "frontend", "Front-end", SettingKind::Choice, {"auto", "tty", "gui"}, "auto: terminal when in a terminal, else a window (--tty / --gui win); "
+                "also what the wake phrase opens when claude-cluster is closed (auto: a window, a terminal on its failure)", true,
                 [](const cluster::Config& cf) {return cf.frontend;}},
+            {"ui", "terminal", "Terminal emulator", SettingKind::Text, {}, "the terminal opened when one is needed (the wake phrase with Front-end tty, or "
+                "a window that failed), with its option to run a command (kitty, alacritty -e...); empty: the first installed", false,
+                [](const cluster::Config& cf) {return cf.service.terminal;}},
             {"ui", "matching", "Matching of the lists", SettingKind::Choice, {"c2dmp", "raw"}, "the completions (/command, @file, !command, :command, "
                 "models...), the palette and the search of the settings: c2dmp (c2dmp-hsm of libutils: typos and misplaced letters found, the "
                 "closest first) or raw (what starts with the text typed, then what contains it)", false,
@@ -244,6 +248,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "• step: given to claude after 1.5 s (Esc edits it before), taken at its next step - between two tool calls - like the queue of Claude Code\n"
                 "• end: held here until the end of the turn (editable until then), then sent", false,
                 [](const cluster::Config& cf) {return cf.queueGiven;}},
+            {"sessions", "history_limit", "Prompt history (prompts)", SettingKind::Int, {}, "the prompts kept for ↑ / Ctrl+R (history.jsonl): the oldest "
+                "dropped beyond it; 0: all", false, [](const cluster::Config& cf) {return std::to_string(cf.historyLimit);}},
+            {"sessions", "transcript_limit_mb", "Transcript size (MB)", SettingKind::Int, {}, "each conversation kept here (logs/<session>.jsonl, the "
+                "pictures and display blocks in it): its oldest entries dropped beyond this size (the conversation of the agent itself untouched); 0: no "
+                "limit", false, [](const cluster::Config& cf) {return std::to_string(cf.transcriptLimitMb);}},
             {"sessions", "task_queue", "Task queue", SettingKind::Int, {}, "tasks waiting for a free place, at most (a new one past it is refused)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.taskQueue);}},
             {"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts", false,
@@ -279,6 +288,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.voice.enabled ? std::string("true") : std::string("false");}},
             {"voice", "mode", "Listening", SettingKind::Choice, {"push", "auto", "wake"}, "push-to-talk key, always, or after the wake phrase", true,
                 [](const cluster::Config& cf) {return cf.voice.mode;}},
+            {"voice", "source", "Microphone", SettingKind::Text, {}, "PulseAudio / PipeWire source of the wake phrase heard while claude-cluster is closed "
+                "(Services > Service), empty: the default one", false,
+                [](const cluster::Config& cf) {return cf.service.source;}},
             {"voice", "wake_word", "Wake phrase", SettingKind::Text, {}, "wake mode, variants separated by commas (ok claude, okay claude)", false,
                 [](const cluster::Config& cf) {return cf.voice.wakeWord;}},
             {"voice", "wake_seconds", "Armed (seconds)", SettingKind::Int, {}, "the phrase alone: the next sentence within this time is the command", false,
@@ -338,18 +350,6 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.user.notes;}},
             {"ui", "machine_days", "Map: sync proposed after (days)", SettingKind::Int, {}, "the map of this computer older: a sync proposed at start (0: never)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.machineDays);}},
-        }},
-        {"service", "Service", {
-            {"service", "frontend", "Opens", SettingKind::Choice, {"auto", "gui", "tty"}, "auto: a window, else / on its failure a terminal; gui: a window (a terminal on its failure); tty: a terminal", false,
-                [](const cluster::Config& cf) {return cf.service.frontend;}},
-            {"service", "terminal", "Terminal", SettingKind::Text, {}, "with its option to run a command (kitty, alacritty -e...), empty: the first installed", false,
-                [](const cluster::Config& cf) {return cf.service.terminal;}},
-            {"service", "voice_mode", "Voice of the opened one", SettingKind::Choice, {"auto", "wake", "push"}, "auto: every sentence, at once", false,
-                [](const cluster::Config& cf) {return cf.service.voiceMode;}},
-            {"service", "wake_word", "Wake phrase", SettingKind::Text, {}, "empty: the one of the voice; variants separated by commas", false,
-                [](const cluster::Config& cf) {return cf.service.wakeWord;}},
-            {"service", "source", "Microphone", SettingKind::Text, {}, "PulseAudio / PipeWire source, empty: the default one", false,
-                [](const cluster::Config& cf) {return cf.service.source;}},
         }},
         {"web", "Web", {
             {"web", "enabled", "Open the web access at start", SettingKind::Bool, {}, "a browser or the app of a phone / another computer drives claude-cluster.\n"
@@ -428,20 +428,25 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 }},
         }},
         {"debug", "Debug", {
-            {"debug", "enabled", "Debug mode", SettingKind::Bool, {}, "every process (the core, the terminals, the windows, the web terminal) writes what it does "
-                "in <data>/debug.log (kept to 4 MB + the previous one): why the core stops or stays in background, the interfaces attached / gone, the "
-                "rendering (terminal size, slow frames, the platform of the window), the voice, the services, the web access; its first line tells the "
-                "platform (OS, Wayland / X11, desktop, terminal). Services > Core: Open the debug log", false,
-                [](const cluster::Config& cf) {return cf.debug ? std::string("true") : std::string("false");}},
-            {"debug", "topics", "Topics", SettingKind::List, {}, "what is traced (comma separated): core (start, stop, background), interfaces (attach, "
-                "detach, sync errors), render (terminal / window), voice, service (the actions of the Services tab), web (open, close, errors), "
-                "platform; all = everything", false,
-                [](const cluster::Config& cf) {
-                    std::string list;
-                    for (const std::string& topic: cf.debugTopics)
-                        list += (list.empty() ? "" : ", ") + topic;
-                    return list;
-                }},
+            {"debug", "showcase_all", "Show everything", SettingKind::Action, {}, "everything below in a row, on this interface: the display blocks in the "
+                "showcase session, its states, a progress popup, a failure popup, a notification, a permission, the questions (QCM, Q&A, chat, review)", false,
+                [](const cluster::Config&) {return std::string("run");}},
+            {"debug", "showcase_displays", "Display blocks", SettingKind::Action, {}, "markdown, callouts, code, table, charts (bar, line, pie), progress, "
+                "metrics, heatmap, image, svg, diagram, diff, json, tree, terminal, checklist, steps, timeline, kanban, buttons, form, details, compare, math, "
+                "audio, files - and how this platform draws each one", false, [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_questions", "Questions popup", SettingKind::Action, {}, "the questions of an agent: a single choice, a multiple choice, "
+                "a free answer (Other), the chat about them, back / next, the review before Submit / Cancel - answered here, sent to nobody", false,
+                [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_permission", "Permission popup", SettingKind::Action, {}, "a permission asked by an agent (Allow / Always / Deny): "
+                "nothing is run", false, [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_states", "Session states", SettingKind::Action, {}, "the showcase session working, waiting, in error, idle: its icon, "
+                "the title of the terminal / window / tab, the face", false, [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_progress", "Progress popup", SettingKind::Action, {}, "a long action: its steps, its log scrolling, then done", false,
+                [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_failure", "Failure popup", SettingKind::Action, {}, "an action that failed: what went wrong, OK / Retry", false,
+                [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_notify", "Notifications", SettingKind::Action, {}, "a desktop / phone notification and the notices (information, error)",
+                false, [](const cluster::Config&) {return std::string("show");}},
         }},
         {"services", "Services", {
             {"services", "refresh", "Refresh", SettingKind::Choice, {"live", "interval", "manual"},

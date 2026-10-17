@@ -139,6 +139,7 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     spec.model = launch.backend.model;
     launch.spec = spec;
     launch.log = log_file_(spec.id);
+    launch.transcriptLimitMb = this->_config.transcriptLimitMb;
     launch.listener = [this](const cluster::Event& event) {this->event_(event);};
     return std::make_shared<cluster::Session>(std::move(launch));
 }
@@ -787,6 +788,8 @@ _cold void cluster::Manager::notice_(const std::string& session, const std::stri
 /* lifecycle */
 _cold void cluster::Manager::load(void)
 {
+    if (this->_config.historyLimit > 0) // the prompt history kept to its limit at the start
+        (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->_config.historyLimit), 0);
     const std::optional<cluster::Json> state = cluster::read_json(state_file_());
     if (!state) return;
     std::lock_guard<std::mutex> lock(this->_mutex);
@@ -923,8 +926,10 @@ _cold void cluster::Manager::tick(void)
             for (const auto &[id, session]: this->_sessions)
                 sessions.push_back(session);
         }
-        for (const std::shared_ptr<cluster::Session>& session: sessions)
+        for (const std::shared_ptr<cluster::Session>& session: sessions) {
             session->giveQueued(this->_config.queueGiven == "end" ? -1 : 1500);
+            if (seconds % 60 == 17 && this->_config.transcriptLimitMb > 0) session->limitLog(static_cast<std::uintmax_t>(this->_config.transcriptLimitMb) * 1024 * 1024);
+        }
     }
     if (seconds % 60 == 2) this->scanTranscripts_();        // the transcripts of Claude Code: what grew
     if (seconds % 300 == 3) this->refreshAccount_();        // the windows of the account
@@ -1289,6 +1294,18 @@ void cluster::Manager::replyTo(const std::string& id)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
     ++this->_replies[id];
+}
+
+_cold void cluster::Manager::showcasePermission(const std::string& id, const cluster::Permission& permission)
+{
+    this->get_(id)->showcasePermission(permission);
+    ++this->_version;
+}
+
+_cold void cluster::Manager::showcaseState(const std::string& id, const cluster::State state)
+{
+    this->get_(id)->showcaseState(state);
+    ++this->_version;
 }
 
 void cluster::Manager::requestFocus(const std::string& id)

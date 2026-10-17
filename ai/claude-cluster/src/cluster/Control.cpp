@@ -18,6 +18,7 @@ File Description:
 #include "cluster/External.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
+#include "cluster/Showcase.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
@@ -709,6 +710,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data.push_back({{"section", s.section}, {"key", s.key}, {"label", s.label}, {"page", pages[hit.page].title}, {"help", s.description},
                     {"matched", hit.name ? "name" : "description"}});
             }
+        } else if (cmd == "showcase") {
+            // the Debug page: everything claude-cluster can show, on the interface asking (its platform)
+            data = {{"message", cluster::showcase(manager, arg_(request, "what", "all"), arg_(request, "platform"))}};
         } else if (cmd == "services") {
             // its state, and the card of each one made here (the web page draws them as they are)
             data = cluster::services(manager);

@@ -570,3 +570,37 @@ _cold void cluster::debug(const std::string& topic, const std::string& text)
     }
     out << stamp << "." << std::setw(3) << std::setfill('0') << ms % 1000 << " [" << debugRole << " " << ::getpid() << "] " << topic << ": " << text << "\n";
 }
+
+/* limits of the files that grow */
+_cold bool cluster::keep_newest(const std::filesystem::path& path, const std::size_t maxLines, const std::uintmax_t maxBytes)
+{
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    if (error || (maxBytes > 0 && size <= maxBytes && maxLines == 0)) return false;
+    std::ifstream in(path, std::ios::binary);
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(in, line))
+        if (!line.empty()) lines.push_back(line);
+    in.close();
+    std::size_t first = maxLines > 0 && lines.size() > maxLines ? lines.size() - maxLines : 0;
+    if (maxBytes > 0) {
+        std::uintmax_t kept = 0;
+        for (std::size_t i = lines.size(); i-- > first;) {
+            kept += lines[i].size() + 1;
+            if (kept > maxBytes) {
+                first = i + 1;
+                break;
+            }
+        }
+    }
+    if (first == 0) return false;
+    const std::filesystem::path temporary = path.string() + ".cut";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        for (std::size_t i = first; i < lines.size(); ++i)
+            out << lines[i] << "\n";
+    }
+    std::filesystem::rename(temporary, path, error);
+    return !error;
+}

@@ -45,10 +45,10 @@ _cold cluster::Requirement cluster::setting_requirement(cluster::Manager& manage
         if (web && web->on && !web->certificateWhy.empty()) return {"no real certificate (a browser warning): " + web->certificateWhy, ""};
         return {};
     }
-    if ((key == "ui.editor" || key == "ui.image_viewer" || key == "service.terminal" || setting.section == "commands") && !first.empty() && !first.starts_with("/")
+    if ((key == "ui.editor" || key == "ui.image_viewer" || key == "ui.terminal" || setting.section == "commands") && !first.empty() && !first.starts_with("/")
         && !cluster::has_command(first))
         return {first + " not found (not installed, or not in the PATH)", ""};
-    if ((key == "ui.editor" || key == "ui.image_viewer" || key == "service.terminal" || setting.section == "commands") && first.starts_with("/")
+    if ((key == "ui.editor" || key == "ui.image_viewer" || key == "ui.terminal" || setting.section == "commands") && first.starts_with("/")
         && !std::filesystem::exists(first))
         return {first + " does not exist", ""};
     return {};

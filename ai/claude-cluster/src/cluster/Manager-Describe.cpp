@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Showcase.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
@@ -287,6 +288,18 @@ _cold void cluster::Manager::describeMissing_(void)
 /* "Chat about this" */
 _cold void cluster::Manager::chatAbout(const cluster::Ask& ask)
 {
+    if (cluster::showcase_request(ask.requestId)) { // the showcase: a fixed answer, nothing spent
+        std::thread([this, describer = this->_describer, requestId = ask.requestId, said = ask.chat.empty() ? std::string() : ask.chat.back().second]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+            std::lock_guard<std::mutex> hold(describer->mutex);
+            if (!describer->alive) return;
+            this->asking().chatAnswer(requestId, "This is the chat about the questions (showcase: answered by claude-cluster, not a model). With a real "
+                "question, the model of its session answers here - it sees the questions and the last messages of the session, the agent sees none of this "
+                "chat. You wrote: \"" + cluster::one_line(said, 120) + "\". It scrolls when it grows (PgUp / PgDn, the wheel), Esc goes back to the options.");
+            ++this->_version;
+        }).detach();
+        return;
+    }
     // the model of the session (its own one, not a small one) asked once per message: the questions, the last messages of the
     // session and this chat as context; the conversation of the agent never touched (no fork, no resume), a few tokens a message
     const std::optional<cluster::Snapshot> snap = this->snapshot(ask.session);

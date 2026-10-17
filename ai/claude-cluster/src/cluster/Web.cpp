@@ -1242,7 +1242,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
         "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "settings_get", "settings_search", "settings_set", "ui_state", "delete",
-        "projects", "send_next", "install_package", "failure", "services", "service_act", "task_act", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel"};
+        "projects", "send_next", "install_package", "failure", "services", "service_act", "showcase", "task_act", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel"};
     Conn& conn = *static_cast<Conn*>(connection);
     Request request;
     if (!read_request_(conn, request)) return;

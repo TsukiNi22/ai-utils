@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #define _SManip
 #include <utils/utils.hpp>
+#include "cluster/Showcase.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Models.hpp"
@@ -212,6 +213,18 @@ _cold cluster::Session::Session(cluster::Launch launch)
         this->_data.metrics.costKnown = false; // claude prices other models as if they were Claude ones
     std::error_code error;
     std::filesystem::create_directories(this->_launch.log.parent_path(), error);
+    if (const int limit = this->_launch.transcriptLimitMb; limit > 0) // its oldest entries dropped before it is read
+        (void)cluster::keep_newest(this->_launch.log, 0, static_cast<std::uintmax_t>(limit) * 1024 * 1024);
+    this->_log.open(this->_launch.log, std::ios::app);
+}
+
+_cold void cluster::Session::limitLog(const std::uintmax_t maxBytes)
+{
+    std::error_code error;
+    if (maxBytes == 0 || std::filesystem::file_size(this->_launch.log, error) <= maxBytes || error) return;
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_log.close();
+    (void)cluster::keep_newest(this->_launch.log, 0, maxBytes);
     this->_log.open(this->_launch.log, std::ios::app);
 }
 
@@ -1321,10 +1334,28 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
             if (suggestion.value("type", std::string()) == "addRules" || suggestion.value("type", std::string()) == "addDirectories") rules.push_back(suggestion);
         if (!rules.empty()) response["updatedPermissions"] = rules;
     }
-    this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", it->requestId}, {"response", response}}}});
-    this->entry_(cluster::EntryKind::System, std::string(behavior == "deny" ? "denied " : behavior == "always" ? "always allowed " : "allowed ") + it->tool);
+    if (!cluster::showcase_request(it->requestId)) // the showcase: answered here only
+        this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", it->requestId}, {"response", response}}}});
+    this->entry_(cluster::EntryKind::System, std::string(behavior == "deny" ? "denied " : behavior == "always" ? "always allowed " : "allowed ") + it->tool
+        + (cluster::showcase_request(it->requestId) ? " (showcase: nothing run)" : ""));
     this->_data.permissions.erase(it);
     if (this->_data.permissions.empty() && this->_data.state == cluster::State::Waiting) this->_data.state = cluster::State::Working;
+    this->touch_();
+}
+
+_cold void cluster::Session::showcasePermission(const cluster::Permission& permission)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_data.permissions.push_back(permission);
+    this->touch_();
+}
+
+_cold void cluster::Session::showcaseState(const cluster::State state)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_data.state = state;
+    if (state == cluster::State::Error) this->_data.lastError = "showcase: what an error looks like";
+    else this->_data.lastError.clear();
     this->touch_();
 }
 
@@ -1339,8 +1370,9 @@ _cold void cluster::Session::answerQuestions(const std::string& requestId, const
     if (!answers.is_object()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "answers: {question: answer}");
     cluster::Json input = it->input;
     input["answers"] = answers;
-    this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", it->requestId},
-        {"response", {{"behavior", "allow"}, {"updatedInput", input}}}}}});
+    if (!cluster::showcase_request(it->requestId)) // the showcase: answered here only
+        this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", it->requestId},
+            {"response", {{"behavior", "allow"}, {"updatedInput", input}}}}}});
     std::string said;
     for (const auto &[question, answer]: answers.items())
         said += (said.empty() ? "" : " · ") + question + " → " + (answer.is_string() ? answer.get<std::string>() : answer.dump());

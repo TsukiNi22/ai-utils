@@ -65,6 +65,7 @@ struct Launch {
     bool allowBypass = true;                // claude: --allow-dangerously-skip-permissions (bypassPermissions possible)
     std::vector<std::string> extraArgs;     // added by the manager (global session: MCP, system prompt)
     std::filesystem::path log;              // JSONL of the transcript
+    int transcriptLimitMb = 0;              // its size kept under it (MB, 0: no limit)
     std::function<void(const cluster::Event&)> listener;
     std::string remoteName;                 // claude: Remote Control on at every start under this name (empty: off)
 };
@@ -133,6 +134,9 @@ class Session {
         _cold void send(const std::string& text, const std::vector<std::string>& images = {}); // images: [Image #N] of the text
         _cold void answer(const std::string& requestId, const std::string& behavior); // allow | always | deny
         _cold void answerQuestions(const std::string& requestId, const cluster::Json& answers); // AskUserQuestion: {question: answer}
+        _cold void showcasePermission(const cluster::Permission& permission); // the showcase: a permission / question answered here, never sent
+        _cold void showcaseState(const cluster::State state);
+        _cold void limitLog(const std::uintmax_t maxBytes);                    // its transcript kept within maxBytes (its oldest entries dropped)                 // the showcase: its state shown (its icon, the titles)
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);
         _cold void sendNext(void);                                         // the next queued prompt now: the turn interrupted, it sent

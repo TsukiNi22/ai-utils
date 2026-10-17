@@ -17,6 +17,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
+#include "cluster/Showcase.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
@@ -612,7 +613,26 @@ class TtyUi {
         void settingsAction_(const std::string& key)
         {
             // an action of the settings page: the map of this computer (asked first), the system prompt of the global
-            // session or of the sub-sessions
+            // session or of the sub-sessions, the showcase of the Debug page
+            if (key.starts_with("showcase_")) {
+                if (!this->_changes.empty()) {
+                    this->_note = "save (Ctrl+S) or drop your changes first: the showcase leaves the settings";
+                    return;
+                }
+                const std::string platform = std::getenv("CLAUDE_CLUSTER_WEB_TTY") != nullptr ? "web terminal" : "terminal";
+                this->_mode = Mode::Normal; // the settings closed: the showcase seen where it happens
+                std::thread([this, what = key.substr(9), platform]() {
+                    try {
+                        const std::string done = cluster::showcase(this->_manager, what, platform);
+                        this->_screen.Post([this, done]() {this->status_(done);});
+                    } catch (const utils::exception::IException& e) {
+                        const std::string error = e.info();
+                        this->_screen.Post([this, error]() {this->status_(error, true);});
+                    }
+                    this->_screen.PostEvent(ftxui::Event::Custom);
+                }).detach();
+                return;
+            }
             if (key == "machine_sync") {
                 this->_machineReturn = this->_mode;
                 this->_mode = Mode::Machine;
@@ -3505,6 +3525,22 @@ class TtyUi {
             const std::function<ftxui::Element(ftxui::Element, const ftxui::Event&)> press = [&](ftxui::Element element, const ftxui::Event& key) {
                 return this->tap_(std::move(element), 1, [this, key]() {(void)this->event_(key);});
             };
+            if (const cluster::Link link = this->_manager.link(); link.lost) {
+                // the core lost: over everything, until it is back (Retry now / Quit)
+                this->_animating = true;
+                static const std::array<const char*, 10> spin = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+                const std::int64_t now = cluster::now_ms();
+                const std::int64_t next = std::max<std::int64_t>(0, link.next - now);
+                return box(ftxui::vbox({ftxui::hbox({ftxui::text(std::string(" ") + spin[static_cast<std::size_t>(now / 100 % 10)] + " Reconnecting to claude-cluster…")
+                        | ftxui::bold | ftxui::color(this->_theme.warn)}), ftxui::text(""),
+                    ftxui::text(" its core is not reached since " + cluster::took((now - link.since))) | ftxui::color(this->_theme.text),
+                    ftxui::text(" try " + std::to_string(link.tries) + " · the next one in " + std::to_string((next + 999) / 1000) + " s (the core started again "
+                        "when it is gone: the sessions resumed)") | ftxui::color(this->_theme.muted),
+                    ftxui::text(""),
+                    ftxui::hbox({press(ftxui::text(" [r] / Enter  Retry now ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
+                            ftxui::Event::Character('r')), ftxui::text("   "),
+                        press(ftxui::text(" [q]  Quit ") | ftxui::color(this->_theme.error), ftxui::Event::Character('q'))})}), 84);
+            }
             if (this->_mode == Mode::Palette) {
                 ftxui::Elements items;
                 const int start = std::max(0, this->_selected - 12);
@@ -3597,6 +3633,34 @@ class TtyUi {
                 if (askKey != this->_askOtherKey || (a.other != this->_askOther.text && a.cursor != static_cast<int>(options.size()))) { // another question, or typed elsewhere
                     this->_askOther.set(a.other);
                     this->_askOtherKey = askKey;
+                }
+                if (a.review) {
+                    // like Claude Code: every answer, then Submit / Cancel (back: the last question to edit)
+                    const std::size_t width = static_cast<std::size_t>(std::max(30, std::min(92, this->_screen.dimx() - 8)));
+                    ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + a.name + " asks") | ftxui::bold, ftxui::text("  · review your answers") | ftxui::color(this->_theme.accent),
+                        ftxui::text(a.session != this->_active ? "  (it waits for your answer)" : "") | ftxui::color(this->_theme.warn)}), ftxui::text("")};
+                    for (const cluster::Json& each: a.questions) {
+                        const std::string header = each.value("header", std::string());
+                        for (const std::string& line: wrap_((header.empty() ? "" : header + " · ") + each.value("question", std::string()), width - 2))
+                            lines.push_back(ftxui::text(" " + line + " ") | ftxui::color(this->_theme.muted));
+                        const std::string answer = a.answers.value(each.value("question", std::string()), std::string());
+                        const std::vector<std::string> said = wrap_(answer.empty() ? std::string("(no answer)") : answer, width - 7);
+                        for (std::size_t l = 0; l < said.size(); ++l)
+                            lines.push_back(ftxui::text(std::string(l == 0 ? "   → " : "     ") + said[l] + " ") | ftxui::bold
+                                | ftxui::color(answer.empty() ? this->_theme.warn : this->_theme.ok));
+                        lines.push_back(ftxui::text(""));
+                    }
+                    lines.push_back(ftxui::text(" Ready to submit your answers?") | ftxui::bold);
+                    lines.push_back(ftxui::text(""));
+                    lines.push_back(ftxui::hbox({this->tap_(ftxui::text(" 1. Submit (Enter) ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent), 0,
+                            [this]() {this->askNext_();}), ftxui::text("   "),
+                        this->tap_(ftxui::text(" 2. Cancel (Esc) ") | ftxui::color(this->_theme.error), 0, [this]() {
+                            this->_manager.asking().decline();
+                            this->status_("question declined");
+                            this->_mode = Mode::Normal;
+                        }), ftxui::text("   "),
+                        this->tap_(ftxui::text(" ← back to edit ") | ftxui::color(this->_theme.muted), 0, [this]() {this->_manager.asking().back();})}));
+                    return box(ftxui::vbox(std::move(lines)), 96);
                 }
                 ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + a.name + " asks") | ftxui::bold,
                     ftxui::text(a.questions.size() > 1 ? "  (" + std::to_string(a.index + 1) + "/" + std::to_string(a.questions.size()) + ")" : "") | ftxui::color(this->_theme.muted),
@@ -4055,6 +4119,12 @@ class TtyUi {
         /* events */
         bool event_(ftxui::Event event)
         {
+            if (event != ftxui::Event::Custom && !event.is_mouse() && this->_manager.link().lost) {
+                // the core lost: its popup only (r / Enter: retry now, q / the quit key: quit)
+                if (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R') || event == ftxui::Event::Return) this->_manager.retryNow();
+                else if (event == ftxui::Event::Character('q') || event == ftxui::Event::Character('Q') || event.input() == std::string(1, '\x11')) this->_screen.Exit();
+                return true;
+            }
             if (event == ftxui::Event::Custom) {
                 // an Enter with no key right after: a real one, sent
                 if (this->_sendPending && now_ms_() - this->_sendAt >= PASTE_GAP_MS) {
@@ -4280,6 +4350,19 @@ class TtyUi {
                     }
                     if (event == ftxui::Event::PageDown || event == ftxui::Event::ArrowDownCtrl) {
                         this->_askChatScroll = std::max(0, this->_askChatScroll - (event == ftxui::Event::PageDown ? 8 : 2));
+                        return true;
+                    }
+                    if (ask->review) { // the review: Submit / Cancel / back to edit
+                        this->_askChat = false;
+                        if (event == ftxui::Event::Return || event == ftxui::Event::Character('1')) {
+                            this->askNext_();
+                        } else if (event == ftxui::Event::Escape || event == ftxui::Event::Character('2')) {
+                            asking.decline();
+                            this->status_("question declined");
+                            this->_mode = Mode::Normal;
+                        } else if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowUp || event == ftxui::Event::Backspace) {
+                            asking.back();
+                        }
                         return true;
                     }
                     if (this->_askChat) { // its chat typed (a cursor: arrows, Home / End, Delete...): Enter sent, Esc back to the options
@@ -4660,6 +4743,7 @@ class TtyUi {
 namespace {
     // what the terminal gets back when the interface ends abnormally (a crash, an abort): no mouse reports, the main screen,
     // the cursor, no bracketed paste / focus events (async signal safe: one write)
+    // xstyle: ignore-next LU-ANSI (one write, async signal safe: no libutils call in a signal handler)
     constexpr const char TERMINAL_RESET[] = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?2004l\x1b[?1004l\x1b[?1049l\x1b[?25h\x1b[0m";
 
     void terminal_reset_(void)
