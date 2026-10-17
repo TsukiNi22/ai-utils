@@ -149,6 +149,11 @@ cd ai-utils
 ./setup.sh list                           # available skills, tools and context
 ./setup.sh status                         # what is installed (skills, tools, context)
 ./setup.sh install cpp-class              # only one skill (and the skills it requires)
+./setup.sh install skills                 # every skill, nothing else (no tool, no context)
+./setup.sh install tools                  # every tool (xstyle, claude-cluster...)
+./setup.sh install cpp/ docs/             # whole categories: every skill and tool of cpp/ and docs/ (also @cpp)
+./setup.sh install skills context         # kinds and names mix: every skill + the context
+./setup.sh remove tools                   # the same selections for remove
 ./setup.sh install xstyle                 # only one tool (built with CMake, installed in ~/.local/bin, + bash / zsh / fish completion)
 ./setup.sh install xstyle --prefix /usr/local
 ./setup.sh install context                # only the context (CLAUDE.md, RTK.md, hooks, sudo-askpass), --no-rtk / --no-hooks

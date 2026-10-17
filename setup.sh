@@ -8,6 +8,10 @@
 # Commands:
 #   install [name...]    install the given skills / tools / context and their requirements (default: all)
 #   remove  [name...]    remove the given skills / tools / context (default: all of this repo)
+#                        a name can also be a whole kind or category, nothing to list one by one:
+#                          skills       every skill          tools        every tool
+#                          context      the context          <category>/  every skill and tool of a category
+#                                                                         (ex: cpp/, docs/, style/; also @cpp)
 #   update               pull the last version of the repository (the symlinks follow, the tools are rebuilt)
 #   list                 list the skills, the tools and the context available in this repo
 #   status               show which skills, tools and context are installed
@@ -349,10 +353,30 @@ else
     NAMES=("${SKILLS[@]}")
     SKILLS=()
     CONTEXT=false
+    add_unique() { # <array name> <value>: added once
+        local -n list="$1"
+        [[ " ${list[*]-} " == *" $2 "* ]] || list+=("$2")
+    }
     for name in "${NAMES[@]}"; do
         if [[ "$name" = "context" ]]; then CONTEXT=true; CONTEXT_NAMED=true
-        elif [[ -n "$(skill_dir "$name")" ]]; then SKILLS+=("$name")
-        elif [[ -n "$(tool_dir "$name")" ]]; then TOOLS+=("$name")
+        elif [[ "$name" = "skills" ]]; then
+            for skill in $(available); do add_unique SKILLS "$skill"; done
+        elif [[ "$name" = "tools" ]]; then
+            for tool in $(tools); do add_unique TOOLS "$tool"; done
+        elif [[ "$name" == */ ]] || [[ "$name" == @* ]]; then
+            # a whole category: every skill and tool of <category>/ (cpp/, docs/, style/...)
+            category="${name%/}"
+            category="${category#@}"
+            found=false
+            for file in "$REPO/$category"/*/SKILL.md; do
+                [[ -f "$file" ]] && { add_unique SKILLS "$(basename "$(dirname "$file")")"; found=true; }
+            done
+            for file in "$REPO/$category"/*/tool.txt; do
+                [[ -f "$file" ]] && { add_unique TOOLS "$(basename "$(dirname "$file")")"; found=true; }
+            done
+            $found || error "unknown category '$category' (see: $0 list)"
+        elif [[ -n "$(skill_dir "$name")" ]]; then add_unique SKILLS "$name"
+        elif [[ -n "$(tool_dir "$name")" ]]; then add_unique TOOLS "$name"
         else error "unknown skill, tool or context '$name' (see: $0 list)"
         fi
     done
@@ -385,6 +409,15 @@ case "$COMMAND" in
         ;;
 
     list)
+        echo "Categories (install / remove <category>/ for all of it; skills / tools for every one of a kind):"
+        for dir in "$REPO"/*/; do
+            category="$(basename "$dir")"
+            names=""
+            for file in "$dir"*/SKILL.md "$dir"*/tool.txt; do
+                [[ -f "$file" ]] && names="$names $(basename "$(dirname "$file")")"
+            done
+            [[ -n "$names" ]] && printf "  %-20s%s\n" "$category/" "$names"
+        done
         echo "Skills:"
         for skill in $(available); do
             printf "  %-20s %s\n" "$skill" "$(description "$skill")"
