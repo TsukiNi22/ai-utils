@@ -221,7 +221,8 @@ Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: 
 | `CPP-CLASS-NAME` | major | - | cpp | Class / struct / enum not in PascalCase |
 | `CPP-MEMBER-NAME` | minor | - | cpp | Class data member not named _camelCase |
 | `CPP-MACRO-NAME` | minor | - | cpp,c | Macro not in UPPER_SNAKE (or _lower for attribute / section macros) |
-| `CPP-ONE-LINER` | negligible | auto | cpp | One-liner body not written {statement}; |
+| `CPP-ONE-LINER` | negligible | auto | cpp | One-liner body not written {statement}; (an empty one: { /* Nothing */ };) |
+| `CPP-EMPTY-BODY` | minor | auto | cpp | Empty constructor / destructor / operator of a class on several lines (one line: sig : init { /* Nothing */ }; // comment) |
 | `CPP-ACCESS-ORDER` | negligible | - | cpp | public before private / protected in a class |
 | `CPP-SINGLE-STATEMENT` | minor | - | cpp | Single statement function defined in the .cpp, define it inline in the header |
 | `CPP-DOXYGEN` | minor | - | cpp,c | Doxygen comment (@brief, @param, ///, /**), short plain comments only |

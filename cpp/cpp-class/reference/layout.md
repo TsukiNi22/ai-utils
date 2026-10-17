@@ -12,6 +12,10 @@ even when the user describes the behavior:
 - Non-void -> `/* Nothing */` then the smallest return that compiles:
   `return {};`, `return *this;` (operators), `return false;`...
 - The described behavior goes in a trailing comment on the declaration (`void cancel(std::size_t id); // cancel given task`), never in the body.
+- A constructor / destructor / operator **defined in its class** (a header, a template) with an empty body is one
+  line: `Name(const int value) : _value{value} { /* Nothing */ }; // what it does`, `~Name() noexcept { /* Nothing */ };`,
+  an operator `Name& operator=(Name&& other) noexcept {return *this;};` - never the `{` / `/* Nothing */` / `};`
+  block on several lines (`cpp-style`, xstyle `CPP-EMPTY-BODY`). The `.cpp` definitions keep the block form below.
 - Only allowed, because it is not logic:
   - `= default`, `= delete`, `= 0`;
   - a constructor init list that only forwards the parameters to the members;

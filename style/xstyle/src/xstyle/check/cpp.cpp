@@ -936,6 +936,47 @@ _hot static void classes_(const xstyle::SourceFile& file, xstyle::check::Issues&
             }
         }
 
+        // An empty constructor / destructor / operator of a class on several lines -> one line: sig : init { /* Nothing */ }; // comment
+        if (brace.kind == xstyle::Scope::Function && brace.closeLine != NO_INDEX && brace.closeLine > brace.openLine && brace.parent != NO_INDEX
+            && (braces[brace.parent].kind == xstyle::Scope::Class || braces[brace.parent].kind == xstyle::Scope::Struct)) {
+            std::string comment;    // its body: a comment (/* Nothing */), or nothing; an operator: then its return (return *this;)
+            std::string back;
+            bool empty = true;
+            for (std::size_t i = brace.openLine + 1; i < brace.closeLine && empty; ++i) {
+                const std::string t = xstyle::trim(lines[i]);
+                if (t.empty()) continue;
+                if (t.starts_with("/*") && t.ends_with("*/") && comment.empty() && back.empty()) comment = t;
+                else if (t.starts_with("return ") && t.ends_with(";") && t.find(';') == t.size() - 1 && back.empty()) back = t;
+                else empty = false;
+            }
+            const std::string open = xstyle::trim(lines[brace.openLine]);
+            const std::string close = xstyle::trim(lines[brace.closeLine]);
+            if (empty && open == "{" && (close == "}" || close == "};") && brace.openLine > 0) {
+                // its signature (with its trailing comment) and its initializer lines (: a{x}, b{y}) above the {
+                std::size_t first = brace.openLine - 1;
+                std::vector<std::string> inits;
+                while (first > 0 && (xstyle::trim(lines[first]).starts_with(":") || xstyle::trim(lines[first]).starts_with(","))) {
+                    inits.insert(inits.begin(), xstyle::trim(lines[first]));
+                    --first;
+                }
+                const std::string signature = lines[first];
+                static const std::regex special(R"((~?\w+\s*\(|operator\s*\S+\s*\())");
+                const std::size_t mark = signature.find("//");
+                const std::string head = mark == std::string::npos ? signature : signature.substr(0, mark);
+                if (std::regex_search(head, special) && head.find(';') == std::string::npos && head.find('{') == std::string::npos) {
+                    std::string joined = head;
+                    while (!joined.empty() && std::isspace(static_cast<unsigned char>(joined.back()))) joined.pop_back();
+                    for (const std::string& init: inits)
+                        joined += (init.starts_with(",") ? "" : " ") + init;
+                    joined += back.empty() ? " { " + (comment.empty() ? std::string("/* Nothing */") : comment) + " };" : " {" + back + "};";
+                    if (mark != std::string::npos) joined += " " + xstyle::trim(signature.substr(mark));
+                    issues.push_back(xstyle::check::make_issue(file, brace.openLine, 0, "CPP-EMPTY-BODY", "Empty constructor / destructor / operator on several lines",
+                        "one line: its signature, its initializers, { /* Nothing */ }; then its comment",
+                        xstyle::check::replace_lines(first, brace.closeLine - first + 1, {joined})));
+                }
+            }
+        }
+
         // One-liner: {statement};
         if (brace.kind == xstyle::Scope::Function && brace.closeLine == brace.openLine) {
             const xstyle::Scope parent = brace.parent == NO_INDEX ? xstyle::Scope::Global : braces[brace.parent].kind;
@@ -945,9 +986,13 @@ _hot static void classes_(const xstyle::SourceFile& file, xstyle::check::Issues&
             const std::string body = line.substr(brace.openColumn + 1, brace.closeColumn - brace.openColumn - 1);
             if (xstyle::is_blank(body) || code[brace.openLine].substr(brace.openColumn + 1, brace.closeColumn - brace.openColumn - 1).find('{') != std::string::npos) continue;
             const bool semicolon = brace.closeColumn + 1 < line.size() && line[brace.closeColumn + 1] == ';';
-            if (body == xstyle::trim(body) && semicolon) continue;
-            issues.push_back(xstyle::check::make_issue(file, brace.openLine, brace.openColumn, "CPP-ONE-LINER", "One-liner not written {statement};", "",
-                xstyle::check::replace_line(brace.openLine, line.substr(0, brace.openColumn + 1) + xstyle::trim(body) + "}" + (semicolon ? "" : ";") + line.substr(brace.closeColumn + 1))));
+            // a comment only (an empty body): { /* Nothing */ }; else {statement};
+            const bool note = xstyle::trim(body).starts_with("/*") && xstyle::trim(body).ends_with("*/");
+            const std::string expected = note ? " " + xstyle::trim(body) + " " : xstyle::trim(body);
+            if (body == expected && semicolon) continue;
+            issues.push_back(xstyle::check::make_issue(file, brace.openLine, brace.openColumn, "CPP-ONE-LINER", note ? "Empty body not written { /* Nothing */ };"
+                : "One-liner not written {statement};", "",
+                xstyle::check::replace_line(brace.openLine, line.substr(0, brace.openColumn + 1) + expected + "}" + (semicolon ? "" : ";") + line.substr(brace.closeColumn + 1))));
         }
 
         // Single statement function in a .cpp -> inline in the header

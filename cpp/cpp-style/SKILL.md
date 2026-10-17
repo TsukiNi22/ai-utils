@@ -87,10 +87,35 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
 - `if (`, `for (`, `while (`, `switch (`: space after the keyword; no space inside the parentheses.
 - Binary operators surrounded by spaces, no space for unary (`!x`, `++i`, `*it`).
 - `for (const std::string& x: list)`, `class A: public B`, `enum class E: std::size_t`: **no space before `:`**.
-- Init list on its own line, `: ` at column 0: `: _binary{binary}, _description{description}`.
+- Init list on its own line, `: ` at column 0: `: _binary{binary}, _description{description}` (an out-of-line
+  constructor; an empty one defined in its class keeps it on its line, see below).
 - `&`/`*` glued to the type: `const std::string& name`, `char* buf`, `auto &[a, b]` for structured bindings.
 - `template<typename T>` without space. `(void)` for an empty parameter list, always.
 - One-liners: no space inside the braces and a `;` after: `{return this->_fd;};`, `{this->_help = false;};`.
+- **An empty constructor / destructor / operator defined in its class is one line**, never a `{` / `/* Nothing */` /
+  `};` block on several lines: its signature, its init list on the same line, `{ /* Nothing */ };` (a space inside
+  the braces: a comment, not a statement), then its trailing comment; an operator that only returns: `{return *this;};`.
+  The declarations keep their blank line between them (`xstyle` rule `CPP-EMPTY-BODY`, auto fix):
+  ```cpp
+  HybridMemory& operator=(HybridMemory&& other) noexcept {return *this;}; // take the memory and the handler of other
+
+  // ---------- Constructor --------- //
+  HybridMemory(const utils::system::MemoryMode mode = utils::system::MemoryMode::Auto) : _requested{mode} { /* Nothing */ }; // select the backend
+
+  HybridMemory(const std::size_t size, std::shared_ptr<utils::system::IGpu> gpu) : _requested{utils::system::MemoryMode::Custom}, _gpu{gpu} { /* Nothing */ }; // a user handler
+
+  HybridMemory(HybridMemory&& other) noexcept { /* Nothing */ }; // take the memory and the handler of other
+
+  // ----------- Destructor --------- //
+  ~HybridMemory() noexcept { /* Nothing */ }; // release the memory
+  ```
+  Not (the multi-line form):
+  ```cpp
+  HybridMemory(HybridMemory&& other) noexcept // take the memory and the handler of other
+  {
+      /* Nothing */
+  };
+  ```
 - Consecutive similar lines of **one group** share a column (overloads, the setters, the getters, `using`, `case`):
   ```cpp
   _hot _nodiscard bool hasAcceptOverload(void) const override {return false;};
