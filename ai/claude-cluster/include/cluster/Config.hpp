@@ -219,6 +219,9 @@ class Config {
         /* mcp */
         std::map<std::string, bool> mcpTools;   // [mcp_tools] <tool> = false: a tool of the global session off (missing: on)
         std::vector<std::string> mcpServers;    // [mcp] servers: "name: command args" | "name: https://url", given to the global session
+        std::vector<std::string> pluginRepos;   // [plugins] repos: links of repositories (plugins / skills offered)
+        std::map<std::string, bool> pluginSelect; // [plugins.select] "<repository>:<name>" ("<repository>:*": all) = installed
+        std::map<std::string, bool> pluginOff;  // [plugins.off] "<repository>:<name>" = installed but turned off
 
         cluster::VoiceConf voice;
         cluster::ServiceConf service;

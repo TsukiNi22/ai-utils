@@ -22,6 +22,8 @@ File Description:
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
+#include <filesystem>
+#include <algorithm>
 #include <fstream>
 #include <regex>
 
@@ -41,6 +43,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     const std::optional<cluster::Snapshot> snap = session.empty() ? std::nullopt : manager.snapshot(session);
     std::vector<cluster::Action> list = {
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
+        {"plugins", "Plugins: sources (a repository, a folder, a .zip), install / remove, on / off, their files", "", "", true},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
@@ -516,6 +519,11 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"effort", "[level]: thinking / reasoning effort (default, low, medium, high, xhigh, max: per agent), same conversation; none: pick it"},
         {"cost", "cost and tokens of the session"},
         {"context", "the context window used"},
+        {"usage", "the usage of the account (5 h / 7 d windows) and of this session: a popup, nothing asked to the agent"},
+        {"skills", "the skills and plugins loaded for the sessions (yours, the project's, the plugins): a popup"},
+        {"status", "the session: agent, model, effort, mode, folder, its conversation: a popup"},
+        {"mcp", "the MCP servers given to the sessions: a popup"},
+        {"plugins", "the plugins browser: sources (repositories, folders, .zip), install / remove, on / off, their files"},
         {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
         {"exit", "close the session (= /close)"},
         {"delete", "delete the session for good: asked first (/delete! at once); /close keeps it in the trash"},
@@ -744,6 +752,72 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 + " · tokens " + cluster::human_tokens(m.total.total()) + " in " + std::to_string(m.turns) + " turn(s)";
             else result.message = "context " + cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow)
                 + (m.contextWindow > 0 ? " (" + std::to_string(100 * m.contextUsed / m.contextWindow) + "%)" : std::string());
+        } else if (name == "usage" || name == "status") {
+            // shown here (a popup), never asked to the agent: nothing in its conversation, nothing spent
+            const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+            if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session");
+            const cluster::Metrics& m = snap->metrics;
+            const std::string vendor = snap->spec.backend.substr(0, snap->spec.backend.find('/'));
+            if (name == "status") {
+                result.message = snap->spec.name + " (" + snap->spec.id + ")\nagent " + snap->spec.backend + (snap->spec.model.empty() ? "" : " · model " + snap->spec.model)
+                    + " · effort " + (snap->spec.effort.empty() ? std::string("default") : snap->spec.effort) + " · mode " + snap->spec.mode + "\nfolder "
+                    + snap->spec.cwd + "\nconversation " + (snap->spec.claudeId.empty() ? std::string("not started") : snap->spec.claudeId) + "\nturns "
+                    + std::to_string(m.turns) + " · tokens " + cluster::human_tokens(m.total.total()) + " · context " + cluster::human_tokens(m.contextUsed) + " / "
+                    + cluster::human_tokens(m.contextWindow);
+            } else {
+                const cluster::UsageReport u = manager.usage(vendor == "claude" ? "anthropic" : vendor);
+                const std::function<std::string(const cluster::UsageSum&)> sum = [](const cluster::UsageSum& s) {
+                    return cluster::human_tokens(s.tokens) + " tokens, " + std::to_string(s.turns) + " turn(s)" + (s.costKnown || s.cost > 0 ? ", " + cluster::human_cost(s.cost) : "");
+                };
+                result.message = "usage (" + u.vendor + ")";
+                for (const cluster::UsageWindow& w: u.windows)
+                    result.message += "\n" + w.name + ": " + (w.used < 0 ? std::string("?") : std::to_string(static_cast<int>(w.used * 100 + 0.5)) + "%")
+                        + (w.reset > 0 ? " (reset in " + cluster::took((w.reset - cluster::now()) * 1000) + ")" : "") + (w.locked.empty() ? "" : " · " + w.locked);
+                if (u.windows.empty() && u.limit5h >= 0) result.message += "\n5 h: " + std::to_string(static_cast<int>(u.limit5h * 100 + 0.5)) + "%";
+                if (u.windows.empty() && u.limit7d >= 0) result.message += "\n7 d: " + std::to_string(static_cast<int>(u.limit7d * 100 + 0.5)) + "%";
+                result.message += "\ntoday: " + sum(u.today) + "\n7 days: " + sum(u.week) + "\nthis session: " + cluster::human_tokens(m.total.total()) + " tokens, "
+                    + std::to_string(m.turns) + " turn(s)" + (m.costKnown ? ", " + cluster::human_cost(m.cost) : "");
+            }
+            result.ui = "message";
+        } else if (name == "skills") {
+            // the skills: of the user (~/.claude/skills), of the project (.claude/skills), the plugins of Claude Code
+            const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+            std::vector<std::string> lines;
+            std::error_code error;
+            for (const std::filesystem::path& dir: {cluster::expand_home("~/.claude/skills"), std::filesystem::path(snap ? cluster::expand_home(snap->spec.cwd) : "") / ".claude" / "skills"}) {
+                if (!std::filesystem::is_directory(dir, error)) continue;
+                std::vector<std::string> names;
+                for (const std::filesystem::directory_entry& e: std::filesystem::directory_iterator(dir, error))
+                    if (std::filesystem::exists(e.path() / "SKILL.md", error)) names.push_back(e.path().filename().string());
+                std::sort(names.begin(), names.end());
+                std::string row;
+                for (const std::string& n: names)
+                    row += (row.empty() ? "" : ", ") + n;
+                lines.push_back(cluster::short_path(dir.string()) + " (" + std::to_string(names.size()) + "): " + (row.empty() ? "none" : row));
+            }
+            const cluster::Json plugins = cluster::Json::parse(cluster::capture({manager.config().command("claude"), "plugin", "list", "--json"}, "", 30).out, nullptr, false);
+            std::string row;
+            std::size_t count = 0;
+            if (plugins.is_array())
+                for (const cluster::Json& p: plugins)
+                    if (p.is_object()) {
+                        row += (row.empty() ? "" : ", ") + p.value("id", std::string()) + (p.value("enabled", true) ? "" : " (off)");
+                        ++count;
+                    }
+            lines.push_back("plugins (" + std::to_string(count) + "): " + (row.empty() ? "none" : row));
+            result.message = "skills and plugins loaded for the sessions started now";
+            for (const std::string& text: lines)
+                result.message += "\n" + text;
+            result.ui = "message";
+        } else if (name == "mcp") {
+            result.message = "MCP servers";
+            result.message += "\nclaude-cluster (the global session: its tools, settings > MCP)";
+            for (const std::string& server: manager.config().mcpServers)
+                result.message += "\n" + server + " (the global session)";
+            result.message += "\nthe ones of Claude Code itself (claude mcp list) for every session";
+            result.ui = "message";
+        } else if (name == "plugins") {
+            result.ui = "plugins";
         } else if (name == "rewind") {
             result.ui = "rewind";
         } else if (name == "close" || name == "exit") {

@@ -13,7 +13,9 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Templates.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Plugins.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
@@ -79,14 +81,32 @@ _cold static std::filesystem::path log_file_(const std::string& id)
     return cluster::data_dir() / "logs" / (id + ".jsonl");
 }
 
-_cold static std::vector<std::string> prompt_args_(const std::string& file)
+_cold static std::string plain_(const std::string& markdown)
 {
-    // a system prompt file added to the one of claude (CLAUDE.md kept); missing, empty or blank: none
+    // an answer in one line for a notice: its Markdown marks out (fences, table rules and pipes, headings, bold, code)
+    std::string out;
+    for (const std::string& line: cluster::split(markdown, '\n')) {
+        std::string t = cluster::trim(line);
+        if (t.starts_with("```") || (t.starts_with("|") && t.find_first_not_of("|-: ") == std::string::npos)) continue;
+        t = std::regex_replace(t, std::regex(R"(^#+\s*|\*\*|__|`)"), "");
+        t = std::regex_replace(t, std::regex(R"(\s*\|\s*)"), " ");
+        if (!cluster::trim(t).empty()) out += (out.empty() ? "" : " ") + cluster::trim(t);
+    }
+    return out;
+}
+
+_cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global)
+{
+    // a system prompt file added to the one of claude (CLAUDE.md kept), then how the answers are drawn (always, from
+    // the binary: the files of the user are copies never refreshed); the display blocks for the global session only
     std::ifstream in(cluster::expand_home(file));
     std::stringstream prompt;
     prompt << in.rdbuf();
-    if (cluster::trim(prompt.str()).empty()) return {};
-    return {"--append-system-prompt", prompt.str()};
+    std::string rendering(cluster::templates::RENDERING);
+    const std::size_t mark = rendering.find("<!-- global -->");
+    if (mark != std::string::npos) rendering = global ? rendering.erase(mark, 15) : rendering.substr(0, mark);
+    const std::string text = cluster::trim(prompt.str()).empty() ? rendering : prompt.str() + "\n" + rendering;
+    return {"--append-system-prompt", text};
 }
 
 /* constructor */
@@ -127,7 +147,7 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     if (launch.backend.provider.driver == "claude") {
         launch.extraArgs = this->_config.extraArgs;
         if (!spec.global) {
-            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt);
+            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false);
             launch.extraArgs.insert(launch.extraArgs.end(), prompt.begin(), prompt.end());
         }
     }
@@ -474,7 +494,7 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
 _cold std::vector<std::string> cluster::Manager::globalArgs_(void) const
 {
     std::vector<std::string> args = {"--mcp-config", cluster::mcp_config_path().string(), "--allowedTools", "mcp__claude-cluster"};
-    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt);
+    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt, true);
     args.insert(args.end(), prompt.begin(), prompt.end());
     return args;
 }
@@ -721,7 +741,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                         }
                     }).detach();
                 }
-                this->notice_(event.session, name + (event.error ? " failed: " : " done: ") + cluster::one_line(event.text, 120), event.error);
+                this->notice_(event.session, name + (event.error ? " failed: " : " done: ") + cluster::one_line(plain_(event.text), 120), event.error);
                 // a limit reached (the usage of the account, the budget): it sleeps until its reset; another error: o_o
                 std::string lower = event.text;
                 std::transform(lower.begin(), lower.end(), lower.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
@@ -786,6 +806,55 @@ _cold void cluster::Manager::notice_(const std::string& session, const std::stri
 }
 
 /* lifecycle */
+_cold void cluster::Manager::pluginsRefresh(void)
+{
+    if (this->_replica) {
+        (void)this->call({{"cmd", "plugins_refresh"}});
+        return;
+    }
+    this->_pluginsSeen = false; // the next tick: listed again (the sources pulled)
+    this->_pluginRepos.clear();
+}
+
+_cold void cluster::Manager::pluginsSync_(void)
+{
+    // the repositories changed (or the first tick): cloned / pulled and listed, then the ticks applied; the ticks only: applied
+    const bool repos = !this->_pluginsSeen || this->_config.pluginRepos != this->_pluginRepos;
+    const bool select = this->_config.pluginSelect != this->_pluginSelect || this->_config.pluginOff != this->_pluginOff;
+    if (!repos && !select) return;
+    if (this->_pluginsBusy.exchange(true)) return; // the next tick again
+    const bool first = !this->_pluginsSeen;
+    this->_pluginsSeen = true;
+    this->_pluginRepos = this->_config.pluginRepos;
+    this->_pluginSelect = this->_config.pluginSelect;
+    this->_pluginOff = this->_config.pluginOff;
+    const cluster::PluginSetup setup{this->_config.pluginRepos, this->_config.pluginSelect, this->_config.pluginOff, this->_config.command("claude")};
+    if (first && setup.repos.empty() && setup.select.empty()) {
+        this->_pluginsBusy = false;
+        return;
+    }
+    std::thread([this, setup, repos]() {
+        try {
+            if (repos) {
+                std::size_t count = 0;
+                std::string errors;
+                for (const cluster::PluginRepo& repo: cluster::plugins_scan(setup)) {
+                    count += repo.items.size();
+                    if (!repo.error.empty()) errors += " " + repo.slug + ": " + repo.error + ";";
+                }
+                this->notice_("", "plugins: " + std::to_string(setup.repos.size()) + " repositor" + (setup.repos.size() == 1 ? "y" : "ies") + ", "
+                    + std::to_string(count) + " plugin(s) / skill(s) offered (settings > Plugins)" + errors, !errors.empty());
+            }
+            const std::string done = cluster::plugins_apply(setup);
+            if (!done.empty()) this->notice_("", "plugins: " + done + " (for the sessions started from now)", done.find("failed:") != std::string::npos);
+        } catch (const std::exception& e) {
+            this->notice_("", std::string("plugins: ") + e.what(), true);
+        }
+        ++this->_version;
+        this->_pluginsBusy = false;
+    }).detach();
+}
+
 _cold void cluster::Manager::load(void)
 {
     if (this->_config.historyLimit > 0) // the prompt history kept to its limit at the start
@@ -914,6 +983,7 @@ _cold void cluster::Manager::tick(void)
         if (this->_config.error().empty()) this->notice_("", "config reloaded");
         else this->notice_("", "config error (previous values kept): " + this->_config.error(), true);
     }
+    this->pluginsSync_();
     this->schedule_();
     this->groupsTick_();
     this->fireSchedules_();
@@ -1080,7 +1150,8 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     // failsafe: no notification daemon, no desktop... nothing said; by DBus (gdbus) when it is there - its clicks come
     // back with their activation token (the window takes the focus with it); else notify-send, its buttons waited for
     if (n.face == cluster::Face::Grin || n.face == cluster::Face::Happy) this->_moment = {n.face, cluster::now()};
-    if (!this->_config.notify) return false;
+    const bool demo = kind == "showcase"; // the Debug page: shown whatever the settings (what a notification looks like)
+    if (!this->_config.notify && !demo) return false;
     const cluster::Config& c = this->_config;
     const std::map<std::string, bool> kinds = {{"global", c.notifyGlobal}, {"done", c.notifyDone}, {"permission", c.notifyPermission}, {"question", c.notifyQuestion},
         {"error", c.notifyError}, {"limit", c.notifyLimits}, {"web", c.notifyWeb}, {"task", c.notifyTasks}, {"reminder", c.notifyReminders},
@@ -1088,7 +1159,7 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     if (kinds.contains(kind) && !kinds.at(kind)) return false;
     // the last prompt of this session came from a web device: its page (or its app) notifies, not the desktop here
     if (kind != "web" && kind != "ready" && !n.session.empty() && this->origin(n.session).starts_with("web:")) return false;
-    if (c.notifyWhen != "always" && this->_focused == 1) return false; // in front of the user: its popups there
+    if (c.notifyWhen != "always" && this->_focused == 1 && !demo) return false; // in front of the user: its popups there
     const std::string key = n.session.empty() ? "-" : n.session;
     if (this->_config.notifySound && !n.sound.empty()) {
         if (cluster::has_command("canberra-gtk-play")) {

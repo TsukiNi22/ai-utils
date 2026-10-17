@@ -212,10 +212,7 @@ class AtomHighlighter: public QSyntaxHighlighter {
         }
 
     public:
-        AtomHighlighter(PromptEdit* owner)
-            : QSyntaxHighlighter(owner->document()), _edit(owner)
-        {
-        }
+        AtomHighlighter(PromptEdit* owner) : QSyntaxHighlighter(owner->document()), _edit(owner) { /* Nothing */ };
 };
 
 // The outline of a card, painted over its content (the clicks go through it)

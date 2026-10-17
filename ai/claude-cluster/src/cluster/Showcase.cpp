@@ -240,12 +240,24 @@ namespace {
             {{"question", "Which interface do you use the most? (a single choice: Enter answers, ← back)"}, {"header", "Interface"}, {"multiSelect", false},
                 {"options", {{{"label", "Terminal (Recommended)"}, {"description", "the fastest: keys, mouse, every popup in boxes"}},
                     {{"label", "Window"}, {"description", "Qt: real images, dialogs"}}, {{"label", "Web page / app"}, {"description", "the phone, touch"}}}}},
-            {{"question", "What should the showcase show next? (several: Space / Enter ticks, Enter on a ticked one answers)"}, {"header", "Next"}, {"multiSelect", true},
+            {{"question", "What should the showcase show next? (several: Space ticks, Enter validates the ticked ones - none too)"}, {"header", "Next"}, {"multiSelect", true},
                 {"options", {{{"label", "Charts"}, {"description", "bar, line, pie"}}, {{"label", "Popups"}, {"description", "progress, failure, permission"}},
                     {{"label", "Notifications"}, {"description", "desktop, phone"}}}}},
             {{"question", "Anything to add? (type on Other: a cursor, ←→, Home / End; Ctrl+T: the chat about these questions)"}, {"header", "Free"}, {"multiSelect", false},
                 {"options", {{{"label", "Nothing"}, {"description", "close the showcase question"}}}}}}}};
         manager.showcasePermission(id, ask);
+    }
+
+    bool notifications_(cluster::Manager& manager, const std::string& id)
+    {
+        // a plain one and an urgent one with its buttons (a click shows the showcase session), whatever the settings
+        cluster::Notification plain{id, "claude-cluster showcase", "a notification: a click shows its session", cluster::Face::Happy, false, "message"};
+        cluster::Notification urgent{"showcase-urgent", "claude-cluster showcase: urgent", "waits for you - its buttons answer it", cluster::Face::Attentive, true,
+            "message-new-instant"};
+        urgent.actions = {{"open", "Open"}, {"later", "Later"}};
+        urgent.onAction = [&manager, id](const std::string& key) {manager.notice(id, "showcase: the notification answered: " + key);};
+        const bool sent = manager.notify(plain, "showcase");
+        return manager.notify(urgent, "showcase") || sent;
     }
 
     void permission_(cluster::Manager& manager, const std::string& id)
@@ -290,10 +302,11 @@ _cold std::string cluster::showcase(cluster::Manager& manager, const std::string
         return "the popup of a permission";
     }
     if (what == "notify") {
-        const bool sent = manager.notifyDesktop("claude-cluster showcase", "a notification: a click shows its session", false);
+        const bool sent = notifications_(manager, id);
         manager.notice(id, "showcase: a notice (the line under the prompt, the toast of the page)");
         manager.notice(id, "showcase: an error notice", true);
-        return sent ? "a desktop notification and two notices" : "two notices (desktop notifications off: Notifications > notify)";
+        return sent ? "two desktop notifications (one urgent, with its buttons) and two notices (shown here even when Notifications > notify is off)"
+            : "two notices; no desktop notification: no notification daemon here (gdbus / notify-send)";
     }
     // the timed ones: in the background (the interface keeps drawing them)
     std::thread([&manager, what, id, shown]() {
@@ -324,7 +337,7 @@ _cold std::string cluster::showcase(cluster::Manager& manager, const std::string
             }
             if (what == "all") {
                 wait(1500);
-                (void)manager.notifyDesktop("claude-cluster showcase", "a notification: a click shows its session", false);
+                (void)notifications_(manager, id);
                 manager.notice(id, "showcase: a notice");
                 wait(1500);
                 permission_(manager, id);

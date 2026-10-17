@@ -16,6 +16,7 @@ File Description:
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/Vocabulary.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Plugins.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
@@ -548,6 +549,46 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [name](const cluster::Config& cf) {return cf.mcpTool(name) ? std::string("true") : std::string("false");}});
         }
     }
+    // plugins / skills of repositories: the links, then a tick per plugin or skill found (and one for all of a repository)
+    {
+        std::string state;
+        const std::vector<cluster::PluginRepo> repos = cluster::plugins_index();
+        for (const cluster::PluginRepo& repo: repos)
+            state += "\n• " + repo.url + ": " + (repo.error.empty() ? std::to_string(repo.items.size()) + (repo.marketplace.empty() ? " skill(s)" : " plugin(s) of the marketplace "
+                + repo.marketplace) : repo.error);
+        cluster::SettingsPage page{"plugins", "Plugins", {
+            {"plugins", "repos", "Sources", SettingKind::List, {}, "where plugins / skills are offered below from, comma separated: a git repository "
+                "(GitHub owner/repo, an https or git URL), a folder of this computer (~/... or /...), a .zip (a path; dropped on the terminal: its path).\n• a Claude Code marketplace (.claude-plugin/marketplace.json): its plugins (claude plugin install)\n"
+                "• else its skills (the folders with a SKILL.md): linked in ~/.claude/skills\nA repository cloned / a .zip unpacked in the data folder when the "
+                "list changes (pulled at each start of the core); tick what to install: done at the save, for the sessions started after it. The palette, "
+                "Plugins: the browser (add with a path completed, on / off, install / remove, information, the tree of its files and their preview). Code of these repositories runs as you: only "
+                "repositories you trust" + (state.empty() ? std::string() : "\nListed:" + state), false,
+                [](const cluster::Config& cf) {return join_(cf.pluginRepos);}},
+        }};
+        page.settings.front().danger = [](const std::string& v) {
+            return cluster::trim(v).empty() ? std::string() : "the plugins / skills of these sources run as you in every session (their commands, hooks, MCP "
+                "servers): only sources you trust";
+        };
+        for (const cluster::PluginRepo& repo: repos) {
+            if (repo.items.empty()) continue;
+            const std::string all = repo.slug + ":*";
+            page.settings.push_back({"plugins.select", "\"" + all + "\"", "All of " + repo.slug, SettingKind::Bool, {}, "every plugin / skill of " + repo.url
+                + " (the new ones too)", false, [all](const cluster::Config& cf) {return cf.pluginSelect.contains(all) && cf.pluginSelect.at(all) ? std::string("true")
+                    : std::string("false");}});
+            for (const cluster::PluginItem& item: repo.items) {
+                const std::string id = item.id;
+                page.settings.push_back({"plugins.select", "\"" + id + "\"", "  " + item.name + " (" + item.kind + (item.installed ? item.enabled ? ", installed" : ", off" : "") + ")",
+                    SettingKind::Bool, {}, (item.description.empty() ? std::string("no description") : item.description) + "\nfrom " + repo.url, false,
+                    [id](const cluster::Config& cf) {return cf.pluginSelect.contains(id) && cf.pluginSelect.at(id) ? std::string("true") : std::string("false");}});
+                if (item.installed) // installed: turned off / on (a plugin disabled, a skill unlinked), kept installed
+                    page.settings.push_back({"plugins.off", "\"" + id + "\"", "    " + item.name + ": off", SettingKind::Bool, {}, "turned off: kept installed, not "
+                        "loaded by the sessions started after it", false,
+                        [id](const cluster::Config& cf) {return cf.pluginOff.contains(id) && cf.pluginOff.at(id) ? std::string("true") : std::string("false");}});
+            }
+        }
+        const auto mcp = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "mcp";});
+        pages.insert(mcp == pages.end() ? pages.end() : mcp + 1, page);
+    }
     for (const auto &[action, key]: c.keys) {
         const std::string name = action;
         pages.back().settings.push_back({"keys", name, name, SettingKind::Text, {}, "Ctrl+<letter>, Ctrl+Shift+<letter>, Alt+<letter>, F1..F12, Tab, Escape; alternatives separated by |", false,
@@ -707,7 +748,7 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
-    return section == "commands" || section == "mcp_tools" || keys.contains(section + "." + key);
+    return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || keys.contains(section + "." + key);
 }
 
 _cold std::vector<std::string> cluster::protected_changes(const std::string& oldToml, const std::string& newToml)
@@ -740,6 +781,14 @@ _cold std::vector<std::string> cluster::protected_changes(const std::string& old
             if (table != nullptr)
                 for (const auto &[key, node]: *table)
                     keys.insert(std::string(section) + "." + std::string(key.str()));
+    {
+        // the plugins: code of repositories run as the user (their links, their ticks)
+        std::ostringstream a;
+        std::ostringstream b;
+        if (const toml::table* t = before.at_path("plugins").as_table()) a << *t;
+        if (const toml::table* t = after.at_path("plugins").as_table()) b << *t;
+        if (a.str() != b.str()) changed.push_back("plugins");
+    }
     for (const std::string& path: keys) {
         const std::size_t dot = path.find('.');
         if (value(before, path.substr(0, dot), path.substr(dot + 1)) != value(after, path.substr(0, dot), path.substr(dot + 1))) changed.push_back(path);

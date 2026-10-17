@@ -268,6 +268,15 @@ _cold void cluster::Config::load(void)
 
     /* mcp */
     this->mcpServers = strings_(table["mcp"]["servers"], {});
+    this->pluginRepos = strings_(table["plugins"]["repos"], {});
+    this->pluginSelect.clear();
+    if (const toml::table* select = table["plugins"]["select"].as_table())
+        for (const auto &[name, value]: *select)
+            if (value.is_boolean()) this->pluginSelect[std::string(name.str())] = value.as_boolean()->get();
+    this->pluginOff.clear();
+    if (const toml::table* off = table["plugins"]["off"].as_table())
+        for (const auto &[name, value]: *off)
+            if (value.is_boolean()) this->pluginOff[std::string(name.str())] = value.as_boolean()->get();
     this->mcpTools.clear();
     if (const toml::table* toolsTable = table["mcp_tools"].as_table())
         for (const auto &[tool, on]: *toolsTable)

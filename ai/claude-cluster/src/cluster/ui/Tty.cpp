@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
+#include "cluster/Plugins.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
@@ -58,7 +59,15 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins};
+
+struct FormField {                     // a field of the form of a display, filled in its popup
+    std::string name;
+    std::string label;
+    std::string type;                  // text | number | choice | bool | date
+    std::vector<std::string> options;
+    std::string value;
+};
 
 struct Theme {
     ftxui::Color bg;
@@ -80,6 +89,136 @@ _cold ftxui::Color hex_(const std::string& hex)
     if (hex.size() != 7 || hex[0] != '#') return ftxui::Color::Default;
     const std::function<std::uint8_t(const std::size_t)> byte = [&](const std::size_t i) {return static_cast<std::uint8_t>(std::stoi(hex.substr(i, 2), nullptr, 16));};
     return ftxui::Color::RGB(byte(1), byte(3), byte(5));
+}
+
+struct CodePalette {                  // the colours of the code boxes (from the theme)
+    std::uint32_t text = 0xe6e7ea;
+    std::uint32_t comment = 0x7f848e;
+    std::uint32_t keyword = 0x7aa2f7;
+    std::uint32_t string = 0x9ece6a;
+    std::uint32_t number = 0xe0af68;
+    std::uint32_t type = 0xe0af68;
+    std::uint32_t function = 0x7dcfff;
+    std::uint32_t surface = 0x24283b;   // the slots of a form
+};
+
+_cold std::uint32_t rgb_(const std::string& hex, const std::uint32_t fallback)
+{
+    if (hex.size() != 7 || hex[0] != '#') return fallback;
+    try {
+        return static_cast<std::uint32_t>(std::stoul(hex.substr(1), nullptr, 16));
+    } catch (const std::exception&) {
+        return fallback;
+    }
+}
+
+_cold double audio_seconds_(const std::string& bytes)
+{
+    // the length of a WAV (its fmt byte rate, its data size); another format: unknown (-1)
+    if (bytes.size() < 44 || bytes.compare(0, 4, "RIFF") != 0 || bytes.compare(8, 4, "WAVE") != 0) return -1.0;
+    const std::function<std::uint32_t(std::size_t)> u32 = [&bytes](const std::size_t at) {
+        return static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at])) | static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at + 1])) << 8
+            | static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at + 2])) << 16 | static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at + 3])) << 24;
+    };
+    std::uint32_t rate = 0;
+    for (std::size_t at = 12; at + 8 <= bytes.size();) {
+        const std::string id = bytes.substr(at, 4);
+        const std::uint32_t size = u32(at + 4);
+        if (id == "fmt " && at + 16 <= bytes.size()) rate = u32(at + 16);
+        if (id == "data") return rate > 0 ? static_cast<double>(std::min<std::size_t>(size, bytes.size() - at - 8)) / rate : -1.0;
+        at += 8 + size + (size % 2);
+    }
+    return -1.0;
+}
+
+_cold std::vector<cluster::Cell> highlight_(const std::string& line, const std::string& language, const CodePalette& p, bool& inComment)
+{
+    // a light tokenizer: comments, strings, numbers, keywords, types (C-like: capitalized), calls; by family of language
+    static const std::set<std::string> clike = {"if", "else", "for", "while", "do", "switch", "case", "default", "break", "continue", "return", "goto",
+        "class", "struct", "enum", "union", "namespace", "using", "typedef", "template", "typename", "public", "private", "protected", "virtual", "override",
+        "final", "static", "const", "constexpr", "consteval", "inline", "extern", "volatile", "mutable", "explicit", "friend", "operator", "new", "delete",
+        "try", "catch", "throw", "noexcept", "auto", "void", "bool", "char", "int", "long", "short", "float", "double", "unsigned", "signed", "true", "false",
+        "nullptr", "this", "sizeof", "static_cast", "dynamic_cast", "reinterpret_cast", "const_cast", "co_await", "co_return", "co_yield", "concept",
+        "requires", "import", "export", "package", "interface", "implements", "extends", "function", "var", "let", "fn", "pub", "impl", "trait", "mod",
+        "use", "match", "mut", "ref", "self", "Self", "loop", "where", "async", "await", "yield", "func", "go", "defer", "chan", "select", "type", "null",
+        "undefined", "instanceof", "typeof", "in", "of", "from", "as", "is", "super", "#include", "#define", "#ifndef", "#ifdef", "#endif", "#pragma", "#if", "#else"};
+    static const std::set<std::string> python = {"def", "class", "if", "elif", "else", "for", "while", "return", "import", "from", "as", "with", "try", "except",
+        "finally", "raise", "pass", "break", "continue", "lambda", "yield", "global", "nonlocal", "in", "is", "not", "and", "or", "None", "True", "False",
+        "async", "await", "assert", "del", "match", "case", "self"};
+    static const std::set<std::string> shell = {"if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac", "in", "function",
+        "return", "local", "export", "readonly", "declare", "set", "unset", "source", "echo", "cd", "exit", "shift", "true", "false"};
+    std::string lang = language;
+    std::transform(lang.begin(), lang.end(), lang.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
+    const bool py = lang == "python" || lang == "py";
+    const bool sh = lang == "sh" || lang == "bash" || lang == "zsh" || lang == "shell" || lang == "console" || lang == "fish";
+    const bool data = lang == "json" || lang == "yaml" || lang == "yml" || lang == "toml" || lang == "ini";
+    const bool hashComment = py || sh || lang == "yaml" || lang == "yml" || lang == "toml" || lang == "ini" || lang == "cmake" || lang == "make" || lang == "ruby";
+    const bool plain = lang.empty() || lang == "text" || lang == "txt" || lang == "md" || lang == "markdown" || lang == "diff" || lang == "log";
+    const std::set<std::string>& keywords = py ? python : sh ? shell : clike;
+    std::vector<cluster::Cell> out;
+    const std::function<void(const std::string&, std::uint32_t)> put = [&out](const std::string& text, const std::uint32_t color) {
+        if (text.empty()) return;
+        if (!out.empty() && out.back().fg == color) out.back().text += text;
+        else out.push_back({text, color, 0, true, false});
+    };
+    if (plain) {
+        const std::uint32_t color = lang == "diff" && line.starts_with("+") ? p.string : lang == "diff" && line.starts_with("-") ? 0xf7768e
+            : lang == "diff" && line.starts_with("@@") ? p.keyword : p.text;
+        put(line, color);
+        return out;
+    }
+    std::size_t i = 0;
+    while (i < line.size()) {
+        if (inComment) { // inside /* ... */
+            const std::size_t end = line.find("*/", i);
+            put(line.substr(i, end == std::string::npos ? std::string::npos : end + 2 - i), p.comment);
+            if (end == std::string::npos) return out;
+            inComment = false;
+            i = end + 2;
+            continue;
+        }
+        const char c = line[i];
+        if (!hashComment && !data && line.compare(i, 2, "/*") == 0) {
+            inComment = true;
+            continue;
+        }
+        if ((!hashComment && !data && line.compare(i, 2, "//") == 0) || (hashComment && c == '#' && !(sh && i > 0 && line[i - 1] == '$'))) {
+            put(line.substr(i), p.comment);
+            return out;
+        }
+        if (c == '"' || c == '\'' || c == '`') {
+            std::size_t end = i + 1;
+            while (end < line.size() && line[end] != c) end += line[end] == '\\' ? 2 : 1;
+            end = std::min(line.size(), end + 1);
+            put(line.substr(i, end - i), data && line.find(':', end) != std::string::npos && c == '"' ? p.keyword : p.string);
+            i = end;
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(c)) && (i == 0 || !std::isalnum(static_cast<unsigned char>(line[i - 1])))) {
+            std::size_t end = i;
+            while (end < line.size() && (std::isalnum(static_cast<unsigned char>(line[end])) || line[end] == '.' || line[end] == '_')) ++end;
+            put(line.substr(i, end - i), p.number);
+            i = end;
+            continue;
+        }
+        if (std::isalpha(static_cast<unsigned char>(c)) || c == '_' || (c == '#' && !hashComment) || (c == '$' && sh)) {
+            std::size_t end = i + 1;
+            while (end < line.size() && (std::isalnum(static_cast<unsigned char>(line[end])) || line[end] == '_' || (sh && line[end] == '-'))) ++end;
+            const std::string word = line.substr(i, end - i);
+            std::size_t after = end;
+            while (after < line.size() && line[after] == ' ') ++after;
+            const std::uint32_t color = keywords.contains(word) ? p.keyword : c == '$' ? p.number
+                : (data && (word == "true" || word == "false" || word == "null")) ? p.number
+                : after < line.size() && line[after] == '(' ? p.function
+                : !py && !sh && std::isupper(static_cast<unsigned char>(c)) ? p.type : p.text;
+            put(word, color);
+            i = end;
+            continue;
+        }
+        put(std::string(1, c), p.text);
+        ++i;
+    }
+    return out;
 }
 
 _cold Theme make_theme_(const cluster::Style& style)
@@ -208,6 +347,13 @@ _cold std::size_t byte_at_(const std::string& line, const int column)
             ++at;
     }
     return at;
+}
+
+_cold std::string cut_(const std::string& line, const std::size_t columns)
+{
+    // a line cut to its first columns, its spaces kept (an indentation, an alignment), … when cut
+    if (width_(line) <= columns || columns == 0) return line;
+    return line.substr(0, byte_at_(line, static_cast<int>(columns) - 1)) + "…";
 }
 
 _cold std::string key_name_(const ftxui::Event& event)
@@ -395,6 +541,29 @@ class TtyUi {
         std::vector<ftxui::Box> _chipBoxes;
         int _hoverChip = -1;
         int _hover = -1;                            // the click target under the mouse (its index in _clicks), lit
+        std::string _hitView;                       // the part of a display under the mouse: its transcript, line, first cell
+        int _hitY = -1;
+        int _hitFrom = -1;
+        std::string _pressView;                     // the part of a display clicked last: flashed a moment
+        int _pressY = -1;
+        int _pressFrom = -1;
+        std::int64_t _pressAt = 0;
+        std::string _formSession;                   // the form of a display in its popup: where, its fields, the one focused
+        std::string _formDisplay;
+        std::string _formTitle;
+        std::vector<FormField> _form;
+        std::size_t _formFocus = 0;                 // a field, then Submit (size), Cancel (size + 1)
+        std::map<std::string, std::int64_t> _audioStart; // an audio playing here: when it started (its display id)
+        std::vector<cluster::PluginRepo> _plug;     // the plugins browser: the sources listed (the index of the core)
+        std::int64_t _plugRead = 0;
+        std::size_t _plugSel = 0;                   // its row (a source, an item)
+        bool _plugTree = false;                     // the focus in the tree of the files of the item
+        std::set<std::string> _plugOpen;            // the folders opened in the tree
+        std::size_t _plugNode = 0;
+        std::string _plugFile;                      // the file previewed
+        int _plugScroll = 0;
+        bool _plugAdd = false;                      // a source typed (a path completed, a link)
+        std::vector<std::string> _plugHints;
         std::map<int, std::string> _rowSessions;    // the click targets that are sessions (a right click: their menu)
         struct PromptRow {
             std::size_t from = 0;                   // first byte shown
@@ -405,6 +574,7 @@ class TtyUi {
         ftxui::Box _promptBox;
         ftxui::Box _panelBox;                       // the side panels of the session shown (the wheel over them scrolls them)
         int _panelScroll = 0;                       // lines hidden at their top
+        CodePalette _code;                          // the colours of the code boxes (from the theme)
         ftxui::Box _askChatBox;                     // the chat of a question popup (the wheel over it scrolls it)
         int _askChatScroll = 0;                     // its lines hidden below (0: the newest shown)
         std::size_t _askChatSeen = 0;               // its messages when drawn last (a new one: back to the newest)
@@ -467,6 +637,7 @@ class TtyUi {
         };
         Line _askDraft;
         Line _askOther;                 // the answer on Other, edited here, pushed to the question at each change
+        Line _plugInput;                // the source typed in the plugins browser
         std::string _askOtherKey;       // the question it belongs to (request:index)
         std::string _host = cluster::host_name();   // where the sessions run
         std::map<std::string, std::string> _branches;   // their git branch, read again every 5 s
@@ -787,10 +958,7 @@ class TtyUi {
         std::int64_t _statusTime = 0;
 
         // ---------- Pre-Function -------- //
-        _nodiscard std::vector<cluster::Snapshot> sessions_(void) const
-        {
-            return this->_manager.list(true);
-        }
+        _nodiscard std::vector<cluster::Snapshot> sessions_(void) const {return this->_manager.list(true);};
 
         void quit_(void)
         {
@@ -1050,7 +1218,13 @@ class TtyUi {
                         this->searchUpdate_();
                     }
                     if (local->ui == "settings") this->openSettings_();
-                    else if (local->ui == "restore_menu") this->openRestore_();
+                    else if (local->ui == "plugins") this->openPlugins_();
+                    else if (local->ui == "message") { // a local command shown (/usage, /skills...): never in the conversation
+                        this->_message = local->message;
+                        this->_messageError = local->error;
+                        this->_mode = Mode::Message;
+                        return;
+                    } else if (local->ui == "restore_menu") this->openRestore_();
                     else if (local->ui == "rewind") this->rewind_();
                     else if (local->ui.starts_with("pick:")) this->pick_(local->ui.substr(5));
                     if (!local->message.empty()) this->status_(local->message, local->error);
@@ -1142,9 +1316,24 @@ class TtyUi {
                     for (std::size_t at = x; x < y; at = x) {
                         while (at < y && !this->_editor.atomAt(text, at))
                             ++at;
-                        if (at > x) {
-                            ftxui::Element element = ftxui::text(text.substr(x, at - x)) | ftxui::color(this->_theme.text);
+                        // the text: a /command (skill) at its start and the @files in the accent colour, like the atoms
+                        for (std::size_t k = x; k < at;) {
+                            std::size_t end = k;
+                            const bool lead = text[k] == '/' && text.find_first_not_of(" \n") == k;
+                            const bool file = text[k] == '@' && (k == 0 || text[k - 1] == ' ' || text[k - 1] == '\n');
+                            if (lead || file) {
+                                end = text.find_first_of(" \n", k);
+                                end = std::min(end == std::string::npos ? at : end, at);
+                            } else {
+                                while (end < at && !(text[end] == '@' && (end == 0 || text[end - 1] == ' ' || text[end - 1] == '\n'))
+                                    && !(text[end] == '/' && text.find_first_not_of(" \n") == end))
+                                    ++end;
+                            }
+                            if (end == k) ++end;
+                            ftxui::Element element = ftxui::text(text.substr(k, end - k)) | (lead || file ? ftxui::color(this->_theme.accent) | ftxui::bold
+                                | ftxui::bgcolor(this->_theme.surface) : ftxui::color(this->_theme.text));
                             parts.push_back(selected ? element | ftxui::inverted : element);
+                            k = end;
                         }
                         if (at >= y) break;
                         ftxui::Element atom = ftxui::text(this->_editor.atom(*this->_editor.atomAt(text, at)).label) | ftxui::color(this->_theme.accent) | ftxui::bold;
@@ -1279,9 +1468,292 @@ class TtyUi {
             return static_cast<int>(this->_clicks.size()) - 1;
         }
 
-        _nodiscard ftxui::Decorator clipBox_(const int clip)
+        _nodiscard ftxui::Decorator clipBox_(const int clip) {return ftxui::reflect(this->_clicks[static_cast<std::size_t>(clip)].box);};
+
+        bool plugEvent_(const ftxui::Event& event, const std::string& key)
         {
-            return ftxui::reflect(this->_clicks[static_cast<std::size_t>(clip)].box);
+            if (now_ms_() - this->_plugRead > 1000) { // the index of the core again (a scan, an install done)
+                this->_plug = cluster::plugins_index();
+                this->_plugRead = now_ms_();
+            }
+            if (this->_plugAdd) { // a source typed: Tab completes, Enter adds, Esc back
+                if (event == ftxui::Event::Escape) {
+                    this->_plugAdd = false;
+                    this->_plugHints.clear();
+                } else if (event == ftxui::Event::Return) {
+                    this->_plugAdd = false;
+                    this->_plugHints.clear();
+                    this->plugAddSource_(this->_plugInput.text);
+                } else if (event == ftxui::Event::Tab) {
+                    this->plugComplete_();
+                } else {
+                    (void)this->_plugInput.key(event, key);
+                    this->_plugHints.clear();
+                }
+                return true;
+            }
+            const std::vector<std::pair<std::size_t, int>> rows = this->plugRows_();
+            const bool any = !rows.empty();
+            const std::pair<std::size_t, int> row = any ? rows[std::min(this->_plugSel, rows.size() - 1)] : std::pair<std::size_t, int>{0, -1};
+            const cluster::PluginRepo* repo = any ? &this->_plug[row.first] : nullptr;
+            const cluster::PluginItem* item = repo && row.second >= 0 ? &repo->items[static_cast<std::size_t>(row.second)] : nullptr;
+            const std::filesystem::path root = item ? std::filesystem::path(item->path.empty() ? repo->dir : item->path) : repo ? std::filesystem::path(repo->dir) : "";
+            if (event == ftxui::Event::Escape || event == ftxui::Event::Character('q')) {
+                if (this->_plugTree) this->_plugTree = false;
+                else this->_mode = Mode::Normal;
+                return true;
+            }
+            if (this->_plugTree) { // the tree: ↑↓, Enter / → opens a folder or previews a file, ← closes / back to the list
+                const std::vector<std::tuple<int, std::filesystem::path, bool>> nodes = this->plugNodes_(root);
+                if (nodes.empty()) {
+                    this->_plugTree = false;
+                    return true;
+                }
+                this->_plugNode = std::min(this->_plugNode, nodes.size() - 1);
+                const auto &[depth, path, dir] = nodes[this->_plugNode];
+                if (event == ftxui::Event::ArrowUp) this->_plugNode = this->_plugNode > 0 ? this->_plugNode - 1 : 0;
+                else if (event == ftxui::Event::ArrowDown) this->_plugNode = std::min(this->_plugNode + 1, nodes.size() - 1);
+                else if (event == ftxui::Event::PageDown) this->_plugScroll += 10;
+                else if (event == ftxui::Event::PageUp) this->_plugScroll = std::max(0, this->_plugScroll - 10);
+                else if (event == ftxui::Event::Return || event == ftxui::Event::ArrowRight) {
+                    if (dir) {
+                        if (this->_plugOpen.contains(path.string())) this->_plugOpen.erase(path.string());
+                        else this->_plugOpen.insert(path.string());
+                    } else {
+                        this->_plugFile = path.string();
+                        this->_plugScroll = 0;
+                    }
+                } else if (event == ftxui::Event::ArrowLeft) {
+                    if (dir && this->_plugOpen.contains(path.string())) this->_plugOpen.erase(path.string());
+                    else this->_plugTree = false;
+                }
+                return true;
+            }
+            if (event == ftxui::Event::ArrowUp) {
+                this->_plugSel = this->_plugSel > 0 ? this->_plugSel - 1 : 0;
+                this->_plugFile.clear();
+            } else if (event == ftxui::Event::ArrowDown) {
+                this->_plugSel = any ? std::min(this->_plugSel + 1, rows.size() - 1) : 0;
+                this->_plugFile.clear();
+            } else if ((event == ftxui::Event::Return || event == ftxui::Event::ArrowRight || event == ftxui::Event::Tab) && repo) {
+                this->_plugTree = true;
+                this->_plugNode = 0;
+                // its SKILL.md / README previewed at once
+                for (const char* first: {"SKILL.md", "README.md", ".claude-plugin/plugin.json"})
+                    if (std::filesystem::exists(root / first)) {
+                        this->_plugFile = (root / first).string();
+                        break;
+                    }
+            } else if (event == ftxui::Event::Character('a') || (event.is_character() && (event.character() == "/" || event.character() == "~"
+                || event.character() == "'" || event.character() == "\""))) {
+                // a source typed, or a file / folder dropped on the terminal (its path pasted)
+                this->_plugAdd = true;
+                this->_plugInput = Line{};
+                if (event != ftxui::Event::Character('a')) this->_plugInput.insert(event.character());
+            } else if (event == ftxui::Event::Character('u')) {
+                this->_manager.pluginsRefresh();
+                this->status_("plugins: the sources pulled / listed again");
+            } else if (event == ftxui::Event::Character('d') && repo && !item) {
+                std::vector<std::string> repos = this->_manager.config().pluginRepos;
+                repos.erase(std::remove(repos.begin(), repos.end(), repo->url), repos.end());
+                std::string list;
+                for (const std::string& r: repos)
+                    list += (list.empty() ? "" : ",") + r;
+                this->plugWrite_("plugins", "repos", cluster::SettingKind::List, list);
+                this->status_("source dropped: " + repo->url + " (what it installed stays until removed: r)");
+            } else if ((event == ftxui::Event::Character('i') || event == ftxui::Event::Character('r') || event == ftxui::Event::Character(' ')) && repo) {
+                // installed / removed: the item, or every item of a source (its "*")
+                const std::string id = item ? item->id : repo->slug + ":*";
+                const bool install = event == ftxui::Event::Character('i') || (event == ftxui::Event::Character(' ') && !(item && item->installed));
+                this->plugWrite_("plugins.select", "\"" + id + "\"", cluster::SettingKind::Bool, install ? "true" : "false");
+                this->status_(std::string(install ? "installing " : "removing ") + (item ? item->name : "everything of " + repo->slug) + "… (for the sessions started after it)");
+            } else if (event == ftxui::Event::Character('e') && item) {
+                if (!item->installed) {
+                    this->status_("not installed: i first", true);
+                } else {
+                    this->plugWrite_("plugins.off", "\"" + item->id + "\"", cluster::SettingKind::Bool, item->enabled ? "true" : "false");
+                    this->status_(std::string(item->enabled ? "turning off " : "turning on ") + item->name + "…");
+                }
+            }
+            return true;
+        }
+
+        _nodiscard ftxui::Elements plugPreview_(const std::string& file, const int height, const int width)
+        {
+            // a file of a plugin / skill: its lines coloured by its language; Markdown drawn (headings, bullets, its code blocks)
+            ftxui::Elements out;
+            std::ifstream in(file);
+            if (!in) return {ftxui::text(" (unreadable)") | ftxui::color(this->_theme.muted)};
+            static const std::map<std::string, std::string> languages = {{".py", "python"}, {".sh", "bash"}, {".bash", "bash"}, {".zsh", "bash"}, {".js", "js"},
+                {".ts", "ts"}, {".json", "json"}, {".yaml", "yaml"}, {".yml", "yaml"}, {".toml", "toml"}, {".cpp", "cpp"}, {".hpp", "cpp"}, {".c", "c"}, {".h", "c"},
+                {".rs", "rust"}, {".go", "go"}, {".lua", "lua"}, {".md", "md"}, {".txt", "text"}, {".html", "html"}, {".css", "css"}, {".cmake", "cmake"}};
+            const std::string ext = std::filesystem::path(file).extension().string();
+            const std::string lang = languages.contains(ext) ? languages.at(ext) : std::string(std::filesystem::path(file).filename() == "CMakeLists.txt" ? "cmake" : "text");
+            const bool markdown = lang == "md";
+            std::string line;
+            int n = 0;
+            bool fence = false;
+            bool front = false;
+            std::string fenceLang;
+            bool comment = false;
+            const std::function<ftxui::Element(const std::vector<cluster::Cell>&)> cells = [](const std::vector<cluster::Cell>& list) {
+                ftxui::Elements runs;
+                for (const cluster::Cell& c: list)
+                    runs.push_back(ftxui::text(c.text) | ftxui::color(ftxui::Color::RGB((c.fg >> 16) & 255, (c.fg >> 8) & 255, c.fg & 255)));
+                return ftxui::hbox(std::move(runs));
+            };
+            while (std::getline(in, line) && static_cast<int>(out.size()) < height) {
+                for (std::size_t tab = line.find('\t'); tab != std::string::npos; tab = line.find('\t'))
+                    line.replace(tab, 1, "    ");
+                ++n;
+                if (n <= this->_plugScroll) {
+                    if (markdown && cluster::trim(line).starts_with("```")) fence = !fence;
+                    continue;
+                }
+                const std::string shown = cut_(line, static_cast<std::size_t>(std::max(10, width - 6)));
+                const ftxui::Element number = ftxui::text(std::string(4 - std::min<std::size_t>(4, std::to_string(n).size()), ' ') + std::to_string(n) + " ")
+                    | ftxui::color(this->_theme.border);
+                ftxui::Element body;
+                if (!markdown) {
+                    body = cells(highlight_(shown, lang, this->_code, comment));
+                } else if (n == 1 && cluster::trim(line) == "---") {
+                    front = true;
+                    body = ftxui::text(shown) | ftxui::color(this->_theme.muted);
+                } else if (front) {
+                    if (cluster::trim(line) == "---") front = false;
+                    const std::size_t colon = shown.find(':');
+                    body = colon == std::string::npos ? ftxui::text(shown) | ftxui::color(this->_theme.muted)
+                        : ftxui::hbox({ftxui::text(shown.substr(0, colon + 1)) | ftxui::color(this->_theme.accent), ftxui::text(shown.substr(colon + 1)) | ftxui::color(this->_theme.muted)});
+                } else if (cluster::trim(line).starts_with("```")) {
+                    fence = !fence;
+                    fenceLang = fence ? cluster::trim(cluster::trim(line).substr(3)) : std::string();
+                    body = ftxui::text(fence ? "╭─ " + (fenceLang.empty() ? std::string("code") : fenceLang) : "╰─") | ftxui::color(this->_theme.border);
+                } else if (fence) {
+                    body = ftxui::hbox({ftxui::text("│ ") | ftxui::color(this->_theme.border), cells(highlight_(shown, fenceLang, this->_code, comment))});
+                } else if (line.starts_with("#")) {
+                    const std::size_t at = shown.find_first_not_of('#');
+                    body = ftxui::text(at == std::string::npos ? std::string() : cluster::trim(shown.substr(at))) | ftxui::bold | ftxui::color(this->_theme.accent);
+                } else if (cluster::trim(line).starts_with("- ") || cluster::trim(line).starts_with("* ")) {
+                    const std::size_t at = line.find_first_not_of(' ');
+                    body = ftxui::hbox({ftxui::text(std::string(at, ' ') + "• ") | ftxui::color(this->_theme.accent), ftxui::text(cluster::one_line(line.substr(at + 2),
+                        static_cast<std::size_t>(std::max(10, width - 8)))) | ftxui::color(this->_theme.text)});
+                } else {
+                    body = ftxui::text(shown) | ftxui::color(this->_theme.text);
+                }
+                out.push_back(ftxui::hbox({number, body}));
+            }
+            return out;
+        }
+
+        void openForm_(const std::string& session, const std::string& display, const std::string& title, const cluster::Json& fields, const cluster::Json& values,
+            const std::size_t focus)
+        {
+            // the popup of a form: a slot per field, the values given or sent before, the field clicked focused
+            this->_form.clear();
+            for (const cluster::Json& field: fields) {
+                FormField f{field.value("name", std::string()), field.value("label", field.value("name", std::string())),
+                    field.value("type", std::string(field.contains("options") ? "choice" : "text")), {}, ""};
+                for (const cluster::Json& o: field.value("options", cluster::Json::array()))
+                    f.options.push_back(o.is_string() ? o.get<std::string>() : o.dump());
+                const cluster::Json value = values.contains(f.name) ? values[f.name] : field.value("value", cluster::Json(""));
+                f.value = value.is_string() ? value.get<std::string>() : value.is_boolean() ? (value.get<bool>() ? "yes" : "no") : value.dump();
+                if (f.type == "bool" && f.value != "yes" && f.value != "true") f.value = "no";
+                if (f.type == "bool" && f.value == "true") f.value = "yes";
+                if (f.type == "choice" && f.value.empty() && !f.options.empty()) f.value = f.options.front();
+                this->_form.push_back(f);
+            }
+            this->_formSession = session;
+            this->_formDisplay = display;
+            this->_formTitle = title;
+            this->_formFocus = std::min(focus, this->_form.size());
+            this->_mode = Mode::Form;
+        }
+
+        void formSubmit_(void)
+        {
+            // its values typed (a number, yes / no) to the display: sent to the global session
+            cluster::Json values = cluster::Json::object();
+            for (const FormField& f: this->_form) {
+                if (f.type == "bool") {
+                    values[f.name] = f.value == "yes";
+                    continue;
+                }
+                if (f.type == "number") {
+                    try {
+                        std::size_t used = 0;
+                        const double number = std::stod(f.value, &used);
+                        if (used == f.value.size()) {
+                            values[f.name] = number == std::floor(number) && std::abs(number) < 1e15 ? cluster::Json(static_cast<long long>(number)) : cluster::Json(number);
+                            continue;
+                        }
+                    } catch (const std::exception&) { // xstyle: ignore G-EMPTY-BLOCK (not a number: sent as typed)
+                    }
+                }
+                values[f.name] = f.value;
+            }
+            this->_mode = Mode::Normal;
+            try {
+                this->status_(this->_manager.displayAct(this->_formSession, this->_formDisplay, {{"values", values}}));
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
+            }
+        }
+
+        bool formEvent_(const ftxui::Event& event)
+        {
+            const std::size_t count = this->_form.size();
+            FormField* f = this->_formFocus < count ? &this->_form[this->_formFocus] : nullptr;
+            const bool typed = f && (f->type == "text" || f->type == "number" || f->type == "date");
+            if (event == ftxui::Event::Escape) {
+                this->_mode = Mode::Normal;
+            } else if (event.input() == std::string(1, '\x13')) { // Ctrl+S
+                this->formSubmit_();
+            } else if (event == ftxui::Event::ArrowDown || event == ftxui::Event::Tab) {
+                this->_formFocus = (this->_formFocus + 1) % (count + 2);
+            } else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::TabReverse) {
+                this->_formFocus = (this->_formFocus + count + 1) % (count + 2);
+            } else if (event == ftxui::Event::Return) {
+                if (this->_formFocus == count + 1) this->_mode = Mode::Normal;
+                else if (this->_formFocus + 1 >= count) this->formSubmit_();     // the last field or Submit
+                else ++this->_formFocus;
+            } else if (!f) {
+                if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight) this->_formFocus = this->_formFocus == count ? count + 1 : count;
+            } else if (f->type == "choice" && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight) && !f->options.empty()) {
+                const auto at = std::find(f->options.begin(), f->options.end(), f->value);
+                const std::size_t index = at == f->options.end() ? 0 : static_cast<std::size_t>(at - f->options.begin());
+                const std::size_t size = f->options.size();
+                f->value = f->options[(index + (event == ftxui::Event::ArrowRight ? 1 : size - 1)) % size];
+            } else if (f->type == "bool" && (event == ftxui::Event::Character(' ') || event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight)) {
+                f->value = f->value == "yes" ? "no" : "yes";
+            } else if (typed && event == ftxui::Event::Backspace) {
+                while (!f->value.empty() && (static_cast<unsigned char>(f->value.back()) & 0xC0) == 0x80) f->value.pop_back();
+                if (!f->value.empty()) f->value.pop_back();
+            } else if (typed && event.is_character()) {
+                const std::string c = event.character();
+                if (f->type != "number" || c.find_first_not_of("0123456789.-+eE") == std::string::npos) f->value += c;
+            }
+            return true;
+        }
+
+        void hitHover_(const ftxui::Mouse& mouse)
+        {
+            // the clickable part of a display under the mouse (a transcript of the main layer, nothing over it)
+            this->_hitView.clear();
+            this->_hitY = -1;
+            if (this->_mode != Mode::Normal || this->_hover >= 0) return;
+            for (const auto &[id, view]: this->_views) {
+                if (!view.box.Contain(mouse.x, mouse.y)) continue;
+                const std::size_t y = static_cast<std::size_t>(mouse.y - view.box.y_min);
+                const int x = mouse.x - view.box.x_min;
+                if (y >= view.hits.size()) return;
+                for (const auto &[from, to, act]: view.hits[y])
+                    if (x >= from && x <= to) {
+                        this->_hitView = id;
+                        this->_hitY = static_cast<int>(y);
+                        this->_hitFrom = from;
+                    }
+                return;
+            }
         }
 
         _nodiscard int hoverAt_(const ftxui::Mouse& mouse) const
@@ -1321,6 +1793,10 @@ class TtyUi {
                     if (y >= view.hits.size()) return false;
                     for (const auto &[from, to, act]: view.hits[y])
                         if (x >= from && x <= to) {
+                            this->_pressView = id;
+                            this->_pressY = static_cast<int>(y);
+                            this->_pressFrom = from;
+                            this->_pressAt = now_ms_();
                             const std::function<void(void)> run = act;
                             run();
                             return true;
@@ -1507,6 +1983,8 @@ class TtyUi {
                 this->_hits.clear();
             } else if (base == "settings") {
                 this->openSettings_();
+            } else if (base == "plugins") {
+                this->openPlugins_();
             } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
                 this->settingsAction_(base == "edit_global_prompt" ? "edit_prompt" : base);
                 if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
@@ -1693,7 +2171,10 @@ class TtyUi {
             cluster::Config& config = this->_manager.config();
             const std::string name = this->_manager.ui("style", config.style);
             auto it = config.styles.find(name);
-            this->_theme = make_theme_(it != config.styles.end() ? it->second : config.currentStyle());
+            const cluster::Style& style = it != config.styles.end() ? it->second : config.currentStyle();
+            this->_theme = make_theme_(style);
+            this->_code = {rgb_(style.text, 0xe6e7ea), rgb_(style.muted, 0x7f848e), rgb_(style.accent, 0x7aa2f7), rgb_(style.ok, 0x9ece6a),
+                rgb_(style.warn, 0xe0af68), rgb_(style.warn, 0xe0af68), rgb_(style.accent, 0x7dcfff), rgb_(style.surface, 0x24283b)};
         }
 
         /* settings page */
@@ -1707,6 +2188,121 @@ class TtyUi {
                         this->_page = static_cast<int>(p);
                         this->_item = static_cast<int>(i);
                     }
+        }
+
+        void openPlugins_(void)
+        {
+            this->_plug = cluster::plugins_index();
+            this->_plugRead = now_ms_();
+            this->_plugSel = std::min(this->_plugSel, this->plugRows_().empty() ? 0 : this->plugRows_().size() - 1);
+            this->_plugTree = false;
+            this->_plugAdd = false;
+            this->_mode = Mode::Plugins;
+        }
+
+        _nodiscard std::vector<std::pair<std::size_t, int>> plugRows_(void) const
+        {
+            // a source, then its items (-1: the source itself)
+            std::vector<std::pair<std::size_t, int>> rows;
+            for (std::size_t r = 0; r < this->_plug.size(); ++r) {
+                rows.emplace_back(r, -1);
+                for (std::size_t i = 0; i < this->_plug[r].items.size(); ++i)
+                    rows.emplace_back(r, static_cast<int>(i));
+            }
+            return rows;
+        }
+
+        _nodiscard std::vector<std::tuple<int, std::filesystem::path, bool>> plugNodes_(const std::filesystem::path& root) const
+        {
+            // the tree of a folder: its opened folders unfolded (folders first, .git skipped), 600 rows at most
+            std::vector<std::tuple<int, std::filesystem::path, bool>> nodes;
+            std::function<void(const std::filesystem::path&, int)> walk = [&](const std::filesystem::path& dir, const int depth) {
+                std::error_code error;
+                std::vector<std::filesystem::path> dirs;
+                std::vector<std::filesystem::path> files;
+                for (const std::filesystem::directory_entry& e: std::filesystem::directory_iterator(dir, error)) {
+                    if (e.path().filename() == ".git" || e.path().filename() == ".claude-cluster-unpacked") continue;
+                    (e.is_directory(error) ? dirs : files).push_back(e.path());
+                }
+                std::sort(dirs.begin(), dirs.end());
+                std::sort(files.begin(), files.end());
+                for (const std::filesystem::path& d: dirs) {
+                    if (nodes.size() >= 600) return;
+                    nodes.emplace_back(depth, d, true);
+                    if (this->_plugOpen.contains(d.string())) walk(d, depth + 1);
+                }
+                for (const std::filesystem::path& f: files) {
+                    if (nodes.size() >= 600) return;
+                    nodes.emplace_back(depth, f, false);
+                }
+            };
+            if (std::filesystem::is_directory(root)) walk(root, 0);
+            return nodes;
+        }
+
+        void plugWrite_(const std::string& section, const std::string& key, const cluster::SettingKind kind, const std::string& value)
+        {
+            // config.toml written ([plugins] / [plugins.select] / [plugins.off]): the core applies it at its reload
+            cluster::Setting setting;
+            setting.section = section;
+            setting.key = key;
+            setting.kind = kind;
+            try {
+                cluster::settings_write(this->_manager.config(), {{{section, key}, {setting, value}}});
+                (void)this->_manager.config().reload();
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
+            }
+        }
+
+        void plugAddSource_(std::string source)
+        {
+            // a link, a folder, a .zip (dropped on the terminal: its path, quoted or file://)
+            source = cluster::trim(source);
+            if (source.size() >= 2 && (source.front() == '\'' || source.front() == '"') && source.back() == source.front()) source = source.substr(1, source.size() - 2);
+            if (source.starts_with("file://")) source = source.substr(7);
+            for (std::size_t at = source.find("\\ "); at != std::string::npos; at = source.find("\\ ", at)) source.erase(at, 1);
+            if (source.empty()) return;
+            std::vector<std::string> repos = this->_manager.config().pluginRepos;
+            if (std::find(repos.begin(), repos.end(), source) != repos.end()) {
+                this->status_("already a source: " + source);
+                return;
+            }
+            repos.push_back(source);
+            std::string list;
+            for (const std::string& r: repos)
+                list += (list.empty() ? "" : ",") + r;
+            this->plugWrite_("plugins", "repos", cluster::SettingKind::List, list);
+            this->status_("source added: " + source + " (listed in a moment: cloned / unpacked by the core)");
+        }
+
+        void plugComplete_(void)
+        {
+            // Tab on a path: completed (folders, .zip), the choices shown when several
+            std::string typed = this->_plugInput.text;
+            if (cluster::plugin_kind(typed) == "git" && !typed.starts_with("/") && !typed.starts_with("~")) return;
+            const std::filesystem::path full = cluster::expand_home(typed.empty() ? std::string("~/") : typed);
+            const bool inside = typed.ends_with("/");
+            const std::filesystem::path dir = inside ? full : full.parent_path();
+            const std::string prefix = inside ? std::string() : full.filename().string();
+            std::vector<std::string> names;
+            std::error_code error;
+            for (const std::filesystem::directory_entry& e: std::filesystem::directory_iterator(dir, error)) {
+                const std::string name = e.path().filename().string();
+                if (!name.starts_with(prefix) || (name.starts_with(".") && !prefix.starts_with("."))) continue;
+                if (e.is_directory(error)) names.push_back(name + "/");
+                else if (name.ends_with(".zip")) names.push_back(name);
+            }
+            std::sort(names.begin(), names.end());
+            this->_plugHints.assign(names.begin(), names.begin() + static_cast<long>(std::min<std::size_t>(names.size(), 12)));
+            if (names.empty()) return;
+            std::string common = names.front();
+            for (const std::string& n: names)
+                while (!n.starts_with(common)) common.pop_back();
+            const std::string base = typed.substr(0, inside ? typed.size() : typed.rfind('/') == std::string::npos ? 0 : typed.rfind('/') + 1);
+            this->_plugInput.text = base + common;
+            this->_plugInput.cursor = this->_plugInput.text.size();
+            if (names.size() == 1) this->_plugHints.clear();
         }
 
         void openSettings_(void)
@@ -2595,10 +3191,51 @@ class TtyUi {
                     }
                 };
             };
+            // a fenced code block: boxed, its language and ⧉ copy (a click) on its top line, its lines coloured
+            const std::function<void(const std::string&, const std::vector<std::string>&, const std::string&)> codeBox =
+                [&](const std::string& language, const std::vector<std::string>& code, const std::string& indent) {
+                    const std::size_t inner = room > width_(indent) + 6 ? room - width_(indent) - 4 : 20;
+                    const std::string label = language.empty() ? std::string("code") : language;
+                    const std::string copy = " ⧉ copy ";
+                    std::string top = indent + "╭─ " + label + " ";
+                    const std::size_t used = width_(top) - width_(indent);
+                    for (std::size_t k = used + width_(copy) + 1; k < inner + 4; ++k)
+                        top += "─";
+                    const int copyAt = static_cast<int>(width_(top));
+                    top += copy + "╮";
+                    std::string all;
+                    for (const std::string& line: code)
+                        all += (all.empty() ? "" : "\n") + line;
+                    lines.push_back({top, ftxui::color(this->_theme.border), "\n"});
+                    lines.back().hits.emplace_back(copyAt, copyAt + static_cast<int>(width_(copy)), [this, all]() {
+                        cluster::detach({"wl-copy", "--", all});
+                        this->status_("code copied (" + std::to_string(all.size()) + " characters)");
+                    });
+                    bool comment = false;
+                    for (const std::string& raw: code) {
+                        std::string line = raw;
+                        for (std::size_t tab = line.find('\t'); tab != std::string::npos; tab = line.find('\t'))
+                            line.replace(tab, 1, "    ");
+                        // a line longer than the box: cut (the copy gives it whole)
+                        if (width_(line) > inner) line = cut_(line, inner);
+                        std::vector<cluster::Cell> cells = {{indent + "│ ", this->_code.comment, 0, true, false}};
+                        for (const cluster::Cell& cell: highlight_(line, language, this->_code, comment))
+                            cells.push_back(cell);
+                        const std::size_t shown = width_(line);
+                        cells.push_back({std::string(inner > shown ? inner - shown : 0, ' ') + " │", this->_code.comment, 0, true, false});
+                        lines.push_back({indent + "│ " + line, ftxui::color(this->_theme.text), "\n", cells});
+                    }
+                    std::string bottom = indent + "╰";
+                    for (std::size_t k = 0; k < inner + 2; ++k)
+                        bottom += "─";
+                    lines.push_back({bottom + "╯", ftxui::color(this->_theme.border), "\n"});
+                };
             const std::function<void(std::size_t, const std::function<void(void)>&)> clickable = [&](const std::size_t from, const std::function<void(void)>& run) {
                 for (std::size_t k = from; k < lines.size(); ++k)
                     lines[k].hits.emplace_back(0, 100000, run);
             };
+            // Markdown (an answer, a markdown display): its first line after `head`, the next ones indented by 2
+            std::function<void(const std::string&, const std::string&, const ftxui::Decorator&, const std::string&)> markdown;
             const std::function<void(const cluster::Json&, const std::string&)> display = [&](const cluster::Json& d, const std::string& key) {
                 const Theme& th = this->_theme;
                 const std::string displayId = d.value("id", std::string());
@@ -2611,21 +3248,10 @@ class TtyUi {
                     return cut + std::string(size > width_(cut) ? size - width_(cut) : 0, ' ');
                 };
                 if (!title.empty()) lines.push_back({"▣ " + title, ftxui::color(th.accent) | ftxui::bold, "\n"});
-                if (type == "markdown" || type == "code") {
-                    bool code = type == "code";
-                    for (const std::string& line: lines_(d.value(type == "code" ? "code" : "text", std::string()))) {
-                        if (type == "markdown" && line.starts_with("```")) {
-                            code = !code;
-                            continue;
-                        }
-                        // its marks out of the text: **bold**, `code`, [text](link) -> text (link)
-                        const std::string plain = code ? line : std::regex_replace(std::regex_replace(line, std::regex(R"(\*\*|__|`)"), ""),
-                            std::regex(R"(\[([^\]]+)\]\(([^)]+)\))"), "$1 ($2)");
-                        if (code) add(line, "  │ ", "  │ ", ftxui::color(th.muted));
-                        else if (plain.starts_with("#")) add(cluster::trim(plain.substr(plain.find_first_not_of('#'))), "  ", "  ", ftxui::color(th.accent) | ftxui::bold);
-                        else if (plain.starts_with("- ") || plain.starts_with("* ")) add(plain.substr(2), "  • ", "    ", ftxui::color(th.text));
-                        else add(plain, "  ", "  ", ftxui::color(th.text));
-                    }
+                if (type == "code") {
+                    codeBox(d.value("language", std::string()), lines_(d.value("code", std::string())), "  ");
+                } else if (type == "markdown") {
+                    markdown(d.value("text", std::string()), "  ", ftxui::nothing, key + ":md");
                 } else if (type == "callout") {
                     const std::string level = d.value("level", std::string("info"));
                     const ftxui::Color color = level == "success" ? th.ok : level == "warning" ? th.warn : level == "error" ? th.error : th.accent;
@@ -2851,32 +3477,76 @@ class TtyUi {
                     lines.push_back(row);
                     lines.push_back({"  a click, the palette: Action" + std::string(this->_manager.config().voice.enabled ? " · voice: say its label" : ""), ftxui::color(th.muted) | ftxui::dim, "\n"});
                 } else if (type == "form") {
+                    // a form: a line per field (its label, a slot / its choices / a yes-no), a click opens it in its popup there
                     const cluster::Json values = d.value("values", cluster::Json::object());
-                    for (const cluster::Json& field: d["fields"]) {
-                        const std::string field_name = field.value("name", std::string());
-                        const std::string value = values.contains(field_name) ? cell(values[field_name]) : field.contains("value") ? cell(field["value"]) : "____";
-                        std::string hint = field.value("type", std::string("text"));
-                        if (field.contains("options")) hint = "";
-                        if (field.contains("options"))
-                            for (const cluster::Json& o: field["options"])
-                                hint += (hint.empty() ? "" : " | ") + cell(o);
-                        add(field.value("label", field_name) + ": " + value + "  (" + hint + ")", "  ", "    ", ftxui::color(th.text));
+                    const cluster::Json fields = d.value("fields", cluster::Json::array());
+                    const bool sent = d.value("submitted", false);
+                    const std::string name = title.empty() ? std::string("the form") : title;
+                    std::size_t labelWidth = 4;
+                    for (const cluster::Json& field: fields)
+                        labelWidth = std::min<std::size_t>(24, std::max(labelWidth, width_(field.value("label", field.value("name", std::string())))));
+                    const std::size_t slot = room > labelWidth + 12 ? std::min<std::size_t>(48, room - labelWidth - 8) : 16;
+                    for (std::size_t k = 0; k < fields.size(); ++k) {
+                        const cluster::Json& field = fields[k];
+                        const std::string fieldName = field.value("name", std::string());
+                        const std::string kind = field.value("type", std::string(field.contains("options") ? "choice" : "text"));
+                        const cluster::Json given = values.contains(fieldName) ? values[fieldName] : field.value("value", cluster::Json(""));
+                        const std::string value = given.is_string() ? given.get<std::string>() : given.is_boolean() ? (given.get<bool>() ? "yes" : "no") : given.dump();
+                        Row row{"", ftxui::color(th.text), "\n"};
+                        const std::string label = "  " + pad(field.value("label", fieldName), labelWidth) + "  ";
+                        row.cells.push_back({label, this->_code.text, 0, true, false});
+                        row.text = label;
+                        if (kind == "choice") {
+                            for (const cluster::Json& o: field.value("options", cluster::Json::array())) {
+                                const std::string option = o.is_string() ? o.get<std::string>() : o.dump();
+                                const bool on = option == value || (value.empty() && option == cell(field["options"][0]));
+                                const std::string chip = std::string(on ? "(•) " : "( ) ") + option;
+                                const int from = static_cast<int>(width_(row.text));
+                                row.cells.push_back({chip, on ? this->_code.keyword : this->_code.text, 0, true, false});
+                                row.text += chip;
+                                if (!sent)
+                                    row.hits.emplace_back(from, static_cast<int>(width_(row.text)) - 1, [this, sid, displayId, name, fields, values, k, option]() {
+                                        this->openForm_(sid, displayId, name, fields, values, k);
+                                        this->_form[k].value = option;
+                                    });
+                                row.cells.push_back({"   ", 0, 0, false, false});
+                                row.text += "   ";
+                            }
+                        } else if (kind == "bool") {
+                            const bool yes = value == "yes" || value == "true";
+                            const std::string box = yes ? "☑ yes" : "☐ no";
+                            const int from = static_cast<int>(width_(row.text));
+                            row.cells.push_back({box, yes ? this->_code.string : this->_code.text, 0, true, false});
+                            row.text += box;
+                            if (!sent)
+                                row.hits.emplace_back(from, static_cast<int>(width_(row.text)) - 1, [this, sid, displayId, name, fields, values, k, yes]() {
+                                    this->openForm_(sid, displayId, name, fields, values, k);
+                                    this->_form[k].value = yes ? "no" : "yes";
+                                });
+                        } else {
+                            const std::string hint = value.empty() ? (kind == "number" ? "a number" : kind == "date" ? "YYYY-MM-DD" : "click to type") : "";
+                            std::string shown = " " + cut_(value.empty() ? hint : value, slot - 2);
+                            shown += std::string(slot > width_(shown) ? slot - width_(shown) : 0, ' ');
+                            const int from = static_cast<int>(width_(row.text));
+                            row.cells.push_back({shown, value.empty() ? this->_code.comment : this->_code.text, this->_code.surface, true, true});
+                            row.text += shown;
+                            if (!sent)
+                                row.hits.emplace_back(from, static_cast<int>(width_(row.text)) - 1, [this, sid, displayId, name, fields, values, k]() {
+                                    this->openForm_(sid, displayId, name, fields, values, k);
+                                });
+                        }
+                        lines.push_back(row);
                     }
-                    if (d.value("submitted", false)) {
+                    if (sent) {
                         lines.push_back({"  ✓ sent", ftxui::color(th.ok) | ftxui::dim, "\n"});
                     } else {
-                        // clicked: its fields asked (name=value; ...), like the palette
-                        std::string fill;
-                        for (const cluster::Json& field: d["fields"])
-                            fill += (fill.empty() ? "" : "; ") + field.value("name", std::string()) + "=" + (field.contains("value") ? cell(field["value"]) : "");
-                        const std::string name = title.empty() ? std::string("the form") : title;
-                        lines.push_back({"  ▶ Fill the form (a click, the palette)", ftxui::color(th.accent), "\n"});
-                        clickable(lines.size() - 1, [this, displayId, name, fill]() {
-                            this->_pending = {"display_form:" + displayId, "Fill the form: " + name, "name=value; ...", fill, false};
-                            this->_prompt = fill;
-                            this->_password = false;
-                            this->_mode = Mode::Prompt;
+                        Row buttons{"  [ ▶ Fill the form ]  [ ✓ Submit ]   a click on a field: there · the palette too", ftxui::color(th.accent) | ftxui::bold, "\n"};
+                        buttons.hits.emplace_back(2, 20, [this, sid, displayId, name, fields, values]() {this->openForm_(sid, displayId, name, fields, values, 0);});
+                        buttons.hits.emplace_back(23, 36, [this, sid, displayId, name, fields, values]() {
+                            this->openForm_(sid, displayId, name, fields, values, 0);
+                            this->formSubmit_(); // the values shown sent as they are
                         });
+                        lines.push_back(buttons);
                     }
                 } else if (type == "details") {
                     const std::size_t from = lines.size();
@@ -2926,8 +3596,36 @@ class TtyUi {
                         lines.push_back({text, ftxui::nothing, "\n", cells});
                     }
                 } else if (type == "audio") {
-                    lines.push_back({"  ▶ ♪ " + d.value("alt", d.value("text", std::string("audio"))).substr(0, room) + "  (a click, the palette: Play)", ftxui::color(th.accent), "\n"});
-                    clickable(lines.size() - 1, act(displayId, cluster::Json::object()));
+                    // ▶ / ⏸, its name, the time played and its length, a bar of its progress; a click plays / stops it here
+                    const double length = audio_seconds_(cluster::display_bytes(d));
+                    const auto it = this->_audioStart.find(displayId);
+                    const double played = it == this->_audioStart.end() ? -1.0 : static_cast<double>(now_ms_() - it->second) / 1000.0;
+                    const bool playing = played >= 0 && played < (length > 0 ? length + 0.3 : 30.0);
+                    if (!playing && it != this->_audioStart.end()) this->_audioStart.erase(it);
+                    if (playing) this->_animating = true;
+                    const std::function<std::string(double)> clock = [](const double s) {
+                        const int t = static_cast<int>(std::max(0.0, s));
+                        return std::to_string(t / 60) + ":" + (t % 60 < 10 ? "0" : "") + std::to_string(t % 60);
+                    };
+                    std::string bar;
+                    const int size = 24;
+                    const int done = playing && length > 0 ? static_cast<int>(std::min(1.0, played / length) * size) : 0;
+                    for (int k = 0; k < size; ++k)
+                        bar += k < done ? "━" : k == done && playing ? "●" : "─";
+                    const std::string name = d.value("alt", d.value("text", std::string("audio")));
+                    const std::string line = std::string("  ") + (playing ? "⏸" : "▶") + " ♪ " + cut_(name, std::min<std::size_t>(40, room / 3)) + "  " + clock(playing ? played : 0)
+                        + " " + bar + " " + (length > 0 ? clock(length) : std::string("?:??")) + "  (a click: " + (playing ? "stop" : "play") + ")";
+                    lines.push_back({line, playing ? ftxui::color(th.ok) : ftxui::color(th.accent), "\n"});
+                    lines.back().hits.emplace_back(0, 100000, [this, sid, displayId, playing]() {
+                        try {
+                            if (playing) this->_audioStart.erase(displayId);
+                            else this->_audioStart[displayId] = now_ms_();
+                            this->status_(this->_manager.displayAct(sid, displayId, playing ? cluster::Json{{"stop", true}} : cluster::Json::object()));
+                        } catch (const utils::exception::IException& e) {
+                            this->_audioStart.erase(displayId);
+                            this->status_(e.info(), true);
+                        }
+                    });
                 } else if (type == "math") {
                     add(d.value("unicode", std::string()), "  ", "  ", ftxui::color(th.text) | ftxui::bold);
                 } else if (type == "file") {
@@ -2967,6 +3665,68 @@ class TtyUi {
                     if (!caption.empty()) add(caption, "  ", "  ", ftxui::color(th.muted) | ftxui::italic);
                 }
             };
+            markdown = [&](const std::string& source, const std::string& head, const ftxui::Decorator& mark, const std::string& key) {
+                // code blocks boxed and coloured (⧉ copy), tables boxed, headings, bullets, rules, the marks out
+                const std::vector<std::string> all = lines_(source);
+                bool first = true;
+                const std::function<std::string(void)> lead = [&first, head]() {
+                    const std::string out = first ? head : "  ";
+                    first = false;
+                    return out;
+                };
+                const std::function<bool(const std::string&)> separator = [](const std::string& line) {
+                    const std::string t = cluster::trim(line);
+                    return t.starts_with("|") && t.find("---") != std::string::npos && t.find_first_not_of("|-: ") == std::string::npos;
+                };
+                const std::function<std::vector<std::string>(const std::string&)> cells = [](const std::string& line) {
+                    std::string t = cluster::trim(line);
+                    if (t.starts_with("|")) t = t.substr(1);
+                    if (t.ends_with("|")) t.pop_back();
+                    std::vector<std::string> out;
+                    for (const std::string& c: cluster::split(t, '|'))
+                        out.push_back(std::regex_replace(cluster::trim(c), std::regex(R"(\*\*|__|`)"), ""));
+                    return out;
+                };
+                for (std::size_t k = 0; k < all.size(); ++k) {
+                    const std::string trimmed = cluster::trim(all[k]);
+                    if (trimmed.starts_with("```")) {
+                        const std::string language = cluster::trim(trimmed.substr(3));
+                        std::vector<std::string> fenced;
+                        std::size_t j = k + 1;
+                        while (j < all.size() && !cluster::trim(all[j]).starts_with("```")) fenced.push_back(all[j++]);
+                        if (first && head != "  ") lines.push_back({lead(), ftxui::color(this->_theme.text) | mark, "\n"});
+                        first = false;
+                        codeBox(language, fenced, "  ");
+                        k = j;
+                        continue;
+                    }
+                    if (trimmed.starts_with("|") && k + 1 < all.size() && separator(all[k + 1])) {
+                        cluster::Json table = {{"type", "table"}, {"columns", cells(all[k])}, {"rows", cluster::Json::array()}};
+                        std::size_t j = k + 2;
+                        while (j < all.size() && cluster::trim(all[j]).starts_with("|")) table["rows"].push_back(cells(all[j++]));
+                        if (first && head != "  ") lines.push_back({lead(), ftxui::color(this->_theme.text) | mark, "\n"});
+                        first = false;
+                        display(table, key + ":" + std::to_string(k));
+                        k = j - 1;
+                        continue;
+                    }
+                    const std::string plain = std::regex_replace(std::regex_replace(all[k], std::regex(R"(\*\*|__|`)"), ""),
+                        std::regex(R"(\[([^\]]+)\]\(([^)]+)\))"), "$1 ($2)");
+                    const std::string p = cluster::trim(plain);
+                    if (p.starts_with("#") && p.find_first_not_of('#') != std::string::npos && p[p.find_first_not_of('#')] == ' ') {
+                        add(cluster::trim(p.substr(p.find_first_not_of('#'))), lead(), "  ", ftxui::color(this->_theme.accent) | ftxui::bold | mark);
+                    } else if ((p.starts_with("- ") || p.starts_with("* ")) && plain.find_first_not_of(' ') < 8) {
+                        const std::string indent(2 + plain.find_first_not_of(' '), ' ');
+                        const std::string lead1 = lead();
+                        add(p.substr(2), (lead1 != "  " ? lead1 : indent) + "• ", indent + "  ", ftxui::color(this->_theme.text) | mark);
+                    } else if (p == "---" || p == "***") {
+                        lines.push_back({lead() + std::string(std::min<std::size_t>(room - 4, 60), '-'), ftxui::color(this->_theme.border), "\n"});
+                    } else {
+                        add(plain, lead(), "  ", ftxui::color(this->_theme.text) | mark);
+                    }
+                }
+                if (first && head != "  ") add("", head, "  ", ftxui::color(this->_theme.text) | mark);
+            };
             for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
                 const cluster::Entry& e = s.entries[i];
                 const bool matched = searching && std::find(this->_matches.begin(), this->_matches.end(), i) != this->_matches.end();
@@ -2981,7 +3741,7 @@ class TtyUi {
                         add(text.starts_with("[voice] ") ? text.substr(8) : text, "› ", "  ", ftxui::color(this->_theme.accent) | ftxui::bold | mark);
                         break;
                     case cluster::EntryKind::Assistant:
-                        add(text, "⏺ ", "  ", ftxui::color(this->_theme.text) | mark);
+                        markdown(text, "⏺ ", mark, s.spec.id + ":md" + std::to_string(i));
                         break;
                     case cluster::EntryKind::Thinking:
                         // like Claude Code: folded, Ctrl+O shows it
@@ -3115,12 +3875,48 @@ class TtyUi {
             const int yb = forward ? sel.y1 : sel.y0;
             const int xb = forward ? sel.x1 : sel.x0;
             ftxui::Elements shown;
+            const bool flash = now_ms_() - this->_pressAt < 300;
+            if (flash) this->_animating = true; // drawn again when the flash ends
             for (int k = begin; k < end; ++k) {
                 const Row& row = lines[static_cast<std::size_t>(k)];
                 const int y = k - begin;
                 view.lines.push_back(row.text);
                 view.joins.push_back(row.join);
                 view.hits.push_back(row.hits);
+                // a clickable part under the mouse: lit like a button; just clicked: flashed
+                const bool pressed = flash && this->_pressView == s.spec.id && this->_pressY == y;
+                const bool hovered = this->_hitView == s.spec.id && this->_hitY == y;
+                const Hit* lit = nullptr;
+                for (const Hit& hit: row.hits)
+                    if (std::get<0>(hit) == (pressed ? this->_pressFrom : this->_hitFrom) && (pressed || hovered)) lit = &hit;
+                if (lit && !selecting) {
+                    // its runs (colours of the cells, or the style of the line) cut at the cells of the part
+                    std::vector<std::pair<std::string, ftxui::Decorator>> runs;
+                    if (row.cells.empty()) runs.emplace_back(row.text, row.style);
+                    for (const cluster::Cell& c: row.cells)
+                        runs.emplace_back(c.text, (c.hasFg ? ftxui::color(ftxui::Color::RGB((c.fg >> 16) & 255, (c.fg >> 8) & 255, c.fg & 255)) : ftxui::nothing)
+                            | (c.hasBg ? ftxui::bgcolor(ftxui::Color::RGB((c.bg >> 16) & 255, (c.bg >> 8) & 255, c.bg & 255)) : ftxui::nothing));
+                    const int total = static_cast<int>(width_(row.text));
+                    const int a = std::get<0>(*lit);
+                    const int b = std::min(std::get<1>(*lit), total - 1);
+                    const ftxui::Decorator mark = pressed ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) | ftxui::bold
+                        : ftxui::bgcolor(this->_theme.border) | ftxui::bold;
+                    ftxui::Elements parts;
+                    int column = 0;
+                    for (const auto &[part, style]: runs) {
+                        const int size = static_cast<int>(width_(part));
+                        const int from = std::clamp(a - column, 0, size);
+                        const int to = std::clamp(b + 1 - column, 0, size);
+                        const std::size_t x0 = byte_at_(part, from);
+                        const std::size_t x1 = byte_at_(part, to);
+                        if (x0 > 0) parts.push_back(ftxui::text(part.substr(0, x0)) | style);
+                        if (x1 > x0) parts.push_back(ftxui::text(part.substr(x0, x1 - x0)) | style | mark);
+                        if (x1 < part.size()) parts.push_back(ftxui::text(part.substr(x1)) | style);
+                        column += size;
+                    }
+                    shown.push_back(ftxui::hbox(std::move(parts)));
+                    continue;
+                }
                 if (!row.cells.empty()) { // a line of a picture: its colors
                     ftxui::Elements runs;
                     for (const cluster::Cell& c: row.cells)
@@ -3579,6 +4375,165 @@ class TtyUi {
                     ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), ftxui::text(shown), ftxui::text("▏") | ftxui::blink}),
                     ftxui::hbox({press(ftxui::text(" Enter: run"), ftxui::Event::Return), ftxui::text(" · "), press(ftxui::text("Escape: cancel"), ftxui::Event::Escape)}) | ftxui::dim}), 80);
             }
+            if (this->_mode == Mode::Plugins) {
+                if (now_ms_() - this->_plugRead > 1000) {
+                    this->_plug = cluster::plugins_index();
+                    this->_plugRead = now_ms_();
+                }
+                this->_animating = true; // the core works (clone, install): its result shown as it comes
+                const ftxui::Dimensions size = ftxui::Terminal::Size();
+                const int width = std::max(80, size.dimx - 6);
+                const int height = std::max(16, size.dimy - 6);
+                const std::vector<std::pair<std::size_t, int>> rows = this->plugRows_();
+                if (!rows.empty()) this->_plugSel = std::min(this->_plugSel, rows.size() - 1);
+                // the list: the sources and their items, their state
+                ftxui::Elements list;
+                const int listHeight = height - 4;
+                const int first = std::max(0, static_cast<int>(this->_plugSel) - listHeight / 2);
+                for (int k = first; k < static_cast<int>(rows.size()) && k < first + listHeight; ++k) {
+                    const auto &[r, i] = rows[static_cast<std::size_t>(k)];
+                    const cluster::PluginRepo& repo = this->_plug[r];
+                    const bool on = static_cast<std::size_t>(k) == this->_plugSel;
+                    ftxui::Element element;
+                    if (i < 0) {
+                        const std::string icon = repo.kind == "zip" ? "▤ " : repo.kind == "folder" ? "▣ " : "⎇ ";
+                        element = ftxui::hbox({ftxui::text(icon + repo.slug) | ftxui::bold | ftxui::color(repo.error.empty() ? this->_theme.accent : this->_theme.warn),
+                            ftxui::text(repo.marketplace.empty() ? "" : "  marketplace") | ftxui::color(this->_theme.muted)});
+                    } else {
+                        const cluster::PluginItem& item = repo.items[static_cast<std::size_t>(i)];
+                        const std::string mark = !item.installed ? "○" : item.enabled ? "●" : "◐";
+                        element = ftxui::hbox({ftxui::text("  " + mark + " ") | ftxui::color(!item.installed ? this->_theme.muted : item.enabled ? this->_theme.ok : this->_theme.warn),
+                            ftxui::text(item.name) | ftxui::color(this->_theme.text), ftxui::text(" " + item.kind) | ftxui::color(this->_theme.muted)});
+                    }
+                    list.push_back(this->tap_(on && !this->_plugTree ? element | ftxui::bgcolor(this->_theme.border) : element, 1, [this, k]() {
+                        if (this->_plugSel == static_cast<std::size_t>(k)) (void)this->event_(ftxui::Event::Return); // clicked again: its files
+                        this->_plugSel = static_cast<std::size_t>(k);
+                        this->_plugTree = false;
+                        this->_plugFile.clear();
+                    }));
+                }
+                if (rows.empty()) list.push_back(ftxui::paragraph(" no source yet: a to add one (a repository link, a folder, a .zip; drop a file here)")
+                    | ftxui::color(this->_theme.muted));
+                // the item: its information, the tree of its files, the file previewed
+                ftxui::Elements info;
+                ftxui::Element right = ftxui::text("");
+                if (!rows.empty()) {
+                    const auto &[r, i] = rows[this->_plugSel];
+                    const cluster::PluginRepo& repo = this->_plug[r];
+                    const cluster::PluginItem* item = i >= 0 ? &repo.items[static_cast<std::size_t>(i)] : nullptr;
+                    const std::filesystem::path root = item ? std::filesystem::path(item->path.empty() ? repo.dir : item->path) : std::filesystem::path(repo.dir);
+                    if (item) {
+                        info.push_back(ftxui::hbox({ftxui::text(" " + item->name) | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text("  " + item->kind + " · "
+                            + (!item->installed ? "not installed" : item->enabled ? "installed, on" : "installed, off")) | ftxui::color(this->_theme.muted)}));
+                        info.push_back(ftxui::paragraph(" " + (item->description.empty() ? std::string("no description") : item->description)) | ftxui::color(this->_theme.text));
+                    } else {
+                        info.push_back(ftxui::text(" " + repo.url) | ftxui::bold | ftxui::color(this->_theme.text));
+                        info.push_back(ftxui::text(" " + repo.kind + (repo.marketplace.empty() ? "" : " · marketplace " + repo.marketplace) + " · "
+                            + std::to_string(repo.items.size()) + " item(s)") | ftxui::color(this->_theme.muted));
+                        if (!repo.error.empty()) info.push_back(ftxui::paragraph(" " + repo.error) | ftxui::color(this->_theme.warn));
+                    }
+                    info.push_back(ftxui::text(" " + cluster::short_path(root.string())) | ftxui::color(this->_theme.border));
+                    ftxui::Elements tree;
+                    const std::vector<std::tuple<int, std::filesystem::path, bool>> nodes = this->plugNodes_(root);
+                    const int treeHeight = height - 9;
+                    if (!nodes.empty()) this->_plugNode = std::min(this->_plugNode, nodes.size() - 1);
+                    const int top = std::max(0, static_cast<int>(this->_plugNode) - treeHeight / 2);
+                    for (int k = top; k < static_cast<int>(nodes.size()) && k < top + treeHeight; ++k) {
+                        const auto &[depth, path, dir] = nodes[static_cast<std::size_t>(k)];
+                        const bool open = this->_plugOpen.contains(path.string());
+                        const std::string name = std::string(static_cast<std::size_t>(depth) * 2, ' ') + (dir ? (open ? "▾ " : "▸ ") : "  ") + path.filename().string();
+                        ftxui::Element node = ftxui::text(" " + name) | ftxui::color(dir ? this->_theme.accent : path.string() == this->_plugFile ? this->_theme.ok : this->_theme.text);
+                        const bool here = this->_plugTree && static_cast<std::size_t>(k) == this->_plugNode;
+                        tree.push_back(this->tap_(here ? node | ftxui::bgcolor(this->_theme.border) : node, 1, [this, k, path, dir]() {
+                            this->_plugTree = true;
+                            this->_plugNode = static_cast<std::size_t>(k);
+                            if (dir) {
+                                if (this->_plugOpen.contains(path.string())) this->_plugOpen.erase(path.string());
+                                else this->_plugOpen.insert(path.string());
+                            } else {
+                                this->_plugFile = path.string();
+                                this->_plugScroll = 0;
+                            }
+                        }));
+                    }
+                    const int previewWidth = width - 44 - 34 - 4;
+                    ftxui::Elements preview = this->_plugFile.empty() ? ftxui::Elements{ftxui::text(" Enter: its files, a file: previewed here") | ftxui::color(this->_theme.muted)}
+                        : this->plugPreview_(this->_plugFile, treeHeight, previewWidth);
+                    if (!this->_plugFile.empty()) preview.insert(preview.begin(), ftxui::text(" " + std::filesystem::path(this->_plugFile).filename().string() + "  (PageUp / PageDown)")
+                        | ftxui::bold | ftxui::color(this->_theme.accent));
+                    right = ftxui::vbox({ftxui::vbox(std::move(info)), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                        ftxui::hbox({ftxui::vbox(std::move(tree)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34) | ftxui::frame, ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                            ftxui::vbox(std::move(preview)) | ftxui::flex})}) | ftxui::flex;
+                }
+                ftxui::Elements bottom;
+                if (this->_plugAdd) {
+                    bottom.push_back(ftxui::hbox({ftxui::text(" source › ") | ftxui::color(this->_theme.accent) | ftxui::bold,
+                        ftxui::text(this->_plugInput.text) | ftxui::color(this->_theme.text), ftxui::text("▏") | ftxui::blink | ftxui::color(this->_theme.accent)}));
+                    std::string hints;
+                    for (const std::string& h: this->_plugHints)
+                        hints += h + "  ";
+                    bottom.push_back(ftxui::text(hints.empty() ? " a repository (owner/repo, https / git URL), a folder, a .zip · Tab: complete the path · Enter: add · Esc"
+                        : " " + hints) | ftxui::color(this->_theme.muted));
+                } else {
+                    bottom.push_back(ftxui::text(" ↑↓ · Enter / →: its files · i install · r remove · Space toggle · e on / off · a add a source (or drop a file / folder) · "
+                        "d drop the source · u update · Esc close") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                }
+                bottom.push_back(ftxui::text(" ● on  ◐ off  ○ not installed · applied by the core, for the sessions started after it") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                return box(ftxui::vbox({ftxui::text(" Plugins and skills") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                    ftxui::hbox({ftxui::vbox(std::move(list)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 44), ftxui::separatorLight() | ftxui::color(this->_theme.border), right})
+                        | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height - 4),
+                    ftxui::separatorLight() | ftxui::color(this->_theme.border), ftxui::vbox(std::move(bottom))}), width);
+            }
+            if (this->_mode == Mode::Form) {
+                // a slot per field (wide), the one focused framed; its choices / yes-no clicked; Submit / Cancel
+                const int width = std::clamp(ftxui::Terminal::Size().dimx - 8, 50, 110);
+                const int slot = width - 6;
+                ftxui::Elements rows = {ftxui::text(" " + this->_formTitle) | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text("")};
+                for (std::size_t i = 0; i < this->_form.size(); ++i) {
+                    const FormField& f = this->_form[i];
+                    const bool on = i == this->_formFocus;
+                    const ftxui::Color edge = on ? this->_theme.accent : this->_theme.border;
+                    rows.push_back(this->tap_(ftxui::text(" " + f.label + (f.type == "text" || f.label == f.name ? "" : "  (" + f.type + ")"))
+                        | (on ? ftxui::bold | ftxui::color(this->_theme.accent) : ftxui::color(this->_theme.text)), 1, [this, i]() {this->_formFocus = i;}));
+                    ftxui::Element body;
+                    if (f.type == "choice") {
+                        ftxui::Elements chips = {ftxui::text(on ? " ◀ " : "   ") | ftxui::color(this->_theme.muted)};
+                        for (const std::string& option: f.options)
+                            chips.push_back(this->tap_(ftxui::text(" " + option + " ") | (option == f.value ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(on ? this->_theme.accent
+                                : this->_theme.muted) : ftxui::color(this->_theme.text)), 1, [this, i, option]() {
+                                    this->_formFocus = i;
+                                    this->_form[i].value = option;
+                                }));
+                        chips.push_back(ftxui::text(on ? " ▶" : "") | ftxui::color(this->_theme.muted));
+                        body = ftxui::hbox(std::move(chips));
+                    } else if (f.type == "bool") {
+                        const bool yes = f.value == "yes";
+                        body = ftxui::hbox({ftxui::text(" "), this->tap_(ftxui::text(yes ? " ☑ yes " : " ☐ no ") | (on ? ftxui::bold | ftxui::color(this->_theme.accent)
+                            : ftxui::color(this->_theme.text)), 1, [this, i]() {
+                                this->_formFocus = i;
+                                this->_form[i].value = this->_form[i].value == "yes" ? "no" : "yes";
+                            })});
+                    } else {
+                        const std::string shown = cluster::one_line(f.value, static_cast<std::size_t>(slot - 3));
+                        const std::string hint = f.value.empty() && !on ? (f.type == "date" ? "YYYY-MM-DD" : f.type == "number" ? "a number" : "") : "";
+                        body = this->tap_(ftxui::hbox({ftxui::text(hint.empty() ? shown : hint) | ftxui::color(hint.empty() ? this->_theme.text : this->_theme.muted),
+                            on ? ftxui::text("▏") | ftxui::blink | ftxui::color(this->_theme.accent) : ftxui::text(""), ftxui::filler()})
+                            | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slot) | ftxui::bgcolor(this->_theme.bg), 1, [this, i]() {this->_formFocus = i;});
+                    }
+                    rows.push_back(ftxui::hbox({ftxui::text(" "), (f.type == "text" || f.type == "number" || f.type == "date" ? body | ftxui::borderRounded : body)
+                        | ftxui::color(edge)}));
+                }
+                const std::size_t count = this->_form.size();
+                rows.push_back(ftxui::text(""));
+                rows.push_back(ftxui::hbox({ftxui::text(" "),
+                    this->tap_(ftxui::text(" Submit ") | ftxui::bold | (this->_formFocus == count ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.ok)
+                        : ftxui::color(this->_theme.ok)), 1, [this]() {this->formSubmit_();}), ftxui::text("   "),
+                    this->tap_(ftxui::text(" Cancel ") | (this->_formFocus == count + 1 ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.error)
+                        : ftxui::color(this->_theme.error)), 1, [this]() {this->_mode = Mode::Normal;})}));
+                rows.push_back(ftxui::text(" ↑↓ / Tab: field · ←→: choice · Space: yes / no · Enter: next, Submit · Ctrl+S: submit · Esc: cancel") | ftxui::color(this->_theme.muted)
+                    | ftxui::dim);
+                return box(ftxui::vbox(std::move(rows)), width);
+            }
             if (this->_mode == Mode::Message) {
                 ftxui::Elements lines;
                 for (const std::string& line: cluster::split(this->_message, '\n'))
@@ -3695,9 +4650,11 @@ class TtyUi {
                         }));
                 }
                 lines.push_back(ftxui::text(""));
-                lines.push_back(ftxui::hbox({ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space / Enter / a click tick · " : "")),
-                    press(ftxui::text(std::string(multi ? "Enter on a ticked one " : "Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")), ftxui::Event::Return),
-                    a.index > 0 ? press(ftxui::text(" · ← back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
+                lines.push_back(ftxui::hbox({ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space / a click tick · " : "")),
+                    press(ftxui::text(std::string(multi ? "Enter validates the ticked ones (none too), " : "Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")),
+                        ftxui::Event::Return),
+                    a.index > 0 ? press(ftxui::text(" · ← back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(),
+                    a.given.contains(a.index) ? press(ftxui::text(" · → next (answered)"), ftxui::Event::ArrowRight) : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
                     press(ftxui::text("Esc decline"), ftxui::Event::Escape)}) | ftxui::color(this->_theme.muted) | ftxui::dim);
                 // "Chat about this": a side chat about the questions (the session untouched), in its own area: wrapped, within a
                 // height that keeps the popup inside the screen, scrolled (the newest at the bottom)
@@ -4190,6 +5147,7 @@ class TtyUi {
             if (event.is_mouse()) {
                 const ftxui::Mouse& mouse = event.mouse();
                 this->_hover = this->hoverAt_(mouse);
+                this->hitHover_(mouse);
                 this->_hoverChip = -1;
                 for (std::size_t i = 0; i < this->_chipBoxes.size(); ++i)
                     if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);
@@ -4395,10 +5353,10 @@ class TtyUi {
                         asking.move(1);
                     } else if (event == ftxui::Event::ArrowLeft && (ask->cursor != count || (this->_askOther.text.empty() && ask->index > 0))) {
                         asking.back(); // ← on an option, or on an empty Other: the question before
+                    } else if (event == ftxui::Event::ArrowRight && (ask->cursor != count || this->_askOther.cursor >= this->_askOther.text.size())) {
+                        if (!asking.forward()) this->status_("→ : answer this question first (Enter), or it was changed"); // answered, unchanged: the next one
                     } else if (event == ftxui::Event::Return) {
-                        // several choices: Enter ticks the option under the cursor and stays (Enter on a ticked one, or on Other: the answer)
-                        if (multi && ask->cursor < count && !ask->picked.contains(ask->cursor)) asking.toggle();
-                        else this->askNext_();
+                        this->askNext_(); // several choices: the ones ticked (Space), none is an answer too
                     } else if (ask->cursor == count && this->_askOther.key(event, key)) {
                         // on Other: the answer edited with its cursor (digits and spaces too), the question told at each change
                         if (this->_askOther.text != ask->other) asking.setOther(this->_askOther.text);
@@ -4484,6 +5442,10 @@ class TtyUi {
                     return true;
                 case Mode::Settings:
                     return this->settingsEvent_(event);
+                case Mode::Form:
+                    return this->formEvent_(event);
+                case Mode::Plugins:
+                    return this->plugEvent_(event, key);
                 case Mode::Search:
                     if (event == ftxui::Event::Escape) {
                         this->_mode = Mode::Normal;
@@ -4731,10 +5693,7 @@ class TtyUi {
             return 0;
         }
 
-        TtyUi(cluster::App& app)
-            : _app(app), _manager(*app.manager)
-        {
-        }
+        TtyUi(cluster::App& app) : _app(app), _manager(*app.manager) { /* Nothing */ };
 };
 
 } // namespace

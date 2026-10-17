@@ -105,6 +105,7 @@ _cold std::optional<cluster::Ask> cluster::Asking::current(void) const
         ask.answers = j.value("answers", cluster::Json::object());
         ask.chatting = j.value("chatting", false);
         ask.review = j.value("review", false);
+        if (j.value("answered", false)) ask.given[ask.index] = {ask.cursor, ask.picked, ask.other}; // answered before: → goes on
         for (const cluster::Json& m: j.value("chat", cluster::Json::array()))
             if (m.is_object()) ask.chat.emplace_back(m.value("role", std::string()), m.value("text", std::string()));
         return ask;
@@ -257,7 +258,7 @@ _cold std::string cluster::Asking::next_(void)
         for (const int i: a.picked)
             if (i < count) add(options[static_cast<std::size_t>(i)].value("label", std::string()));
         if (a.picked.contains(count) || (a.picked.empty() && a.cursor == count)) add(a.other);
-        if (value.empty() && a.cursor < count) add(options[static_cast<std::size_t>(a.cursor)].value("label", std::string()));
+        if (value.empty()) value = "(none)"; // nothing ticked: a valid answer (Enter validates, Space ticks)
     } else {
         add(a.cursor < count ? options[static_cast<std::size_t>(a.cursor)].value("label", std::string()) : a.other);
     }
@@ -285,6 +286,25 @@ _cold std::string cluster::Asking::next_(void)
         return e.info();
     }
     return "";
+}
+
+_cold bool cluster::Asking::forward(void)
+{
+    // → : the next question, only when the one shown was answered and is unchanged since
+    if (this->_manager.replica()) {
+        try {
+            return this->_manager.call({{"cmd", "ask"}, {"action", "forward"}}).value("moved", false);
+        } catch (const utils::exception::IException&) {
+            return false;
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    if (!this->_ask || this->_ask->review) return false;
+    const cluster::Ask& a = *this->_ask;
+    const auto kept = a.given.find(a.index);
+    if (kept == a.given.end() || kept->second.cursor != a.cursor || kept->second.picked != a.picked || kept->second.other != a.other) return false;
+    return this->next_().empty();
 }
 
 _cold void cluster::Asking::back(void)
@@ -500,7 +520,7 @@ _cold cluster::Json cluster::Asking::json(void) const
     const std::optional<cluster::Ask> ask = this->current();
     if (!ask) return nullptr;
     return {{"session", ask->session}, {"name", ask->name}, {"request_id", ask->requestId}, {"questions", ask->questions}, {"index", ask->index},
-        {"cursor", ask->cursor}, {"picked", ask->picked}, {"other", ask->other}, {"answers", ask->answers}, {"chatting", ask->chatting}, {"review", ask->review},
+        {"cursor", ask->cursor}, {"picked", ask->picked}, {"other", ask->other}, {"answers", ask->answers}, {"chatting", ask->chatting}, {"review", ask->review}, {"answered", ask->given.contains(ask->index)},
         {"chat", [&ask]() {
             cluster::Json chat = cluster::Json::array();
             for (const auto &[role, text]: ask->chat)

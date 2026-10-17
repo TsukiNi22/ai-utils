@@ -84,6 +84,7 @@ class Asking {
         _cold void setOther(const std::string& text);   // Other: this answer
         _cold _nodiscard std::string next(void);        // the answer recorded: the next question, or all sent ("" or why not)
         _cold void back(void);                  // the previous question
+        _cold bool forward(void);               // the next one, when the one shown is answered and unchanged
         _cold void decline(void);
         _cold _nodiscard std::string toGlobal(void);    // the whole set answered by the global session (what it did, or why not)
         _cold _nodiscard std::string chat(const std::string& text);    // "Chat about this": a message (answered in the background; "" sent)

@@ -188,7 +188,12 @@ window opens instead when there is a display). In the background: `claude-cluste
 Local commands: `/pwd` (where the session runs: its folder, the computer, its pid - shown only, nothing sent), `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
 `/export [file]`, `/restore [session]`, `/clear` (a new conversation: the transcript emptied, archived in `logs/archive/` for `search`), `/model <name>` (same
 conversation, another model), `/cost`, `/context`, `/rewind` (= Esc Esc on an empty prompt), `/exit` (= `/close`),
-`/settings`, `/vim`, `/help`; the commands of the agent (`/compact`, skills...) are completed too. A pasted image goes to Claude as an image block (to the
+`/settings`, `/vim`, `/help`; the commands that only show something are answered here, in a popup, never asked to the
+agent (nothing in its conversation, nothing spent): `/usage` (the 5 h / 7 d windows of the account, today, 7 days, this
+session), `/status` (agent, model, effort, mode, folder, conversation), `/skills` (the skills of the user and of the
+project, the plugins of Claude Code), `/mcp`, `/plugins` (the browser below); the commands of the agent (`/compact`,
+skills...) are completed too. In the prompt, a `/command` at its start and the `@files` are drawn in the accent colour
+on the surface, like the pasted images and texts. A pasted image goes to Claude as an image block (to the
 other agents as `@path`). The images are saved by content (`img-<hash>.png`): the same image pasted again (or its chip
 clicked) is one more reference to the same `[Image #N]` ("here, here and here"), the image itself is sent once; the
 images are numbered in the order of the text when sent.
@@ -388,7 +393,7 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   allowed without asking (`--allowedTools mcp__claude-cluster`);
 - **questions of the agents** (AskUserQuestion of Claude Code, asked even in `bypassPermissions`): a popup on the
   session shown, like Claude Code / Claude Desktop - the terminal: one question at a time, its options and their
-  description, ↑↓ / 1-9, Space ticks (multi choice), Other typed, Enter answers, Esc declines; the window: a dialog
+  description, ↑↓ / 1-9, Space ticks (multi choice: Enter only validates the ticked ones, none ticked is an answer too), ← the question before, → the next one when the one shown is answered and unchanged, Other typed, Enter answers, Esc declines; the window: a dialog
   (radio buttons or check boxes, Other, Answer / Decline); its notice and notification tell the question; the global
   session sees them in `session_status` and answers with `session_allow` `answers` {question: label}; a plain allow
   is refused (the agent would go on without its answer). One question at a time for the whole cluster, shared by the
@@ -548,6 +553,13 @@ notification (Open shows the session), a short sound of the desktop theme per ki
 
 ## Rich displays
 
+The answers of every agent are drawn from their Markdown in the terminal: a fenced code block (```` ```lang ````) in a
+box coloured by its language, with its language and a **⧉ copy** at its top right (clicked: the whole block copied);
+a Markdown table as a boxed table; headings, bullets and rules; the `**bold**` / `` `code` `` marks taken out. A guide
+of these renderings is always added to the system prompt (`templates/rendering.md`, from the binary: the
+`global.md` / `sessions.md` of the user are copies never refreshed), with the catalogue of the display blocks below
+and when to use each one for the global session only.
+
 The global session puts a display in the transcript of a session (a sub-session, or its own) without a prompt (MCP
 `session_display`, control command `display`): its agent never sees it, the user does. `{type, title?, ...}`:
 
@@ -571,7 +583,7 @@ The global session puts a display in the transcript of a session (a sub-session,
 | `timeline` | `tasks` [{name, start, end}] (YYYY-MM-DD or numbers) | Gantt bars | drawn | SVG |
 | `kanban` | `columns` [{name, cards}] | columns side by side | columns | columns of cards |
 | `actions` | `buttons` [{label, prompt, session}] | [ label ], palette: Action | buttons | buttons |
-| `form` | `fields` [{name, label, type: text, number, choice, bool, date, options, value, required}], `submit` | its fields, palette: Fill the form | a dialog | a form |
+| `form` | `fields` [{name, label, type: text, number, choice, bool, date, options, value, required}], `submit` | its fields, a form popup (a click, the palette) | a dialog | a form |
 | `details` | `summary`, `text` | folded (Ctrl+O) | folded (Ctrl+O) | `<details>` |
 | `compare` | `left` / `right` {title, text}, or `before` + `after` | two columns, the lines that differ colored | two columns | two columns |
 | `metrics` | `items` [{label, value, unit, delta, trend}] | ▲ ▼, a sparkline | tiles | tiles, a sparkline |
@@ -589,8 +601,38 @@ prompt sent to its session, default the one shown; by voice, its label said), a 
 to the global session as `[form "<title>" (<id>) filled by the user] {...}`), an audio played (control command
 `display_act`, the palette, the links of the window, the web page).
 
+In the terminal, every clickable part of a display (a button, a checklist item, an audio, a details, a file, the
+⧉ copy of a code block) is lit under the mouse and flashes when clicked. An audio shows its length and, while it
+plays, ⏸ and a bar of its progress (a click plays it, a click again stops it). A form is drawn as a form in the
+conversation (a slot per field, `(•)` choices, `☐` / `☑` yes-no, `[ ▶ Fill the form ]` / `[ ✓ Submit ]`); a click on a
+field opens its popup on that field (a choice or a yes-no clicked: set at once). The popup: a wide slot per
+field, ↑↓ / Tab between the fields, ←→ through the choices, Space for a yes / no, a click on a field or a choice, Enter
+to the next field then Submit (Ctrl+S at once), Esc to cancel; its values are sent typed (numbers, booleans).
+
 The pictures of the terminal need `chafa`, the diagrams `dot` (Graphviz); a display is kept in the log of the session
 (searched and exported as text), the web page gets its picture once (`/api/display`).
+
+## Plugins and skills
+
+Like the plugins of claude.ai: **sources** of plugins / skills (settings > Plugins > Sources, `[plugins] repos`) - a
+git repository (GitHub `owner/repo`, an https or git URL), a folder of this computer, or a `.zip` - listed by the
+core: a repository cloned (shallow, pulled at each start of the core), a `.zip` unpacked (again when it changes), a
+folder read in place, in `<data>/plugins` (its index `index.json`). A Claude Code marketplace
+(`.claude-plugin/marketplace.json`) offers its plugins, else the folders with a `SKILL.md` are skills.
+
+What is ticked is installed by the core, for the sessions started after it: a plugin by `claude plugin marketplace
+add` + `claude plugin install <name>@<marketplace>`, a skill by a link in `~/.claude/skills`; *All of a source* takes
+every item (the new ones too); turned **off** (`[plugins.off]`): a plugin disabled, a skill unlinked, both still
+installed; unticked: removed - only what claude-cluster installed (a skill or plugin of the user of the same name is
+never replaced: told). These settings are protected (never changed by the global session, a confirmation for the
+sources: their code runs as you).
+
+The **browser** of the terminal (`/plugins`, the palette *Plugins*): the sources and their items (● on, ◐ off, ○ not
+installed), `i` install, `r` remove, Space toggle, `e` on / off, `a` add a source (a path completed by Tab, a link; a
+file or a folder **dropped** on the terminal is added from its path), `d` drop a source, `u` update; Enter / →: the
+information of the item and the **tree of its files** (▸ / ▾ folders, like nvim-tree), a file previewed with its
+colours (its language; Markdown drawn: front matter, headings, bullets, code blocks), PageUp / PageDown; the mouse
+too. The window and the web page have the same sources and ticks in their settings.
 
 ## Conversations of the other agents
 

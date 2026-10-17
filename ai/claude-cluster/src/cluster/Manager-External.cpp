@@ -404,10 +404,6 @@ _cold std::string cluster::Manager::display(const std::string& id, const cluster
 _cold std::optional<cluster::Json> cluster::Manager::displayOf(const std::string& id, const std::string& displayId) const
 {
     if (this->_replica) {
-        const cluster::Json display = this->call({{"cmd", "display_get"}, {"session", id}, {"display", displayId}});
-        return display.is_null() ? std::nullopt : std::optional<cluster::Json>(display);
-    }
-    if (this->_replica) {
         try {
             return this->call({{"cmd", "display_get"}, {"session", id}, {"id", displayId}});
         } catch (const utils::exception::IException&) {
@@ -438,7 +434,6 @@ _cold void cluster::Manager::displayUpdate(const std::string& id, const std::str
 
 _cold std::string cluster::Manager::displayAct(const std::string& id, const std::string& displayId, const cluster::Json& act)
 {
-    if (this->_replica) return this->call({{"cmd", "display_act"}, {"session", id}, {"display", displayId}, {"act", act}}).value("done", std::string("done"));
     if (this->_replica) {
         cluster::Json request = act.is_object() ? act : cluster::Json::object();
         request.update({{"cmd", "display_act"}, {"session", id}, {"id", displayId}});
@@ -509,6 +504,10 @@ _cold std::string cluster::Manager::displayAct(const std::string& id, const std:
         // played on this computer (the web page plays it itself)
         const std::filesystem::path path = std::filesystem::temp_directory_path() / ("claude-cluster-play-" + displayId);
         std::ofstream(path, std::ios::binary) << cluster::display_bytes(d);
+        if (act.value("stop", false)) { // stopped: its player (its file is unique to the display) ended
+            (void)cluster::capture({"pkill", "-f", "claude-cluster-play-" + displayId}, "", 5);
+            return "stopped";
+        }
         const std::string player = cluster::has_command("pw-play") ? "pw-play" : cluster::has_command("paplay") ? "paplay" : "aplay";
         cluster::detach({"sh", "-c", player + " \"$0\"; rm -f \"$0\"", path.string()});
         return "playing";

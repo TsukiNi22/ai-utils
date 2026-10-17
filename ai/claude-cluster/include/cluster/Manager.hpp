@@ -131,6 +131,11 @@ class Manager {
         std::uint64_t _failureNext = 1;
         std::set<std::string> _failureGone;        // the ones of the core answered here (until its next sync)
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
+        std::atomic<bool> _pluginsBusy{false};     // plugins of repositories: listed / installed by a thread
+        bool _pluginsSeen = false;
+        std::vector<std::string> _pluginRepos;     // the [plugins] last applied
+        std::map<std::string, bool> _pluginSelect;
+        std::map<std::string, bool> _pluginOff;
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::map<std::string, std::string> _notifyIds;  // the notification shown per session (replaced by the next one)
@@ -193,6 +198,7 @@ class Manager {
         _cold void writeMcpConfig_(void) const;
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
         _cold void schedule_(void);                         // Manager-Tasks.cpp
+        _cold void pluginsSync_(void);                      // [plugins] changed: listed / installed (a thread)
         _cold void taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text);
         _cold void groupUpdate_(const std::string& id);     // Manager-Groups.cpp: its card, the global session woken, its end
         _cold void groupsTick_(void);                       // the groups whose time is over
@@ -232,6 +238,7 @@ class Manager {
         /* usage (Manager-Usage.cpp) */
         _cold _nodiscard std::string vendorOf(const std::string& backend) const;   // its provider ("" unknown)
         _cold _nodiscard cluster::UsageReport usage(const std::string& vendor) const;
+        _cold void pluginsRefresh(void);                     // the plugin sources pulled / listed again, the ticks applied
         _cold _nodiscard std::vector<std::string> usageVendors(void) const;         // the ones in the ledger
         _cold _nodiscard std::vector<std::pair<std::string, std::string>> usageLines(const cluster::Snapshot& snap) const; // panel "usage"
         _cold _nodiscard cluster::Json usageJson(const std::string& vendor) const;  // every vendor when empty
