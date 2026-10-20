@@ -1098,6 +1098,10 @@ one closed stops it (the service, when it runs, is the core and stays). The core
 interface. Two prompts sent at once to one session from two interfaces: told on that session (a minute in its header)
 and in the notices, the second one waits behind the first. Off: a second claude-cluster is refused, as before.
 
+**Redraws** (terminal): an image is drawn when the state changed, 25 times a second while the prompt is typed or a text
+is being revealed, 8 times a second while only a spinner or a popup turns (the spinners change every 120 ms: more images
+were the same picture, ~2.5 times less CPU in a working session), once a second otherwise (the timers).
+
 **Another version runs the core** (installed again while it runs, older or newer: its build is its version and the
 date of its binary): a new terminal / window does not mix with it, it asks first (the terminal: a question, the
 window: a dialog): **replace it** - the terminals / windows of the other version (the same install, the same socket)

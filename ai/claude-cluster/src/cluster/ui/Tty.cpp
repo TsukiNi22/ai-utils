@@ -686,7 +686,8 @@ class TtyUi {
         std::optional<std::string> _pasting;        // bracketed paste of the terminal: its text until ESC[201~
         cluster::Worker _worker;                    // the sends / commands, in their order, out of the drawing thread
         cluster::Reveal _reveal;                    // the answers typed as they come
-        std::atomic<bool> _animating{false};        // typing / spinner: drawn often
+        std::atomic<bool> _animating{false};        // typing / text reveal: drawn at 25 images / s
+        std::atomic<bool> _spinning{false};         // spinners / popups: drawn at their pace (8 images / s)
         bool _expanded = false;                     // Ctrl+O: thinking and tool results in full
         std::uint64_t _focusSeen = 0;               // last ui_focus applied
         bool _machineStartup = false;               // the map of this computer asked at start (no: never asked again)
@@ -2805,7 +2806,7 @@ class TtyUi {
             const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
             if (page.section == "services") { // its state read (live / every Delay / by hand)
                 this->servicesRead_();
-                if (this->servicesSetting_("refresh") != "manual") this->_animating = true;
+                if (this->servicesSetting_("refresh") != "manual") this->_spinning = true;
             }
             ftxui::Elements rows;
             std::string help;
@@ -3928,7 +3929,7 @@ class TtyUi {
                     if (turn.value("hidden_thinking", false))
                         lines.push_back({"  (the text of its thinking is not sent by the model: its tokens only)", ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
                 }
-                this->_animating = true;
+                this->_spinning = true;
             }
             for (std::size_t q = 0; q < s.queue.size(); ++q) {
                 // the first one: clicked (or F8), sent now; given to claude already: taken at its next step
@@ -4424,7 +4425,7 @@ class TtyUi {
             }
             if (const cluster::Link link = this->_manager.link(); link.lost && link.upgrading) {
                 // the core being updated: this terminal follows it (the new binary run in place of this one)
-                this->_animating = true;
+                this->_spinning = true;
                 static const std::array<const char*, 10> turn = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
                 return box(ftxui::vbox({ftxui::text(std::string(" ") + turn[static_cast<std::size_t>(cluster::now_ms() / 100 % 10)] + " Updating claude-cluster…")
                     | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text(""),
@@ -4432,7 +4433,7 @@ class TtyUi {
             }
             if (const cluster::Link link = this->_manager.link(); link.lost) {
                 // the core lost: over everything, until it is back (Retry now / Quit)
-                this->_animating = true;
+                this->_spinning = true;
                 static const std::array<const char*, 10> spin = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
                 const std::int64_t now = cluster::now_ms();
                 const std::int64_t next = std::max<std::int64_t>(0, link.next - now);
@@ -4489,7 +4490,7 @@ class TtyUi {
                     this->_plug = cluster::plugins_index();
                     this->_plugRead = now_ms_();
                 }
-                this->_animating = true; // the core works (clone, install): its result shown as it comes
+                this->_spinning = true; // the core works (clone, install): its result shown as it comes
                 const ftxui::Dimensions size = ftxui::Terminal::Size();
                 const int width = std::max(80, size.dimx - 6);
                 const int height = std::max(16, size.dimy - 6);
@@ -5148,6 +5149,7 @@ class TtyUi {
             }
             this->_views.clear(); // filled again by the transcripts drawn
             this->_animating = false;
+            this->_spinning = false;
             this->_reveal.frameStart();
             const int bodyHeight = size.dimy - 4 - this->voiceLines_();
             ftxui::Element input = this->prompt_(size.dimx);
@@ -5179,14 +5181,14 @@ class TtyUi {
             // Normal: the note of a sub-session whose question waits on the global session (modal_, empty else)
             ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : ftxui::dbox({document, this->modal_()});
             // a long operation: its popup over the screen (its spinner turning); one running: redrawn (its popup at 0.4 s)
-            if (this->_manager.progressActive()) this->_animating = true;
+            if (this->_manager.progressActive()) this->_spinning = true;
             const std::optional<cluster::Progress> running = this->_manager.progress();
             const bool busy = running && running->id != this->_progressHidden;
             if (busy) screen = ftxui::dbox({screen, this->progressBox_(*running)});
             // what failed of what the user did: over everything (OK / Retry), once its progress popup is gone (one after the other)
             if (const std::vector<cluster::Failure> failed = this->_manager.failures(); !failed.empty() && !busy) screen = ftxui::dbox({screen, this->failureBox_(failed)});
             if (!scan) return screen;
-            this->_animating = true;
+            this->_spinning = true;
             return ftxui::dbox({screen, this->scanBox_(*scan)});
         }
 
@@ -5805,17 +5807,21 @@ class TtyUi {
             std::thread refresher([&]() {
                 std::uint64_t last = 0;
                 int ticks = 0;
+                int spins = 0;
                 while (alive) {
-                    // a change, the typing / the spinner (25 images / s), else once a second (timers); a quit signal: out
+                    // a change, the typing (25 images / s), the spinners (8 images / s: they turn every 120 ms), else once a second
+                    // (timers); a quit signal: out
                     std::this_thread::sleep_for(std::chrono::milliseconds(40));
                     if (cluster::quit_requested()) {
                         this->_screen.Exit();
                         break;
                     }
                     const std::uint64_t version = this->_manager.version() + this->_app.voice->version();
-                    if (version != last || this->_animating || this->_sendPending || ++ticks >= 25) {
+                    const bool spin = this->_spinning && ++spins >= 3;
+                    if (version != last || this->_animating || this->_sendPending || spin || ++ticks >= 25) {
                         last = version;
                         ticks = 0;
+                        spins = 0;
                         this->_screen.PostEvent(ftxui::Event::Custom);
                     }
                 }
