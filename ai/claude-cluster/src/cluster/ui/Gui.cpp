@@ -64,6 +64,7 @@ File Description:
 #include <QScrollArea>
 #include <QFileDialog>
 #include <QWheelEvent>
+#include <string_view>
 #include <QScrollBar>
 #include <functional>
 #include <QTabWidget>
@@ -275,6 +276,7 @@ class TermView: public QWidget {
         std::thread _reader;
         std::mutex _mutex;
         std::string _pending;           // what the pty wrote, not fed yet
+        std::int64_t _held = 0;         // since when (ms) the end of the pending bytes is a frame not finished, 0: none
         std::atomic<bool> _alive{true};
         QFont _font;
         int _cellW = 8;
@@ -311,10 +313,23 @@ class TermView: public QWidget {
         void paintEvent(QPaintEvent*) override
         {
             {
+                // only the whole frames (?2026h ... ?2026l) are fed: a frame cut in the middle (cursor hidden, lines
+                // erased, not drawn yet) is kept for the next paint, never shown (a flicker); held 150 ms at most
                 std::lock_guard<std::mutex> lock(this->_mutex);
                 if (!this->_pending.empty()) {
-                    this->_vt.feed(this->_pending);
-                    this->_pending.clear();
+                    static constexpr std::string_view BEGIN = "\x1b[?2026h"; // xstyle: ignore LU-ANSI (synchronized update)
+                    static constexpr std::string_view END = "\x1b[?2026l";   // xstyle: ignore LU-ANSI (synchronized update)
+                    std::size_t cut = this->_pending.size();
+                    const std::size_t begin = this->_pending.rfind(BEGIN);
+                    if (begin != std::string::npos && (this->_pending.rfind(END) == std::string::npos || this->_pending.rfind(END) < begin)) cut = begin;
+                    if (cut < this->_pending.size() && this->_held == 0) this->_held = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count();
+                    const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                    if (cut < this->_pending.size() && now - this->_held >= 150) cut = this->_pending.size();
+                    if (cut == this->_pending.size()) this->_held = 0;
+                    else QTimer::singleShot(160, this, [this]() {this->update();});
+                    this->_vt.feed(this->_pending.substr(0, cut));
+                    this->_pending.erase(0, cut);
                 }
             }
             QPainter painter(this);

@@ -302,10 +302,15 @@ _cold std::vector<std::string> lines_(const std::string& text)
 
 // The output of the interface: every frame of ftxui (and its other writes) sent in one write, inside a synchronized
 // update (DEC 2026: the terminal shows it at once) with the cursor hidden while it is drawn (shown again by the frame
-// at its place): no flicker, no cursor running over the screen
+// at its place): no flicker, no cursor running over the screen. A frame identical to the one before is not written at
+// all: the refresh timers redraw it every second (or every 40 ms while animated), and the hide / show of the cursor
+// around each of them restarted its blink
 class FrameOut: public std::streambuf {
     private:
+        static constexpr std::size_t FRAME_MIN = 64; // under this size: a control sequence, always written
+
         std::string _buffer;
+        std::string _last;                  // the last frame written
 
     protected:
         int overflow(const int c) override
@@ -323,6 +328,11 @@ class FrameOut: public std::streambuf {
         int sync(void) override
         {
             if (this->_buffer.empty()) return 0;
+            if (this->_buffer.size() >= FRAME_MIN && this->_buffer == this->_last) {
+                this->_buffer.clear();
+                return 0;
+            }
+            this->_last = this->_buffer.size() >= FRAME_MIN ? this->_buffer : std::string();
             const std::string out = "\x1b[?2026h\x1b[?25l" + this->_buffer + "\x1b[?2026l"; // xstyle: ignore LU-ANSI (modes, no color)
             this->_buffer.clear();
             for (std::size_t sent = 0; sent < out.size();) {

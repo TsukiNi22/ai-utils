@@ -1065,6 +1065,10 @@ questions of the settings are popups too (save the changes, a risky action of Se
 terminal is given back clean (mouse, screen, cursor) even when the interface crashes. A trace file for a bug report
 stays possible from `config.toml` only (`[debug] enabled = true`, `topics`: `~/.local/share/claude-cluster/debug.log`).
 
+No flicker: every frame of the terminal is written at once inside a synchronized update (`?2026`) with the cursor hidden while
+it is drawn, and a frame identical to the one before is not written at all (the once-a-second timers used to hide / show the
+cursor again each time, restarting its blink); the window and the web terminal show a frame of the interface only once whole.
+
 Each action runs with the progress popup and, failing, the failure popup (OK / Retry). *Refresh* (`[services]
 refresh`): `live` (what changes at once; the slow parts - systemd, its journal, tailscale - read every *Delay*),
 `interval` (everything every *Delay* seconds), `manual` (R / *Read again*, and after each action). The control:
