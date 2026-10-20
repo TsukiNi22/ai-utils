@@ -420,6 +420,8 @@ _cold void cluster::Manager::answer(const std::string& id, const std::string& re
         return;
     }
     const std::function<void(const std::string&)> callback = this->takeCoreAsk_(requestId); // a question of the core: its answer
+    for (const cluster::Permission& asked: this->get_(id)->snapshot().permissions)
+        if (asked.requestId == requestId) this->statsRecord("perm", {{"tool", asked.tool}, {"decision", behavior}, {"session", id}});
     this->get_(id)->answer(requestId, behavior);
     if (callback) std::thread([callback, behavior]() {callback(behavior == "deny" ? "deny" : behavior);}).detach();
 }

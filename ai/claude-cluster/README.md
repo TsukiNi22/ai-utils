@@ -511,6 +511,17 @@ on the default) until you answer; Allow applies it (the conversation goes on) an
 and tells it why. These questions are yours alone: the global session cannot answer them (`session_allow`, the ask
 commands). A change you make yourself (palette, `/model`, `claude-cluster model`) is never gated.
 
+### Statistics
+
+`F10`, `/stats` or the palette (*Statistics*) opens the **Stats** session, built by the core from the usage ledger (`usage.jsonl`)
+and the activity log (`stats.jsonl` in the data folder): display blocks refreshed in place every minute while the session exists
+(nothing is ever sent to an agent). It shows the cost and tokens today / 7 days / this month, the cost and tokens per day (30 days),
+the cost by model and by provider (`api` key, `auth` login or `local`), the sessions that cost the most (turns, tokens, cost, cost per
+turn, working time), the cache read / written and thinking shares, the time (core uptime, availability since the first start, agents
+working, average and longest turn), the heatmap of the turns (weekday x hour, 90 days), the tools used with the permissions
+allowed / always / denied, and the limits reached and errors. The activity events (start, a sign of life each minute, stop, tool,
+permission decision, limit, error) are recorded in `stats.jsonl` from this version on; the older turns only have the usage part.
+
 ## Voice
 
 `[voice] enabled = true`, then one of three listening modes:

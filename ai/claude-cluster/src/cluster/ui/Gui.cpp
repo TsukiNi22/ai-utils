@@ -1979,6 +1979,7 @@ class Window: public QMainWindow {
             } else if (action == "new_session") this->choose({"new_session", "New session", "folder [backend]", ".", false});
             else if (action == "close_session") this->run({"close_session", "", "", "", false}, "");
             else if (action == "allow" || action == "deny" || action == "mute") this->run({action, "", "", "", false}, "");
+            else if (action == "stats") this->run({"stats", "", "", "", false}, "");
             else if (action == "push_to_talk") this->run({"voice_toggle", "", "", "", false}, "");
             else if (action == "resume") this->run({"resume", "", "", "", false}, "");
             else if (action == "send_next") this->run({"send_next", "", "", "", false}, "");

@@ -26,6 +26,7 @@ File Description:
 #include "cluster/Machine.hpp"
 #include "cluster/Policy.hpp"
 #include "cluster/Editor.hpp"
+#include "cluster/Stats.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Wire.hpp"
 #include "cluster/Web.hpp"
@@ -759,6 +760,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 data.push_back({{"section", s.section}, {"key", s.key}, {"label", s.label}, {"page", pages[hit.page].title}, {"help", s.description},
                     {"matched", hit.name ? "name" : "description"}});
             }
+        } else if (cmd == "stats") {
+            // the Stats session: built / refreshed, shown on request
+            data = {{"id", cluster::stats_open(manager, request.value("focus", false))}};
         } else if (cmd == "showcase") {
             // the Debug page: everything claude-cluster can show, on the interface asking (its platform)
             data = {{"message", cluster::showcase(manager, arg_(request, "what", "all"), arg_(request, "platform"))}};

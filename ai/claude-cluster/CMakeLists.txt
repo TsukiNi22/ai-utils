@@ -86,6 +86,7 @@ set(SRC
     src/cluster/Progress.cpp
     src/cluster/Services.cpp
     src/cluster/Showcase.cpp
+    src/cluster/Stats.cpp
     src/cluster/Plugins.cpp
     src/cluster/Policy.cpp
     src/cluster/Manager-Policy.cpp

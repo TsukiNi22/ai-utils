@@ -17,6 +17,8 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Plugins.hpp"
 #include "cluster/Manager.hpp"
+#include "cluster/Stats.hpp"
+
 #include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
@@ -706,8 +708,17 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 }
             }
             break;
+        case cluster::Event::Kind::Tool:
+            this->statsRecord("tool", {{"tool", event.text}, {"session", event.session}});
+            break;
         case cluster::Event::Kind::TurnDone:
             this->recordUsage_(event.session);
+            if (event.error) {
+                std::string lowered = event.text;
+                std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
+                const bool hit = lowered.find("limit") != std::string::npos || lowered.find("budget") != std::string::npos;
+                this->statsRecord(hit ? "limit" : "error", {{"session", event.session}, {"what", cluster::one_line(event.text, 160)}});
+            }
             this->limitsWarn();
             if (event.session != GLOBAL_ID) this->turnCounted_(event.session, event.error || event.interrupted);
             if (event.session == GLOBAL_ID && this->_restartAfterTurn.exchange(false)) {
@@ -966,6 +977,7 @@ _cold void cluster::Manager::shutdown(void)
     }
     // closing: the agents that end now are not "stopped by themselves" (no notice, no restart)
     this->_closing = true;
+    if (this->_statsUp > 0) this->statsRecord("stop");
     {
         std::lock_guard<std::mutex> lock(this->_describer->mutex); // a description being written: dropped
         this->_describer->alive = false;
@@ -989,6 +1001,12 @@ _cold void cluster::Manager::tick(void)
     const int key = static_cast<int>(face.face) * 100000 + face.badge * 2 + (face.urgent ? 1 : 0);
     if (this->_faceKey.exchange(key) != key) ++this->_version;
     static int seconds = 0;
+    if (this->_statsUp == 0) this->statsRecord("start");
+    if (cluster::now() - this->_statsUp >= 60) {
+        this->_statsUp = cluster::now();
+        this->statsRecord("up");
+        (void)cluster::stats_refresh(*this);
+    }
     if (this->_config.reload()) {
         if (this->_config.error().empty()) this->notice_("", "config reloaded");
         else this->notice_("", "config error (previous values kept): " + this->_config.error(), true);

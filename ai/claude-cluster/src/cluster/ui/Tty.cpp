@@ -2184,6 +2184,8 @@ class TtyUi {
                 this->run_({"close_session", "", "", "", false}, "");
             } else if (action == "allow" || action == "deny" || action == "interrupt" || action == "mute") {
                 this->run_({action, "", "", "", false}, "");
+            } else if (action == "stats") {
+                this->run_({"stats", "", "", "", false}, "");
             } else if (action == "push_to_talk") {
                 this->run_({"voice_toggle", "", "", "", false}, "");
             } else if (action == "layout") {

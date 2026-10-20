@@ -41,7 +41,7 @@ namespace cluster { // namespace start
 /* STRUCT */
 
 struct Event {
-    enum class Kind {Init, TurnDone, Permission, Exited, Prompt}; // Prompt: one sent from elsewhere (claude.ai)
+    enum class Kind {Init, TurnDone, Permission, Exited, Prompt, Tool}; // Prompt: one sent from elsewhere (claude.ai)
     Kind kind = Kind::Init;
     std::string session;
     std::string text;

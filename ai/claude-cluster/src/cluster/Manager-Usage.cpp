@@ -130,7 +130,7 @@ _cold void cluster::Manager::loadUsage_(void)
         records.push_back({json.value("time", std::int64_t{0}), json.value("vendor", std::string()), json.value("model", std::string()), json.value("session", std::string()),
             json.value("tokens", std::int64_t{0}), json.value("cache", std::int64_t{0}), json.value("cost", 0.0), json.value("cost_known", true),
             json.value("input", std::int64_t{0}), json.value("cache_write", std::int64_t{0}), json.value("cache_write_1h", std::int64_t{0}), json.value("cache_read", std::int64_t{0}),
-            json.value("output", std::int64_t{0}), json.value("thinking", std::int64_t{0})});
+            json.value("output", std::int64_t{0}), json.value("thinking", std::int64_t{0}), json.value("dur_ms", std::int64_t{0})});
     }
     std::stable_sort(records.begin(), records.end(), [](const cluster::UsageRecord& a, const cluster::UsageRecord& b) {return a.time < b.time;});
     std::map<std::string, cluster::UsageReport> limits;
@@ -156,7 +156,8 @@ _cold void cluster::Manager::recordUsage_(const std::string& session)
     const std::string vendor = this->vendorOf(snap->spec.backend);
     cluster::UsageRecord record{cluster::now(), vendor, snap->modelUsed.empty() ? snap->spec.model : snap->modelUsed, session,
         m.last.input + m.last.cacheCreation + m.last.output, m.last.cacheRead, m.costKnown ? m.lastCost : 0.0, m.costKnown,
-        m.last.input, m.last.cacheCreation, m.last.cacheCreation1h, m.last.cacheRead, m.last.output, m.last.thinking};
+        m.last.input, m.last.cacheCreation, m.last.cacheCreation1h, m.last.cacheRead, m.last.output, m.last.thinking,
+        snap->turnSince > 0 ? std::max<std::int64_t>(0, std::int64_t{cluster::now()} * 1000 - snap->turnSince) : 0};
     // the price of the model: learned from the cost Claude Code tells (exact for its own table)
     if (vendor == "anthropic" && m.costKnown && m.lastCost > 0.0) cluster::price_learn(record.model, m.last, m.lastCost);
 
@@ -191,7 +192,38 @@ _cold void cluster::Manager::recordUsage_(const std::string& session)
     std::ofstream(usage_file_(), std::ios::app) << cluster::Json{{"time", record.time}, {"vendor", record.vendor}, {"model", record.model},
         {"session", record.session}, {"tokens", record.tokens}, {"cache", record.cache}, {"cost", record.cost}, {"cost_known", record.costKnown},
         {"input", record.input}, {"cache_write", record.cacheWrite}, {"cache_write_1h", record.cacheWrite1h}, {"cache_read", record.cacheRead},
-        {"output", record.output}, {"thinking", record.thinking}}.dump() << "\n";
+        {"output", record.output}, {"thinking", record.thinking}, {"dur_ms", record.durMs}}.dump() << "\n";
+}
+
+/* statistics */
+_cold std::vector<cluster::UsageRecord> cluster::Manager::usageLedger(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    return this->_usage;
+}
+
+_cold void cluster::Manager::statsRecord(const std::string& kind, const cluster::Json& fields)
+{
+    // one event of the activity (stats.jsonl): a start, a sign of life, a tool, a permission decision, a limit, an error
+    if (this->_replica) return;
+    cluster::Json line = fields.is_object() ? fields : cluster::Json::object();
+    line["t"] = cluster::now();
+    line["kind"] = kind;
+    std::lock_guard<std::mutex> lock(this->_statsMutex);
+    std::ofstream(cluster::data_dir() / "stats.jsonl", std::ios::app) << line.dump() << "\n";
+}
+
+_cold std::vector<cluster::Json> cluster::Manager::statsEvents(const std::int64_t since) const
+{
+    std::lock_guard<std::mutex> lock(this->_statsMutex);
+    std::vector<cluster::Json> events;
+    std::ifstream file(cluster::data_dir() / "stats.jsonl");
+    std::string line;
+    while (std::getline(file, line)) {
+        cluster::Json json = cluster::Json::parse(line, nullptr, false);
+        if (json.is_object() && json.value("t", std::int64_t{0}) >= since) events.push_back(std::move(json));
+    }
+    return events;
 }
 
 /* reports */

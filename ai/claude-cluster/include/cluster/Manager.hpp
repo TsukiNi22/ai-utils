@@ -188,6 +188,8 @@ class Manager {
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
         cluster::Web* _web = nullptr;                   // the web access of this instance (owned by the App)
         std::unique_ptr<cluster::Asking> _asking;       // the question of an agent being answered (the interfaces, the voice)
+        mutable std::mutex _statsMutex;                 // stats.jsonl
+        std::int64_t _statsUp = 0;                      // the last sign of life written
         std::vector<cluster::UsageRecord> _usage;       // the usage ledger (usage.jsonl), in time order
         std::map<std::string, cluster::UsageReport> _limits; // per vendor: the last limits seen (5 h / 7 d windows), the account's
         cluster::Transcripts _transcripts;              // the transcripts of Claude Code (every session of this computer)
@@ -424,6 +426,9 @@ class Manager {
         _cold _nodiscard std::optional<cluster::Progress> progress(void) const;    // the one shown (the first of the queue running 0.4 s, or its result)
         _cold _nodiscard std::vector<cluster::Progress> progressAll(void) const;   // this process's ones (running, results < 1.5 s)
         _cold _nodiscard std::optional<cluster::Queued> unqueue(const std::string& id); // last queued prompt, removed
+        _nodiscard std::vector<cluster::UsageRecord> usageLedger(void) const;                               // a copy of the usage ledger
+        _cold void statsRecord(const std::string& kind, const cluster::Json& fields = cluster::Json::object()); // one event of the activity (core only)
+        _nodiscard std::vector<cluster::Json> statsEvents(const std::int64_t since) const;                  // the events since (unix s)
 
         // ---------- Function -------- //
         _nodiscard inline bool replica(void) const {return this->_replica != nullptr;};

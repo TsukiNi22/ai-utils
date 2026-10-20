@@ -19,6 +19,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
+#include "cluster/Stats.hpp"
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Web.hpp"
@@ -48,6 +49,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"plugins", "Plugins: sources (a repository, a folder, a .zip), install / remove, on / off, their files", "", "", true},
         {"upgrade", "Update claude-cluster to the newer version installed (the sessions kept, nothing to restart)", "", "", false},
         {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
+        {"stats", "Statistics: cost and tokens per day / model / provider, sessions ranking, cache, uptime, heatmap, tools, limits (F10)", "", "", false},
         {"shells", "Background shells: the !commands running (a popup), stop one with /kill", "", "", false},
         {"shells_kill", "Background shells: stop them all", "", "", false},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
@@ -386,6 +388,8 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
                 if (equal != std::string::npos) values[cluster::trim(pair.substr(0, equal))] = cluster::trim(pair.substr(equal + 1));
             }
             result.message = manager.displayAct(session, arg, {{"values", values}});
+        } else if (base == "stats") {
+            result.message = "statistics: session " + cluster::stats_open(manager, true);
         } else if (base == "shells") {
             const std::optional<cluster::ActionResult> shown = cluster::run_slash(manager, session, "/shells");
             if (shown) result = *shown;
@@ -538,6 +542,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"usage", "the usage of the account (5 h / 7 d windows) and of this session: a popup, nothing asked to the agent"},
         {"skills", "the skills and plugins loaded for the sessions (yours, the project's, the plugins): a popup"},
         {"info", "everything about the session in focus: agent, model, thinking, api / login, cost, limits (a popup)"},
+        {"stats", "the statistics: usage, activity (the Stats session, F10)"},
         {"shells", "the !commands running in the background (and the last ended ones): a popup; /kill <id|all> stops them"},
         {"kill", "<id|all>: stop a background shell (and everything it started)"},
         {"status", "the same as /info"},
@@ -821,6 +826,8 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 + " · tokens " + cluster::human_tokens(m.total.total()) + " in " + std::to_string(m.turns) + " turn(s)";
             else result.message = "context " + cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow)
                 + (m.contextWindow > 0 ? " (" + std::to_string(100 * m.contextUsed / m.contextWindow) + "%)" : std::string());
+        } else if (name == "stats") {
+            result.message = "statistics: session " + cluster::stats_open(manager, true);
         } else if (name == "shells") {
             const cluster::Json jobs = manager.shells();
             result.message = jobs.empty() ? std::string("no !command yet: the ones that last more than a few seconds run here in the background (!tail -f log, !npm run dev...)") : "shells";
@@ -953,7 +960,7 @@ _cold std::string cluster::next_mode(const std::string& mode)
 _cold std::string cluster::help_text(const cluster::Config& config)
 {
     static const std::vector<std::pair<std::string, std::string>> actions = {
-        {"palette", "command palette"}, {"settings", "settings page"}, {"help", "this help"},
+        {"palette", "command palette"}, {"settings", "settings page"}, {"stats", "statistics (usage, activity)"}, {"help", "this help"},
         {"next_session", "next session"}, {"prev_session", "previous session"}, {"prefix", "then an arrow: session on the left / right / above / below"},
         {"global", "the global session"}, {"new_session", "new session"}, {"close_session", "close the session (trash)"},
         {"restore", "reopen a closed session"}, {"allow", "allow the permission"}, {"always", "always allow (rule)"}, {"deny", "deny the permission"},

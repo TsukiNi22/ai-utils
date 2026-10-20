@@ -982,6 +982,7 @@ _cold void cluster::Session::tool_(const std::string& id, const std::string& nam
         this->_data.tools.back().image = input["file_path"].get<std::string>(); // a picture read: shown from the rounds of the turn
     if (this->_data.tools.size() > 200) this->_data.tools.erase(this->_data.tools.begin());
     this->entry_(cluster::EntryKind::Tool, name == "TodoWrite" ? todos_(input) : summary, name);
+    this->emit_(cluster::Event::Kind::Tool, name); // the statistics
     if (name == "TodoWrite") { // its list now (the Tasks session, its panel)
         this->_data.todos.clear();
         for (const cluster::Json& todo: input.value("todos", cluster::Json::array()))

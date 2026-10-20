@@ -104,6 +104,7 @@ struct UsageRecord {
     std::int64_t cacheRead = 0;
     std::int64_t output = 0;
     std::int64_t thinking = 0;
+    std::int64_t durMs = 0;         // how long the turn lasted (0: unknown)
 };
 
 struct UsageSum {
