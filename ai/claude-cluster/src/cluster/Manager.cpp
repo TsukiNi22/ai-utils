@@ -283,6 +283,8 @@ _cold void cluster::Manager::clear(const std::string& id)
     this->archive_(id);
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
     session->loadHistory(300);
+    spec.cost = 0.0;   // the figures of the list follow the conversation (the usage ledger keeps the spent ones)
+    spec.tokens = 0;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_sessions[id] = session;
