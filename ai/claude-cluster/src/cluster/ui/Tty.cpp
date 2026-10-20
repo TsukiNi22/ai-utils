@@ -1021,6 +1021,14 @@ class TtyUi {
         std::int64_t _prefixUntil = 0;              // Ctrl+B pressed: unix ms until which an arrow moves between sessions
         int _taskSel = 0;                           // the Tasks session: its item chosen by the keys
         cluster::Json _services;                    // the Services tab of the settings: its state (read by the worker)
+        struct Anchor {
+            bool valid = false;
+            int scroll = 0;                         // the scroll kept at the last drawing (another value: the user moved, the anchor is dropped)
+            std::size_t entry = 0;                  // the entry of the first line shown (npos: the live tail after the entries)
+            int offset = 0;                         // its line inside that entry
+            int fresh = 0;                          // lines added below the view since it left the end
+        };
+        std::map<std::string, Anchor> _anchors;     // per session: the first line shown stays where it is when text is added or resized
         std::int64_t _servicesAt = 0;               // ms of its last read (0: read again)
         std::uint64_t _servicesSeen = 0;            // the version of the core it was read at (live: read again when it changes)
         std::atomic<bool> _servicesReading{false};
@@ -4143,8 +4151,45 @@ class TtyUi {
             }
 
             int& scroll = this->_scroll[s.spec.id];
-            if (hitLine >= 0) scroll = std::max(0, static_cast<int>(lines.size()) - hitLine - height / 2);
-            scroll = std::clamp(scroll, 0, std::max(0, static_cast<int>(lines.size()) - height));
+            Anchor& anchor = this->_anchors[s.spec.id];
+            const int total = static_cast<int>(lines.size());
+            if (hitLine >= 0) {
+                scroll = std::max(0, total - hitLine - height / 2);
+                anchor.valid = false;
+            } else if (anchor.valid && scroll > 0 && scroll == anchor.scroll) {
+                // scrolled up and not moved by the user: the first line shown stays on its entry (text added below, an entry above that grew or folded)
+                int top = -1;
+                if (anchor.entry == std::string::npos) {
+                    top = static_cast<int>(entriesEnd) + anchor.offset;
+                } else {
+                    const auto found = std::find_if(starts.begin(), starts.end(), [&](const std::pair<std::size_t, std::size_t>& p) {return p.second == anchor.entry;});
+                    if (found != starts.end()) {
+                        const std::size_t next = std::next(found) != starts.end() ? std::next(found)->first : entriesEnd;
+                        top = static_cast<int>(std::min(found->first + static_cast<std::size_t>(anchor.offset), std::max(found->first, next) - (next > found->first ? 1 : 0)));
+                    }
+                }
+                if (top >= 0) {
+                    const int before = scroll;
+                    scroll = std::max(0, total - top - height);
+                    anchor.fresh += std::max(0, scroll - before); // the lines added below the view
+                }
+            }
+            scroll = std::clamp(scroll, 0, std::max(0, total - height));
+            if (scroll == 0) {
+                anchor = Anchor{}; // at the end: followed again
+            } else {
+                const std::size_t top = static_cast<std::size_t>(std::max(0, total - scroll - height));
+                const auto owned = std::upper_bound(starts.begin(), starts.end(), std::make_pair(top, std::numeric_limits<std::size_t>::max()));
+                anchor.valid = true;
+                anchor.scroll = scroll;
+                if (top >= entriesEnd || owned == starts.begin()) {
+                    anchor.entry = std::string::npos;
+                    anchor.offset = static_cast<int>(top) - static_cast<int>(std::min(top, entriesEnd));
+                } else {
+                    anchor.entry = std::prev(owned)->second;
+                    anchor.offset = static_cast<int>(top - std::prev(owned)->first);
+                }
+            }
             const int end = static_cast<int>(lines.size()) - scroll;
             this->_transcriptLines = lines.size();
             const int begin = std::max(0, end - height);
@@ -4223,7 +4268,18 @@ class TtyUi {
                 shown.push_back(ftxui::hbox({ftxui::text(row.text.substr(0, from)) | row.style, ftxui::text(row.text.substr(from, to - from)) | row.style | ftxui::inverted,
                     ftxui::text(row.text.substr(to)) | row.style}));
             }
-            if (scroll > 0) shown.push_back(ftxui::text("↓ " + std::to_string(scroll) + " more line(s) (PageDown)") | ftxui::color(this->_theme.accent) | ftxui::dim);
+            if (scroll > 0) {
+                // the bottom edge: what is below, and new output that came while scrolled up; a click (or Shift+PageDown) jumps to the end
+                const std::string endKey = config.keys.contains("transcript_bottom") ? config.keys.at("transcript_bottom") : std::string("Shift+PageDown");
+                const std::string cue = anchor.fresh > 0 ? "↓ " + std::to_string(anchor.fresh) + " new line(s) · " + std::to_string(scroll) + " below (click / " + endKey + ": end)"
+                    : "↓ " + std::to_string(scroll) + " more line(s) (click / " + endKey + ": end)";
+                const bool lit = anchor.fresh > 0;
+                shown.push_back(ftxui::text(cue) | ftxui::color(this->_theme.accent) | (lit ? ftxui::bold : ftxui::dim));
+                view.lines.push_back(cue);
+                view.joins.push_back("\n");
+                view.hits.push_back({Hit(0, 100000, [this, id = s.spec.id]() {this->_scroll[id] = 0;})});
+                view.entries.push_back(std::string::npos);
+            }
             return ftxui::vbox(std::move(shown)) | ftxui::yflex | ftxui::reflect(view.box);
         }
 
