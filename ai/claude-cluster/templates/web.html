@@ -266,6 +266,10 @@ header .muted { color: var(--muted); font-size: 13px; }
 .hub-tools button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; }
 .hub-notes { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; padding: 8px 4px 2px; font-size: 13px; color: var(--text); }
 .hub-notes .muted { color: var(--muted); font-size: 12px; }
+.hub-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 4px 4px 6px; font-size: 12.5px; }
+.hub-bar button { padding: 3px 9px; font-size: 12.5px; } .hub-bar .muted { color: var(--muted); }
+.hub-bar .node-chip { background: var(--chip); color: var(--bg); border-radius: 10px; padding: 1px 9px; font-weight: 600; }
+.world[data-lod="dot"] .lbl, .world[data-lod="dot"] .sub, .world[data-lod="title"] .sub { display: none; }
 .tree { font-size: 14px; } .tree ul { list-style: none; margin: 0; padding-left: 20px; border-left: 1px dashed var(--line); }
 .tree > ul { border-left: none; padding-left: 0; }
 .tree li { margin: 4px 0; } .tree .row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; min-width: 0; }
@@ -872,6 +876,39 @@ function paintTty(state) {
     button.classList.toggle("hidden", !port);
     button.onclick = () => { location.href = location.protocol + "//" + location.hostname + ":" + port + "/"; };
 }
+// ---- the taxonomy of the labels: categories and tags form a forest under "global" (sent in every state, edited by the command taxonomy) ----
+// a session hangs under its primary label (its category, else its first tag, else global); the list and the graph nest by it
+function taxParents() { return (lastState && lastState.taxonomy && lastState.taxonomy.parents) || {}; }
+function taxPath(node) {
+    // from the top to the node (a node under global: itself alone)
+    const parents = taxParents(), out = [];
+    for (let at = node, n = 0; at && n < 64; at = parents[at] || "", n++) out.unshift(at);
+    return out;
+}
+function taxCommon(a, b) { let n = 0; while (n < a.length && n < b.length && a[n] === b[n]) n++; return n; }
+function taxDescendants(node) {
+    const parents = taxParents(), out = new Set(), todo = [node];
+    while (todo.length) {
+        const at = todo.pop();
+        for (const [name, up] of Object.entries(parents)) if (up === at && !out.has(name)) { out.add(name); todo.push(name); }
+    }
+    return out;
+}
+function sessionLabels(s) { return [s.category, ...(s.tags || [])].filter(Boolean); }
+function primaryLabel(s) { return s.category || (s.tags || [])[0] || ""; }
+function groupPath(s) { return s.id === "g" ? [] : taxPath(primaryLabel(s)); }
+function sessionUnder(s, node, below) {
+    if (!node) return true;
+    const scope = below ? taxDescendants(node) : new Set();
+    scope.add(node);
+    return sessionLabels(s).some((label) => scope.has(label));
+}
+let labelFilter = store.get("cc-label-filter", "");   // a node chosen in the graph or on a group head: the list shows what is below it only
+function setLabelFilter(node) {
+    labelFilter = labelFilter === node ? "" : node;
+    store.set("cc-label-filter", labelFilter);
+    if (lastState) render(lastState);
+}
 // the category (a filled chip) and the tags (#words) of a session, each one in a color made from its text
 function chipColor(label) {
     let hash = 2166136261;
@@ -913,11 +950,29 @@ function render(state) {
     $("groupToggle").classList.toggle("active", !!state.group);
     $("groupToggle").textContent = state.group ? "Ungroup" : "Group by category";
     let before = null;
+    let beforePath = null;      // the group path of the previous session (the taxonomy: nested heads)
+    if (labelFilter) {
+        const bar = el("div", "group-head", "⌕ " + labelFilter + " (and the labels below it) · click: show all");
+        bar.style.setProperty("--chip", chipColor(labelFilter));
+        bar.style.cursor = "pointer";
+        bar.addEventListener("click", () => setLabelFilter(labelFilter));
+        list.append(bar);
+    }
     for (const s of state.sessions) {
-        if (state.group && s.id !== "g" && (!before || before.id === "g" || (before.category || "") !== (s.category || ""))) {
-            const head = el("div", "group-head", "▾ " + (s.category || "no category"));
-            if (s.category) head.style.setProperty("--chip", chipColor(s.category));
-            list.append(head);
+        if (labelFilter && s.id !== "g" && !sessionUnder(s, labelFilter, true)) continue;
+        if (state.group && s.id !== "g") {
+            const path = groupPath(s);
+            if (beforePath === null || beforePath.length !== path.length || beforePath.some((n, i) => n !== path[i])) {
+                for (let i = path.length ? taxCommon(beforePath || [], path) : 0; i < Math.max(path.length, 1); i++) {
+                    const node = path[i] || "";
+                    const head = el("div", "group-head", "▾ " + (node || "no category"));
+                    if (node) head.style.setProperty("--chip", chipColor(node));
+                    head.style.marginLeft = (4 + i * 12) + "px";
+                    if (node) { head.style.cursor = "pointer"; head.addEventListener("click", () => setLabelFilter(node)); }
+                    list.append(head);
+                }
+            }
+            beforePath = path;
         }
         before = s;
         const item = document.createElement("div");
@@ -3275,6 +3330,7 @@ let hubBusy = false;            // a drag / a pinch going on: the page not redra
 let hubWorld = null;            // the <g> moved and zoomed
 function hubApply() {
     if (hubWorld) hubWorld.setAttribute("transform", `translate(${hubView.x},${hubView.y}) scale(${hubView.k})`);
+    if (hubWorld) hubWorld.setAttribute("data-lod", hubView.k < 0.35 ? "dot" : hubView.k < 0.7 ? "title" : "full");   // far: dots, then titles, close: titles and status
     clearTimeout(hubApply.save);
     hubApply.save = setTimeout(() => store.set("cc-hub-view", JSON.stringify(hubView)), 300);
 }
@@ -3289,6 +3345,7 @@ function hubZoom(factor, cx, cy) {
 }
 function hubReset() { hubView.x = 0; hubView.y = 0; hubView.k = 1; hubApply(); }
 function renderHub(pane, sessions) {
+    if (store.get("cc-hub-mode", labelsExist() ? "tree" : "ring") === "tree") { renderHubTree(pane, sessions); return; }
     // the global session in the middle, the sessions around it; the line and the ring colored by their state
     const W = 900, H = 620, cx = W / 2, cy = H / 2;
     const global = sessions.find((s) => s.id === "g");
@@ -3300,19 +3357,17 @@ function renderHub(pane, sessions) {
         : s.state === "error" ? "var(--error)" : "var(--muted)");
     const radius = Math.max(170, others.length * 92 / (2 * Math.PI)); // the nodes never glued (zoom out for many)
     let moved = false; // a drag: no session opened at its end
+    const drawn = [];  // the nodes drawn: their labels are placed once all of them are (no text over another node or text)
     const node = (s, x, y, r) => {
         const g = svgOf("g", {class: "node", transform: `translate(${x},${y})`});
         g.append(svgOf("circle", {r, fill: "var(--surface)", stroke: color(s), "stroke-width": 2}));
         const face = svgOf("text", {"text-anchor": "middle", y: 5, "font-family": "var(--mono)", "font-size": r > 40 ? 16 : 13, fill: color(s)});
         face.textContent = faceOf(s);
-        const name = svgOf("text", {"text-anchor": "middle", y: r + 18, "font-size": 13, fill: "var(--text)", "font-weight": 600});
-        name.textContent = shortName(s).slice(0, 22);
-        const sub = svgOf("text", {"text-anchor": "middle", y: r + 34, "font-size": 11, fill: "var(--muted)"});
-        sub.textContent = s.turn ? s.turn.verb : s.state;
         const title = svgOf("title", {});
         title.textContent = shortName(s) + " · " + s.state + " · " + shortPath(s.cwd);
-        g.append(face, name, sub, title);
+        g.append(face, title);
         g.addEventListener("click", () => { if (!moved) openSession(s.id); });
+        drawn.push({s, x, y, r, g});
         return g;
     };
     others.forEach((s, i) => {
@@ -3337,6 +3392,10 @@ function renderHub(pane, sessions) {
         g.append(face, name);
         world.append(g);
     }
+    hubLabelsDraw(world, drawn, others.map((s, i) => {
+        const a = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
+        return [cx, cy, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius * 0.78];
+    }));
     hubWorld = world;
     hubApply();
     // the pointer: a drag moves, two fingers zoom (the middle of them), the wheel zooms around the cursor
@@ -3375,7 +3434,8 @@ function renderHub(pane, sessions) {
     const box = el("div", "hub");
     const tools = el("div", "hub-tools");
     for (const [label, title, run] of [["+", "zoom in (a, the wheel, two fingers)", () => hubZoom(1.25, cx, cy)], ["−", "zoom out (e)", () => hubZoom(1 / 1.25, cx, cy)],
-        ["⌂", "the whole graph again (double click)", hubReset]]) {
+        ["⌂", "the whole graph again (double click)", hubReset],
+        ["⑂", "the sessions as a tree of categories and tags", () => { hubReset(); hubSet("cc-hub-mode", "tree"); }]]) {
         const b = el("button", "", label);
         b.type = "button";
         b.title = title;
@@ -3388,6 +3448,333 @@ function renderHub(pane, sessions) {
     if (!others.length) notes.append(el("span", "", "No sub-session yet: ask the global session, or create one (Chat › New session)"));
     if (!global) notes.append(el("span", "", "No global session (settings › Global session)"));
     notes.append(el("span", "muted", "drag · wheel · arrows · a / e zoom · two fingers · double click: whole"));
+    box.append(notes);
+    pane.append(box);
+}
+
+// ---- the labels of the nodes without collision: the text of a node (title, status) is a box tried below, above, right, left, then the diagonals ----
+// the nodes and the key points of the edges are obstacles, a grid keeps it cheap (no pass over every pair); no room: the status line goes, then the end of
+// the title, then the label (the tooltip and the hover show it whole, on top, with its plate). Text scales with the graph: the pass is done once, whatever the zoom.
+const HUB_TITLE = 7.4, HUB_SUB = 6.2;    // px per character of the title (13 px bold) and of the status line (11 px)
+function hubGrid(cell) {
+    const cells = new Map();
+    const keys = (b) => {
+        const out = [];
+        for (let i = Math.floor(b.x / cell); i <= Math.floor((b.x + b.w) / cell); i++)
+            for (let j = Math.floor(b.y / cell); j <= Math.floor((b.y + b.h) / cell); j++) out.push(i + "," + j);
+        return out;
+    };
+    return {
+        free(b) {
+            for (const k of keys(b))
+                for (const o of cells.get(k) || []) if (b.x < o.x + o.w && o.x < b.x + b.w && b.y < o.y + o.h && o.y < b.y + b.h) return false;
+            return true;
+        },
+        add(b) { for (const k of keys(b)) { if (!cells.has(k)) cells.set(k, []); cells.get(k).push(b); } },
+    };
+}
+function hubLabels(nodes, obstacles) {
+    // nodes: [{x, y, r, title, sub, pinned}], each gets .lab = {box, anchor, title, sub, hidden}; obstacles: [{x, y, w, h}] (the key points of the edges)
+    const grid = hubGrid(80);
+    for (const n of nodes) grid.add({x: n.x - n.r - 2, y: n.y - n.r - 2, w: 2 * n.r + 4, h: 2 * n.r + 4});
+    for (const o of obstacles || []) grid.add(o);
+    const gap = 5;
+    const order = [...nodes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || a.y - b.y || a.x - b.x);   // the node shown first, then top to bottom
+    for (const n of order) {
+        const short = n.title.length > 13 ? n.title.slice(0, 12) + "…" : n.title;
+        let placed = null;
+        for (const [title, sub] of [[n.title, n.sub], [n.title, ""], [short, ""]]) {
+            const w = Math.max(title.length * HUB_TITLE, sub.length * HUB_SUB) + 8, h = (sub ? 31 : 17) + 4, d = n.r * 0.7;
+            const spots = [
+                [n.x - w / 2, n.y + n.r + gap, "middle"], [n.x - w / 2, n.y - n.r - gap - h, "middle"],
+                [n.x + n.r + gap, n.y - h / 2, "start"], [n.x - n.r - gap - w, n.y - h / 2, "end"],
+                [n.x + d, n.y + d + gap, "start"], [n.x - d - w, n.y + d + gap, "end"],
+                [n.x + d, n.y - d - gap - h, "start"], [n.x - d - w, n.y - d - gap - h, "end"],
+            ];
+            for (const [x, y, anchor] of spots) {
+                const box = {x, y, w, h};
+                if (grid.free(box)) { placed = {box, anchor, title, sub, hidden: false}; break; }
+            }
+            if (placed) break;
+        }
+        if (placed) grid.add(placed.box);
+        else placed = {box: {x: n.x, y: n.y, w: 0, h: 0}, anchor: "middle", title: short, sub: "", hidden: !n.pinned};   // the one shown stays, on its plate
+        if (!placed.hidden && !placed.box.w) {   // pinned and no free spot: below, over what is there
+            const w = n.title.length * HUB_TITLE + 8;
+            placed.box = {x: n.x - w / 2, y: n.y + n.r + gap, w, h: 21};
+            placed.title = n.title;
+        }
+        n.lab = placed;
+    }
+}
+function hubLabelDraw(layer, n, hover) {
+    // a label: its plate (the background of the theme, 80 %: an edge crossing it does not cut the text), the title, the status line; the hover draws it whole, on top
+    const lab = n.lab;
+    if (lab.hidden && !hover) return;
+    const title = hover ? n.full : lab.title, sub = hover ? n.sub : lab.sub;
+    const w = Math.max(title.length * HUB_TITLE, sub.length * HUB_SUB) + 8, h = (sub ? 31 : 17) + 4;
+    const anchor = hover ? "middle" : lab.anchor;
+    const x = hover ? n.x - w / 2 : lab.box.x, y = hover ? n.y + n.r + 5 : lab.box.y;
+    const g = svgOf("g", {class: hover ? "hover" : "lab"});
+    g.append(svgOf("rect", {x, y, width: w, height: h, rx: 4, fill: "var(--bg)", "fill-opacity": 0.8}));
+    const tx = anchor === "middle" ? x + w / 2 : anchor === "start" ? x + 4 : x + w - 4;
+    const t = svgOf("text", {x: tx, y: y + 14, "text-anchor": anchor, "font-size": 13, "font-weight": 600, fill: "var(--text)", class: "lbl"});
+    t.textContent = title;
+    g.append(t);
+    if (sub) {
+        const u = svgOf("text", {x: tx, y: y + 28, "text-anchor": anchor, "font-size": 11, fill: "var(--muted)", class: "sub"});
+        u.textContent = sub;
+        g.append(u);
+    }
+    g.style.pointerEvents = "none";   // the node under it takes the clicks
+    layer.append(g);
+}
+function hubLabelsDraw(world, list, spokes) {
+    // list: [{s, x, y, r, g}] the nodes drawn; spokes: [[x1, y1, x2, y2]] the edges (their points near the node are obstacles)
+    const layer = svgOf("g", {class: "labels"});
+    world.append(layer);   // over the edges and the nodes
+    const specs = list.map((n) => ({x: n.x, y: n.y, r: n.r, full: shortName(n.s), title: shortName(n.s).slice(0, 22), sub: n.s.turn ? n.s.turn.verb : n.s.state,
+        pinned: n.s.id === current || n.s.id === "g"}));
+    const points = [];
+    for (const [x1, y1, x2, y2] of spokes) for (const t of [0.55, 0.7, 0.85]) points.push({x: x1 + (x2 - x1) * t - 3, y: y1 + (y2 - y1) * t - 3, w: 6, h: 6});
+    hubLabels(specs, points);
+    specs.forEach((n, i) => {
+        hubLabelDraw(layer, n, false);
+        list[i].g.addEventListener("mouseenter", () => hubLabelDraw(layer, n, true));
+        list[i].g.addEventListener("mouseleave", () => { const open = layer.querySelector(".hover"); if (open) open.remove(); });
+    });
+}
+// ---- the hub as a tree: global at the root, then the categories / tags (the taxonomy), then the sessions as leaves ----
+function labelsExist() { return Object.keys(taxParents()).length > 0 || ((lastState && lastState.sessions) || []).some((s) => sessionLabels(s).length > 0); }
+function hubSet(key, value) { store.set(key, value); renderView(lastState); }
+function hubBind(svg, drag) {
+    // the pointer of the graph: a drag moves it, two fingers zoom (the middle of them), the wheel zooms around the cursor
+    const point = (e) => { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+    const fingers = new Map();
+    let pinch = null;
+    svg.addEventListener("pointerdown", (e) => {
+        fingers.set(e.pointerId, point(e));
+        svg.setPointerCapture(e.pointerId);
+        drag.moved = false;
+        hubBusy = true;
+        if (fingers.size === 2) { const [a, b] = [...fingers.values()]; pinch = {d: Math.hypot(a.x - b.x, a.y - b.y), k: hubView.k}; }
+    });
+    svg.addEventListener("pointermove", (e) => {
+        if (!fingers.has(e.pointerId)) return;
+        const before = fingers.get(e.pointerId);
+        const now = point(e);
+        fingers.set(e.pointerId, now);
+        if (fingers.size === 1) {
+            if (Math.abs(now.x - before.x) + Math.abs(now.y - before.y) > 0.5) drag.moved = true;
+            hubView.x += now.x - before.x;
+            hubView.y += now.y - before.y;
+            hubApply();
+        } else if (fingers.size === 2 && pinch) {
+            drag.moved = true;
+            const [a, b] = [...fingers.values()];
+            const d = Math.hypot(a.x - b.x, a.y - b.y);
+            if (d > 0) hubZoom((pinch.k * d / pinch.d) / hubView.k, (a.x + b.x) / 2, (a.y + b.y) / 2);
+        }
+    });
+    const lift = (e) => { fingers.delete(e.pointerId); if (fingers.size < 2) pinch = null; if (!fingers.size) { hubBusy = false; setTimeout(() => { drag.moved = false; }, 0); } };
+    svg.addEventListener("pointerup", lift);
+    svg.addEventListener("pointercancel", lift);
+    svg.addEventListener("wheel", (e) => { e.preventDefault(); const p = point(e); hubZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, {passive: false});
+    svg.addEventListener("dblclick", (e) => { if (e.target === svg) hubReset(); });
+}
+function renderHubTree(pane, sessions) {
+    const state = lastState || {};
+    const parents = taxParents();
+    const showArchived = store.get("cc-hub-archived", "") === "1";
+    const byTags = store.get("cc-hub-by", "primary") === "tags";
+    let collapsed = new Set();
+    try { collapsed = new Set(JSON.parse(store.get("cc-hub-collapsed", "[]"))); } catch (e) { /* none */ }
+    const global = sessions.find((s) => s.id === "g");
+    const items = sessions.filter((s) => s.id !== "g").map((s) => ({s, archived: false}));
+    if (showArchived) for (const a of state.archived || []) items.push({s: a, archived: true});
+    // the nodes: the ones of the taxonomy, their parents, the labels the sessions use
+    const names = new Set(Object.keys(parents));
+    for (const up of Object.values(parents)) if (up) names.add(up);
+    for (const it of items) for (const label of sessionLabels(it.s)) names.add(label);
+    const kids = new Map(), own = new Map();
+    const push = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
+    for (const name of [...names].sort()) push(kids, parents[name] || "", name);
+    for (const it of items) {
+        const labels = byTags ? sessionLabels(it.s) : [primaryLabel(it.s)].filter(Boolean);
+        for (const label of labels.length ? labels : [""]) push(own, label, it);
+    }
+    const below = (name) => {
+        const ids = new Set();
+        const walk = (n, depth) => { if (depth > 40) return; for (const it of own.get(n) || []) ids.add(it.s.id); for (const c of kids.get(n) || []) walk(c, depth + 1); };
+        walk(name, 0);
+        return ids.size;
+    };
+    let focus = store.get("cc-hub-focus", "");
+    if (focus && !names.has(focus)) focus = "";
+    // the tree: the root (global, or the node in focus), the label children, then the sessions
+    const root = focus ? {kind: "label", name: focus, children: [], top: true} : {kind: "root", name: "", children: []};
+    const grow = (node, depth) => {
+        node.depth = depth;
+        if (node.kind === "session") { node.w = 20; return; }
+        node.has = (kids.get(node.name) || []).length + (own.get(node.name) || []).length > 0;
+        if (node.kind === "root") node.w = 44;
+        else {
+            node.text = node.name.slice(0, 26) + " · " + below(node.name);
+            node.pw = 34 + node.text.length * 7;
+            node.w = node.pw + (node.has && !node.top ? 24 : 0);
+        }
+        if (depth > 40 || (node.kind === "label" && !node.top && collapsed.has(node.name))) return;
+        for (const c of kids.get(node.name) || []) { const child = {kind: "label", name: c, children: []}; node.children.push(child); grow(child, depth + 1); }
+        for (const it of own.get(node.name) || []) { const leaf = {kind: "session", it, children: []}; node.children.push(leaf); grow(leaf, depth + 1); }
+    };
+    grow(root, 0);
+    const GAP = 46, COL = 290;
+    let row = 0, deepest = 0;
+    const place = (node) => {
+        deepest = Math.max(deepest, node.depth);
+        if (!node.children.length) { node.y = row++ * GAP; return; }
+        node.children.forEach(place);
+        node.y = (node.children[0].y + node.children[node.children.length - 1].y) / 2;
+    };
+    place(root);
+    const W = 100 + (deepest + 1) * COL + 160, H = Math.max(320, row * GAP + 80);
+    const X = (node) => 50 + node.depth * COL, Y = (node) => 40 + node.y;
+    const svg = svgOf("svg", {viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "xMidYMid meet", role: "img", "aria-label": "The sessions under their categories and tags", tabindex: 0});
+    const world = svgOf("g", {class: "world"});
+    const edges = svgOf("g", {}), nodes = svgOf("g", {});
+    world.append(edges, nodes);
+    svg.append(world);
+    const color = (s) => (s.permissions && s.permissions.length ? "var(--warn)" : s.state === "working" || s.state === "starting" ? "var(--ok)"
+        : s.state === "error" ? "var(--error)" : "var(--muted)");
+    const drag = {moved: false};
+    const toggle = (name) => {
+        const next = new Set(collapsed);
+        if (!next.delete(name)) next.add(name);
+        hubSet("cc-hub-collapsed", JSON.stringify([...next]));
+    };
+    const draw = (node) => {
+        for (const child of node.children) {
+            const x1 = X(node) + node.w, y1 = Y(node), x2 = X(child), y2 = Y(child), xm = (x1 + x2) / 2;
+            const stroke = child.kind === "label" ? chipColor(child.name) : child.it.archived ? "var(--border)" : color(child.it.s);
+            edges.append(svgOf("path", {d: `M${x1},${y1} C${xm},${y1} ${xm},${y2} ${x2},${y2}`, fill: "none", stroke, "stroke-width": 1.6, opacity: 0.7,
+                "stroke-dasharray": child.kind === "session" && (child.it.archived || child.it.s.state !== "working") ? "4 5" : ""}));
+            draw(child);
+        }
+        const g = svgOf("g", {class: "node", transform: `translate(${X(node)},${Y(node)})`});
+        const title = svgOf("title", {});
+        if (node.kind === "root") {
+            const c = global ? color(global) : "var(--accent)";
+            g.append(svgOf("circle", {cx: 22, r: 22, fill: "var(--surface)", stroke: c, "stroke-width": 2}));
+            const face = svgOf("text", {x: 22, y: 5, "text-anchor": "middle", "font-family": "var(--mono)", "font-size": 13, fill: c});
+            face.textContent = global ? faceOf(global) : "^_^";
+            const label = svgOf("text", {x: 22, y: 42, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)"});
+            label.textContent = "global · " + below("");
+            title.textContent = global ? "The global session (click: open it)" : "claude-cluster";
+            g.append(face, label, title);
+            if (global) g.addEventListener("click", () => { if (!drag.moved) openSession("g"); });
+        } else if (node.kind === "label") {
+            const selected = labelFilter === node.name;
+            g.append(svgOf("rect", {x: 0, y: -12, width: node.pw, height: 24, rx: 12, fill: chipColor(node.name), stroke: selected ? "var(--accent)" : "none", "stroke-width": 3}));
+            const text = svgOf("text", {x: 12, y: 4, "font-size": 12.5, "font-weight": 600, fill: "var(--bg)"});
+            text.textContent = node.text;
+            title.textContent = node.name + ": click filters the session list to it and what is below it; the arrow folds it";
+            g.append(text, title);
+            g.addEventListener("click", () => { if (!drag.moved) setLabelFilter(node.name); });
+            if (node.has && !node.top) {
+                const mark = svgOf("g", {transform: `translate(${node.pw + 12},0)`});
+                mark.append(svgOf("circle", {r: 9, fill: "var(--surface)", stroke: "var(--border)"}));
+                const arrow = svgOf("text", {y: 4, "text-anchor": "middle", "font-size": 11, fill: "var(--text)"});
+                arrow.textContent = collapsed.has(node.name) ? "▸" : "▾";
+                mark.append(arrow);
+                mark.addEventListener("click", (e) => { e.stopPropagation(); if (!drag.moved) toggle(node.name); });
+                g.append(mark);
+            }
+        } else {
+            const s = node.it.s, c = node.it.archived ? "var(--muted)" : color(s);
+            const dim = node.it.archived ? 0.45 : labelFilter && !sessionUnder(s, labelFilter, true) ? 0.35 : 1;
+            g.setAttribute("opacity", dim);
+            g.append(svgOf("circle", {cx: 10, r: 9, fill: "var(--surface)", stroke: c, "stroke-width": 2, "stroke-dasharray": node.it.archived ? "3 3" : ""}));
+            g.append(svgOf("circle", {cx: 10, r: 3.5, fill: c}));
+            const shownName = shortName(s).slice(0, 28) + (node.it.archived ? " (archived)" : "");
+            g.append(svgOf("rect", {class: "lbl", x: 22, y: -10, width: shownName.length * HUB_TITLE + 8, height: 20, rx: 4, fill: "var(--bg)", "fill-opacity": 0.8}));
+            const name = svgOf("text", {class: "lbl", x: 26, y: 4, "font-size": 13, "font-weight": 600, fill: "var(--text)"});
+            name.textContent = shownName;
+            title.textContent = shortName(s) + (node.it.archived ? " · archived" : " · " + s.state + " · " + shortPath(s.cwd)) + (sessionLabels(s).length ? "\n" + labelText(s) : "");
+            g.append(name, title);
+            if (!node.it.archived) g.addEventListener("click", () => { if (!drag.moved) openSession(s.id); });
+        }
+        nodes.append(g);
+    };
+    draw(root);
+    hubWorld = world;
+    hubApply();
+    hubBind(svg, drag);
+    // the bar: the way down to the root, the choices, and what can be done with the node selected
+    const bar = el("div", "hub-bar");
+    const button = (label, title, run) => { const b = el("button", "", label); b.type = "button"; b.title = title; b.addEventListener("click", run); bar.append(b); return b; };
+    button("global", "the graph from the root again", () => hubSet("cc-hub-focus", ""));
+    for (const name of focus ? taxPath(focus) : []) { bar.append(el("span", "muted", "›")); button(name, "the graph from this node", () => hubSet("cc-hub-focus", name)); }
+    button(showArchived ? "Archived: shown" : "Archived: hidden", "the archived sessions (the trash), greyed", () => hubSet("cc-hub-archived", showArchived ? "0" : "1"));
+    button(byTags ? "By: every tag" : "By: category, else tag", "a session under each of its labels, or under one only (its category, else its first tag)", () => hubSet("cc-hub-by", byTags ? "primary" : "tags"));
+    const foldable = [...names].filter((n) => (kids.get(n) || []).length + (own.get(n) || []).length > 0);
+    button("Expand all", "unfold every node", () => hubSet("cc-hub-collapsed", "[]"));
+    button("Collapse all", "fold every node", () => hubSet("cc-hub-collapsed", JSON.stringify(foldable)));
+    button("Add node…", "a category / tag node in the tree: its name, then its parent", async () => {
+        const v = prompt("A node of the tree (a category / tag) and its parent: api backend", "");
+        const words = (v || "").split(/[\s,]+/).filter(Boolean);
+        if (words.length) await act({cmd: "taxonomy", action: "set_parent", node: words[0], parent: words[1] || ""});
+    });
+    button("Ring", "the sessions around the global session", () => { hubReset(); hubSet("cc-hub-mode", "ring"); });
+    if (labelFilter && names.has(labelFilter)) {
+        const node = labelFilter;
+        const chip = el("span", "node-chip", node);
+        chip.style.setProperty("--chip", chipColor(node));
+        bar.append(chip);
+        const done = () => { labelFilter = ""; store.set("cc-label-filter", ""); };
+        button("Focus", "root the graph at this node: what is below it only", () => hubSet("cc-hub-focus", node));
+        button("Set parent…", "the node it hangs under (empty: under global); a cycle is refused", async () => {
+            const v = prompt("Parent of " + node + " (a category / tag; empty: under global)", parents[node] || "");
+            if (v !== null) await act({cmd: "taxonomy", action: "set_parent", node, parent: v.trim()});
+        });
+        button("Rename…", "renamed on every session that has it", async () => {
+            const v = prompt("New name of " + node, node);
+            if (!v || v.trim() === node) return;
+            done();
+            await act({cmd: "taxonomy", action: "rename", node, to: v.trim()});
+        });
+        button("Merge into…", "the sessions and the children join another node", async () => {
+            const v = prompt("Merge " + node + " into (another category / tag)", "");
+            if (!v || !v.trim()) return;
+            done();
+            await act({cmd: "taxonomy", action: "merge", node, to: v.trim()});
+        });
+        button("Delete", "its children go to its parent", async () => {
+            if (!confirm("Delete the node " + node + "? Its children go to its parent.")) return;
+            const strip = confirm("Also remove the label " + node + " from the sessions that have it?\n\nOK: removed from them. Cancel: they keep it (and it stays in the tree, under global).");
+            done();
+            await act({cmd: "taxonomy", action: "delete", node, strip});
+        });
+        button("Clear filter", "the whole list again", () => setLabelFilter(node));
+    } else {
+        bar.append(el("span", "muted", "click a node: the session list shows what is below it, and what can be done with it appears here"));
+    }
+    const tools = el("div", "hub-tools");
+    for (const [label, title, run] of [["+", "zoom in (a, the wheel, two fingers)", () => hubZoom(1.25, W / 2, H / 2)], ["−", "zoom out (e)", () => hubZoom(1 / 1.25, W / 2, H / 2)],
+        ["⌂", "the whole graph again (double click)", hubReset]]) {
+        const b = el("button", "", label);
+        b.type = "button";
+        b.title = title;
+        b.addEventListener("click", run);
+        tools.append(b);
+    }
+    const stage = el("div", "");
+    stage.style.cssText = "position: relative; flex: 1; min-height: 0; display: flex;";
+    stage.append(svg, tools);
+    const box = el("div", "hub");
+    box.append(bar, stage);
+    const notes = el("div", "hub-notes");
+    if (!items.length) notes.append(el("span", "", "No sub-session yet: ask the global session, or create one (Chat › New session)"));
+    notes.append(el("span", "muted", "drag · wheel · two fingers · double click: whole · a node: filter the list, fold with its arrow"));
     box.append(notes);
     pane.append(box);
 }

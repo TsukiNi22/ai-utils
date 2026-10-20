@@ -46,6 +46,12 @@ File Description:
 #include <QAbstractTextDocumentLayout>
 #include <QTextDocument>
 #include <QGestureEvent>
+#include <QContextMenuEvent>
+#include <QGraphicsPathItem>
+#include <QGraphicsRectItem>
+#include <QFontMetricsF>
+#include <QRegularExpression>
+#include <numeric>
 #include <QGraphicsView>
 #include <QPainterPath>
 #include <QApplication>
@@ -566,6 +572,16 @@ class HubView: public QGraphicsView {
         QPoint _pressed;
         std::string _pressedId;
 
+        struct LabelSpot {
+            double x = 0;
+            double y = 0;
+            double r = 0;
+            QString title;
+            QString sub;
+            bool pinned = false;        // the one shown: its label first, always drawn
+            QString id;                 // carried by its text (a click on it is a click on the node)
+        };
+
         void zoomBy(const double factor)
         {
             const double now = this->transform().m11();
@@ -615,7 +631,17 @@ class HubView: public QGraphicsView {
         void mouseReleaseEvent(QMouseEvent* event) override
         {
             QGraphicsView::mouseReleaseEvent(event);
-            if (!this->_pressedId.empty() && (event->pos() - this->_pressed).manhattanLength() < 6 && this->onOpen) this->onOpen(this->_pressedId);
+            if (!this->_pressedId.empty() && (event->pos() - this->_pressed).manhattanLength() < 6) {
+                if (this->_pressedId.starts_with("label:")) {   // a node of the taxonomy: the list filtered to it
+                    if (this->onNode) this->onNode(this->_pressedId.substr(6));
+                } else if (this->_pressedId.starts_with("fold:")) {
+                    const std::string node = this->_pressedId.substr(5);
+                    if (this->collapsed.erase(node) == 0) this->collapsed.insert(node);
+                    if (this->onRedraw) this->onRedraw();
+                } else if (this->onOpen) {
+                    this->onOpen(this->_pressedId);
+                }
+            }
             this->_pressedId.clear();
         }
 
@@ -623,6 +649,21 @@ class HubView: public QGraphicsView {
         {
             if (this->items(event->pos()).empty()) this->whole();
             else QGraphicsView::mouseDoubleClickEvent(event);
+        }
+
+        void contextMenuEvent(QContextMenuEvent* event) override
+        {
+            // a right click: the menu of the node under it (a category / tag), else the one of the graph
+            std::string node;
+            for (QGraphicsItem* item: this->items(event->pos())) {
+                const std::string id = item->data(0).toString().toStdString();
+                if (id.starts_with("label:")) {
+                    node = id.substr(6);
+                    break;
+                }
+            }
+            if (this->onMenu) this->onMenu(node, event->globalPos());
+            event->accept();
         }
 
         bool event(QEvent* event) override
@@ -639,6 +680,15 @@ class HubView: public QGraphicsView {
 
     public:
         std::function<void(const std::string&)> onOpen;
+        std::function<void(const std::string&)> onNode;                     // a node of the taxonomy clicked: the list filtered to it (again: cleared)
+        std::function<void(const std::string&, const QPoint&)> onMenu;      // a right click: the node under it (empty: the graph)
+        std::function<void(void)> onRedraw;                                 // a node folded / unfolded: drawn again
+        bool ring = false;                      // the sessions around global, not the tree of the taxonomy
+        bool archived = false;                  // the archived sessions greyed in the tree
+        bool byTags = false;                    // a session under each of its labels, not under its primary one only
+        std::string focus;                      // the tree rooted at this node (empty: global)
+        std::string filter;                     // the node chosen (outlined): the list shows what is below it
+        std::set<std::string> collapsed;        // the folded nodes
 
         explicit HubView(QWidget* parent): QGraphicsView(parent)
         {
@@ -661,7 +711,7 @@ class HubView: public QGraphicsView {
             this->centerOn(0, 0);
         }
 
-        void populate(const std::vector<cluster::Snapshot>& sessions, const cluster::Style& st, const std::string& active)
+        void populateRing_(const std::vector<cluster::Snapshot>& sessions, const cluster::Style& st, const std::string& active)
         {
             // drawn again (the view kept where it is): the lines, the nodes around, the middle one
             this->_scene.clear();
@@ -675,7 +725,9 @@ class HubView: public QGraphicsView {
                     : s.state == cluster::State::Error ? st.error : st.muted));
             };
             const double radius = std::max(170.0, static_cast<double>(others.size()) * 92.0 / (2.0 * M_PI));
-            const std::function<void(const cluster::Snapshot&, double, double, double)> node = [this, &st, &color, &active](const cluster::Snapshot& s, const double x, const double y, const double r) {
+            std::vector<LabelSpot> spots;           // the text of each node, placed once all of them are drawn (no text over a node or another text)
+            std::vector<QRectF> spokes;             // the key points of the lines: obstacles of the labels
+            const std::function<void(const cluster::Snapshot&, double, double, double)> node = [this, &st, &color, &active, &spots](const cluster::Snapshot& s, const double x, const double y, const double r) {
                 QGraphicsEllipseItem* ring = this->_scene.addEllipse(x - r, y - r, 2 * r, 2 * r, QPen(color(s), s.spec.id == active ? 3.5 : 2), QBrush(QColor(QString::fromStdString(st.surface))));
                 ring->setData(0, QString::fromStdString(s.spec.id));
                 ring->setCursor(Qt::PointingHandCursor);
@@ -685,16 +737,9 @@ class HubView: public QGraphicsView {
                 faceItem->setBrush(color(s));
                 faceItem->setPos(x - faceItem->boundingRect().width() / 2, y - faceItem->boundingRect().height() / 2);
                 faceItem->setData(0, QString::fromStdString(s.spec.id));
-                QFont bold;
-                bold.setBold(true);
-                QGraphicsSimpleTextItem* name = this->_scene.addSimpleText(QString::fromStdString(cluster::one_line(s.spec.global ? std::string("global") : s.spec.name, 22)), bold);
-                name->setBrush(QColor(QString::fromStdString(st.text)));
-                name->setPos(x - name->boundingRect().width() / 2, y + r + 6);
-                name->setData(0, QString::fromStdString(s.spec.id));
-                QGraphicsSimpleTextItem* state = this->_scene.addSimpleText(QString::fromStdString(s.state == cluster::State::Working ? cluster::turn_state(s).value("verb", std::string("working"))
-                    : cluster::state_name(s.state)));
-                state->setBrush(QColor(QString::fromStdString(st.muted)));
-                state->setPos(x - state->boundingRect().width() / 2, y + r + 24);
+                spots.push_back({x, y, r, QString::fromStdString(cluster::one_line(s.spec.global ? std::string("global") : s.spec.name, 22)),
+                    QString::fromStdString(s.state == cluster::State::Working ? cluster::turn_state(s).value("verb", std::string("working")) : cluster::state_name(s.state)),
+                    s.spec.id == active || s.spec.global, QString::fromStdString(s.spec.id)});
             };
             for (std::size_t i = 0; i < others.size(); ++i) {
                 const double a = (static_cast<double>(i) / static_cast<double>(std::max<std::size_t>(1, others.size()))) * 2.0 * M_PI - M_PI / 2.0;
@@ -703,6 +748,8 @@ class HubView: public QGraphicsView {
                 QPen pen(color(*others[i]), others[i]->state == cluster::State::Working ? 2.5 : 1.5);
                 if (others[i]->state != cluster::State::Working) pen.setStyle(Qt::DashLine);
                 this->_scene.addLine(0, 0, x, y, pen);
+                for (const double t: {0.55, 0.7, 0.85})
+                    spokes.emplace_back(x * t - 3, y * t - 3, 6, 6);
             }
             for (std::size_t i = 0; i < others.size(); ++i) {
                 const double a = (static_cast<double>(i) / static_cast<double>(std::max<std::size_t>(1, others.size()))) * 2.0 * M_PI - M_PI / 2.0;
@@ -721,6 +768,356 @@ class HubView: public QGraphicsView {
                 name->setBrush(QColor(QString::fromStdString(st.muted)));
                 name->setPos(-name->boundingRect().width() / 2, 46);
             }
+            this->placeLabels_(spots, spokes, st);
+        }
+
+        void placeLabels_(const std::vector<LabelSpot>& spots, const std::vector<QRectF>& obstacles, const cluster::Style& st)
+        {
+            // the text of a node (title, status) in a box tried below, above, right, left, then the diagonals; the nodes and the key points of the edges
+            // are obstacles (a grid of cells keeps it cheap: no pass over every pair); no room: the status line goes, then the end of the title, then the
+            // label (its tooltip has it); the node shown keeps its label, on its plate; edges under the nodes under the labels, a plate under each text
+            QFont bold;
+            bold.setBold(true);
+            const QFontMetricsF boldMetrics(bold);
+            const QFontMetricsF plainMetrics((QFont()));
+            std::map<std::pair<int, int>, std::vector<QRectF>> grid;
+            const auto cells = [](const QRectF& box) {
+                std::vector<std::pair<int, int>> out;
+                for (int i = static_cast<int>(std::floor(box.left() / 80)); i <= static_cast<int>(std::floor(box.right() / 80)); ++i)
+                    for (int j = static_cast<int>(std::floor(box.top() / 80)); j <= static_cast<int>(std::floor(box.bottom() / 80)); ++j)
+                        out.emplace_back(i, j);
+                return out;
+            };
+            const auto add = [&](const QRectF& box) {
+                for (const std::pair<int, int>& cell: cells(box))
+                    grid[cell].push_back(box);
+            };
+            const auto isFree = [&](const QRectF& box) {
+                for (const std::pair<int, int>& cell: cells(box)) {
+                    const auto found = grid.find(cell);
+                    if (found == grid.end()) continue;
+                    for (const QRectF& other: found->second)
+                        if (box.intersects(other)) return false;
+                }
+                return true;
+            };
+            for (const LabelSpot& n: spots)
+                add(QRectF(n.x - n.r - 2, n.y - n.r - 2, 2 * n.r + 4, 2 * n.r + 4));
+            for (const QRectF& o: obstacles)
+                add(o);
+            std::vector<std::size_t> order(spots.size());
+            std::iota(order.begin(), order.end(), static_cast<std::size_t>(0));
+            std::stable_sort(order.begin(), order.end(), [&spots](const std::size_t a, const std::size_t b) {
+                if (spots[a].pinned != spots[b].pinned) return spots[a].pinned;     // the one shown first, then top to bottom
+                return spots[a].y != spots[b].y ? spots[a].y < spots[b].y : spots[a].x < spots[b].x;
+            });
+            struct Wording {
+                QString title;
+                QString sub;
+            };
+            const double gap = 5;
+            for (const std::size_t index: order) {
+                const LabelSpot& n = spots[index];
+                const QString shortTitle = n.title.size() > 13 ? n.title.left(12) + "…" : n.title;
+                QRectF box;
+                int side = 0;       // 0: centered, 1: starts at the box, 2: ends at it
+                QString title;
+                QString sub;
+                bool placed = false;
+                for (const Wording& wording: {Wording{n.title, n.sub}, Wording{n.title, QString()}, Wording{shortTitle, QString()}}) {
+                    const double w = std::max(boldMetrics.horizontalAdvance(wording.title), plainMetrics.horizontalAdvance(wording.sub)) + 8;
+                    const double h = boldMetrics.height() + (wording.sub.isEmpty() ? 0.0 : plainMetrics.height()) + 4;
+                    const double d = n.r * 0.7;
+                    const std::vector<std::pair<QPointF, int>> candidates = {
+                        {QPointF(n.x - w / 2, n.y + n.r + gap), 0}, {QPointF(n.x - w / 2, n.y - n.r - gap - h), 0},
+                        {QPointF(n.x + n.r + gap, n.y - h / 2), 1}, {QPointF(n.x - n.r - gap - w, n.y - h / 2), 2},
+                        {QPointF(n.x + d, n.y + d + gap), 1}, {QPointF(n.x - d - w, n.y + d + gap), 2},
+                        {QPointF(n.x + d, n.y - d - gap - h), 1}, {QPointF(n.x - d - w, n.y - d - gap - h), 2},
+                    };
+                    for (const std::pair<QPointF, int>& candidate: candidates) {
+                        const QRectF wanted(candidate.first.x(), candidate.first.y(), w, h);
+                        if (!isFree(wanted)) continue;
+                        box = wanted;
+                        side = candidate.second;
+                        title = wording.title;
+                        sub = wording.sub;
+                        placed = true;
+                        break;
+                    }
+                    if (placed) break;
+                }
+                if (!placed && !n.pinned) continue;     // no room: no label (the tooltip of the node has it)
+                if (!placed) {                          // the node shown: below it, on its plate, over what is there
+                    title = n.title;
+                    sub = n.sub;
+                    const double w = std::max(boldMetrics.horizontalAdvance(title), plainMetrics.horizontalAdvance(sub)) + 8;
+                    box = QRectF(n.x - w / 2, n.y + n.r + gap, w, boldMetrics.height() + plainMetrics.height() + 4);
+                    side = 0;
+                }
+                add(box);
+                QColor plate(QString::fromStdString(st.bg));
+                plate.setAlpha(204);
+                QGraphicsRectItem* back = this->_scene.addRect(box, QPen(Qt::NoPen), QBrush(plate));
+                back->setZValue(2);
+                back->setData(0, n.id);
+                const auto at = [&](const double width) {return side == 0 ? box.center().x() - width / 2 : side == 1 ? box.left() + 4 : box.right() - 4 - width;};
+                QGraphicsSimpleTextItem* name = this->_scene.addSimpleText(title, bold);
+                name->setBrush(QColor(QString::fromStdString(st.text)));
+                name->setPos(at(name->boundingRect().width()), box.top() + 2);
+                name->setZValue(3);
+                name->setData(0, n.id);
+                if (!sub.isEmpty()) {
+                    QGraphicsSimpleTextItem* state = this->_scene.addSimpleText(sub);
+                    state->setBrush(QColor(QString::fromStdString(st.muted)));
+                    state->setPos(at(state->boundingRect().width()), box.top() + 2 + boldMetrics.height());
+                    state->setZValue(3);
+                    state->setData(0, n.id);
+                }
+            }
+        }
+
+        void populateTree_(const std::vector<cluster::Snapshot>& sessions, const cluster::Style& st, const cluster::Taxonomy& taxonomy,
+            const std::vector<cluster::SessionSpec>& archivedSpecs)
+        {
+            // global at the root, then the categories / tags (the taxonomy, colored like their chips, with the number of sessions below), then the sessions as
+            // leaves; left to right, a column per depth as wide as its widest node (no text over another); a folded node shows its count only
+            this->_scene.clear();
+            this->_scene.setBackgroundBrush(QColor(QString::fromStdString(st.bg)));
+            struct Item {
+                const cluster::Snapshot* snap = nullptr;
+                const cluster::SessionSpec* spec = nullptr;
+                bool archived = false;
+            };
+            const cluster::Snapshot* global = nullptr;
+            std::vector<Item> items;
+            for (const cluster::Snapshot& s: sessions) {
+                if (s.spec.id == GLOBAL_ID) global = &s;
+                else items.push_back({&s, &s.spec, false});
+            }
+            if (this->archived)
+                for (const cluster::SessionSpec& spec: archivedSpecs)
+                    items.push_back({nullptr, &spec, true});
+            std::set<std::string> names;
+            for (const std::string& node: taxonomy.nodes()) {
+                names.insert(node);
+                if (!taxonomy.parent(node).empty()) names.insert(taxonomy.parent(node));
+            }
+            for (const Item& item: items) {
+                if (!item.spec->category.empty()) names.insert(item.spec->category);
+                names.insert(item.spec->tags.begin(), item.spec->tags.end());
+            }
+            std::map<std::string, std::vector<std::string>> kids;       // a node -> the nodes under it (sorted)
+            for (const std::string& node: names)
+                kids[taxonomy.parent(node)].push_back(node);
+            std::map<std::string, std::vector<const Item*>> own;        // a node -> the sessions hanging directly under it ("": under global)
+            for (const Item& item: items) {
+                std::set<std::string> labels;
+                if (this->byTags) {
+                    if (!item.spec->category.empty()) labels.insert(item.spec->category);
+                    labels.insert(item.spec->tags.begin(), item.spec->tags.end());
+                } else if (!cluster::Taxonomy::primary(*item.spec).empty()) {
+                    labels.insert(cluster::Taxonomy::primary(*item.spec));
+                }
+                if (labels.empty()) labels.insert(std::string());
+                for (const std::string& label: labels)
+                    own[label].push_back(&item);
+            }
+            const std::function<void(const std::string&, std::set<std::string>&, const int)> collect = [&](const std::string& name, std::set<std::string>& ids, const int depth) {
+                if (depth > 40) return;
+                for (const Item* item: own[name])
+                    ids.insert(item->spec->id);
+                for (const std::string& child: kids[name])
+                    collect(child, ids, depth + 1);
+            };
+            const auto below = [&](const std::string& name) {
+                std::set<std::string> ids;
+                collect(name, ids, 0);
+                return ids.size();
+            };
+            std::string focus = this->focus;
+            if (!focus.empty() && !names.contains(focus)) focus.clear();
+            QFont bold;
+            bold.setBold(true);
+            const QFontMetricsF boldMetrics(bold);
+            struct Node {
+                int kind = 0;               // 0: the root (global), 1: a category / tag, 2: a session
+                std::string name;
+                const Item* item = nullptr;
+                bool top = false;           // the node in focus (the root of the graph)
+                bool has = false;           // something under it
+                int depth = 0;
+                double y = 0;
+                double w = 0;               // its whole width, the fold mark included
+                double pw = 0;              // the width of its pill
+                QString text;
+                std::vector<std::size_t> children;
+            };
+            std::vector<Node> nodes;
+            const std::function<std::size_t(const int, const std::string&, const Item*, const int)> grow =
+                [&](const int kind, const std::string& name, const Item* item, const int depth) -> std::size_t {
+                const std::size_t index = nodes.size();
+                nodes.emplace_back();
+                nodes[index].kind = kind;
+                nodes[index].name = name;
+                nodes[index].item = item;
+                nodes[index].depth = depth;
+                if (kind == 2) {
+                    nodes[index].text = QString::fromStdString(cluster::one_line(item->spec->name, 28) + (item->archived ? " (archived)" : ""));
+                    nodes[index].w = 26 + boldMetrics.horizontalAdvance(nodes[index].text) + 8;
+                    return index;
+                }
+                nodes[index].top = kind == 1 && depth == 0;
+                nodes[index].has = !kids[name].empty() || !own[name].empty();
+                if (kind == 0) {
+                    nodes[index].w = 44;
+                } else {
+                    nodes[index].text = QString::fromStdString(cluster::one_line(name, 26)) + " · " + QString::number(below(name));
+                    nodes[index].pw = boldMetrics.horizontalAdvance(nodes[index].text) + 24;
+                    nodes[index].w = nodes[index].pw + (nodes[index].has && !nodes[index].top ? 26 : 0);
+                }
+                if (depth > 40 || (kind == 1 && !nodes[index].top && this->collapsed.contains(name))) return index;
+                std::vector<std::size_t> children;
+                for (const std::string& child: kids[name])
+                    children.push_back(grow(1, child, nullptr, depth + 1));
+                for (const Item* leaf: own[name])
+                    children.push_back(grow(2, leaf->spec->name, leaf, depth + 1));
+                nodes[index].children = children;
+                return index;
+            };
+            const std::size_t root = grow(focus.empty() ? 0 : 1, focus, nullptr, 0);
+            // the rows: a leaf a row, a node in the middle of its children; the columns: as wide as their widest node
+            double row = 0;
+            int deepest = 0;
+            const std::function<void(const std::size_t)> place = [&](const std::size_t index) {
+                deepest = std::max(deepest, nodes[index].depth);
+                if (nodes[index].children.empty()) {
+                    nodes[index].y = row;
+                    row += 46;
+                    return;
+                }
+                for (const std::size_t child: nodes[index].children)
+                    place(child);
+                nodes[index].y = (nodes[nodes[index].children.front()].y + nodes[nodes[index].children.back()].y) / 2;
+            };
+            place(root);
+            std::vector<double> width(static_cast<std::size_t>(deepest) + 1, 0.0);
+            for (const Node& n: nodes)
+                width[static_cast<std::size_t>(n.depth)] = std::max(width[static_cast<std::size_t>(n.depth)], n.w);
+            std::vector<double> left(width.size(), 0.0);
+            for (std::size_t d = 1; d < width.size(); ++d)
+                left[d] = left[d - 1] + width[d - 1] + 56;
+            const double ox = -(left.back() + width.back()) / 2;
+            const double oy = -std::max(row - 46, 0.0) / 2;
+            const auto X = [&](const Node& n) {return ox + left[static_cast<std::size_t>(n.depth)];};
+            const auto Y = [&](const Node& n) {return oy + n.y;};
+            const std::function<QColor(const cluster::Snapshot&)> color = [&st](const cluster::Snapshot& s) {
+                return QColor(QString::fromStdString(!s.permissions.empty() ? st.warn : s.state == cluster::State::Working || s.state == cluster::State::Starting ? st.ok
+                    : s.state == cluster::State::Error ? st.error : st.muted));
+            };
+            const QColor surface(QString::fromStdString(st.surface));
+            QColor plate(QString::fromStdString(st.bg));
+            plate.setAlpha(204);
+            const std::function<void(const std::size_t)> draw = [&](const std::size_t index) {
+                const Node& n = nodes[index];
+                for (const std::size_t childIndex: n.children) {   // the edges first (under the nodes), then the node
+                    const Node& child = nodes[childIndex];
+                    const double x1 = X(n) + n.w, y1 = Y(n), x2 = X(child), y2 = Y(child), xm = (x1 + x2) / 2;
+                    const bool live = child.kind == 2 && child.item->snap != nullptr;
+                    QPen pen(child.kind == 1 ? QColor(QString::fromStdString(chip_color_(child.name))) : live ? color(*child.item->snap) : QColor(QString::fromStdString(st.border)), 1.6);
+                    if (child.kind == 2 && (!live || child.item->snap->state != cluster::State::Working)) pen.setStyle(Qt::DashLine);
+                    QPainterPath path(QPointF(x1, y1));
+                    path.cubicTo(xm, y1, xm, y2, x2, y2);
+                    this->_scene.addPath(path, pen)->setZValue(0);
+                    draw(childIndex);
+                }
+                const double x = X(n), y = Y(n);
+                if (n.kind == 0) {
+                    const QColor c = global != nullptr ? color(*global) : QColor(QString::fromStdString(st.accent));
+                    QGraphicsEllipseItem* ring = this->_scene.addEllipse(x, y - 22, 44, 44, QPen(c, 2), QBrush(surface));
+                    ring->setZValue(1);
+                    ring->setToolTip(global != nullptr ? "the global session (click: open it)" : "claude-cluster");
+                    const char* face = global == nullptr ? "^_^" : !global->permissions.empty() ? "•_•" : global->state == cluster::State::Working ? ">_<" : global->state == cluster::State::Error ? "o_o" : "-_-";
+                    QGraphicsSimpleTextItem* faceItem = this->_scene.addSimpleText(face, QFont(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(), 10));
+                    faceItem->setBrush(c);
+                    faceItem->setPos(x + 22 - faceItem->boundingRect().width() / 2, y - faceItem->boundingRect().height() / 2);
+                    faceItem->setZValue(2);
+                    QGraphicsSimpleTextItem* count = this->_scene.addSimpleText(QString("global · ") + QString::number(below("")));
+                    count->setBrush(QColor(QString::fromStdString(st.muted)));
+                    count->setPos(x + 22 - count->boundingRect().width() / 2, y + 26);
+                    count->setZValue(2);
+                    if (global != nullptr)
+                        for (QGraphicsItem* item: std::vector<QGraphicsItem*>{ring, faceItem, count})
+                            item->setData(0, QString::fromStdString(global->spec.id));
+                } else if (n.kind == 1) {
+                    const QColor c(QString::fromStdString(chip_color_(n.name)));
+                    const QString id = QString::fromStdString("label:" + n.name);
+                    QPainterPath pill;
+                    pill.addRoundedRect(QRectF(x, y - 12, n.pw, 24), 12, 12);
+                    QGraphicsPathItem* shape = this->_scene.addPath(pill, n.name == this->filter ? QPen(QColor(QString::fromStdString(st.accent)), 3) : QPen(Qt::NoPen), QBrush(c));
+                    shape->setZValue(1);
+                    shape->setData(0, id);
+                    shape->setCursor(Qt::PointingHandCursor);
+                    shape->setToolTip(QString::fromStdString(n.name + ": click filters the session list to it and what is below it; right click: set parent, rename, merge, delete; the arrow folds it"));
+                    QGraphicsSimpleTextItem* text = this->_scene.addSimpleText(n.text, bold);
+                    text->setBrush(QColor(QString::fromStdString(st.bg)));
+                    text->setPos(x + 12, y - text->boundingRect().height() / 2);
+                    text->setZValue(2);
+                    text->setData(0, id);
+                    if (n.has && !n.top) {
+                        const bool folded = this->collapsed.contains(n.name);
+                        const QString foldId = QString::fromStdString("fold:" + n.name);
+                        QGraphicsEllipseItem* mark = this->_scene.addEllipse(x + n.pw + 4, y - 9, 18, 18, QPen(QColor(QString::fromStdString(st.border))), QBrush(surface));
+                        mark->setZValue(1);
+                        mark->setData(0, foldId);
+                        mark->setCursor(Qt::PointingHandCursor);
+                        mark->setToolTip(folded ? "unfold" : "fold");
+                        QGraphicsSimpleTextItem* arrow = this->_scene.addSimpleText(folded ? "▸" : "▾");
+                        arrow->setBrush(QColor(QString::fromStdString(st.text)));
+                        arrow->setPos(x + n.pw + 13 - arrow->boundingRect().width() / 2, y - arrow->boundingRect().height() / 2);
+                        arrow->setZValue(2);
+                        arrow->setData(0, foldId);
+                    }
+                } else {
+                    const Item& item = *n.item;
+                    const bool live = item.snap != nullptr;
+                    const QColor c = live ? color(*item.snap) : QColor(QString::fromStdString(st.muted));
+                    const double opacity = item.archived ? 0.45 : !this->filter.empty() && !taxonomy.under(*item.spec, this->filter, true) ? 0.35 : 1.0;
+                    const QString id = live ? QString::fromStdString(item.spec->id) : QString();
+                    QPen pen(c, item.spec->id == this->activeId ? 3.5 : 2);
+                    if (!live) pen.setStyle(Qt::DotLine);
+                    QGraphicsEllipseItem* ring = this->_scene.addEllipse(x, y - 9, 18, 18, pen, QBrush(surface));
+                    QGraphicsEllipseItem* dot = this->_scene.addEllipse(x + 5.5, y - 3.5, 7, 7, QPen(Qt::NoPen), QBrush(c));
+                    QGraphicsRectItem* back = this->_scene.addRect(QRectF(x + 22, y - 10, boldMetrics.horizontalAdvance(n.text) + 8, 20), QPen(Qt::NoPen), QBrush(plate));
+                    QGraphicsSimpleTextItem* text = this->_scene.addSimpleText(n.text, bold);
+                    text->setBrush(QColor(QString::fromStdString(st.text)));
+                    text->setPos(x + 26, y - text->boundingRect().height() / 2);
+                    const std::string labels = cluster::label_text(*item.spec);
+                    for (QGraphicsItem* part: std::vector<QGraphicsItem*>{ring, dot, back, text}) {
+                        part->setData(0, id);
+                        part->setOpacity(opacity);
+                        part->setZValue(part == ring || part == dot ? 1 : 2);
+                        part->setToolTip(QString::fromStdString(item.spec->name + (item.archived ? " · archived" : " · " + std::string(cluster::state_name(item.snap->state)) + " · " + cluster::short_path(item.spec->cwd))
+                            + (labels.empty() ? std::string() : "\n" + labels)));
+                        if (live) part->setCursor(Qt::PointingHandCursor);
+                    }
+                }
+            };
+            draw(root);
+            this->setSceneRect(QRectF(-1400, -1000, 2800, 2000).united(this->_scene.itemsBoundingRect().adjusted(-100, -100, 100, 100)));
+        }
+
+        std::string activeId;       // the session shown (its ring thicker), set before populate
+
+        void populate(const std::vector<cluster::Snapshot>& sessions, const cluster::Style& st, const std::string& active, const cluster::Taxonomy& taxonomy,
+            const std::vector<cluster::SessionSpec>& archivedSpecs)
+        {
+            // the tree of the taxonomy when the sessions have labels (or the taxonomy has nodes) and the ring was not chosen, else the ring
+            this->activeId = active;
+            const bool labels = !taxonomy.nodes().empty() || std::any_of(sessions.begin(), sessions.end(), [](const cluster::Snapshot& s) {
+                return !s.spec.category.empty() || !s.spec.tags.empty();
+            });
+            if (this->ring || !labels) this->populateRing_(sessions, st, active);
+            else this->populateTree_(sessions, st, taxonomy, archivedSpecs);
         }
 };
 
@@ -750,6 +1147,7 @@ class Window: public QMainWindow {
         int historyAt = -1;                     // Up / Down: -1 the prompt being written, else an index of the history
         std::vector<cluster::Draft> historyList;
         std::string historySession;             // the session of that list
+        std::string labelFilter;                // a node of the taxonomy chosen in the hub: the list shows what is below it (empty: all)
         std::map<int, QString> historyEdits;    // the texts changed while browsing (forgotten when a prompt is sent)
 
         bool historyStep(const int delta)
@@ -1525,6 +1923,84 @@ class Window: public QMainWindow {
                     this->refresh(true);
                 }, Qt::QueuedConnection);
             });
+        }
+
+        void hubMenu(const std::string& node, const QPoint& at)
+        {
+            // the right click in the graph: a node of the taxonomy (focus, set parent, rename, merge, delete), else the graph (tree / ring, archived, tags, fold)
+            const cluster::Taxonomy taxonomy = this->manager.taxonomy();
+            const auto edit = [this](const std::string& action, const std::string& name, const std::string& other, const bool strip) {
+                try {
+                    this->manager.taxonomyEdit(action, name, other, strip);
+                    this->message("taxonomy: " + action + " " + name, false);
+                } catch (const utils::exception::IException& error) {
+                    this->message(error.info(), true);
+                }
+                this->refresh(true);
+            };
+            QMenu menu(this);
+            if (!node.empty()) {
+                menu.addAction(q_("Focus the graph on " + node), [this, node]() {
+                    this->hub->focus = node;
+                    this->refresh(true);
+                });
+                menu.addAction("Set parent…", [this, node, taxonomy, edit]() {
+                    bool ok = false;
+                    const QString parent = QInputDialog::getText(this, "Set parent", q_("Parent of " + node + " (a category / tag; empty: under global)"), QLineEdit::Normal,
+                        q_(taxonomy.parent(node)), &ok);
+                    if (ok) edit("set_parent", node, parent.trimmed().toStdString(), false);
+                });
+                menu.addAction("Rename…", [this, node, edit]() {
+                    bool ok = false;
+                    const QString name = QInputDialog::getText(this, "Rename", q_("New name of " + node + " (on every session that has it)"), QLineEdit::Normal, q_(node), &ok);
+                    if (ok && !name.trimmed().isEmpty()) edit("rename", node, name.trimmed().toStdString(), false);
+                });
+                menu.addAction("Merge into…", [this, node, edit]() {
+                    bool ok = false;
+                    const QString into = QInputDialog::getText(this, "Merge", q_("Merge " + node + " into (another category / tag)"), QLineEdit::Normal, QString(), &ok);
+                    if (ok && !into.trimmed().isEmpty()) edit("merge", node, into.trimmed().toStdString(), false);
+                });
+                menu.addAction("Delete", [this, node, edit]() {
+                    if (QMessageBox::question(this, "Delete", q_("Delete the node " + node + "? Its children go to its parent.")) != QMessageBox::Yes) return;
+                    const bool strip = QMessageBox::question(this, "Delete", q_("Also remove the label " + node + " from the sessions that have it? (No: they keep it)")) == QMessageBox::Yes;
+                    edit("delete", node, "", strip);
+                });
+                menu.addSeparator();
+            }
+            menu.addAction(this->hub->ring ? "Tree of the categories and tags" : "Ring around the global session", [this]() {
+                this->hub->ring = !this->hub->ring;
+                this->hub->whole();
+                this->refresh(true);
+            });
+            if (!this->hub->focus.empty())
+                menu.addAction("The whole tree (from global)", [this]() {
+                    this->hub->focus.clear();
+                    this->refresh(true);
+                });
+            menu.addAction(this->hub->archived ? "Archived sessions: hide" : "Archived sessions: show (greyed)", [this]() {
+                this->hub->archived = !this->hub->archived;
+                this->refresh(true);
+            });
+            menu.addAction(this->hub->byTags ? "By category, else first tag" : "By every tag (a session under each)", [this]() {
+                this->hub->byTags = !this->hub->byTags;
+                this->refresh(true);
+            });
+            menu.addAction("Unfold all", [this]() {
+                this->hub->collapsed.clear();
+                this->refresh(true);
+            });
+            menu.addAction("Fold all", [this, taxonomy]() {
+                const std::vector<std::string> all = taxonomy.nodes();
+                this->hub->collapsed.insert(all.begin(), all.end());
+                this->refresh(true);
+            });
+            menu.addAction("Add node…", [this, edit]() {
+                bool ok = false;
+                const QString text = QInputDialog::getText(this, "Add node", "A node of the tree (a category / tag) and its parent: api backend", QLineEdit::Normal, QString(), &ok);
+                const QStringList words = text.split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
+                if (ok && !words.isEmpty()) edit("set_parent", words[0].toStdString(), words.size() > 1 ? words[1].toStdString() : std::string(), false);
+            });
+            menu.exec(at);
         }
 
         void sessionMenu(const std::string& id, const QPoint& where)
@@ -2415,6 +2891,12 @@ class Window: public QMainWindow {
                     this->manager.setUi("layout", "list");
                     this->refresh(true);
                 };
+                this->hub->onNode = [this](const std::string& node) {   // a node of the taxonomy: the list filtered to what is below it (again: all)
+                    this->labelFilter = this->labelFilter == node ? std::string() : node;
+                    this->refresh(true);
+                };
+                this->hub->onMenu = [this](const std::string& node, const QPoint& at) {this->hubMenu(node, at);};
+                this->hub->onRedraw = [this]() {this->refresh(true);};
                 root->addWidget(this->hub, 1);
                 this->hubNote = new QLabel(central);
                 this->hubNote->setAlignment(Qt::AlignCenter);
@@ -2556,7 +3038,8 @@ class Window: public QMainWindow {
             const cluster::Style& st = this->theme();
 
             if (this->hub != nullptr) {
-                this->hub->populate(sessions, st, this->active);
+                this->hub->filter = this->labelFilter;
+                this->hub->populate(sessions, st, this->active, this->manager.taxonomy(), this->hub->archived ? this->manager.trash() : std::vector<cluster::SessionSpec>());
                 const bool global = std::any_of(sessions.begin(), sessions.end(), [](const cluster::Snapshot& s) {return s.spec.id == GLOBAL_ID;});
                 QString note;
                 if (sessions.size() <= (global ? 1U : 0U)) note += "No sub-session yet: ask the global session, or create one (Ctrl+T). ";
@@ -2605,12 +3088,23 @@ class Window: public QMainWindow {
                     if (this->active == TASKS_ID) this->list->setCurrentRow(0);
                 }
                 const bool grouped = this->manager.ui("group_by_category", this->manager.config().groupByCategory ? "true" : "false") == "true";
+                const cluster::Taxonomy taxonomy = this->manager.taxonomy();
                 const cluster::Snapshot* before = nullptr;
                 for (const cluster::Snapshot& s: sessions) {
                     // grouped: the category over the first session of each group; its chips (category, tags) under its description
+                    if (!this->labelFilter.empty() && !s.spec.global && !taxonomy.under(s.spec, this->labelFilter, true)) continue;   // a node chosen in the hub
                     QString header;
-                    if (grouped && !s.spec.global && (before == nullptr || before->spec.global || before->spec.category != s.spec.category))
-                        header = "<div>" + span_(s.spec.category.empty() ? st.muted : chip_color_(s.spec.category), "<b>▾ " + esc_(s.spec.category.empty() ? std::string("no category") : s.spec.category) + "</b>") + "</div>";
+                    if (grouped && !s.spec.global) {
+                        // the heads of the taxonomy: the levels of its path the previous session did not have, nested (none: "no category")
+                        const std::vector<std::string> path = taxonomy.group(s.spec);
+                        const std::vector<std::string> beforePath = before == nullptr || before->spec.global ? std::vector<std::string>{"\x01"} : taxonomy.group(before->spec);
+                        if (path != beforePath)
+                            for (std::size_t depth = path.empty() ? 0 : cluster::Taxonomy::common_prefix(beforePath, path); depth < std::max<std::size_t>(path.size(), 1); ++depth) {
+                                const std::string node = depth < path.size() ? path[depth] : std::string();
+                                header += "<div style=\"margin-left:" + QString::number(static_cast<int>(depth) * 12) + "px\">" + span_(node.empty() ? st.muted : chip_color_(node),
+                                    "<b>▾ " + esc_(node.empty() ? std::string("no category") : node) + "</b>") + "</div>";
+                            }
+                    }
                     before = &s;
                     QString chips;
                     if (!s.spec.category.empty()) chips += "<br><span style=\"background:" + q_(chip_color_(s.spec.category)) + ";color:" + q_(st.bg) + ";font-size:8.5pt\">&nbsp;<b>" + esc_(s.spec.category) + "</b>&nbsp;</span>";
