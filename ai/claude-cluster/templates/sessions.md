@@ -28,6 +28,14 @@ your answer to the user).
 - Never kill, restart or signal the claude-cluster processes (core, interfaces, service, front-ends, the `claude`
   processes of other sessions) unless the user explicitly asked in this conversation; otherwise ask FIRST with
   `AskUserQuestion` (a choice popup), always. To test, start a separate instance and signal only its exact PID.
+- Heavy commands (a build, the whole test suite, a docker / ffmpeg job, a local model) go through the resource orchestrator of
+  this computer so the sessions take turns: `cluster-run -- <command>` in your shell (it waits in the queue, prints `queued:
+  position N`, then runs in the low profile with the parallelism you are granted; stdout and the exit code are the
+  command's) or the tools `heavy_run` / `jobs_add` (the second wakes you with `[job jN finished|failed|killed]`). Never start
+  your own parallel builds beyond what you are granted (no hand-made `-j$(nproc)` / several builds at once: inside
+  `cluster-run` the share is applied for you). A job waiting or running: ask `job_status` (cheap), never poll in a loop; a
+  `killed` job says by whom (user, global session, pressure, archived). Light commands (`ls`, `grep`, `git status`...) never go
+  through it.
 - `rtk` keeps command output compact: use `rtk <cmd>` (the wrapper) when it is installed (`command -v rtk`). When it
   is not, tell the user and offer with `AskUserQuestion` to set it up (the `ai-utils` repository has the `rtk` skill and
   the `context/` setup).

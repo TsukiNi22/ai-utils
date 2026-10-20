@@ -13,6 +13,7 @@ ones (Qwen Code), opencode and the OpenAI Codex CLI work too.
  - [Backends](#backends)
  - [Global session](#global-session)
  - [Voice](#voice)
+ - [Resource orchestrator](#resource-orchestrator)
  - [Security](#security)
  - [Background service](#background-service)
  - [Configuration](#configuration)
@@ -977,6 +978,29 @@ can run in the browser and in the window, as if you sat at the terminal of the c
 - **In the window**: `claude-cluster -g --tty-mode` (or `[ui] gui_mode = tty` to keep it) shows the terminal interface
   inside the window (a pty of this computer, the window stays the core of the sessions): every key of a terminal,
   the mouse, resized with it; the terminal quit (Ctrl+Q) closes the window.
+
+## Resource orchestrator
+
+With many sessions building and testing at once the computer saturates (load far above the cores, swap full, compilers crashing).
+The orchestrator is a small kernel scheduler for the **heavy jobs** (builds, tests, containers / media / GPU): they wait in a
+queue, a limited number runs at once, the limit follows the hardware, the live load and your settings. Light commands never
+go through it. Design, protocol and state machine: [docs/orchestrator.md](docs/orchestrator.md).
+
+| What | How |
+|---|---|
+| In a shell (any session, or yours) | `cluster-run [--class build\|tests\|container\|gpu\|custom] [--prio N] [--name x] -- <command>`: waits (`cluster-run: queued: position 2, waiting for slot (2/2 running)` on stderr), then runs in the low profile (nice, ionice, `-j` / `--parallel` / `MAKEFLAGS` / `CARGO_BUILD_JOBS`... lowered to the share granted), output and exit code passed through; the slot is freed when it ends or when the wrapper dies |
+| MCP, a command that waits | `heavy_run`: the result (finished with exit code, duration, tail; failed; killed by whom) or the waiting status |
+| MCP, no waiting | `jobs_add` (woken with `[job jN ...]`), `jobs_list`, `job_status` (cheap), `job_wait`, `job_kill`, `job_stop` / `job_resume`, `job_prio` |
+| The computer | `hardware_scan`, `orchestrator_config` (global session) |
+| Interface | the **Tasks** session: a Jobs section (queue, gauges, kill / stop / resume / priority); settings tab **Orchestrator** |
+
+The global session sees and manages every job; a sub-session adds, follows, waits and kills **its own** jobs (settings
+`[orchestrator] sub_add`, `sub_kill_own`, `sub_see_others`). Limits: automatic (cores, RAM, swap, `/proc/pressure`), manual
+(`max_jobs`, per session, per class, reserved CPU / RAM, profile `low` / `normal` / `max`), pressure (no new job above the
+thresholds, the running ones reniced and the lowest priority stopped, resumed with hysteresis; never killed unless
+`kill_on_oom`) and priorities (session shown first, aging so nothing starves). A closed / archived session loses its jobs.
+`cluster-run` is installed next to `claude-cluster` and found in the `PATH` of every session (`CLUSTER_RUN_SESSION`,
+`CLUSTER_RUN_SOCKET` are set for them). Tests: `tests/orchestrator.sh`.
 
 ## Security
 
