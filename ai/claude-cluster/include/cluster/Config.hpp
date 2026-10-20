@@ -265,6 +265,10 @@ class Config {
         std::string backend = "claude";     // the backend spec of the new sessions (= provider; --backend overrides it for one run)
         std::string mode = "auto";      // permission mode of the new sessions (empty: the default of the agent)
         std::string effort;             // thinking / reasoning effort of the new sessions (empty: the default of the agent)
+        std::string workMethod = "free";    // the work method: free | list-review | one-task | plan-first | custom (Method.hpp)
+        std::string workMethodText;         // what the user adds to it (short: injected in the prompts of the sessions)
+        bool workMethodDetect = false;      // the global session may propose a method from the habits of the user (the user answers Allow / Deny)
+        int workMethodEvery = 20;           // sessions started between two checks of the detection (0: only when asked)
         std::map<std::string, std::vector<std::string>> models; // [models] <provider> = [...]: offered in the palette, /model
         bool allowBypass = true;
         std::vector<std::string> extraArgs;

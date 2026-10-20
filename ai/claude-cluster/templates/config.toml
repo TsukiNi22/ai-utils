@@ -54,6 +54,15 @@ effort = ""                # thinking / reasoning effort of the new sessions (em
                            #   per session: /effort <level>, the palette (Effort), `claude-cluster effort <s> <level>`
 allow_bypass = true        # claude: launched with --allow-dangerously-skip-permissions, so bypassPermissions can be chosen
 extra_args = []
+# Work method: how the work is organised, injected (short) in the system prompt of the sub-sessions and of the global session, which
+# splits the requests accordingly (a session takes it at its next start). Only you change it (never the global session).
+#   free (nothing) | list-review (a task list, then a review, repeated until good) | one-task (one task at a time)
+#   | plan-first (a plan, then the work) | custom (only the text below)
+work_method = "free"
+work_method_text = ""      # your own words, added to the preset (400 characters at most)
+work_method_detect = false # the global session may PROPOSE a method from how you phrase requests (a small sample of your prompts, no model):
+                           # a popup you answer Allow / Deny, never applied alone
+work_method_every = 20     # sessions started by the global session between two checks (0: only when asked)
 
 [commands]                 # programs of the drivers
 claude = "claude"

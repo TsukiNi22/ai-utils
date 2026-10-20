@@ -23,6 +23,7 @@ File Description:
 
 #include "cluster/Machine.hpp"
 #include "cluster/Models.hpp"
+#include "cluster/Method.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Wire.hpp"
 #include "cluster/Mcp.hpp"
@@ -102,7 +103,7 @@ _cold static std::string plain_(const std::string& markdown)
     return out;
 }
 
-_cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global)
+_cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global, const std::string& method)
 {
     // a system prompt file added to the one of claude (CLAUDE.md kept), then how the answers are drawn (always, from
     // the binary: the files of the user are copies never refreshed); the display blocks for the global session only
@@ -113,6 +114,7 @@ _cold static std::vector<std::string> prompt_args_(const std::string& file, cons
     const std::size_t mark = rendering.find("<!-- global -->");
     if (mark != std::string::npos) rendering = global ? rendering.erase(mark, 15) : rendering.substr(0, mark);
     if (global) rendering += std::string("\n") + std::string(cluster::templates::ROUTING); // how to choose the model and the thinking of the sub-sessions
+    if (!method.empty()) rendering += std::string("\n") + method; // the work method of the user (short)
     const std::string text = cluster::trim(prompt.str()).empty() ? rendering : prompt.str() + "\n" + rendering;
     return {"--append-system-prompt", text};
 }
@@ -159,7 +161,7 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     if (launch.backend.provider.driver == "claude") {
         launch.extraArgs = this->_config.extraArgs;
         if (!spec.global) {
-            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false);
+            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false, cluster::method_text(this->_config, false));
             launch.extraArgs.insert(launch.extraArgs.end(), prompt.begin(), prompt.end());
         }
     }
@@ -556,7 +558,7 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
 _cold std::vector<std::string> cluster::Manager::globalArgs_(void) const
 {
     std::vector<std::string> args = {"--mcp-config", cluster::mcp_config_path().string(), "--allowedTools", "mcp__claude-cluster"};
-    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt, true);
+    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt, true, cluster::method_text(this->_config, true));
     args.insert(args.end(), prompt.begin(), prompt.end());
     return args;
 }

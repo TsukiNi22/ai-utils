@@ -20,6 +20,7 @@ File Description:
 #include "cluster/Plugins.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Method.hpp"
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Types.hpp"
@@ -220,6 +221,22 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.effort;}},
             {"agent", "allow_bypass", "bypassPermissions possible", SettingKind::Bool, {}, "claude launched with --allow-dangerously-skip-permissions (needed to switch to bypass)", true,
                 [](const cluster::Config& cf) {return cf.allowBypass ? std::string("true") : std::string("false");}},
+            {"agent", "work_method", "Work method", SettingKind::Choice, {"free", "list-review", "one-task", "plan-first", "custom"},
+                "how the work is organised: injected, short, in the system prompt of the sub-sessions and of the global session, which splits the requests accordingly; "
+                "taken by each session at its next start", false,
+                [](const cluster::Config& cf) {return cf.workMethod;},
+                [](const std::string& value) {
+                    const cluster::MethodPreset* preset = cluster::method_preset(value);
+                    return preset == nullptr ? std::string() : value == "free" ? std::string("no method") : value == "custom" ? std::string("only the text below")
+                        : preset->label + ": " + preset->sub;
+                }},
+            {"agent", "work_method_text", "Work method (free text)", SettingKind::Text, {}, "your own words, added to the preset (alone with custom): short, 400 characters at most", false,
+                [](const cluster::Config& cf) {return cf.workMethodText;}},
+            {"agent", "work_method_detect", "Detect the work method", SettingKind::Bool, {}, "the global session may PROPOSE a method from how you phrase your requests (a small sample of your "
+                "prompts, no model): a popup you answer Allow / Deny - never applied alone", false,
+                [](const cluster::Config& cf) {return cf.workMethodDetect ? std::string("true") : std::string("false");}},
+            {"agent", "work_method_every", "Detection: every N sessions", SettingKind::Int, {}, "sessions started by the global session between two checks (0: only when asked)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.workMethodEvery);}},
             {"agent", "extra_args", "Extra arguments (claude)", SettingKind::List, {}, "added to every claude session, comma separated", true,
                 [](const cluster::Config& cf) {return join_(cf.extraArgs);}},
         }},
@@ -899,7 +916,7 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
-        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
+        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "agent.work_method", "agent.work_method_text", "agent.work_method_detect", "agent.work_method_every", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"
         || (section == "sessions" && key == "budget_usd") || keys.contains(section + "." + key);

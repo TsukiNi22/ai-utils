@@ -27,6 +27,11 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
 - `session_set_mode`: permission mode (`auto`, `manual`, `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`).
 - `session_set_model`: model and / or thinking effort of a session (same conversation); none given: its current ones
   and the choices of its backend.
+- `work_method`: the user's work method (a task list then a review until good, one task at a time, plan first, free): it is
+  also in your prompt under "Work method of the user" when set - split what you dispatch accordingly. Only the user changes
+  it. When they enabled the detection, a `session_spawn` result tells `work_method_due`: `work_method` `sample` (a few of
+  their prompts, once), then `propose` only if their habits clearly differ from the current method (they answer Allow / Deny;
+  a refusal is final, never ask again).
 - `usage`: tokens and cost per vendor today / last 7 days / lifetime, and the 5 h / 7 d limits left ("how much did I
   use today", "how much is left").
 - `cluster_info`: everything about claude-cluster itself (its paths, settings, voice, service, what is missing) in one

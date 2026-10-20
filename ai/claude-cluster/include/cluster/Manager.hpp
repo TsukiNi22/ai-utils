@@ -345,6 +345,12 @@ class Manager {
         // of the next sub-sessions) or a session id; what it did
         _cold _nodiscard std::string applyTo(const std::string& kind, const std::string& value, const std::string& scope, const std::string& current);      // "Chat about this": its last message answered by the model of the session (background)
         _cold void describe(const std::string& id, const std::string& text); // its short description (empty: written again)
+        // the work method: what the global session reads, the sample of the habits of the user it may judge (no model), its proposal (the user
+        // answers Allow / Deny: the question returned) and a session it started counted (true: the detection is due)
+        _cold _nodiscard cluster::Json methodJson(void);
+        _cold _nodiscard cluster::Json methodSample(const std::size_t max);
+        _cold _nodiscard std::string methodPropose(const std::string& preset, const std::string& text, const std::string& reason);
+        _cold _nodiscard bool methodSpawned(void);
         // its category (none given: kept; "" removes it) and tags (tags: replaces them; add / remove: changes them), the trash too
         _cold void label(const std::string& id, const std::optional<std::string>& category, const std::optional<std::vector<std::string>>& tags,
             const std::vector<std::string>& add = {}, const std::vector<std::string>& remove = {});

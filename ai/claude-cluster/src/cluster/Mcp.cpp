@@ -71,6 +71,14 @@ _cold cluster::Json cluster::mcp_tools(void)
             "choices of its backend. Under the policy of the user (models_policy): a forbidden one is refused with the reason; a costly one (opus, xhigh...) "
             "returns {asked}: the user answers Allow / Deny in their interface and the result comes back to you as a message.", {{"session", session}, {"model", str_("a model of its provider (opus, sonnet, claude-opus-5-5, an Ollama model...)")},
             {"effort", str_("default | low | medium | high | xhigh | max (claude); minimal... (codex, opencode)")}}, {"session"}),
+        tool_("work_method", "The work method of the user (how they like the work organised: a task list then a review repeated until good, one task at a time, "
+            "plan first, free): read it (default) to split the requests accordingly. Only the user changes the setting. Detection (when the user turned it on; a spawn "
+            "result tells work_method_due): action sample = counts and a few of their prompts read from the transcripts (no model; cheap, once), then action propose "
+            "(preset, text, reason in one sentence) ONLY when their habits clearly differ from the current method - the user answers Allow / Deny in a popup, the "
+            "answer comes back to you as a message; never apply or repeat a refused one.",
+            {{"action", {{"type", "string"}, {"enum", {"read", "sample", "propose"}}, {"description", "read (default) | sample | propose"}}},
+             {"preset", str_("propose: free | list-review | one-task | plan-first | custom")}, {"text", str_("propose: the user's words added to the preset (short; alone with custom)")},
+             {"reason", str_("propose: why, one sentence shown to the user")}, {"max", {{"type", "integer"}, {"description", "sample: prompts shown (10, 20 at most)"}}}}, {}),
         tool_("usage", "Tokens and cost used per vendor (anthropic, ollama, openai...) over every session: today, the last 7 days, lifetime; "
             "the 5 h / 7 d limits left when the vendor tells them.", {{"vendor", str_("one vendor (empty: all)")}}, {}),
         tool_("cluster_info", "Everything about this claude-cluster in one call, instead of searching its files: version, binary, the paths "
@@ -209,7 +217,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
 {
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
-        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
+        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"work_method", "work_method"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},

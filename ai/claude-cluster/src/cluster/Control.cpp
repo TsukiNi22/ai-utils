@@ -533,6 +533,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             cluster::SpawnRequest made{arg_(request, "cwd"), arg_(request, "name"), backend, arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), effort, false, "", false, {}, "", from_global && request.value("reply", true), from_global && request.value("one_shot", false) && manager.config().archiveOneShot};
             made.origin = "mcp";
             data = {{"id", manager.spawn(made)}};
+            if (from_global && manager.methodSpawned()) data["work_method_due"] = "the user enabled the detection of their work method: call work_method (action sample), then propose if their habits differ from the current one";
             if (!wanted.empty() || !wantedEffort.empty()) {
                 const std::string asked = manager.modelChange(data["id"].get<std::string>(), wanted, wantedEffort, true);
                 if (!asked.empty()) data["asked"] = asked + " (the session runs meanwhile on the policy default; the user answers in their interface)";
@@ -667,6 +668,19 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 };
                 manager.label(arg_(request, "session"), request.contains("category") ? std::optional<std::string>(request.value("category", std::string())) : std::nullopt,
                     request.contains("tags") ? std::optional<std::vector<std::string>>(words("tags")) : std::nullopt, words("add_tags"), words("remove_tags"));
+            }
+        } else if (cmd == "work_method") {
+            // read (default), sample (the habits of the user, for the detection) or propose (the user answers Allow / Deny); never written here
+            const std::string action = arg_(request, "action", "read");
+            if (action == "read") {
+                data = manager.methodJson();
+            } else if (action == "sample") {
+                data = manager.methodSample(static_cast<std::size_t>(request.value("max", 10)));
+            } else if (action == "propose") {
+                data = {{"asked", manager.methodPropose(arg_(request, "preset"), arg_(request, "text"), arg_(request, "reason"))},
+                    {"note", "the user answers in their interface; the answer comes back to you as a message"}};
+            } else {
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "work_method: action read | sample | propose");
             }
         } else if (cmd == "mode") {
             manager.setMode(session(), arg_(request, "mode"));

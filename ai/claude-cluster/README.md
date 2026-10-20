@@ -451,7 +451,7 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   the answers of a sub-session to the global session (`[from the global session]`, a task of a group, `[questions from ...]`)
   terse `key: value` lines with quiet commands, the prompts of the global session the task only; what the user reads stays normal;
 - the **MCP server** `claude-cluster mcp`: `session_list`, `session_status`, `session_spawn`, `session_send`,
-  `session_allow`, `session_set_mode`, `session_interrupt`, `session_close`, `session_restore`, `session_trash`,
+  `session_allow`, `session_set_mode`, `session_interrupt`, `session_close`, `session_restore`, `session_trash`, `work_method`,
   `session_rename`, `session_cd`, `task_add`, `task_list`, `task_cancel`, `search`, `export`, `providers`,
   `session_wait` (until a session is done: its last answer only), `schedule_add` / `schedule_list` / `schedule_cancel`,
   `notify` (a desktop notification), `session_fanout` / `group_status` / `group_cancel` (below), and for
@@ -599,6 +599,31 @@ A costly choice returns at once to the global session (`asked`): the session kee
 on the default) until you answer; Allow applies it (the conversation goes on) and tells the global session, Deny keeps it
 and tells it why. These questions are yours alone: the global session cannot answer them (`session_allow`, the ask
 commands). A change you make yourself (palette, `/model`, `claude-cluster model`) is never gated.
+
+### Work method
+
+**Settings > Agent > Work method** (`[agent] work_method`, `work_method_text`; protected: the global session never changes
+them): how you like the work organised - a **preset** plus your own **free text**:
+
+| Preset | Meaning |
+|---|---|
+| `free` | no method (default) |
+| `list-review` | a task list, then a review, repeated until good: the global session splits a request into a numbered list (or a `session_fanout`), asks a session for a review of the result, sends the defects back as a new list, until a review finds nothing |
+| `one-task` | one task at a time: one task per prompt, its answer awaited before the next |
+| `plan-first` | a plan first (no edits), shown to you, then the go-ahead |
+| `custom` | only your text |
+
+The method is injected, short (a paragraph), in the system prompt addition of the sub-sessions and in the routing guidance
+of the global session (taken by each session at its next start; the global session splits what it dispatches
+accordingly). `work_method` (MCP) lets the global session read it.
+
+**Detection** (`work_method_detect`, default off; `work_method_every`, default 20): the global session may *propose* a
+method from how you phrase requests. Its tool gives it a **small sample** read from the transcripts without any model
+call (counts of prompts with task lists, asking a review, asking a plan, one-liners, and ~10 of your recent prompts, 220
+characters each), only when the detection is on, once per N sessions it started (`session_spawn` then tells
+`work_method_due`) or when you ask. A proposal (`work_method` `propose`) is a question on every interface (a popup:
+**Allow** / **Deny**, a notification); only Allow writes the setting, Deny is final for that proposal and is told to the
+global session. Never applied silently. State: `method.json` in the data folder (counter, the proposal waiting).
 
 ### Statistics
 

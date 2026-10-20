@@ -175,6 +175,10 @@ _cold void cluster::Config::load(void)
     this->mode = table["agent"]["permission_mode"].value_or(this->mode);
     this->effort = table["agent"]["effort"].value_or(this->effort);
     this->allowBypass = table["agent"]["allow_bypass"].value_or(this->allowBypass);
+    this->workMethod = table["agent"]["work_method"].value_or(this->workMethod);
+    this->workMethodText = table["agent"]["work_method_text"].value_or(this->workMethodText);
+    this->workMethodDetect = table["agent"]["work_method_detect"].value_or(this->workMethodDetect);
+    this->workMethodEvery = std::max(0, table["agent"]["work_method_every"].value_or(this->workMethodEvery));
     this->extraArgs = strings_(table["agent"]["extra_args"], {});
     if (const toml::table* commandsTable = table["commands"].as_table())
         for (const auto &[name, value]: *commandsTable)
