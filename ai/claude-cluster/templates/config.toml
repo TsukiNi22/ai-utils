@@ -35,6 +35,7 @@ stash_max = 10             # prompts kept in the stash (Ctrl+S puts the prompt a
                            # stash.json of the data folder, over the restarts, shared by every session (each one shows where it was written)
 stash_full = "refuse"      # the stash is full: refuse (the prompt stays in the editor, nothing is lost) | drop_oldest (the oldest one makes room)
                            # the copies made by themselves (a prompt replaced by another one) are never refused
+stash_rewound = false      # Esc (rewind chooser): the prompts it removes from the conversation are put in the stash too
 editor = ""                # Ctrl+E; empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano (the first installed)
 machine_days = 30          # the map of this computer older than this: a sync proposed at start (0: never)
 image_viewer = ""          # right click on an image chip; empty: xdg-open (the viewer of the desktop)
@@ -266,6 +267,8 @@ stash = "Ctrl+S"           # put the prompt aside
 unstash = "Ctrl+P"         # take the last one back
 stashes = "Ctrl+L"         # the list of the stashed prompts: Enter loads (replace / append / cancel when the prompt is not empty, the
                            # loaded one leaves the stash), Del / x removes (u undoes), X clears all (two steps: No by default, then Yes)
+take_back = "Escape"       # a prompt queued or running: taken back to the editor (the turn is interrupted); nothing running, empty prompt: the
+                           # chooser of the point of the conversation to go back to (↑ ↓, Enter, Esc cancels); a prompt written: pressed twice clears it
 history = "Ctrl+R"         # prompts sent before
 edit = "Ctrl+E"            # the prompt in an editor ([ui] editor, else nvim, vim, vi, $VISUAL, $EDITOR, emacs, nano)
 expand = "Ctrl+O"          # transcript: thinking and tool results in full / short
@@ -283,7 +286,7 @@ session_page_up = "Alt+PageUp"       # a page of sessions up / down (the grid: i
 session_page_down = "Alt+PageDown"
 session_first = "Alt+Home"           # the first / the last session
 session_last = "Alt+End"
-# fixed: Alt+1..9 session N, Alt+Enter / Shift+Enter new line, Esc (queued prompt back to edit), Esc Esc (clear the prompt), ↑ / ↓ (a visual row of the prompt, on its first / last row the history)
+# fixed: Alt+1..9 session N, Alt+Enter / Shift+Enter new line, Esc (take the prompt back / rewind), Esc Esc (clear a written prompt), ↑ / ↓ (a visual row of the prompt, on its first / last row the history)
 push_to_talk = "F5"
 mute = "F6"
 layout = "F2"

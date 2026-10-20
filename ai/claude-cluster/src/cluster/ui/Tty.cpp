@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Attachments.hpp"
 #include "cluster/LineEditor.hpp"
 #include "cluster/Origin.hpp"
+#include "cluster/RewindChooser.hpp"
 #include "cluster/StashPopup.hpp"
 #include "cluster/PromptNav.hpp"
 #include "cluster/Settings.hpp"
@@ -67,7 +68,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph, Stash};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph, Rewind, Stash};
 
 struct FormField {                     // a field of the form of a display, filled in its popup
     std::string name;
@@ -701,7 +702,8 @@ class TtyUi {
         std::set<std::string> _webPicked;           // the web devices ticked ("d:<id>" connected / waiting, "t:<id>" trusted)
         int _webCursor = 0;
         std::string _webConfirm;                    // a dangerous action of the devices waiting for its y (ban, kick_all)
-        std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
+        std::int64_t _lastEscapeAt = 0;             // takeBack_: ms of the Esc that asked for a second one
+        cluster::RewindChooser _rewind;             // Mode::Rewind: the chooser of the point of the conversation to go back to (Esc)
         cluster::StashPopup _stash;                 // Mode::Stash: the list of the stashed prompts (Ctrl+L)
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
@@ -952,31 +954,115 @@ class TtyUi {
             return true;
         }
 
-        void rewind_(void)
+        void rewind_(const int back = 1)
         {
-            // the last turn leaves the conversation (claude started again: in the worker), its prompt comes back
+            // the last `back` prompts leave the conversation (claude started again: in the worker), the oldest of them comes back
             const std::string session = this->_active;
-            this->status_("taking the last prompt back…");
-            this->_worker.push([this, session]() {
+            this->status_("going back in the conversation…");
+            this->_worker.push([this, session, back]() {
                 std::optional<cluster::Queued> prompt;
                 std::string error;
                 try {
-                    prompt = this->_manager.rewind(session);
+                    prompt = this->_manager.rewind(session, back);
                 } catch (const utils::exception::IException& e) {
                     error = e.info();
                 }
-                this->_screen.Post([this, prompt, error]() {
+                this->_screen.Post([this, prompt, error, session]() {
                     if (!prompt) {
                         this->status_(error, true);
                         return;
                     }
-                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.draft()); // typed meanwhile: kept
+                    if (!cluster::trim(this->_editor.text()).empty()) (void)this->_manager.stashPush(this->_editor.draft(), session); // typed meanwhile: kept
                     this->_editor.load({prompt->text, prompt->images, {}});
                     this->historyReset_();
-                    this->status_("the last prompt left the conversation: back here to edit (Esc Esc on an empty prompt: the one before)");
+                    this->status_("back in the conversation: the prompt is here to edit (Esc on an empty prompt: an earlier point)");
                 });
                 this->_screen.PostEvent(ftxui::Event::Custom);
             });
+        }
+
+        void takeBackRunning_(void)
+        {
+            // the turn runs: it is interrupted and its prompt comes back in the editor, the conversation goes on from before it
+            // (rewind); a session that cannot rewind (not Claude Code, not in its transcript yet): interrupted, its text back
+            const std::string session = this->_active;
+            std::string last;
+            if (const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(session)) {
+                const auto user = std::find_if(snap->entries.rbegin(), snap->entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
+                if (user != snap->entries.rend()) last = user->text;
+            }
+            this->status_("taking the prompt back…");
+            this->_worker.push([this, session, last]() {
+                std::optional<cluster::Queued> prompt;
+                std::string error;
+                try {
+                    prompt = this->_manager.rewind(session, 1);
+                } catch (const utils::exception::IException& e) {
+                    error = e.info();
+                }
+                if (!prompt) this->_manager.interrupt(session);
+                this->_screen.Post([this, prompt, error, last, session]() {
+                    if (!prompt && last.empty()) {
+                        this->status_(error, true);
+                        return;
+                    }
+                    if (!cluster::trim(this->_editor.text()).empty()) (void)this->_manager.stashPush(this->_editor.draft(), session);
+                    if (prompt) this->_editor.load({prompt->text, prompt->images, {}});
+                    else this->_editor.setText(last);
+                    this->historyReset_();
+                    this->status_(prompt ? "prompt taken back" : "prompt taken back (interrupted; it stays in the conversation)");
+                });
+                this->_screen.PostEvent(ftxui::Event::Custom);
+            });
+        }
+
+        void takeBack_(void)
+        {
+            // Esc. A queued prompt: back in the editor. A turn running: interrupted, its prompt back in the editor. Nothing running and
+            // the editor empty: the chooser of the point of the conversation to go back to. Nothing running and a prompt being
+            // written: Esc Esc clears it (the first one tells so)
+            const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+            const std::optional<cluster::Queued> queued = snap ? this->_manager.unqueue(this->_active) : std::nullopt;
+            const bool empty = cluster::trim(this->_editor.text()).empty();
+            if (queued) {
+                if (!empty) (void)this->_manager.stashPush(this->_editor.draft(), this->_active);
+                this->_editor.setText(queued->text);
+                this->_editor.setImages(queued->images);
+                this->status_("prompt taken back (Enter: queue it again)");
+            } else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) {
+                this->takeBackRunning_();
+            } else if (!empty) {
+                if (now - this->_lastEscapeAt < 600) {
+                    this->_lastEscapeAt = 0;
+                    this->_editor.clear();
+                    this->historyReset_();
+                } else {
+                    this->_lastEscapeAt = now;
+                    this->status_("Esc again: clear the prompt (" + this->_manager.config().keys.at("stash") + ": stash it instead)");
+                }
+                return;
+            } else if (snap) {
+                this->openRewind_();
+            }
+            this->_lastEscapeAt = 0;
+        }
+
+        void openRewind_(void)
+        {
+            // the chooser of the points of the conversation (its prompts, newest first) to go back to
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+            if (snap && this->_rewind.open(snap->entries)) this->_mode = Mode::Rewind;
+            else this->status_("no earlier prompt to go back to");
+        }
+
+        bool rewindKey_(const ftxui::Event& event)
+        {
+            const cluster::RewindResult result = this->_rewind.key(event);
+            if (!result.status.empty()) this->status_(result.status);
+            if (!this->_rewind.active() && this->_mode == Mode::Rewind) this->_mode = Mode::Normal;
+            if (result.back > 0) this->rewind_(result.back);
+            return true;
         }
 
         bool stashKey_(const ftxui::Event& event)
@@ -1422,7 +1508,7 @@ class TtyUi {
                         this->_mode = Mode::Message;
                         return;
                     } else if (local->ui == "restore_menu") this->openRestore_();
-                    else if (local->ui == "rewind") this->rewind_();
+                    else if (local->ui == "rewind") this->openRewind_();
                     else if (local->ui.starts_with("pick:")) this->pick_(local->ui.substr(5));
                     if (!local->message.empty()) this->status_(local->message, local->error);
                     else if (local->ui.empty()) this->status_("done");
@@ -1592,7 +1678,7 @@ class TtyUi {
                     piece(ls, le, false);
                 }
                 if (text.empty() && this->_mode == Mode::Normal)
-                    parts.push_back(ftxui::text(" @ file · / command · ! shell · : command · " + this->_manager.config().keys.at("history") + " history · " + this->_manager.config().keys.at("stashes") + " stash · " + this->_manager.config().keys.at("help") + " keys")
+                    parts.push_back(ftxui::text(" @ file · / command · ! shell · : command · " + this->_manager.config().keys.at("history") + " history · Esc back · " + this->_manager.config().keys.at("stashes") + " stash · " + this->_manager.config().keys.at("help") + " keys")
                         | ftxui::color(this->_theme.muted) | ftxui::dim);
                 parts.push_back(ftxui::filler());
                 if (i == first && this->_editor.vim() != cluster::VimMode::Off) {
@@ -2018,7 +2104,7 @@ class TtyUi {
             }
             for (const Click& c: this->_clicks)
                 if (c.layer == layer && !c.act && c.box.Contain(mouse.x, mouse.y)) return true; // in the dialog: nothing there
-            if (this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Stash) this->event_(ftxui::Event::Escape); // outside: closed
+            if (this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Rewind || this->_mode == Mode::Stash) this->event_(ftxui::Event::Escape); // outside: closed
             return true;
         }
 
@@ -4914,15 +5000,17 @@ class TtyUi {
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), this->fieldView_(this->_filter, 72)}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items))}), 80);
             }
-            if (this->_mode == Mode::Stash) {
+            if (this->_mode == Mode::Rewind || this->_mode == Mode::Stash) {
                 const cluster::PopupColors colors{this->_theme.text, this->_theme.muted, this->_theme.accent, this->_theme.bg, this->_theme.warn, this->_theme.error};
-                const cluster::PopupPress press = [this](ftxui::Element element, const ftxui::Event& pressed, const int row) {
-                    return this->tap_(std::move(element), 1, [this, pressed, row]() {
-                        if (row >= 0) this->_stash.select(row);
+                const bool rewind = this->_mode == Mode::Rewind;
+                const cluster::PopupPress press = [this, rewind](ftxui::Element element, const ftxui::Event& pressed, const int row) {
+                    return this->tap_(std::move(element), 1, [this, rewind, pressed, row]() {
+                        if (row >= 0 && rewind) this->_rewind.select(row);
+                        else if (row >= 0) this->_stash.select(row);
                         (void)this->event_(pressed);
                     });
                 };
-                return box(this->_stash.render(colors, press), 110);
+                return box(rewind ? this->_rewind.render(colors, press) : this->_stash.render(colors, press), 110);
             }
             if (this->_mode == Mode::History) {
                 ftxui::Elements items;
@@ -5769,7 +5857,7 @@ class TtyUi {
                 this->_hoverChip = -1;
                 for (std::size_t i = 0; i < this->_chipBoxes.size(); ++i)
                     if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);
-                const bool list = this->_mode == Mode::Settings || this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Question || this->_mode == Mode::Stash;
+                const bool list = this->_mode == Mode::Settings || this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Question || this->_mode == Mode::Rewind || this->_mode == Mode::Stash;
                 const bool onPanels = this->_mode == Mode::Normal && this->_panelBox.Contain(mouse.x, mouse.y);
                 for (cluster::LineEditor* drawn: this->_fieldsDrawn) // a text field of a popup: its cursor placed, a drag selects, a double click takes a word
                     if (drawn->mouse(mouse)) return true;
@@ -6141,6 +6229,8 @@ class TtyUi {
                         }
                     }
                     return true;
+                case Mode::Rewind:
+                    return this->rewindKey_(event);
                 case Mode::Stash:
                     return this->stashKey_(event);
                 case Mode::Normal:
@@ -6215,27 +6305,8 @@ class TtyUi {
                 if (index < list.size()) this->_active = list[index].spec.id;
                 return true;
             }
-            if (event == ftxui::Event::Escape) {
-                // a queued prompt of the session: back in the prompt to edit it (removed from the queue); else Esc Esc clears
-                const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                const std::optional<cluster::Queued> queued = this->_manager.snapshot(this->_active) ? this->_manager.unqueue(this->_active) : std::nullopt;
-                if (queued) {
-                    if (!cluster::trim(this->_editor.text()).empty()) this->_manager.stashPush(this->_editor.draft());
-                    this->_editor.setText(queued->text);
-                    this->_editor.setImages(queued->images);
-                    this->status_("queued prompt back to edit (Enter: queue it again)");
-                    this->_lastEscape = 0;
-                } else if (now - this->_lastEscape < 600 && cluster::trim(this->_editor.text()).empty()) {
-                    // Esc Esc on an empty prompt (like Claude Code): the last turn leaves the conversation, its prompt comes back
-                    this->_lastEscape = 0;
-                    this->rewind_();
-                } else if (now - this->_lastEscape < 600) {
-                    this->_editor.clear();
-                    this->historyReset_();
-                    this->_lastEscape = 0;
-                } else {
-                    this->_lastEscape = now;
-                }
+            if (cluster::key_action(this->_manager.config(), key) == "take_back") {
+                this->takeBack_();
                 return true;
             }
             if (this->shortcut_(cluster::key_action(this->_manager.config(), key))) return true;

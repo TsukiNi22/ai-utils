@@ -375,7 +375,7 @@ class Manager {
         _cold void label(const std::string& id, const std::optional<std::string>& category, const std::optional<std::vector<std::string>>& tags,
             const std::vector<std::string>& add = {}, const std::vector<std::string>& remove = {});
         _cold void setMode(const std::string& id, const std::string& mode);
-        _cold _nodiscard cluster::Queued rewind(const std::string& id); // the last turn removed, its prompt back (Esc Esc)
+        _cold _nodiscard cluster::Queued rewind(const std::string& id, const int back = 1); // the last `back` prompts removed from the conversation, the oldest of them back (Esc)
         _cold void cd(const std::string& id, const std::string& cwd);
         _cold void togglePanel(const std::string& id, const std::string& panel);
         _cold void setRemote(const bool on);

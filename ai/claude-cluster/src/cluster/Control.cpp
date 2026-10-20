@@ -505,7 +505,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::optional<cluster::Queued> queued = manager.unqueue(session());
             if (queued) data = *queued;
         } else if (cmd == "rewind") {
-            data = manager.rewind(session());
+            data = manager.rewind(session(), request.value("back", 1));
         } else if (cmd == "restore_answer") {
             manager.answerRestore(request.value("restore", false));
         } else if (cmd == "restart_global") {

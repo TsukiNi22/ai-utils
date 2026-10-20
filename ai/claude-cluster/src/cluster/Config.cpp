@@ -68,7 +68,7 @@ _cold void cluster::Config::defaults_(void)
     this->keys = {
         {"palette", "Ctrl+K"}, {"next_session", "Ctrl+N|Alt+N"}, {"prev_session", "Alt+P"}, {"global", "Ctrl+G"},
         {"new_session", "Ctrl+T"}, {"close_session", "Ctrl+W"}, {"allow", "Alt+Y"}, {"always", "Alt+A"}, {"deny", "Alt+D"},
-        {"undo", "Ctrl+Z"}, {"redo", "Ctrl+Y"}, {"select_all", "Ctrl+A"}, {"stash", "Ctrl+S"}, {"unstash", "Ctrl+P"}, {"stashes", "Ctrl+L"},
+        {"undo", "Ctrl+Z"}, {"redo", "Ctrl+Y"}, {"select_all", "Ctrl+A"}, {"stash", "Ctrl+S"}, {"unstash", "Ctrl+P"}, {"stashes", "Ctrl+L"}, {"take_back", "Escape"},
         {"history", "Ctrl+R"}, {"paste", "Ctrl+V"}, {"cut", "Ctrl+X"},
         {"interrupt", "Ctrl+C"}, {"resume", "F4"}, {"send_next", "F8"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"stats", "F10"}, {"graph", "Alt+G"}, {"quit", "Ctrl+Q"},
         {"graph_up", "Z|Up"}, {"graph_left", "Q|Left"}, {"graph_down", "S|Down"}, {"graph_right", "D|Right"}, {"graph_zoom_in", "E|+|="}, {"graph_zoom_out", "A|-"},
@@ -164,6 +164,7 @@ _cold void cluster::Config::load(void)
     this->pasteChars = table["ui"]["paste_chars"].value_or(this->pasteChars);
     this->stashMax = std::clamp(table["ui"]["stash_max"].value_or(this->stashMax), 1, 500);
     this->stashFull = table["ui"]["stash_full"].value_or(this->stashFull) == "drop_oldest" ? "drop_oldest" : "refuse";
+    this->stashRewound = table["ui"]["stash_rewound"].value_or(this->stashRewound);
     this->editor = table["ui"]["editor"].value_or(this->editor);
     this->imageViewer = table["ui"]["image_viewer"].value_or(this->imageViewer);
     this->imagePreview = table["ui"]["image_preview"].value_or(this->imagePreview);

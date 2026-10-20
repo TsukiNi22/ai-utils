@@ -1544,10 +1544,14 @@ void cluster::Manager::requestFocus(const std::string& id)
     ++this->_version;
 }
 
-_cold cluster::Queued cluster::Manager::rewind(const std::string& id)
+_cold cluster::Queued cluster::Manager::rewind(const std::string& id, const int back)
 {
-    if (this->_replica) return this->call({{"cmd", "rewind"}, {"session", id}}).get<cluster::Queued>();
-    const cluster::Queued prompt = this->get_(id)->rewind();
+    if (this->_replica) return this->call({{"cmd", "rewind"}, {"session", id}, {"back", back}}).get<cluster::Queued>();
+    std::vector<std::string> dropped;
+    const cluster::Queued prompt = this->get_(id)->rewind(back, &dropped);
+    if (this->_config.stashRewound) // [ui] stash_rewound: the prompts after the one taken back are not lost
+        for (const std::string& text: dropped)
+            (void)this->stashPush({text, {}, {}}, id, true);
     this->save(); // the cut is kept over a restart (until the next prompt)
     ++this->_version;
     return prompt;

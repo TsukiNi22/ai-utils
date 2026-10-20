@@ -166,10 +166,11 @@ _cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
     return out;
 }
 
-_cold static std::optional<std::string> rewind_point_(const std::string& claudeId, const std::string& leaf)
+_cold static std::optional<std::string> rewind_point_(const std::string& claudeId, const std::string& leaf, int back = 1)
 {
     // the transcript of claude (~/.claude/projects/<folder>/<id>.jsonl): from the leaf of the conversation up its
-    // parents to the last prompt of the user; the message before it is the cut ("": the start of the conversation)
+    // parents to the last prompt of the user (the `back`-th one from the end); the message before it is the cut ("": the start
+    // of the conversation)
     std::error_code error;
     std::filesystem::path transcript;
     for (const std::filesystem::directory_entry& folder: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/projects"), error))
@@ -193,7 +194,8 @@ _cold static std::optional<std::string> rewind_point_(const std::string& claudeI
         const cluster::Json content = message.contains("message") ? message["message"].value("content", cluster::Json()) : cluster::Json();
         const bool prompt = message.value("type", std::string()) == "user" && !message.value("isMeta", false) && (content.is_string()
             || (content.is_array() && std::none_of(content.begin(), content.end(), [](const cluster::Json& b) {return b.value("type", std::string()) == "tool_result";})));
-        if (prompt) return parent.is_string() ? parent.get<std::string>() : std::string();
+        if (prompt && --back <= 0) return parent.is_string() ? parent.get<std::string>() : std::string();
+        if (prompt && !parent.is_string()) return std::nullopt;
         if (!parent.is_string()) return std::nullopt;
         at = parent.get<std::string>();
     }
@@ -1443,10 +1445,13 @@ _cold void cluster::Session::sendNext(void)
     this->touch_();
 }
 
-_cold cluster::Queued cluster::Session::rewind(void)
+_cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::string>* dropped)
 {
-    // like Esc Esc in Claude Code: the last turn leaves the conversation (claude goes on from the message before its
-    // prompt: --resume-session-at, kept until the next prompt) and the transcript; its prompt comes back to be edited
+    // like Esc in Claude Code: the `back` last prompts leave the conversation (claude goes on from the message before the
+    // oldest of them: --resume-session-at, kept until the next prompt) and the transcript; that prompt comes back to be
+    // edited. What was removed is kept in rewind/ of the data folder (claude keeps its own transcript whole: its old leaf
+    // is there to go back to)
+    const int count = std::max(1, back);
     std::string claudeId;
     std::string leaf;
     cluster::Queued prompt;
@@ -1454,24 +1459,36 @@ _cold cluster::Queued cluster::Session::rewind(void)
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (this->_launch.backend.provider.driver != "claude" || !this->persistent())
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: only for the sessions of Claude Code");
-        auto user = std::find_if(this->_data.entries.rbegin(), this->_data.entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
-        if (user == this->_data.entries.rend() || this->_data.spec.claudeId.empty())
+        const auto users = std::count_if(this->_data.entries.begin(), this->_data.entries.end(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
+        if (users < count || this->_data.spec.claudeId.empty())
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: no prompt to take back");
         claudeId = this->_data.spec.claudeId;
         leaf = this->_data.spec.leaf;
-        prompt = this->_lastPrompt.text.empty() ? cluster::Queued{user->text, {}} : this->_lastPrompt;
+        auto user = this->_data.entries.rbegin();
+        for (int seen = 0; user != this->_data.entries.rend(); ++user)
+            if (user->kind == cluster::EntryKind::User && ++seen == count) break;
+        prompt = count == 1 && !this->_lastPrompt.text.empty() ? this->_lastPrompt : cluster::Queued{user->text, {}};
     }
-    const std::optional<std::string> point = rewind_point_(claudeId, leaf);
-    if (!point) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: the last prompt is not in the transcript of claude (compacted?)");
+    const std::optional<std::string> point = rewind_point_(claudeId, leaf, count);
+    if (!point) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: that prompt is not in the transcript of claude (compacted?)");
     this->stop();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        auto user = std::find_if(this->_data.entries.rbegin(), this->_data.entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
-        if (user != this->_data.entries.rend()) this->_data.entries.erase(std::next(user).base(), this->_data.entries.end());
+        // the entries from that prompt on, removed
+        auto user = this->_data.entries.rbegin();
+        for (int seen = 0; user != this->_data.entries.rend(); ++user)
+            if (user->kind == cluster::EntryKind::User && ++seen == count) break;
+        std::vector<std::string> later;    // the prompts after the one taken back
+        if (user != this->_data.entries.rend()) {
+            for (auto it = std::next(user).base() + 1; it != this->_data.entries.end(); ++it)
+                if (it->kind == cluster::EntryKind::User) later.push_back(it->text);
+            this->_data.entries.erase(std::next(user).base(), this->_data.entries.end());
+        }
+        if (dropped != nullptr) *dropped = later;
         this->_data.partial.clear();
         this->_data.thinking.clear();
         this->_data.permissions.clear();
-        // the log of the session: from its last prompt on, removed
+        // the log of the session: from that prompt on, removed (and kept in the backup)
         this->_log.close();
         std::vector<std::string> lines;
         {
@@ -1480,12 +1497,31 @@ _cold cluster::Queued cluster::Session::rewind(void)
                 lines.push_back(line);
         }
         std::size_t keep = lines.size();
+        int seen = 0;
         for (std::size_t i = lines.size(); i-- > 0;) {
             const cluster::Json json = cluster::Json::parse(lines[i], nullptr, false);
-            if (!json.is_discarded() && json.value("kind", -1) == static_cast<int>(cluster::EntryKind::User)) {
+            if (!json.is_discarded() && json.value("kind", -1) == static_cast<int>(cluster::EntryKind::User) && ++seen == count) {
                 keep = i;
                 break;
             }
+        }
+        {
+            std::error_code error;
+            const std::filesystem::path folder = cluster::data_dir() / "rewind";
+            std::filesystem::create_directories(folder, error);
+            cluster::Json backup = {{"session", this->_data.spec.id}, {"time", cluster::now()}, {"claude_id", claudeId}, {"leaf", leaf}, {"resume_at", *point},
+                {"prompt", prompt.text}, {"later_prompts", later}, {"log", cluster::Json::array()}};
+            for (std::size_t i = keep; i < lines.size(); ++i)
+                backup["log"].push_back(lines[i]);
+            cluster::write_json(folder / (this->_data.spec.id + "-" + std::to_string(cluster::now()) + ".json"), backup);
+            std::vector<std::filesystem::path> files; // the newest 20 kept
+            for (const std::filesystem::directory_entry& file: std::filesystem::directory_iterator(folder, error))
+                files.push_back(file.path());
+            std::sort(files.begin(), files.end(), [&](const std::filesystem::path& a, const std::filesystem::path& b) {
+                return std::filesystem::last_write_time(a, error) > std::filesystem::last_write_time(b, error);
+            });
+            for (std::size_t i = 20; i < files.size(); ++i)
+                std::filesystem::remove(files[i], error);
         }
         {
             std::ofstream out(this->_launch.log, std::ios::trunc);

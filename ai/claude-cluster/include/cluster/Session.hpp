@@ -167,7 +167,7 @@ class Session {
         _cold void remoteControl(const bool on, const std::string& name); // claude: Remote Control of this session (claude.ai)
         _cold void togglePanel(const std::string& panel);
         _cold void loadHistory(const std::size_t max);     // last entries of the log (restored session)
-        _cold _nodiscard cluster::Queued rewind(void);      // claude: the last turn removed from the conversation, its prompt
+        _cold _nodiscard cluster::Queued rewind(const int back = 1, std::vector<std::string>* dropped = nullptr);      // claude: the last `back` prompts removed from the conversation, the oldest of them returned (dropped: the prompts after it)
         _nodiscard cluster::Snapshot snapshot(void) const;
         _nodiscard cluster::SessionSpec spec(void) const;
         _nodiscard cluster::State state(void) const;

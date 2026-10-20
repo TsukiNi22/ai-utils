@@ -639,7 +639,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"status", "the same as /info"},
         {"mcp", "the MCP servers given to the sessions: a popup"},
         {"plugins", "the plugins browser: sources (repositories, folders, .zip), install / remove, on / off, their files"},
-        {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
+        {"rewind", "go back in the conversation: the chooser of its prompts (= Esc on an empty prompt)"},
         {"exit", "close the session (= /close)"},
         {"delete", "delete the session for good: asked first (/delete! at once); /close keeps it in the trash"},
         {"now", "the next queued prompt sent now (the running turn interrupted, = F8)"},
@@ -1155,7 +1155,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"interrupt", "stop the running turn, else clear the prompt (copy with a selection); twice on an empty prompt: quit"}, {"mode_cycle", "next permission mode"},
         {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"resume", "retry now / continue the session"}, {"send_next", "the next queued prompt now (the turn interrupted)"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
         {"undo", "undo"}, {"redo", "redo"}, {"select_all", "select all"}, {"cut", "cut"}, {"paste", "paste (text or image)"},
-        {"stash", "stash the prompt"}, {"unstash", "take the last stashed prompt back"}, {"stashes", "list of the stashed prompts"}, {"history", "history of the prompts"},
+        {"stash", "stash the prompt"}, {"unstash", "take the last stashed prompt back"}, {"stashes", "list of the stashed prompts"}, {"take_back", "take the prompt back / go back in the conversation"}, {"history", "history of the prompts"},
         {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},
         {"expand", "thinking and tool results: in full / short"},
         {"session_up", "session above (previous one in the list; the view follows)"}, {"session_down", "session below (next one)"},
@@ -1173,8 +1173,8 @@ _cold std::string cluster::help_text(const cluster::Config& config)
     text += "\nAlt+1..9                      session N"
         "\nAlt+Enter / Shift+Enter       new line in the prompt (grid: Shift+Enter opens the focused session in the list)"
         "\n← ↑ ↓ → (grid)              move between the cells when the prompt is empty (else they edit it); Alt + arrows always"
-        "\nEsc                           queued prompt back in the prompt (to edit it)"
-        "\nEsc Esc                       clear the prompt; empty: the last turn removed, its prompt back"
+        "\nEsc                           queued or running prompt taken back to the editor; nothing running, empty prompt: the chooser of"
+        "\n                              the point of the conversation to go back to (↑ ↓ Enter, Esc cancels); a prompt written: Esc Esc clears it"
         "\n↑ / ↓                         a visual row of the prompt; on its first / last row: the history"
         "\nEnter                         send (/local commands run here)"
         "\n/vim                          vim mode: Esc Normal (hjkl w b e 0 ^ $ gg G f t x X s S D C dd cc yy d/c/y+motion"
