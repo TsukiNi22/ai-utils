@@ -97,6 +97,7 @@ struct SpawnRequest {
     std::string note{};         // a line of the system after it (where it comes from)
     bool reply = false;         // its first prompt's answer (and the later wake-up turns) sent back to the global session
     bool oneShot = false;       // a session for one task: closed to the trash once its answer is relayed (sessions.archive_one_shot)
+    std::string origin{};       // of its first prompt: mcp | task | schedule (empty: the user)
 };
 
 struct Notice {
@@ -318,7 +319,7 @@ class Manager {
         /* sessions */
         _cold _nodiscard std::string spawn(const cluster::SpawnRequest& request);
         _cold void send(const std::string& id, const std::string& text, const bool force = false,
-            const std::vector<std::string>& images = {});               // not in the history: the prompts typed by the user only (addHistory)
+            const std::vector<std::string>& images = {}, const std::string& origin = {}); // origin: mcp | task | schedule (empty: the user); not in the history: the prompts typed by the user only (addHistory)
         _cold void clear(const std::string& id);                         // /clear: a new conversation, the transcript archived (empty)
         _cold void setBackend(const std::string& id, const std::string& provider); // the session again on another provider (anthropic: the login, anthropic-api: an API key), same model and conversation
         _cold void setModel(const std::string& id, const std::string& model);   // /model: the session again on this model (same conversation)

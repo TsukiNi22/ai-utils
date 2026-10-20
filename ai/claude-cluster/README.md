@@ -169,6 +169,19 @@ typo, a missing, doubled or swapped letter still finds it (`/modle` → model, `
 the closest first; the palette matches each word typed against the words of its actions (`mode:` / `share:`... keep
 their kind). `raw`: what starts with the text typed, then what contains it.
 
+**Prompts coloured by their origin** (`[ui] prompt_origin`, Settings > Interface; terminal, window, web page and app): in
+a transcript, a prompt is coloured by where it came from, with a label in its header (never by colour alone): **you**
+(the accent of the style, as before, no label), **`mcp`** (the global session or the cluster: `session_send` /
+`session_spawn`, `[reply from ...]` / `[error from ...]` / `[interrupted ...]` callbacks, group answers, `[form ...]`
+answers, forwarded permission / question answers; violet `#8a3fb5` light / `#bb8cf2` dark) and **`task`** /
+**`scheduled`** (the task queue, the jobs of the orchestrator, the schedules and reminders; one colour, magenta
+`#b3267a` light / `#f08ccb` dark, two labels). The default colours keep 4.5:1 or more on the built-in styles and stay
+apart from the accent (blue), `ok` / `warn` / `error` and the grey of the marks. Own colours: `prompt_color_user` /
+`prompt_color_mcp` / `prompt_color_task` (`"#rrggbb"`, empty = the default); `prompt_origin = false`: all as before. The
+origin is stored with the entry of the transcript (`origin` in its log, kept after a restart, shown by every
+interface); an old transcript is read from the markers of its text (`[from the global session]`, `[reply from`,
+`[scheduled w`, `[tasks]`).
+
 **The terminal stays in the foreground**: Ctrl+Z never sends it to the background (in the prompt: undo; at a question of
 the start: quit, asked again next time) and a stop signal is ignored; started with `&` it is refused (in `auto`, the
 window opens instead when there is a display). In the background: `claude-cluster --gui &` or `claude-cluster serve &`.

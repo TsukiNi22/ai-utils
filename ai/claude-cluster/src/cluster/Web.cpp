@@ -22,6 +22,7 @@ File Description:
 #include "cluster/Display.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Icons.hpp"
+#include "cluster/Origin.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Wire.hpp"
 #include "cluster/Web.hpp"
@@ -467,7 +468,9 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
         }
         const bool long_text = e.kind == cluster::EntryKind::Assistant || e.kind == cluster::EntryKind::User;
         std::string text = e.text.size() > (long_text ? 30000 : 600) ? e.text.substr(0, long_text ? 30000 : 600) + " [...]" : e.text;
-        json["messages"].push_back({{"kind", kind_name_(e.kind)}, {"text", text}, {"tool", e.tool}, {"time", e.time}});
+        cluster::Json message = {{"kind", kind_name_(e.kind)}, {"text", text}, {"tool", e.tool}, {"time", e.time}};
+        if (e.kind == cluster::EntryKind::User) message["origin"] = cluster::prompt_origin(e.origin, e.text); // user | mcp | task | schedule
+        json["messages"].push_back(message);
     }
     return json;
 }
@@ -1505,6 +1508,8 @@ self.addEventListener("notificationclick", (e) => {
         const cluster::Style& st = config.styles.contains(styleName) ? config.styles.at(styleName) : config.currentStyle();
         const cluster::Json style = {{"name", st.name}, {"dark", st.dark}, {"bg", st.bg}, {"surface", st.surface}, {"text", st.text}, {"muted", st.muted},
             {"accent", st.accent}, {"border", st.border}, {"ok", st.ok}, {"warn", st.warn}, {"error", st.error}};
+        const cluster::OriginColors origin = cluster::origin_colors(); // the colours of the prompts by origin (the page has the defaults of each theme)
+        const cluster::Json promptColors = {{"on", origin.enabled}, {"user", origin.user}, {"mcp", origin.mcp}, {"task", origin.task}};
         const cluster::VoiceConf& voice = this->_manager.config().voice;
         const cluster::AppFace face = this->_manager.appFace(false);
         // the Tasks session of the list: what waits / runs, what is scheduled

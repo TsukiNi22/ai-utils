@@ -248,7 +248,7 @@ _cold void cluster::Manager::schedule_(void)
         try {
             if (answered) this->replyTo(sessionId); // before: a short turn could end before it is known
             try {
-                this->send(sessionId, prompt);
+                this->send(sessionId, prompt, false, {}, prompt.starts_with("[from the global session]") ? "mcp" : "task");
             } catch (const utils::exception::IException&) {
                 if (answered) this->replyUndo_(sessionId);
                 throw;
@@ -422,7 +422,7 @@ _cold void cluster::Manager::tell_(const std::string& by, const std::string& tex
     // the session that made it: told (a prompt: it may react); you or a session gone: a notice
     if (!by.empty() && this->snapshot(by)) {
         try {
-            this->send(by, text, true);
+            this->send(by, text, true, {}, "task");
             return;
         } catch (const utils::exception::IException&) {}
     }

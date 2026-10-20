@@ -26,7 +26,7 @@ namespace cluster { // namespace start
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Usage, input, output, cacheRead, cacheCreation)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Metrics, last, current, total, contextUsed, contextWindow, cost, lastCost, costKnown, limit5h, limit7d,
     reset5h, reset7d, turns)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Entry, kind, text, tool, time)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Entry, kind, text, tool, time, origin)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Permission, requestId, tool, description, input, suggestions, time, reason, safety)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ToolRun, id, name, summary, done, error, time, image)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SessionSpec, id, name, cwd, backend, claudeId, leaf, resumeAt, fork, model, mode, effort, profile, extraArgs,
@@ -43,7 +43,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Task, id, prompt, target, after,
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Notice, time, session, text, error)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(MachineProgress, id, steps, log, finished, now, next, fraction, done, repos)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(AppFace, face, badge, urgent)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Queued, text, images)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Queued, text, images, origin)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Draft, text, images, pastes)
 
 } // namespace end

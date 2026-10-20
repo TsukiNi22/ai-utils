@@ -56,6 +56,7 @@ struct Queued {
     std::string context{};      // given to the agent before the text, not shown (the !commands run since the last prompt)
     std::int64_t at = 0;        // unix ms when it was queued
     bool given = false;         // written to the agent while its turn runs (taken at its next step): no longer editable
+    std::string origin{};       // user (empty) | mcp | task | schedule: shown as the colour of the prompt
 };
 
 struct Launch {
@@ -118,7 +119,7 @@ class Session {
         _cold void claude_(const cluster::Json& event);    // claude & qwen stream-json
         _cold void opencode_(const cluster::Json& event);
         _cold void codex_(const cluster::Json& event);
-        _cold void entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool = "");
+        _cold void entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool = "", const std::string& origin = "");
         _cold void tool_(const std::string& id, const std::string& name, const cluster::Json& input);
         _cold void picture_(const std::string& id, const cluster::Json& block, const bool error); // a picture in a tool result (or made by its command): kept on the call
         _cold void turnDone_(const std::string& text, const bool error);
@@ -133,7 +134,7 @@ class Session {
         // ---------- Pre-Function -------- //
         _cold void start(void);
         _cold void restart(void);                           // its reader done (process ended): started again
-        _cold void send(const std::string& text, const std::vector<std::string>& images = {}); // images: [Image #N] of the text
+        _cold void send(const std::string& text, const std::vector<std::string>& images = {}, const std::string& origin = {}); // images: [Image #N] of the text
         _cold void answer(const std::string& requestId, const std::string& behavior); // allow | always | deny
         _cold void answerQuestions(const std::string& requestId, const cluster::Json& answers); // AskUserQuestion: {question: answer}
         _cold void showcasePermission(const cluster::Permission& permission); // the showcase: a permission / question answered here, never sent

@@ -160,6 +160,7 @@ struct Entry {
     std::string text;
     std::string tool;               // Tool / ToolResult: tool name
     std::int64_t time = 0;          // unix seconds
+    std::string origin{};           // User: where the prompt came from (user | mcp | task | schedule), empty: the user / an old transcript (cluster::prompt_origin)
 };
 
 struct Permission {

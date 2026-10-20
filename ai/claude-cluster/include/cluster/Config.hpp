@@ -181,6 +181,10 @@ class Config {
         /* ui */
         std::string frontend = "auto";
         std::string matching = "c2dmp";   // completions, palette, settings search: c2dmp (c2dmp-hsm, typos found) | raw (a prefix, contained)
+        bool promptOrigin = true;         // the prompts of a transcript coloured by their origin (you / mcp / task + scheduled); false: all as before
+        std::string promptColorUser;      // "#rrggbb" of the prompts you typed (empty: the accent of the style)
+        std::string promptColorMcp;       // of the prompts of the global session / the cluster (empty: violet)
+        std::string promptColorTask;      // of the prompts of the tasks and the schedules (empty: magenta)
         std::string shellContext = "ask"; // !command given to the agent: ask (after it ran) | always | never
         bool sharedCore = true;         // several terminals / windows at once on one core of its own (false: the first one is the core)
         std::string quitBackground = "ask"; // quit with sessions running: ask (keep them in background / stop) | always (kept) | never (stopped)

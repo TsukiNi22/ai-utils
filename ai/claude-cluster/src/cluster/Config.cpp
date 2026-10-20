@@ -16,6 +16,7 @@ File Description:
 #include "cluster/Templates.hpp"
 #include "cluster/Config.hpp"
 #include "cluster/Match.hpp"
+#include "cluster/Origin.hpp"
 #include "cluster/Tools.hpp"
 #include <toml++/toml.hpp>
 #include <optional>
@@ -127,6 +128,11 @@ _cold void cluster::Config::load(void)
     }
     cluster::debug_configure(this->debug, this->debugTopics); // every process reads it (and its reload)
     this->shellContext = table["ui"]["shell_context"].value_or(this->shellContext);
+    this->promptOrigin = table["ui"]["prompt_origin"].value_or(this->promptOrigin);
+    this->promptColorUser = table["ui"]["prompt_color_user"].value_or(this->promptColorUser);
+    this->promptColorMcp = table["ui"]["prompt_color_mcp"].value_or(this->promptColorMcp);
+    this->promptColorTask = table["ui"]["prompt_color_task"].value_or(this->promptColorTask);
+    cluster::set_origin_colors({this->promptOrigin, this->promptColorUser, this->promptColorMcp, this->promptColorTask});
     this->matching = table["ui"]["matching"].value_or(this->matching);
     cluster::set_matching(this->matching);
     this->layout = table["ui"]["layout"].value_or(this->layout);

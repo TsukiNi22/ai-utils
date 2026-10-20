@@ -16,6 +16,7 @@ File Description:
 #define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Attachments.hpp"
+#include "cluster/Origin.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
@@ -80,6 +81,7 @@ struct Theme {
     ftxui::Color ok;
     ftxui::Color warn;
     ftxui::Color error;
+    bool dark = true;
 };
 
 //----------------------------------------------------------------//
@@ -225,7 +227,7 @@ _cold std::vector<cluster::Cell> highlight_(const std::string& line, const std::
 _cold Theme make_theme_(const cluster::Style& style)
 {
     return {hex_(style.bg), hex_(style.surface), hex_(style.text), hex_(style.muted), hex_(style.accent), hex_(style.border),
-        hex_(style.ok), hex_(style.warn), hex_(style.error)};
+        hex_(style.ok), hex_(style.warn), hex_(style.error), style.dark};
 }
 
 _cold std::size_t width_(const std::string& text)
@@ -3930,7 +3932,18 @@ class TtyUi {
                 switch (e.kind) {
                     case cluster::EntryKind::User:
                         if (!lines.empty()) lines.push_back({"", ftxui::nothing, "\n"});
-                        add(text.starts_with("[voice] ") ? text.substr(8) : text, "› ", "  ", ftxui::color(this->_theme.accent) | ftxui::bold | mark);
+                        {
+                            // coloured by its origin (mcp / task), with its label; the user: the accent, as before
+                            ftxui::Color ink = this->_theme.accent;
+                            std::string head = "› ";
+                            if (cluster::origin_colors().enabled) {
+                                const std::string origin = cluster::prompt_origin(e.origin, e.text);
+                                const std::string color = cluster::origin_color(origin, this->_theme.dark);
+                                if (!color.empty()) ink = hex_(color);
+                                if (const std::string label = cluster::origin_label(origin); !label.empty()) head += label + " · ";
+                            }
+                            add(text.starts_with("[voice] ") ? text.substr(8) : text, head, "  ", ftxui::color(ink) | ftxui::bold | mark);
+                        }
                         break;
                     case cluster::EntryKind::Assistant:
                         markdown(text, "⏺ ", mark, s.spec.id + ":md" + std::to_string(i));

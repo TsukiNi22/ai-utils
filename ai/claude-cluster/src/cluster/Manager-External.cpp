@@ -225,7 +225,7 @@ _cold void cluster::Manager::loadContext(const std::string& id, const std::strin
     if (cluster::trim(content).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "an empty context: " + source);
     if (content.size() > 60000) content = "[... its start cut]\n" + content.substr(content.size() - 60000);
     this->send(id, "[context given by the global session: " + label + "]\n" + content
-        + "\n[end of the context: keep it for the next requests; answer only \"ok\"]");
+        + "\n[end of the context: keep it for the next requests; answer only \"ok\"]", false, {}, "mcp");
 }
 
 _cold cluster::Json cluster::Manager::conversationMessages(const std::string& id) const
@@ -517,7 +517,7 @@ _cold std::string cluster::Manager::displayAct(const std::string& id, const std:
         }
         d["values"] = kept;
         d["submitted"] = true;
-        if (this->snapshot(GLOBAL_ID)) this->send(GLOBAL_ID, "[form \"" + d.value("title", displayId) + "\" (" + displayId + ") filled by the user] " + kept.dump());
+        if (this->snapshot(GLOBAL_ID)) this->send(GLOBAL_ID, "[form \"" + d.value("title", displayId) + "\" (" + displayId + ") filled by the user] " + kept.dump(), false, {}, "mcp");
         done = "form sent";
     } else if (type == "audio") {
         // played on this computer (the web page plays it itself)

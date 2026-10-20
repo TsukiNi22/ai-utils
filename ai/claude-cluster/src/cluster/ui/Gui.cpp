@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Attachments.hpp"
+#include "cluster/Origin.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
@@ -4209,7 +4210,15 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                         rest = match.suffix().str();
                     }
                     body += esc_(rest);
-                    html += "<p>" + span_(st.accent, "› " + body, true) + "</p>";
+                    // coloured by its origin (mcp / task), with its label; the user: the accent, as before
+                    std::string ink = st.accent;
+                    QString head = "› ";
+                    if (cluster::origin_colors().enabled) {
+                        const std::string origin = cluster::prompt_origin(e.origin, e.text);
+                        if (const std::string color = cluster::origin_color(origin, st.dark); !color.empty()) ink = color;
+                        if (const std::string label = cluster::origin_label(origin); !label.empty()) head += q_(label) + " · ";
+                    }
+                    html += "<p>" + span_(ink, head + body, true) + "</p>";
                     break;
                 }
                 case cluster::EntryKind::Assistant: html += "<p>" + span_(st.text, "⏺ " + esc_(text)) + "</p>"; break;

@@ -229,7 +229,7 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
             std::lock_guard<std::mutex> lock(this->_mutex);
             this->_oneShot.insert(spec.id);
         }
-        session->send(req.prompt);
+        session->send(req.prompt, {}, req.origin);
     }
     this->notice_(spec.id, "new session " + spec.name + " (" + spec.backend + ") in " + cluster::short_path(spec.cwd));
     this->save();
@@ -250,10 +250,10 @@ std::string cluster::Manager::origin(const std::string& id) const
     return it == this->_origin.end() ? std::string("host") : it->second;
 }
 
-_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images)
+_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images, const std::string& origin)
 {
     if (this->_replica) {
-        (void)this->call({{"cmd", "send"}, {"session", id}, {"text", text}, {"force", force}, {"images", images}, {"raw", true}});
+        (void)this->call({{"cmd", "send"}, {"session", id}, {"text", text}, {"force", force}, {"images", images}, {"prompt_origin", origin}, {"raw", true}});
         return;
     }
     const std::shared_ptr<cluster::Session> session = this->get_(id);
@@ -274,7 +274,7 @@ _cold void cluster::Manager::send(const std::string& id, const std::string& text
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
             "budget of " + cluster::human_cost(this->_config.budget) + " reached for " + snap.spec.name + " (force it, or raise sessions.budget_usd)");
     }
-    session->send(text, images);
+    session->send(text, images, origin);
 }
 
 _cold void cluster::Manager::clear(const std::string& id)
@@ -356,7 +356,7 @@ _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::Ses
     }
     session->start();
     for (const cluster::Queued& queued: unfinished)
-        session->send(queued.text, queued.images);
+        session->send(queued.text, queued.images, queued.origin);
     this->save();
 }
 
@@ -497,7 +497,7 @@ _cold void cluster::Manager::askGlobal(const std::string& id, const std::string&
     this->send(GLOBAL_ID, "[questions from " + name + " (" + id + "), the user asks you to answer them for them] " + questions.dump()
         + "\nAnswer all of them at once with session_allow {session: \"" + id + "\", request_id: \"" + requestId + "\", answers: {<question>: <label>}} "
         "(several labels: \"a, b\"; none fits: a short text of your own): choose what the user would want from this conversation, the project and "
-        "machine.md; ask the user first (AskUserQuestion) only when it may destroy data. Then tell them in one line what you answered.");
+        "machine.md; ask the user first (AskUserQuestion) only when it may destroy data. Then tell them in one line what you answered.", false, {}, "mcp");
     this->notice_(id, name + ": its questions given to the global session");
 }
 
@@ -718,7 +718,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                     try {
                         this->send(GLOBAL_ID, "[question from " + name + " (" + event.session + ")] " + p.input.value("questions", cluster::Json::array()).dump()
                             + "\nAnswer it with session_allow {session: \"" + event.session + "\", request_id: \"" + p.requestId + "\", answers: {question: label}} "
-                            "when you know what the user wants; else leave it to the user (its popup is shown to them).");
+                            "when you know what the user wants; else leave it to the user (its popup is shown to them).", false, {}, "mcp");
                     } catch (const utils::exception::IException&) {}
                 }
                 break;
@@ -744,7 +744,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                         this->send(GLOBAL_ID, "[permission request from " + name + " (" + event.session + ")] " + p.tool + ": " + cluster::one_line(p.description, 400)
                             + (p.reason.empty() ? "" : "\nwhy it asks: " + cluster::one_line(p.reason, 400))
                             + "\nIts mode is bypassPermissions: you decide with session_allow {session: \"" + event.session + "\", request_id: \"" + p.requestId
-                            + "\", behavior: allow | deny}. Ask the user first (AskUserQuestion) when it may destroy data or you are unsure.");
+                            + "\", behavior: allow | deny}. Ask the user first (AskUserQuestion) when it may destroy data or you are unsure.", false, {}, "mcp");
                     } catch (const utils::exception::IException&) {}
                 }
             }
@@ -1474,7 +1474,7 @@ void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string&
     const std::string id = event.session;
     std::thread([this, text, id, finished]() {
         try {
-            this->send(GLOBAL_ID, text, true);
+            this->send(GLOBAL_ID, text, true, {}, "mcp");
         } catch (const utils::exception::IException& e) {
             this->notice_(GLOBAL_ID, std::string("reply not given to the global session: ") + e.info(), true);
             return;

@@ -328,10 +328,10 @@ _cold void cluster::Manager::groupUpdate_(const std::string& id)
                     const std::string merger = this->spawn({"~", "merge-" + id, "", "", "", "", ""});
                     this->replyTo(merger);
                     this->send(merger, "[from the global session] Merge these answers into one answer (by project when they differ, what they share once, "
-                        "conflicts and failures named), compact, for the global session that rewrites it for the user.\n\n" + wake);
+                        "conflicts and failures named), compact, for the global session that rewrites it for the user.\n\n" + wake, false, {}, "mcp");
                     this->notice_(GLOBAL_ID, "group " + id + ": merged by " + merger);
                 } else {
-                    this->send(GLOBAL_ID, wake, true);
+                    this->send(GLOBAL_ID, wake, true, {}, "mcp");
                 }
             } catch (const utils::exception::IException& e) {
                 this->notice_(GLOBAL_ID, std::string("group " + id + " not given to the global session: ") + e.info(), true);

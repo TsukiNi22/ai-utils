@@ -103,7 +103,7 @@ _cold std::string cluster::Manager::modelChange(const std::string& id, const std
             }
             if (this->snapshot(GLOBAL_ID)) {
                 try {
-                    this->send(GLOBAL_ID, said, true);
+                    this->send(GLOBAL_ID, said, true, {}, "mcp");
                 } catch (const utils::exception::IException&) {} // the global session gone: nobody to tell
             }
         });

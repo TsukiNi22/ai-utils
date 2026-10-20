@@ -8,6 +8,10 @@ style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized
 panels = ["skills", "tokens", "context", "cost", "usage", "git"] # default panels of a new session (+ "diff", "tools", "files")
                            # usage: the vendor of the session today / 7 days / lifetime (tokens, cost), limits left
 restore = "ask"            # ask | always | never: sessions of the previous run at start (like Firefox)
+prompt_origin = true       # the prompts of a transcript coloured by where they come from (+ a label: mcp, task, scheduled); false: all as before
+prompt_color_user = ""     # "#rrggbb" of the prompts you type (empty: the accent of the style, as before)
+prompt_color_mcp = ""      # of the prompts of the global session and the cluster (session_send / session_spawn, [reply from ...], answers): empty = violet
+prompt_color_task = ""     # of the prompts of the tasks and the schedules ([tasks], [scheduled wN]): empty = magenta
 notify = true              # desktop notifications at all (the ones of the global session too)
 notify_global = true       # when the global session answers
 notify_done = true         # when a sub-session finishes its turn

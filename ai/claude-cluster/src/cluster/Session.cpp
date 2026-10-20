@@ -449,7 +449,7 @@ _cold void cluster::Session::runTurns_(void)
             }
             const Prepared prepared = prepare_(this->_pending.front(), false);
             prompt = prepared.prompt;
-            this->entry_(cluster::EntryKind::User, prepared.shown);
+            this->entry_(cluster::EntryKind::User, prepared.shown, "", this->_pending.front().origin);
             this->_pending.pop_front();
             this->queue_();
             this->_data.state = cluster::State::Working;
@@ -1030,7 +1030,7 @@ _cold void cluster::Session::append(const std::vector<cluster::Entry>& entries)
     std::lock_guard<std::mutex> lock(this->_mutex);
     for (const cluster::Entry& entry: entries) {
         this->_data.entries.push_back(entry);
-        if (this->_log) this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(entry.kind)}, {"text", entry.text}, {"tool", entry.tool}}.dump() << "\n";
+        if (this->_log) this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(entry.kind)}, {"text", entry.text}, {"tool", entry.tool}, {"origin", entry.origin}}.dump() << "\n";
     }
     if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.end() - 1500);
     if (this->_log) this->_log.flush();
@@ -1133,10 +1133,10 @@ _cold static std::vector<std::string> files_named_(const std::string& text, cons
     return found;
 }
 
-_cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool)
+_cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool, const std::string& origin)
 {
     if (text.empty() && kind != cluster::EntryKind::Tool) return;
-    cluster::Entry entry{kind, text, tool, cluster::now()};
+    cluster::Entry entry{kind, text, tool, cluster::now(), origin};
     this->_data.entries.push_back(entry);
     if (kind == cluster::EntryKind::Assistant) { // the files it names: their card under it (open, download)
         const std::vector<std::string> files = files_named_(text, this->_data.spec.cwd);
@@ -1149,7 +1149,7 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
     }
     if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.begin() + 500);
     if (this->_log) {
-        this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(kind)}, {"text", text}, {"tool", tool}}.dump() << "\n";
+        this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(kind)}, {"text", text}, {"tool", tool}, {"origin", origin}}.dump() << "\n";
         this->_log.flush();
     }
 }
@@ -1172,7 +1172,7 @@ _cold void cluster::Session::write_(const cluster::Json& message)
     }
 }
 
-_cold void cluster::Session::send(const std::string& text, const std::vector<std::string>& images)
+_cold void cluster::Session::send(const std::string& text, const std::vector<std::string>& images, const std::string& origin)
 {
     // the !commands run since the last prompt: given with it (like Claude Code)
     std::string context;
@@ -1182,6 +1182,7 @@ _cold void cluster::Session::send(const std::string& text, const std::vector<std
     }
     cluster::Queued prompt{cluster::unprefix_skill(text), images, context}; // "/<link>:<skill>": the skill alone, the only name of the agent
     prompt.at = cluster::now_ms();
+    prompt.origin = origin;
     if (this->persistent()) {
         if (!this->_worker.joinable() || this->_data.state == cluster::State::Stopped || this->_data.state == cluster::State::Error) {
             if (this->_worker.joinable()) this->_worker.join();
@@ -1231,7 +1232,7 @@ _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
     const Prepared prepared = prepare_(prompt, true);
     this->_lastPrompt = prompt;
     this->_data.spec.resumeAt.clear(); // the conversation goes on from the cut: its new messages are the latest
-    this->entry_(cluster::EntryKind::User, prepared.shown);
+    this->entry_(cluster::EntryKind::User, prepared.shown, "", prompt.origin);
     const std::string uuid = uuid_();
     this->_sent.insert(uuid);
     this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
@@ -1273,7 +1274,7 @@ _cold void cluster::Session::giveQueued(const int delayMs)
         queued.given = true;
         this->_prompted = true;
         this->_lastPrompt = queued;
-        this->entry_(cluster::EntryKind::User, prepared.shown);
+        this->entry_(cluster::EntryKind::User, prepared.shown, "", queued.origin);
         changed = true;
     }
     if (changed) {
@@ -1641,7 +1642,7 @@ _cold void cluster::Session::loadHistory(const std::size_t max)
     while (std::getline(file, line)) {
         try {
             const cluster::Json json = cluster::Json::parse(line);
-            entries.push_back({static_cast<cluster::EntryKind>(json.value("kind", 0)), json.value("text", std::string()), json.value("tool", std::string()), json.value("time", std::int64_t{0})});
+            entries.push_back({static_cast<cluster::EntryKind>(json.value("kind", 0)), json.value("text", std::string()), json.value("tool", std::string()), json.value("time", std::int64_t{0}), json.value("origin", std::string())});
             if (entries.size() > max) entries.pop_front();
         } catch (const cluster::Json::exception&) {}
     }
