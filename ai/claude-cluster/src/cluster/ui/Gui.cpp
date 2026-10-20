@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
+#include "cluster/Cron.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
@@ -1164,7 +1165,9 @@ class Window: public QMainWindow {
                 const std::string where = !t.session.empty() ? (this->manager.snapshot(t.session) ? this->manager.snapshot(t.session)->spec.name : t.session) : t.target.empty() ? "any" : t.target;
                 const std::string age = t.status == "queued" ? "waits " + span(now - t.created) : t.status == "running" ? span(now - t.started) : span(now - t.ended) + " ago";
                 html += "<tr><td width=18>" + span_(tint, q_(mark)) + "</td><td width=\"55%\">" + link("task:" + t.id) + span_(st.muted, q_(t.id)) + " " + esc_(cluster::one_line(t.prompt, 90)) + "</a>"
-                    + (t.reason.empty() ? QString() : "<br>" + span_(st.warn, "↳ " + esc_(t.reason))) + "</td><td class=m>→ " + esc_(where) + "</td><td class=m>by "
+                    + (t.reason.empty() ? QString() : "<br>" + span_(st.warn, "↳ " + esc_(t.reason)))
+                    + (cluster::task_traits(t).empty() ? QString() : "<br>" + span_(st.muted, "· " + esc_(cluster::task_traits(t))))
+                    + (t.status == "done" && !t.result.empty() && i < 4 ? "<br>" + span_(st.muted, "= " + esc_(cluster::one_line(t.result, 120))) : QString()) + "</td><td class=m>→ " + esc_(where) + "</td><td class=m>by "
                     + esc_(who(t.by)) + "</td><td class=m>" + q_(age) + "</td></tr>";
             }
             html += "</table>" + (tasks.size() > 12 ? "<p class=m>… +" + QString::number(tasks.size() - 12) + " more</p>" : QString())
@@ -1220,11 +1223,13 @@ class Window: public QMainWindow {
             for (std::size_t i = 0; i < planned.size() && i < 12; ++i) {
                 const cluster::Schedule& w = planned[i];
                 const bool open = w.status == "waiting";
-                const std::string when = open ? "in " + span(w.at - now) + " (" + cluster::clock_time(w.at) + ")" : w.status == "done" ? "run " + span(now - w.last) + " ago" : "cancelled";
+                const std::string when = open ? "in " + span(w.at - now) + " (" + cluster::clock_time(w.at) + ")" : w.status == "paused" ? "paused" : w.status == "done" ? "run " + span(now - w.last) + " ago" : "cancelled";
                 html += "<tr><td width=18>" + span_(open ? st.accent : w.status == "done" ? st.muted : st.warn, open ? "⏱" : w.status == "done" ? "✓" : "⊘") + "</td><td>" + link("sched:" + w.id)
                     + span_(st.muted, q_(w.id)) + " " + esc_(cluster::one_line(w.text, 80)) + "</a>" + (w.reason.empty() ? QString() : "<br>" + span_(st.warn, "↳ " + esc_(w.reason)))
+                    + (cluster::schedule_rule(w).empty() ? QString() : "<br>" + span_(st.muted, "· " + esc_(cluster::schedule_rule(w))))
+                    + (w.note.empty() || w.runs + w.skipped == 0 ? QString() : "<br>" + span_(st.muted, "↻ " + esc_(cluster::one_line(w.note, 100))))
                     + "</td><td class=m width=\"22%\">" + q_(when + (w.every > 0 ? " · every " + span(static_cast<std::int64_t>(w.every) * 60) : "")) + "</td><td class=m>"
-                    + esc_(w.action == "notify" ? std::string("a notification") : "→ " + (w.session == GLOBAL_ID ? std::string("global") : w.session)) + "</td><td class=m>by "
+                    + esc_(w.action == "notify" ? std::string("a notification") : w.action == "spawn" ? std::string("a new session") : w.action == "task" ? std::string("a task") : w.action == "command" ? std::string("a command") : "→ " + (w.session == GLOBAL_ID ? std::string("global") : w.session)) + "</td><td class=m>by "
                     + esc_(who(w.by)) + "</td></tr>";
             }
             html += "</table>" + (planned.empty() ? "<p class=m>none</p>" : QString());

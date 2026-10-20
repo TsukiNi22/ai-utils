@@ -358,6 +358,91 @@ _cold static cluster::Json cluster_info_(cluster::Manager& manager)
 }
 
 /* commands */
+/* the MCP of a sub-session: its own tasks and schedules (the ones it made) */
+_cold static bool task_mine_(const cluster::Task& t, const std::string& owner, const bool sub)
+{
+    return !sub || t.by == owner;
+}
+
+_cold static bool schedule_mine_(const cluster::Schedule& w, const std::string& owner, const bool sub)
+{
+    return !sub || w.by == owner;
+}
+
+_cold static void ensure_task_(cluster::Manager& manager, const std::string& id, const std::string& owner, const bool sub)
+{
+    if (!sub) return;
+    for (const cluster::Task& t: manager.tasks())
+        if (t.id == id && task_mine_(t, owner, sub)) return;
+    throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no task '" + id + "' of yours");
+}
+
+_cold static void ensure_schedule_(cluster::Manager& manager, const std::string& id, const std::string& owner, const bool sub)
+{
+    if (!sub) return;
+    for (const cluster::Schedule& w: manager.schedules())
+        if (w.id == id && schedule_mine_(w, owner, sub)) return;
+    throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no schedule '" + id + "' of yours");
+}
+
+// the tools a sub-session gets (the settings [agent] sub_*), and what they may do
+_cold static cluster::Json sub_tools_(const cluster::Config& config)
+{
+    cluster::Json tools = cluster::Json::array();
+    if (config.subRead) {
+        tools.push_back("task_list");
+        tools.push_back("schedule_list");
+    }
+    if (config.subTasks) {
+        for (const char* tool: {"task_add", "task_cancel", "task_act"})
+            tools.push_back(tool);
+    } else if (config.subRead) {
+        tools.push_back("task_cancel");
+    }
+    if (config.subSchedules) {
+        for (const char* tool: {"schedule_add", "schedule_edit", "schedule_cancel", "schedule_act"})
+            tools.push_back(tool);
+    } else if (config.subRead) {
+        tools.push_back("schedule_cancel");
+    }
+    return {{"tools", tools}, {"spawn", config.subSpawn}, {"schedules", config.subSchedules}};
+}
+
+// a sub-session asks: allowed only what the settings open, never a local command, never a prompt into another session
+_cold static void subGate_(cluster::Manager& manager, const std::string& owner, const cluster::Json& request)
+{
+    const std::function<void(const std::string&)> refuse = [](const std::string& why) {
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, why);
+    };
+    const std::string tool = request.value("tool", std::string());
+    const std::string cmd = arg_(request, "cmd");
+    if (owner.empty() || owner == GLOBAL_ID || !manager.snapshot(owner)) refuse("not allowed: a sub-session only");
+    if (cmd == "sub_tools") return;
+    const cluster::Json allowed = sub_tools_(manager.config()).at("tools");
+    if (tool.empty() || std::find(allowed.begin(), allowed.end(), tool) == allowed.end())
+        refuse("the tool " + tool + " is off for the sub-sessions ([agent] sub_read / sub_tasks / sub_schedules in the settings): ask the user");
+    const bool spawn = manager.config().subSpawn;
+    const std::function<bool(const cluster::Json&)> spawns = [&](const cluster::Json& o) {return o.contains("spawn") && o["spawn"].is_object() && !arg_(o["spawn"], "cwd").empty();};
+    const std::function<bool(const cluster::Json&)> local = [&](const cluster::Json& on) {return on.is_object() && arg_(on, "type") == "command";};
+    if (tool == "task_add") {
+        if (spawns(request) && !spawn) refuse("not allowed: a task that starts a session is off for the sub-sessions ([agent] sub_spawn)");
+        if (local(request.value("on_event", cluster::Json())))
+            refuse("not allowed: a sub-session waits for session_idle / git_push / file events; a local command is the user's");
+        const std::string target = arg_(request, "target");
+        if (!target.empty() && manager.resolve(target) != owner) refuse("not allowed: a sub-session queues tasks for itself (or for a session of its own, spawn)");
+    } else if (tool == "schedule_add" || tool == "schedule_edit") {
+        if (!arg_(request, "session").empty() && manager.resolve(arg_(request, "session")) != owner) refuse("not allowed: a schedule of a sub-session wakes that sub-session only");
+        const std::string action = arg_(request, "action", tool == "schedule_edit" ? "" : "prompt");
+        if (action == "command" || (request.contains("if") && request["if"].is_object() && !arg_(request["if"], "command").empty()))
+            refuse("not allowed: a schedule that runs a local command is the user's");
+        if ((action == "spawn" || spawns(request)) && !spawn) refuse("not allowed: a schedule that starts sessions is off for the sub-sessions ([agent] sub_spawn)");
+        if (local(request.value("on_event", cluster::Json()))) refuse("not allowed: a local command is the user's");
+        if (action == "task" && !arg_(request, "target").empty() && manager.resolve(arg_(request, "target")) != owner) refuse("not allowed: a sub-session queues tasks for itself");
+    } else if (tool == "task_act" && arg_(request, "action") == "force") {
+        refuse("not allowed: the limit of parallel sessions is not for a sub-session to lift");
+    }
+}
+
 _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cluster::Json& request)
 {
     const std::string cmd = arg_(request, "cmd");
@@ -365,12 +450,15 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
     const std::function<std::string()> session = [&]() {return manager.resolve(arg_(request, "session"));};
     const bool from_global = request.value("origin", std::string()) == "mcp"; // a tool of the global session (its limits)
     const bool from_web = request.value("origin", std::string()) == "web";    // a device of the web page (set by the web access itself)
+    const bool from_sub = request.value("origin", std::string()) == "sub";    // a sub-session on itself (its id in "by")
+    const std::string owner = from_sub ? arg_(request, "owner") : std::string();
     cluster::Json data;
 
     try {
         if (from_global && request.contains("tool") && !manager.config().mcpTool(request.value("tool", std::string())))
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the tool " + request.value("tool", std::string())
                 + " is off in the settings of claude-cluster (MCP page): tell the user, they turn it on there if they want");
+        if (from_sub) subGate_(manager, owner, request);
         // an interface of another process: seen alive (the core stops when none is left)
         // (its detach never: an interface closing is not one coming back, which would end the background of the core)
         if (cmd != "detach" && request.contains("client") && request["client"].is_string()) manager.clientSeen(request["client"].get<std::string>());
@@ -765,8 +853,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             for (const cluster::SessionSpec& spec: manager.trash())
                 data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"deleted", spec.deleted}, {"summary", spec.summary}, {"category", spec.category}, {"tags", spec.tags}});
         } else if (cmd == "task_add") {
-            const std::string by = request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by"); // the global session (MCP), else you
-            data = {{"id", manager.addTask(arg_(request, "prompt"), arg_(request, "target"), request.value("after", std::vector<std::string>()), by)}};
+            const std::string by = from_sub ? owner : request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by"); // a sub-session, the global session (MCP), else you
+            cluster::Json options = request;
+            if (from_sub && arg_(request, "target").empty() && !(request.contains("spawn") && request["spawn"].is_object())) options["target"] = owner; // for itself: after its turn
+            data = {{"id", manager.addTaskJson(options, by)}};
         } else if (cmd == "fanout") {
             data = manager.fanout(request);
         } else if (cmd == "group_status") {
@@ -776,11 +866,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "task_list") {
             data = cluster::Json::array();
             const bool all = request.value("archived", false); // the finished ones leave the list after a while (like the interfaces)
+            const std::string wanted = arg_(request, "status");
             for (const cluster::Task& t: manager.tasks()) {
-                if (t.archived && !all) continue;
-                data.push_back({{"id", t.id}, {"prompt", cluster::one_line(t.prompt, 200)}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session},
-                    {"group", t.group}, {"by", t.by}, {"reason", t.reason}, {"archived", t.archived}, {"created", t.created}, {"started", t.started}, {"ended", t.ended},
-                    {"label", t.label}, {"forced", t.forced}, {"error", t.status == "failed" ? t.reason : std::string()}});
+                if ((t.archived && !all) || !task_mine_(t, owner, from_sub) || (!wanted.empty() && t.status != wanted) || (!arg_(request, "id").empty() && t.id != arg_(request, "id"))) continue;
+                data.push_back(manager.taskJson(t));
             }
         } else if (cmd == "background") {
             if (from_web || from_global) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the core is kept in background by its interfaces only");
@@ -791,23 +880,32 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = {{"sent", sent}};
             if (!sent) data["note"] = "desktop notifications are off ([ui] notify)";
         } else if (cmd == "schedule_add") {
-            const std::string by = request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by");
-            data = {{"id", manager.addSchedule(arg_(request, "when"), arg_(request, "action", "prompt"), arg_(request, "session"), arg_(request, "text"),
-                request.value("every", 0), by)}};
+            const std::string by = from_sub ? owner : request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by");
+            cluster::Json options = request;
+            if (from_sub && (arg_(request, "action", "prompt") == "prompt" || arg_(request, "action") == "command")) options["session"] = owner; // wakes itself only
+            data = manager.addScheduleJson(options, by, request.value("dry_run", false));
         } else if (cmd == "schedule_list") {
             data = cluster::Json::array();
+            const bool all = request.value("archived", false);
             for (const cluster::Schedule& w: manager.schedules())
-                data.push_back({{"id", w.id}, {"at", cluster::clock_time(w.at)}, {"at_unix", w.at}, {"in_minutes", (w.at - cluster::now()) / 60}, {"every_minutes", w.every},
-                    {"action", w.action}, {"session", w.session}, {"text", cluster::one_line(w.text, 200)}, {"by", w.by}, {"status", w.status}, {"reason", w.reason},
-                    {"archived", w.archived}, {"runs", w.runs}, {"last", w.last}});
+                if ((all || !w.archived) && schedule_mine_(w, owner, from_sub) && (arg_(request, "id").empty() || w.id == arg_(request, "id"))) data.push_back(manager.scheduleJson(w));
+        } else if (cmd == "schedule_edit") {
+            ensure_schedule_(manager, arg_(request, "id"), owner, from_sub);
+            data = manager.scheduleEdit(arg_(request, "id"), request);
         } else if (cmd == "schedule_cancel") {
+            ensure_schedule_(manager, arg_(request, "id"), owner, from_sub);
             data = {{"done", manager.scheduleAct(arg_(request, "id"), "cancel", arg_(request, "reason"))}};
         } else if (cmd == "task_cancel") {
+            ensure_task_(manager, arg_(request, "id"), owner, from_sub);
             data = {{"done", manager.taskAct(arg_(request, "id"), "cancel", arg_(request, "reason"))}};
         } else if (cmd == "task_act") {
-            data = {{"done", manager.taskAct(arg_(request, "id"), arg_(request, "action"), arg_(request, "reason"))}};
+            ensure_task_(manager, arg_(request, "id"), owner, from_sub);
+            data = {{"done", arg_(request, "action") == "set" ? manager.taskSet(arg_(request, "id"), request) : manager.taskAct(arg_(request, "id"), arg_(request, "action"), arg_(request, "reason"))}};
         } else if (cmd == "schedule_act") {
-            data = {{"done", manager.scheduleAct(arg_(request, "id"), arg_(request, "action"), arg_(request, "reason"))}};
+            ensure_schedule_(manager, arg_(request, "id"), owner, from_sub);
+            data = {{"done", manager.scheduleAct(arg_(request, "id"), arg_(request, "action"), arg_(request, "action") == "snooze" && request.contains("minutes") ? arg_(request, "minutes") : arg_(request, "reason"))}};
+        } else if (cmd == "sub_tools") {
+            data = sub_tools_(manager.config());
         } else if (cmd == "todos") {
             // the todo list of each session (its TodoWrite now)
             data = cluster::Json::array();

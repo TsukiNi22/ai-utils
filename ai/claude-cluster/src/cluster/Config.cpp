@@ -200,6 +200,13 @@ _cold void cluster::Config::load(void)
     this->describeModel = table["sessions"]["describe_model"].value_or(this->describeModel);
     this->maxParallel = table["sessions"]["max_parallel"].value_or(this->maxParallel);
     this->taskQueue = table["sessions"]["task_queue"].value_or(this->taskQueue);
+    this->taskResultChars = std::clamp(table["sessions"]["task_result_chars"].value_or(this->taskResultChars), 200, 100000);
+    this->notifyTaskEach = table["ui"]["notify_task_each"].value_or(this->notifyTaskEach);
+    this->subRead = table["agent"]["sub_read"].value_or(this->subRead);
+    this->subTasks = table["agent"]["sub_tasks"].value_or(this->subTasks);
+    this->subSchedules = table["agent"]["sub_schedules"].value_or(this->subSchedules);
+    this->subSpawn = table["agent"]["sub_spawn"].value_or(this->subSpawn);
+    this->subSpawnCap = std::clamp(table["agent"]["sub_spawn_cap"].value_or(this->subSpawnCap), 0, 50);
     this->historyLimit = std::max(0, table["sessions"]["history_limit"].value_or(this->historyLimit));
     this->subPin = table["agent"]["sub_pin"].value_or(this->subPin);
     this->pinGlobal = table["agent"]["global_pin"].value_or(this->pinGlobal);

@@ -1151,6 +1151,8 @@ async function renderTasks() {
             row.append(el("span", "mark", mark), el("span", "id", t.id), el("span", "text", t.prompt),
                 el("span", "muted", "→ " + (t.session ? nameOf(t.session) : t.target || "any") + " · by " + who(t.by) + " · " + age));
             if (t.reason) row.append(el("div", "reason", "↳ " + t.reason));
+            if (t.traits) row.append(el("div", "muted", "· " + t.traits));
+            if (t.status === "done" && t.result) row.append(el("div", "muted", "= " + t.result.replace(/\s+/g, " ").slice(0, 160)));
             row.addEventListener("click", () => taskMenu(t, who(t.by)));
             keyed(row);
             view.append(row);
@@ -1188,11 +1190,13 @@ async function renderTasks() {
         for (const w of planned.slice(0, 12)) {
             const open = w.status === "waiting";
             const row = el("div", "task-row " + (open ? "queued" : w.status === "done" ? "done" : "cancelled"));
-            const when = open ? "in " + ago(w.at_unix - now) + " (" + w.at + ")" : w.status === "done" ? "run " + ago(now - w.last) + " ago" : "cancelled";
-            row.append(el("span", "mark", open ? "⏱" : w.status === "done" ? "✓" : "⊘"), el("span", "id", w.id), el("span", "text", w.text),
-                el("span", "muted", when + (w.every_minutes ? " · every " + ago(w.every_minutes * 60) : "") + " · " + (w.action === "notify" ? "a notification" : "→ " + nameOf(w.session))
-                + " · by " + who(w.by)));
+            const when = open ? "in " + ago(w.at_unix - now) + " (" + w.at + ")" : w.status === "paused" ? "paused" : w.status === "done" ? "run " + ago(now - w.last) + " ago" : "cancelled";
+            const target = {notify: "a notification", spawn: "a new session", task: "a task", command: "a command"}[w.action] || "→ " + nameOf(w.session);
+            row.append(el("span", "mark", open ? "⏱" : w.status === "paused" ? "⏸" : w.status === "done" ? "✓" : "⊘"), el("span", "id", w.id), el("span", "text", w.text),
+                el("span", "muted", when + (w.every_minutes ? " · every " + ago(w.every_minutes * 60) : "") + " · " + target + " · by " + who(w.by)));
             if (w.reason) row.append(el("div", "reason", "↳ " + w.reason));
+            if (w.rule) row.append(el("div", "muted", "· " + w.rule));
+            if (w.note && (w.runs || w.skipped)) row.append(el("div", "muted", "↻ " + w.note));
             row.addEventListener("click", () => schedMenu(w, who(w.by)));
             keyed(row);
             view.append(row);
@@ -1241,6 +1245,7 @@ function taskMenu(t, told) {
     const items = [];
     if (t.status === "queued") items.push({label: "Start it now (past the limit of parallel sessions)", run: () => taskDo("task", t.id, "force")});
     if (t.status === "queued" || t.status === "running") items.push({label: "Cancel it…", run: () => taskDo("task", t.id, "cancel", told)});
+    if (t.status === "failed" || t.status === "cancelled") items.push({label: "Run it again", run: () => taskDo("task", t.id, "retry")});
     if (t.session) items.push({label: "Open its session", run: () => select(t.session)});
     items.push({label: t.archived ? "Back in the list" : "Archive it", run: () => taskDo("task", t.id, t.archived ? "unarchive" : "archive")});
     items.push({label: "Delete it for good…", danger: true, run: () => taskDo("task", t.id, "delete", told)});
@@ -1266,7 +1271,22 @@ function jobMenu(j) {
 }
 function schedMenu(w, told) {
     const items = [];
-    if (w.status === "waiting") items.push({label: "Run it now", run: () => taskDo("sched", w.id, "trigger")}, {label: "Cancel it…", run: () => taskDo("sched", w.id, "cancel", told)});
+    if (w.status === "waiting") items.push({label: "Run it now", run: () => taskDo("sched", w.id, "trigger")}, {label: "Pause it", run: () => taskDo("sched", w.id, "pause")});
+    if (w.status === "paused") items.push({label: "Resume it", run: () => taskDo("sched", w.id, "resume")});
+    if (w.status === "waiting" || w.status === "paused") {
+        items.push({label: "Snooze it…", run: async () => {
+            const minutes = prompt("Push it back by how many minutes?", "30");
+            if (minutes !== null) { await act({cmd: "schedule_act", id: w.id, action: "snooze", minutes}); renderTasks(); }
+        }});
+        for (const [field, label, hint] of [["when", "Change its time…", "when: +30m, 18:00, 2026-11-02 09:00"], ["text", "Change its text…", "the new text"],
+            ["every", "Change its repeat…", "minutes between two (0: once)"], ["cron", "Change its cron…", "min hour day month weekday (empty: none)"]])
+            items.push({label, run: async () => {
+                const value = prompt(hint, "");
+                if (value !== null) { await act({cmd: "schedule_edit", id: w.id, [field]: value}); renderTasks(); }
+            }});
+    }
+    if (w.ack && w.ack.pending) items.push({label: "Acknowledge (stop asking)", run: () => taskDo("sched", w.id, "ack")});
+    if (w.status === "waiting" || w.status === "paused") items.push({label: "Cancel it…", run: () => taskDo("sched", w.id, "cancel", told)});
     items.push({label: w.archived ? "Back in the list" : "Archive it", run: () => taskDo("sched", w.id, w.archived ? "unarchive" : "archive")});
     items.push({label: "Delete it for good…", danger: true, run: () => taskDo("sched", w.id, "delete", told)});
     menuOf(w.id + " · " + w.text.slice(0, 60), items);

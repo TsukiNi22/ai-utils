@@ -200,6 +200,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.notifyWeb ? std::string("true") : std::string("false");}},
             {"ui", "notify_tasks", "The task queue done", SettingKind::Bool, {}, ">‿< one summary when every task is over", false,
                 [](const cluster::Config& cf) {return cf.notifyTasks ? std::string("true") : std::string("false");}},
+            {"ui", "notify_task_each", "Each task done", SettingKind::Bool, {}, "a notification at the end of each task (task_add notify: true asks it for one)", false,
+                [](const cluster::Config& cf) {return cf.notifyTaskEach ? std::string("true") : std::string("false");}},
             {"ui", "notify_reminders", "Reminders", SettingKind::Bool, {}, "•_• schedule add --notify, at its time", false,
                 [](const cluster::Config& cf) {return cf.notifyReminders ? std::string("true") : std::string("false");}},
             {"ui", "notify_ready", "Something slow is ready", SettingKind::Bool, {}, "^_^ claude-cluster started (its global session), the speech "
@@ -295,6 +297,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "limit", false, [](const cluster::Config& cf) {return std::to_string(cf.transcriptLimitMb);}},
             {"sessions", "task_queue", "Task queue", SettingKind::Int, {}, "tasks waiting for a free place, at most (a new one past it is refused)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.taskQueue);}},
+            {"sessions", "task_result_chars", "Task result size", SettingKind::Int, {}, "the answer kept in a task (its result, chained into the prompt of the "
+                "next one with {{tN.result}}): its first characters, at most", false, [](const cluster::Config& cf) {return std::to_string(cf.taskResultChars);}},
             {"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts", false,
                 [](const cluster::Config& cf) {return number_(cf.budget);}},
             {"sessions", "questions_to_global", "Questions on the global session", SettingKind::Bool, {}, "a question of the agent of a "

@@ -338,6 +338,12 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             const std::string target = arg.substr(0, colon);
             const std::string what = colon == std::string::npos ? "" : arg.substr(colon + 1);
             result.message = base == "task_act" ? manager.taskAct(target, what, cluster::trim(input)) : manager.scheduleAct(target, what, cluster::trim(input));
+        } else if (base == "sched_edit") {
+            const std::size_t colon = arg.rfind(':');
+            const std::string field = colon == std::string::npos ? "" : arg.substr(colon + 1);
+            const cluster::Json patch = {{field == "when" || field == "text" || field == "every" || field == "cron" ? field : "text", cluster::trim(input)}};
+            const cluster::Json done = manager.scheduleEdit(arg.substr(0, colon), patch);
+            result.message = "schedule " + arg.substr(0, colon) + " changed: next " + done.value("at", std::string("-"));
         } else if (base == "task_menu") {
             result.ui = "pick:task:" + arg;
         } else if (base == "sched_menu") {
@@ -1223,6 +1229,7 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
             const std::string told = "a reason (optional: told to " + who(t.by) + ")";
             if (t.status == "queued") out.push_back({"task_act:" + id + ":force", "Start " + id + " now (past the limit of parallel sessions)", "", "", false});
             if (t.status == "queued" || t.status == "running") out.push_back({"task_act:" + id + ":cancel", "Cancel " + id, told, "", false});
+            if (t.status == "failed" || t.status == "cancelled") out.push_back({"task_act:" + id + ":retry", "Run " + id + " again", "", "", false});
             if (!t.session.empty()) out.push_back({"focus:" + t.session, "Open its session (" + (manager.snapshot(t.session) ? manager.snapshot(t.session)->spec.name : t.session) + ")", "", "", false});
             out.push_back({"task_act:" + id + (t.archived ? ":unarchive" : ":archive"), t.archived ? "Back in the list" : "Archive " + id, "", "", false});
             out.push_back({"task_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});
@@ -1256,7 +1263,17 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
             if (w.id != id) continue;
             const std::string told = "a reason (optional: told to " + who(w.by) + ")";
             if (w.status == "waiting") out.push_back({"sched_act:" + id + ":trigger", "Run " + id + " now" + (w.every > 0 ? " (its next time kept)" : ""), "", "", false});
-            if (w.status == "waiting") out.push_back({"sched_act:" + id + ":cancel", "Cancel " + id, told, "", false});
+            if (w.status == "waiting") out.push_back({"sched_act:" + id + ":pause", "Pause " + id, "", "", false});
+            if (w.status == "paused") out.push_back({"sched_act:" + id + ":resume", "Resume " + id, "", "", false});
+            if (w.status == "waiting" || w.status == "paused") out.push_back({"sched_act:" + id + ":snooze", "Snooze " + id + " (push it back)", "minutes (default 30)", "", false});
+            if (w.ack && w.pending) out.push_back({"sched_act:" + id + ":ack", "Acknowledge " + id + " (stop asking)", "", "", false});
+            if (w.status == "waiting" || w.status == "paused") {
+                out.push_back({"sched_edit:" + id + ":when", "Change the time of " + id, "when: +30m, 18:00, 2026-11-02 09:00", "", false});
+                out.push_back({"sched_edit:" + id + ":text", "Change the text of " + id, "the new text", "", false});
+                out.push_back({"sched_edit:" + id + ":every", "Change the repeat of " + id, "minutes between two (0: once)", "", false});
+                out.push_back({"sched_edit:" + id + ":cron", "Change the cron of " + id, "min hour day month weekday (empty: none)", "", false});
+            }
+            if (w.status == "waiting" || w.status == "paused") out.push_back({"sched_act:" + id + ":cancel", "Cancel " + id, told, "", false});
             if (w.action == "prompt") out.push_back({"focus:" + w.session, "Open its session", "", "", false});
             out.push_back({"sched_act:" + id + (w.archived ? ":unarchive" : ":archive"), w.archived ? "Back in the list" : "Archive " + id, "", "", false});
             out.push_back({"sched_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});

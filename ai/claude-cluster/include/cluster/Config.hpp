@@ -290,6 +290,13 @@ class Config {
         std::string describeModel;              // the <provider>/<model> writing them (empty: the provider of the session, haiku for Anthropic)
         int maxParallel = 4;                    // the parallel sessions: sub-sessions working at the same time (the tasks wait past it)
         int taskQueue = 100;                    // the task queue: tasks waiting for a free place, at most
+        int taskResultChars = 6000;             // the answer kept in a task (its result), at most this many characters
+        bool notifyTaskEach = false;            // a notification at the end of each task (not only of the whole queue)
+        bool subRead = true;                    // the sub-sessions list their own tasks / schedules (MCP task_list, schedule_list)
+        bool subTasks = true;                   // ... queue tasks for themselves (MCP task_add)
+        bool subSchedules = false;              // ... create schedules (MCP schedule_add)
+        bool subSpawn = false;                  // ... queue tasks / schedules that start sessions
+        int subSpawnCap = 2;                    // the sessions of its tasks / schedules a sub-session may have open at once
         int historyLimit = 1000;                // the prompt history (↑, Ctrl+R): its newest prompts kept (0: all)
         bool subPin = true;                     // a sub-session may pin an item on itself
         bool pinGlobal = true;                  // the global session may pin an item on any session (MCP session_pin)

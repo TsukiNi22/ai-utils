@@ -132,6 +132,7 @@ _cold cluster::Manager::~Manager()
     this->shutdown();
     for (int i = 0; i < 100 && (this->_accountsBusy || this->_pluginsBusy); ++i) // the readings of the providers / the plugins end first
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (this->_bgThread.joinable()) this->_bgThread.join(); // the checks of the tasks / schedules end first
     this->_usageStop = true; // the threads of the usage (a scan, a read of the account) end before anything of this manager goes
     if (this->_scanThread.joinable()) this->_scanThread.join();
     if (this->_accountThread.joinable()) this->_accountThread.join();

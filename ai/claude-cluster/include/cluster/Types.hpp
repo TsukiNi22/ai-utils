@@ -214,6 +214,27 @@ struct SessionSpec {
     cluster::Json pin;              // the pinned item (null: none): {kind: display | message, id, title, by, at, role, text}
 };
 
+// What a task waits for besides its dependencies (task_add on_event): a session idle, a commit pushed, a command exiting 0, a file
+struct TaskEvent {
+    std::string type;               // "" none | session_idle | git_push | command | file
+    std::string arg;                // the session | the repository | the command | the file
+    std::string arg2;               // git_push: the branch (default: the current one); file: "changed" (its modification, not only its presence)
+    std::string base;               // what it was when the task was queued (the commit, the modification time)
+    std::int64_t checked = 0;       // last check (unix seconds)
+    bool met = false;
+};
+
+// A task that makes its own session (the options of session_spawn) instead of looking for a free one
+struct TaskSpawn {
+    std::string cwd;                // "" none
+    std::string name;
+    std::string backend;
+    std::string mode;
+    std::string effort;
+    std::string profile;
+    bool oneShot = false;           // its session closed to the trash (restorable) when the task is over
+};
+
 struct Task {
     std::string id;                 // t1, t2...
     std::string prompt;
@@ -232,6 +253,26 @@ struct Task {
     std::string reason;             // cancelled / deleted: why (told to the session that made it)
     bool archived = false;          // out of the list (its archive)
     bool forced = false;            // started without waiting for a free place
+    std::vector<std::string> afterSessions; // sessions that must be idle first
+    cluster::TaskEvent on;          // the event it waits for
+    cluster::TaskSpawn spawn;       // its own session
+    bool spawned = false;           // its session was made by it (counted in the cap of its author)
+    int priority = 0;               // higher first (default 0)
+    int timeout = 0;                // minutes of running, then stopped (0: none)
+    int retry = 0;                  // tried again this many times after an error
+    int retryDelay = 0;             // minutes before a new try
+    std::int64_t notBefore = 0;     // not before this time (a retry waiting)
+    int maxConcurrency = 0;         // at most this many tasks of its lane running (0: no limit)
+    std::string lane;               // the group the limit counts in ("" the default one)
+    double maxCost = 0.0;           // USD of its session while it runs, then stopped (0: none)
+    std::int64_t maxTokens = 0;     // tokens, same
+    double costBase = 0.0;          // the session at its start
+    std::int64_t tokensBase = 0;
+    std::string result;             // its answer kept (size capped), the {{tN.result}} of the next prompts
+    std::string expect;             // the output asked: compact | a file path
+    bool notify = false;            // a notification when it ends
+    bool quiet = false;             // its author is not told when it ends
+    std::string schedule;           // the schedule that queued it
 };
 
 // A request of the global session on several sessions / projects: its tasks, how long it waits for them, their merge
@@ -253,20 +294,56 @@ struct Group {
     std::int64_t created = 0;
 };
 
-// Something to do at a time: a prompt to a session (the global one by default) or a notification, repeated or not
+// A run of a schedule (its history)
+struct ScheduleRun {
+    std::int64_t at = 0;
+    std::string note;               // what it did, or why it was skipped
+};
+
+// What a schedule checks before it runs (all that are set must hold; not met: the run is skipped)
+struct ScheduleIf {
+    std::string sessionIdle;        // a session (id / name) idle
+    std::string command;            // a shell command exiting 0
+    std::string fileChanged;        // a file modified since the last run (or since it was made)
+    std::int64_t fileBase = 0;      // its modification time then
+    std::string usage;              // "5h>80", "7d<30": a limit window used above / below a percent
+};
+
+// Something to do at a time: a prompt to a session (the global one by default), a notification, a session, a task or a command
+// without any model; once or repeated (every N minutes, a cron expression), inside its days / windows, under conditions
 struct Schedule {
     std::string id;                 // w1, w2...
     std::int64_t at = 0;            // next time (unix seconds)
     int every = 0;                  // minutes between two (0: once)
-    std::string action = "prompt";  // prompt | notify
+    std::string action = "prompt";  // prompt | notify | spawn | task | command
     std::string session = "g";
     std::string text;
     std::string by;                 // who made it: a session (g: the global one), empty: you
-    std::string status = "waiting"; // waiting | done (once, it ran) | cancelled
-    std::string reason;             // cancelled: why
+    std::string status = "waiting"; // waiting | paused | done (ended) | cancelled
+    std::string reason;             // cancelled / ended: why
     bool archived = false;
     int runs = 0;                   // times it ran
     std::int64_t last = 0;          // its last run
+    std::string cron;               // "min hour day month weekday" (instead of every)
+    std::string days;               // "mon-fri": only these days
+    std::string window;             // "09:00-18:00": only inside
+    std::string quiet;              // "22:00-07:00": never inside
+    std::string tz;                 // the zone of the above ("" this computer's)
+    std::int64_t until = 0;         // ended after this time (0: none)
+    int maxRuns = 0;                // ended after this many runs (0: none)
+    std::string reset;              // "5h" | "7d": at each reset of this limit window (instead of when / every)
+    cluster::ScheduleIf cond;
+    cluster::Json options = cluster::Json::object();    // spawn / task: the options of the session / of the task; command: {command, output: prompt | notify, cwd}
+    bool ack = false;               // asked again until acknowledged (schedule_act ack)
+    int nag = 10;                   // minutes between two asks
+    int skipped = 0;                // runs skipped (outside a window, a condition not met)
+    std::string note;               // what its last pass did (ran, skipped and why)
+    std::vector<cluster::ScheduleRun> history;      // its last runs (10)
+    bool pending = false;           // ack: ran, asked again until acknowledged
+    int asks = 0;                   // ack: times asked in this round
+    bool polling = false;           // reset: waiting for the new reset time (the usage not read yet)
+    bool busy = false;              // being run (not kept)
+    bool now = false;               // run now asked (not kept)
 };
 
 // What failed of what the user did (a request, a command, a prompt): its popup, OK / Retry

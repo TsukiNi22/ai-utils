@@ -148,6 +148,9 @@ class Manager {
         std::vector<cluster::Group> _groups;            // the requests of the global session on several sessions (this run)
         int _nextGroup = 1;
         std::vector<cluster::Schedule> _schedules;      // things to do at a time (kept in the state)
+        std::thread _bgThread;                          // the checks of the tasks' events and the schedules due (commands, git): off the tick
+        std::atomic<bool> _bgBusy{false};
+        std::int64_t _bgPoll = 0;                       // the last pass over the events of the tasks
         int _nextSchedule = 1;
         std::deque<cluster::Notice> _notices;
         std::map<std::string, std::string> _ui;         // layout / style chosen live (state.json)
@@ -250,6 +253,16 @@ class Manager {
         _cold void writeMcpConfig_(void) const;
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
         _cold void schedule_(void);                         // Manager-Tasks.cpp
+        _cold void enforceTasks_(void);                     // the running tasks: past their timeout / budget stopped
+        _cold void bgPass_(const std::vector<std::string>& due);   // Manager-Schedules.cpp, in a thread: the events, the schedules due
+        _cold void runSchedule_(const std::string& id);             // one schedule due: its conditions, its action, its next time
+        _cold void applySchedule_(cluster::Schedule& w, const cluster::Json& options, const bool creating, const std::int64_t now);   // its fields set (an error: why)
+        _cold void pollEvents_(void);                               // the events of the queued tasks (command, git, file)
+        _cold _nodiscard std::string execute_(const cluster::Schedule& w);   // its action done; what it did
+        _cold _nodiscard bool conditionMet_(const cluster::ScheduleIf& cond, std::string& why);
+        _cold void advance_(cluster::Schedule& w, const std::int64_t now, const bool fired);    // its next time (or its end), under the lock
+        _cold _nodiscard std::int64_t resetAt_(const std::string& window) const;   // the next reset of the 5h / 7d limit (0: unknown; the lock held)
+        _cold _nodiscard std::size_t spawnedBy_(const std::string& by) const;      // the sessions of its tasks waiting or open (the lock held)
         _cold void pluginsSync_(void);                      // [plugins] changed: listed / installed (a thread)
         _cold void upgradeCheck_(void);                     // the binary on disk newer: offered (Manager-Upgrade.cpp)
         _cold void taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text);
@@ -362,13 +375,21 @@ class Manager {
 
         /* tasks (Manager-Tasks.cpp) */
         _cold _nodiscard std::string addTask(const std::string& prompt, const std::string& target, const std::vector<std::string>& after, const std::string& by = "");
+        // task_add with every option (after_sessions, on_event, spawn, priority, timeout, retry, budget, expect...), a session (by) capped
+        _cold _nodiscard std::string addTaskJson(const cluster::Json& options, const std::string& by = "");
+        // schedule_add with every option; dry: nothing made, only when it would fire; returns {id, next, next_runs}
+        _cold _nodiscard cluster::Json addScheduleJson(const cluster::Json& options, const std::string& by = "", const bool dry = false);
+        _cold _nodiscard cluster::Json scheduleEdit(const std::string& id, const cluster::Json& patch);   // when, text, every, cron, days, window... changed
+        _cold _nodiscard std::string taskSet(const std::string& id, const cluster::Json& patch);          // priority, timeout, retry... of a task not ended
+        _cold _nodiscard cluster::Json taskJson(const cluster::Task& task) const;           // for a model (task_list)
+        _cold _nodiscard cluster::Json scheduleJson(const cluster::Schedule& w) const;      // for a model: its rules, next times, last runs (schedule_list)
         _cold _nodiscard std::string addSchedule(const std::string& when, const std::string& action, const std::string& session, const std::string& text, const int every, const std::string& by = "");
         _cold _nodiscard std::vector<cluster::Schedule> schedules(void) const;
         _cold void cancelSchedule(const std::string& id);
         _cold void cancelTask(const std::string& id);
-        // cancel | delete | archive | unarchive | force (started now); a reason: told to the session that made it
+        // cancel | delete | archive | unarchive | force (started now) | retry (a failed one again); a reason: told to the session that made it
         _cold _nodiscard std::string taskAct(const std::string& id, const std::string& action, const std::string& reason = "");
-        // cancel | delete | archive | unarchive | trigger (run now)
+        // cancel | delete | archive | unarchive | trigger / run (now) | pause | resume | snooze (reason: minutes) | ack
         _cold _nodiscard std::string scheduleAct(const std::string& id, const std::string& action, const std::string& reason = "");
         _cold void dropFor_(const std::string& session, const bool gone, const std::string& name = ""); // its tasks / schedules: cancelled (closed) or removed
         _cold void tell_(const std::string& by, const std::string& text);    // a session told (a prompt), else a notice

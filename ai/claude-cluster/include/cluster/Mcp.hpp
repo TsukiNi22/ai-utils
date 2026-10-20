@@ -26,6 +26,7 @@ namespace cluster { // namespace start
 /* FUNCTION */
 
 _cold _nodiscard cluster::Json mcp_tools(void);                             // tools/list
+_cold _nodiscard cluster::Json mcp_sub_tools(const std::string& session);                  // tools/list of a sub-session (CLAUDE_CLUSTER_SESSION): its own tasks / schedules
 _cold _nodiscard cluster::Json mcp_call(const std::string& name, const cluster::Json& arguments);   // tools/call -> control request
 _cold int mcp_serve(void);
 // the custom servers of [mcp] servers as entries of an mcpServers object ("name: command args" -> stdio, "name: https://..." -> http)

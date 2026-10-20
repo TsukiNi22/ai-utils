@@ -23,6 +23,7 @@ notify_error = true        # an error, a crash, the safety check
 notify_limits = true       # a limit close (80 / 95 %) or reached
 notify_web = true          # a device asks to connect / connected (web access)
 notify_tasks = true        # the task queue done
+notify_task_each = false   # each task done (task_add notify: true: that one)
 notify_reminders = true    # a reminder (schedule add --notify)
 notify_app = true          # the same notifications published to the Android app (each phone opts in, its kinds in This device)
 notify_ready = true        # something slow ready: claude-cluster started, the speech model loaded, the map written
@@ -93,6 +94,7 @@ remote_name = "claude-cluster"                  # name of the Remote Control ses
 [sessions]
 trash_days = 14            # a closed session stays restorable this many days
 max_parallel = 4           # task queue: sessions working at the same time
+task_result_chars = 6000   # the answer kept in a task (its result, chained with {{tN.result}}): its first characters
 budget_usd = 0.0           # 0 = no budget; reached: the session refuses new prompts (notified)
 questions_to_global = true # a question of the agent of a sub-session shown on the global session (its own one greyed);
                            # answered with the keys, the mouse or the voice

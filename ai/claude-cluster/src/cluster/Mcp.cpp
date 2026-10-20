@@ -33,6 +33,26 @@ _cold static cluster::Json str_(const std::string& description)
     return {{"type", "string"}, {"description", description}};
 }
 
+_cold static cluster::Json int_(const std::string& description)
+{
+    return {{"type", "integer"}, {"description", description}};
+}
+
+_cold static cluster::Json bool_(const std::string& description)
+{
+    return {{"type", "boolean"}, {"description", description}};
+}
+
+_cold static cluster::Json obj_(const std::string& description)
+{
+    return {{"type", "object"}, {"description", description}};
+}
+
+_cold static cluster::Json strs_(const std::string& description)
+{
+    return {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", description}};
+}
+
 /* mcp */
 _cold cluster::Json cluster::mcp_tools(void)
 {
@@ -113,11 +133,21 @@ _cold cluster::Json cluster::mcp_tools(void)
              {"add_tags", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "tags to add"}}},
              {"remove_tags", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "tags to remove"}}}}, {"session"}),
         tool_("session_cd", "Move a session to another project folder (a new conversation there, same name).", {{"session", session}, {"cwd", str_("folder")}}, {"session", "cwd"}),
-        tool_("task_add", "Queue a task: given to a free session (target = session id / name, a project folder, or empty for any idle session), after its dependencies.",
-            {{"prompt", str_("the task")}, {"target", str_("session or folder (optional)")}, {"after", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "ids of tasks to finish first"}}}},
-            {"prompt"}),
-        tool_("task_list", "Tasks of the queue and their status (a failed one: its reason in \"error\"; the finished ones are archived after 30 minutes: archived: true lists them too).",
-            {{"archived", {{"type", "boolean"}, {"description", "also the archived tasks (default false)"}}}}, {}),
+        tool_("task_add", "Queue a task for a free session (target = session id / name, a project folder, or empty: any idle one). Runs when its triggers are met "
+            "(after: task ids; after_sessions: sessions idle; on_event) and a place is free (max_parallel). The result (its answer, capped) stays in task_list; "
+            "\"{{t3.result}}\" in a prompt is replaced by the result of t3 (a chain: t3 runs first). A task is cheaper than a session: no new context.",
+            {{"prompt", str_("the task")}, {"target", str_("session or folder (optional)")}, {"after", strs_("task ids to finish first")},
+             {"after_sessions", strs_("sessions (id / name) that must be idle first")},
+             {"on_event", obj_("wait for {type: session_idle (session) | git_push (repo, branch: a commit pushed) | command (command: exits 0) | file (path, changed: true = modified, not only present)}")},
+             {"spawn", obj_("its own session instead of looking for one: {cwd, name, backend, mode, effort, profile, one_shot (closed to the trash after it)}")},
+             {"priority", int_("higher first (default 0)")}, {"timeout_minutes", int_("stopped when running longer")},
+             {"retry", int_("tried again this many times after an error")}, {"retry_delay_minutes", int_("wait before a new try")},
+             {"max_concurrency", int_("at most this many tasks of its lane running")}, {"lane", str_("the group max_concurrency counts in")},
+             {"max_cost", {{"type", "number"}, {"description", "stopped when its session costs more (USD)"}}}, {"max_tokens", int_("stopped past this many tokens")},
+             {"expect", str_("output asked: compact, or a file path it writes (the result is then the file)")}, {"notify", bool_("a desktop notification at its end")},
+             {"reply", bool_("its end told to you as a message (default true)")}}, {"prompt"}),
+        tool_("task_list", "Tasks of the queue and their status, result, retries (a failed one: its reason in \"error\"; the finished ones are archived after 30 minutes: archived: true lists them too).",
+            {{"archived", bool_("also the archived tasks (default false)")}, {"status", str_("only this status: queued | running | done | failed | cancelled")}, {"id", str_("one task")}}, {}),
         tool_("session_fanout", "A request on several sessions / projects at once (a group): a task each, sent as many at once as the parallel sessions "
             "allow (the others wait in the task queue); you are woken ONCE with their answers as [group fN ...] to merge them - end your turn after it, "
             "never poll. tasks: [{session or cwd, prompt (else the common prompt), after: [indexes of tasks of this group it builds on: their answers "
@@ -134,14 +164,32 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("group_status", "The progress of a group (its tasks, their state and answers so far); none: every group of this run.", {{"group", str_("fN")}}, {}),
         tool_("group_cancel", "Stop a group: its tasks not started are cancelled, the running ones interrupted when interrupt is true.",
             {{"group", str_("fN")}, {"interrupt", {{"type", "boolean"}}}}, {"group"}),
-        tool_("task_act", "Act on a task of the queue: cancel | delete | archive | unarchive | force (started now, past the limit of parallel sessions).",
-            {{"id", str_("task id (task_list)")}, {"action", str_("cancel | delete | archive | unarchive | force")}, {"reason", str_("why (optional)")}}, {"id", "action"}),
-        tool_("schedule_add", "Do something at a time, while claude-cluster runs: a prompt to a session (you by default: a wake up / a reminder you get as "
-            "\"[scheduled wN] text\") or a desktop notification; repeated every N minutes or once.",
-            {{"when", str_("+30m, +2h, +1d, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM")}, {"text", str_("the prompt / the notification")},
-             {"action", str_("prompt (default) | notify")}, {"session", str_("the session of the prompt (default: g, you)")},
-             {"every", {{"type", "integer"}, {"description", "minutes between two (0 / missing: once)"}}}}, {"when", "text"}),
-        tool_("schedule_list", "The things scheduled: id, time, repeat, action, session, text.", nullptr, {}),
+        tool_("task_act", "Act on a task: cancel | delete | archive | unarchive | force (started now, past the limit of parallel sessions) | retry (a failed one again) | "
+            "set (change priority, timeout_minutes, retry, max_cost, max_tokens, notify, prompt of one not ended).",
+            {{"id", str_("task id (task_list)")}, {"action", str_("cancel | delete | archive | unarchive | force | retry | set")}, {"reason", str_("why (optional)")},
+             {"priority", int_("set")}, {"timeout_minutes", int_("set")}, {"retry", int_("set")}, {"max_cost", {{"type", "number"}}}, {"max_tokens", int_("set")}, {"notify", bool_("set")}}, {"id", "action"}),
+        tool_("schedule_add", "Do something at a time or on a rule, while claude-cluster runs. action: prompt (default: to session, you by default - a wake up / reminder "
+            "\"[scheduled wN] text\") | notify (desktop) | spawn (a session, options.cwd, text = its prompt) | task (queue a task with options) | command "
+            "(options.command run locally, NO model: only its output, when not empty, is sent to session / notified - 0 token). When: when (+30m, HH:MM, YYYY-MM-DD HH:MM) "
+            "once, every (minutes), cron (\"min hour day month weekday\"), reset (5h | 7d: at each reset of that limit window); limited by days (mon-fri), window "
+            "(\"09:00-18:00\"), quiet (\"22:00-07:00\"), tz (Europe/Paris), until, max_runs. Condition if: {session_idle, command (exits 0), file_changed, usage: \"5h>80\" | \"7d<30\"}; "
+            "not met: that run is skipped. ack: asked again every nag minutes until schedule_act ack. dry_run: only shows when it would fire.",
+            {{"when", str_("+30m, +2h, +1d, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM (in tz)")}, {"text", str_("the prompt / the notification / the task")},
+             {"action", str_("prompt (default) | notify | spawn | task | command")}, {"session", str_("the session of a prompt / of the output (default: g, you)")},
+             {"every", int_("minutes between two (0 / missing: once)")}, {"cron", str_("min hour day-of-month month weekday: */15 9-17 * * mon-fri")},
+             {"days", str_("only these days: mon-fri, mon,wed, weekdays, weekend")}, {"window", str_("only inside: HH:MM-HH:MM[,HH:MM-HH:MM]")}, {"quiet", str_("never inside: HH:MM-HH:MM")},
+             {"tz", str_("timezone of the above (default: this computer's)")}, {"until", str_("ended after this time (when's formats)")}, {"max_runs", int_("ended after this many runs")},
+             {"reset", str_("5h | 7d")}, {"ack", bool_("asked again until acknowledged")}, {"nag", int_("minutes between asks (default 10)")},
+             {"if", obj_("{session_idle, command, file_changed, usage}")},
+             {"options", obj_("spawn: {cwd, name, backend, mode, effort, profile, one_shot}; task: the options of task_add (target, priority, retry...); command: {command, output: prompt | notify, cwd, timeout_seconds}")},
+             {"dry_run", bool_("nothing made: the next times it would fire")}}, {"text"}),
+        tool_("schedule_list", "The schedules: id, status, next time and the next ones, rules, conditions, runs, skipped, last runs (history), note.",
+            {{"archived", bool_("also the archived")}, {"id", str_("one schedule")}}, {}),
+        tool_("schedule_edit", "Change a schedule not ended: any field of schedule_add (when, text, every, cron, days, window, quiet, tz, until, max_runs, if, options...), pause: true / false.",
+            {{"id", str_("schedule id (w1...)")}, {"when", str_("a new time")}, {"text", str_("")}, {"every", int_("minutes")}, {"cron", str_("")}, {"days", str_("")}, {"window", str_("")}, {"quiet", str_("")},
+             {"tz", str_("")}, {"until", str_("")}, {"max_runs", int_("")}, {"pause", bool_("paused / resumed")}, {"if", obj_("")}, {"options", obj_("")}}, {"id"}),
+        tool_("schedule_act", "Act on a schedule: pause | resume | snooze (minutes: pushed back, default 30) | ack (stops the asks of an ack reminder) | trigger (run now, its conditions skipped) | cancel | delete | archive | unarchive.",
+            {{"id", str_("schedule id")}, {"action", str_("pause | resume | snooze | ack | trigger | cancel | delete | archive | unarchive")}, {"minutes", int_("snooze")}, {"reason", str_("why (optional)")}}, {"id", "action"}),
         tool_("notify", "A desktop notification to the user now (something done, something needing them); off when the user turned them off.",
             {{"text", str_("the message")}, {"title", str_("its title (default: claude-cluster)")}, {"urgent", {{"type", "boolean"}, {"description", "stays on screen"}}}}, {"text"}),
         tool_("schedule_cancel", "Cancel a schedule.", {{"id", str_("schedule id (w1...)")}}, {"id"}),
@@ -214,13 +262,49 @@ _cold cluster::Json cluster::mcp_tools(void)
     return tools;
 }
 
+_cold cluster::Json cluster::mcp_sub_tools(const std::string& session)
+{
+    // the tools of a sub-session: the ones the settings open to it, lighter (no local command, nothing it cannot use)
+    cluster::Json allowed = cluster::Json::object();
+    try {
+        allowed = cluster::Control::request({{"cmd", "sub_tools"}, {"origin", "sub"}, {"owner", session}}).value("data", cluster::Json::object());
+    } catch (const utils::exception::IException&) {
+        return cluster::Json::array(); // claude-cluster not reached: nothing
+    }
+    const cluster::Json names = allowed.value("tools", cluster::Json::array());
+    const bool spawn = allowed.value("spawn", false);
+    cluster::Json out = cluster::Json::array();
+    for (cluster::Json tool: mcp_tools()) {
+        const std::string name = tool.value("name", std::string());
+        if (std::find(names.begin(), names.end(), name) == names.end()) continue;
+        cluster::Json& properties = tool["inputSchema"]["properties"];
+        if (name == "task_add") {
+            tool["description"] = "Queue a task for yourself: it runs after your turn (or when its triggers are met: after task ids, after_sessions idle, on_event session_idle / git_push / file) and its "
+                "result comes back to you as a message. \"{{t3.result}}\" in a prompt is replaced by the result of t3. Cheaper than a new session: use it for a follow-up, a retry, "
+                "something to do later; keep prompts short.";
+            for (const char* key: {"target", "lane", "max_concurrency", "notify"})
+                properties.erase(key);
+            if (!spawn) properties.erase("spawn");
+        } else if (name == "schedule_add" || name == "schedule_edit") {
+            for (const char* key: {"session", "dry_run"})
+                properties.erase(key);
+            if (!spawn) properties.erase("options");
+            if (name == "schedule_add") tool["description"] = "Wake yourself up (a prompt \"[scheduled wN] text\") or notify the user at a time or on a rule: when (+30m, HH:MM), every (minutes), cron, "
+                "days / window / quiet / tz, until, max_runs, if {session_idle, file_changed, usage: \"5h>80\"}; ack: asked again until schedule_act ack. action: prompt (default) | notify"
+                + std::string(spawn ? " | spawn | task (options)" : " | task") + ". Every wake-up costs tokens: few, spaced.";
+        }
+        out.push_back(tool);
+    }
+    return out;
+}
+
 _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Json& arguments)
 {
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"work_method", "work_method"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
-        {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
+        {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_edit", "schedule_edit"}, {"schedule_act", "schedule_act"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
         {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"session_pin", "pin"}, {"session_unpin", "unpin"}, {"session_pin_get", "pin_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
         {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
@@ -234,6 +318,10 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     request["cmd"] = orchestrator.empty() ? it->second : orchestrator;
     request["origin"] = "mcp"; // the global session: the limits the user set for it
     request["tool"] = name;    // off in the settings (MCP page): refused
+    if (const char* sub = std::getenv("CLAUDE_CLUSTER_SESSION"); sub != nullptr && *sub != '\0') {
+        request["origin"] = "sub"; // the MCP of a sub-session: its own tasks / schedules only (the core checks it)
+        request["owner"] = sub;
+    }
     if (name == "session_list") request["global"] = false; // the global session lists the others
     if (name == "session_send" && !request.contains("text")) { // the model names it like the prompt of session_spawn: never sent empty
         for (const char* alias: {"prompt", "message", "content"})
@@ -340,6 +428,8 @@ _cold int cluster::mcp_serve(void)
                 {"serverInfo", {{"name", "claude-cluster"}, {"version", CLUSTER_VERSION}}},
                 {"instructions", "Tools of claude-cluster: manage the other Claude Code / agent sessions of the user (list, spawn, send, permissions, modes, tasks), its interface (session shown, layout, style, panels), its settings and the Remote Control of the global session."},
             };
+        } else if (method == "tools/list" && std::getenv("CLAUDE_CLUSTER_SESSION") != nullptr && *std::getenv("CLAUDE_CLUSTER_SESSION") != '\0') {
+            response["result"] = {{"tools", cluster::mcp_sub_tools(std::getenv("CLAUDE_CLUSTER_SESSION"))}};
         } else if (method == "tools/list") {
             // the ones off in the settings (MCP page) left out
             cluster::Json tools = cluster::mcp_tools();

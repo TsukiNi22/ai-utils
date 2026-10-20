@@ -166,6 +166,17 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("linger", {"", "", "linger", ""}, {}, "serve: the core of the interfaces (started by them): it stops when the last one closes");
     this->_parser.setFlag("every", {"", "", "every", ""}, {{"minutes", true, any}}, "schedule add: repeated every N minutes");
     this->_parser.setFlag("notify", {"", "", "notify", ""}, {}, "schedule add: a desktop notification (not a prompt)");
+    this->_parser.setFlag("cron", {"", "", "cron", ""}, {{"expr", true, any}}, "schedule add: a cron expression (\"*/15 9-17 * * mon-fri\")");
+    this->_parser.setFlag("days", {"", "", "days", ""}, {{"mon-fri", true, any}}, "schedule add: only these days");
+    this->_parser.setFlag("window", {"", "", "window", ""}, {{"09:00-18:00", true, any}}, "schedule add: only inside these hours");
+    this->_parser.setFlag("quiet", {"", "", "quiet", ""}, {{"22:00-07:00", true, any}}, "schedule add: never inside these hours");
+    this->_parser.setFlag("tz", {"", "", "tz", ""}, {{"zone", true, any}}, "schedule add: the timezone of the above (Europe/Paris)");
+    this->_parser.setFlag("until", {"", "", "until", ""}, {{"when", true, any}}, "schedule add: ended after this time");
+    this->_parser.setFlag("max-runs", {"", "", "max-runs", ""}, {{"n", true, any}}, "schedule add: ended after N runs");
+    this->_parser.setFlag("dry-run", {"", "", "dry-run", ""}, {}, "schedule add: only show when it would fire");
+    this->_parser.setFlag("priority", {"", "", "priority", ""}, {{"n", true, any}}, "task add: higher first");
+    this->_parser.setFlag("retry", {"", "", "retry", ""}, {{"n", true, any}}, "task add: tried again N times after an error");
+    this->_parser.setFlag("timeout", {"", "", "timeout", ""}, {{"minutes", true, any}}, "task add: stopped when running longer");
 
     /* headless */
     this->_parser.setFlag("name", {"n", "", "name", ""}, {{"name", true, any}}, "spawn: name of the session");
@@ -573,17 +584,34 @@ _cold int cluster::Core::headless_(void)
         const std::string sub = word(1, "add|list|cancel");
         shown = "schedule_" + sub;
         request["cmd"] = shown;
-        if (sub == "add") request.update({{"when", word(2, "when")}, {"text", rest(3)}, {"session", value("target")},
-            {"action", this->_options.values.contains("notify") ? "notify" : "prompt"}, {"every", value("every").empty() ? 0 : std::stoi(value("every"))}});
-        else if (sub == "cancel") request["id"] = word(2, "schedule id");
-        else if (sub != "list") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "schedule " + sub + ": add | list | cancel");
+        if (sub == "add") {
+            request.update({{"when", word(2, "when")}, {"text", rest(3)}, {"session", value("target")},
+                {"action", this->_options.values.contains("notify") ? "notify" : "prompt"}, {"every", value("every").empty() ? 0 : std::stoi(value("every"))}});
+            for (const auto &[flag, key]: std::map<std::string, std::string>{{"cron", "cron"}, {"days", "days"}, {"window", "window"}, {"quiet", "quiet"}, {"tz", "tz"}, {"until", "until"}, {"max-runs", "max_runs"}})
+                if (!value(flag).empty()) request[key] = value(flag);
+            if (this->_options.values.contains("dry-run")) request["dry_run"] = true;
+        } else if (sub == "cancel") {
+            request["id"] = word(2, "schedule id");
+        } else if (sub == "pause" || sub == "resume" || sub == "run" || sub == "ack") {
+            request.update({{"cmd", "schedule_act"}, {"id", word(2, "schedule id")}, {"action", sub == "run" ? "trigger" : sub}});
+        } else if (sub != "list") {
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "schedule " + sub + ": add | list | cancel | pause | resume | run | ack");
+        }
     } else if (cmd == "task") {
         const std::string sub = word(1, "add|list|cancel");
         shown = "task_" + sub;
         request["cmd"] = shown;
-        if (sub == "add") request.update({{"prompt", rest(2)}, {"target", value("target")}, {"after", cluster::split(value("after"), ',')}});
-        else if (sub == "cancel") request["id"] = word(2, "task id");
-        else if (sub != "list") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "task " + sub + ": add | list | cancel");
+        if (sub == "add") {
+            request.update({{"prompt", rest(2)}, {"target", value("target")}, {"after", cluster::split(value("after"), ',')}});
+            for (const char* key: {"priority", "retry", "timeout"})
+                if (!value(key).empty()) request[std::string(key) == "timeout" ? "timeout_minutes" : key] = value(key);
+        } else if (sub == "cancel") {
+            request["id"] = word(2, "task id");
+        } else if (sub == "retry" || sub == "force") {
+            request.update({{"cmd", "task_act"}, {"id", word(2, "task id")}, {"action", sub}});
+        } else if (sub != "list") {
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "task " + sub + ": add | list | cancel | retry | force");
+        }
     } else {
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown command '" + cmd + "' (claude-cluster --help)");
     }
@@ -689,9 +717,9 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         if (data.empty() && !rtk) std::cout << "no session" << "\n";
     } else if (cmd == "schedule_list") {
         for (const cluster::Json& w: data)
-            std::cout << w.value("id", "") << (rtk ? "|" : "  ") << w.value("at", "") << (rtk ? "|" : "  ") << w.value("action", "")
+            std::cout << w.value("id", "") << (rtk ? "|" : "  ") << w.value("status", "") << (rtk ? "|" : "  ") << w.value("at", "") << (rtk ? "|" : "  ") << w.value("action", "")
                 << (rtk ? "|" : " ") << w.value("session", "") << (w.value("every_minutes", 0) > 0 ? (rtk ? "|every " : "  every ") + std::to_string(w.value("every_minutes", 0)) + " min" : "")
-                << (rtk ? "|" : "  ") << w.value("text", "") << "\n";
+                << (rtk ? "|" : "  ") << w.value("text", "") << (w.value("rule", std::string()).empty() ? "" : (rtk ? "|" : "  (") + w.value("rule", std::string()) + (rtk ? "" : ")")) << "\n";
         if (data.empty() && !rtk) std::cout << "nothing scheduled" << "\n";
     } else if (cmd == "task_list") {
         for (const cluster::Json& t: data)

@@ -21,6 +21,7 @@ File Description:
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
 #include "cluster/Plugins.hpp"
+#include "cluster/Cron.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
@@ -3296,6 +3297,8 @@ class TtyUi {
                     ftxui::text("  → " + cluster::one_line(where, 16)) | ftxui::color(t.muted), ftxui::text("  by " + who(task.by)) | ftxui::color(t.muted) | ftxui::dim,
                     ftxui::text("  " + age + " ") | ftxui::color(t.muted) | ftxui::dim}), [this, id]() {this->pick_("task:" + id);}));
                 if (!task.reason.empty()) out.push_back(ftxui::text("       ↳ " + cluster::one_line(task.reason, static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
+                if (const std::string traits = cluster::task_traits(task); !traits.empty()) out.push_back(ftxui::text("       · " + cluster::one_line(traits, static_cast<std::size_t>(room - 10))) | ftxui::color(t.muted) | ftxui::dim);
+                if (task.status == "done" && !task.result.empty() && i < 4) out.push_back(ftxui::text("       = " + cluster::one_line(task.result, static_cast<std::size_t>(room - 10))) | ftxui::color(t.muted) | ftxui::dim);
             }
             if (shown.size() > 10) out.push_back(ftxui::text("     … +" + std::to_string(shown.size() - 10) + " more") | ftxui::color(t.muted) | ftxui::dim);
             // the heavy jobs of the resource orchestrator: the gauges of the computer, what runs, waits, is stopped (a click: kill / stop / resume / priority)
@@ -3358,14 +3361,16 @@ class TtyUi {
             for (std::size_t i = 0; i < planned.size() && i < 10; ++i) {
                 const cluster::Schedule& w = planned[i];
                 const bool open = w.status == "waiting";
-                const std::string when = open ? "in " + span(w.at - now) + " (" + cluster::clock_time(w.at) + ")" : w.status == "done" ? "run " + span(now - w.last) + " ago" : "cancelled";
-                const std::string where = w.action == "notify" ? "a notification" : "→ " + (w.session == GLOBAL_ID ? std::string("global") : (this->_manager.snapshot(w.session) ? this->_manager.snapshot(w.session)->spec.name : w.session));
+                const std::string when = open ? "in " + span(w.at - now) + " (" + cluster::clock_time(w.at) + ")" : w.status == "paused" ? "paused" : w.status == "done" ? "run " + span(now - w.last) + " ago" : "cancelled";
+                const std::string where = w.action == "notify" ? "a notification" : w.action == "spawn" ? "a new session" : w.action == "task" ? "a task" : w.action == "command" ? "a command" : "→ " + (w.session == GLOBAL_ID ? std::string("global") : (this->_manager.snapshot(w.session) ? this->_manager.snapshot(w.session)->spec.name : w.session));
                 const std::string id = w.id;
                 out.push_back(item(2, ftxui::hbox({ftxui::text(open ? "  ⏱ " : w.status == "done" ? "  ✓ " : "  ⊘ ") | ftxui::color(open ? t.accent : w.status == "done" ? t.muted : t.warn) | ftxui::bold,
                     ftxui::text(w.id + "  ") | ftxui::color(t.muted), ftxui::text(when + (w.every > 0 ? " · every " + span(static_cast<std::int64_t>(w.every) * 60) : "") + "  ") | ftxui::color(open ? t.text : t.muted),
                     ftxui::text(cluster::one_line(w.text, static_cast<std::size_t>(std::max(20, room - 70)))) | ftxui::color(open ? t.text : t.muted), ftxui::filler(),
                     ftxui::text("  " + where) | ftxui::color(t.muted), ftxui::text("  by " + who(w.by) + " ") | ftxui::color(t.muted) | ftxui::dim}), [this, id]() {this->pick_("sched:" + id);}));
                 if (!w.reason.empty()) out.push_back(ftxui::text("       ↳ " + cluster::one_line(w.reason, static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
+                if (const std::string rule = cluster::schedule_rule(w); !rule.empty()) out.push_back(ftxui::text("       · " + cluster::one_line(rule, static_cast<std::size_t>(room - 10))) | ftxui::color(t.muted) | ftxui::dim);
+                if (!w.note.empty() && w.runs + w.skipped > 0) out.push_back(ftxui::text("       ↻ " + cluster::one_line(w.note, static_cast<std::size_t>(room - 10))) | ftxui::color(t.muted) | ftxui::dim);
             }
             if (planned.size() > 10) out.push_back(ftxui::text("     … +" + std::to_string(planned.size() - 10) + " more") | ftxui::color(t.muted) | ftxui::dim);
             if (archived > 0) {
@@ -3376,7 +3381,7 @@ class TtyUi {
             out.push_back(ftxui::paragraph("  ↑↓ / j k: choose · Tab / Shift+Tab: the next / previous part · Enter / →: its actions (a todo list: its session) · "
                 "PgUp / PgDn, Home / End · Alt+N / Alt+P, Ctrl+B + arrow: another session") | ftxui::color(t.muted) | ftxui::dim);
             out.push_back(ftxui::paragraph("  its actions (a click too): start / run now, cancel or delete with a reason told to the session that made it, archive · "
-                "the prompt: a task (target | prompt: for it), +30m <text> / 18:00 <text>: a reminder to the global session") | ftxui::color(t.muted) | ftxui::dim);
+                "the prompt: a task (target | prompt: for it), +30m <text> / 18:00 <text>: a reminder to the global session; a schedule: pause, resume, snooze, run now, edit") | ftxui::color(t.muted) | ftxui::dim);
             return ftxui::vbox(std::move(out)) | ftxui::yframe | ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, height) | ftxui::flex;
         }
 

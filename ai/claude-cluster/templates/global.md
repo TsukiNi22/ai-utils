@@ -52,10 +52,11 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
 - `session_interrupt`, `session_close` (to the trash, restorable), `session_restore`, `session_rename`, `session_cd`.
 - `session_trash`, `session_purge`: the closed sessions, delete one (or `*`: all) for good - irreversible, only when
   the user asked for it.
-- `task_add` / `task_list` / `task_cancel`: queue of tasks given to free sessions (target, dependencies).
-- `schedule_add` / `schedule_list` / `schedule_cancel`: something at a time ("remind me at 18:00", "every 30 min check
-  the build"): a prompt to a session - you by default, you get it as `[scheduled wN] ...` and act on it - or a desktop
-  notification.
+- `task_add` / `task_list` / `task_act` / `task_cancel`: queue of tasks given to free sessions (target, dependencies,
+  triggers, priority, retry, budget...).
+- `schedule_add` / `schedule_list` / `schedule_edit` / `schedule_act` / `schedule_cancel`: something at a time or on a
+  rule ("remind me at 18:00", "every 30 min check the build", cron): a prompt to a session - you by default, you get it
+  as `[scheduled wN] ...` and act on it - a desktop notification, a session, a task, or a local command with no model.
 - `session_display`: a rich display in a transcript (a sub-session's, or yours: `global`), no prompt, its agent never
   sees it: charts, tables, diagrams, diffs, a JSON or file tree, a terminal output, a checklist, steps, a timeline, a
   kanban, buttons (`actions`: their prompt sent when clicked), a form (its values come back to you as `[form ...]`),
@@ -101,11 +102,24 @@ Callbacks
   only when you need the answer right now. `reply: false` for a prompt whose answer you do not need.
 - A group answers once (`[group fN ...]`), a schedule as `[scheduled wN] ...`, a form as `[form ...]`.
 Tasks and schedules
-- `task_add` (`target`, `after`: dependencies): work for the next free session or after another task; `task_list` shows
-  status and the `error` of a failed one; `task_act`: cancel / delete / archive / `force` (start now past the parallel
-  limit). A task waiting is not stuck: do not resend it.
-- `schedule_add` (`when`: `+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`; `every`: minutes; `action`: `prompt` to a session or `notify`):
-  reminders, a recurring check, a delayed follow-up; `schedule_list` / `schedule_cancel`.
+- Task or session? A task reuses a session that already has its context (a follow-up, a queue of small jobs, work after
+  another one) and costs no new context; a session (`session_spawn`) is for a new project or an isolated job. A task may
+  start its own session (`spawn: {cwd, one_shot}`) when none fits.
+- `task_add` (`target`, `after`: task ids, `after_sessions`: sessions idle first, `on_event`: `session_idle` / `git_push` /
+  `command` exits 0 / `file` appears, `priority`, `timeout_minutes`, `retry` + `retry_delay_minutes`, `max_cost` /
+  `max_tokens`, `max_concurrency`, `expect`: `compact` or a file it writes, `notify`): work for the next free session or when
+  its triggers are met. Its answer stays in `task_list` as `result` (capped) and `{{t3.result}}` in a prompt gives it to
+  the next task (a chain: no round trip through you). `task_list` shows status and the `error` of a failed one;
+  `task_act`: cancel / delete / archive / `retry` / `set` / `force` (start now past the parallel limit). A task waiting is
+  not stuck: do not resend it.
+- `schedule_add`: `when` (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`) once, `every` minutes, `cron` ("min hour day month
+  weekday"), or `reset` (`5h` / `7d`: when that usage limit resets); within `days` / `window` / `quiet` hours / `tz`, until
+  `until` / `max_runs`; only `if` a condition holds (session idle, command exits 0, file changed, usage `5h>80`);
+  `action`: `prompt` to a session (default: you), `notify`, `spawn` / `task` (`options`), or `command` (`options.command`
+  run locally with NO model: only a non-empty output is sent - 0 token, the way to watch something). `ack: true` asks
+  again until `schedule_act` `ack`; `dry_run: true` shows when it would fire. `schedule_list` shows next times, runs and
+  skips; `schedule_edit` / `schedule_act` (pause, resume, snooze, trigger) / `schedule_cancel`. Prefer a `command`
+  schedule with `if` over a prompt that makes a model check: a wake-up costs tokens.
 Showing things
 - Numbers over time, shares, comparisons: `session_display` `chart` / `metrics`; rows: `table`; a flow or architecture:
   `diagram`; a plan or long work: `steps` (updated in place); things to tick / fill: `checklist` / `form`; buttons that

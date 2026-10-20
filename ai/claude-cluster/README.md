@@ -89,7 +89,7 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `mode <s> <mode>` | `auto`, `manual` (= `default`), `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions` |
 | `interrupt <s>`, `rename <s> <name>`, `cd <s> <folder>` | stop the turn, rename, move to another project |
 | `close <s>`, `trash`, `restore <s>`, `purge [s\|*]` | to the trash (kept `trash_days`), list, restore, delete for good (one, the expired ones, `*` all; palette: per session / empty the trash) |
-| `task add [--target T] [--after t1,t2] <prompt>`, `task list`, `task cancel <t>` | task queue |
+| `task add [--target T] [--after t1,t2] <prompt>`, `task list`, `task cancel <t>` | task queue (every option of `task_add` through the MCP, below) |
 | `schedule add <when> <text> [--target s] [--every N] [--notify]`, `schedule list`, `schedule cancel <w>` | at a time (`+30m`, `+2h`, `HH:MM`, `YYYY-MM-DD HH:MM`), repeated every N minutes or once: a prompt to a session (the global one by default) or a desktop notification |
 | `search <text>`, `export <s> [file]` | full-text search in every history, Markdown export |
 | `remote on\|off` | Remote Control of the global session |
@@ -244,6 +244,36 @@ clicked, the palette, the global session or `claude-cluster task add` / `schedul
 - A session closed: its waiting tasks and schedules cancelled ("its session was closed"); deleted for good: removed.
 - The control: `task_act` / `schedule_act` (cancel, delete, archive, unarchive, force / trigger, a reason), `todos`;
   the MCP: `task_act` (the global session).
+
+**Tasks and schedules in depth** (MCP `task_add` / `schedule_add` and the others; every argument is optional and backward
+compatible; the same from the CLI, the palette, the Tasks session):
+
+| `task_add` option | What it does |
+|---|---|
+| `after`, `after_sessions` | wait for tasks to be done / for sessions to be idle (nothing queued for them) |
+| `on_event` | `{type: session_idle (session) \| git_push (repo, branch: a new commit on the remote) \| command (command exits 0) \| file (path, changed)}`, looked at in a background thread (file 5 s, command 30 s, git 60 s) |
+| `spawn` | `{cwd, name, backend, mode, effort, profile, one_shot}`: the task makes its own session (the policy of the user applies; `one_shot`: closed to the trash after it) instead of looking for a free one |
+| `priority`, `max_concurrency` + `lane` | higher first; at most N tasks of a lane running |
+| `timeout_minutes`, `retry` + `retry_delay_minutes`, `max_cost`, `max_tokens` | stopped and reported when exceeded (its author is told why), tried again after an error, a budget measured on its session from its start |
+| `expect`, `notify`, `reply` | `compact` (a short answer asked) or a file path (the result is the file); a notification at its end (setting *Each task done* turns it on for all); `reply: false`: its author is not told |
+| result | the answer is kept in the task (`result`, `[sessions] task_result_chars`); `{{t3.result}}` (also `.status`, `.error`) in a prompt is replaced by that of t3, which then runs first |
+
+`task_act`: cancel, delete, archive, `retry`, `set` (priority, timeout, retry, budget), `force`.
+
+| `schedule_add` option | What it does |
+|---|---|
+| `when` / `every` / `cron` / `reset` | once (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM` in `tz`), every N minutes, a cron expression (`*/15 9-17 * * mon-fri`), or at each reset of the `5h` / `7d` limit window |
+| `days`, `window`, `quiet`, `tz` | only on these days (`mon-fri`, `weekend`), inside / never inside these hours (`09:00-18:00`, `22:00-07:00`), in this timezone (IANA name) |
+| `until`, `max_runs` | ended after a time / a number of runs |
+| `if` | `{session_idle, command (exits 0), file_changed, usage: "5h>80" \| "7d<30"}`: not met, that run is skipped (a one-time schedule looks again every 5 min) |
+| `action` | `prompt` (default), `notify`, `spawn` (`options.cwd`), `task` (`options`: the task options above), `command` (`options.command`, run locally, **no model**, only a non-empty output is sent to `session` or notified with `options.output: notify`) |
+| `ack`, `nag` | asked again every `nag` minutes (12 times at most) until `schedule_act` `ack` |
+| `dry_run` | nothing made: when it would fire |
+
+`schedule_list` gives the next times, the rules, the runs, the skipped ones, the last runs (history) and the note of the last
+pass; `schedule_edit` changes any field (`pause: true` / `false`); `schedule_act`: pause, resume, snooze (`minutes`),
+ack, trigger (run now, conditions skipped), cancel, delete, archive. The Tasks session shows the same everywhere (terminal,
+window, web page) with the actions of a row: run now, pause / resume, snooze, change the time / text / repeat / cron, cancel.
 
 **Sessions by hand**:
 - **A new session on a project**: `/new <name>`, `/cd <name>`, the palette *New session on a project*, the web page,
