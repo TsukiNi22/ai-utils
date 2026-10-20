@@ -85,7 +85,17 @@ class GraphView {
         std::vector<GraphNode> _nodes;
         std::vector<Place> _places;
         std::string _signature;     // the ids and the parents: the layout is made again when it changes
+        struct Plan {
+            int level = 1;          // what of its label is shown: 0 title + status, 1 title, 2 / 3 title shortened, 4 a dot
+            int dx = 0;             // its label moved off its node (cells), when the place under it is taken
+            int dy = 0;
+        };
+
         std::vector<Hit> _hits;
+        std::vector<Plan> _plan;    // the labels placed (made again when the nodes or the zoom change)
+        double _planZoom = 0.0;
+        bool _planValid = false;
+        std::string _labelKey;      // the names, details and badges: the plan is made again when they change
         ftxui::Box _box{0, 0, 0, 0};    // the canvas on the screen (the mouse is given on the screen)
         int _width = 80;
         int _height = 20;
@@ -105,6 +115,7 @@ class GraphView {
         std::int64_t _clickAt = 0;
 
         void layout_(void);
+        void plan_(void);
         _nodiscard int find_(const std::string& id) const;
         _nodiscard int hitAt_(const int x, const int y) const;
         void zoomAt_(const double factor, const double px, const double py);

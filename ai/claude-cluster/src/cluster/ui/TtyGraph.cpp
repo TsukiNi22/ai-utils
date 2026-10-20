@@ -19,6 +19,7 @@ File Description:
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <array>
 #include <cmath>
 
 namespace {
@@ -166,6 +167,30 @@ _cold bool token_(const std::string& token, const ftxui::Event& event, const std
     return event.is_character() && cluster::lower(event.character()) == wanted;
 }
 
+// What a label shows at a level (0 title + status, 1 title, 2 / 3 title shortened, 4 a dot), its size in cells; full: the selected one
+struct Look {
+    std::string name;
+    std::string status;
+    int width = 1;
+    int height = 1;
+};
+
+_cold Look look_(const cluster::GraphNode& node, const int level, const bool full)
+{
+    Look look;
+    if (level >= 4 && !full) return look;
+    const std::size_t nameMax = full ? 30 : level <= 1 ? 20 : level == 2 ? 9 : 5;
+    look.name = cut_(node.name, nameMax) + (node.count > 0 ? " (" + std::to_string(node.count) + ")" : "");
+    look.width = static_cast<int>(glyphs_(look.name).size()) + 6;      // "│ ● name │"
+    look.height = 3;
+    if ((level == 0 || full) && !node.detail.empty()) {
+        look.width = std::max(look.width, std::min(static_cast<int>(glyphs_(node.detail).size()) + 6, 28));
+        look.status = cut_(node.detail, static_cast<std::size_t>(look.width - 4));
+        look.height = 4;
+    }
+    return look;
+}
+
 } // namespace
 
 /* layout */
@@ -173,6 +198,12 @@ _cold void cluster::GraphView::setNodes(std::vector<cluster::GraphNode> nodes)
 {
     std::string signature;
     for (const cluster::GraphNode& node: nodes) signature += node.id + ">" + node.parent + ";";
+    std::string labels;
+    for (const cluster::GraphNode& node: nodes) labels += node.name + "\x1f" + node.detail + "\x1f" + std::to_string(node.count) + "\x1e";
+    if (labels != this->_labelKey) {
+        this->_labelKey = labels;
+        this->_planValid = false;
+    }
     this->_nodes = std::move(nodes);
     if (signature != this->_signature) {
         this->_signature = signature;
@@ -247,6 +278,56 @@ _cold void cluster::GraphView::layout_(void)
         }
     }
     this->_fitted = false;
+    this->_planValid = false;
+}
+
+_cold void cluster::GraphView::plan_(void)
+{
+    // the label of every node is an obstacle: placed one after the other (global first), a label that meets a placed one is moved to a
+    // free place around its node (below, above, right, left), else its status goes, then its title is shortened, last a dot; a sweep
+    // on the boxes sorted by their left side keeps it cheap. Made once per zoom (the positions scale with it, the pan moves all)
+    const std::size_t count = this->_nodes.size();
+    this->_plan.assign(count, Plan{});
+    const int start = this->_zoom < 0.45 ? 4 : this->_zoom < 0.8 ? 2 : this->_zoom < 1.2 ? 1 : 0;
+    std::vector<std::size_t> order(count);
+    for (std::size_t i = 0; i < count; ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [this](const std::size_t a, const std::size_t b) {
+        return this->_nodes[a].kind == GraphKind::Global && this->_nodes[b].kind != GraphKind::Global;
+    });
+    std::multimap<int, std::array<int, 4>> placed;     // left side -> left, right, top, bottom
+    int widest = 1;
+    for (const std::size_t i: order) {
+        const int cx = static_cast<int>(std::floor(this->_places[i].x * this->_zoom));
+        const int cy = static_cast<int>(std::floor(this->_places[i].y * this->_zoom / 2.0));
+        for (int level = start; level <= 4; ++level) {
+            const Look look = look_(this->_nodes[i], level, false);
+            const int w = look.width;
+            const int h = look.height;
+            const int side = w / 2 + 1;
+            const std::vector<std::pair<int, int>> shifts = {{0, 0}, {0, h}, {0, -h}, {side, 0}, {-side, 0}, {side, h}, {-side, h}, {side, -h}, {-side, -h}};
+            bool done = false;
+            for (const auto &[dx, dy]: shifts) {
+                const int x0 = cx + dx - w / 2;
+                const int y0 = cy + dy - h / 2;
+                bool vacant = true;
+                for (auto it = placed.lower_bound(x0 - widest - 1); vacant && it != placed.end() && it->first <= x0 + w; ++it) {
+                    const std::array<int, 4>& r = it->second;
+                    vacant = !(r[1] + 1 >= x0 && r[0] <= x0 + w && r[3] >= y0 && r[2] <= y0 + h - 1);   // a cell of margin on the sides
+                }
+                if (!vacant && level < 4) continue;
+                this->_plan[i] = {level, dx, dy};
+                if (level < 4) {
+                    placed.insert({x0, {x0, x0 + w - 1, y0, y0 + h - 1}});
+                    widest = std::max(widest, w);
+                }
+                done = true;
+                break;
+            }
+            if (done) break;
+        }
+    }
+    this->_planZoom = this->_zoom;
+    this->_planValid = true;
 }
 
 _cold void cluster::GraphView::fit(void)
@@ -458,30 +539,28 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
             cell.dim = dots.paint[d] == PaintMuted;
         }
 
-    // the nodes: boxes (a dot when far), the selected one last (on top)
+    // the nodes: boxes placed by plan_ (title first, the status goes first when the room is short), the selected one last: on top, whole
+    if (!this->_planValid || this->_planZoom != this->_zoom) this->plan_();
     this->_hits.clear();
     const std::function<void(const std::size_t)> draw = [&](const std::size_t i) {
         const GraphNode& node = this->_nodes[i];
         const bool selected = node.id == this->_selected;
         const bool here = node.id == active;
         const int tint = node.kind == GraphKind::Global ? PaintAccent : paint_(node.tone);
-        const int nameMax = this->_zoom >= 0.8 ? 20 : this->_zoom >= 0.45 ? 9 : 0;
         const auto [cx, cy] = centers[i];
-        if (nameMax == 0 && !selected) {    // far: a dot
-            if (inside(cx, cy)) {
-                Cell& cell = at(cx, cy);
-                cell = {glyph_(node), tint, PaintNone, true, false};
-            }
+        const Plan plan = selected ? Plan{0, 0, 0} : this->_plan[i];
+        if (plan.level >= 4) {    // far or crowded: a dot
+            if (inside(cx, cy)) at(cx, cy) = {glyph_(node), tint, PaintNone, true, false};
             this->_hits.push_back({ftxui::Box{cx - 1, cx + 1, cy, cy}, i});
             return;
         }
-        const std::string name = cut_(node.name, nameMax == 0 ? 24 : static_cast<std::size_t>(nameMax)) + (node.count > 0 ? " (" + std::to_string(node.count) + ")" : "");
-        const int inner = static_cast<int>(glyphs_(name).size()) + 4;       // " ● name "
-        const int boxWidth = inner + 2;
-        const int x0 = cx - boxWidth / 2;
-        const int y0 = cy - 1;
-        this->_hits.push_back({ftxui::Box{x0, x0 + boxWidth - 1, y0, y0 + 2}, i});
-        if (x0 + boxWidth < 0 || x0 >= cols || y0 + 3 < 0 || y0 >= rows) return;
+        const Look look = look_(node, plan.level, selected);
+        const int boxWidth = look.width;
+        const int boxHeight = look.height;
+        const int x0 = cx + plan.dx - boxWidth / 2;
+        const int y0 = cy + plan.dy - boxHeight / 2;
+        this->_hits.push_back({ftxui::Box{x0, x0 + boxWidth - 1, y0, y0 + boxHeight - 1}, i});
+        if (x0 + boxWidth < 0 || x0 >= cols || y0 + boxHeight < 0 || y0 >= rows) return;
         const char* edge[2][3] = {{"╭", "─", "╮"}, {"┏", "━", "┓"}};
         const char* side[2] = {"│", "┃"};
         const char* low[2][3] = {{"╰", "─", "╯"}, {"┗", "━", "┛"}};
@@ -490,21 +569,22 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
             if (!inside(x, y)) return;
             at(x, y) = {glyph, fg, PaintSurface, bold, false};
         };
-        put(x0, y0, edge[style][0], tint, selected);
-        put(x0, y0 + 1, side[style], tint, selected);
-        put(x0, y0 + 2, low[style][0], tint, selected);
-        put(x0 + boxWidth - 1, y0, edge[style][2], tint, selected);
-        put(x0 + boxWidth - 1, y0 + 1, side[style], tint, selected);
-        put(x0 + boxWidth - 1, y0 + 2, low[style][2], tint, selected);
-        for (int k = 1; k < boxWidth - 1; ++k) {
-            put(x0 + k, y0, edge[style][1], tint, selected);
-            put(x0 + k, y0 + 2, low[style][1], tint, selected);
-            put(x0 + k, y0 + 1, " ", PaintText, false);
+        for (int row = 0; row < boxHeight; ++row) {    // every cell of the box is painted: nothing shows through it
+            const bool top = row == 0;
+            const bool bottom = row == boxHeight - 1;
+            for (int k = 0; k < boxWidth; ++k) {
+                const int part = k == 0 ? 0 : k == boxWidth - 1 ? 2 : 1;
+                if (top) put(x0 + k, y0 + row, edge[style][part], tint, selected);
+                else if (bottom) put(x0 + k, y0 + row, low[style][part], tint, selected);
+                else put(x0 + k, y0 + row, part == 1 ? " " : side[style], part == 1 ? PaintText : tint, selected);
+            }
         }
         put(x0 + 2, y0 + 1, glyph_(node), tint, true);
-        const std::vector<std::string> letters = glyphs_(name);
+        const std::vector<std::string> letters = glyphs_(look.name);
         for (std::size_t k = 0; k < letters.size(); ++k)
             put(x0 + 4 + static_cast<int>(k), y0 + 1, letters[k], here ? PaintAccent : PaintText, here || selected || node.kind == GraphKind::Global);
+        const std::vector<std::string> status = glyphs_(look.status);
+        for (std::size_t k = 0; k < status.size(); ++k) put(x0 + 2 + static_cast<int>(k), y0 + 2, status[k], PaintMuted, false);
     };
     for (std::size_t i = 0; i < count; ++i)
         if (this->_nodes[i].id != this->_selected) draw(i);
