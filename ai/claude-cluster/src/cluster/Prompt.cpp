@@ -240,6 +240,16 @@ _cold cluster::ActionResult cluster::run_shell(cluster::Manager& manager, const 
     if (command.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "!<command>");
     const cluster::Json done = manager.shell(session, command);
     cluster::ActionResult result;
+    if (done.contains("interactive")) { // a program that needs a terminal: handed to the interface (its terminal / an emulator)
+        result.message = "interactive program (" + done.value("interactive", std::string()) + "): the terminal is handed to it";
+        result.ui = "term:" + command;
+        return result;
+    }
+    if (done.contains("background")) {
+        result.message = "still running after 8 s: in the background as " + done.value("background", std::string()) + " - its output comes in the conversation when it ends "
+            "(/shells to list, /kill " + done.value("background", std::string()) + " to stop)";
+        return result;
+    }
     result.message = "exit " + std::to_string(done.value("code", -1)) + " · " + std::to_string(done.value("lines", 0)) + " line(s): in the conversation, "
         "given to the agent with your next prompt";
     if (!done.value("shown", true)) // no session: its output here

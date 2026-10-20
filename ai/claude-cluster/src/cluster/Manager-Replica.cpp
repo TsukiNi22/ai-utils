@@ -461,6 +461,26 @@ _cold std::optional<cluster::Queued> cluster::Manager::unqueue(const std::string
 }
 
 /* !command: the shell of the user in the folder of a session */
+_cold cluster::Json cluster::Manager::shellRecord_(const std::shared_ptr<cluster::Session>& session, const std::string& command, std::string output, const int code,
+    const std::string& note)
+{
+    // a !command done: its output in the conversation and, like Claude Code, given to the agent with the next prompt (asked: held until chosen)
+    if (output.size() > 20000) output = "[...]\n" + cluster::tail_utf8(output, 20000);
+    while (!output.empty() && output.back() == '\n') output.pop_back();
+    const std::int64_t lines = output.empty() ? 0 : std::count(output.begin(), output.end(), '\n') + 1;
+    if (!session) return {{"code", code}, {"lines", lines}, {"output", output}, {"shown", false}};
+    const std::int64_t now = cluster::now();
+    session->append({{cluster::EntryKind::Tool, "$ " + command + note, "Shell", now},
+        {cluster::EntryKind::ToolResult, (output.empty() ? std::string("(no output)") : output) + (code == 0 ? "" : "\n[exit " + std::to_string(code) + "]"), "Shell", now}});
+    const std::string context = "<bash-input>" + command + "</bash-input>\n<bash-stdout>" + (output.size() > 6000 ? cluster::tail_utf8(output, 6000) : output)
+        + "</bash-stdout>" + (code == 0 ? "" : "\n<bash-exit-code>" + std::to_string(code) + "</bash-exit-code>");
+    const std::string share = this->config().shellContext;
+    if (share == "always") session->addContext(context);
+    else if (share != "never") session->holdContext(context);
+    ++this->_version;
+    return {{"code", code}, {"lines", lines}, {"output", output}, {"shown", true}, {"share", share == "always" || share == "never" ? share : "ask"}};
+}
+
 _cold cluster::Json cluster::Manager::shell(const std::string& id, const std::string& command)
 {
     if (this->_replica) return this->call({{"cmd", "shell"}, {"session", id}, {"command", command}});
@@ -470,24 +490,92 @@ _cold cluster::Json cluster::Manager::shell(const std::string& id, const std::st
         session = this->get_(this->resolve(id));
     } catch (const utils::exception::IException&) {}
     const std::string cwd = session ? cluster::expand_home(session->spec().cwd).string() : std::filesystem::current_path().string();
+    // a program that needs a terminal (vim, less, top, ssh...): not run here (no terminal, it would wait for keys for ever): the interface hands it its terminal
+    if (const std::string program = cluster::interactive_program(command); !program.empty())
+        return {{"interactive", program}, {"command", command}, {"cwd", cwd}, {"code", 0}, {"lines", 0}, {"shown", false}};
+    // the others: a job, waited for a few seconds (its output in the conversation as before), then left in the background
+    const std::shared_ptr<cluster::ShellJob> job = std::make_shared<cluster::ShellJob>();
+    {
+        std::lock_guard<std::mutex> lock(this->_jobMutex);
+        job->id = "b" + std::to_string(++this->_jobN);
+        job->session = session ? session->id() : std::string();
+        job->command = command;
+        job->cwd = cwd;
+        job->started = cluster::now();
+        this->_jobs[job->id] = job;
+        while (this->_jobs.size() > 30) { // the oldest ended ones forgotten
+            const std::map<std::string, std::shared_ptr<cluster::ShellJob>>::iterator old = std::find_if(this->_jobs.begin(), this->_jobs.end(), [](const std::pair<const std::string, std::shared_ptr<cluster::ShellJob>>& item) {return item.second->done;});
+            if (old == this->_jobs.end()) break;
+            this->_jobs.erase(old);
+        }
+    }
     const char* env = std::getenv("SHELL");
-    const cluster::Captured out = cluster::capture({env != nullptr ? env : "/bin/sh", "-c", command}, cwd, 300);
-    std::string output = out.out;
-    if (output.size() > 20000) output = "[...]\n" + cluster::tail_utf8(output, 20000);
-    while (!output.empty() && output.back() == '\n') output.pop_back();
-    if (!session) return {{"code", out.code}, {"lines", output.empty() ? 0 : std::count(output.begin(), output.end(), '\n') + 1}, {"output", output}, {"shown", false}};
-    const std::int64_t now = cluster::now();
-    session->append({{cluster::EntryKind::Tool, "$ " + command, "Shell", now},
-        {cluster::EntryKind::ToolResult, (output.empty() ? std::string("(no output)") : output) + (out.code == 0 ? "" : "\n[exit " + std::to_string(out.code) + "]"), "Shell", now}});
-    // like Claude Code: given to the agent with the next prompt; asked: held until chosen
-    const std::string context = "<bash-input>" + command + "</bash-input>\n<bash-stdout>" + (output.size() > 6000 ? cluster::tail_utf8(output, 6000) : output)
-        + "</bash-stdout>" + (out.code == 0 ? "" : "\n<bash-exit-code>" + std::to_string(out.code) + "</bash-exit-code>");
-    const std::string share = this->config().shellContext;
-    if (share == "always") session->addContext(context);
-    else if (share != "never") session->holdContext(context);
-    ++this->_version;
-    return {{"code", out.code}, {"lines", output.empty() ? 0 : std::count(output.begin(), output.end(), '\n') + 1}, {"output", output}, {"shown", true},
-        {"share", share == "always" || share == "never" ? share : "ask"}};
+    const std::string shell = env != nullptr ? env : "/bin/sh";
+    std::thread([this, job, shell, session]() {
+        const cluster::Captured out = cluster::capture({shell, "-c", job->command}, job->cwd, 6 * 3600, &job->pid);
+        bool background = false;
+        {
+            std::lock_guard<std::mutex> lock(this->_jobMutex);
+            job->code = job->killed ? -1 : out.code;
+            job->output = out.out;
+            job->ended = cluster::now();
+            job->done = true;
+            background = job->background;
+        }
+        this->_jobEnded.notify_all();
+        if (!background) return; // its waiter takes the result
+        const std::string note = std::string("  (background ") + job->id + (job->killed ? ", stopped" : "") + ")";
+        (void)this->shellRecord_(session, job->command, job->output, job->code, note);
+        this->notice_(job->session, "shell " + job->id + " (" + cluster::one_line(job->command, 40) + ") " + (job->killed ? "stopped" : "ended: exit " + std::to_string(job->code)), job->code != 0 && !job->killed);
+    }).detach();
+    {
+        std::unique_lock<std::mutex> lock(this->_jobMutex);
+        this->_jobEnded.wait_for(lock, std::chrono::seconds(8), [&job]() {return job->done;});
+        if (!job->done) { // still running: in the background, its end told in the conversation
+            job->background = true;
+            return {{"background", job->id}, {"command", command}, {"code", 0}, {"lines", 0}, {"shown", false}};
+        }
+    }
+    return this->shellRecord_(session, command, job->output, job->code, "");
+}
+
+_cold cluster::Json cluster::Manager::shells(void)
+{
+    if (this->_replica) return this->call({{"cmd", "shells"}});
+    cluster::Json list = cluster::Json::array();
+    std::lock_guard<std::mutex> lock(this->_jobMutex);
+    for (const auto &[id, job]: this->_jobs) {
+        const std::vector<std::string> lines = cluster::split(job->output, '\n');
+        std::string tail;
+        for (std::size_t i = lines.size() > 3 ? lines.size() - 3 : 0; i < lines.size(); ++i)
+            tail += (tail.empty() ? "" : " | ") + cluster::one_line(lines[i], 60);
+        list.push_back({{"id", id}, {"session", job->session}, {"command", job->command}, {"running", !job->done}, {"code", job->code}, {"killed", job->killed},
+            {"seconds", (job->done ? job->ended : cluster::now()) - job->started}, {"lines", job->output.empty() ? 0 : lines.size()}, {"tail", tail}});
+    }
+    return list;
+}
+
+_cold std::string cluster::Manager::shellKill(const std::string& which)
+{
+    if (this->_replica) return this->call({{"cmd", "shell_kill"}, {"id", which}}).value("done", std::string());
+    std::vector<std::shared_ptr<cluster::ShellJob>> targets;
+    {
+        std::lock_guard<std::mutex> lock(this->_jobMutex);
+        for (const auto &[id, job]: this->_jobs)
+            if (!job->done && (which == "all" || which == id)) {
+                job->killed = true;
+                targets.push_back(job);
+            }
+    }
+    if (targets.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, which == "all" ? "no shell running" : "no shell '" + which + "' running (/shells)");
+    for (const std::shared_ptr<cluster::ShellJob>& job: targets) {
+        cluster::stop_group(job->pid, false);
+        std::thread([job]() { // still there after 2 s: killed
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            if (!job->done) cluster::stop_group(job->pid, true);
+        }).detach();
+    }
+    return std::to_string(targets.size()) + " shell(s) stopped";
 }
 
 /* the !command held: given to the agent or not (yes / no: this time; always / never: written in [ui] shell_context) */

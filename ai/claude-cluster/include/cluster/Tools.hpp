@@ -103,7 +103,10 @@ _nodiscard std::string clock_time(const std::int64_t time);       // 14:03
 
 /* processes */
 _cold _nodiscard bool has_command(const std::string& name);
-_cold _nodiscard cluster::Captured capture(const std::vector<std::string>& args, const std::string& cwd = "", const int timeout = 10);
+_cold _nodiscard cluster::Captured capture(const std::vector<std::string>& args, const std::string& cwd = "", const int timeout = 10, std::atomic<int>* pidOut = nullptr); // pidOut: its process group (kill(-pid))
+_cold void stop_group(const int pid, const bool force);             // a command and everything it started (its process group): TERM, KILL (force)
+_cold _nodiscard std::string interactive_program(const std::string& command);   // vim, less, top, ssh, a REPL...: the program that needs a terminal in a shell command ("" none)
+_cold _nodiscard std::string open_terminal_command(const std::filesystem::path& folder, const std::string& command); // an emulator running it there: its name ("" none found)
 _cold void detach(const std::vector<std::string>& args);            // run without waiting (notify-send...)
 _cold bool copy_text(const std::string& text);                      // the clipboard: wl-copy, else xclip / xsel; false: none of them
 _cold void end_captures(const int ms);                              // the quit: the commands still running stopped, waited for (ms at most)

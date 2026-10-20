@@ -1242,7 +1242,10 @@ class TtyUi {
                     }
                     if (local->ui == "settings") this->openSettings_();
                     else if (local->ui == "plugins") this->openPlugins_();
-                    else if (local->ui == "message") { // a local command shown (/usage, /skills...): never in the conversation
+                    else if (local->ui.starts_with("term:")) {
+                        this->handOver_(local->ui.substr(5));
+                        return;
+                    } else if (local->ui == "message") { // a local command shown (/usage, /skills...): never in the conversation
                         this->_message = local->message;
                         this->_messageError = local->error;
                         this->_mode = Mode::Message;
@@ -2049,6 +2052,7 @@ class TtyUi {
                         } else if (!result.message.empty()) {
                             this->status_(result.message, result.error);
                         }
+                        if (result.ui.starts_with("term:")) this->handOver_(result.ui.substr(5));
                         if (result.ui.starts_with("pick:")) this->pick_(result.ui.substr(5)); // a next step to pick (where it applies)
                     });
                     this->_screen.PostEvent(ftxui::Event::Custom);
@@ -2332,6 +2336,26 @@ class TtyUi {
             this->_plugInput.text = base + common;
             this->_plugInput.cursor = this->_plugInput.text.size();
             if (names.size() == 1) this->_plugHints.clear();
+        }
+
+        void handOver_(const std::string& command)
+        {
+            // a program that needs a terminal (vim, less, top, ssh...): the interface leaves the screen, the program has the terminal until it ends, then it is back
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+            const std::string cwd = snap ? cluster::expand_home(snap->spec.cwd).string() : std::filesystem::current_path().string();
+            const char* env = std::getenv("SHELL");
+            int code = -1;
+            this->_screen.WithRestoredIO([&]() {
+                utils::encapsulation::Process process;
+                try {
+                    (void)process.spawn("env", {"-C", cwd, env != nullptr ? env : "/bin/sh", "-c", command});
+                    const utils::encapsulation::Status status = process.wait();
+                    code = status.exited ? status.code : -1;
+                } catch (const utils::exception::IException& e) {
+                    std::cerr << e.info() << std::endl;
+                }
+            })();
+            this->status_("exit " + std::to_string(code) + " · " + cluster::one_line(command, 50), code != 0);
         }
 
         void openSettings_(void)

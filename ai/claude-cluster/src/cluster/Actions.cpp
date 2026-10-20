@@ -48,6 +48,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"plugins", "Plugins: sources (a repository, a folder, a .zip), install / remove, on / off, their files", "", "", true},
         {"upgrade", "Update claude-cluster to the newer version installed (the sessions kept, nothing to restart)", "", "", false},
         {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
+        {"shells", "Background shells: the !commands running (a popup), stop one with /kill", "", "", false},
+        {"shells_kill", "Background shells: stop them all", "", "", false},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
@@ -384,6 +386,11 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
                 if (equal != std::string::npos) values[cluster::trim(pair.substr(0, equal))] = cluster::trim(pair.substr(equal + 1));
             }
             result.message = manager.displayAct(session, arg, {{"values", values}});
+        } else if (base == "shells") {
+            const std::optional<cluster::ActionResult> shown = cluster::run_slash(manager, session, "/shells");
+            if (shown) result = *shown;
+        } else if (base == "shells_kill") {
+            result.message = manager.shellKill("all");
         } else if (base == "info") {
             result.message = session_info_(manager, session);
             result.ui = "message"; // a popup in every interface
@@ -531,6 +538,8 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"usage", "the usage of the account (5 h / 7 d windows) and of this session: a popup, nothing asked to the agent"},
         {"skills", "the skills and plugins loaded for the sessions (yours, the project's, the plugins): a popup"},
         {"info", "everything about the session in focus: agent, model, thinking, api / login, cost, limits (a popup)"},
+        {"shells", "the !commands running in the background (and the last ended ones): a popup; /kill <id|all> stops them"},
+        {"kill", "<id|all>: stop a background shell (and everything it started)"},
         {"status", "the same as /info"},
         {"mcp", "the MCP servers given to the sessions: a popup"},
         {"plugins", "the plugins browser: sources (repositories, folders, .zip), install / remove, on / off, their files"},
@@ -812,6 +821,16 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 + " · tokens " + cluster::human_tokens(m.total.total()) + " in " + std::to_string(m.turns) + " turn(s)";
             else result.message = "context " + cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow)
                 + (m.contextWindow > 0 ? " (" + std::to_string(100 * m.contextUsed / m.contextWindow) + "%)" : std::string());
+        } else if (name == "shells") {
+            const cluster::Json jobs = manager.shells();
+            result.message = jobs.empty() ? std::string("no !command yet: the ones that last more than a few seconds run here in the background (!tail -f log, !npm run dev...)") : "shells";
+            for (const cluster::Json& j: jobs)
+                result.message += "\n" + j.value("id", std::string()) + "  " + (j.value("running", false) ? "running " : j.value("killed", false) ? "stopped " : "exit " + std::to_string(j.value("code", -1)) + " ")
+                    + std::to_string(j.value("seconds", std::int64_t{0})) + " s  " + cluster::one_line(j.value("command", std::string()), 70) + (j.value("tail", std::string()).empty() ? "" : "\n      " + j.value("tail", std::string()));
+            result.message += jobs.empty() ? "" : "\n\n/kill <id|all> stops one";
+            result.ui = "message";
+        } else if (name == "kill") {
+            result.message = manager.shellKill(arg.empty() ? std::string("all") : arg);
         } else if (name == "info" || name == "status") {
             result.message = session_info_(manager, session);
             result.ui = "message";

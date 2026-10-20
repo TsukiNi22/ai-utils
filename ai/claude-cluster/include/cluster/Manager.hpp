@@ -28,6 +28,7 @@ File Description:
     #include "Icons.hpp"            // cluster::Notification, cluster::AppFace
     #include "Usage.hpp"            // cluster::Transcripts
     #include "Auth.hpp"             // cluster::Auth
+    #include <condition_variable>   // std::condition_variable
     #include <functional>           // std::function
     #include <optional>             // std::optional
     #include <memory>               // std::shared_ptr
@@ -56,6 +57,21 @@ struct UpgradeOffer {               // a newer claude-cluster installed over the
     std::string version;            // empty: none (or ignored)
     bool started = false;           // Update chosen: the turns running end first
     bool upgrading = false;         // the core about to run the new binary (the interfaces follow it)
+};
+
+struct ShellJob {                   // a !command running or done (the background shells: /shells, /kill)
+    std::string id;                 // b1, b2...
+    std::string session;
+    std::string command;
+    std::string cwd;
+    std::int64_t started = 0;
+    std::int64_t ended = 0;
+    std::atomic<int> pid{0};        // its process group
+    bool done = false;
+    bool background = false;        // given up by its waiter: its end is told in the conversation
+    bool killed = false;
+    int code = -1;
+    std::string output;
 };
 
 struct Link {                       // an interface and its core
@@ -139,6 +155,10 @@ class Manager {
         std::set<std::string> _failureGone;        // the ones of the core answered here (until its next sync)
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
         std::atomic<bool> _pluginsBusy{false};     // plugins of repositories: listed / installed by a thread
+        std::map<std::string, std::shared_ptr<cluster::ShellJob>> _jobs;   // the !commands (the last 30)
+        std::mutex _jobMutex;
+        std::condition_variable _jobEnded;
+        int _jobN = 0;
         cluster::Json _accountsProviders;          // the state of the providers (a keyring read starts a process: read in a thread, kept)
         std::int64_t _accountsAt = 0;
         std::atomic<bool> _accountsBusy{false};
@@ -295,7 +315,10 @@ class Manager {
         _cold void askGlobal(const std::string& id, const std::string& requestId, const cluster::Json& questions); // its questions answered by the global session
         _cold void chatAbout(const cluster::Ask& ask);
         _cold _nodiscard std::string resume(const std::string& id);   // retry now / continue (what it did)
-        _cold _nodiscard cluster::Json shell(const std::string& id, const std::string& command);  // !command in its folder: {code, lines, output, share}
+        _cold _nodiscard cluster::Json shell(const std::string& id, const std::string& command);  // !command in its folder: {code, lines, output, share}; {interactive}; {background}
+        _cold _nodiscard cluster::Json shells(void);                                            // the !commands (running first): id, session, command, seconds, code, lines, tail
+        _cold std::string shellKill(const std::string& which);                                   // a job by its id, or all: stopped with what it started
+        _cold cluster::Json shellRecord_(const std::shared_ptr<cluster::Session>& session, const std::string& command, std::string output, const int code, const std::string& note);
         _cold _nodiscard std::string shareShell(const std::string& id, const std::string& choice); // the !command held: yes | no | always | never
         // a model / mode / effort where asked: here (the session given), global, subs (every sub-session), all, new (the default
         // of the next sub-sessions) or a session id; what it did

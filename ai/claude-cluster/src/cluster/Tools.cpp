@@ -260,14 +260,22 @@ _cold void cluster::end_captures(const int ms)
     {
         std::lock_guard<std::mutex> lock(captures_mutex_);
         for (const pid_t pid: captures_)
-            (void)::kill(pid, SIGTERM);
+            cluster::stop_group(pid, false);
     }
     const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (captures_running_ > 0 && std::chrono::steady_clock::now() < end)
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
-_cold cluster::Captured cluster::capture(const std::vector<std::string>& args, const std::string& cwd, const int timeout)
+_cold void cluster::stop_group(const int pid, const bool force)
+{
+    // the session of a command (setsid): the group leader is the command, its children are in the group
+    if (pid <= 0) return;
+    (void)::kill(-pid, force ? SIGKILL : SIGTERM);
+    (void)::kill(pid, force ? SIGKILL : SIGTERM);
+}
+
+_cold cluster::Captured cluster::capture(const std::vector<std::string>& args, const std::string& cwd, const int timeout, std::atomic<int>* pidOut)
 {
     cluster::Captured result;
     if (args.empty()) return result;
@@ -311,6 +319,7 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
         std::lock_guard<std::mutex> lock(captures_mutex_);
         captures_.insert(running.pid);
     }
+    if (pidOut != nullptr) *pidOut = running.pid;
     out.closeWrite();
     if (null != -1) ::close(null);
 
@@ -327,6 +336,7 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
         result.out.append(buffer.data(), static_cast<std::size_t>(size));
     }
     if (process.is() && std::chrono::steady_clock::now() >= deadline) {
+        cluster::stop_group(running.pid, true); // the command and what it started: nothing left spinning
         process.kill();
         result.code = -1;
         return result;
@@ -663,4 +673,69 @@ _cold bool cluster::keep_newest(const std::filesystem::path& path, const std::si
     }
     std::filesystem::rename(temporary, path, error);
     return !error;
+}
+
+_cold std::string cluster::interactive_program(const std::string& command)
+{
+    // the first program of each part of a shell command (; && || |) that needs a terminal: an editor, a pager, a monitor, a client
+    // that talks to you, a REPL without a script; empty: nothing that could not run without one
+    static const std::set<std::string> always = {"vim", "vi", "nvim", "view", "vimdiff", "ex", "nano", "pico", "emacs", "micro", "hx", "helix", "kak", "joe", "mcedit",
+        "less", "more", "most", "man", "info", "top", "htop", "btop", "atop", "nmon", "glances", "iotop", "iftop", "nethogs", "watch", "tmux", "screen", "byobu", "zellij",
+        "mc", "ranger", "nnn", "lf", "vifm", "fzf", "lazygit", "tig", "gitui", "k9s", "lazydocker", "ncdu", "cmatrix", "telnet", "ftp", "sftp", "mysql", "psql", "sqlite3",
+        "redis-cli", "mongosh", "mongo", "gdb", "lldb", "irb", "pry", "ipython", "bpython", "cfdisk", "alsamixer", "pulsemixer", "newsboat", "mutt", "neomutt", "weechat", "irssi"};
+    static const std::set<std::string> repl = {"python", "python3", "node", "ruby", "php", "lua", "luajit", "julia", "R", "ghci", "bash", "zsh", "sh", "fish", "dash", "ksh", "nu"};
+    static const std::set<std::string> skip = {"sudo", "doas", "exec", "env", "time", "nice", "command", "nohup", "stdbuf", "xargs"};
+    std::string part;
+    std::vector<std::string> parts;
+    for (std::size_t i = 0; i < command.size(); ++i) {
+        const char c = command[i];
+        if (c == ';' || c == '|' || c == '&' || c == '\n') {
+            parts.push_back(part);
+            part.clear();
+            if ((c == '|' || c == '&') && i + 1 < command.size() && command[i + 1] == c) ++i;
+        } else {
+            part += c;
+        }
+    }
+    parts.push_back(part);
+    for (const std::string& each: parts) {
+        std::vector<std::string> words;
+        for (const std::string& w: cluster::split(cluster::trim(each), ' '))
+            if (!w.empty()) words.push_back(w);
+        std::size_t k = 0;
+        while (k < words.size() && (skip.contains(std::filesystem::path(words[k]).filename().string()) || words[k].find('=') != std::string::npos || (k > 0 && words[k].starts_with("-"))))
+            ++k;
+        if (k >= words.size()) continue;
+        const std::string program = std::filesystem::path(words[k]).filename().string();
+        std::size_t arguments = 0; // the words after it that are not options
+        for (std::size_t j = k + 1; j < words.size(); ++j)
+            if (!words[j].starts_with("-")) ++arguments;
+        if (always.contains(program)) return program;
+        if (repl.contains(program) && arguments == 0 && std::none_of(words.begin() + static_cast<long>(k) + 1, words.end(), [](const std::string& w) {return w == "-c" || w == "-e" || w == "--version" || w == "-V" || w == "-h" || w == "--help";}))
+            return program; // a REPL (a script, -c, -e, a version: not)
+        if (program == "ssh" && arguments == 1) return program; // a login (a command after the host: not)
+        if (program == "docker" || program == "podman" || program == "kubectl")
+            for (const std::string& w: words)
+                if (w == "-it" || w == "-ti" || w == "-i" || w == "-t") return program; // an interactive container
+    }
+    return "";
+}
+
+_cold std::string cluster::open_terminal_command(const std::filesystem::path& folder, const std::string& command)
+{
+    // a terminal emulator running the command in the folder, kept open at its end (Enter closes it)
+    const std::string dir = folder.string();
+    const std::string run = command + "; printf '\\n[done: Enter closes this terminal] '; read answer";
+    const std::vector<std::pair<std::string, std::vector<std::string>>> terminals = {
+        {"ptyxis", {"ptyxis", "--new-window", "--working-directory=" + dir, "--", "sh", "-c", run}}, {"gnome-terminal", {"gnome-terminal", "--working-directory=" + dir, "--", "sh", "-c", run}},
+        {"kgx", {"kgx", "--working-directory=" + dir, "-e", "sh -c '" + run + "'"}}, {"kitty", {"kitty", "--directory", dir, "sh", "-c", run}},
+        {"konsole", {"konsole", "--workdir", dir, "-e", "sh", "-c", run}}, {"alacritty", {"alacritty", "--working-directory", dir, "-e", "sh", "-c", run}},
+        {"wezterm", {"wezterm", "start", "--cwd", dir, "--", "sh", "-c", run}}, {"foot", {"foot", "--working-directory=" + dir, "sh", "-c", run}},
+        {"xterm", {"xterm", "-e", "sh", "-c", "cd \"$0\" && " + run, dir}}};
+    for (const auto &[name, argv]: terminals)
+        if (cluster::has_command(name)) {
+            cluster::detach(argv);
+            return name;
+        }
+    return "";
 }

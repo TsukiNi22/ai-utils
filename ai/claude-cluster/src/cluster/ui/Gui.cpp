@@ -1330,6 +1330,16 @@ class Window: public QMainWindow {
             }
         }
 
+        void openProgram(const std::string& command)
+        {
+            // a program that needs a terminal (vim, less, ssh...): a terminal emulator of the computer runs it in the folder of the session
+            const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
+            const std::string folder = snap ? cluster::expand_home(snap->spec.cwd).string() : std::filesystem::current_path().string();
+            const std::string terminal = cluster::open_terminal_command(folder, command);
+            this->message(terminal.empty() ? "no terminal emulator found to run " + cluster::one_line(command, 40) + " (install one, or use the terminal interface)"
+                : cluster::one_line(command, 40) + " opened in " + terminal, terminal.empty());
+        }
+
         void info(const std::string& text)
         {
             // a text of several lines in a popup (the information of a session...), in a fixed font
@@ -1404,7 +1414,9 @@ class Window: public QMainWindow {
                 QMetaObject::invokeMethod(this, [this, result]() {
                     if (!result.focus.empty()) this->active = result.focus;
                     if (!result.message.empty()) this->message(result.message, result.error);
-                    if (result.ui == "message") {
+                    if (result.ui.starts_with("term:")) {
+                        this->openProgram(result.ui.substr(5));
+                    } else if (result.ui == "message") {
                         this->info(result.message); // a popup (/info...): never in the conversation
                     } else if (result.ui.starts_with("pick:delete:")) { // a session deleted for good: asked here
                         this->confirmDelete(result.ui.substr(12));
@@ -2197,7 +2209,8 @@ class Window: public QMainWindow {
                         else if (local->ui == "quit") this->close();
                         else if (local->ui.starts_with("search:")) this->message("search: " + local->ui.substr(7) + " (Ctrl+F in the transcript)", false);
                         if (local->focus == TASKS_ID) QTimer::singleShot(0, this, [this]() {this->showTasks();});
-                        if (local->ui == "message") this->info(local->message);
+                        if (local->ui.starts_with("term:")) this->openProgram(local->ui.substr(5));
+                        else if (local->ui == "message") this->info(local->message);
                         else if (local->ui == "settings") this->settings();
                         else if (local->ui == "restore_menu") this->openRestore();
                         else if (local->ui == "rewind") this->rewind();
