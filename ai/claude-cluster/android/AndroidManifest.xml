@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
@@ -27,6 +29,7 @@
             </intent-filter>
         </receiver>
         <service android:name=".WatchService" android:exported="false" android:foregroundServiceType="specialUse">
+        <provider android:name=".PhotoProvider" android:authorities="com.claudecluster.app.photos" android:exported="false" android:grantUriPermissions="true"/>
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Follows the claude-cluster sessions of this phone on its own computer to notify when one finishes or waits"/>
         </service>

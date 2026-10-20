@@ -35,6 +35,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -63,6 +64,9 @@ public class MainActivity extends Activity {
     private WebView web;
     private boolean front = false;
     private String base = "";       // the address open now: the LAN or the one from outside
+    private ValueCallback<Uri[]> chooser = null;   // the file chooser of the page waiting for its answer (attachments)
+    private WebChromeClient.FileChooserParams chooserParams = null;
+    private Uri photo = null;                       // the file the camera app is writing (PhotoProvider)
     private PermissionRequest waitingMic = null;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -294,6 +298,28 @@ public class MainActivity extends Activity {
                 } else {
                     showSetup("Not reached: " + error.getDescription() + " (the same network, or [web] remote? claude-cluster web on?)");
                 }
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                // the attachments of the page: the picker of Android (files, photos: access to the files picked only), + the camera
+                if (chooser != null) chooser.onReceiveValue(null);
+                chooser = callback;
+                chooserParams = params;
+                boolean wantsCamera = params.isCaptureEnabled() || String.join(",", params.getAcceptTypes()).contains("image") || params.getAcceptTypes().length == 0
+                    || (params.getAcceptTypes().length == 1 && params.getAcceptTypes()[0].isEmpty());
+                if (wantsCamera && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED && !prefs.getBoolean("camera_asked", false)) {
+                    // asked once, with its reason: refused, the picker alone (files and photos of the gallery need no permission)
+                    prefs.edit().putBoolean("camera_asked", true).apply();
+                    new AlertDialog.Builder(MainActivity.this).setTitle("Camera")
+                        .setMessage("To attach a photo or a video you take now, claude-cluster needs the camera. Files and photos already on the phone are picked with the Android picker, which needs no permission.")
+                        .setPositiveButton("Allow the camera", (d, w) -> requestPermissions(new String[] {Manifest.permission.CAMERA}, 3))
+                        .setNegativeButton("Not now", (d, w) -> launchChooser(false))
+                        .setOnCancelListener(d -> launchChooser(false)).show();
+                    return true;
+                }
+                launchChooser(wantsCamera && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED);
+                return true;
+            }
+
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -313,8 +339,45 @@ public class MainActivity extends Activity {
         web.loadUrl(url + "/");
         final Intent first = getIntent();
         web.postDelayed(() -> openSession(first), 2500); // opened by a notification: its session once the page is there
+    // the picker of Android (the files / photos chosen), with the camera apps (a photo, a video) among its choices; the camera alone when the page asks for it
+    private void launchChooser(boolean camera) {
+        if (chooser == null) return;
+        try {
+            Intent pick = chooserParams.createIntent();
+            java.util.List<Intent> cameras = new java.util.ArrayList<>();
+            if (camera) {
+                String stamp = String.valueOf(System.currentTimeMillis());
+                photo = PhotoProvider.uriFor("photo-" + stamp + ".jpg");
+                Intent shot = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+                shot.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, photo);
+                shot.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                shot.setClipData(android.content.ClipData.newRawUri("photo", photo));
+                cameras.add(shot);
+                cameras.add(new Intent(android.provider.MediaStore.ACTION_VIDEO_CAPTURE)); // its video: given back by its own URI
+            }
+            Intent open = chooserParams.isCaptureEnabled() && !cameras.isEmpty() ? cameras.remove(0) : Intent.createChooser(pick, "Attach");
+            if (open != pick && !cameras.isEmpty() && !chooserParams.isCaptureEnabled()) open.putExtra(Intent.EXTRA_INITIAL_INTENTS, cameras.toArray(new Intent[0]));
+            startActivityForResult(open, 4);
+        } catch (Exception e) {
+            chooser.onReceiveValue(null);
+            chooser = null;
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        if (code != 4 || chooser == null) return;
+        Uri[] picked = result == RESULT_OK ? WebChromeClient.FileChooserParams.parseResult(result, data) : null;
+        if (result == RESULT_OK && picked == null && photo != null && PhotoProvider.fileFor(this, String.valueOf(photo.getLastPathSegment())).length() > 0) picked = new Uri[] {photo};
+        chooser.onReceiveValue(picked); // content:// URIs: read by the page, uploaded
+        chooser = null;
+        photo = null;
+    }
+
         checkUpdate(url);
     }
+        if (code == 3) launchChooser(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
 
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
