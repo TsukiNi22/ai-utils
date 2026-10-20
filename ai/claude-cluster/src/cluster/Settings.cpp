@@ -277,9 +277,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"sessions", "global_edit", "Global session can edit", SettingKind::Bool, {}, "the global session may rewrite the conversation of a sub-session "
                 "of Claude Code (MCP session_edit: texts replaced, messages deleted, its end cut; a new conversation, the old one kept)", false,
                 [](const cluster::Config& cf) {return cf.globalEdit ? std::string("true") : std::string("false");}},
-            {"sessions", "global_prompts", "Global session can rewrite the system prompts", SettingKind::Bool, {}, "the global session may rewrite its own "
-                "system prompt and the one of the sub-sessions (MCP config_write): what they obey at every start. Off: it asks you (Ctrl+K: edit the system prompt)",
-                false, [](const cluster::Config& cf) {return cf.globalPrompts ? std::string("true") : std::string("false");}},
+            {"sessions", "rewrite_global_prompt", "Global session can rewrite its own system prompt", SettingKind::Bool, {}, "the global session may rewrite "
+                "its own system prompt (MCP config_write global_prompt): what it obeys at every start, it is started again on it. Off: it asks you (Ctrl+K: edit the system prompt)",
+                false, [](const cluster::Config& cf) {return cf.globalPromptWrite ? std::string("true") : std::string("false");}},
+            {"sessions", "rewrite_sessions_prompt", "Global session can rewrite the system prompt of the sub-sessions", SettingKind::Bool, {}, "the global session may "
+                "rewrite the system prompt of the sub-sessions (MCP config_write sessions_prompt): each one takes it at its next start. Off: it asks you (Ctrl+K: edit the system prompt)",
+                false, [](const cluster::Config& cf) {return cf.sessionsPromptWrite ? std::string("true") : std::string("false");}},
             {"sessions", "prompt", "System prompt file", SettingKind::Text, {}, "system prompt of every sub-session (claude driver), added to CLAUDE.md; empty file: none", false,
                 [](const cluster::Config& cf) {return cf.sessionsPrompt;}},
             {"sessions", "edit_sessions_prompt", "System prompt (edit)", SettingKind::Action, {},
@@ -502,8 +505,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             "the page (the code, your approval and the bans still apply). Tailscale opens nothing") : std::string();}},
         {"web.shell", [](const std::string& v) {return v == "true" ? std::string("every device connected runs commands on this computer "
             "(!command), from outside the LAN too") : std::string();}},
-        {"sessions.global_prompts", [](const std::string& v) {return v == "true" ? std::string("the global session rewrites what every session obeys "
+        {"sessions.rewrite_global_prompt", [](const std::string& v) {return v == "true" ? std::string("the global session rewrites what it obeys "
             "at its start: a prompt injected once (a web page read) could stay for good") : std::string();}},
+        {"sessions.rewrite_sessions_prompt", [](const std::string& v) {return v == "true" ? std::string("the global session rewrites what every sub-session obeys "
+            "at its start: a prompt injected once (a web page read) could spread to them") : std::string();}},
         {"web.settings", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("every device connected to the page changes "
             "these settings of this computer (" + cluster::trim(v) + "): a phone lost or unlocked changes them too");}},
         {"web.https", [](const std::string& v) {return v == "false" ? std::string("the conversation, the code and the cookies go in clear on the "
@@ -851,7 +856,7 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
-        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
+        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"
         || (section == "sessions" && key == "budget_usd") || keys.contains(section + "." + key);

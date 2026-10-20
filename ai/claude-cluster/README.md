@@ -906,15 +906,16 @@ What protects the three ways of using claude-cluster, and what stays your respon
 - **The global session and its MCP tools** run without a permission prompt (`--allowedTools mcp__claude-cluster`):
   what it may do is bounded. The **protected settings** - a shell or the web opened wider (`web.shell`, `web.remote`,
   `web.approve`, `web.https`, `web.enabled`, `web.port`), the permissions of the agents (`agent.permission_mode`,
-  `agent.allow_bypass`, `global.permission_mode`, `sessions.bypass_to_global`, `global.answers / fork / edit`), the
+  `agent.allow_bypass`, `global.permission_mode`, `sessions.bypass_to_global`, `global.answers / fork / edit`, `sessions.rewrite_global_prompt / rewrite_sessions_prompt`), the
   programs run as you (`commands.*`, `ui.editor`, `ui.image_viewer`, `service.*`, `voice.*_command`), the MCP servers
   and tools - are **never changed by it** (`settings_set`, `config_write` refuse them: it asks you, you change them
   in the settings page). The other dangerous changes ask you (`confirmed`). `[mcp_tools]` turns any of its tools off.
   It never writes a file but a `.md` / `.txt` out of the hidden folders (`export`: no `~/.bashrc`, no
   `~/.ssh/authorized_keys`), never gives a hidden file (`~/.ssh`, `~/.config`, `~/.aws`, the folders of
   claude-cluster) to a session as a context nor to the page as a download, and rewrites the system prompts (what every
-  session obeys at its start) only when *Global session can rewrite the system prompts* is on (off by default: a
-  prompt injected once could stay for good) - it gives you the text instead.
+  session obeys at its start) only when *Global session can rewrite its own system prompt* (`rewrite_global_prompt`, off by default: a
+  prompt injected once could stay for good) and *... the system prompt of the sub-sessions* (`rewrite_sessions_prompt`, on by
+  default) allow it, one per file - it gives you the text instead. The old `global_prompts` key still sets the first one.
   A sub-session in `bypassPermissions` with *bypass to global* on lets the global session decide its commands: an
   injected prompt (a web page read by a session) may then run commands through it - keep `agent.allow_bypass` off
   when you do not orchestrate.

@@ -229,6 +229,7 @@ struct ConfigFile {
     std::string what;
     std::string applied;            // when a change is taken
     bool editable = true;
+    bool globalMay = true;          // the global session may write it (the settings of the prompts)
 };
 
 _cold static std::vector<ConfigFile> config_files_(cluster::Manager& manager)
@@ -236,9 +237,9 @@ _cold static std::vector<ConfigFile> config_files_(cluster::Manager& manager)
     const cluster::Config& c = manager.config();
     return {
         {"global_prompt", cluster::expand_home(c.globalPrompt), "the system prompt of the global session (added to CLAUDE.md)",
-            "the global session is started again on it (same conversation) after its turn", true},
+            "the global session is started again on it (same conversation) after its turn", true, c.globalPromptWrite},
         {"sessions_prompt", cluster::expand_home(c.sessionsPrompt), "the system prompt of every sub-session (claude driver; empty: none)",
-            "each sub-session takes it at its next start (/clear, /model...)", true},
+            "each sub-session takes it at its next start (/clear, /model...)", true, c.sessionsPromptWrite},
         {"vocabulary", cluster::vocabulary_path(c.voice.vocabulary), "proper names written back in what the voice hears: \"name = how it is heard, ...\"",
             "the next sentence heard", true},
         {"voice_words", cluster::voice_words_path(c.voice.words), "words said alone while a voice transcription waits: [cancel] / [send], one per line",
@@ -609,7 +610,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             for (const ConfigFile& file: config_files_(manager)) {
                 std::error_code error;
                 data.push_back({{"name", file.name}, {"path", file.path.string()}, {"what", file.what}, {"applied", file.applied},
-                    {"editable", file.editable}, {"exists", std::filesystem::exists(file.path, error)}});
+                    {"editable", file.editable && (!from_global || file.globalMay)}, {"exists", std::filesystem::exists(file.path, error)}});
             }
         } else if (cmd == "config_read") {
             if (from_web && !cluster::web_may(manager.config(), "config")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
@@ -623,9 +624,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (from_web && !cluster::web_may(manager.config(), "config")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             const ConfigFile file = config_file_(manager, arg_(request, "name"));
             if (!file.editable) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, file.name + " is read only (" + file.what + ")");
-            if (from_global && (file.name == "global_prompt" || file.name == "sessions_prompt") && !manager.config().globalPrompts)
-                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the user did not let the global session rewrite the "
-                    "system prompts (settings page > Sessions > Global session can rewrite the system prompts): give them the text, they edit it (Ctrl+K, edit the system prompt)");
+            if (from_global && !file.globalMay)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the user did not let the global session rewrite "
+                    + std::string(file.name == "global_prompt" ? "its own system prompt (settings page > Sessions > Global session can rewrite its own system prompt)"
+                    : "the system prompt of the sub-sessions (settings page > Sessions > Global session can rewrite the system prompt of the sub-sessions)")
+                    + ": give them the text, they edit it (Ctrl+K, edit the system prompt)");
             const std::string content = arg_(request, "content");
             if (file.name == "config") {
                 const std::string error = cluster::Config::check(content);

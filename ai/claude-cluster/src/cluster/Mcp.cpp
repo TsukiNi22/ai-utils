@@ -73,7 +73,7 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("config_read", "The content of one of them (config_files).", {{"name", str_("global_prompt | sessions_prompt | vocabulary | voice_words | config | machine_map")}}, {"name"}),
         tool_("config_write", "Replace one of them with this content: read it first (config_read) and keep what the user did not ask to change. "
             "config is checked (TOML) before it is written, its protected settings stay the user's; the system prompts only when the user allowed it "
-            "(settings: Global session can rewrite the system prompts), else give them the text; your own system prompt: you are started again on it after this turn.",
+            "(settings: Global session can rewrite its own system prompt / the system prompt of the sub-sessions, one each), else give them the text; your own system prompt: you are started again on it after this turn.",
             {{"name", str_("global_prompt | sessions_prompt | vocabulary | voice_words | config")}, {"content", str_("the whole new content")}}, {"name", "content"}),
         tool_("machine_sync", "Ask the user to map this computer again (when asked to, or the map is clearly outdated): its question is shown "
             "in the interface (yes / no), the scan then runs as started by hand.", {}, {}),

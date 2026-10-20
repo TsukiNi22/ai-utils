@@ -195,7 +195,9 @@ _cold void cluster::Config::load(void)
     this->questionsToGlobal = table["sessions"]["questions_to_global"].value_or(this->questionsToGlobal);
     this->globalAnswers = table["sessions"]["global_answers"].value_or(this->globalAnswers);
     this->globalEdit = table["sessions"]["global_edit"].value_or(this->globalEdit);
-    this->globalPrompts = table["sessions"]["global_prompts"].value_or(this->globalPrompts);
+    // the old key global_prompts (both prompts) stays the fallback of the global prompt only
+    this->globalPromptWrite = table["sessions"]["rewrite_global_prompt"].value_or(table["sessions"]["global_prompts"].value_or(this->globalPromptWrite));
+    this->sessionsPromptWrite = table["sessions"]["rewrite_sessions_prompt"].value_or(this->sessionsPromptWrite);
 
     /* voice */
     toml::node_view<const toml::node> v = std::as_const(table)["voice"];
