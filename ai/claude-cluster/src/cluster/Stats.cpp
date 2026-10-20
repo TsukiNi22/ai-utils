@@ -351,6 +351,7 @@ _cold std::string cluster::stats_open(cluster::Manager& manager, const bool focu
         cluster::SpawnRequest request;
         request.cwd = folder.string();
         request.name = "stats";
+        request.cheap = true;   // it only shows numbers
         id = manager.spawn(request);
     }
     for (const cluster::Json& block: cluster::stats_blocks(manager, 30)) {

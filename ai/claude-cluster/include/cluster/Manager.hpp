@@ -90,6 +90,7 @@ struct SpawnRequest {
     std::string profile;
     std::string prompt;         // first prompt (optional)
     std::string effort;         // empty: config
+    bool cheap = false;         // a session of claude-cluster itself (Stats, showcase): the cheapest model and the lowest thinking
     std::string resume{};       // the id of a conversation of the agent to go on with (claude --resume...)
     bool fork = false;          // claude: resumed as a copy (--fork-session), the original untouched
     std::vector<cluster::Entry> history{};  // its transcript so far, shown in the session
@@ -308,6 +309,7 @@ class Manager {
         _cold void send(const std::string& id, const std::string& text, const bool force = false,
             const std::vector<std::string>& images = {});               // not in the history: the prompts typed by the user only (addHistory)
         _cold void clear(const std::string& id);                         // /clear: a new conversation, the transcript archived (empty)
+        _cold void setBackend(const std::string& id, const std::string& provider); // the session again on another provider (anthropic: the login, anthropic-api: an API key), same model and conversation
         _cold void setModel(const std::string& id, const std::string& model);   // /model: the session again on this model (same conversation)
         _cold void setEffort(const std::string& id, const std::string& effort); // /effort: thinking / reasoning (default, low... max)
         _cold void close(const std::string& id);

@@ -18,6 +18,8 @@ File Description:
 #include "cluster/Asking.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <map>
 
 /* tools */
@@ -46,10 +48,16 @@ _cold cluster::Asking::Asking(cluster::Manager& manager)
 {
 }
 
+_cold cluster::Asking::~Asking()
+{
+    this->flush_(); // the worker is done with this
+}
+
 /* the question */
 _cold bool cluster::Asking::check(void)
 {
-    if (this->_manager.replica()) { // a replica: the question of its core (true: a new one)
+    if (this->_manager.replica()) {
+        // a replica: the question of its core (true: a new one)
         const cluster::Json json = this->_manager.replicaState("asking");
         const std::string id = json.is_object() ? json.value("request_id", std::string()) : "";
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -107,20 +115,77 @@ _cold std::optional<cluster::Ask> cluster::Asking::current(void) const
         ask.review = j.value("review", false);
         for (const cluster::Json& m: j.value("chat", cluster::Json::array()))
             if (m.is_object()) ask.chat.emplace_back(m.value("role", std::string()), m.value("text", std::string()));
+        std::lock_guard<std::mutex> lock(this->_localMutex);
+        if (this->_local && this->_local->requestId == ask.requestId && this->_local->index == ask.index && cluster::now_ms() - this->_local->at < 2000) {
+            ask.cursor = this->_local->cursor; // what was just done here, before the core says it
+            ask.picked = this->_local->picked;
+            ask.other = this->_local->other;
+        }
         return ask;
     }
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->_ask;
 }
 
+_cold void cluster::Asking::flush_(void)
+{
+    // the core has what was done here (in order) before a command that depends on it; the local view no longer needed
+    for (int waited = 0; waited < 3000; ++waited) {
+        {
+            std::lock_guard<std::mutex> lock(this->_postMutex);
+            if (this->_posts.empty() && !this->_posting) break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::lock_guard<std::mutex> lock(this->_localMutex);
+    this->_local.reset();
+}
+
+_cold void cluster::Asking::post_(cluster::Json request)
+{
+    request["cmd"] = "ask";
+    {
+        std::lock_guard<std::mutex> lock(this->_postMutex);
+        this->_posts.push_back(std::move(request));
+        if (this->_posting) return;
+        this->_posting = true;
+    }
+    std::thread([this]() {
+        while (true) {
+            cluster::Json next;
+            {
+                std::lock_guard<std::mutex> lock(this->_postMutex);
+                if (this->_posts.empty()) {
+                    this->_posting = false;
+                    return;
+                }
+                next = std::move(this->_posts.front());
+                this->_posts.pop_front();
+            }
+            try {
+                (void)this->_manager.call(next);
+            } catch (const utils::exception::IException&) {}
+        }
+    }).detach();
+}
+
+_cold void cluster::Asking::local_(const std::function<void(cluster::Ask&)>& change)
+{
+    std::optional<cluster::Ask> ask = this->current();
+    if (!ask) return;
+    change(*ask);
+    std::lock_guard<std::mutex> lock(this->_localMutex);
+    this->_local = Local{ask->requestId, ask->index, ask->cursor, ask->picked, ask->other, cluster::now_ms()};
+}
+
 _cold void cluster::Asking::move(const int delta)
 {
     if (this->_manager.replica()) {
-        cluster::Json request = {{"action", "move"}, {"delta", delta}};
-        request["cmd"] = "ask";
-        try {
-            (void)this->_manager.call(request);
-        } catch (const utils::exception::IException&) {}
+        this->local_([delta](cluster::Ask& a) {
+            const int count = static_cast<int>(a.questions[a.index].value("options", cluster::Json::array()).size());
+            a.cursor = std::clamp(a.cursor + delta, 0, count);
+        });
+        this->post_({{"action", "move"}, {"delta", delta}});
         return;
     }
 
@@ -134,11 +199,14 @@ _cold void cluster::Asking::move(const int delta)
 _cold void cluster::Asking::choose(const int option)
 {
     if (this->_manager.replica()) {
-        cluster::Json request = {{"action", "choose"}, {"option", option}};
-        request["cmd"] = "ask";
-        try {
-            (void)this->_manager.call(request);
-        } catch (const utils::exception::IException&) {}
+        this->local_([option](cluster::Ask& a) {
+            const cluster::Json& q = a.questions[a.index];
+            const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
+            if (option < 0 || option > count) return;
+            a.cursor = option;
+            if (q.value("multiSelect", false) && option < count && !a.picked.erase(option)) a.picked.insert(option);
+        });
+        this->post_({{"action", "choose"}, {"option", option}});
         return;
     }
 
@@ -155,11 +223,10 @@ _cold void cluster::Asking::choose(const int option)
 _cold void cluster::Asking::toggle(void)
 {
     if (this->_manager.replica()) {
-        cluster::Json request = {{"action", "toggle"}};
-        request["cmd"] = "ask";
-        try {
-            (void)this->_manager.call(request);
-        } catch (const utils::exception::IException&) {}
+        this->local_([](cluster::Ask& a) {
+            if (!a.picked.erase(a.cursor)) a.picked.insert(a.cursor);
+        });
+        this->post_({{"action", "toggle"}});
         return;
     }
 
@@ -172,6 +239,7 @@ _cold void cluster::Asking::toggle(void)
 _cold void cluster::Asking::type(const std::string& text)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         cluster::Json request = {{"action", "type"}, {"text", text}};
         request["cmd"] = "ask";
         try {
@@ -189,6 +257,7 @@ _cold void cluster::Asking::type(const std::string& text)
 _cold void cluster::Asking::erase(void)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         cluster::Json request = {{"action", "erase"}};
         request["cmd"] = "ask";
         try {
@@ -208,11 +277,14 @@ _cold void cluster::Asking::erase(void)
 _cold void cluster::Asking::setOther(const std::string& text)
 {
     if (this->_manager.replica()) {
-        cluster::Json request = {{"action", "other"}, {"text", text}};
-        request["cmd"] = "ask";
-        try {
-            (void)this->_manager.call(request);
-        } catch (const utils::exception::IException&) {}
+        this->local_([&text](cluster::Ask& a) {
+            const cluster::Json& q = a.questions[a.index];
+            const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
+            a.other = text;
+            a.cursor = count;
+            if (q.value("multiSelect", false)) a.picked.insert(count);
+        });
+        this->post_({{"action", "other"}, {"text", text}});
         return;
     }
 
@@ -229,6 +301,7 @@ _cold void cluster::Asking::setOther(const std::string& text)
 _cold std::string cluster::Asking::next(void)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         try {
             const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "next"}});
             return r.is_object() ? r.value("why", std::string()) : std::string();
@@ -256,16 +329,7 @@ _cold std::string cluster::Asking::next_(void)
     if (!this->_ask) return "no question";
     cluster::Ask& a = *this->_ask;
     if (a.review) {
-        // Submit: every question answered, else the first one not answered shown (nothing is sent with a hole)
-        for (std::size_t i = 0; i < a.questions.size(); ++i)
-            if (!a.answers.contains(a.questions[i].value("question", std::string()))) {
-                a.review = false;
-                a.fix = true;
-                a.index = i;
-                restore_(a);
-                ++this->_version;
-                return "question " + std::to_string(i + 1) + " is not answered: answer it, then submit";
-            }
+        // Submit: like Claude Code, what is answered is sent, even with questions left (the review flagged them)
         const cluster::Ask done = a;
         this->_ask.reset();
         try {
@@ -324,6 +388,7 @@ _cold bool cluster::Asking::forward(void)
     // → : the next question, answered or not (its selection kept to come back to, not recorded as an answer); on the last one:
     // the review, which flags the questions not answered
     if (this->_manager.replica()) {
+        this->flush_();
         try {
             return this->_manager.call({{"cmd", "ask"}, {"action", "forward"}}).value("moved", false);
         } catch (const utils::exception::IException&) {
@@ -356,6 +421,7 @@ _cold bool cluster::Asking::forward(void)
 _cold void cluster::Asking::back(void)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         cluster::Json request = {{"action", "back"}};
         request["cmd"] = "ask";
         try {
@@ -407,6 +473,7 @@ _cold void cluster::Asking::back(void)
 _cold void cluster::Asking::decline(void)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         cluster::Json request = {{"action", "decline"}};
         request["cmd"] = "ask";
         try {
@@ -431,6 +498,7 @@ _cold void cluster::Asking::decline(void)
 _cold std::string cluster::Asking::toGlobal(void)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         try {
             const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "global"}});
             return r.is_object() ? r.value("done", std::string()) : std::string();
@@ -465,6 +533,7 @@ _cold std::string cluster::Asking::toGlobal(void)
 _cold std::string cluster::Asking::chat(const std::string& text)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         try {
             const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "chat"}, {"text", text}});
             return r.is_object() ? r.value("done", std::string()) : std::string();
@@ -506,6 +575,7 @@ _cold void cluster::Asking::chatAnswer(const std::string& requestId, const std::
 _cold std::string cluster::Asking::spoken(const std::string& sentence)
 {
     if (this->_manager.replica()) {
+        this->flush_();
         try {
             const cluster::Json r = this->_manager.call({{"cmd", "ask"}, {"action", "say"}, {"text", sentence}});
             return r.is_object() ? r.value("done", std::string()) : std::string();

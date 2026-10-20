@@ -372,6 +372,35 @@ _cold std::string key_name_(const ftxui::Event& event)
     if (input.size() == 2 && input[0] == 27 && std::isalnum(static_cast<unsigned char>(input[1])))
         return std::string("Alt+") + static_cast<char>(std::toupper(static_cast<unsigned char>(input[1])));
 
+    // the function keys with modifiers: "ESC[21;3~" (Alt+F10), "ESC[1;5P" (Ctrl+F1), and Alt sent as a leading ESC ("ESC ESC[21~")
+    {
+        static const std::map<int, int> tilde = {{11, 1}, {12, 2}, {13, 3}, {14, 4}, {15, 5}, {17, 6}, {18, 7}, {19, 8}, {20, 9}, {21, 10}, {23, 11}, {24, 12}};
+        static const std::regex modTilde("^\x1b\\[(\\d+);(\\d+)~$");
+        static const std::regex modSs3("^\x1b\\[1;(\\d+)([PQRS])$");
+        static const std::regex altTilde("^\x1b\x1b\\[(\\d+)~$");
+        static const std::regex altSs3("^\x1b\x1bO([PQRS])$");
+        std::smatch found;
+        int number = 0;
+        int modifier = 1;
+        if (std::regex_match(input, found, modTilde) && tilde.contains(std::stoi(found[1].str()))) {
+            number = tilde.at(std::stoi(found[1].str()));
+            modifier = std::stoi(found[2].str());
+        } else if (std::regex_match(input, found, modSs3)) {
+            number = 1 + (found[2].str()[0] - 'P');
+            modifier = std::stoi(found[1].str());
+        } else if (std::regex_match(input, found, altTilde) && tilde.contains(std::stoi(found[1].str()))) {
+            number = tilde.at(std::stoi(found[1].str()));
+            modifier = 3;
+        } else if (std::regex_match(input, found, altSs3)) {
+            number = 1 + (found[1].str()[0] - 'P');
+            modifier = 3;
+        }
+        if (number > 0 && modifier >= 2) {
+            const int bits = modifier - 1;
+            return std::string(bits & 4 ? "Ctrl+" : "") + (bits & 1 ? "Shift+" : "") + (bits & 2 ? "Alt+" : "") + "F" + std::to_string(number);
+        }
+    }
+
     // Extended sequences (terminals that tell the modifiers apart): CSI u "ESC[<code>;<mods>u" and xterm
     // modifyOtherKeys "ESC[27;<mods>;<code>~" -> "Ctrl+Shift+T", "Alt+X"...
     static const std::regex csiU("^\x1b\\[(\\d+);(\\d+)u$");
@@ -4147,12 +4176,13 @@ class TtyUi {
             ftxui::Elements left = {
                 ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                 ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
-                ftxui::text(model) | ftxui::color(this->_theme.muted),
-                // how it is billed: api (an API key, per token) | auth (a login, a subscription) | local; its thinking
-                ftxui::text(std::string("  ") + (this->_manager.authKind(s.spec.backend) == "api" ? "api" : this->_manager.authKind(s.spec.backend) == "auth" ? "auth" : "local"))
-                    | ftxui::bold | ftxui::color(this->_manager.authKind(s.spec.backend) == "api" ? this->_theme.warn : this->_theme.ok),
-                ftxui::text("  think " + (s.spec.effort.empty() ? std::string("default") : s.spec.effort)) | ftxui::color(this->_theme.muted),
-                ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted),
+                this->tap_(ftxui::text(model) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("model:");}),
+                // how it is billed: api (an API key, per token) | auth (a login, a subscription) | local; its thinking and mode; each one a click away
+                this->tap_(ftxui::text(std::string("  ") + (this->_manager.authKind(s.spec.backend) == "api" ? "api" : this->_manager.authKind(s.spec.backend) == "auth" ? "auth" : "local"))
+                    | ftxui::bold | ftxui::color(this->_manager.authKind(s.spec.backend) == "api" ? this->_theme.warn : this->_theme.ok), 0, [this]() {this->pick_("backend:");}),
+                this->tap_(ftxui::text("  think " + (s.spec.effort.empty() ? std::string("default") : s.spec.effort)) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("effort:");}),
+                this->tap_(ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted), 0,
+                    [this]() {this->pick_("mode:");}),
                 ftxui::filler(),
                 // where it runs: its folder (a click opens it), the computer, its branch, its process
                 this->tap_(ftxui::text(cluster::short_path(s.spec.cwd)) | ftxui::color(this->_theme.muted), 0, [this, cwd = s.spec.cwd]() {

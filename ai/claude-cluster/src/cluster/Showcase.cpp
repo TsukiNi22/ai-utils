@@ -129,6 +129,7 @@ namespace {
         cluster::SpawnRequest request;
         request.cwd = folder.string();
         request.name = "showcase";
+        request.cheap = true;   // it only shows what the interface can draw
         return manager.spawn(request);
     }
 

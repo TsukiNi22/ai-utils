@@ -78,6 +78,11 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"rename", "Rename the session", "name", snap->spec.name, false});
         list.push_back({"describe", "Describe the session (its short description: " + (snap->spec.summary.empty() ? std::string("none yet") : cluster::one_line(snap->spec.summary, 50)) + ")",
             "a few words (empty: written again)", snap->spec.summary, false});
+        if (snap->spec.backend.starts_with("anthropic") || snap->spec.backend.starts_with("claude")) { // api | auth: how it is billed
+            const bool api = manager.authKind(snap->spec.backend) == "api";
+            list.push_back({"backend:anthropic", std::string("Billing: auth - the Claude Code login, a subscription") + (api ? "" : " (current)"), "", "", false});
+            list.push_back({"backend:anthropic-api", std::string("Billing: api - an Anthropic API key, per token (the key: F9 > Accounts)") + (api ? " (current)" : ""), "", "", false});
+        }
         for (const auto &[mode, description]: cluster::permission_modes())
             list.push_back({"mode:" + mode, "Permission mode: " + mode + (snap->spec.mode == mode ? " (current)" : "") + " - " + description, "", "", false});
         try {
@@ -272,6 +277,9 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         } else if (base == "describe") {
             manager.describe(session, input);
             result.message = cluster::trim(input).empty() ? "its description written again" : "described";
+        } else if (base == "backend") {
+            manager.setBackend(session, arg);
+            result.message = "billing: " + manager.authKind(arg);
         } else if (base == "mode" || base == "model" || base == "effort") {
             // the value picked: where it applies is asked next (Enter at once: this session)
             const std::string value = arg.empty() ? cluster::trim(input) : arg;

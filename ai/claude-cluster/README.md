@@ -105,6 +105,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 |---|---|
 | Ctrl+K | command palette (every action: new session, modes, panels, styles, layouts, providers, voice...) |
 | F9 | settings page |
+| F10 | statistics (the Stats session) |
 | F1 | every key |
 | Alt+1 .. Alt+9 | session N |
 | Ctrl+N (Alt+N) / Alt+P | next / previous session |

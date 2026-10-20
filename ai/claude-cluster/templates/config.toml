@@ -180,6 +180,7 @@ push_to_talk = "F5"
 mute = "F6"
 layout = "F2"
 settings = "F9"
+stats = "F10"
 restore = "Ctrl+Shift+T|Ctrl+Shift+R|Alt+T"   # reopen a closed session (the trash)
 prefix = "Ctrl+B"          # then an arrow: session on the left / right / above / below (like tmux)
 quit = "Ctrl+Q"

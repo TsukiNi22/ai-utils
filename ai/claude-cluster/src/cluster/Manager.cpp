@@ -197,6 +197,15 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     spec.backend = req.backend.empty() ? this->_config.backend : req.backend;
     spec.mode = req.mode.empty() ? this->_config.mode : req.mode;
     spec.effort = req.effort.empty() ? this->_config.effort : req.effort;
+    if (req.cheap) { // nothing of these asks for a big model: the smallest one, no thinking to speak of
+        const std::string provider = spec.backend.substr(0, spec.backend.find('/'));
+        if (this->vendorOf(spec.backend) == "anthropic") {
+            spec.backend = provider + "/haiku";
+            spec.model = "haiku";
+        }
+        const std::vector<std::string>& levels = cluster::effort_levels(this->_auth.resolve(spec.backend).provider.driver);
+        if (!levels.empty()) spec.effort = levels.front();
+    }
     spec.profile = req.profile;
     spec.panels = std::set<std::string>(this->_config.panels.begin(), this->_config.panels.end());
     spec.created = cluster::now();
@@ -281,6 +290,17 @@ _cold void cluster::Manager::clear(const std::string& id)
     session->start();
     this->notice_(id, spec.name + ": new conversation (the transcript before archived)");
     this->save();
+}
+
+_cold void cluster::Manager::setBackend(const std::string& id, const std::string& provider)
+{
+    // api | auth: the same agent, billed through an API key or through its login - the session started again on it (--resume)
+    cluster::SessionSpec spec = this->get_(id)->spec();
+    const std::string model = spec.backend.find('/') != std::string::npos ? spec.backend.substr(spec.backend.find('/') + 1) : spec.model;
+    (void)this->_auth.resolve(provider + (model.empty() ? "" : "/" + model)); // an unknown provider: refused here
+    spec.backend = provider + (model.empty() ? "" : "/" + model);
+    this->relaunch_(id, spec);
+    this->notice_(id, spec.name + ": billing " + (this->authKind(spec.backend) == "api" ? "api (an API key)" : "auth (the login)"));
 }
 
 _cold void cluster::Manager::setModel(const std::string& id, const std::string& model)

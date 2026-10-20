@@ -29,6 +29,7 @@ File Description:
     #include <atomic>               // std::atomic
     #include <vector>               // std::vector
     #include <mutex>                // std::mutex
+    #include <deque>                // std::deque
     #include <set>                  // std::set
     #include <map>                  // std::map                  // std::set
 
@@ -70,8 +71,26 @@ class Asking {
         std::set<std::string> _offered;         // the requests opened once (declined or answered: not again)
         std::atomic<std::uint64_t> _version{1};
 
+        // an interface: the cursor / ticks / typed text answer at once here, the core told in the background (in order)
+        struct Local {
+            std::string requestId;
+            std::size_t index = 0;
+            int cursor = 0;
+            std::set<int> picked;
+            std::string other;
+            std::int64_t at = 0;
+        };
+        mutable std::mutex _localMutex;
+        std::optional<Local> _local;
+        std::mutex _postMutex;
+        std::deque<cluster::Json> _posts;
+        bool _posting = false;
+
         // ---------- Pre-Function -------- //
         _cold _nodiscard std::string next_(void);    // under the lock
+        _cold void flush_(void);                     // an interface: the commands sent in the background are done
+        _cold void post_(cluster::Json request);     // an interface: sent to the core by a worker, in order
+        _cold void local_(const std::function<void(cluster::Ask&)>& change); // an interface: the selection changed here at once
 
     public:
         // ---------- Pre-Function -------- //
@@ -96,6 +115,9 @@ class Asking {
 
         // ---------- Constructor -------- //
         _cold explicit Asking(cluster::Manager& manager);
+
+        // ----------- Destructor --------- //
+        _cold ~Asking();
 };
 
 } // namespace end
