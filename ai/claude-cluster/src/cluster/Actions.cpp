@@ -1169,7 +1169,17 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         "\n                              p P u Ctrl+R ~ J r v V counts), i a I A o O Insert, Enter sends"
         "\nShift / Ctrl+Shift + arrows   select; Ctrl + arrows: by word; Home / End"
         "\nPageUp / PageDown, wheel      scroll the transcript (Shift+PageUp / Shift+PageDown, Ctrl+Home / Ctrl+End: start / end)"
-        "\n@ / /                         completion: Tab complete, Enter accept, arrows choose, Space / Esc close";
+        "\n@ / /                         completion: Tab complete, Enter accept, arrows choose, Space / Esc close"
+        "\nText fields (the popups, the settings, the forms, the chat of a question; the prompt for the keys not bound above):"
+        "\n← → / Ctrl+← → / Alt+b Alt+f   one character (emoji and accents: one cell) / one word"
+        "\nHome End / Ctrl+A Ctrl+E       start / end of the line; Ctrl+Home / Ctrl+End: of the text"
+        "\n↑ ↓                           several lines (chat): one visual line (a single line keeps them for its list)"
+        "\nBackspace / Delete             one character; Ctrl+Backspace / Alt+Backspace / Ctrl+W: the word before; Ctrl+Delete / Alt+d: the next word"
+        "\nCtrl+U / Ctrl+K / Ctrl+Y       delete to the start / the end of the line (kept), put it back"
+        "\nCtrl+Z / Ctrl+Shift+Z          undo / redo"
+        "\nShift + arrows / Home / End    select (Ctrl+Shift: by word); typing replaces the selection"
+        "\nCtrl+Shift+C / Ctrl+X / Ctrl+Shift+V / Ctrl+V   copy / cut / paste (a terminal paste works too)"
+        "\nclick / drag / double click    place the cursor / select / select a word";
     return text;
 }
 
