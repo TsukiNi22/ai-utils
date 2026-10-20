@@ -68,6 +68,11 @@ work_method_detect = false # the global session may PROPOSE a method from how yo
 work_method_every = 20     # sessions started by the global session between two checks (0: only when asked)
 
 [commands]                 # programs of the drivers
+sub_read = true            # a sub-session lists its own tasks / schedules (MCP task_list, schedule_list)
+sub_tasks = true           # ... queues tasks (MCP task_add; it manages its own ones only)
+sub_schedules = false      # ... creates schedules (MCP schedule_add, schedule_edit)
+sub_spawn = false          # ... makes tasks / schedules that start sessions
+sub_spawn_cap = 2          # the sessions of its tasks / schedules it may have waiting or open at once
 claude = "claude"
 qwen = "qwen"
 opencode = "opencode"

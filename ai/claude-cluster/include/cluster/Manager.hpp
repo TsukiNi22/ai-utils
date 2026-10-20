@@ -251,6 +251,7 @@ class Manager {
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
         _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
         _cold void writeMcpConfig_(void) const;
+        _cold _nodiscard std::vector<std::string> subArgs_(const std::string& id) const;   // the MCP of a sub-session (its tasks / schedules): its arguments, none when closed
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
         _cold void schedule_(void);                         // Manager-Tasks.cpp
         _cold void enforceTasks_(void);                     // the running tasks: past their timeout / budget stopped

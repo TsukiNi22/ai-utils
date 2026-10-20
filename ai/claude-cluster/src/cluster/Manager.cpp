@@ -165,6 +165,8 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
         if (!spec.global) {
             const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false, cluster::method_text(this->_config, false));
             launch.extraArgs.insert(launch.extraArgs.end(), prompt.begin(), prompt.end());
+            const std::vector<std::string> mcp = this->subArgs_(spec.id);
+            launch.extraArgs.insert(launch.extraArgs.end(), mcp.begin(), mcp.end());
         }
     }
     if (spec.global) {

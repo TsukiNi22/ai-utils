@@ -275,6 +275,14 @@ pass; `schedule_edit` changes any field (`pause: true` / `false`); `schedule_act
 ack, trigger (run now, conditions skipped), cancel, delete, archive. The Tasks session shows the same everywhere (terminal,
 window, web page) with the actions of a row: run now, pause / resume, snooze, change the time / text / repeat / cron, cancel.
 
+**Sub-sessions** (claude driver) get their own small MCP (`task_add`, `task_list`, `task_cancel`, `task_act`,
+`schedule_*`), scoped: they see and manage only the tasks and schedules they made; a task of a
+sub-session runs for itself after its turn and its result comes back to it as `[tasks] ...`; a schedule wakes itself only;
+a local command (action `command`, `if.command`, `on_event: command`) and `force` are never theirs. The settings
+(`[agent]`): `sub_read` (on), `sub_tasks` (on), `sub_schedules` (off), `sub_spawn` (off: tasks / schedules that start
+sessions), `sub_spawn_cap` (2: the sessions of its tasks a sub-session may have waiting or open at once); the global
+session always manages everything. A session takes the change at its next start.
+
 **Sessions by hand**:
 - **A new session on a project**: `/new <name>`, `/cd <name>`, the palette *New session on a project*, the web page,
   `claude-cluster spawn <name>` and the global session (`session_spawn`) take a folder or the name of a project of the

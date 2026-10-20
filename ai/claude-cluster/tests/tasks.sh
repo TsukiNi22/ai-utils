@@ -102,5 +102,22 @@ call schedule_act "{\"id\":\"${W}\",\"action\":\"snooze\",\"minutes\":120}" > /d
 has "list: rules and next times" "$(call schedule_list "{\"id\":\"${W}\"}")" '\"then\"'
 call schedule_cancel "{\"id\":\"${W}\"}" > /dev/null
 
+# (8) the MCP of a sub-session: its own tools, scoped
+TOOLS="$(tools "${ID}")"
+has "sub-session: task_add" "${TOOLS}" '"task_add"'
+has "sub-session: task_list" "${TOOLS}" '"task_list"'
+hasnt "sub-session: nothing of the global session" "${TOOLS}" '"session_spawn"'
+SUB="${ID}"
+export SUB
+has "sub-session: a local command is refused" "$(call schedule_add '{"action":"command","when":"+1h","command":"id"}')" 'not allowed'
+has "sub-session: a spawn is refused" "$(call task_add "{\"prompt\":\"x\",\"spawn\":{\"cwd\":\"${WORK}/proj\"}}")" 'not allowed'
+has "sub-session: another session refused" "$(call task_add '{"prompt":"x","target":"s999"}')" 'no session'
+MINE="$(call task_add '{"prompt":"for myself"}')"
+has "sub-session: queues for itself" "${MINE}" '"id"'
+SEEN="$(call task_list '{}')"
+has "sub-session: sees its own" "${SEEN}" 'for myself'
+hasnt "sub-session: does not see the others" "${SEEN}" 'alpha job'
+unset SUB
+
 if [[ "${fail}" != 0 ]]; then echo "--- log:"; cut -c1-200 "${WORK}/log" | tail -30; echo "--- serve:"; tail -20 "${WORK}/serve.log"; fi
 exit "${fail}"

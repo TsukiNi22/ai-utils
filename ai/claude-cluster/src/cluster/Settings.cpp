@@ -239,6 +239,17 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.workMethodDetect ? std::string("true") : std::string("false");}},
             {"agent", "work_method_every", "Detection: every N sessions", SettingKind::Int, {}, "sessions started by the global session between two checks (0: only when asked)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.workMethodEvery);}},
+            {"agent", "sub_read", "Sub-sessions: see their tasks", SettingKind::Bool, {}, "a sub-session lists its own tasks and schedules (MCP task_list, "
+                "schedule_list: the ones it made; never the others). Off: it has no such tool", false, [](const cluster::Config& cf) {return cf.subRead ? std::string("true") : std::string("false");}},
+            {"agent", "sub_tasks", "Sub-sessions: queue tasks", SettingKind::Bool, {}, "a sub-session queues tasks for itself or another session (MCP "
+                "task_add, task_cancel, task_act on its own tasks)", false, [](const cluster::Config& cf) {return cf.subTasks ? std::string("true") : std::string("false");}},
+            {"agent", "sub_schedules", "Sub-sessions: create schedules", SettingKind::Bool, {}, "a sub-session schedules prompts, notifications or tasks "
+                "(MCP schedule_add, schedule_edit): off by default - a repeated schedule runs by itself, long after", false, [](const cluster::Config& cf) {return cf.subSchedules ? std::string("true") : std::string("false");}},
+            {"agent", "sub_spawn", "Sub-sessions: tasks that start sessions", SettingKind::Bool, {}, "a task or a schedule of a sub-session may start "
+                "sessions of its own (each costs tokens): off by default", false, [](const cluster::Config& cf) {return cf.subSpawn ? std::string("true") : std::string("false");}},
+            {"agent", "sub_spawn_cap", "Sub-sessions: sessions started at most", SettingKind::Int, {}, "the sessions of its tasks / schedules a sub-session "
+                "may have waiting or open at once (past it a new one is refused); the global session has no cap", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.subSpawnCap);}},
             {"agent", "extra_args", "Extra arguments (claude)", SettingKind::List, {}, "added to every claude session, comma separated", true,
                 [](const cluster::Config& cf) {return join_(cf.extraArgs);}},
         }},
