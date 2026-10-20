@@ -251,6 +251,17 @@ _cold void cluster::Config::load(void)
     this->service.wakeWord = sv["wake_word"].value_or(std::string());
     this->service.python = sv["python"].value_or(this->service.python);
     this->service.source = table["voice"]["source"].value_or(sv["source"].value_or(this->service.source));
+    this->policy.defaultModel = table["policy"]["default_model"].value_or(this->policy.defaultModel);
+    this->policy.defaultEffort = table["policy"]["default_effort"].value_or(this->policy.defaultEffort);
+    for (const auto &[key, field]: {std::pair<std::string, std::string*>{"model_mode", &this->policy.modelMode}, {"effort_mode", &this->policy.effortMode}}) {
+        const std::string chosen = table["policy"][key].value_or(*field);
+        *field = chosen == "free" || chosen == "force" ? chosen : "advise";
+    }
+    this->policy.allowedModels = strings_(table["policy"]["allowed_models"], {});
+    this->policy.allowedEfforts = strings_(table["policy"]["allowed_efforts"], {});
+    this->policy.askCostly = table["policy"]["ask_costly"].value_or(this->policy.askCostly);
+    this->policy.costlyModels = strings_(table["policy"]["costly_models"], this->policy.costlyModels);
+    this->policy.costlyEfforts = strings_(table["policy"]["costly_efforts"], this->policy.costlyEfforts);
     this->limits.dailyUsd = std::max(0.0, table["limits"]["daily_usd"].value_or(this->limits.dailyUsd));
     this->limits.weeklyUsd = std::max(0.0, table["limits"]["weekly_usd"].value_or(this->limits.weeklyUsd));
     this->limits.monthlyUsd = std::max(0.0, table["limits"]["monthly_usd"].value_or(this->limits.monthlyUsd));

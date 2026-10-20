@@ -135,6 +135,18 @@ struct LimitsConf {                 // [limits]: what the sessions may spend tog
     int warnPercent = 80;           // warned at this share of a limit (0: never before it is reached)
 };
 
+struct PolicyConf {                 // [policy]: what the global session may choose as model / thinking for the sub-sessions
+    std::string defaultModel;       // the model sessions start from (empty: none)
+    std::string defaultEffort;      // the thinking effort they start from (empty: the default of the agent)
+    std::string modelMode = "advise";   // free (no default) | advise (the default is the start, deviate for a reason) | force (nothing else)
+    std::string effortMode = "advise";
+    std::vector<std::string> allowedModels;     // empty: every one
+    std::vector<std::string> allowedEfforts;
+    bool askCostly = true;          // the costly models / efforts: the user decides each time (Allow / Deny)
+    std::vector<std::string> costlyModels = {"opus", "fable"};
+    std::vector<std::string> costlyEfforts = {"xhigh", "max"};
+};
+
 struct ServicesConf {
     std::string refresh = "live";   // the Services tab: live (what changes, at once) | interval (every delay s) | manual (R)
     int delay = 2;                  // seconds: interval; the slow parts (systemd, its journal, tailscale) kept so long
@@ -237,6 +249,7 @@ class Config {
         cluster::ServicesConf services;
         cluster::UsageConf usage;
         cluster::LimitsConf limits;
+        cluster::PolicyConf policy;
         cluster::WebConf web;
         cluster::UserConf user;
         int machineDays = 30;                   // the map of this computer older: a sync proposed at start (0: never)

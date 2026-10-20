@@ -87,6 +87,8 @@ set(SRC
     src/cluster/Services.cpp
     src/cluster/Showcase.cpp
     src/cluster/Plugins.cpp
+    src/cluster/Policy.cpp
+    src/cluster/Manager-Policy.cpp
     src/cluster/Manager-Upgrade.cpp
     src/cluster/Usage.cpp
     src/cluster/WebTty.cpp

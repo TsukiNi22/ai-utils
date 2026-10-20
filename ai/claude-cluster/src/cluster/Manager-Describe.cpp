@@ -288,6 +288,17 @@ _cold void cluster::Manager::describeMissing_(void)
 /* "Chat about this" */
 _cold void cluster::Manager::chatAbout(const cluster::Ask& ask)
 {
+    if (ask.requestId.starts_with("core-")) { // a question of claude-cluster itself (a costly model asked by the global session): a fixed answer, nothing spent
+        std::thread([this, describer = this->_describer, requestId = ask.requestId]() {
+            std::lock_guard<std::mutex> hold(describer->mutex);
+            if (!describer->alive) return;
+            this->asking().chatAnswer(requestId, "This question comes from claude-cluster, not from an agent: the global session asked to run a session on a costly model or "
+                "thinking effort (Settings > Model policy decides which ones ask). Allow applies it to that session (its conversation goes on), Deny keeps it as it is and "
+                "tells the global session.");
+            ++this->_version;
+        }).detach();
+        return;
+    }
     if (cluster::showcase_request(ask.requestId)) { // the showcase: a fixed answer, nothing spent
         std::thread([this, describer = this->_describer, requestId = ask.requestId, said = ask.chat.empty() ? std::string() : ask.chat.back().second]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1200));

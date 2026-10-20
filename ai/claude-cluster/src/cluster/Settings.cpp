@@ -642,6 +642,43 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         const auto usage = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "usage";});
         pages.insert(usage == pages.end() ? pages.end() : usage + 1, page);
     }
+    // the model / thinking policy of the global session
+    {
+        const std::vector<std::string> policyModes = {"free", "advise", "force"};
+        const std::function<std::string(const std::string&)> modeHelp = [](const std::string& value) {
+            return value == "free" ? "no default: the global session chooses by the difficulty of each task"
+                : value == "force" ? "the default is the only one the global session may use (anything else is refused)"
+                : "the default is the start: the global session may deviate for a reason (cheaper for easy tasks, stronger for hard ones)";
+        };
+        cluster::SettingsPage page{"policy", "Model policy", {}};
+        page.settings.push_back({"global", "model", "Model of the global session", SettingKind::Text, {}, "the model the global session itself runs on (empty: the default of "
+            "the agent). Also in Global session", true, [](const cluster::Config& cf) {return cf.globalModel;}});
+        page.settings.push_back({"global", "effort", "Thinking of the global session", SettingKind::Choice, efforts, "its thinking effort (empty: the default of the agent). "
+            "Also in Global session", true, [](const cluster::Config& cf) {return cf.globalEffort;}});
+        page.settings.push_back({"policy", "default_model", "Default model of the sub-sessions", SettingKind::Text, {}, "the model the sub-sessions start from (opus, sonnet, haiku, "
+            "an id...); empty: none. The global session chooses the model of each sub-session by the difficulty of its task, from this one", false,
+            [](const cluster::Config& cf) {return cf.policy.defaultModel;}});
+        page.settings.back().choiceHelp = nullptr;
+        page.settings.push_back({"policy", "model_mode", "Model: how the default applies", SettingKind::Choice, policyModes, "free: no default | advise: the default is the start, "
+            "deviate for a reason | force: nothing else is allowed (refused, with the reason)", false, [](const cluster::Config& cf) {return cf.policy.modelMode;}, modeHelp});
+        page.settings.push_back({"policy", "default_effort", "Default thinking of the sub-sessions", SettingKind::Choice, efforts, "the thinking effort they start from (empty: the "
+            "default of the agent)", false, [](const cluster::Config& cf) {return cf.policy.defaultEffort;}});
+        page.settings.push_back({"policy", "effort_mode", "Thinking: how the default applies", SettingKind::Choice, policyModes, "free | advise | force, like the model", false,
+            [](const cluster::Config& cf) {return cf.policy.effortMode;}, modeHelp});
+        page.settings.push_back({"policy", "allowed_models", "Allowed models", SettingKind::List, {}, "the only models the global session may choose, comma separated (a name or a "
+            "part: haiku, sonnet); empty: every one", false, [](const cluster::Config& cf) {return join_(cf.policy.allowedModels);}});
+        page.settings.push_back({"policy", "allowed_efforts", "Allowed thinking efforts", SettingKind::List, {}, "the only efforts it may choose, comma separated; empty: every one",
+            false, [](const cluster::Config& cf) {return join_(cf.policy.allowedEfforts);}});
+        page.settings.push_back({"policy", "ask_costly", "Ask before a costly choice", SettingKind::Bool, {}, "true: the global session asks you (a popup: Allow / Deny, on every "
+            "interface and a notification) before running a session on a costly model or thinking effort (below); false: it chooses alone inside the limits above", false,
+            [](const cluster::Config& cf) {return cf.policy.askCostly ? std::string("true") : std::string("false");}});
+        page.settings.push_back({"policy", "costly_models", "Costly models", SettingKind::List, {}, "models that cost as much or more than these (a name or a part: opus, fable)", false,
+            [](const cluster::Config& cf) {return join_(cf.policy.costlyModels);}});
+        page.settings.push_back({"policy", "costly_efforts", "Costly thinking efforts", SettingKind::List, {}, "efforts of this level or above (xhigh, max)", false,
+            [](const cluster::Config& cf) {return join_(cf.policy.costlyEfforts);}});
+        const auto accounts = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "accounts";});
+        pages.insert(accounts == pages.end() ? pages.end() : accounts + 1, page);
+    }
     for (const auto &[action, key]: c.keys) {
         const std::string name = action;
         pages.back().settings.push_back({"keys", name, name, SettingKind::Text, {}, "Ctrl+<letter>, Ctrl+Shift+<letter>, Alt+<letter>, F1..F12, Tab, Escape; alternatives separated by |", false,

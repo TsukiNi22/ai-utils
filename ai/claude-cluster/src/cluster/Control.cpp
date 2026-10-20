@@ -24,6 +24,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Policy.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Wire.hpp"
@@ -446,8 +447,42 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::optional<cluster::Snapshot> snap = manager.snapshot(session());
             if (snap) data = manager.toJson(*snap, true);
         } else if (cmd == "spawn") {
-            data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), arg_(request, "backend"),
-                arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), arg_(request, "effort")})}};
+            std::string backend = arg_(request, "backend");
+            std::string effort = arg_(request, "effort");
+            std::string wanted;         // the costly model / effort asked (applied once the user allows it)
+            std::string wantedEffort;
+            if (from_global) {
+                // the policy: its default when nothing is asked, refused / asked when what is asked is not allowed / costly
+                const cluster::PolicyConf& policy = manager.config().policy;
+                const std::size_t slash = backend.find('/');
+                std::string model = slash == std::string::npos ? std::string() : backend.substr(slash + 1);
+                const std::string provider = slash == std::string::npos ? backend : backend.substr(0, slash);
+                if (model.empty() && !policy.defaultModel.empty() && policy.modelMode != "free" && backend != "claude/" && provider.find('/') == std::string::npos) {
+                    const std::string base = provider.empty() ? manager.config().backend.substr(0, manager.config().backend.find('/')) : provider;
+                    if (base == "claude" || base == "anthropic" || base == "anthropic-api") model = policy.defaultModel;
+                    if (!model.empty()) backend = base + "/" + model;
+                }
+                if (effort.empty() && !policy.defaultEffort.empty() && policy.effortMode != "free") effort = policy.defaultEffort;
+                const cluster::PolicyVerdict verdict = cluster::policy_check(manager.config(), model, effort, "", "");
+                if (verdict.kind == "refuse") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "refused by the policy: " + verdict.reason);
+                if (verdict.kind == "ask") { // the session starts as the policy says, the costly part asked after
+                    wanted = model;
+                    wantedEffort = effort;
+                    if (cluster::policy_costly_model(manager.config(), model)) {
+                        backend = backend.substr(0, backend.find('/')); // not on the costly model yet: on the default of the policy, else the one of its agent
+                        if (!policy.defaultModel.empty() && policy.modelMode != "free" && !cluster::policy_costly_model(manager.config(), policy.defaultModel))
+                            backend += "/" + policy.defaultModel;
+                    }
+                    if (cluster::policy_costly_effort(manager.config(), effort)) effort.clear();
+                    if (!cluster::policy_costly_model(manager.config(), model)) wanted.clear();
+                    if (!cluster::policy_costly_effort(manager.config(), wantedEffort)) wantedEffort.clear();
+                }
+            }
+            data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), backend, arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), effort})}};
+            if (!wanted.empty() || !wantedEffort.empty()) {
+                const std::string asked = manager.modelChange(data["id"].get<std::string>(), wanted, wantedEffort, true);
+                if (!asked.empty()) data["asked"] = asked + " (the session runs meanwhile on the policy default; the user answers in their interface)";
+            }
         } else if (cmd == "send" && arg_(request, "session") == TASKS_ID) {
             // the Tasks session (the web page): a /command, else a new task / reminder
             const std::string text = cluster::trim(arg_(request, "text"));
@@ -466,6 +501,17 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 manager.noteSender(id, arg_(request, "client"));
                 manager.send(id, text, request.value("force", false), request.value("images", std::vector<std::string>()));
                 return {{"ok", true}, {"data", {{"id", id}, {"queued", true}}}};
+            }
+            if (from_global) {
+                // /model and /effort typed by the global session go through the same policy as session_set_model
+                const std::string typed = cluster::trim(text);
+                for (const char* command: {"/model", "/effort"}) {
+                    const std::string head = std::string(command) + " ";
+                    if (!typed.starts_with(head) || cluster::trim(typed.substr(head.size())).empty()) continue;
+                    const std::string value = cluster::trim(typed.substr(head.size()));
+                    const std::string asked = manager.modelChange(id, std::string(command) == "/model" ? value : "", std::string(command) == "/effort" ? value : "", true);
+                    return {{"ok", true}, {"data", {{"id", id}, {"local", true}, {"message", asked.empty() ? std::string("done") : asked + " (asked to the user)"}}}};
+                }
             }
             const std::optional<cluster::ActionResult> local = cluster::run_slash(manager, id, cluster::trim(text));
             if (local) {
@@ -542,11 +588,12 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "model") {
             // the model and / or the effort of a session (the same conversation started again); none: the current ones and the choices
             const std::string id = session();
-            if (!arg_(request, "model").empty()) manager.setModel(id, arg_(request, "model"));
-            if (!arg_(request, "effort").empty()) manager.setEffort(id, arg_(request, "effort"));
+            // from the global session: the policy of the user (refused, allowed, or asked first when costly)
+            const std::string asked = manager.modelChange(id, arg_(request, "model"), arg_(request, "effort"), from_global);
             const cluster::ModelInfo info = cluster::model_info(manager, id);
             data = {{"id", id}, {"driver", info.driver}, {"model", info.model}, {"effort", info.effort.empty() ? "default" : info.effort},
                 {"models", cluster::Json::array()}, {"efforts", info.efforts}};
+            if (!asked.empty()) data["asked"] = asked + " (the user answers in their interface; the answer comes back to you as a message)";
             for (const auto &[model, description]: info.models)
                 data["models"].push_back({{"model", model}, {"description", description}});
         } else if (cmd == "usage") {
@@ -604,6 +651,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.requestMachineSync();
             data = {{"asked", "the question is shown in the interface: the user answers it (the scan then runs, its progress shown)"}};
         } else if (cmd == "allow") {
+            if (from_global && arg_(request, "request_id").starts_with("core-"))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: this question is the user's (the global session never answers it)");
             if (request.contains("answers") && request["answers"].is_object()) manager.answerQuestions(session(), arg_(request, "request_id"), request["answers"]);
             else manager.answer(session(), arg_(request, "request_id"), arg_(request, "behavior", "allow"));
         } else if (cmd == "interrupt") {
@@ -812,6 +861,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (from_web || from_global)
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the update is chosen by the user, in a terminal or a window of claude-cluster");
             data = {{"done", manager.upgradeAct(arg_(request, "action"))}};
+        } else if (cmd == "models_policy") {
+            data = cluster::policy_json(manager.config());
         } else if (cmd == "plugins_refresh") {
             manager.pluginsRefresh();
         } else if (cmd == "display_act") {
@@ -824,6 +875,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // the question of an agent being answered (shared by the interfaces and the voice): choose, toggle, other, next, back, decline
             cluster::Asking& asking = manager.asking();
             (void)asking.check();
+            if (from_global)
+                if (const std::optional<cluster::Ask> current = asking.current(); current && current->requestId.starts_with("core-"))
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: this question is the user's (the global session never answers it)");
             const std::string action = arg_(request, "action");
             if (action == "choose") asking.choose(request.value("option", 0));
             else if (action == "move") asking.move(request.value("delta", 1));

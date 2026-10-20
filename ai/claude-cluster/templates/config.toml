@@ -219,3 +219,17 @@ monthly_usd = 0.0          # since the 1st of the local month
 scope = "keys"             # keys: only what an API key is billed for | all: every turn, the notional cost of a subscription too
 block = true               # a limit reached: the prompts are refused (send --force passes); false: only warned
 warn_percent = 80          # warned at this share of a limit (0: only when it is reached)
+
+[policy]
+# The model / thinking policy of the global session (Settings > Model policy): what it may choose for the sub-sessions.
+# It runs on [global] model / effort itself (until you change them); it sets the model and the thinking of the sub-sessions
+# by the difficulty of each task, and asks you first for the costly ones (below).
+default_model = ""         # the model sub-sessions start from (empty: none)
+default_effort = ""        # the thinking effort they start from (empty: the default of the agent)
+model_mode = "advise"      # free: no default, by the task | advise: the default is the start, deviate for a reason | force: nothing else
+effort_mode = "advise"
+allowed_models = []        # the only models it may choose (empty: every one), by name or a part of it: ["haiku", "sonnet"]
+allowed_efforts = []       # the only efforts (empty: every one)
+ask_costly = true          # a costly model / effort: you decide each time (Allow / Deny)
+costly_models = ["opus", "fable"]    # models that cost as much or more
+costly_efforts = ["xhigh", "max"]    # efforts of this level or above

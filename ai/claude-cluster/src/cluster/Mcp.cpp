@@ -57,8 +57,11 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"session", session}, {"request_id", str_("request id (empty: the oldest one)")}, {"behavior", str_("allow | always | deny")},
              {"answers", {{"type", "object"}, {"description", "AskUserQuestion: {question text: answer}"}}}}, {"session"}),
         tool_("session_set_mode", "Permission mode of a session.", {{"session", session}, {"mode", str_("auto | manual | acceptEdits | plan | dontAsk | bypassPermissions")}}, {"session", "mode"}),
+        tool_("models_policy", "The model / thinking policy of the user: the default model and effort, whether they are advised or forced, the allowed ones, "
+            "the costly ones (the user is asked first), and the model of the global session. Read it before choosing the model of a sub-session.", {}, {}),
         tool_("session_set_model", "Model and / or thinking effort of a session (the same conversation goes on); none given: its current ones and the "
-            "choices of its backend.", {{"session", session}, {"model", str_("a model of its provider (opus, sonnet, claude-opus-5-5, an Ollama model...)")},
+            "choices of its backend. Under the policy of the user (models_policy): a forbidden one is refused with the reason; a costly one (opus, xhigh...) "
+            "returns {asked}: the user answers Allow / Deny in their interface and the result comes back to you as a message.", {{"session", session}, {"model", str_("a model of its provider (opus, sonnet, claude-opus-5-5, an Ollama model...)")},
             {"effort", str_("default | low | medium | high | xhigh | max (claude); minimal... (codex, opencode)")}}, {"session"}),
         tool_("usage", "Tokens and cost used per vendor (anthropic, ollama, openai...) over every session: today, the last 7 days, lifetime; "
             "the 5 h / 7 d limits left when the vendor tells them.", {{"vendor", str_("one vendor (empty: all)")}}, {}),
@@ -187,7 +190,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
 {
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
-        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
+        {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},

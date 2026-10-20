@@ -141,6 +141,8 @@ class Manager {
         std::atomic<bool> _pluginsBusy{false};     // plugins of repositories: listed / installed by a thread
         cluster::Json _accounts;                   // accountsJson() kept (the state of a provider can start a process)
         std::int64_t _accountsAt = 0;
+        std::map<std::string, std::function<void(const std::string&)>> _coreAsks;   // the questions of the core waiting for their answer
+        std::atomic<int> _coreAskN{0};
         std::string _upgradeVersion;               // a newer binary installed (offered), its version ignored, the binary seen
         std::string _upgradeIgnored;
         std::int64_t _exeStamp = 0;
@@ -254,6 +256,10 @@ class Manager {
         _cold _nodiscard std::string vendorOf(const std::string& backend) const;   // its provider ("" unknown)
         _cold _nodiscard cluster::UsageReport usage(const std::string& vendor) const;
         _cold void pluginsRefresh(void);                     // the plugin sources pulled / listed again, the ticks applied
+        _cold void askUser(const std::string& session, const std::string& header, const std::string& question, const std::vector<std::pair<std::string, std::string>>& options,
+            const std::function<void(const std::string&)>& onAnswer);                 // the core asks the user (a popup on every interface): the label chosen, or "deny"
+        _cold std::string modelChange(const std::string& id, const std::string& model, const std::string& effort, const bool gated); // gated: the policy of the global session
+        _cold std::function<void(const std::string&)> takeCoreAsk_(const std::string& requestId);   // the callback of a question of the core, once
         _cold _nodiscard double spent(const std::int64_t since) const;      // what the sessions spent since then (the scope of [limits])
         _cold _nodiscard std::string limitReached(void) const;               // [limits]: the one reached (empty: none)
         _cold void limitsWarn(void);                                         // the share of a limit reached: told once

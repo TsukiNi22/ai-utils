@@ -485,6 +485,24 @@ phone: the page notifies through a service worker (Chrome on Android), the app w
 service: the sessions this phone sent the last prompt of). One notification per session (the next one replaces it), urgent when it waits on you, its buttons answered from the
 notification (Open shows the session), a short sound of the desktop theme per kind (`[ui] notify_sound`).
 
+### Model and thinking policy
+
+The global session runs on `[global] model` / `effort` (until you change them) and sets the **model and the thinking of
+the sub-sessions** itself (`session_set_model`, `session_spawn`, `/model` and `/effort` sent to a session; the tool
+`models_policy` gives it your rules). **Settings > Model policy** (`[policy]`, protected: it never changes them):
+
+| Setting | What it does |
+|---|---|
+| Default model / thinking | what the sub-sessions start from (empty: none) |
+| *How the default applies* | `free`: none, by the task · `advise`: the start, deviate for a reason · `force`: nothing else, anything else refused with the reason |
+| Allowed models / thinking | the only ones it may choose (a name or a part: `haiku, sonnet`) |
+| Ask before a costly choice | the **costly** models (`opus`, `fable`: by name or part) and efforts (`xhigh`, `max`, and above): a question on every interface (Allow / Deny, a notification) |
+
+A costly choice returns at once to the global session (`asked`): the session keeps its model (a new sub-session starts
+on the default) until you answer; Allow applies it (the conversation goes on) and tells the global session, Deny keeps it
+and tells it why. These questions are yours alone: the global session cannot answer them (`session_allow`, the ask
+commands). A change you make yourself (palette, `/model`, `claude-cluster model`) is never gated.
+
 ## Voice
 
 `[voice] enabled = true`, then one of three listening modes:

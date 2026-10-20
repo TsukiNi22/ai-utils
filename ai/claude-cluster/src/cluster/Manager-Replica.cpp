@@ -419,7 +419,9 @@ _cold void cluster::Manager::answer(const std::string& id, const std::string& re
         (void)this->call({{"cmd", "allow"}, {"session", id}, {"request_id", requestId}, {"behavior", behavior}});
         return;
     }
+    const std::function<void(const std::string&)> callback = this->takeCoreAsk_(requestId); // a question of the core: its answer
     this->get_(id)->answer(requestId, behavior);
+    if (callback) std::thread([callback, behavior]() {callback(behavior == "deny" ? "deny" : behavior);}).detach();
 }
 
 _cold void cluster::Manager::answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers)
@@ -428,7 +430,16 @@ _cold void cluster::Manager::answerQuestions(const std::string& id, const std::s
         (void)this->call({{"cmd", "allow"}, {"session", id}, {"request_id", requestId}, {"answers", answers}});
         return;
     }
+    const std::function<void(const std::string&)> callback = this->takeCoreAsk_(requestId); // a question of the core: its answer
     this->get_(id)->answerQuestions(requestId, answers);
+    if (callback) {
+        std::string label = "deny";
+        for (const auto &[question, answer]: answers.items()) {
+            label = answer.is_string() ? answer.get<std::string>() : answer.dump();
+            break;
+        }
+        std::thread([callback, label]() {callback(label);}).detach();
+    }
 }
 
 _cold void cluster::Manager::interrupt(const std::string& id)
