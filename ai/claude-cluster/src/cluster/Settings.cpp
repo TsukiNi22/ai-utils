@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Orchestrator.hpp"
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/Vocabulary.hpp"
 #include "cluster/Settings.hpp"
@@ -729,6 +730,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         pages.back().settings.push_back({"keys", name, name, SettingKind::Text, {}, "Ctrl+<letter>, Ctrl+Shift+<letter>, Alt+<letter>, F1..F12, Tab, Escape; alternatives separated by |", false,
             [name](const cluster::Config& cf) {return cf.keys.contains(name) ? cf.keys.at(name) : std::string();}});
     }
+    pages.push_back(cluster::orchestrator_settings_page()); // Orchestrator-Settings.cpp
     return pages;
 }
 
@@ -898,7 +900,7 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
-        "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
+        "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"
         || (section == "sessions" && key == "budget_usd") || keys.contains(section + "." + key);
 }
@@ -923,7 +925,7 @@ _cold std::vector<std::string> cluster::protected_changes(const std::string& old
         return out.str();
     };
     std::set<std::string> keys;
-    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice", "usage", "limits", "policy"})
+    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice", "usage", "limits", "policy", "orchestrator"})
         for (const toml::table* table: {before.at_path(section).as_table(), after.at_path(section).as_table()})
             if (table != nullptr)
                 for (const auto &[key, node]: *table)

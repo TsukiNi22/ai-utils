@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Display.hpp"
+#include "cluster/Orchestrator.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Mcp.hpp"
 #include <iostream>
@@ -199,6 +200,9 @@ _cold cluster::Json cluster::mcp_tools(void)
                     "refused anyway: the user changes them in the settings page")}},
             {"section", "key", "value"}),
     });
+    for (const cluster::Json& tool: cluster::orchestrator_tools()) // the heavy jobs (Orchestrator-Control.cpp)
+        tools.push_back(tool);
+    return tools;
 }
 
 _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Json& arguments)
@@ -214,10 +218,11 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"ui_style", "ui_style"}, {"ui_panel", "ui_panel"}, {"settings_get", "settings_get"}, {"settings_set", "settings_set"},
     };
     auto it = commands.find(name);
-    if (it == commands.end()) return {{"content", {{{"type", "text"}, {"text", "unknown tool " + name}}}}, {"isError", true}};
+    const std::string orchestrator = cluster::orchestrator_command(name); // heavy_run, jobs_*, job_*, hardware_scan, orchestrator_config
+    if (it == commands.end() && orchestrator.empty()) return {{"content", {{{"type", "text"}, {"text", "unknown tool " + name}}}}, {"isError", true}};
 
     cluster::Json request = arguments.is_object() ? arguments : cluster::Json::object();
-    request["cmd"] = it->second;
+    request["cmd"] = orchestrator.empty() ? it->second : orchestrator;
     request["origin"] = "mcp"; // the global session: the limits the user set for it
     request["tool"] = name;    // off in the settings (MCP page): refused
     if (name == "session_list") request["global"] = false; // the global session lists the others

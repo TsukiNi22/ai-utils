@@ -160,6 +160,47 @@ struct AttachConf {                 // [attachments]: files, images and photos a
     int globalMax = 5;              // files per prompt of the global session
 };
 
+struct OrchConf {                   // [orchestrator]: the heavy jobs of the sessions queued and limited (docs/orchestrator.md)
+    bool enabled = true;
+    std::string profile = "low";    // low (1 thread, nice 19, ionice idle) | normal | max
+    int maxJobs = 0;                // heavy jobs running at once (0: from the hardware, the profile and the live load)
+    int maxPerSession = 2;          // running at once for one session (0: no limit)
+    int reservedCpu = 2;            // cores left to the user and the interface
+    int reservedRamMb = 3072;       // memory left to them
+    int threads = 0;                // parallelism granted to a job (0: from the profile)
+    int classMax[5] = {0, 0, 2, 1, 0};  // per class (build, tests, container, gpu, custom): running at once (0: auto)
+    int classRam[5] = {2000, 1200, 1500, 2000, 1000};   // per class: memory of a job (MB)
+    std::vector<std::string> patterns;  // "text" or "text = class": a command containing it is heavy
+    std::vector<std::string> sessionPrio;   // "s3=5": priority of a session
+    std::vector<std::string> sessionQuota;  // "s3=1": jobs of a session running at once
+    int detectCpuSeconds = 60;      // a command outside the queue burning this many CPU seconds is told (0: off)
+    std::string detectAction = "notice";    // off | notice (the interfaces) | tell (its session too)
+    double holdLoad = 1.5;          // load per core: nothing new starts
+    double reduceLoad = 3.0;        // load per core: the running jobs are slowed (reniced, the lowest stopped)
+    int holdMemMb = 3000;           // MemAvailable: nothing new starts
+    int reduceMemMb = 1200;
+    int oomMemMb = 500;             // MemAvailable: the newest job is killed (kill_on_oom)
+    int holdSwapMb = 4096;          // swap used, with the memory short: nothing new starts
+    int psiCpuHold = 80;            // pressure stall (avg10, %)
+    int psiCpuReduce = 95;
+    int psiMemHold = 20;
+    int psiMemReduce = 40;
+    int psiIoHold = 50;
+    int psiIoReduce = 80;
+    int resumeAfter = 20;           // seconds under the thresholds before a stopped job resumes
+    bool killOnOom = false;
+    int agingSeconds = 30;          // a waiting job gains one point of priority every so many seconds
+    int focusBoost = 15;            // points of the session the user looks at
+    bool subAdd = true;             // a sub-session may queue heavy jobs (MCP)
+    bool subKillOwn = true;         // ... kill its own
+    bool subSeeOthers = false;      // ... see the jobs of the others
+    bool notifyKilled = true;       // a notification when a job is killed
+    bool notifyDone = false;        // ... when one finishes
+    int history = 200;              // finished jobs kept
+    std::string procDir = "/proc";  // a fake tree for the tests
+    std::string sysDir = "/sys";
+};
+
 struct ServicesConf {
     std::string refresh = "live";   // the Services tab: live (what changes, at once) | interval (every delay s) | manual (R)
     int delay = 2;                  // seconds: interval; the slow parts (systemd, its journal, tailscale) kept so long
@@ -289,6 +330,7 @@ class Config {
         _cold _nodiscard std::string command(const std::string& driver) const;
         _cold _nodiscard static std::string check(const std::string& text);   // a config.toml text: its parse error ("" valid)
 
+        cluster::OrchConf orch;
         // ---------- Function -------- //
         _nodiscard inline const std::filesystem::path& path(void) const {return this->_path;};
         _nodiscard inline const std::string& error(void) const {return this->_error;};   // last parse error (the previous values are kept)

@@ -25,6 +25,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Orchestrator.hpp"
 #include "cluster/Policy.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Stats.hpp"
@@ -120,6 +121,29 @@ _cold static std::string arg_(const cluster::Json& request, const char* key, con
 
 #define WEB_READ_ONLY "read only from the web page: the computer allows it in its settings (Web > Settings from the page)"
 
+/* the heavy jobs (Orchestrator.hpp): the commands, and the wrapper cluster-run whose connection is its job's until it ends */
+_cold static bool job_command_(const std::string& cmd)
+{
+    return cmd.starts_with("job_") || cmd == "heavy_run" || cmd == "hardware_scan" || cmd.starts_with("orch_");
+}
+
+_cold static bool job_serve_(cluster::Manager& manager, const int fd, const std::string& line)
+{
+    cluster::Json request;
+    try {
+        request = cluster::Json::parse(line);
+    } catch (const cluster::Json::exception&) {
+        return false;
+    }
+    if (request.value("cmd", std::string()) != "job_run") return false;
+    if (manager.orchestrator() == nullptr) {
+        (void)send_line_(fd, cluster::Json{{"ok", false}, {"error", "the orchestrator is not running here"}}.dump());
+        return true;
+    }
+    manager.orchestrator()->serve(fd, request);
+    return true;
+}
+
 /* constructor */
 _cold cluster::Control::Control(cluster::Manager& manager)
     : _manager(manager), _path(cluster::socket_path())
@@ -195,6 +219,7 @@ _cold void cluster::Control::client_(const int fd)
     while (this->_running && !closed) {
         const std::optional<std::string> line = read_line_(fd, buffer, 500, closed);
         if (!line) continue;
+        if (job_serve_(this->_manager, fd, *line)) break; // a cluster-run: this connection is its job until it ends
         cluster::Json response;
         try {
             response = cluster::Control::handle(this->_manager, cluster::Json::parse(*line));
@@ -352,6 +377,15 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         if (cmd == "hello") {
             // who this core is: an interface of another build asks before attaching
             return {{"ok", true}, {"data", {{"version", CLUSTER_VERSION}, {"build", cluster::build_id()}, {"pid", ::getpid()}, {"binary", cluster::self_exe().string()}}}};
+        }
+        if (job_command_(cmd)) { // the heavy jobs: the user, the global session, a sub-session (its own jobs); a web device reads unless the settings let it act
+            if (manager.orchestrator() == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "the orchestrator is not running here");
+            if (from_web && cmd != "job_list" && cmd != "job_status" && cmd != "orch_state" && !cluster::web_may(manager.config(), "orchestrator"))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            cluster::Orchestrator::Caller caller;
+            caller.kind = request.value("origin", std::string()) == "sub" ? "sub" : from_global ? "global" : "user";
+            caller.session = arg_(request, "owner");
+            return {{"ok", true}, {"data", manager.orchestrator()->handle(cmd, request, caller)}};
         }
         if (cmd == "sync" && request.value("build", std::string()) != cluster::build_id()) // an interface of another build: not mixed
             return {{"ok", false}, {"error", "another version of claude-cluster runs the core (" + cluster::build_id() + "): close this one and open it again"}};

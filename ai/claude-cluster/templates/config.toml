@@ -170,6 +170,54 @@ frontend = "auto"          # auto: a window (when built with it and a display), 
 terminal = ""              # tty: the terminal with its option to run a command ("kitty", "alacritty -e"...), empty: the first installed
 voice_mode = "auto"        # the voice of the claude-cluster opened: auto (every sentence) | wake | push
 wake_word = ""             # empty: [voice] wake_word
+[orchestrator]             # the heavy jobs of the sessions (builds, tests, containers / GPU) queued and limited: cluster-run, heavy_run (F9 > Orchestrator)
+enabled = true             # off: nothing is queued, cluster-run runs its command at once
+profile = "low"            # low (1 thread, nice 19, ionice idle) | normal (2-4 threads, nice 10) | max (the share of cores, nice 5)
+max_jobs = 0               # heavy jobs running at once (0: from the hardware, the profile, the live load and memory)
+max_per_session = 2        # running at once for one session (0: no limit)
+reserved_cpu = 2           # cores left to you and the interface
+reserved_ram_mb = 3072     # memory left to you and the interface
+threads = 0                # parallelism granted to a job (-j, --parallel, CARGO_BUILD_JOBS...; 0: from the profile)
+build_max = 0              # per class (build, tests, container, gpu, custom): running at once (0: auto; container 2, gpu 1 by default)
+tests_max = 0
+container_max = 2
+gpu_max = 1
+custom_max = 0
+build_ram_mb = 2000        # per class: the memory of one job (a clang++ job takes 1.5 - 2.5 GB); a job starts when it fits
+tests_ram_mb = 1200
+container_ram_mb = 1500
+gpu_ram_mb = 2000
+custom_ram_mb = 1000
+patterns = []              # more heavy commands: "text" (class custom) or "text = class": a command containing it goes through the queue
+session_prio = []          # "s3=5": the jobs of a session come first (higher) or last (negative)
+session_quota = []         # "s3=1": jobs of a session running at once
+detect_cpu_seconds = 60    # a command outside the queue that burned this many CPU seconds: its session is told (0: off)
+detect_action = "notice"   # off | notice (a notice, listed in the jobs) | tell (its session is also told: a prompt)
+hold_load = 1.5            # load per core: nothing new starts
+reduce_load = 3.0          # load per core: the running jobs are reniced, the lowest priority one stopped until it falls
+hold_mem_mb = 3000         # MemAvailable below: nothing new starts
+reduce_mem_mb = 1200       # MemAvailable below: the running jobs are slowed
+oom_mem_mb = 500           # MemAvailable below (kill_on_oom): the newest job is killed
+hold_swap_mb = 4096        # swap used above, with the memory short too: nothing new starts
+psi_cpu_hold = 80          # pressure stall information (avg10, %, /proc/pressure): nothing new starts / jobs slowed
+psi_cpu_reduce = 95
+psi_mem_hold = 20
+psi_mem_reduce = 40
+psi_io_hold = 50
+psi_io_reduce = 80
+resume_after = 20          # seconds under the thresholds before a stopped job resumes (hysteresis)
+kill_on_oom = false        # never kill by default; true: the newest job killed under oom_mem_mb
+aging_seconds = 30         # a waiting job gains one point every so many seconds (nothing starves; a priority step is 10 points)
+focus_boost = 15           # points of the session you look at
+sub_add = true             # a sub-session may queue heavy jobs (heavy_run, jobs_add)
+sub_kill_own = true        # ... kill its own jobs
+sub_see_others = false     # ... see the jobs of the other sessions
+notify_killed = true       # a notification when a job is killed (desktop, app)
+notify_done = false        # ... when one finishes
+history = 200              # finished jobs kept
+proc_dir = "/proc"         # where the load and the memory are read (a fake tree: the tests)
+sys_dir = "/sys"
+
 python = "~/.local/share/voice/venv/bin/python"   # the python of voice-listen (sherpa-onnx), its model is used
 source = ""                # microphone (PulseAudio / PipeWire source), empty: the default one
 

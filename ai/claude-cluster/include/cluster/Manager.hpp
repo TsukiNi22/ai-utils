@@ -50,6 +50,7 @@ namespace cluster { // namespace start
 class Web;
 class Voice;
 struct ReplicaState;                // Manager-Replica.cpp: this process an interface of another one (its core)
+class Orchestrator;                // Orchestrator.hpp: the heavy jobs of the sessions queued and limited
 //----------------------------------------------------------------//
 /* STRUCT */
 
@@ -233,6 +234,7 @@ class Manager {
         _cold void event_(const cluster::Event& event);
         void replyUndo_(const std::string& id);
         void archiveOneShot_(const std::string& id);        // a one-shot session whose answer was relayed: closed to the trash when nothing keeps it
+        std::unique_ptr<cluster::Orchestrator> _orch;   // the core: the queue of the heavy jobs (null: an interface of another core)
         void replyEnd_(const cluster::Event& event, const std::string& name, const bool all = false);   // an end of turn: the global session told
         _cold bool describe_(const std::string& id, const std::string& text, const bool given); // false: no such session
         _cold void describeAuto_(const std::string& id);    // written by claude-cluster (its thread)
@@ -279,6 +281,9 @@ class Manager {
         _cold void retryNow(void);                                          // an interface: the next try now (the core started again if gone)
         _cold void detach_(void);                           // this interface closed: told to the core
         _cold void clientSeen(const std::string& client);   // the core: an interface synced
+        _cold void startOrchestrator_(void);                // Manager-Jobs.cpp
+        _cold _nodiscard cluster::Json runHeavy_(const std::string& command, const std::string& cwd, const int timeout, const std::string& session);   // a heavy command of a schedule through the queue (null: not heavy)
+        _cold _nodiscard std::vector<std::pair<std::string, std::string>> jobEnv_(const std::string& session) const;   // the PATH / variables of cluster-run for a session
         _cold void clientGone(const std::string& client);
         _cold void clientFocus(const std::string& client, const bool focused);
         _cold _nodiscard std::size_t clients(void) const;   // its interfaces alive
@@ -401,6 +406,11 @@ class Manager {
         // action: set_parent (node, other = the parent, "" / global: the root) | rename (other = the new name) | delete (strip: the label removed from the sessions too)
         // | merge (other = the node it joins); throws why (a cycle, a bad name)
         _cold void taxonomyEdit(const std::string& action, const std::string& node, const std::string& other, const bool strip = false);
+        /* heavy jobs (Manager-Jobs.cpp) */
+        _cold _nodiscard cluster::Json jobsCommand(const std::string& cmd, const cluster::Json& request = cluster::Json::object());  // job_list, job_kill...: the core's orchestrator (a replica: through the core)
+        _cold _nodiscard cluster::Json jobsState(void) const;                      // the gauges, limits and jobs the interfaces show
+        _nodiscard inline cluster::Orchestrator* orchestrator(void) const {return this->_orch.get();};
+
         _cold _nodiscard std::vector<std::string> groupPath(const cluster::SessionSpec& spec) const;   // its group in the list: the path of its category / first tag (empty: none)
         _nodiscard std::optional<cluster::Snapshot> snapshot(const std::string& id) const;
         _nodiscard std::vector<cluster::SessionSpec> trash(void) const;

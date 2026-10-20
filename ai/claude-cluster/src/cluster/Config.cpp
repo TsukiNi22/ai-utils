@@ -289,6 +289,54 @@ _cold void cluster::Config::load(void)
         const std::string chosen = table["policy"][key].value_or(*field);
         *field = chosen == "free" || chosen == "force" ? chosen : "advise";
     }
+    /* orchestrator */
+    toml::node_view<const toml::node> oc = std::as_const(table)["orchestrator"];
+    this->orch.enabled = oc["enabled"].value_or(this->orch.enabled);
+    this->orch.profile = oc["profile"].value_or(this->orch.profile);
+    if (this->orch.profile != "low" && this->orch.profile != "normal" && this->orch.profile != "max") this->orch.profile = "low";
+    this->orch.maxJobs = std::clamp(static_cast<int>(oc["max_jobs"].value_or(this->orch.maxJobs)), 0, 256);
+    this->orch.maxPerSession = std::clamp(static_cast<int>(oc["max_per_session"].value_or(this->orch.maxPerSession)), 0, 256);
+    this->orch.reservedCpu = std::clamp(static_cast<int>(oc["reserved_cpu"].value_or(this->orch.reservedCpu)), 0, 256);
+    this->orch.reservedRamMb = std::clamp(static_cast<int>(oc["reserved_ram_mb"].value_or(this->orch.reservedRamMb)), 0, 1 << 20);
+    this->orch.threads = std::clamp(static_cast<int>(oc["threads"].value_or(this->orch.threads)), 0, 256);
+    {
+        static const char* classes[5] = {"build", "tests", "container", "gpu", "custom"};
+        for (int i = 0; i < 5; ++i) {
+            this->orch.classMax[i] = std::clamp(static_cast<int>(oc[std::string(classes[i]) + "_max"].value_or(this->orch.classMax[i])), 0, 256);
+            this->orch.classRam[i] = std::clamp(static_cast<int>(oc[std::string(classes[i]) + "_ram_mb"].value_or(this->orch.classRam[i])), 0, 1 << 20);
+        }
+    }
+    this->orch.patterns = strings_(oc["patterns"], this->orch.patterns);
+    this->orch.sessionPrio = strings_(oc["session_prio"], this->orch.sessionPrio);
+    this->orch.sessionQuota = strings_(oc["session_quota"], this->orch.sessionQuota);
+    this->orch.detectCpuSeconds = std::max(0, static_cast<int>(oc["detect_cpu_seconds"].value_or(this->orch.detectCpuSeconds)));
+    this->orch.detectAction = oc["detect_action"].value_or(this->orch.detectAction);
+    if (this->orch.detectAction != "notice" && this->orch.detectAction != "tell" && this->orch.detectAction != "off") this->orch.detectAction = "notice";
+    this->orch.holdLoad = oc["hold_load"].value_or(this->orch.holdLoad);
+    this->orch.reduceLoad = oc["reduce_load"].value_or(this->orch.reduceLoad);
+    this->orch.holdMemMb = std::max(0, static_cast<int>(oc["hold_mem_mb"].value_or(this->orch.holdMemMb)));
+    this->orch.reduceMemMb = std::max(0, static_cast<int>(oc["reduce_mem_mb"].value_or(this->orch.reduceMemMb)));
+    this->orch.oomMemMb = std::max(0, static_cast<int>(oc["oom_mem_mb"].value_or(this->orch.oomMemMb)));
+    this->orch.holdSwapMb = std::max(0, static_cast<int>(oc["hold_swap_mb"].value_or(this->orch.holdSwapMb)));
+    this->orch.psiCpuHold = std::clamp(static_cast<int>(oc["psi_cpu_hold"].value_or(this->orch.psiCpuHold)), 0, 100);
+    this->orch.psiCpuReduce = std::clamp(static_cast<int>(oc["psi_cpu_reduce"].value_or(this->orch.psiCpuReduce)), 0, 100);
+    this->orch.psiMemHold = std::clamp(static_cast<int>(oc["psi_mem_hold"].value_or(this->orch.psiMemHold)), 0, 100);
+    this->orch.psiMemReduce = std::clamp(static_cast<int>(oc["psi_mem_reduce"].value_or(this->orch.psiMemReduce)), 0, 100);
+    this->orch.psiIoHold = std::clamp(static_cast<int>(oc["psi_io_hold"].value_or(this->orch.psiIoHold)), 0, 100);
+    this->orch.psiIoReduce = std::clamp(static_cast<int>(oc["psi_io_reduce"].value_or(this->orch.psiIoReduce)), 0, 100);
+    this->orch.resumeAfter = std::clamp(static_cast<int>(oc["resume_after"].value_or(this->orch.resumeAfter)), 0, 3600);
+    this->orch.killOnOom = oc["kill_on_oom"].value_or(this->orch.killOnOom);
+    this->orch.agingSeconds = std::clamp(static_cast<int>(oc["aging_seconds"].value_or(this->orch.agingSeconds)), 1, 86400);
+    this->orch.focusBoost = std::clamp(static_cast<int>(oc["focus_boost"].value_or(this->orch.focusBoost)), 0, 1000);
+    this->orch.subAdd = oc["sub_add"].value_or(this->orch.subAdd);
+    this->orch.subKillOwn = oc["sub_kill_own"].value_or(this->orch.subKillOwn);
+    this->orch.subSeeOthers = oc["sub_see_others"].value_or(this->orch.subSeeOthers);
+    this->orch.notifyKilled = oc["notify_killed"].value_or(this->orch.notifyKilled);
+    this->orch.notifyDone = oc["notify_done"].value_or(this->orch.notifyDone);
+    this->orch.history = std::clamp(static_cast<int>(oc["history"].value_or(this->orch.history)), 10, 5000);
+    this->orch.procDir = oc["proc_dir"].value_or(this->orch.procDir);
+    this->orch.sysDir = oc["sys_dir"].value_or(this->orch.sysDir);
+
     this->policy.allowedModels = strings_(table["policy"]["allowed_models"], {});
     this->policy.allowedEfforts = strings_(table["policy"]["allowed_efforts"], {});
     this->policy.askCostly = table["policy"]["ask_costly"].value_or(this->policy.askCostly);

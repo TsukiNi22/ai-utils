@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.48 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.49 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -77,6 +77,12 @@ set(SRC
     src/cluster/Manager.cpp
     src/cluster/Manager-Tasks.cpp
     src/cluster/Manager-Push.cpp
+    src/cluster/Manager-Jobs.cpp
+    src/cluster/Orchestrator.cpp
+    src/cluster/Orchestrator-Control.cpp
+    src/cluster/Orchestrator-Settings.cpp
+    src/cluster/Hardware.cpp
+    src/cluster/RunProfile.cpp
     src/cluster/Manager-Usage.cpp
     src/cluster/Manager-Describe.cpp
     src/cluster/Manager-Groups.cpp
@@ -131,6 +137,11 @@ if(CLUSTER_GUI AND Qt6Widgets_FOUND)
     list(APPEND SRC src/cluster/ui/Gui.cpp)
 endif()
 add_executable(${TARGET} ${SRC})
+
+# cluster-run: the wrapper of a heavy command (resource orchestrator), a small binary of its own installed next to claude-cluster
+add_executable(cluster-run src/run/cluster-run.cpp src/cluster/RunProfile.cpp)
+target_include_directories(cluster-run PRIVATE include)
+target_link_libraries(cluster-run PRIVATE nlohmann_json::nlohmann_json)
 
 # =========================
 # Special Targets
@@ -197,6 +208,10 @@ target_compile_options(${TARGET} PRIVATE
 target_link_options(${TARGET} PRIVATE
     $<$<CONFIG:Asan>:-fsanitize=address,undefined>
 )
+target_compile_options(cluster-run PRIVATE
+    $<$<CONFIG:Debug>:-g -ggdb3>
+    $<$<CONFIG:Optimized>:-O2 -pipe -DNDEBUG>
+)
 
 # =========================
 # Installation
@@ -204,6 +219,6 @@ target_link_options(${TARGET} PRIVATE
 include(GNUInstallDirs) # load variable used for installation
 
 # Binary
-install(TARGETS ${TARGET}
+install(TARGETS ${TARGET} cluster-run
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT bin
 )

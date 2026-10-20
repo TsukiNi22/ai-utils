@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Orchestrator.hpp"
 #include "cluster/Attachments.hpp"
 #include "cluster/Templates.hpp"
 #include "cluster/Settings.hpp"
@@ -148,6 +149,8 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     cluster::Launch launch;
     launch.backend = this->_auth.resolve(spec.backend);
     launch.env = this->_auth.env(launch.backend);
+    for (const auto &[name, value]: this->jobEnv_(spec.id)) // cluster-run: its session, the socket, its folder first in the PATH
+        launch.env.push_back({name, value});
     launch.command = this->_config.command(launch.backend.provider.driver);
     launch.allowBypass = this->_config.allowBypass;
     if (!cluster::has_command(launch.command))
@@ -374,6 +377,7 @@ _cold void cluster::Manager::close(const std::string& id)
         this->_oneShot.erase(id);
     }
     this->dropFor_(id, false, session->spec().name); // its tasks and schedules: cancelled (closed)
+    if (this->_orch) this->_orch->sessionGone(id, false); // its heavy jobs: removed (queued) or killed (running)
     cluster::SessionSpec spec = session->spec();
     spec.deleted = cluster::now();
     {
@@ -429,6 +433,9 @@ _cold void cluster::Manager::purge(const std::string& id)
     if (!id.empty() && id != "*" && removed.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + id + "' in the trash");
     for (const std::string& gone: removed)
         this->dropFor_(gone, true, names[gone]); // deleted for good: its tasks and schedules too
+    if (this->_orch)
+        for (const std::string& gone: removed)
+            this->_orch->sessionGone(gone, true); // its heavy jobs forgotten
     std::error_code error;
     for (const std::string& gone: removed) {
         std::filesystem::remove(log_file_(gone), error);
@@ -917,6 +924,7 @@ _cold void cluster::Manager::adoptProvider_(cluster::SessionSpec& spec) const
 
 _cold void cluster::Manager::load(void)
 {
+    this->startOrchestrator_(); // the heavy jobs of the sessions: queued, limited (its saved jobs settled)
     if (this->_config.historyLimit > 0) // the prompt history kept to its limit at the start
         (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->_config.historyLimit), 0);
     const std::optional<cluster::Json> state = cluster::read_json(state_file_());
@@ -1018,6 +1026,7 @@ _cold void cluster::Manager::shutdown(void)
     }
     // closing: the agents that end now are not "stopped by themselves" (no notice, no restart)
     this->_closing = true;
+    if (this->_orch) this->_orch->stop(); // its state saved, the jobs left to settle at the next start
     if (this->_statsUp > 0) this->statsRecord("stop");
     {
         std::lock_guard<std::mutex> lock(this->_describer->mutex); // a description being written: dropped
