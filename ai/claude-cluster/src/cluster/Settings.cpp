@@ -192,6 +192,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"ui", "notify_ready", "Something slow is ready", SettingKind::Bool, {}, "^_^ claude-cluster started (its global session), the speech "
                 "model loaded, the map of this computer written: come back when it is there", false,
                 [](const cluster::Config& cf) {return cf.notifyReady ? std::string("true") : std::string("false");}},
+            {"ui", "notify_app", "Android app", SettingKind::Bool, {}, "the same notifications published to the Android app (the kinds above apply; shown when the app is not in front, "
+                "each phone chooses its own kinds in its This device page; off: none sent)", false,
+                [](const cluster::Config& cf) {return cf.notifyApp ? std::string("true") : std::string("false");}},
             {"ui", "notify_sound", "With a sound", SettingKind::Bool, {}, "a short sound of the desktop theme, one per kind (done, question, error, web)", false,
                 [](const cluster::Config& cf) {return cf.notifySound ? std::string("true") : std::string("false");}},
         }},

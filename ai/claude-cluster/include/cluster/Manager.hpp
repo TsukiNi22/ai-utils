@@ -180,6 +180,8 @@ class Manager {
         std::map<std::string, bool> _pluginOff;
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
+        std::deque<cluster::Json> _pushLog;             // the last notifications published to the app (100)
+        std::atomic<std::uint64_t> _pushSeq{0};         // the number of the last one (a poll waits for it to grow)
         std::map<std::string, std::string> _notifyIds;  // the notification shown per session (replaced by the next one)
         std::map<std::string, std::pair<cluster::Notification, std::string>> _notifyShown;   // by its DBus id: the notification, its token when clicked
         std::thread _notifyMonitor;                     // gdbus monitor: the clicks of the notifications (ActionInvoked, ActivationToken)
@@ -403,6 +405,8 @@ class Manager {
         // its face, buttons, sound; one per session (replaced); kind: global | done | permission | question | error | limit | web | task |
         // reminder (its setting, [ui] notify_when); false: not shown
         bool notify(const cluster::Notification& notification, const std::string& kind = "");
+        // the notifications published to the Android app ([ui] notify_app): its long poll asks the ones after a number (Manager-Push.cpp)
+        _nodiscard cluster::Json pushSince(const std::int64_t since) const;    // {seq, events: [{seq, time, kind, session, title, body, urgent}]}
         _nodiscard cluster::AppFace appFace(const bool listening) const;   // the face of the app now, its badge
         void setOrigin(const std::string& id, const std::string& origin);  // its last prompt from a web device: "web:<device>"
         _nodiscard std::string origin(const std::string& id) const;         // "host" (default) or "web:<device>"
@@ -415,6 +419,7 @@ class Manager {
         _nodiscard std::pair<std::uint64_t, std::string> focusRequest(void) const;
         _nodiscard std::uint64_t raiseRequest(void) const;  // a notification clicked: to the front
         _nodiscard std::string raiseToken(void) const;      // its activation token (Wayland: the window may take the focus with it; empty: none)
+        _cold void pushNotice_(const cluster::Notification& n, const std::string& kind);   // a notification of the desktop, also for the app
         _cold void notifyAction_(const cluster::Notification& n, const std::string& chosen, const std::string& token);  // a button / the body clicked
         _cold void notifyMonitor_(void);                    // the signals of the notification daemon, for the life of the core
         _nodiscard std::uint64_t machineRequest(void) const;
@@ -465,6 +470,7 @@ class Manager {
         inline void setWeb(cluster::Web* web) {this->_web = web;};
         _nodiscard inline cluster::Asking& asking(void) {return *this->_asking;};
         _nodiscard inline cluster::Web* web(void) const {return this->_web;};
+        _nodiscard inline std::uint64_t pushSeq(void) const {return this->_pushSeq.load();};   // the last notification published to the app
 
         // ---------- Constructor -------- //
         _cold Manager(cluster::Config& config);

@@ -1216,6 +1216,7 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     // failsafe: no notification daemon, no desktop... nothing said; by DBus (gdbus) when it is there - its clicks come
     // back with their activation token (the window takes the focus with it); else notify-send, its buttons waited for
     if (n.face == cluster::Face::Grin || n.face == cluster::Face::Happy) this->_moment = {n.face, cluster::now()};
+    this->pushNotice_(n, kind);
     const bool demo = kind == "showcase"; // the Debug page: shown whatever the settings (what a notification looks like)
     if (!this->_config.notify && !demo) return false;
     const cluster::Config& c = this->_config;

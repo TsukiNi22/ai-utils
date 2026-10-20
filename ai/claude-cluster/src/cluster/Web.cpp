@@ -1401,6 +1401,17 @@ self.addEventListener("notificationclick", (e) => {
         // its round trip before this one, measured by the page (the ping of the devices)
         if (body.is_object() && body.contains("rtt") && body["rtt"].is_number()) this->ping(cookie_(request, "cc_dev"), body["rtt"].get<int>());
         json_(conn, 200, {{"ok", true}});
+    } else if (request.method == "GET" && request.path == "/api/notify") {
+        // the notifications of the desktop for the Android app: the ones after `since` (a number told by the last answer), waits for one
+        // 25 s at most; no number (the app just started): only the current one, nothing replayed
+        std::int64_t since = -1;
+        try {
+            since = request.query.contains("since") ? std::stoll(request.query.at("since")) : -1;
+        } catch (const std::exception&) {}
+        const std::int64_t end = now_ms_() + 25000;
+        while (this->_running && since >= 0 && static_cast<std::int64_t>(this->_manager.pushSeq()) == since && now_ms_() < end)
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        json_(conn, 200, this->_manager.pushSince(since));
     } else if (request.method == "GET" && request.path == "/api/state") {
         // waits for a change (15 s at most): the page asks again at once, no polling
         std::uint64_t seen = 0;

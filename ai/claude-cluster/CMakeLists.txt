@@ -76,6 +76,7 @@ set(SRC
     src/cluster/Session.cpp
     src/cluster/Manager.cpp
     src/cluster/Manager-Tasks.cpp
+    src/cluster/Manager-Push.cpp
     src/cluster/Manager-Usage.cpp
     src/cluster/Manager-Describe.cpp
     src/cluster/Manager-Groups.cpp

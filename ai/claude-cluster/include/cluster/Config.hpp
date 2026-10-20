@@ -190,6 +190,7 @@ class Config {
         bool notifyWeb = true;                  // a device of the web access: asks to connect, connected
         bool notifyTasks = true;                // the task queue done
         bool notifyReminders = true;            // a reminder (schedule add --notify)
+        bool notifyApp = true;                  // the Android app: the notifications published to it (the kinds below apply; each device opts in)
         bool notifyReady = true;                // something slow ready: claude-cluster started, the speech model loaded, the map written
         bool vim = false;                       // vim mode of the prompt (Insert / Normal / Visual)
         int pasteLines = 3;                     // a paste of more lines becomes [Pasted text #N +L lines] (0: never)
