@@ -30,6 +30,7 @@ File Description:
 #include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Reveal.hpp"
+#include "cluster/TtyGraph.hpp"
 #include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Core.hpp"
@@ -64,7 +65,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph};
 
 struct FormField {                     // a field of the form of a display, filled in its popup
     std::string name;
@@ -590,6 +591,7 @@ class TtyUi {
         std::pair<std::string, std::uint64_t> _knownKey;                // the session and the version of the sessions they were read at
         Theme _theme{};
         Mode _mode = Mode::Normal;
+        cluster::GraphView _graph;                  // the graph view (Mode::Graph): the sessions around global
         std::string _active = GLOBAL_ID;
         cluster::Editor _editor;                    // the prompt
         std::vector<std::string> _historyItems;     // Mode::History, filtered
@@ -1374,6 +1376,7 @@ class TtyUi {
                     }
                     if (local->ui == "settings") this->openSettings_();
                     else if (local->ui == "plugins") this->openPlugins_();
+                    else if (local->ui == "graph") this->openGraph_();
                     else if (local->ui.starts_with("term:")) {
                         this->handOver_(local->ui.substr(5));
                         return;
@@ -2163,6 +2166,8 @@ class TtyUi {
                 this->openSettings_();
             } else if (base == "plugins") {
                 this->openPlugins_();
+            } else if (base == "graph") {
+                this->openGraph_();
             } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
                 this->settingsAction_(base == "edit_global_prompt" ? "edit_prompt" : base);
                 if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
@@ -2345,6 +2350,8 @@ class TtyUi {
                 this->run_({"close_session", "", "", "", false}, "");
             } else if (action == "allow" || action == "deny" || action == "interrupt" || action == "mute") {
                 this->run_({action, "", "", "", false}, "");
+            } else if (action == "graph") {
+                this->openGraph_();
             } else if (action == "stats") {
                 this->run_({"stats", "", "", "", false}, "");
             } else if (action == "push_to_talk") {
@@ -2390,6 +2397,52 @@ class TtyUi {
                         this->_page = static_cast<int>(p);
                         this->_item = static_cast<int>(i);
                     }
+        }
+
+        void openGraph_(void)
+        {
+            this->_graph.onOpen = [this](const std::string& id) { // a session opened: its view, the graph closed
+                if (!this->_manager.snapshot(id)) return;
+                this->_active = id;
+                this->_mode = Mode::Normal;
+            };
+            this->_graph.onMenu = [this](const std::string& id) { // the menu of a session (its right click in the lists)
+                this->_mode = Mode::Normal;
+                this->_active = id;
+                this->pick_("menu:" + id);
+            };
+            this->_mode = Mode::Graph;
+        }
+
+        _nodiscard ftxui::Element graph_(const ftxui::Dimensions& size)
+        {
+            // the sessions around global: its state colours (permission waiting, working, error, idle), read only
+            std::vector<cluster::GraphNode> nodes;
+            bool global = false;
+            for (const cluster::Snapshot& s: this->sessions_()) {
+                cluster::GraphNode node;
+                node.id = s.spec.id;
+                node.name = s.spec.global ? "global" : s.spec.name;
+                node.kind = s.spec.id == GLOBAL_ID ? cluster::GraphKind::Global : cluster::GraphKind::Session;
+                node.tone = !s.permissions.empty() ? cluster::GraphTone::Waiting : s.state == cluster::State::Working || s.state == cluster::State::Starting ? cluster::GraphTone::Working
+                    : s.state == cluster::State::Error ? cluster::GraphTone::Error : cluster::GraphTone::Idle;
+                node.detail = !s.permissions.empty() ? "waiting for you" : cluster::state_name(s.state);
+                node.info = cluster::short_path(s.spec.cwd);
+                node.tokens = s.spec.tokens;
+                node.parent = node.kind == cluster::GraphKind::Global ? "" : GLOBAL_ID;
+                global = global || node.kind == cluster::GraphKind::Global;
+                nodes.push_back(node);
+            }
+            if (!global) { // none: the app itself in the middle
+                cluster::GraphNode root;
+                root.id = GLOBAL_ID;
+                root.name = "claude-cluster";
+                root.kind = cluster::GraphKind::Global;
+                nodes.insert(nodes.begin(), root);
+            }
+            this->_graph.setNodes(nodes);
+            const Theme& t = this->_theme;
+            return this->_graph.render(size.dimx, size.dimy, {t.bg, t.surface, t.text, t.muted, t.accent, t.ok, t.warn, t.error}, this->_active, this->_manager.config().keys);
         }
 
         void openPlugins_(void)
@@ -5537,7 +5590,7 @@ class TtyUi {
             }
             const std::optional<cluster::MachineProgress> scan = this->scanShown_();
             // Normal: the note of a sub-session whose question waits on the global session (modal_, empty else)
-            ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : ftxui::dbox({document, this->modal_()});
+            ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : this->_mode == Mode::Graph ? this->graph_(size) : ftxui::dbox({document, this->modal_()});
             // a long operation: its popup over the screen (its spinner turning); one running: redrawn (its popup at 0.4 s)
             if (this->_manager.progressActive()) this->_spinning = true;
             const std::optional<cluster::Progress> running = this->_manager.progress();
@@ -5646,6 +5699,10 @@ class TtyUi {
             }
             if (event.is_mouse()) {
                 const ftxui::Mouse& mouse = event.mouse();
+                if (this->_mode == Mode::Graph) { // its own: drag, wheel, click
+                    (void)this->_graph.mouse(mouse);
+                    return true;
+                }
                 this->_hover = this->hoverAt_(mouse);
                 this->hitHover_(mouse);
                 this->_hoverChip = -1;
@@ -5978,6 +6035,10 @@ class TtyUi {
                     return this->formEvent_(event);
                 case Mode::Plugins:
                     return this->plugEvent_(event);
+                case Mode::Graph:
+                    if (cluster::key_action(this->_manager.config(), key) == "graph" || this->_graph.key(event, key, this->_manager.config().keys) == cluster::GraphView::Result::Close)
+                        this->_mode = Mode::Normal;
+                    return true;
                 case Mode::Search:
                     if (event == ftxui::Event::Escape) {
                         this->_mode = Mode::Normal;

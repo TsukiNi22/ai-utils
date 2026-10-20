@@ -108,6 +108,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+K | command palette (every action: new session, modes, panels, styles, layouts, providers, voice...) |
 | F9 | settings page |
 | F10 | statistics (the Stats session) |
+| Alt+G | the graph view (terminal): the global session in the middle, the sessions around it (see below) |
 | F1 | every key |
 | Alt+1 .. Alt+9 | session N |
 | Ctrl+N (Alt+N) / Alt+P | next / previous session |
@@ -665,6 +666,28 @@ characters each), only when the detection is on, once per N sessions it started 
 `work_method_due`) or when you ask. A proposal (`work_method` `propose`) is a question on every interface (a popup:
 **Allow** / **Deny**, a notification); only Allow writes the setting, Deny is final for that proposal and is told to the
 global session. Never applied silently. State: `method.json` in the data folder (counter, the proposal waiting).
+
+### The graph view (terminal)
+
+`Alt+G` (key `graph`), the palette (*Graph*) or `/graph`-like palette entry opens the same graph as the *Hub* of the web page and the window:
+the **global** session in the middle, the sessions around it, linked (solid link: working, dashed: idle). A node is a box with the state
+colour (green working, orange waiting for a permission, red error, grey idle - the colours of the web hub) and the name; the session shown
+in the other views is in bold. Nothing is changed from it (read only); the screen is redrawn on an input or a change of state, never
+continuously. Over 24 sessions per ring the ring grows; far away (zoom under 0.8) the names are shortened, under 0.45 the nodes are dots.
+
+| Key (`[keys]`) | Action |
+|---|---|
+| `graph_up` / `graph_left` / `graph_down` / `graph_right` (`Z Q S D`, arrows) | pan |
+| `graph_zoom_in` / `graph_zoom_out` (`E +` / `A -`) | zoom (the wheel zooms around the pointer) |
+| `graph_fit` (`0`, Home) | the whole graph in the view |
+| `graph_focus` (`F`) | the selected node in the middle |
+| `graph_next` / `graph_prev` (`Tab` / `Shift+Tab`) | select the next / previous node |
+| `graph_open` (`Enter`) | open the selected session (its view, the graph closed) |
+| `graph_legend` / `graph_map` (`L` / `M`) | the legend line / the minimap |
+| `graph_close` (`Escape`, or `Alt+G` again) | leave the view |
+
+Mouse: drag to pan, wheel to zoom around the pointer, click a node to select it (its state, folder, tokens on the line under the graph),
+double click to open the session, right click for the menu of the session. The keys of the view are listed on its last line and in `F1`.
 
 ### Statistics
 

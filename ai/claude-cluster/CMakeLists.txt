@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.66 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.67 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -137,6 +137,7 @@ set(SRC
     # Front-ends
     src/cluster/ui/Tty.cpp
     src/cluster/ui/LineEditor.cpp
+    src/cluster/ui/TtyGraph.cpp
 )
 set(CLUSTER_WITH_GUI OFF)
 if(CLUSTER_GUI AND Qt6Widgets_FOUND)

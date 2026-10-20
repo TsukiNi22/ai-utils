@@ -50,6 +50,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     std::vector<cluster::Action> list = {
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
         {"plugins", "Plugins: sources (a repository, a folder, a .zip), install / remove, on / off, their files", "", "", true},
+        {"graph", "Graph (terminal): the global session and the sessions around it, moved / zoomed with the mouse or Z Q S D / A E (Alt+G)", "", "", true},
         {"upgrade", "Update claude-cluster to the newer version installed (the sessions kept, nothing to restart)", "", "", false},
         {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
         {"stats", "Statistics: cost and tokens per day / model / provider, sessions ranking, cache, uptime, heatmap, tools, limits (F10)", "", "", false},
@@ -1147,7 +1148,7 @@ _cold std::string cluster::next_mode(const std::string& mode)
 _cold std::string cluster::help_text(const cluster::Config& config)
 {
     static const std::vector<std::pair<std::string, std::string>> actions = {
-        {"palette", "command palette"}, {"settings", "settings page"}, {"stats", "statistics (usage, activity)"}, {"help", "this help"},
+        {"palette", "command palette"}, {"settings", "settings page"}, {"stats", "statistics (usage, activity)"}, {"graph", "graph view: the sessions around global (in it: Z Q S D / arrows pan, A / E zoom, 0 fit, f focus, Tab next, Enter open, l legend, m map, Esc)"}, {"help", "this help"},
         {"next_session", "next session"}, {"prev_session", "previous session"}, {"prefix", "then an arrow: session on the left / right / above / below"},
         {"global", "the global session"}, {"new_session", "new session"}, {"close_session", "close the session (trash)"},
         {"restore", "reopen a closed session"}, {"allow", "allow the permission"}, {"always", "always allow (rule)"}, {"deny", "deny the permission"},
@@ -1197,9 +1198,11 @@ _cold std::string cluster::help_text(const cluster::Config& config)
 _cold std::string cluster::key_action(const cluster::Config& config, const std::string& key)
 {
     // a key can have alternatives: "Ctrl+Shift+T|Alt+T"
-    for (const auto &[action, bound]: config.keys)
+    for (const auto &[action, bound]: config.keys) {
+        if (action.starts_with("graph_")) continue; // the keys inside the graph view: handled there (Shift+Tab is also the permission mode)
         for (const std::string& alternative: cluster::split(bound, '|'))
-            if (cluster::lower(alternative) == cluster::lower(key)) return action;
+                if (cluster::lower(alternative) == cluster::lower(key)) return action;
+    }
     return "";
 }
 

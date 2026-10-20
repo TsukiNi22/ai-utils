@@ -1796,6 +1796,7 @@ class Window: public QMainWindow {
             this->shortcuts.clear();
             for (const auto &[action, key]: this->manager.config().keys) {
                 if (action == "prefix") continue; // only the chords below
+                if (action.starts_with("graph_")) continue; // the keys inside the terminal graph view (bare letters, Tab, Escape): not shortcuts of the window
                 if (action == "undo" || action == "redo" || action == "select_all" || action == "cut" || action == "paste") continue; // the prompt (Qt)
                 if (action == "mode_cycle") continue; // Shift+Tab: in the prompt (else it moves the focus)
                 for (const std::string& alternative: cluster::split(key, '|')) {
