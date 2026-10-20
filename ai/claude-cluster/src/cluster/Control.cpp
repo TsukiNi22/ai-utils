@@ -677,10 +677,13 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.groupCancel(arg_(request, "group"), request.value("interrupt", false));
         } else if (cmd == "task_list") {
             data = cluster::Json::array();
-            for (const cluster::Task& t: manager.tasks())
+            const bool all = request.value("archived", false); // the finished ones leave the list after a while (like the interfaces)
+            for (const cluster::Task& t: manager.tasks()) {
+                if (t.archived && !all) continue;
                 data.push_back({{"id", t.id}, {"prompt", cluster::one_line(t.prompt, 200)}, {"target", t.target}, {"after", t.after}, {"status", t.status}, {"session", t.session},
                     {"group", t.group}, {"by", t.by}, {"reason", t.reason}, {"archived", t.archived}, {"created", t.created}, {"started", t.started}, {"ended", t.ended},
-                    {"label", t.label}, {"forced", t.forced}});
+                    {"label", t.label}, {"forced", t.forced}, {"error", t.status == "failed" ? t.reason : std::string()}});
+            }
         } else if (cmd == "background") {
             if (from_web || from_global) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the core is kept in background by its interfaces only");
             manager.setBackground(true);

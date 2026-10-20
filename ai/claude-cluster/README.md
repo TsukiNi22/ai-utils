@@ -367,6 +367,14 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   when the sub-session is done: no polling of `session_read` (each read costs a whole context);
   the text goes in `text` (`prompt` / `message` / `content` are taken too); a send with no text is refused, never sent as an
   empty `[from the global session]` prompt (`tests/send_prompt.sh` checks it with a fake `claude`);
+  every end of a turn started for the global session calls it back **once**: the answer to the first prompt of a
+  `session_spawn` (`reply: false` opts out), a later turn the agent starts by itself when a background task / Monitor
+  completes (`[reply from ...]` with a note), an API error (`[error from ...]`, weekly limit...), an interrupted turn
+  (`[interrupted: ...]`), an agent that exited; a task queued by the global session (`task_add`) is answered the same way
+  (`tests/callbacks.sh` checks it with a fake `claude`);
+- the task queue: a task whose target session does not exist (closed, never created) or whose dependency failed fails
+  with its reason (`error` in `task_list`, told to the session that queued it); the finished tasks are archived after
+  30 minutes (`task_list` `archived: true` lists them too; the Tasks session shows them under "archived");
 - **notifications** (`[ui] notify`, `notify_global` / `notify_done` / `notify_permission` / `notify_sound`): the end of
   its answers, of the turns of the sub-sessions, a permission waiting; failsafe (no `notify-send`: nothing). See
   [The icon and the notifications](#the-icon-and-the-notifications);

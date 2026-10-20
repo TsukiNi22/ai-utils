@@ -92,7 +92,8 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("task_add", "Queue a task: given to a free session (target = session id / name, a project folder, or empty for any idle session), after its dependencies.",
             {{"prompt", str_("the task")}, {"target", str_("session or folder (optional)")}, {"after", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "ids of tasks to finish first"}}}},
             {"prompt"}),
-        tool_("task_list", "Tasks of the queue and their status.", nullptr, {}),
+        tool_("task_list", "Tasks of the queue and their status (a failed one: its reason in \"error\"; the finished ones are archived after 30 minutes: archived: true lists them too).",
+            {{"archived", {{"type", "boolean"}, {"description", "also the archived tasks (default false)"}}}}, {}),
         tool_("session_fanout", "A request on several sessions / projects at once (a group): a task each, sent as many at once as the parallel sessions "
             "allow (the others wait in the task queue); you are woken ONCE with their answers as [group fN ...] to merge them - end your turn after it, "
             "never poll. tasks: [{session or cwd, prompt (else the common prompt), after: [indexes of tasks of this group it builds on: their answers "

@@ -23,6 +23,12 @@ File Description:
 #include <map>
 
 /* tasks */
+namespace {
+
+constexpr std::int64_t TASK_ARCHIVE_SECONDS = 1800;    // a finished task stays in the list this long, then archived
+
+} // namespace
+
 _cold std::string cluster::Manager::addTask(const std::string& prompt, const std::string& target, const std::vector<std::string>& after, const std::string& by)
 {
     if (cluster::trim(prompt).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "empty task");
@@ -59,7 +65,10 @@ _cold void cluster::Manager::cancelTask(const std::string& id)
         std::lock_guard<std::mutex> lock(this->_mutex);
         auto it = std::find_if(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == id;});
         if (it == this->_tasks.end()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no task '" + id + "'");
-        if (it->status == "queued" || it->status == "running") it->status = "cancelled";
+        if (it->status == "queued" || it->status == "running") {
+            it->status = "cancelled";
+            it->ended = cluster::now();
+        }
     }
     this->save();
 }
@@ -123,6 +132,7 @@ _cold void cluster::Manager::schedule_(void)
     // <task id, session id or folder to spawn>, decided under the lock, run after
     std::vector<std::pair<std::string, std::string>> starts;
     std::vector<std::pair<std::string, std::string>> spawns;
+    std::vector<std::pair<std::string, std::string>> failed;    // <task id, who queued it>: failed here, its reason told
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         // the parallel sessions: every sub-session working (or waiting on a permission, starting), and the tasks being started;
@@ -143,6 +153,10 @@ _cold void cluster::Manager::schedule_(void)
                 auto it = std::find_if(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == dep;});
                 if (it == this->_tasks.end() || it->status == "failed" || it->status == "cancelled") {
                     task.status = "failed"; // a dependency will never be done
+                    task.reason = it == this->_tasks.end() ? "its dependency " + dep + " does not exist any more"
+                        : "its dependency " + dep + " " + it->status + (it->reason.empty() ? "" : ": " + it->reason);
+                    task.ended = cluster::now();
+                    failed.emplace_back(task.id, task.by);
                     ready = false;
                     break;
                 }
@@ -152,6 +166,14 @@ _cold void cluster::Manager::schedule_(void)
 
             // A free session: the target (id / name), one in the target folder, or any idle sub-session
             const bool folder = task.target.find('/') != std::string::npos || task.target.starts_with("~") || task.target == ".";
+            if (!folder && !task.target.empty() && std::none_of(this->_sessions.begin(), this->_sessions.end(),
+                [&task](const std::pair<const std::string, std::shared_ptr<cluster::Session>>& s) {return s.first == task.target || s.second->spec().name == task.target;})) {
+                task.status = "failed"; // a session closed or never created: nothing will ever run it
+                task.reason = "its target session '" + task.target + "' does not exist (closed or never created)";
+                task.ended = cluster::now();
+                failed.emplace_back(task.id, task.by);
+                continue;
+            }
             const std::string wantedCwd = folder ? std::filesystem::weakly_canonical(cluster::expand_home(task.target)).string() : "";
             std::string chosen;
             for (const std::string& id: this->_order) {
@@ -194,12 +216,18 @@ _cold void cluster::Manager::schedule_(void)
         } catch (const utils::exception::IException& e) {
             std::lock_guard<std::mutex> lock(this->_mutex);
             for (cluster::Task& task: this->_tasks)
-                if (task.id == taskId) task.status = "failed";
+                if (task.id == taskId) {
+                    task.status = "failed";
+                    task.reason = "its session could not be started: " + std::string(e.info());
+                    task.ended = cluster::now();
+                    failed.emplace_back(task.id, task.by);
+                }
         }
     }
     for (const auto &[taskId, sessionId]: starts) {
         std::string prompt;
         std::string group;
+        std::string by;
         {
             // the answers of the tasks it comes after: given to it (a chain between projects)
             std::lock_guard<std::mutex> lock(this->_mutex);
@@ -207,6 +235,7 @@ _cold void cluster::Manager::schedule_(void)
                 if (task.id != taskId) continue;
                 prompt = task.prompt;
                 group = task.group;
+                by = task.by;
                 task.started = cluster::now();
                 for (const std::string& dep: task.after)
                     for (const cluster::Task& before: this->_tasks)
@@ -215,15 +244,46 @@ _cold void cluster::Manager::schedule_(void)
                                 + (before.answer.size() > 4000 ? before.answer.substr(0, 4000) + "\n[...]" : before.answer);
             }
         }
+        const bool answered = by == GLOBAL_ID && group.empty(); // a task of the global session: its answer comes back to it (a group has its own)
         try {
-            this->send(sessionId, prompt);
+            if (answered) this->replyTo(sessionId); // before: a short turn could end before it is known
+            try {
+                this->send(sessionId, prompt);
+            } catch (const utils::exception::IException&) {
+                if (answered) this->replyUndo_(sessionId);
+                throw;
+            }
             this->notice_(sessionId, "task " + taskId + " started");
             if (!group.empty()) this->groupUpdate_(group);
         } catch (const utils::exception::IException& e) {
             std::lock_guard<std::mutex> lock(this->_mutex);
             for (cluster::Task& task: this->_tasks)
-                if (task.id == taskId) task.status = "failed";
+                if (task.id == taskId) {
+                    task.status = "failed";
+                    task.reason = "its prompt could not be sent to " + sessionId + ": " + std::string(e.info());
+                    task.ended = cluster::now();
+                    failed.emplace_back(task.id, task.by);
+                }
         }
+    }
+    if (!failed.empty()) {
+        // a task failed before any turn: the session that queued it is told why (a chain: its dependents fail in the next pass)
+        this->save();
+        for (const auto &[taskId, by]: failed) {
+            std::string why;
+            std::string group;
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                for (const cluster::Task& task: this->_tasks)
+                    if (task.id == taskId) {
+                        why = task.reason;
+                        group = task.group;
+                    }
+            }
+            if (!group.empty()) this->groupUpdate_(group);
+            else this->tell_(by, "[tasks] task " + taskId + " failed: " + why);
+        }
+        this->schedule_(); // the tasks after it fail with their reason too
     }
     if (!starts.empty() || !spawns.empty()) this->save();
 }
@@ -324,6 +384,8 @@ _cold void cluster::Manager::fireSchedules_(void)
     std::vector<cluster::Schedule> due;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
+        for (cluster::Task& task: this->_tasks) // the finished tasks leave the list after a while (their archive)
+            if (!task.archived && task.status != "queued" && task.status != "running" && now - (task.ended > 0 ? task.ended : task.created) > TASK_ARCHIVE_SECONDS) task.archived = true;
         for (cluster::Schedule& w: this->_schedules) {
             if (w.status != "waiting" || w.at > now) continue;
             due.push_back(w);
