@@ -439,6 +439,85 @@ _cold std::optional<cluster::Json> cluster::Manager::displayOf(const std::string
     return std::nullopt;
 }
 
+_cold static void pin_allowed_(const cluster::Config& config, const std::string& by)
+{
+    if (by == "global" && !config.pinGlobal)
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the global session may not pin (settings page > Agent > Global session can pin): ask the user");
+    if (by == "sub" && !config.subPin)
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: sub-sessions may not pin (settings page > Agent > Sub-sessions can pin): ask the user");
+}
+
+_cold cluster::Json cluster::Manager::pin(const std::string& id, const cluster::Json& what, const std::string& by)
+{
+    pin_allowed_(this->_config, by);
+    if (this->_replica) {
+        cluster::Json request = what.is_object() ? what : cluster::Json::object();
+        request.update({{"cmd", "pin"}, {"session", id}});
+        return this->call(request);
+    }
+    const std::shared_ptr<cluster::Session> session = this->get_(id);
+    cluster::Json pinned = {{"kind", "display"}, {"by", by}, {"at", cluster::now()}};
+    std::string title = what.value("title", std::string());
+    std::string displayId = what.value("display_id", std::string());
+    if (what.contains("display") && what["display"].is_string()) displayId = what["display"].get<std::string>();
+    if (what.contains("display") && what["display"].is_object()) {
+        cluster::Json block = what["display"];
+        if (!title.empty() && !block.contains("title")) block["title"] = title;
+        displayId = this->display(id, block);
+    }
+    if (displayId.empty() && what.contains("index")) {
+        // a message of the transcript (its index: negative from the end): a display is pinned by its id, the others as a copy of their text
+        const cluster::Snapshot snap = session->snapshot();
+        const long total = static_cast<long>(snap.entries.size());
+        long index = what.value("index", 0L);
+        if (index < 0) index += total;
+        if (index < 0 || index >= total) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no entry " + std::to_string(index) + " (0 to " + std::to_string(total - 1) + ")");
+        const cluster::Entry& entry = snap.entries[static_cast<std::size_t>(index)];
+        if (entry.kind == cluster::EntryKind::Display) {
+            displayId = cluster::Json::parse(entry.text, nullptr, false).value("id", std::string());
+        } else if (entry.kind == cluster::EntryKind::User || entry.kind == cluster::EntryKind::Assistant || entry.kind == cluster::EntryKind::System) {
+            pinned["kind"] = "message";
+            pinned["role"] = entry.kind == cluster::EntryKind::User ? "user" : entry.kind == cluster::EntryKind::Assistant ? "assistant" : "system";
+            pinned["text"] = entry.text.size() > 20000 ? entry.text.substr(0, 20000) : entry.text;
+            pinned["id"] = "m" + std::to_string(index);
+            if (title.empty()) title = cluster::one_line(entry.text, 60);
+        } else {
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "entry " + std::to_string(index) + " cannot be pinned (a message or a display)");
+        }
+    }
+    if (pinned["kind"] == "display") {
+        if (displayId.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "pin: session, then display (an id or a block {type, ...}) or index (an entry of the transcript)");
+        const std::optional<cluster::Json> found = this->displayOf(id, displayId);
+        if (!found) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no display " + displayId + " in " + id);
+        pinned["id"] = displayId;
+        if (title.empty()) title = found->value("title", std::string());
+        if (title.empty()) title = found->value("type", std::string("display"));
+    }
+    pinned["title"] = cluster::one_line(title, 80);
+    session->setPin(pinned);
+    this->save();
+    ++this->_version;
+    return pinned;
+}
+
+_cold void cluster::Manager::unpin(const std::string& id, const std::string& by)
+{
+    pin_allowed_(this->_config, by);
+    if (this->_replica) {
+        (void)this->call({{"cmd", "unpin"}, {"session", id}});
+        return;
+    }
+    this->get_(id)->setPin(nullptr);
+    this->save();
+    ++this->_version;
+}
+
+_cold cluster::Json cluster::Manager::pinOf(const std::string& id) const
+{
+    const std::optional<cluster::Snapshot> snap = this->snapshot(id);
+    return snap ? snap->spec.pin : cluster::Json();
+}
+
 _cold void cluster::Manager::displayUpdate(const std::string& id, const std::string& displayId, const cluster::Json& display)
 {
     if (!this->displayOf(id, displayId))

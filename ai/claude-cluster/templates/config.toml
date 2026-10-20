@@ -56,6 +56,8 @@ allow_bypass = true        # claude: launched with --allow-dangerously-skip-perm
 extra_args = []
 # Work method: how the work is organised, injected (short) in the system prompt of the sub-sessions and of the global session, which
 # splits the requests accordingly (a session takes it at its next start). Only you change it (never the global session).
+sub_pin = true             # a sub-session may pin an item on its own view (never on another one); you always may, by hand
+global_pin = true          # the global session may pin a message / display block at the bottom of any session (MCP session_pin)
 #   free (nothing) | list-review (a task list, then a review, repeated until good) | one-task (one task at a time)
 #   | plan-first (a plan, then the work) | custom (only the text below)
 work_method = "free"

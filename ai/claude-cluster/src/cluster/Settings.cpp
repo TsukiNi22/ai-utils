@@ -242,6 +242,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         }},
         {"commands", "Commands", {}},
         {"global", "Global session", {
+            {"agent", "sub_pin", "Sub-sessions can pin", SettingKind::Bool, {}, "a sub-session may pin an item on its own view (a task list, a form you keep seeing); "
+                "never on another session", false, [](const cluster::Config& cf) {return cf.subPin ? std::string("true") : std::string("false");}},
+            {"agent", "global_pin", "Global session can pin", SettingKind::Bool, {}, "the global session may pin a message or a display block at the bottom of the view of "
+                "any session (MCP session_pin, session_unpin); you can always pin by hand (right click, Ctrl+K: Pin / Unpin)", false,
+                [](const cluster::Config& cf) {return cf.pinGlobal ? std::string("true") : std::string("false");}},
             {"global", "enabled", "Enabled", SettingKind::Bool, {}, "the session that manages the others (MCP)", true,
                 [](const cluster::Config& cf) {return cf.globalEnabled ? std::string("true") : std::string("false");}},
             {"global", "model", "Model", SettingKind::Text, {}, "empty: the default model of the provider ([agent] provider)", true,

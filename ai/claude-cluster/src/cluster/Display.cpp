@@ -584,6 +584,25 @@ _cold std::string cluster::display_math(const std::string& latex)
     return out;
 }
 
+_cold cluster::Json cluster::display_pinned(const cluster::Snapshot& snap)
+{
+    const cluster::Json& pin = snap.spec.pin;
+    if (!pin.is_object()) return nullptr;
+    const std::string title = pin.value("title", std::string());
+    if (pin.value("kind", std::string()) == "message") {
+        cluster::Json block = {{"type", "markdown"}, {"text", pin.value("text", std::string())}, {"role", pin.value("role", std::string("assistant"))}};
+        if (!title.empty()) block["title"] = title;
+        return block;
+    }
+    const std::string mark = "\"id\":\"" + pin.value("id", std::string()) + "\"";
+    for (auto it = snap.entries.rbegin(); it != snap.entries.rend(); ++it) {
+        if (it->kind != cluster::EntryKind::Display || it->text.find(mark) == std::string::npos) continue;
+        cluster::Json block = cluster::Json::parse(it->text, nullptr, false);
+        if (block.is_object() && block.value("id", std::string()) == pin.value("id", std::string())) return block;
+    }
+    return nullptr;
+}
+
 _cold std::string cluster::display_help(void)
 {
     return "markdown {text}; table {columns, rows: [[...]]}; chart {kind: bar | line | pie, labels, series: [{name, values}]}; "

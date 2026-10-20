@@ -428,6 +428,11 @@ class Manager {
         void setUi(const std::string& key, const std::string& value);
         void requestFocus(const std::string& id);           // the interfaces show this session (the global session asks it)
         void userTouched(const std::string& id);            // the user typed in this session: a one-shot one stays
+        // the pinned item of a session's view (one at most): a display (its id, an inline one put in the transcript first) or a message (its index);
+        // by: user | global | sub (the settings may refuse the last two); unpin: removed; pinOf: {kind, id, title...} or null
+        _cold _nodiscard cluster::Json pin(const std::string& id, const cluster::Json& what, const std::string& by = "user");
+        _cold void unpin(const std::string& id, const std::string& by = "user");
+        _cold _nodiscard cluster::Json pinOf(const std::string& id) const;
         void replyTo(const std::string& id);                // the end of the next turn of this session sent to the global session
         bool notifyDesktop(const std::string& title, const std::string& text, const bool urgent = false); // false: notifications off
         // its face, buttons, sound; one per session (replaced); kind: global | done | permission | question | error | limit | web | task |

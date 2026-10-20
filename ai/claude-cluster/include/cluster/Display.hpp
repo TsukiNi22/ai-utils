@@ -76,6 +76,9 @@ _cold _nodiscard cluster::Json turn_state(const cluster::Snapshot& snap);
 _cold _nodiscard std::string resumable(const cluster::Snapshot& snap);   // "retry" (an API error retried later) | "continue" (stopped) | ""
 _cold _nodiscard std::string took(const std::int64_t ms);
 
+// the item pinned on a session as a display to draw: the live display of its id (as it is now in the transcript), or a message as a
+// markdown block (role, title); null: nothing pinned or its display is gone
+_cold _nodiscard cluster::Json display_pinned(const cluster::Snapshot& snap);
 // the types and their fields, for the MCP tool and the help
 _cold _nodiscard std::string display_help(void);
 

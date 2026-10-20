@@ -1092,5 +1092,13 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         // a number out of range, a wrong type...: told, the core goes on (a request never stops every session)
         return {{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
     }
+        } else if (cmd == "pin" || cmd == "unpin" || cmd == "pin_get") {
+            // the pinned item of a session's view: the user (any), the global session, a sub-session (its own view only), per the settings
+            const bool bySub = request.value("origin", std::string()) == "sub";   // the MCP of a sub-session: its own view only
+            const std::string target = bySub ? manager.resolve(arg_(request, "owner")) : session();
+            const std::string by = from_global ? "global" : bySub ? "sub" : "user";
+            if (cmd == "pin") data = manager.pin(target, request, by);
+            else if (cmd == "unpin") manager.unpin(target, by);
+            else data = manager.pinOf(target);
     return {{"ok", true}, {"data", data}};
 }

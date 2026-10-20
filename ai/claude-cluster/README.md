@@ -463,7 +463,7 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   started again on it after its turn -, the one of the sub-sessions, the vocabulary and the words of the voice,
   config.toml checked as TOML before it is written; the map of this computer read only), `machine_sync` (the question
   "Map this computer?" shown in the interface, the user answers it), `session_set_model`, `usage`, `session_display` / `session_display_update` / `session_display_get` (a rich display in a transcript,
-  below), `external_conversations` / `session_import` (the
+  below), `session_pin` / `session_unpin` / `session_pin_get` (a message or a display pinned above the prompt), `external_conversations` / `session_import` (the
   conversations of the other agents of this computer, opened here), `session_transcript` (whole entries of a transcript),
   `session_context` (a context given to a session: another session, a conversation of an agent, a file),
   `session_messages` / `session_edit` (the real conversation of a sub-session of Claude Code rewritten: texts replaced,
@@ -823,6 +823,27 @@ external` and to the global session (MCP `external_conversations`). Opened, one 
 folder: its transcript so far shown (the active branch of Claude Code), the same conversation goes on here. A
 conversation of Claude Code used less than 2 minutes ago (maybe still open in a terminal) is opened as a copy
 (`--fork-session`): the original stays untouched. The ones opened here are not offered again.
+### Pin
+
+A message or a display block of a transcript (a task list, a form, a steps block, a table, a note, any block, or a plain
+answer) can be pinned: it stays at the bottom of the view of its session, just above the prompt, in a compact bordered
+area (its title folds it, `Unpin` removes it, it scrolls inside when it is tall), whatever the scroll of the transcript.
+One pin per session (pinning another replaces it). A live block (checklist, steps, progress, form) stays interactive and
+is updated in place while pinned (`session_display_update`, ticking, submitting).
+
+| Where | How |
+|---|---|
+| terminal | right click on a message / block (mouse), or Ctrl+K: `Pin the last answer`, `Pin: <block>`, `Unpin: <title>`; a click on the pinned title folds it, the wheel over it scrolls it |
+| window | right click on a message / block: `Pin this ...` / `Unpin`; the title folds it, `Unpin` removes it |
+| web page | right click (long press on a phone) on a message / block: `Pin` / `Unpin`; Alt+P: pin the last answer / unpin |
+| MCP (global session) | `session_pin` (session, `display`: a display id or a block `{type, ...}` put in the transcript and pinned at once, or `index`: an entry of `session_transcript`; `title`), `session_unpin`, `session_pin_get` |
+| control command | `claude-cluster` socket: `pin` / `unpin` / `pin_get` (a sub-session: its own view only, `origin: "sub"`) |
+
+The pin is kept with the session (restart, archive / restore; `/clear` drops it), told by `session_list` / `session_status`
+(`pinned`: kind, id, title), by Ctrl+K *Session info*, and sent to every interface. Settings (`[agent]`): `global_pin`
+(the global session may pin on any session, default on) and `sub_pin` (*Sub-sessions can pin*: a sub-session may pin on
+itself only, default on); the pin made by the user is always allowed.
+
 
 - **Fork** (palette *Fork the session*, the web page, `claude-cluster fork <s>`): a copy of a session of Claude Code, its
   conversation so far, then each one goes its own way. The global session may do it only when allowed (settings page >

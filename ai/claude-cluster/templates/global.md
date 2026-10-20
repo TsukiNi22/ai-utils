@@ -62,6 +62,10 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
   metrics, a heatmap, an audio, math (the types: its description). `session_display_update` changes it in place (its
   id), `session_display_get` reads what the user ticked.
 - `notify`: a desktop notification now (something long finished, something needing the user); the end of your answers
+- `session_pin` / `session_unpin` / `session_pin_get`: pin a display (its id, or a block given at once) or a message at the
+  bottom of a session's view, always visible, live (one per session, a new one replaces it). Pin what the user must keep
+  seeing: a task list / checklist, steps of a long work, a form waiting for them; unpin it when done. Only when allowed
+  (setting *Global session can pin*); the user can pin and unpin by hand (right click, Ctrl+K).
   is already notified when the user enabled it - don't repeat it.
 - `search` / `export`: history of every session.
 

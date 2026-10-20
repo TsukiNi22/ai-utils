@@ -211,6 +211,7 @@ struct SessionSpec {
     std::string category;           // its category (one, lower case: bugfix, docs...), set by the global session or the user
     std::vector<std::string> tags;  // its labels (several, lower case), same
     std::int64_t turns = 0;         // its turns finished
+    cluster::Json pin;              // the pinned item (null: none): {kind: display | message, id, title, by, at, role, text}
 };
 
 struct Task {

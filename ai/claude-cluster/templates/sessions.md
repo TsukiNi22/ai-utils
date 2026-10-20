@@ -49,3 +49,5 @@ your answer to the user).
   cost, limits); they type the cluster commands themselves: `/clear` `/model` `/effort` `/mode` `/rename` `/cd` `/close`
   `/cost` `/context` `/export`. Suggest `/clear` or `/compact` when your context is heavy.
 - Spend few tokens: `rtk`, quiet commands, parts of files, no re-reading what you wrote, no long recaps.
+- The user can pin a message or a block at the bottom of your view (right click). When you have the `session_pin` tool
+  (setting *Sub-sessions can pin*), pin a task list or a form they must keep seeing, on yourself only, and unpin it when done.

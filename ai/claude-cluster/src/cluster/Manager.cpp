@@ -76,6 +76,7 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.category = json.value("category", std::string());
     spec.tags = json.value("tags", std::vector<std::string>());
     spec.turns = json.value("turns", std::int64_t{0});
+    spec.pin = json.value("pin", cluster::Json());
     return spec;
 }
 
@@ -299,6 +300,7 @@ _cold void cluster::Manager::clear(const std::string& id)
     this->archive_(id);
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
     session->loadHistory(300);
+    spec.pin = nullptr; // the pinned item belonged to the old transcript
     spec.cost = 0.0;   // the figures of the list follow the conversation (the usage ledger keeps the spent ones)
     spec.tokens = 0;
     {
@@ -1577,6 +1579,7 @@ _cold void cluster::Manager::answerRestore(const bool restore)
     }
     this->startGlobal();
 }
+            spec.pin = nullptr;
 
 std::vector<cluster::SessionSpec> cluster::Manager::previous(void) const
 {

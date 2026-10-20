@@ -1591,6 +1591,13 @@ _cold void cluster::Session::describe(const std::string& text, const bool given)
     this->touch_();
 }
 
+_cold void cluster::Session::setPin(const cluster::Json& pin)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_data.spec.pin = pin;
+    this->touch_();
+}
+
 _cold void cluster::Session::label(const std::string& category, const std::vector<std::string>& tags)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);

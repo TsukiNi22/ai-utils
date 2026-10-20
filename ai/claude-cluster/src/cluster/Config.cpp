@@ -201,6 +201,8 @@ _cold void cluster::Config::load(void)
     this->maxParallel = table["sessions"]["max_parallel"].value_or(this->maxParallel);
     this->taskQueue = table["sessions"]["task_queue"].value_or(this->taskQueue);
     this->historyLimit = std::max(0, table["sessions"]["history_limit"].value_or(this->historyLimit));
+    this->subPin = table["agent"]["sub_pin"].value_or(this->subPin);
+    this->pinGlobal = table["agent"]["global_pin"].value_or(this->pinGlobal);
     this->transcriptLimitMb = std::max(0, table["sessions"]["transcript_limit_mb"].value_or(this->transcriptLimitMb));
     this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
