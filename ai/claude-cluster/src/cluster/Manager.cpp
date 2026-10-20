@@ -350,13 +350,13 @@ _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::Ses
         this->_sessions[id] = session;
     }
     session->start();
+    for (const cluster::Queued& queued: unfinished)
+        session->send(queued.text, queued.images);
     this->save();
 }
 
 _cold void cluster::Manager::close(const std::string& id)
 {
-    for (const cluster::Queued& queued: unfinished)
-        session->send(queued.text, queued.images);
     if (id == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session can't be closed (quit claude-cluster)");
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     session->stop();
@@ -1602,6 +1602,8 @@ void cluster::Manager::setUi(const std::string& key, const std::string& value)
 {
     if (this->_replica) {
         (void)this->call({{"cmd", "ui_set"}, {"key", key}, {"value", value}});
+        // read at once by the next step (the apply: popup after a model / mode / effort picked): not the sync of the core, a poll later
+        this->replicaPatchUi(key, value);
         return;
     }
     {
@@ -1611,5 +1613,3 @@ void cluster::Manager::setUi(const std::string& key, const std::string& value)
     ++this->_version;
     this->save();
 }
-        // read at once by the next step (the apply: popup after a model / mode / effort picked): not the sync of the core, a poll later
-        this->replicaPatchUi(key, value);

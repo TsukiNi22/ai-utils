@@ -1500,9 +1500,6 @@ _cold cluster::Queued cluster::Session::rewind(void)
     return prompt;
 }
 
-_cold void cluster::Session::stop(void)
-{
-    cluster::busy_step("stopping " + this->_data.spec.name + " (its agent)");
 _cold std::vector<cluster::Queued> cluster::Session::unfinished(void) const
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
@@ -1513,6 +1510,9 @@ _cold std::vector<cluster::Queued> cluster::Session::unfinished(void) const
     return out;
 }
 
+_cold void cluster::Session::stop(void)
+{
+    cluster::busy_step("stopping " + this->_data.spec.name + " (its agent)");
     this->_stopping = true;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
