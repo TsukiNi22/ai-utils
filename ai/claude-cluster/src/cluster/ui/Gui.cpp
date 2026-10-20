@@ -1330,6 +1330,16 @@ class Window: public QMainWindow {
             }
         }
 
+        void info(const std::string& text)
+        {
+            // a text of several lines in a popup (the information of a session...), in a fixed font
+            QMessageBox box(QMessageBox::Information, "claude-cluster", QString(), QMessageBox::Ok, this);
+            box.setTextFormat(Qt::PlainText);
+            box.setText(q_(text));
+            box.setStyleSheet("QLabel {font-family: monospace;}");
+            box.exec();
+        }
+
         void message(const std::string& text, const bool error)
         {
             if (text.find('\n') != std::string::npos) {
@@ -1394,7 +1404,9 @@ class Window: public QMainWindow {
                 QMetaObject::invokeMethod(this, [this, result]() {
                     if (!result.focus.empty()) this->active = result.focus;
                     if (!result.message.empty()) this->message(result.message, result.error);
-                    if (result.ui.starts_with("pick:delete:")) { // a session deleted for good: asked here
+                    if (result.ui == "message") {
+                        this->info(result.message); // a popup (/info...): never in the conversation
+                    } else if (result.ui.starts_with("pick:delete:")) { // a session deleted for good: asked here
                         this->confirmDelete(result.ui.substr(12));
                     } else if (result.ui.starts_with("pick:")) { // a next step to pick (where it applies), once this palette is closed
                         const QString next = q_(result.ui.substr(5));
@@ -2185,7 +2197,8 @@ class Window: public QMainWindow {
                         else if (local->ui == "quit") this->close();
                         else if (local->ui.starts_with("search:")) this->message("search: " + local->ui.substr(7) + " (Ctrl+F in the transcript)", false);
                         if (local->focus == TASKS_ID) QTimer::singleShot(0, this, [this]() {this->showTasks();});
-                        if (local->ui == "settings") this->settings();
+                        if (local->ui == "message") this->info(local->message);
+                        else if (local->ui == "settings") this->settings();
                         else if (local->ui == "restore_menu") this->openRestore();
                         else if (local->ui == "rewind") this->rewind();
                         else if (local->ui.starts_with("pick:delete:")) this->confirmDelete(local->ui.substr(12)); // asked here
@@ -3943,8 +3956,8 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             + "&nbsp;</span>";
     };
     QString head = "<span style=\"font-size:11.5pt\"><b>" + esc_(s.spec.name) + "</b></span>&nbsp;&nbsp;" + chip(tone, cluster::state_name(s.state)) + "&nbsp; "
-        + chip(st.accent, model) + "&nbsp; " + chip(st.muted, "mode " + s.spec.mode)
-        + (s.spec.effort.empty() || s.spec.effort == "default" ? QString() : "&nbsp; " + chip(st.muted, "effort " + s.spec.effort))
+        + chip(st.accent, model) + "&nbsp; " + chip(manager.authKind(s.spec.backend) == "api" ? st.warn : st.ok, manager.authKind(s.spec.backend))
+        + "&nbsp; " + chip(st.muted, "think " + (s.spec.effort.empty() ? std::string("default") : s.spec.effort)) + "&nbsp; " + chip(st.muted, "mode " + s.spec.mode)
         + (compact ? QString() : "&nbsp;&nbsp;<a href=\"cluster-folder:\" style=\"color:" + q_(st.muted) + ";text-decoration:none;font-family:monospace;font-size:9pt\">"
             + esc_(cluster::short_path(s.spec.cwd)) + "</a>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(
                 (this->branch.empty() ? std::string() : "  ⎇ " + this->branch) + "  " + cluster::host_name() + (s.pid > 0 ? "  pid " + std::to_string(s.pid) : ""))

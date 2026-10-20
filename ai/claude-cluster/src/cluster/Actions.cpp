@@ -27,6 +27,8 @@ File Description:
 #include <fstream>
 #include <regex>
 
+_cold static std::string session_info_(cluster::Manager& manager, const std::string& id); // everything about a session (a popup)
+
 /* actions */
 _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, const std::string& session)
 {
@@ -45,6 +47,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
         {"plugins", "Plugins: sources (a repository, a folder, a .zip), install / remove, on / off, their files", "", "", true},
         {"upgrade", "Update claude-cluster to the newer version installed (the sessions kept, nothing to restart)", "", "", false},
+        {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
         {"edit_global_prompt", "System prompt of the global session: edit it", "", "", true},
@@ -381,6 +384,9 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
                 if (equal != std::string::npos) values[cluster::trim(pair.substr(0, equal))] = cluster::trim(pair.substr(equal + 1));
             }
             result.message = manager.displayAct(session, arg, {{"values", values}});
+        } else if (base == "info") {
+            result.message = session_info_(manager, session);
+            result.ui = "message"; // a popup in every interface
         } else if (base == "upgrade") {
             result.message = manager.upgradeAct("update"); // the newer claude-cluster installed: switched to it
         } else if (base == "fork") {
@@ -524,7 +530,8 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"context", "the context window used"},
         {"usage", "the usage of the account (5 h / 7 d windows) and of this session: a popup, nothing asked to the agent"},
         {"skills", "the skills and plugins loaded for the sessions (yours, the project's, the plugins): a popup"},
-        {"status", "the session: agent, model, effort, mode, folder, its conversation: a popup"},
+        {"info", "everything about the session in focus: agent, model, thinking, api / login, cost, limits (a popup)"},
+        {"status", "the same as /info"},
         {"mcp", "the MCP servers given to the sessions: a popup"},
         {"plugins", "the plugins browser: sources (repositories, folders, .zip), install / remove, on / off, their files"},
         {"rewind", "the last turn out of the conversation, its prompt back (= Esc Esc on an empty prompt)"},
@@ -673,6 +680,44 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
     };
 }
 
+_cold static std::string session_info_(cluster::Manager& manager, const std::string& id)
+{
+    // everything about a session: how it runs (agent, model, thinking, api | auth), where, its conversation, what it used and what limits it
+    const std::optional<cluster::Snapshot> snap = manager.snapshot(id);
+    if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session");
+    const cluster::SessionSpec& spec = snap->spec;
+    const cluster::Metrics& m = snap->metrics;
+    const std::string provider = spec.backend.substr(0, spec.backend.find('/'));
+    const std::string auth = manager.authKind(spec.backend);
+    const std::string model = snap->modelUsed.empty() ? spec.model : snap->modelUsed;
+    std::string text = spec.name + " (" + spec.id + ")  " + cluster::state_name(snap->state);
+    text += "\n\nagent        " + provider + " · " + (auth == "api" ? "API key (billed per token)" : auth == "auth" ? "login (a subscription)" : "local (no cost)");
+    text += "\nmodel        " + (model.empty() ? std::string("the default of the agent") : model) + (spec.model.empty() || spec.model == model ? "" : "  (asked: " + spec.model + ")");
+    text += "\nthinking     " + (spec.effort.empty() ? std::string("default (the one of the agent)") : spec.effort);
+    text += "\nmode         " + spec.mode + "\nfolder       " + cluster::short_path(spec.cwd);
+    text += "\nconversation " + (spec.claudeId.empty() ? std::string("not started") : spec.claudeId) + " · " + std::to_string(m.turns) + " turn(s)";
+    text += "\ntokens       " + cluster::human_tokens(m.total.total()) + " (last turn " + cluster::human_tokens(m.last.total()) + ", cache read " + cluster::human_tokens(m.total.cacheRead)
+        + ", thinking " + cluster::human_tokens(m.total.thinking) + ")";
+    text += "\ncontext      " + cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow)
+        + (m.contextWindow > 0 ? " (" + std::to_string(100 * m.contextUsed / m.contextWindow) + "%)" : std::string());
+    text += "\ncost         " + (m.costKnown ? cluster::human_cost(m.cost) + " (last turn " + cluster::human_cost(m.lastCost) + ")" : std::string("local / unknown"));
+    const cluster::Config& config = manager.config();
+    if (config.budget > 0) text += "  · budget " + cluster::human_cost(config.budget);
+    const cluster::Json accounts = manager.accountsJson();
+    const cluster::Json spent = accounts.is_object() ? accounts.value("spent", cluster::Json::object()) : cluster::Json::object();
+    std::string limits;
+    for (const auto &[window, limit]: {std::pair<std::string, double>{"day", config.limits.dailyUsd}, {"week", config.limits.weeklyUsd}, {"month", config.limits.monthlyUsd}})
+        if (limit > 0) limits += (limits.empty() ? "" : " · ") + window + " " + cluster::human_cost(spent.value(window, 0.0)) + " / " + cluster::human_cost(limit);
+    if (!limits.empty()) text += "\nlimits       " + limits + " (" + config.limits.scope + ")";
+    const cluster::UsageReport usage = manager.usage(provider == "claude" ? "anthropic" : provider);
+    for (const cluster::UsageWindow& w: usage.windows)
+        if (w.used >= 0) text += "\naccount      " + w.name + " window " + std::to_string(static_cast<int>(w.used * 100 + 0.5)) + "%" + (w.reset > 0 ? " (reset in " + cluster::took((w.reset - cluster::now()) * 1000) + ")" : "");
+    if (snap->queued > 0) text += "\nqueued       " + std::to_string(snap->queued) + " prompt(s)";
+    if (!snap->permissions.empty()) text += "\nwaiting      " + std::to_string(snap->permissions.size()) + " permission(s)";
+    if (!snap->remoteUrl.empty()) text += "\nremote       " + snap->remoteUrl;
+    return text;
+}
+
 _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& manager, const std::string& session, const std::string& line)
 {
     // A local /command runs here; any other /command (skill, command of the agent) is sent as the prompt; !<command> and
@@ -767,19 +812,16 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 + " · tokens " + cluster::human_tokens(m.total.total()) + " in " + std::to_string(m.turns) + " turn(s)";
             else result.message = "context " + cluster::human_tokens(m.contextUsed) + " / " + cluster::human_tokens(m.contextWindow)
                 + (m.contextWindow > 0 ? " (" + std::to_string(100 * m.contextUsed / m.contextWindow) + "%)" : std::string());
-        } else if (name == "usage" || name == "status") {
+        } else if (name == "info" || name == "status") {
+            result.message = session_info_(manager, session);
+            result.ui = "message";
+        } else if (name == "usage") {
             // shown here (a popup), never asked to the agent: nothing in its conversation, nothing spent
             const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
             if (!snap) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session");
             const cluster::Metrics& m = snap->metrics;
             const std::string vendor = snap->spec.backend.substr(0, snap->spec.backend.find('/'));
-            if (name == "status") {
-                result.message = snap->spec.name + " (" + snap->spec.id + ")\nagent " + snap->spec.backend + (snap->spec.model.empty() ? "" : " · model " + snap->spec.model)
-                    + " · effort " + (snap->spec.effort.empty() ? std::string("default") : snap->spec.effort) + " · mode " + snap->spec.mode + "\nfolder "
-                    + snap->spec.cwd + "\nconversation " + (snap->spec.claudeId.empty() ? std::string("not started") : snap->spec.claudeId) + "\nturns "
-                    + std::to_string(m.turns) + " · tokens " + cluster::human_tokens(m.total.total()) + " · context " + cluster::human_tokens(m.contextUsed) + " / "
-                    + cluster::human_tokens(m.contextWindow);
-            } else {
+            {
                 const cluster::UsageReport u = manager.usage(vendor == "claude" ? "anthropic" : vendor);
                 const std::function<std::string(const cluster::UsageSum&)> sum = [](const cluster::UsageSum& s) {
                     return cluster::human_tokens(s.tokens) + " tokens, " + std::to_string(s.turns) + " turn(s)" + (s.costKnown || s.cost > 0 ? ", " + cluster::human_cost(s.cost) : "");

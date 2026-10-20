@@ -103,6 +103,8 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker-veil { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
 .picker { background: var(--surface, var(--bg)); border: 1px solid var(--border, #444); border-radius: 12px; width: min(520px, 100%); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); }
 .picker-title { padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border, #444); }
+.info-text { margin: 0; padding: 14px 16px; overflow: auto; white-space: pre-wrap; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.picker > button { margin: 8px 16px 14px; align-self: flex-end; }
 .picker-list { overflow-y: auto; padding: 6px; }
 .picker-row.danger { color: var(--error); }
 .tasks-mark { color: var(--accent); font-weight: 700; }
@@ -473,6 +475,25 @@ function toast(text) {
     toast.timer = setTimeout(() => t.classList.add("hidden"), 3500);
 }
 
+// a text of several lines in a popup (the information of a session...): Esc / a click outside closes it
+function infoBox(text) {
+    const veil = el("div", "picker-veil");
+    const card = el("div", "picker");
+    card.style.maxWidth = "min(92vw, 640px)";
+    card.append(Object.assign(el("pre", "info-text"), {textContent: text}));
+    const close = el("button", "primary", "Close");
+    close.type = "button";
+    const done = () => { veil.remove(); document.removeEventListener("keydown", key, true); };
+    const key = (event) => { if (event.key === "Escape" || event.key === "Enter") { event.preventDefault(); done(); } };
+    close.addEventListener("click", done);
+    veil.addEventListener("click", (event) => { if (event.target === veil) done(); });
+    document.addEventListener("keydown", key, true);
+    card.append(close);
+    veil.append(card);
+    document.body.append(veil);
+    close.focus();
+}
+
 async function api(path, body, signal) {
     const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
     const response = await fetch(path, Object.assign({credentials: "same-origin", cache: "no-store", signal}, options));
@@ -780,7 +801,7 @@ function render(state) {
         return;
     }
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
-    $("sessionInfo").textContent = [s.warning ? "⚠ " + s.warning : "", s.state, s.model, s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    $("sessionInfo").textContent = [s.warning ? "⚠ " + s.warning : "", s.state, s.model, s.auth, s.effort ? "think " + s.effort : "", s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
     // a prompt queued: sent now (the running turn interrupted)
     $("sendNext").classList.toggle("hidden", !s.queued);
     // retry now (an API error retried later) / continue (stopped: interrupted, an error)
@@ -1824,7 +1845,8 @@ async function act(request) {
     if (!request) return null;
     try {
         const data = await cmd(request);
-        if (data && data.message) toast(data.message);
+        if (data && data.message && data.ui === "message") infoBox(data.message); // a popup (/info...): never in the conversation
+        else if (data && data.message) toast(data.message);
         shownAsk = "";
         refresh();
         return data;

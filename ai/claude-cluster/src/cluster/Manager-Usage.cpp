@@ -600,3 +600,11 @@ _cold cluster::Json cluster::Manager::accountsJson(void)
     this->_accountsAt = cluster::now_ms();
     return json;
 }
+
+_cold std::string cluster::Manager::authKind(const std::string& backend) const
+{
+    // how a session of this backend is billed: through an API key, through the login of its agent (a subscription), or nothing (a local model)
+    const std::optional<cluster::Provider> provider = this->_auth.find(this->vendorOf(backend));
+    if (!provider || provider->local || provider->auth == cluster::AuthKind::None) return "local";
+    return provider->auth == cluster::AuthKind::Key ? "api" : "auth";
+}

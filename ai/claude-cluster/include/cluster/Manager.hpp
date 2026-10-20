@@ -258,6 +258,7 @@ class Manager {
         _cold _nodiscard std::string limitReached(void) const;               // [limits]: the one reached (empty: none)
         _cold void limitsWarn(void);                                         // the share of a limit reached: told once
         _cold _nodiscard cluster::Json accountsJson(void);                   // the providers (state) and the spending, cached a few seconds
+        _cold _nodiscard std::string authKind(const std::string& backend) const;   // api (an API key: billed per token) | auth (a login: a subscription) | local
         _cold _nodiscard cluster::UpgradeOffer upgradeOffer(void) const;    // a newer claude-cluster installed (the core's)
         _cold std::string upgradeAct(const std::string& action);            // update | ignore | quit
         _cold _nodiscard std::vector<std::string> usageVendors(void) const;         // the ones in the ledger

@@ -188,9 +188,10 @@ window opens instead when there is a display). In the background: `claude-cluste
 Local commands: `/pwd` (where the session runs: its folder, the computer, its pid - shown only, nothing sent), `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/close`, `/interrupt`,
 `/export [file]`, `/restore [session]`, `/clear` (a new conversation: the transcript emptied, archived in `logs/archive/` for `search`), `/model <name>` (same
 conversation, another model), `/cost`, `/context`, `/rewind` (= Esc Esc on an empty prompt), `/exit` (= `/close`),
-`/settings`, `/vim`, `/help`; the commands that only show something are answered here, in a popup, never asked to the
+`/settings`, `/vim`, `/help`; the header of the session in focus shows how it runs: its provider / model, **api** (an API key, billed per
+token) | **auth** (a login, a subscription) | **local**, its thinking (`think high`) and its mode (terminal, window, web page, app); the commands that only show something are answered here, in a popup, never asked to the
 agent (nothing in its conversation, nothing spent): `/usage` (the 5 h / 7 d windows of the account, today, 7 days, this
-session), `/status` (agent, model, effort, mode, folder, conversation), `/skills` (the skills of the user and of the
+session), `/info` (= `/status`, and Ctrl+K *Session info*: everything about the session in focus - agent, model, thinking, api / login, mode, folder, conversation, tokens, context, cost, the limits and the budget, the account windows), `/skills` (the skills of the user and of the
 project, the plugins of Claude Code), `/mcp`, `/plugins` (the browser below); the commands of the agent (`/compact`,
 skills...) are completed too. `::` completes the sessions (open ones with their state and folder, then the closed
 ones) to point at one in a prompt (`ask ::backend to run its tests`; the agents are told what `::name` means). In the

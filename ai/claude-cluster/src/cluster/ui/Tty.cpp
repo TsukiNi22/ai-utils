@@ -2042,7 +2042,13 @@ class TtyUi {
                     const cluster::ActionResult result = cluster::run_action(this->_manager, *this->_app.voice, action.id, session, input);
                     this->_screen.Post([this, result]() {
                         if (!result.focus.empty()) this->_active = result.focus;
-                        if (!result.message.empty()) this->status_(result.message, result.error);
+                        if (result.ui == "message" && !result.message.empty()) { // a popup (/info...): never in the conversation
+                            this->_message = result.message;
+                            this->_messageError = result.error;
+                            this->_mode = Mode::Message;
+                        } else if (!result.message.empty()) {
+                            this->status_(result.message, result.error);
+                        }
                         if (result.ui.starts_with("pick:")) this->pick_(result.ui.substr(5)); // a next step to pick (where it applies)
                     });
                     this->_screen.PostEvent(ftxui::Event::Custom);
@@ -4116,8 +4122,11 @@ class TtyUi {
                 ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                 ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
                 ftxui::text(model) | ftxui::color(this->_theme.muted),
+                // how it is billed: api (an API key, per token) | auth (a login, a subscription) | local; its thinking
+                ftxui::text(std::string("  ") + (this->_manager.authKind(s.spec.backend) == "api" ? "api" : this->_manager.authKind(s.spec.backend) == "auth" ? "auth" : "local"))
+                    | ftxui::bold | ftxui::color(this->_manager.authKind(s.spec.backend) == "api" ? this->_theme.warn : this->_theme.ok),
+                ftxui::text("  think " + (s.spec.effort.empty() ? std::string("default") : s.spec.effort)) | ftxui::color(this->_theme.muted),
                 ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted),
-                ftxui::text(s.spec.effort.empty() || s.spec.effort == "default" ? "" : "  effort " + s.spec.effort) | ftxui::color(this->_theme.muted),
                 ftxui::filler(),
                 // where it runs: its folder (a click opens it), the computer, its branch, its process
                 this->tap_(ftxui::text(cluster::short_path(s.spec.cwd)) | ftxui::color(this->_theme.muted), 0, [this, cwd = s.spec.cwd]() {
