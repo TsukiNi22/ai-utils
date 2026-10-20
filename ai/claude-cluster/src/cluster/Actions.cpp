@@ -172,6 +172,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"profile:" + name, "New session from the profile " + name, "", "", false});
     list.push_back({"task_add", "Queue a task: [target |] prompt", "task", "", false});
     list.push_back({"search", "Search in the history", "text", "", false});
+    list.push_back({"transcript_top", "Go to the start of the transcript", "", "", false});
+    list.push_back({"transcript_bottom", "Go to the end of the transcript", "", "", false});
     list.push_back({"providers", "Providers / backends: state", "", "", false});
     for (const cluster::Provider& p: manager.auth().providers()) {
         if (p.auth == cluster::AuthKind::Key) {
@@ -189,8 +191,6 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"web_devices", "Web devices: connected, trusted, banned (kick, trust no more, ban / unban)", "", "", true});
         if (status.on) {
             list.push_back({"web_show", "Web access: address and code (" + status.url + ", " + status.pin + ")", "", "", false});
-    list.push_back({"transcript_top", "Go to the start of the transcript", "", "", false});
-    list.push_back({"transcript_bottom", "Go to the end of the transcript", "", "", false});
             list.push_back({"web_pin", "Web access: a new code", "", "", false});
             if (status.https) list.push_back({"web_trust_ca", "Web access: trust its certificate on this computer (no browser warning; asks the password)", "", "", false});
             for (const cluster::WebDevice& d: status.devices) {
@@ -980,6 +980,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
         {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},
         {"expand", "thinking and tool results: in full / short"},
+        {"transcript_top", "jump to the start of the transcript"}, {"transcript_bottom", "jump to the end (follow the end again)"},
     };
     std::string text = "Keys (config [keys], settings page F9):";
     for (const auto &[action, description]: actions) {
@@ -1131,7 +1132,6 @@ _cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<clu
             const cluster::Setting& s = pages[hit.page].settings[hit.item];
             found.emplace_back(hit.score + 2.0F, cluster::Action{"setting:" + s.section + "." + s.key, "⚙ Setting: " + s.label + "  · " + pages[hit.page].title
                 + (hit.name ? "" : "  (found in its description)"), "", "", false});
-        {"transcript_top", "jump to the start of the transcript"}, {"transcript_bottom", "jump to the end (follow the end again)"},
         }
     }
     std::stable_sort(found.begin(), found.end(), [](const std::pair<float, cluster::Action>& a, const std::pair<float, cluster::Action>& b) {return a.first < b.first;});

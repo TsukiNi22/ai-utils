@@ -377,6 +377,9 @@ _cold std::string key_name_(const ftxui::Event& event)
     for (const auto &[special, name]: specials)
         if (event == special) return name;
     const std::string& input = event.input();
+    static const std::map<std::string, std::string> pages = {{"\x1b[5;2~", "Shift+PageUp"}, {"\x1b[6;2~", "Shift+PageDown"}, {"\x1b[1;5H", "Ctrl+Home"}, {"\x1b[1;5F", "Ctrl+End"}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b[7;5~", "Ctrl+Home"}, {"\x1b[8;5~", "Ctrl+End"}}; // xstyle: ignore LU-ANSI (read)
+    if (pages.contains(input)) return pages.at(input);
     if (input.size() == 1 && input[0] >= 1 && input[0] <= 26 && input[0] != 9 && input[0] != 10 && input[0] != 13)
         return std::string("Ctrl+") + static_cast<char>('A' + input[0] - 1);
     if (input.size() == 2 && input[0] == 27 && std::isalnum(static_cast<unsigned char>(input[1])))
@@ -390,9 +393,6 @@ _cold std::string key_name_(const ftxui::Event& event)
         static const std::regex altTilde("^\x1b\x1b\\[(\\d+)~$");
         static const std::regex altSs3("^\x1b\x1bO([PQRS])$");
         std::smatch found;
-    static const std::map<std::string, std::string> pages = {{"\x1b[5;2~", "Shift+PageUp"}, {"\x1b[6;2~", "Shift+PageDown"}, {"\x1b[1;5H", "Ctrl+Home"}, {"\x1b[1;5F", "Ctrl+End"}, // xstyle: ignore LU-ANSI (read)
-        {"\x1b[7;5~", "Ctrl+Home"}, {"\x1b[8;5~", "Ctrl+End"}}; // xstyle: ignore LU-ANSI (read)
-    if (pages.contains(input)) return pages.at(input);
         int number = 0;
         int modifier = 1;
         if (std::regex_match(input, found, modTilde) && tilde.contains(std::stoi(found[1].str()))) {
@@ -2119,6 +2119,13 @@ class TtyUi {
             this->_mode = Mode::Prompt;
         }
 
+        void scrollEdge_(const bool top)
+        {
+            // the first message (clamped at the drawing: the whole transcript is kept), or the end, followed again
+            this->_scroll[this->_active] = top ? std::numeric_limits<int>::max() / 2 : 0;
+            this->status_(top ? "start of the transcript" : "end of the transcript");
+        }
+
         bool shortcut_(const std::string& action)
         {
             if (action.empty()) return false;
@@ -2166,13 +2173,6 @@ class TtyUi {
                 const std::string text = this->_editor.expand(this->_editor.cut());
                 if (!text.empty()) cluster::detach({"wl-copy", "--", text});
             } else if (action == "interrupt") {
-        void scrollEdge_(const bool top)
-        {
-            // the first message (clamped at the drawing: the whole transcript is kept), or the end, followed again
-            this->_scroll[this->_active] = top ? std::numeric_limits<int>::max() / 2 : 0;
-            this->status_(top ? "start of the transcript" : "end of the transcript");
-        }
-
                 // voice prompts waiting: dropped; else a turn runs: stop it; else a selection: copy it; else: clear the prompt
                 const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
                 const bool working = snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting);
@@ -2247,10 +2247,10 @@ class TtyUi {
                 this->openSettings_();
             } else if (action == "quit") {
                 this->quit_();
-            } else {
-                return false;
             } else if (action == "transcript_top" || action == "transcript_bottom") {
                 this->scrollEdge_(action == "transcript_top");
+            } else {
+                return false;
             }
             return true;
         }
