@@ -1739,6 +1739,20 @@ function renderTurn(turn, ticking) {
     if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
+// Shift+PageUp / Shift+PageDown (and Ctrl+Home / Ctrl+End on an empty prompt): the start / the end of the transcript, the end follows again
+document.addEventListener("keydown", (e) => {
+    if (e.altKey || e.metaKey || view !== "chat") return;
+    const page = e.shiftKey && !e.ctrlKey && (e.key === "PageUp" || e.key === "PageDown");
+    const target = e.target;
+    const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA") && target.value !== "";
+    const edge = e.ctrlKey && !e.shiftKey && (e.key === "Home" || e.key === "End") && !typing;
+    if (!page && !edge) return;
+    const box = $("transcript");
+    if (!box) return;
+    e.preventDefault();
+    box.scrollTop = e.key === "PageUp" || e.key === "Home" ? 0 : box.scrollHeight;
+});
+
 function renderTranscript(messages, error) {
     const box = $("transcript");
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;

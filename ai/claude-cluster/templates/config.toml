@@ -240,3 +240,5 @@ allowed_efforts = []       # the only efforts (empty: every one)
 ask_costly = true          # a costly model / effort: you decide each time (Allow / Deny)
 costly_models = ["opus", "fable"]    # models that cost as much or more
 costly_efforts = ["xhigh", "max"]    # efforts of this level or above
+transcript_top = "Shift+PageUp|Ctrl+Home"        # jump to the first message (many terminals keep Shift+PageUp for their scrollback: Ctrl+Home arrives)
+transcript_bottom = "Shift+PageDown|Ctrl+End"    # jump to the end, new output scrolls into view again

@@ -71,6 +71,7 @@ _cold void cluster::Config::defaults_(void)
         {"interrupt", "Ctrl+C"}, {"resume", "F4"}, {"send_next", "F8"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"stats", "F10"}, {"quit", "Ctrl+Q"},
         {"restore", "Ctrl+Shift+T|Ctrl+Shift+R|Alt+T"}, {"prefix", "Ctrl+B"},
         {"mode_cycle", "Shift+Tab"}, {"search", "Ctrl+F"}, {"edit", "Ctrl+E"}, {"expand", "Ctrl+O"}, {"help", "F1"},
+        {"transcript_top", "Shift+PageUp|Ctrl+Home"}, {"transcript_bottom", "Shift+PageDown|Ctrl+End"},
     };
 }
 

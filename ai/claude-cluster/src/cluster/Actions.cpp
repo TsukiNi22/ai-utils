@@ -189,6 +189,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"web_devices", "Web devices: connected, trusted, banned (kick, trust no more, ban / unban)", "", "", true});
         if (status.on) {
             list.push_back({"web_show", "Web access: address and code (" + status.url + ", " + status.pin + ")", "", "", false});
+    list.push_back({"transcript_top", "Go to the start of the transcript", "", "", false});
+    list.push_back({"transcript_bottom", "Go to the end of the transcript", "", "", false});
             list.push_back({"web_pin", "Web access: a new code", "", "", false});
             if (status.https) list.push_back({"web_trust_ca", "Web access: trust its certificate on this computer (no browser warning; asks the password)", "", "", false});
             for (const cluster::WebDevice& d: status.devices) {
@@ -994,7 +996,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         "\n/vim                          vim mode: Esc Normal (hjkl w b e 0 ^ $ gg G f t x X s S D C dd cc yy d/c/y+motion"
         "\n                              p P u Ctrl+R ~ J r v V counts), i a I A o O Insert, Enter sends"
         "\nShift / Ctrl+Shift + arrows   select; Ctrl + arrows: by word; Home / End"
-        "\nPageUp / PageDown, wheel      scroll the transcript"
+        "\nPageUp / PageDown, wheel      scroll the transcript (Shift+PageUp / Shift+PageDown, Ctrl+Home / Ctrl+End: start / end)"
         "\n@ / /                         completion: Tab complete, Enter accept, arrows choose, Space / Esc close";
     return text;
 }
@@ -1129,6 +1131,7 @@ _cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<clu
             const cluster::Setting& s = pages[hit.page].settings[hit.item];
             found.emplace_back(hit.score + 2.0F, cluster::Action{"setting:" + s.section + "." + s.key, "⚙ Setting: " + s.label + "  · " + pages[hit.page].title
                 + (hit.name ? "" : "  (found in its description)"), "", "", false});
+        {"transcript_top", "jump to the start of the transcript"}, {"transcript_bottom", "jump to the end (follow the end again)"},
         }
     }
     std::stable_sort(found.begin(), found.end(), [](const std::pair<float, cluster::Action>& a, const std::pair<float, cluster::Action>& b) {return a.first < b.first;});

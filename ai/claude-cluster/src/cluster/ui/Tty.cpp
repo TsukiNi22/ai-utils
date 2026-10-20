@@ -380,6 +380,9 @@ _cold std::string key_name_(const ftxui::Event& event)
         static const std::regex altTilde("^\x1b\x1b\\[(\\d+)~$");
         static const std::regex altSs3("^\x1b\x1bO([PQRS])$");
         std::smatch found;
+    static const std::map<std::string, std::string> pages = {{"\x1b[5;2~", "Shift+PageUp"}, {"\x1b[6;2~", "Shift+PageDown"}, {"\x1b[1;5H", "Ctrl+Home"}, {"\x1b[1;5F", "Ctrl+End"}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b[7;5~", "Ctrl+Home"}, {"\x1b[8;5~", "Ctrl+End"}}; // xstyle: ignore LU-ANSI (read)
+    if (pages.contains(input)) return pages.at(input);
         int number = 0;
         int modifier = 1;
         if (std::regex_match(input, found, modTilde) && tilde.contains(std::stoi(found[1].str()))) {
@@ -2023,7 +2026,9 @@ class TtyUi {
             this->_mode = Mode::Normal;
 
             // Actions of the front-end
-            if (base == "layout") {
+            if (base == "transcript_top" || base == "transcript_bottom") {
+                this->scrollEdge_(base == "transcript_top");
+            } else if (base == "layout") {
                 this->_manager.setUi("layout", arg);
             } else if (base == "style") {
                 this->_manager.setUi("style", arg);
@@ -2151,6 +2156,13 @@ class TtyUi {
                 const std::string text = this->_editor.expand(this->_editor.cut());
                 if (!text.empty()) cluster::detach({"wl-copy", "--", text});
             } else if (action == "interrupt") {
+        void scrollEdge_(const bool top)
+        {
+            // the first message (clamped at the drawing: the whole transcript is kept), or the end, followed again
+            this->_scroll[this->_active] = top ? std::numeric_limits<int>::max() / 2 : 0;
+            this->status_(top ? "start of the transcript" : "end of the transcript");
+        }
+
                 // voice prompts waiting: dropped; else a turn runs: stop it; else a selection: copy it; else: clear the prompt
                 const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
                 const bool working = snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting);
@@ -2227,6 +2239,8 @@ class TtyUi {
                 this->quit_();
             } else {
                 return false;
+            } else if (action == "transcript_top" || action == "transcript_bottom") {
+                this->scrollEdge_(action == "transcript_top");
             }
             return true;
         }
