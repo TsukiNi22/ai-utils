@@ -399,6 +399,10 @@ _cold static cluster::Json sub_tools_(const cluster::Config& config)
     } else if (config.subRead) {
         tools.push_back("task_cancel");
     }
+    if (config.subPin) {
+        for (const char* tool: {"session_pin", "session_unpin", "session_pin_get"})
+            tools.push_back(tool);
+    }
     if (config.subSchedules) {
         for (const char* tool: {"schedule_add", "schedule_edit", "schedule_cancel", "schedule_act"})
             tools.push_back(tool);
