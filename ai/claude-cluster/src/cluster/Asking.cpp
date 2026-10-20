@@ -105,7 +105,6 @@ _cold std::optional<cluster::Ask> cluster::Asking::current(void) const
         ask.answers = j.value("answers", cluster::Json::object());
         ask.chatting = j.value("chatting", false);
         ask.review = j.value("review", false);
-        if (j.value("answered", false)) ask.given[ask.index] = {ask.cursor, ask.picked, ask.other}; // answered before: → goes on
         for (const cluster::Json& m: j.value("chat", cluster::Json::array()))
             if (m.is_object()) ask.chat.emplace_back(m.value("role", std::string()), m.value("text", std::string()));
         return ask;
@@ -242,11 +241,40 @@ _cold std::string cluster::Asking::next(void)
     return this->next_();
 }
 
+_cold static void restore_(cluster::Ask& a)
+{
+    // the question shown: its kept selection (answered or not), else the first option
+    const auto kept = a.given.find(a.index);
+    a.cursor = kept != a.given.end() ? kept->second.cursor : 0;
+    a.picked = kept != a.given.end() ? kept->second.picked : std::set<int>();
+    a.other = kept != a.given.end() ? kept->second.other : std::string();
+}
+
 _cold std::string cluster::Asking::next_(void)
 {
     // the answer of the question shown (labels of the options, several joined by ", "; other: the text typed)
     if (!this->_ask) return "no question";
     cluster::Ask& a = *this->_ask;
+    if (a.review) {
+        // Submit: every question answered, else the first one not answered shown (nothing is sent with a hole)
+        for (std::size_t i = 0; i < a.questions.size(); ++i)
+            if (!a.answers.contains(a.questions[i].value("question", std::string()))) {
+                a.review = false;
+                a.fix = true;
+                a.index = i;
+                restore_(a);
+                ++this->_version;
+                return "question " + std::to_string(i + 1) + " is not answered: answer it, then submit";
+            }
+        const cluster::Ask done = a;
+        this->_ask.reset();
+        try {
+            this->_manager.answerQuestions(done.session, done.requestId, done.answers);
+        } catch (const utils::exception::IException& e) {
+            return e.info();
+        }
+        return "";
+    }
     const cluster::Json& q = a.questions[a.index];
     const cluster::Json options = q.value("options", cluster::Json::array());
     const int count = static_cast<int>(options.size());
@@ -266,11 +294,14 @@ _cold std::string cluster::Asking::next_(void)
     a.answers[q.value("question", std::string())] = value;
     a.given[a.index] = {a.cursor, a.picked, a.other}; // kept: back shows it, Enter goes on with it
     ++this->_version;
-    if (++a.index < a.questions.size()) {
-        const auto kept = a.given.find(a.index); // answered before (back, then forward again): as it was
-        a.cursor = kept != a.given.end() ? kept->second.cursor : 0;
-        a.picked = kept != a.given.end() ? kept->second.picked : std::set<int>();
-        a.other = kept != a.given.end() ? kept->second.other : std::string();
+    if (a.fix) { // taken from the review to this one: back to the review (it flags the next one left, if any)
+        a.fix = false;
+        a.index = a.questions.size() - 1;
+        a.review = true;
+        return "";
+    }
+    if (++a.index < a.questions.size()) { // its kept selection (back, or an arrow, then here again): as it was
+        restore_(a);
         return "";
     }
     a.index = a.questions.size() - 1;
@@ -290,7 +321,8 @@ _cold std::string cluster::Asking::next_(void)
 
 _cold bool cluster::Asking::forward(void)
 {
-    // → : the next question, only when the one shown was answered and is unchanged since
+    // → : the next question, answered or not (its selection kept to come back to, not recorded as an answer); on the last one:
+    // the review, which flags the questions not answered
     if (this->_manager.replica()) {
         try {
             return this->_manager.call({{"cmd", "ask"}, {"action", "forward"}}).value("moved", false);
@@ -301,10 +333,24 @@ _cold bool cluster::Asking::forward(void)
 
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask || this->_ask->review) return false;
-    const cluster::Ask& a = *this->_ask;
+    cluster::Ask& a = *this->_ask;
+    const std::string question = a.questions[a.index].value("question", std::string());
     const auto kept = a.given.find(a.index);
-    if (kept == a.given.end() || kept->second.cursor != a.cursor || kept->second.picked != a.picked || kept->second.other != a.other) return false;
-    return this->next_().empty();
+    const bool unchanged = kept != a.given.end() && kept->second.cursor == a.cursor && kept->second.picked == a.picked && kept->second.other == a.other;
+    if (a.answers.contains(question) && unchanged) return this->next_().empty(); // answered, as it was: on with it
+    a.given[a.index] = {a.cursor, a.picked, a.other};
+    if (a.index + 1 < a.questions.size()) {
+        ++a.index;
+        restore_(a);
+        ++this->_version;
+        return true;
+    }
+    if (a.questions.size() > 1) {
+        a.review = true;
+        ++this->_version;
+        return true;
+    }
+    return false;
 }
 
 _cold void cluster::Asking::back(void)

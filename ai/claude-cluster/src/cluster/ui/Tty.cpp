@@ -4672,6 +4672,12 @@ class TtyUi {
                 }
                 ftxui::Elements lines = {ftxui::hbox({ftxui::text(" " + a.name + " asks") | ftxui::bold,
                     ftxui::text(a.questions.size() > 1 ? "  (" + std::to_string(a.index + 1) + "/" + std::to_string(a.questions.size()) + ")" : "") | ftxui::color(this->_theme.muted),
+                    ftxui::text([&a]() { // the questions: ✔ answered, ◉ this one, ○ not answered
+                        std::string marks = a.questions.size() > 1 ? "  " : "";
+                        for (std::size_t i = 0; a.questions.size() > 1 && i < a.questions.size(); ++i)
+                            marks += i == a.index ? "◉ " : a.answers.contains(a.questions[i].value("question", std::string())) ? "✔ " : "○ ";
+                        return marks;
+                    }()) | ftxui::color(this->_theme.accent),
                     ftxui::text(a.session != this->_active ? "  (it waits for your answer)" : "") | ftxui::color(this->_theme.warn),
                     ftxui::filler(), ftxui::text(q.value("header", std::string()) + " ") | ftxui::color(this->_theme.accent)}), ftxui::text(""),
                     ftxui::paragraph(" " + q.value("question", std::string())) | ftxui::color(this->_theme.text), ftxui::text("")};
@@ -4706,8 +4712,9 @@ class TtyUi {
                 lines.push_back(ftxui::hbox({ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space / a click tick · " : "")),
                     press(ftxui::text(std::string(multi ? "Enter validates the ticked ones (none too), " : "Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")),
                         ftxui::Event::Return),
-                    a.index > 0 ? press(ftxui::text(" · ← back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(),
-                    a.given.contains(a.index) ? press(ftxui::text(" · → next (answered)"), ftxui::Event::ArrowRight) : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
+                    a.index > 0 ? press(ftxui::text(" · ← / Shift+Tab back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(),
+                    a.questions.size() > 1 ? press(ftxui::text(a.index + 1 < a.questions.size() ? " · → / Tab next (answered or not)" : " · → / Tab review"), ftxui::Event::ArrowRight)
+                        : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
                     press(ftxui::text("Esc decline"), ftxui::Event::Escape)}) | ftxui::color(this->_theme.muted) | ftxui::dim);
                 // "Chat about this": a side chat about the questions (the session untouched), in its own area: wrapped, within a
                 // height that keeps the popup inside the screen, scrolled (the newest at the bottom)
@@ -5394,7 +5401,7 @@ class TtyUi {
                             asking.decline();
                             this->status_("question declined");
                             this->_mode = Mode::Normal;
-                        } else if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowUp || event == ftxui::Event::Backspace) {
+                        } else if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowUp || event == ftxui::Event::Backspace || event == ftxui::Event::TabReverse) {
                             asking.back();
                         }
                         return true;
@@ -5425,12 +5432,16 @@ class TtyUi {
                         this->_mode = Mode::Normal;
                     } else if (event == ftxui::Event::ArrowUp) {
                         asking.move(-1);
-                    } else if (event == ftxui::Event::ArrowDown || event == ftxui::Event::Tab) {
+                    } else if (event == ftxui::Event::ArrowDown) {
                         asking.move(1);
+                    } else if (event == ftxui::Event::Tab) { // like Claude Code: Tab / Shift+Tab between the questions
+                        (void)asking.forward();
+                    } else if (event == ftxui::Event::TabReverse) {
+                        asking.back();
                     } else if (event == ftxui::Event::ArrowLeft && (ask->cursor != count || (this->_askOther.text.empty() && ask->index > 0))) {
                         asking.back(); // ← on an option, or on an empty Other: the question before
                     } else if (event == ftxui::Event::ArrowRight && (ask->cursor != count || this->_askOther.cursor >= this->_askOther.text.size())) {
-                        if (!asking.forward()) this->status_("→ : answer this question first (Enter), or it was changed"); // answered, unchanged: the next one
+                        (void)asking.forward(); // the next question, answered or not (the review flags the ones left)
                     } else if (event == ftxui::Event::Return) {
                         this->askNext_(); // several choices: the ones ticked (Space), none is an answer too
                     } else if (ask->cursor == count && this->_askOther.key(event, key)) {

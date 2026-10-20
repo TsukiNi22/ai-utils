@@ -405,7 +405,7 @@ A session of its own (`[global]`: folder, backend - a claude-driver one -, model
   allowed without asking (`--allowedTools mcp__claude-cluster`);
 - **questions of the agents** (AskUserQuestion of Claude Code, asked even in `bypassPermissions`): a popup on the
   session shown, like Claude Code / Claude Desktop - the terminal: one question at a time, its options and their
-  description, ↑↓ / 1-9, Space ticks (multi choice: Enter only validates the ticked ones, none ticked is an answer too), ← the question before, → the next one when the one shown is answered and unchanged, Other typed, Enter answers, Esc declines; the window: a dialog
+  description, ↑↓ / 1-9, Space ticks (multi choice: Enter only validates the ticked ones, none ticked is an answer too), ← / Shift+Tab the question before, → / Tab the next one (answered or not, like Claude Code: its selection is kept, the review flags the ones left and Submit is refused until every question is answered), Other typed, Enter answers, Esc declines; the window: a dialog
   (radio buttons or check boxes, Other, Answer / Decline); its notice and notification tell the question; the global
   session sees them in `session_status` and answers with `session_allow` `answers` {question: label}; a plain allow
   is refused (the agent would go on without its answer). One question at a time for the whole cluster, shared by the

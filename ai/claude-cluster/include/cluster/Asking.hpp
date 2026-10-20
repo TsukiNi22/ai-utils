@@ -49,6 +49,7 @@ struct Ask {
     cluster::Json answers = cluster::Json::object();
     std::vector<std::pair<std::string, std::string>> chat;   // "Chat about this": <user | assistant, text>, the session never touched
     bool chatting = false;          // an answer of the chat awaited
+    bool fix = false;               // taken from the review to a question not answered: once answered, back to the review
     bool review = false;            // several questions, all answered: the review (Submit sends, Cancel declines, back edits the last one)
     struct Given {                  // what was chosen on a question (back shows it again, Enter goes on with it)
         int cursor = 0;
