@@ -43,6 +43,7 @@ File Description:
 #include <QPlainTextEdit>
 #include <QGraphicsScene>
 #include <QFontDatabase>
+#include <QAbstractTextDocumentLayout>
 #include <QTextDocument>
 #include <QGestureEvent>
 #include <QGraphicsView>
@@ -291,6 +292,7 @@ class SessionView: public QFrame {
         std::int64_t branchAt = 0;
         QLabel* header = nullptr;
         QTextBrowser* log = nullptr;
+        QPushButton* newCue = nullptr;          // under the transcript: new output came while it is scrolled up (a click: the end)
         QFrame* pinBox = nullptr;               // the pinned item above the prompt: its title (folds it), Unpin, the item
         QPushButton* pinFold = nullptr;
         QTextBrowser* pinLog = nullptr;
@@ -4239,6 +4241,20 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
 }
 void SessionView::entryMenu(Window* window, QTextBrowser* from, const QPoint& at)
 {
+    this->newCue = new QPushButton("↓ new output", this);
+    this->newCue->setFlat(true);
+    this->newCue->setCursor(Qt::PointingHandCursor);
+    this->newCue->setVisible(false);
+    QObject::connect(this->newCue, &QPushButton::clicked, [this]() {
+        QScrollBar* end = this->log->verticalScrollBar();
+        end->setValue(end->maximum());
+        this->newCue->setVisible(false);
+    });
+    QObject::connect(this->log->verticalScrollBar(), &QScrollBar::valueChanged, [this](const int value) {
+        if (value >= this->log->verticalScrollBar()->maximum() - 4) this->newCue->setVisible(false); // the end reached: followed again
+    });
+    inside->addWidget(this->newCue);
+    inside->addWidget(this->pinBox);
     // the entry under the mouse: the last anchor (cc-e<index>) before the cursor; Pin it, Unpin, Copy
     QMenu menu(from);
     const std::optional<cluster::Snapshot> snap = window->manager.snapshot(this->id);
@@ -4439,13 +4455,46 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         const bool bottom = bar->value() >= bar->maximum() - 4;
         const int value = bar->value();
         this->log->setHtml(html);
-        bar->setValue(bottom ? bar->maximum() : value);
+        int target = bottom ? bar->maximum() : value;
+        if (topEntry >= 0) {
+            const QString wanted = "cc-e" + QString::number(topEntry);
+            for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+                bool found = false;
+                for (QTextBlock::iterator it = block.begin(); !it.atEnd() && !found; ++it)
+                    found = it.fragment().charFormat().anchorNames().contains(wanted);
+                if (found) {
+                    target = static_cast<int>(document->documentLayout()->blockBoundingRect(block).top()) + inside;
+                    break;
+                }
+            }
+        }
+        bar->setValue(target);
+        // new output below the view while scrolled up: a cue under it (the view stays where it is)
+        if (bottom) this->newCue->setVisible(false);
+        else if (bar->maximum() > maximum) this->newCue->setVisible(true);
     }
     // the pinned item: the display as it is now (a checklist ticked, a form submitted: drawn again), or the message
     const cluster::Json pinned = compact ? cluster::Json() : cluster::display_pinned(s);
     if (!pinned.is_object()) {
         this->pinBox->setVisible(false);
         this->pinKey.clear();
+        const int maximum = bar->maximum();
+        // scrolled up: the entry at the top of the view (the last anchor cc-e<index> before it) and how far the view is inside it, to keep that line where it is
+        long topEntry = -1;
+        int inside = 0;
+        QTextDocument* document = this->log->document();
+        if (!bottom) {
+            const int position = this->log->cursorForPosition(QPoint(0, 0)).position();
+            QTextBlock topBlock;
+            for (QTextBlock block = document->begin(); block.isValid() && block.position() <= position; block = block.next())
+                for (QTextBlock::iterator it = block.begin(); !it.atEnd() && it.fragment().position() <= position; ++it)
+                    for (const QString& name: it.fragment().charFormat().anchorNames())
+                        if (name.startsWith("cc-e")) {
+                            topEntry = name.mid(4).toLong();
+                            topBlock = block;
+                        }
+            if (topEntry >= 0) inside = value - static_cast<int>(document->documentLayout()->blockBoundingRect(topBlock).top());
+        }
     } else {
         const std::string title = s.spec.pin.value("title", std::string("pinned"));
         const std::string drawn = pinned.dump() + "|" + title + "|" + st.name + "|" + (this->pinFolded ? "f" : "") + std::to_string(this->width() / 40);
