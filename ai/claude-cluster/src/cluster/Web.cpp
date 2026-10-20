@@ -442,6 +442,18 @@ _cold static std::string kind_name_(const cluster::EntryKind kind)
     }
 }
 
+_cold static cluster::Json light_display_(const cluster::Json& display)
+{
+    // its pictures left out (asked once by the page: /api/display), the rest whole
+    cluster::Json light = display;
+    for (const char* heavy: {"data", "svg", "png"})
+        if (light.erase(heavy) > 0) light["heavy"] = true;
+    if (light.contains("files") && light["files"].is_array())
+        for (cluster::Json& f: light["files"])
+            if (f.is_object() && f.erase("preview") > 0) light["heavy"] = true;
+    return light;
+}
+
 _cold static cluster::Json session_json_(cluster::Manager& manager, const std::string& id)
 {
     // the session shown: its state, permissions, questions and the last 150 entries of its transcript
@@ -458,19 +470,25 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
             // its pictures left out (asked once by the page: /api/display), the rest whole
             cluster::Json light = cluster::Json::parse(e.text, nullptr, false);
             if (!light.is_object()) continue;
-            for (const char* heavy: {"data", "svg", "png"})
-                if (light.erase(heavy) > 0) light["heavy"] = true;
-            if (light.contains("files") && light["files"].is_array())
-                for (cluster::Json& f: light["files"])
-                    if (f.is_object() && f.erase("preview") > 0) light["heavy"] = true;
+            light = light_display_(light);
             json["messages"].push_back({{"kind", "display"}, {"text", light.dump()}, {"tool", ""}, {"time", e.time}, {"index", i}});
             continue;
         }
         const bool long_text = e.kind == cluster::EntryKind::Assistant || e.kind == cluster::EntryKind::User;
         std::string text = e.text.size() > (long_text ? 30000 : 600) ? e.text.substr(0, long_text ? 30000 : 600) + " [...]" : e.text;
-        cluster::Json message = {{"kind", kind_name_(e.kind)}, {"text", text}, {"tool", e.tool}, {"time", e.time}};
+        cluster::Json message = {{"kind", kind_name_(e.kind)}, {"text", text}, {"tool", e.tool}, {"time", e.time}, {"index", i}};
         if (e.kind == cluster::EntryKind::User) message["origin"] = cluster::prompt_origin(e.origin, e.text); // user | mcp | task | schedule
         json["messages"].push_back(message);
+    // the pinned item, drawn at the bottom of the view: the display as it is now (its entry index for a picture), or the message
+    if (const cluster::Json block = cluster::display_pinned(*snap); block.is_object()) {
+        json["pin_block"] = light_display_(block);
+        if (snap->spec.pin.value("kind", std::string()) == "display")
+            for (std::size_t i = snap->entries.size(); i > 0; --i)
+                if (snap->entries[i - 1].kind == cluster::EntryKind::Display && snap->entries[i - 1].text.find("\"id\":\"" + snap->spec.pin.value("id", std::string()) + "\"") != std::string::npos) {
+                    json["pin_index"] = i - 1;
+                    break;
+                }
+    }
     }
     return json;
 }
@@ -1247,7 +1265,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
 {
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
-        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "settings_get", "settings_search", "settings_set", "ui_state", "delete",
+        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "pin", "unpin", "settings_get", "settings_search", "settings_set", "ui_state", "delete",
         "projects", "send_next", "install_package", "failure", "services", "service_act", "showcase", "task_act", "orch_state", "job_status", "job_kill", "job_stop", "job_resume", "job_prio", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel", "schedule_edit"};
     Conn& conn = *static_cast<Conn*>(connection);
     Request request;

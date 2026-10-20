@@ -92,6 +92,13 @@ header .muted { color: var(--muted); font-size: 13px; }
 .msg.error { color: var(--error); }
 .msg.display { border-left: 3px solid var(--line); padding-left: 10px; white-space: normal; }
 .msg.display h4 { margin: 0 0 6px; color: var(--accent); }
+#pinned { flex: none; margin: 0 14px 8px; border: 1px solid var(--accent); border-radius: 8px; background: var(--surface); }
+#pinned .pin-head { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+#pinned .pin-head b { color: var(--accent); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pinned .pin-head button { padding: 0 6px; font-size: 12px; }
+#pinned .pin-body { max-height: 38vh; overflow-y: auto; padding: 4px 10px 8px; }
+#pinned.collapsed .pin-body { display: none; }
+#pinned .msg { max-width: none; }
 .msg.display table { border-collapse: collapse; margin: 4px 0; font-size: 14px; }
 .msg.display th, .msg.display td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
 .msg.display th { color: var(--accent); }
@@ -503,6 +510,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
                 <button id="pendingSend" class="primary">Send now</button>
             </div>
         </div>
+        <div id="pinned" class="hidden"></div>
         <div id="micState"></div>
         <form id="composer">
             <button id="mic" type="button" title="Microphone">🎤</button>
@@ -964,6 +972,7 @@ function render(state) {
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
     renderTranscript(s.messages || [], s.error);
+    renderPin(s);
     renderFace(s.face);
     renderTurn(s.turn);
     if (state.ask && (current === "g" || state.ask.session === current)) renderQuestion(state.ask);
@@ -1879,6 +1888,65 @@ function renderTurn(turn, ticking) {
     if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
+let shownSession = null; // the session drawn (its pin, for the menu of a message)
+let pinShown = "";       // the pinned block drawn (its JSON): drawn again only when it changed (a form being filled keeps its text)
+let pinFolded = false;   // collapsed (kept from one refresh to the next)
+function renderPin(s) {
+    shownSession = s;
+    // the pinned item at the bottom of the view, above the prompt: live (a checklist ticks, a form submits), collapsible, scrolling inside
+    const box = $("pinned");
+    const block = s.pin_block;
+    if (!block || !s.pinned) { pinShown = ""; box.classList.add("hidden"); box.textContent = ""; return; }
+    const key = s.id + "|" + JSON.stringify(block) + "|" + s.pinned.title;
+    box.classList.remove("hidden");
+    box.classList.toggle("collapsed", pinFolded);
+    if (key === pinShown) return;
+    pinShown = key;
+    box.textContent = "";
+    const head = el("div", "pin-head");
+    const fold = el("span", "", pinFolded ? "▸" : "▾");
+    const unpin = el("button", "", "Unpin");
+    unpin.title = "Remove the pin (the item stays in the conversation)";
+    unpin.addEventListener("click", (e) => { e.stopPropagation(); act({cmd: "unpin", session: s.id}); });
+    head.append(fold, el("span", "", "📌"), el("b", "", s.pinned.title || "pinned"), el("span", "grow"), unpin);
+    head.addEventListener("click", () => { pinFolded = !pinFolded; box.classList.toggle("collapsed", pinFolded); fold.textContent = pinFolded ? "▸" : "▾"; });
+    const body = el("div", "pin-body");
+    const div = el("div", "msg display");
+    const m = {kind: "display", text: JSON.stringify(block), time: 0, index: s.pin_index};
+    if (block.role) { div.className = "msg " + block.role; renderText(div, block.text || ""); }
+    else renderDisplay(div, m);
+    body.append(div);
+    box.append(head, body);
+}
+
+function entryMenu(box) {
+    // right click / long press on a message or a block of the conversation: Pin / Unpin
+    const index = box.dataset.index;
+    if (index === undefined) return;
+    const pinned = shownSession && shownSession.pinned;
+    pickMenu(box.classList.contains("display") ? "Block" : "Message", [
+        {label: "Pin at the bottom of the view", run: () => act({cmd: "pin", session: current, index: +index})},
+        ...(pinned ? [{label: "Unpin: " + pinned.title, run: () => act({cmd: "unpin", session: current})}] : []),
+    ]);
+}
+
+{
+    // a right click or a long press on a message / block: its menu; Alt+P: pin the last answer / unpin
+    const transcript = $("transcript");
+    const target = (e) => e.target.closest && e.target.closest(".msg[data-index]");
+    transcript.addEventListener("contextmenu", (e) => { const box = target(e); if (box) { e.preventDefault(); entryMenu(box); } });
+    let held = 0;
+    transcript.addEventListener("touchstart", (e) => { const box = target(e); if (box) held = setTimeout(() => { held = 0; entryMenu(box); }, 600); }, {passive: true});
+    for (const end of ["touchend", "touchmove", "touchcancel"]) transcript.addEventListener(end, () => { if (held) clearTimeout(held); });
+    document.addEventListener("keydown", (e) => {
+        if (!e.altKey || e.ctrlKey || e.metaKey || e.key.toLowerCase() !== "p" || !shownSession || current === "tasks") return;
+        e.preventDefault();
+        if (shownSession.pinned) { act({cmd: "unpin", session: current}); return; }
+        const last = [...transcript.querySelectorAll(".msg.assistant[data-index], .msg.display[data-index]")].pop();
+        if (last) act({cmd: "pin", session: current, index: +last.dataset.index});
+    });
+}
+
 // Shift+PageUp / Shift+PageDown (and Ctrl+Home / Ctrl+End on an empty prompt): the start / the end of the transcript, the end follows again
 document.addEventListener("keydown", (e) => {
     if (e.altKey || e.metaKey || view !== "chat") return;
@@ -1905,6 +1973,7 @@ function markOrigin(div, m) {
     div.style.setProperty("--o", "var(--o-" + group + ")");
     if (label) div.append(el("div", "origin-tag", label));
 }
+        if (m.index !== undefined) div.dataset.index = m.index;
 function applyOrigin(style, colors) {
     const mode = store.get("cc-theme", "cluster");
     const dark = mode === "dark" ? true : mode === "light" ? false : style ? !!style.dark : window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -2187,6 +2256,10 @@ function scope(kind, value) {
     });
     const keys = (e) => {
         if (e.key === "Escape") { e.preventDefault(); close(); }
+    pickMenu(name, items);
+}
+
+function pickMenu(name, items) {
         else if (e.key === "ArrowDown") { e.preventDefault(); selected = (selected + 1) % items.length; draw(); }
         else if (e.key === "ArrowUp") { e.preventDefault(); selected = (selected + items.length - 1) % items.length; draw(); }
         else if (e.key === "Enter") { e.preventDefault(); choose(items[selected]); }

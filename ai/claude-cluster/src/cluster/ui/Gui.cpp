@@ -69,6 +69,7 @@ File Description:
 #include <QWheelEvent>
 #include <string_view>
 #include <QScrollBar>
+#include <QTextBlock>
 #include <functional>
 #include <QTabWidget>
 #include <QClipboard>
@@ -290,6 +291,11 @@ class SessionView: public QFrame {
         std::int64_t branchAt = 0;
         QLabel* header = nullptr;
         QTextBrowser* log = nullptr;
+        QFrame* pinBox = nullptr;               // the pinned item above the prompt: its title (folds it), Unpin, the item
+        QPushButton* pinFold = nullptr;
+        QTextBrowser* pinLog = nullptr;
+        std::string pinKey;
+        bool pinFolded = false;
         QLabel* panels = nullptr;
         QWidget* permBar = nullptr;
         QLabel* permLabel = nullptr;
@@ -299,6 +305,7 @@ class SessionView: public QFrame {
         SessionView(Window* window, const std::string& sessionId, const bool compact);
         QString displayHtml(const cluster::Json& display, const std::string& key, const cluster::Style& style, const bool expanded);
         void displayForm(Window* window, const std::string& displayId);    // a form of a display filled, its values sent
+        void entryMenu(Window* window, QTextBrowser* from, const QPoint& at);   // right click on a message / block: Pin / Unpin
         void update(const cluster::Snapshot& s, const cluster::Style& style, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded);
 };
 
@@ -1345,6 +1352,8 @@ class Window: public QMainWindow {
                 "QLineEdit:focus,QTextEdit:focus,QPlainTextEdit:focus{border-color:" + s.accent + ";}"
                 "QFrame#composer{background:" + s.surface + ";border:1px solid " + s.border + ";border-radius:14px;}"
                 "QFrame#composer QLineEdit,QFrame#composer QTextEdit,QFrame#composer QPlainTextEdit{border:none;background:transparent;padding:2px 4px;}"
+                "QFrame#pinBox{border:1px solid " + s.accent + ";border-radius:8px;background:" + s.surface + ";}"
+                "QFrame#pinBox QTextBrowser{background:" + s.surface + ";}"
                 "QTextBrowser{border:none;border-radius:0;background:" + s.bg + ";selection-background-color:" + s.accent + ";selection-color:" + s.bg + ";padding:6px 10px;}"
                 "QPushButton{border:1px solid " + s.border + ";border-radius:8px;padding:6px 12px;background:" + s.surface + ";}"
                 "QPushButton:hover{border-color:" + s.accent + ";background:" + hover + ";}"
@@ -3303,75 +3312,6 @@ std::optional<std::pair<int, int>> PromptEdit::atomNear(const int pos, const int
     return std::nullopt;
 }
 
-void PromptEdit::insertFromMimeData(const QMimeData* source)
-{
-    if (source->hasText() && !source->hasImage()) {
-        this->insertPlainText(QString::fromStdString(this->completion.shown(this->completion.newPaste(source->text().toStdString()))));
-        return;
-    }
-    QPlainTextEdit::insertFromMimeData(source);
-}
-
-bool PromptEdit::addImage(const std::string& path, const bool insert)
-{
-    // the same image (file named by its content) again: one more reference to it, one image sent
-    const std::string label = this->completion.shown(this->completion.newImage(path));
-    const bool known = this->text().contains(q_(label));
-    if (insert) this->insert(q_(label + " "));
-    this->refreshChips();
-    return !known;
-}
-
-void PromptEdit::refreshChips(void)
-{
-    // one button per atom of the prompt, dim when out of the text: click puts it back, right click opens the image,
-    // hover shows the image / the pasted text
-    if (!this->chipsBar) return;
-    QLayoutItem* item = nullptr;
-    while ((item = this->chipsBar->layout()->takeAt(0))) {
-        if (item->widget()) item->widget()->deleteLater(); // a chip may be the one being clicked
-        delete item;
-    }
-    const QString text = this->text();
-    const std::vector<std::size_t> atoms = this->completion.promptAtoms();
-    for (const std::size_t index: atoms) {
-        const cluster::Atom& atom = this->completion.atom(index);
-        const QString label = q_(atom.label);
-        const bool in = text.contains(label);
-        QPushButton* chip = new QPushButton(label + (atom.image.empty() ? QString() : " " + q_(std::filesystem::path(atom.image).filename().string())), this->chipsBar);
-        chip->setFlat(!in);
-        chip->setStyleSheet(in ? "padding:2px 6px;" : "padding:2px 6px;color:palette(mid);");
-        if (atom.image.empty()) {
-            QStringList lines = q_(atom.content).split('\n');
-            const qsizetype total = lines.size();
-            if (total > 40) lines = lines.mid(0, 40);
-            chip->setToolTip("<pre>" + lines.join('\n').toHtmlEscaped() + (total > 40 ? "\n… " + QString::number(total - 40) + " more line(s)" : QString()) + "</pre>");
-        } else {
-            chip->setToolTip("<img src=\"" + q_(atom.image) + "\" width=\"520\"><br>click: in the prompt · right click: open");
-            chip->setContextMenuPolicy(Qt::CustomContextMenu);
-            const std::string image = atom.image;
-            QObject::connect(chip, &QPushButton::customContextMenuRequested, [this, image](const QPoint&) {
-                const std::string viewer = cluster::trim(this->window->manager.config().imageViewer);
-                if (viewer.empty()) {
-                    QDesktopServices::openUrl(QUrl::fromLocalFile(q_(image)));
-                } else {
-                    std::vector<std::string> command = cluster::split(viewer, ' ');
-                    command.push_back(image);
-                    cluster::detach(command);
-                }
-            });
-        }
-        QObject::connect(chip, &QPushButton::clicked, [this, index, label]() {
-            this->insert(label + (this->completion.atom(index).image.empty() ? QString() : QString(" ")));
-            this->setFocus();
-        });
-        this->chipsBar->layout()->addWidget(chip);
-    }
-    static_cast<QHBoxLayout*>(this->chipsBar->layout())->addStretch(1);
-    this->chipsBar->setVisible(!atoms.empty());
-}
-
-void PromptEdit::setText(const QString& text)
 void PromptEdit::attachOne(const cluster::Attachment& item)
 {
     // an image as the atom [Image #N] (given to the agent as a picture), the others as @path (read by the agent)
@@ -3452,6 +3392,75 @@ void PromptEdit::attachFiles(const QStringList& paths, const int mode)
         }
     }
     this->moveCursor(QTextCursor::End);
+    if (source->hasText() && !source->hasImage()) {
+        this->insertPlainText(QString::fromStdString(this->completion.shown(this->completion.newPaste(source->text().toStdString()))));
+        return;
+    }
+    QPlainTextEdit::insertFromMimeData(source);
+}
+
+bool PromptEdit::addImage(const std::string& path, const bool insert)
+{
+    // the same image (file named by its content) again: one more reference to it, one image sent
+    const std::string label = this->completion.shown(this->completion.newImage(path));
+    const bool known = this->text().contains(q_(label));
+    if (insert) this->insert(q_(label + " "));
+    this->refreshChips();
+    return !known;
+}
+
+void PromptEdit::refreshChips(void)
+{
+    // one button per atom of the prompt, dim when out of the text: click puts it back, right click opens the image,
+    // hover shows the image / the pasted text
+    if (!this->chipsBar) return;
+    QLayoutItem* item = nullptr;
+    while ((item = this->chipsBar->layout()->takeAt(0))) {
+        if (item->widget()) item->widget()->deleteLater(); // a chip may be the one being clicked
+        delete item;
+    }
+    const QString text = this->text();
+    const std::vector<std::size_t> atoms = this->completion.promptAtoms();
+    for (const std::size_t index: atoms) {
+        const cluster::Atom& atom = this->completion.atom(index);
+        const QString label = q_(atom.label);
+        const bool in = text.contains(label);
+        QPushButton* chip = new QPushButton(label + (atom.image.empty() ? QString() : " " + q_(std::filesystem::path(atom.image).filename().string())), this->chipsBar);
+        chip->setFlat(!in);
+        chip->setStyleSheet(in ? "padding:2px 6px;" : "padding:2px 6px;color:palette(mid);");
+        if (atom.image.empty()) {
+            QStringList lines = q_(atom.content).split('\n');
+            const qsizetype total = lines.size();
+            if (total > 40) lines = lines.mid(0, 40);
+            chip->setToolTip("<pre>" + lines.join('\n').toHtmlEscaped() + (total > 40 ? "\n… " + QString::number(total - 40) + " more line(s)" : QString()) + "</pre>");
+        } else {
+            chip->setToolTip("<img src=\"" + q_(atom.image) + "\" width=\"520\"><br>click: in the prompt · right click: open");
+            chip->setContextMenuPolicy(Qt::CustomContextMenu);
+            const std::string image = atom.image;
+            QObject::connect(chip, &QPushButton::customContextMenuRequested, [this, image](const QPoint&) {
+                const std::string viewer = cluster::trim(this->window->manager.config().imageViewer);
+                if (viewer.empty()) {
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(q_(image)));
+                } else {
+                    std::vector<std::string> command = cluster::split(viewer, ' ');
+                    command.push_back(image);
+                    cluster::detach(command);
+                }
+            });
+        }
+        QObject::connect(chip, &QPushButton::clicked, [this, index, label]() {
+            this->insert(label + (this->completion.atom(index).image.empty() ? QString() : QString(" ")));
+            this->setFocus();
+        });
+        this->chipsBar->layout()->addWidget(chip);
+    }
+    static_cast<QHBoxLayout*>(this->chipsBar->layout())->addStretch(1);
+    this->chipsBar->setVisible(!atoms.empty());
+}
+
+void PromptEdit::setText(const QString& text)
+{
+    this->setPlainText(text);
     this->completion.dismiss(); // the arrows go on browsing; it opens again when the word is changed
     if (this->popup) this->popup->setVisible(false);
 }
@@ -4078,7 +4087,7 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->log = new QTextBrowser(this);
     this->log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     this->log->setOpenLinks(false);
-    QObject::connect(this->log, &QTextBrowser::anchorClicked, [window, this](const QUrl& url) {
+    const std::function<void(const QUrl&)> anchorClicked = [window, this](const QUrl& url) {
         // a display: tick / click (cluster-act:<display>/<item>), its form (cluster-form:<display>), its audio (cluster-play:<display>)
         const std::string scheme = url.scheme().toStdString();
         const std::string path = url.path().toStdString();
@@ -4129,15 +4138,57 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
         } catch (const std::exception& e) {
             window->message(e.what(), true);
         }
-    });
+    };
+    QObject::connect(this->log, &QTextBrowser::anchorClicked, anchorClicked);
     // the pictures of the displays: display:<entry> in the transcript
-    this->log->document()->setResourceProvider([this](const QUrl& url) -> QVariant {
+    const std::function<QVariant(const QUrl&)> picture = [this](const QUrl& url) -> QVariant {
         const std::map<QString, QImage>::const_iterator it = this->pictures.find(url.toString());
         return it == this->pictures.end() ? QVariant() : QVariant(it->second);
-    });
-    QObject::connect(this->log, &QTextBrowser::highlighted, [](const QUrl& url) {
+    };
+    this->log->document()->setResourceProvider(picture);
+    const std::function<void(const QUrl&)> hover = [](const QUrl& url) {
         if (url.isLocalFile() && !QImage(url.toLocalFile()).isNull()) QToolTip::showText(QCursor::pos(), "<img src=\"" + url.toLocalFile() + "\" width=\"420\">");
+    };
+    QObject::connect(this->log, &QTextBrowser::highlighted, hover);
+    // a right click on a message or a block: Pin / Unpin
+    this->log->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(this->log, &QWidget::customContextMenuRequested, [window, this](const QPoint& at) {this->entryMenu(window, this->log, at);});
+    // the pinned item: always above the prompt, live like the transcript, folded by its title, scrolling inside when it is tall
+    this->pinBox = new QFrame(this);
+    this->pinBox->setObjectName("pinBox");
+    QVBoxLayout* pinLayout = new QVBoxLayout(this->pinBox);
+    pinLayout->setContentsMargins(6, 3, 6, 4);
+    pinLayout->setSpacing(2);
+    QHBoxLayout* pinHead = new QHBoxLayout();
+    this->pinFold = new QPushButton(this->pinBox);
+    this->pinFold->setFlat(true);
+    this->pinFold->setStyleSheet("text-align:left;border:none;font-weight:600;padding:2px 4px;");
+    this->pinFold->setToolTip("Fold / unfold the pinned item");
+    QPushButton* unpin = new QPushButton("Unpin", this->pinBox);
+    unpin->setToolTip("Remove the pin (the item stays in the conversation)");
+    QObject::connect(unpin, &QPushButton::clicked, [window, this]() {
+        try {
+            window->manager.unpin(this->id);
+        } catch (const utils::exception::IException& e) {
+            window->message(e.info(), true);
+        }
         else QToolTip::hideText();
+    pinHead->addWidget(this->pinFold, 1);
+    pinHead->addWidget(unpin);
+    this->pinLog = new QTextBrowser(this->pinBox);
+    this->pinLog->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    this->pinLog->setOpenLinks(false);
+    QObject::connect(this->pinLog, &QTextBrowser::anchorClicked, anchorClicked);
+    this->pinLog->document()->setResourceProvider(picture);
+    QObject::connect(this->pinLog, &QTextBrowser::highlighted, hover);
+    QObject::connect(this->pinFold, &QPushButton::clicked, [this]() {
+        this->pinFolded = !this->pinFolded;
+        this->pinLog->setVisible(!this->pinFolded);
+        this->pinKey.clear();   // the arrow drawn again
+    });
+    pinLayout->addLayout(pinHead);
+    pinLayout->addWidget(this->pinLog);
+    this->pinBox->setVisible(false);
     });
     this->panels = new QLabel(this);
     this->panels->setObjectName("panels");
@@ -4178,6 +4229,7 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     body->setSpacing(8);
     body->addWidget(this->log, 1);
     body->addWidget(this->panels);
+    inside->addWidget(this->pinBox);
     inside->addLayout(body, 1);
     inside->addWidget(this->permBar);
     layout->addWidget(this->header);
@@ -4185,6 +4237,43 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->outline = new Outline(this);
     this->outline->raise();
 }
+void SessionView::entryMenu(Window* window, QTextBrowser* from, const QPoint& at)
+{
+    // the entry under the mouse: the last anchor (cc-e<index>) before the cursor; Pin it, Unpin, Copy
+    QMenu menu(from);
+    const std::optional<cluster::Snapshot> snap = window->manager.snapshot(this->id);
+    if (!snap) return;
+    long entry = -1;
+    if (from == this->log) {
+        const int position = from->cursorForPosition(at).position();
+        for (QTextBlock block = from->document()->begin(); block.isValid() && block.position() <= position; block = block.next())
+            for (QTextBlock::iterator it = block.begin(); !it.atEnd() && it.fragment().position() <= position; ++it)
+                for (const QString& name: it.fragment().charFormat().anchorNames())
+                    if (name.startsWith("cc-e")) entry = name.mid(4).toLong();
+    }
+    if (entry >= 0 && static_cast<std::size_t>(entry) < snap->entries.size()) {
+        const cluster::EntryKind kind = snap->entries[static_cast<std::size_t>(entry)].kind;
+        if (kind == cluster::EntryKind::User || kind == cluster::EntryKind::Assistant || kind == cluster::EntryKind::System || kind == cluster::EntryKind::Display)
+            menu.addAction(kind == cluster::EntryKind::Display ? "Pin this block (kept above the prompt)" : "Pin this message (kept above the prompt)", [window, this, entry]() {
+                try {
+                    (void)window->manager.pin(this->id, {{"index", entry}});
+                } catch (const utils::exception::IException& e) {
+                    window->message(e.info(), true);
+                }
+            });
+    }
+    if (snap->spec.pin.is_object())
+        menu.addAction(q_("Unpin: " + snap->spec.pin.value("title", std::string("the pinned item"))), [window, this]() {
+            try {
+                window->manager.unpin(this->id);
+            } catch (const utils::exception::IException& e) {
+                window->message(e.info(), true);
+            }
+        });
+    if (from->textCursor().hasSelection()) menu.addAction("Copy", [from]() {from->copy();});
+    if (!menu.isEmpty()) menu.exec(from->mapToGlobal(at));
+}
+
 
 void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded)
 {
@@ -4244,6 +4333,8 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         QString html;
         const std::size_t start = s.entries.size() > 400 ? s.entries.size() - 400 : 0;
         const QString more = " (" + q_(config.keys.contains("expand") ? config.keys.at("expand") : std::string("Ctrl+O")) + " to expand)";
+        // an empty anchor at the start of each entry (cc-e<index>): the right click finds the entry under the mouse by it
+        const std::function<QString(const std::size_t)> entryAnchor = [](const std::size_t index) {return "<a name=\"cc-e" + QString::number(index) + "\"></a>";};
         const std::function<QString(const std::string&)> pre = [](const std::string& text) {return "<pre style=\"margin:0;white-space:pre-wrap\">" + esc_(text) + "</pre>";};
         for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
             const cluster::Entry& e = s.entries[i];
@@ -4277,10 +4368,10 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                         if (const std::string color = cluster::origin_color(origin, st.dark); !color.empty()) ink = color;
                         if (const std::string label = cluster::origin_label(origin); !label.empty()) head += q_(label) + " · ";
                     }
-                    html += "<p>" + span_(ink, head + body, true) + "</p>";
+                    html += "<p>" + entryAnchor(i) + span_(ink, head + body, true) + "</p>";
                     break;
                 }
-                case cluster::EntryKind::Assistant: html += "<p>" + span_(st.text, "⏺ " + esc_(text)) + "</p>"; break;
+                case cluster::EntryKind::Assistant: html += "<p>" + entryAnchor(i) + span_(st.text, "⏺ " + esc_(text)) + "</p>"; break;
                 case cluster::EntryKind::Thinking:
                     // like Claude Code: folded, Ctrl+O shows it
                     if (compact) break;
@@ -4288,8 +4379,8 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                     if (expanded) html += "<div style=\"margin-left:16px\">" + span_(st.muted, "<i>" + pre(text) + "</i>") + "</div>";
                     break;
                 case cluster::EntryKind::Tool:
-                    if (e.tool == "TodoWrite") html += "<div style=\"margin-top:10px\">" + span_(st.ok, "⏺ <b>Update Todos</b>") + "</div><div style=\"margin-left:16px\">" + span_(st.text, pre(text)) + "</div>";
-                    else html += "<div style=\"margin-top:10px\">" + span_(st.ok, "⏺ <b>" + esc_(e.tool) + "</b>") + span_(st.text, "(" + esc_(text) + ")") + "</div>";
+                    if (e.tool == "TodoWrite") html += "<div style=\"margin-top:10px\">" + entryAnchor(i) + span_(st.ok, "⏺ <b>Update Todos</b>") + "</div><div style=\"margin-left:16px\">" + span_(st.text, pre(text)) + "</div>";
+                    else html += "<div style=\"margin-top:10px\">" + entryAnchor(i) + span_(st.ok, "⏺ <b>" + esc_(e.tool) + "</b>") + span_(st.text, "(" + esc_(text) + ")") + "</div>";
                     break;
                 case cluster::EntryKind::ToolResult: {
                     // the first lines (Ctrl+O: all)
@@ -4298,15 +4389,18 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                     const qsizetype total = parts.size();
                     if (!expanded && total > 3) parts = parts.mid(0, 3);
                     const QString shown = parts.join('\n').trimmed().isEmpty() ? QString("(no output)") : parts.join('\n');
-                    html += "<div style=\"margin-left:12px\">" + span_(st.muted, pre(("⎿  " + shown).replace("\n", "\n   ").toStdString())) + "</div>";
+                    html += "<div style=\"margin-left:12px\">" + entryAnchor(i) + span_(st.muted, pre(("⎿  " + shown).replace("\n", "\n   ").toStdString())) + "</div>";
                     if (total > parts.size()) html += "<div style=\"margin-left:12px\">" + span_(st.muted, pre("   … +" + std::to_string(total - parts.size()) + " lines" + more.toStdString())) + "</div>";
                     break;
                 }
-                case cluster::EntryKind::System: html += "<div style=\"margin-top:10px\">" + span_(st.muted, "· " + esc_(text)) + "</div>"; break;
-                case cluster::EntryKind::Error: html += "<div style=\"margin-top:10px\">" + span_(st.error, "✗ " + esc_(text)) + "</div>"; break;
+                case cluster::EntryKind::System: html += "<div style=\"margin-top:10px\">" + entryAnchor(i) + span_(st.muted, "· " + esc_(text)) + "</div>"; break;
+                case cluster::EntryKind::Error: html += "<div style=\"margin-top:10px\">" + entryAnchor(i) + span_(st.error, "✗ " + esc_(text)) + "</div>"; break;
                 case cluster::EntryKind::Display: {
                     const cluster::Json d = cluster::Json::parse(e.text, nullptr, false);
-                    if (d.is_object()) html += this->displayHtml(d, s.spec.id + "-" + std::to_string(e.time) + "-" + std::to_string(i), st, expanded);
+                    if (d.is_object()) {
+                        QString block = this->displayHtml(d, s.spec.id + "-" + std::to_string(e.time) + "-" + std::to_string(i), st, expanded);
+                        html += block.left(block.indexOf('>') + 1) + entryAnchor(i) + block.mid(block.indexOf('>') + 1);   // its anchor inside its first element
+                    }
                     break;
                 }
             }
@@ -4347,6 +4441,33 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         this->log->setHtml(html);
         bar->setValue(bottom ? bar->maximum() : value);
     }
+    // the pinned item: the display as it is now (a checklist ticked, a form submitted: drawn again), or the message
+    const cluster::Json pinned = compact ? cluster::Json() : cluster::display_pinned(s);
+    if (!pinned.is_object()) {
+        this->pinBox->setVisible(false);
+        this->pinKey.clear();
+    } else {
+        const std::string title = s.spec.pin.value("title", std::string("pinned"));
+        const std::string drawn = pinned.dump() + "|" + title + "|" + st.name + "|" + (this->pinFolded ? "f" : "") + std::to_string(this->width() / 40);
+        this->pinBox->setVisible(true);
+        if (drawn != this->pinKey) {
+            this->pinKey = drawn;
+            this->pinFold->setText(QString(this->pinFolded ? "▸ " : "▾ ") + "📌 " + q_(cluster::one_line(title, 80)));
+            this->pinLog->setVisible(!this->pinFolded);
+            QString html;
+            if (pinned.contains("role")) html = "<p>" + span_(st.text, esc_(pinned.value("text", std::string()))) + "</p>";
+            else html = this->displayHtml(pinned, s.spec.id + "-pin-" + std::to_string(s.spec.pin.value("at", std::int64_t{0})), st, false);
+            QScrollBar* pinBar = this->pinLog->verticalScrollBar();
+            const int pinValue = pinBar->value();
+            this->pinLog->setHtml(html);
+            this->pinLog->document()->setTextWidth(std::max(200, this->width() - 70));
+            // its height: the item whole up to a third of the view, scrolling inside past it
+            const int wanted = static_cast<int>(this->pinLog->document()->size().height()) + 16;
+            this->pinLog->setFixedHeight(std::clamp(wanted, 40, std::max(80, this->height() / 3)));
+            pinBar->setValue(pinValue);
+        }
+    }
+
 
     // permission bar (a question of this sub-session shown on the global session: it waits there)
     this->permBar->setVisible(!s.permissions.empty());
