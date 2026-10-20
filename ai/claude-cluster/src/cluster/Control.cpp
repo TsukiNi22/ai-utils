@@ -409,6 +409,8 @@ _cold static cluster::Json sub_tools_(const cluster::Config& config)
     } else if (config.subRead) {
         tools.push_back("schedule_cancel");
     }
+    for (const std::string& tool: cluster::orchestrator_sub_tools(config.orch)) // heavy_run, jobs_list, job_status, job_wait, job_kill...
+        tools.push_back(tool);
     return {{"tools", tools}, {"spawn", config.subSpawn}, {"schedules", config.subSchedules}};
 }
 
@@ -454,7 +456,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
     const std::function<std::string()> session = [&]() {return manager.resolve(arg_(request, "session"));};
     const bool from_global = request.value("origin", std::string()) == "mcp"; // a tool of the global session (its limits)
     const bool from_web = request.value("origin", std::string()) == "web";    // a device of the web page (set by the web access itself)
-    const bool from_sub = request.value("origin", std::string()) == "sub";    // a sub-session on itself (its id in "by")
+    const bool from_sub = request.value("origin", std::string()) == "sub";    // the MCP of a sub-session: itself only (its id in "owner")
     const std::string owner = from_sub ? arg_(request, "owner") : std::string();
     cluster::Json data;
 

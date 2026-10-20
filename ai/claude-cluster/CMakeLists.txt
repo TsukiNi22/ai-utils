@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.65 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.66 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -76,6 +76,8 @@ set(SRC
     src/cluster/Session.cpp
     src/cluster/Manager.cpp
     src/cluster/Manager-Tasks.cpp
+    src/cluster/Manager-Schedules.cpp
+    src/cluster/Cron.cpp
     src/cluster/Manager-Push.cpp
     src/cluster/Manager-Jobs.cpp
     src/cluster/Orchestrator.cpp
@@ -134,6 +136,7 @@ set(SRC
 
     # Front-ends
     src/cluster/ui/Tty.cpp
+    src/cluster/ui/LineEditor.cpp
 )
 set(CLUSTER_WITH_GUI OFF)
 if(CLUSTER_GUI AND Qt6Widgets_FOUND)
@@ -144,7 +147,6 @@ add_executable(${TARGET} ${SRC})
 
 # cluster-run: the wrapper of a heavy command (resource orchestrator), a small binary of its own installed next to claude-cluster
 add_executable(cluster-run src/run/cluster-run.cpp src/cluster/RunProfile.cpp)
-    src/cluster/ui/LineEditor.cpp
 target_include_directories(cluster-run PRIVATE include)
 target_link_libraries(cluster-run PRIVATE nlohmann_json::nlohmann_json)
 
@@ -212,6 +214,12 @@ target_compile_options(${TARGET} PRIVATE
 )
 target_link_options(${TARGET} PRIVATE
     $<$<CONFIG:Asan>:-fsanitize=address,undefined>
+)
+target_compile_options(cluster-run PRIVATE
+    $<$<CONFIG:Debug>:-g -ggdb3>
+    $<$<CONFIG:Optimized>:-O2 -pipe -DNDEBUG>
+)
+
 # =========================
 # Tests
 # =========================
@@ -232,11 +240,6 @@ if(CLUSTER_TESTS)
     target_link_options(line_editor_test PRIVATE -Wl,--unresolved-symbols=ignore-all)
 endif()
 
-)
-target_compile_options(cluster-run PRIVATE
-    $<$<CONFIG:Debug>:-g -ggdb3>
-    $<$<CONFIG:Optimized>:-O2 -pipe -DNDEBUG>
-)
 
 # =========================
 # Installation

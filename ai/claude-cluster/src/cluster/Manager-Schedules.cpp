@@ -394,7 +394,14 @@ _cold std::string cluster::Manager::execute_(const cluster::Schedule& w)
     if (w.action == "command") {
         // a program of the user, no model: only its output is sent, when there is one
         const std::string command = opt::text(w.options, "command");
-        const cluster::Captured result = cluster::capture({"/bin/sh", "-c", command}, opt::text(w.options, "cwd"), static_cast<int>(std::clamp<std::int64_t>(opt::number(w.options, "timeout_seconds", 60), 1, 600)));
+        const int seconds = static_cast<int>(std::clamp<std::int64_t>(opt::number(w.options, "timeout_seconds", 60), 1, 600));
+        cluster::Captured result;
+        if (const cluster::Json heavy = this->runHeavy_(command, opt::text(w.options, "cwd"), seconds, w.by); !heavy.is_null()) { // a heavy command waits its turn (the orchestrator)
+            result.code = heavy.value("exit", -1);
+            result.out = heavy.value("tail", std::string());
+        } else {
+            result = cluster::capture({"/bin/sh", "-c", command}, opt::text(w.options, "cwd"), seconds);
+        }
         const std::string out = cluster::trim(result.out);
         if (out.empty()) return "`" + cluster::one_line(command, 50) + "` exited " + std::to_string(result.code) + ", no output: nothing sent";
         const std::string shown = opt::cap(out, 4000);
@@ -402,10 +409,10 @@ _cold std::string cluster::Manager::execute_(const cluster::Schedule& w)
             (void)this->notify({"schedule-" + w.id, w.text.empty() ? "scheduled command" : w.text, cluster::one_line(shown, 300), cluster::Face::Attentive, false, "message-new-instant"}, "reminder");
             return "output notified (exit " + std::to_string(result.code) + ")";
         }
-        this->send(w.session, tag + (w.text.empty() ? "" : w.text + "\n") + "output of `" + cluster::one_line(command, 80) + "` (exit " + std::to_string(result.code) + "):\n" + shown, true);
+        this->send(w.session, tag + (w.text.empty() ? "" : w.text + "\n") + "output of `" + cluster::one_line(command, 80) + "` (exit " + std::to_string(result.code) + "):\n" + shown, true, {}, "schedule");
         return "output sent to " + w.session + " (exit " + std::to_string(result.code) + ")";
     }
-    this->send(w.session, tag + w.text, true);
+    this->send(w.session, tag + w.text, true, {}, "schedule");
     this->notice_(w.session, "scheduled " + w.id + " sent");
     return "prompt sent to " + w.session;
 }

@@ -65,7 +65,7 @@ _cold void spawn_policy_(const cluster::Config& config, cluster::TaskSpawn& spaw
 _cold std::vector<std::string> cluster::Manager::subArgs_(const std::string& id) const
 {
     // its own server (CLAUDE_CLUSTER_SESSION: the tools of the sub-sessions, its tasks / schedules only); the settings [agent] sub_* open it
-    if (!this->_config.subRead && !this->_config.subTasks && !this->_config.subSchedules) return {};
+    if (!this->_config.subRead && !this->_config.subTasks && !this->_config.subSchedules && !this->_config.orch.enabled) return {};
     const std::filesystem::path path = cluster::socket_path().parent_path() / ("mcp-" + id + ".json");
     try {
         cluster::write_json(path, {{"mcpServers", {{"claude-cluster", {{"type", "stdio"}, {"command", cluster::self_exe().string()}, {"args", {"mcp"}},
