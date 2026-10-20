@@ -43,6 +43,8 @@
 #
 # Run without a clone (curl/wget), the repository is cloned/updated into $SKILLS_HOME
 # (default: ~/.local/share/tsukini-skills) and the script runs from there.
+#
+# Works with bash 3.2 (the /bin/bash of macOS) and newer, on Linux and macOS (the BSD tools): no mapfile, no namerefs.
 
 set -euo pipefail
 
@@ -104,6 +106,26 @@ PROJECT=false
 # =========================
 # Helpers
 # =========================
+# Absolute path with its symlinks resolved (readlink -f is missing on the BSD / macOS tools before 12.3)
+real_path() {
+    local path="$1" link
+    while [[ -L "$path" ]]; do
+        link="$(readlink "$path")"
+        case "$link" in
+            /*) path="$link" ;;
+            *) path="$(dirname "$path")/$link" ;;
+        esac
+    done
+    if [[ -d "$path" ]]; then (cd -P "$path" && pwd)
+    else echo "$(cd -P "$(dirname "$path")" && pwd)/$(basename "$path")"
+    fi
+}
+
+# Number of processors (nproc: Linux, sysctl: macOS / BSD)
+cpus() {
+    nproc 2> /dev/null || sysctl -n hw.ncpu 2> /dev/null || echo 2
+}
+
 # Command running a remote setup.sh, with the download tool available: curl, else wget, else python3, else curl
 remote_setup() {
     local url="$1" fetch
@@ -193,7 +215,7 @@ install_tool() {
         fi
         return 0
     fi
-    if ! cmake --build "$build" --parallel "$(nproc 2> /dev/null || echo 2)" >> "$log" 2>&1; then
+    if ! cmake --build "$build" --parallel "$(cpus)" >> "$log" 2>&1; then
         echo "  skip $tool: build failed, see $log"
         return 0
     fi
@@ -253,7 +275,7 @@ update_zshrc() {
     # Without the old block and the empty lines at the end
     if [[ -f "$ZSHRC" ]]; then
         sed '/^# >>> tsukini-skills completion >>>$/,/^# <<< tsukini-skills completion <<<$/d' "$ZSHRC" \
-            | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$tmp"
+            | awk '{ line[NR] = $0 } END { n = NR; while (n > 0 && line[n] == "") n--; for (i = 1; i <= n; i++) print line[i] }' > "$tmp"
     fi
     if [[ -n "$list" ]]; then
         [[ -s "$tmp" ]] && echo >> "$tmp"
@@ -303,7 +325,7 @@ reload_hint() {
 is_ours() {
     local dest="$TARGET/$1"
     if [[ -L "$dest" ]]; then
-        [[ "$(readlink -f "$dest")" = "$(readlink -f "$(skill_dir "$1")")" ]]
+        [[ "$(real_path "$dest")" = "$(real_path "$(skill_dir "$1")")" ]]
     else
         [[ -f "$dest/.installed-from" ]] && [[ "$(cat "$dest/.installed-from")" = "$REPO" ]]
     fi
@@ -346,37 +368,36 @@ done
 
 # Names: skills or tools (none = every skill and every tool)
 if [[ ${#SKILLS[@]} -eq 0 ]]; then
-    mapfile -t SKILLS < <(available)
-    mapfile -t TOOLS < <(tools)
+    SKILLS=()
+    while IFS= read -r name; do SKILLS+=("$name"); done < <(available)
+    while IFS= read -r name; do TOOLS+=("$name"); done < <(tools)
     $PROJECT && CONTEXT=false    # the context is global, never in a project folder
 else
     NAMES=("${SKILLS[@]}")
     SKILLS=()
     CONTEXT=false
-    add_unique() { # <array name> <value>: added once
-        local -n list="$1"
-        [[ " ${list[*]-} " == *" $2 "* ]] || list+=("$2")
-    }
+    add_skill() { [[ " ${SKILLS[*]-} " == *" $1 "* ]] || SKILLS+=("$1"); } # added once
+    add_tool() { [[ " ${TOOLS[*]-} " == *" $1 "* ]] || TOOLS+=("$1"); }
     for name in "${NAMES[@]}"; do
         if [[ "$name" = "context" ]]; then CONTEXT=true; CONTEXT_NAMED=true
         elif [[ "$name" = "skills" ]]; then
-            for skill in $(available); do add_unique SKILLS "$skill"; done
+            for skill in $(available); do add_skill "$skill"; done
         elif [[ "$name" = "tools" ]]; then
-            for tool in $(tools); do add_unique TOOLS "$tool"; done
+            for tool in $(tools); do add_tool "$tool"; done
         elif [[ "$name" == */ ]] || [[ "$name" == @* ]]; then
             # a whole category: every skill and tool of <category>/ (cpp/, docs/, style/...)
             category="${name%/}"
             category="${category#@}"
             found=false
             for file in "$REPO/$category"/*/SKILL.md; do
-                [[ -f "$file" ]] && { add_unique SKILLS "$(basename "$(dirname "$file")")"; found=true; }
+                [[ -f "$file" ]] && { add_skill "$(basename "$(dirname "$file")")"; found=true; }
             done
             for file in "$REPO/$category"/*/tool.txt; do
-                [[ -f "$file" ]] && { add_unique TOOLS "$(basename "$(dirname "$file")")"; found=true; }
+                [[ -f "$file" ]] && { add_tool "$(basename "$(dirname "$file")")"; found=true; }
             done
             $found || error "unknown category '$category' (see: $0 list)"
-        elif [[ -n "$(skill_dir "$name")" ]]; then add_unique SKILLS "$name"
-        elif [[ -n "$(tool_dir "$name")" ]]; then add_unique TOOLS "$name"
+        elif [[ -n "$(skill_dir "$name")" ]]; then add_skill "$name"
+        elif [[ -n "$(tool_dir "$name")" ]]; then add_tool "$name"
         else error "unknown skill, tool or context '$name' (see: $0 list)"
         fi
     done
@@ -455,7 +476,7 @@ case "$COMMAND" in
 
     install)
         command mkdir -p "$TARGET"
-        for skill in "${SKILLS[@]}"; do
+        for skill in ${SKILLS[@]+"${SKILLS[@]}"}; do
             dest="$TARGET/$skill"
             if [[ -e "$dest" ]] || [[ -L "$dest" ]]; then
                 if is_ours "$skill" || $FORCE; then
@@ -474,13 +495,13 @@ case "$COMMAND" in
             find "$(skill_dir "$skill")" -path '*/scripts/*' \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} +
             echo "  installed $skill -> $dest ($MODE)"
         done
-        for tool in "${TOOLS[@]}"; do
+        for tool in ${TOOLS[@]+"${TOOLS[@]}"}; do
             install_tool "$tool"
         done
         ;;
 
     remove)
-        for skill in "${SKILLS[@]}"; do
+        for skill in ${SKILLS[@]+"${SKILLS[@]}"}; do
             dest="$TARGET/$skill"
             if [[ ! -e "$dest" ]] && [[ ! -L "$dest" ]]; then
                 echo "  $skill: not installed"
@@ -491,7 +512,7 @@ case "$COMMAND" in
                 echo "  skip $skill: $dest doesn't come from this repo (use --force to remove it)"
             fi
         done
-        for tool in "${TOOLS[@]}"; do
+        for tool in ${TOOLS[@]+"${TOOLS[@]}"}; do
             if tool_installed "$tool" || { $FORCE && [[ -e "$PREFIX/bin/$tool" ]]; }; then
                 rm -f "$PREFIX/bin/$tool"
                 remove_completion "$tool"

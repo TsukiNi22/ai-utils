@@ -27,7 +27,8 @@ SHARED=false
 LINK=false
 FORCE=false
 COMMAND=""
-declare -A CONFIG=()
+CONFIG_NAMES=()   # the options given (an associative array is bash 4): their names, their values
+CONFIG_VALUES=()
 
 # Command running a remote setup.sh, with the download tool available: curl, else wget, else python3, else curl
 remote_setup() {
@@ -55,8 +56,9 @@ error() {
 # Value checked against its allowed list, stored for the config block of the hook
 set_config() {
     local name="$1" value="$2" allowed="$3"
-    [[ " $allowed " == *" $value "* ]] || error "--${name,,} must be one of: $allowed (got '$value')"
-    CONFIG[$name]="$value"
+    [[ " $allowed " == *" $value "* ]] || error "--$(echo "$name" | tr '[:upper:]' '[:lower:]') must be one of: $allowed (got '$value')"
+    CONFIG_NAMES+=("$name")
+    CONFIG_VALUES+=("$value")
 }
 
 # =========================
@@ -79,7 +81,8 @@ while [[ $# -gt 0 ]]; do
                 --missing) set_config MISSING "$2" "warn fail ignore" ;;
                 --output) set_config OUTPUT "$2" "auto human rtk" ;;
                 --extra) [[ "$2" != *'"'* && "$2" != *'$'* && "$2" != *'`'* ]] || error "--extra can't contain \", \$ or \`"
-                    CONFIG[EXTRA_ARGS]="$2" ;;
+                    CONFIG_NAMES+=(EXTRA_ARGS)
+                    CONFIG_VALUES+=("$2") ;;
             esac
             shift
             ;;
@@ -97,7 +100,7 @@ ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2> /dev/null)" || error "not a 
 cd "$ROOT"
 if $SHARED; then HOOKS="$ROOT/.githooks"; else HOOKS="$(cd "$(git rev-parse --git-common-dir)" && pwd)/hooks"; fi
 CURRENT_PATH="$(git config --get core.hooksPath || true)"
-[[ "$COMMAND" != "install" ]] && [[ -n "$CURRENT_PATH" ]] && HOOKS="$(cd "$ROOT" && realpath -m "$CURRENT_PATH")"
+[[ "$COMMAND" != "install" ]] && [[ -n "$CURRENT_PATH" ]] && case "$CURRENT_PATH" in /*) HOOKS="$CURRENT_PATH" ;; *) HOOKS="$ROOT/$CURRENT_PATH" ;; esac
 HOOK="$HOOKS/pre-commit"
 
 is_ours() {
@@ -106,10 +109,11 @@ is_ours() {
 
 # Config block of the hook rewritten with the chosen values (the other lines kept)
 write_config() {
-    local name tmp
-    for name in "${!CONFIG[@]}"; do
+    local i name tmp
+    for ((i = 0; i < ${#CONFIG_NAMES[@]}; i++)); do
+        name="${CONFIG_NAMES[$i]}"
         tmp="$(mktemp)"
-        NAME="$name" VALUE="${CONFIG[$name]}" awk '
+        NAME="$name" VALUE="${CONFIG_VALUES[$i]}" awk '
             BEGIN { name = ENVIRON["NAME"]; value = ENVIRON["VALUE"] }
             /^# >>> config/ { inside = 1 } /^# <<< config/ { inside = 0 }
             inside && index($0, name "=\"") == 1 && name != "XSTYLE_BIN" { sub(/="[^"]*"/, "=\"" value "\"") }
@@ -150,8 +154,8 @@ case "$COMMAND" in
         fi
         rm -f "$HOOK"
         if $LINK; then
-            [[ ${#CONFIG[@]} -eq 0 ]] || error "--link uses the template as is: no config option with it (or a copy)"
-            ln -s "$(realpath "$TEMPLATE")" "$HOOK"
+            [[ ${#CONFIG_NAMES[@]} -eq 0 ]] || error "--link uses the template as is: no config option with it (or a copy)"
+            ln -s "$(cd "$(dirname "$TEMPLATE")" && pwd -P)/$(basename "$TEMPLATE")" "$HOOK"
         else
             cp "$TEMPLATE" "$HOOK"
             write_config

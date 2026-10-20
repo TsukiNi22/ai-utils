@@ -58,9 +58,24 @@ done
 # =========================
 # Helpers
 # =========================
+# Absolute path with its symlinks resolved (readlink -f is missing on the BSD / macOS tools before 12.3)
+real_path() {
+    local path="$1" link
+    while [[ -L "$path" ]]; do
+        link="$(readlink "$path")"
+        case "$link" in
+            /*) path="$link" ;;
+            *) path="$(dirname "$path")/$link" ;;
+        esac
+    done
+    if [[ -d "$path" ]]; then (cd -P "$path" && pwd)
+    else echo "$(cd -P "$(dirname "$path")" && pwd)/$(basename "$path")"
+    fi
+}
+
 is_ours() { # <repo file> <target>
     local src="$REPO/$1" dst="$2"
-    if [ -L "$dst" ]; then [ "$(readlink -f "$dst")" = "$(readlink -f "$src")" ]
+    if [ -L "$dst" ]; then [ "$(real_path "$dst")" = "$(real_path "$src")" ]
     else [ -f "$dst" ] && [ -f "$dst.context-installed" ]; fi
 }
 
