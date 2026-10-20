@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="color-scheme" content="dark light">
 <title>claude-cluster</title>
 <style>
@@ -353,6 +353,60 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
         <button id="picker" title="Sessions">☰</button>
         <span class="title"><span id="brandFace" class="face">^_^</span> claude-cluster</span>
         <nav id="views" class="segmented" aria-label="View">
+/* ---- phones and the apk: popups inside the visible viewport (status bar, notch, gesture bar, keyboard), buttons always reachable ----
+   --vvh / --vvt: the visible viewport (script below), for the WebViews whose keyboard does not resize the page; the env() insets are 0 in the apk
+   (the activity pads the page itself) and real in a browser with viewport-fit=cover */
+:root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); --sar: env(safe-area-inset-right, 0px);
+    --vh: var(--vvh, 100dvh); }
+html, body { overscroll-behavior: none; }
+#app { grid-template-rows: auto minmax(0, 1fr); height: 100dvh; height: var(--vh); padding-left: var(--sal); padding-right: var(--sar); }
+header { padding-top: calc(8px + var(--sat)); }
+.picker-veil, .link-lost, .app-update { overscroll-behavior: contain; overflow-y: auto; top: var(--vvt, 0px); bottom: auto; height: var(--vh);
+    padding: calc(12px + var(--sat)) calc(12px + var(--sar)) calc(12px + var(--sab)) calc(12px + var(--sal)); }
+.picker { max-height: calc(var(--vh) - 24px - var(--sat) - var(--sab)); min-height: 0; }
+.picker-list, .info-text, .failure-card .info { overscroll-behavior: contain; min-height: 0; }
+.failure-card .info { overflow-y: auto; flex: 0 1 auto; } .failure-card .buttons { flex: none; }
+.picker-row { overflow-wrap: anywhere; }
+.link-card { max-height: calc(var(--vh) - 24px - var(--sat) - var(--sab)); overflow-y: auto; }
+.app-update .card { max-height: calc(var(--vh) - 24px - var(--sat) - var(--sab)); overflow-y: auto; }
+.failure-card { top: calc(var(--vvt, 0px) + var(--vh) / 2); max-height: calc(var(--vh) - 24px - var(--sat) - var(--sab)); display: flex; flex-direction: column; overflow: hidden;
+    width: min(520px, calc(100vw - 24px - var(--sal) - var(--sar))); z-index: 65; }
+.progress-card { top: calc(var(--vvt, 0px) + 60px + var(--sat)); max-height: 40dvh; overflow-y: auto;
+    width: min(560px, calc(100vw - 24px - var(--sal) - var(--sar))); }
+#toast { bottom: calc(90px + var(--sab)); z-index: 120; overflow-wrap: anywhere; }
+#pinned .pin-body { max-height: 38dvh; }
+#prompt { max-height: 40dvh; }
+.hub { height: calc(100dvh - 150px); }
+#ask { max-height: 55dvh; max-height: calc(var(--vh) * .55); overflow-y: auto; overscroll-behavior: contain; min-height: 120px; flex: 0 1 auto; }
+#main { overflow: hidden; }
+#ask label { overflow-wrap: anywhere; }
+#ask > .row { position: sticky; bottom: -10px; background: var(--surface); padding: 8px 0 10px; margin-bottom: -10px; z-index: 1; }
+.panel { padding-top: var(--sat); padding-right: var(--sar); width: min(440px, 100vw); max-width: 100vw; height: var(--vh); bottom: auto; }
+.panel-foot { padding-bottom: calc(12px + var(--sab)); }
+#drawerBody, #alertsList { overscroll-behavior: contain; }
+body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { overflow-y: hidden; }
+@media (max-width: 760px) {
+    #app { padding-bottom: calc(58px + var(--sab)); }
+    #composer { padding-bottom: 10px; }
+    #side.open { top: calc(52px + var(--sat)); bottom: calc(58px + var(--sab)); left: var(--sal); right: var(--sar); }
+    .appbar { bottom: calc(70px + var(--sab)); left: calc(10px + var(--sal)); right: calc(10px + var(--sar)); }
+    #toast { bottom: calc(130px + var(--sab)); }
+    #tabbar { padding-left: var(--sal); padding-right: var(--sar); }
+}
+@media (max-height: 480px) { /* landscape phone: the popups use the whole height, the pinned parts stay small */
+    #ask { max-height: calc(var(--vh) * .7); }
+    #pinned .pin-body { max-height: 25dvh; }
+    .progress-card { top: calc(var(--vvt, 0px) + 8px + var(--sat)); }
+}
+@media (pointer: coarse) { /* touch targets of 44 px in the popups and the prompt bar */
+    #ask button, .picker > button, .picker-row, .failure-card button, .progress-card button, .app-update button, .app-update .button, .link-card button,
+    .panel-head button, .panel-foot button, #composer button, #composer .button, .tabs button { min-height: 44px; }
+    #composer button, .panel-head button { min-width: 44px; }
+    #ask label { padding: 11px 0; display: flex; gap: 10px; align-items: flex-start; }
+    #ask label input[type=radio], #ask label input[type=checkbox] { width: 22px; height: 22px; flex: none; margin: 0; }
+    #ask input[type=text], #ask textarea, #ask select { min-height: 44px; font-size: 16px; }
+    .picker-row { display: flex; align-items: center; }
+}
             <button data-view="chat" title="One session and its conversation">Chat</button>
             <button data-view="grid" title="Every session as a card">Grid</button>
             <button data-view="board" title="Your dashboard: tiles ordered and sized as you want">Board</button>
@@ -498,6 +552,23 @@ async function api(path, body, signal) {
     const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
     const response = await fetch(path, Object.assign({credentials: "same-origin", cache: "no-store", signal}, options));
     const data = await response.json().catch(() => ({}));
+// the visible viewport for the popups (a keyboard that does not resize the page) + the typed field kept in view
+(() => {
+    const vv = window.visualViewport;
+    const fit = () => {
+        const root = document.documentElement.style;
+        if (!vv || Math.abs(vv.height - window.innerHeight) < 2 && vv.offsetTop < 1) { root.removeProperty("--vvh"); root.removeProperty("--vvt"); return; }
+        root.setProperty("--vvh", vv.height + "px");
+        root.setProperty("--vvt", vv.offsetTop + "px");
+    };
+    if (vv) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
+    document.addEventListener("focusin", (event) => {
+        const field = event.target;
+        if (!(field instanceof HTMLElement) || !field.matches("input:not([type=radio]):not([type=checkbox]), textarea, select")) return;
+        setTimeout(() => field.scrollIntoView({block: "nearest", inline: "nearest"}), 300); // after the keyboard is up
+    });
+})();
+
     if (response.status === 401 && path !== "/api/login") { reconnect(); throw new Error("not connected"); }
     if (!response.ok) throw new Error(data.error || response.statusText);
     return data;

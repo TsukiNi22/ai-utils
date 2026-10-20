@@ -18,6 +18,7 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInstaller;
+import android.content.res.Configuration;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -205,15 +206,40 @@ public class MainActivity extends Activity {
         setContentView(inset(box));
     }
 
-    // ---- edge to edge (Android 15): the page kept out of the status bar, the notch, the navigation bar and the keyboard ----
+    // ---- edge to edge: the page kept out of the status bar, the notch, the navigation bar and the keyboard, the bars of the page's theme ----
+    private FrameLayout edge;
+
+    private boolean night() {
+        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    // the colour of the bars (the frame shows under them) and the icons on it: the dark / light theme of the page (its --bg)
+    private void themeBars() {
+        if (edge == null) return;
+        boolean dark = night();
+        edge.setBackgroundColor(Color.parseColor(dark ? "#171715" : "#f6f6f4"));
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController bars = getWindow().getInsetsController();
+            int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            if (bars != null) bars.setSystemBarsAppearance(dark ? 0 : light, light);
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        themeBars();
+    }
+
     private View inset(View content) {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(Color.parseColor("#15171b"));
+        edge = frame;
         frame.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         if (Build.VERSION.SDK_INT >= 30) {
-            // light icons on its dark bars (the time, the battery)
-            WindowInsetsController bars = getWindow().getInsetsController();
-            if (bars != null) bars.setSystemBarsAppearance(0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+        themeBars();
+            getWindow().setDecorFitsSystemWindows(false); // the same on every version: the insets come here, nothing is resized twice
+            getWindow().setStatusBarColor(Color.TRANSPARENT);
+            getWindow().setNavigationBarColor(Color.TRANSPARENT);
             frame.setOnApplyWindowInsetsListener((v, insets) -> {
                 android.graphics.Insets room = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
                 v.setPadding(room.left, room.top, room.right, room.bottom);
