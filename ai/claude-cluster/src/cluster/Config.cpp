@@ -210,6 +210,7 @@ _cold void cluster::Config::load(void)
     this->historyLimit = std::max(0, table["sessions"]["history_limit"].value_or(this->historyLimit));
     this->subPin = table["agent"]["sub_pin"].value_or(this->subPin);
     this->pinGlobal = table["agent"]["global_pin"].value_or(this->pinGlobal);
+    this->taxonomyEdit = table["agent"]["taxonomy_edit"].value_or(this->taxonomyEdit);
     this->transcriptLimitMb = std::max(0, table["sessions"]["transcript_limit_mb"].value_or(this->transcriptLimitMb));
     this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);

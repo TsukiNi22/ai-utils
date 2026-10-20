@@ -344,7 +344,7 @@ _cold cluster::Json cluster::Manager::syncState(const cluster::Json& request)
     cluster::Json machine = nullptr;
     if (const std::optional<std::pair<cluster::MachineProgress, std::int64_t>> progress = this->machineProgress()) machine = {{"progress", progress->first}, {"end", progress->second}};
     return {{"version", this->syncVersion()}, {"sessions", sessions}, {"voice", this->_voice ? this->_voice->json() : cluster::Json()}, {"notices", this->notices(50)},
-        {"trash", this->trash()}, {"previous", this->previous()}, {"tasks", this->tasks()}, {"schedules", this->schedules()}, {"ui", ui}, {"asking", this->asking().json()},
+        {"trash", this->trash()}, {"previous", this->previous()}, {"tasks", this->tasks()}, {"schedules", this->schedules()}, {"taxonomy", this->taxonomyJson()}, {"ui", ui}, {"asking", this->asking().json()},
         {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()}, {"raise_token", this->raiseToken()},
         {"machine_request", this->_machineRequest.load()}, {"machine_ask", this->machineAsk()}, {"machine", machine},
         {"restore_ask", this->_restoreAsk.load() && this->restorable()}, {"listening", listening},

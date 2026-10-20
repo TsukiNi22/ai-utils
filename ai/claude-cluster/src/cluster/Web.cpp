@@ -1535,8 +1535,13 @@ self.addEventListener("notificationclick", (e) => {
         const std::vector<cluster::Schedule> planned = this->_manager.schedules();
         const auto open = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued" || t.status == "running";});
         const auto waiting = std::count_if(planned.begin(), planned.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
+        // the taxonomy of the labels (the graph nests the sessions by it) and the labels of the archived sessions (greyed in the graph)
+        cluster::Json archived = cluster::Json::array();
+        for (const cluster::SessionSpec& spec: this->_manager.trash())
+            archived.push_back({{"id", spec.id}, {"name", spec.name}, {"category", spec.category}, {"tags", spec.tags}});
         json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
             {"group", this->_manager.ui("group_by_category", config.groupByCategory ? "true" : "false") == "true"},
+            {"taxonomy", this->_manager.taxonomyJson()}, {"archived", archived},
             {"tasks_open", open}, {"schedules_waiting", waiting},
             {"progress", this->_manager.progressAll()}, {"now_ms", cluster::now_ms()}, {"failures", this->_manager.failures()},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},

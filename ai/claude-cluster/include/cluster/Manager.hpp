@@ -28,6 +28,7 @@ File Description:
     #include "Icons.hpp"            // cluster::Notification, cluster::AppFace
     #include "Usage.hpp"            // cluster::Transcripts
     #include "Auth.hpp"             // cluster::Auth
+    #include "Taxonomy.hpp"         // cluster::Taxonomy
     #include <condition_variable>   // std::condition_variable
     #include <functional>           // std::function
     #include <optional>             // std::optional
@@ -154,6 +155,7 @@ class Manager {
         int _nextSchedule = 1;
         std::deque<cluster::Notice> _notices;
         std::map<std::string, std::string> _ui;         // layout / style chosen live (state.json)
+        cluster::Taxonomy _taxonomy;                    // the forest of the categories / tags (taxonomy.json)
         int _next = 1;
         int _nextTask = 1;
         std::atomic<std::uint64_t> _version{1};
@@ -241,6 +243,9 @@ class Manager {
         void replyEnd_(const cluster::Event& event, const std::string& name, const bool all = false);   // an end of turn: the global session told
         _cold bool describe_(const std::string& id, const std::string& text, const bool given); // false: no such session
         _cold void describeAuto_(const std::string& id);    // written by claude-cluster (its thread)
+        _cold void loadTaxonomy_(void);                     // Manager-Taxonomy.cpp: taxonomy.json read
+        _cold void saveTaxonomy_(void) const;               // ... written
+        _cold void relabel_(const std::string& from, const std::string& to);   // a label renamed / merged / removed (to empty) on every session
         _cold void turnCounted_(const std::string& id, const bool failed);
         _cold void describeMissing_(void);
         _cold _nodiscard std::vector<cluster::Snapshot> replicaSessions_(void) const;
@@ -428,6 +433,13 @@ class Manager {
         /* state */
         _nodiscard std::vector<cluster::Snapshot> list(const bool withGlobal = true) const;
         _nodiscard std::vector<cluster::Snapshot> shown(void) const;    // list(), in the order of the interfaces (grouped by category when asked)
+        // the taxonomy of the categories / tags (Manager-Taxonomy.cpp): categories and tags form a forest under the root "global"; replicated
+        _cold _nodiscard cluster::Taxonomy taxonomy(void) const;
+        _cold _nodiscard cluster::Json taxonomyJson(void) const;        // {root, parents: {node: parent}, edit: the global session may edit it}
+        // action: set_parent (node, other = the parent, "" / global: the root) | rename (other = the new name) | delete (strip: the label removed from the sessions too)
+        // | merge (other = the node it joins); throws why (a cycle, a bad name)
+        _cold void taxonomyEdit(const std::string& action, const std::string& node, const std::string& other, const bool strip = false);
+        _cold _nodiscard std::vector<std::string> groupPath(const cluster::SessionSpec& spec) const;   // its group in the list: the path of its category / first tag (empty: none)
         // the taxonomy of the categories / tags (Manager-Taxonomy.cpp): categories and tags form a forest under the root "global"; replicated
         _cold _nodiscard cluster::Taxonomy taxonomy(void) const;
         _cold _nodiscard cluster::Json taxonomyJson(void) const;        // {root, parents: {node: parent}, edit: the global session may edit it}

@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include <algorithm>
 #include <fstream>
+#include <numeric>
 #include <thread>
 #include <regex>
 

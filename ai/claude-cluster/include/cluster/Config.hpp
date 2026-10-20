@@ -300,6 +300,7 @@ class Config {
         int historyLimit = 1000;                // the prompt history (↑, Ctrl+R): its newest prompts kept (0: all)
         bool subPin = true;                     // a sub-session may pin an item on itself
         bool pinGlobal = true;                  // the global session may pin an item on any session (MCP session_pin)
+        bool taxonomyEdit = true;               // the global session may edit the taxonomy of the categories / tags (MCP taxonomy)
         int transcriptLimitMb = 25;             // each session transcript (logs/<id>.jsonl): its newest entries within this size (0: no limit)
         std::string queueGiven = "step";        // a prompt queued while the turn runs: step (given to claude after 1.5 s, taken at its next step) | end (after the turn)
         double budget = 0.0;

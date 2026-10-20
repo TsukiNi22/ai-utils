@@ -255,6 +255,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         }},
         {"commands", "Commands", {}},
         {"global", "Global session", {
+            {"agent", "taxonomy_edit", "Global session can edit the taxonomy", SettingKind::Bool, {}, "the global session may set the parent of a category / tag, rename, delete "
+                "and merge them (MCP taxonomy), which moves the sessions in the graph and the grouped list; you can always edit it by hand (graph, palette, `claude-cluster taxonomy`)", false,
+                [](const cluster::Config& cf) {return cf.taxonomyEdit ? std::string("true") : std::string("false");}},
             {"agent", "sub_pin", "Sub-sessions can pin", SettingKind::Bool, {}, "a sub-session may pin an item on its own view (a task list, a form you keep seeing); "
                 "never on another session", false, [](const cluster::Config& cf) {return cf.subPin ? std::string("true") : std::string("false");}},
             {"agent", "global_pin", "Global session can pin", SettingKind::Bool, {}, "the global session may pin a message or a display block at the bottom of the view of "

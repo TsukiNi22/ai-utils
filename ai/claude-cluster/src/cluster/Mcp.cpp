@@ -59,8 +59,10 @@ _cold cluster::Json cluster::mcp_tools(void)
     const cluster::Json session = str_("id (s1, g) or name of the session");
     cluster::Json tools = cluster::Json::array({
         tool_("session_list", "Every session of the cluster: id, name, project folder, backend, state, category, tags, permission mode, tokens, context, cost, pending permissions. "
-            "Filters: category, tag (one or several, all required), state (open: the live ones, default | archived: the trash | all | working, idle...).",
-            {{"category", str_("only this category")}, {"tag", str_("only the sessions with this tag (several: separated by commas)")},
+            "Filters: category, tag (one or several, all required), under (a node of the taxonomy: every session below it), state (open: the live ones, default | "
+            "archived: the trash | all | working, idle...). A category / tag also matches the sessions under the labels below it in the taxonomy (descendants: false: itself only).",
+            {{"category", str_("only this category (and the ones below it in the taxonomy)")}, {"tag", str_("only the sessions with this tag (several: separated by commas; the tags below each included)")},
+             {"under", str_("every session under this category / tag node of the taxonomy")}, {"descendants", bool_("false: category / tag match themselves only, not the labels below them (default true)")},
              {"state", str_("open (default) | archived (the trash) | all | a state: working, idle, waiting...")}}, {}),
         tool_("session_status", "Details of one session and its last 20 messages (skills loaded, files modified).", {{"session", session}}, {"session"}),
         tool_("session_read", "Same as session_status: the last messages of a session.", {{"session", session}}, {"session"}),
@@ -123,6 +125,15 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("session_rename", "Rename a session.", {{"session", session}, {"name", str_("new name")}}, {"session", "name"}),
         tool_("session_continue", "A session goes on where it stopped (interrupted, an error of the API or of the connection): \"continue\" sent in "
             "the same conversation; a turn waiting for a retry of the API: stopped and asked again at once.", {{"session", session}}, {"session"}),
+        tool_("taxonomy", "The tree of the categories and tags of the sessions: each node (a category or a tag) has an optional parent, none: it hangs under the root \"global\"; "
+            "a session hangs under its category, else its first tag. The graph and the grouped list show it nested, session_list filters work on the descendants. "
+            "action list (default): {parents: {node: parent}, labels: {label: sessions}}; set_parent (node, parent; none or global: the root; a cycle is refused); "
+            "rename (node, to: also on every session); merge (node, to: the node it joins); delete (node: its children go to its parent; strip: the label also removed from "
+            "the sessions). Build it as the sessions come: group the tags you reuse (api, ui, db) under one broader node (backend, frontend), not one node per session. "
+            "Only when the user allowed it (settings: Global session can edit the taxonomy); they edit it by hand too.",
+            {{"action", {{"type", "string"}, {"enum", {"list", "set_parent", "rename", "merge", "delete"}}, {"description", "default list"}}},
+             {"node", str_("the category / tag to change")}, {"parent", str_("set_parent: its parent node (none or global: under the root)")},
+             {"to", str_("rename: the new name; merge: the node it joins")}, {"strip", bool_("delete: also remove the label from the sessions (default false)")}}, {}),
         tool_("session_describe", "Give a session its short description (a few words: what it works on, holds; shown under its name, the trash too, to find it "
             "again), its category (ONE word: bugfix, feature, docs, refactor, research, ops...) and its tags (several short words: the topic, the project, the "
             "kind of work), the way to find and group sessions (session_list filters, search \"#tag\"). Set them when you spawn or route a session and keep them "
@@ -303,7 +314,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     static const std::map<std::string, std::string> commands = {
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"work_method", "work_method"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
-        {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
+        {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"taxonomy", "taxonomy"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_edit", "schedule_edit"}, {"schedule_act", "schedule_act"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
         } else if (name == "session_pin" || name == "session_unpin" || name == "session_pin_get") {
             properties.erase("session");   // its own view only

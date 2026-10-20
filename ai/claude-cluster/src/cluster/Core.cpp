@@ -534,6 +534,14 @@ _cold int cluster::Core::headless_(void)
         if (v.contains("category")) request["category"] = v.at("category");
         if (v.contains("tag")) request["tags"] = value("tag");
         if (!v.contains("category") && !v.contains("tag")) word(2, "--category / --tag");
+    } else if (cmd == "taxonomy") {
+        const std::string action = w.size() > 1 ? w[1] : "list";
+        request["action"] = action;
+        if (action != "list") request["node"] = word(2, "node");
+        if (action == "set_parent") request["parent"] = w.size() > 3 ? w[3] : "";
+        else if (action == "rename") request["to"] = word(3, "new name");
+        else if (action == "merge") request["to"] = word(3, "into");
+        else if (action == "delete") request["strip"] = w.size() > 3 && w[3] == "strip";
     } else if (cmd == "web") {
         request["action"] = w.size() > 1 ? w[1] : "";
         if (request["action"] == "approve") request.update({{"id", word(2, "id")}, {"answer", w.size() > 3 ? w[3] : "allow"}});
@@ -691,6 +699,37 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
             std::cout << "certificate SHA-256 " << data.value("fingerprint", std::string()) << " (the browser asks to accept it once: compare)" << "\n";
         else if (on)
             std::cout << "plain http: no microphone in the page ([web] https = true, then claude-cluster web off / on)" << "\n";
+        return;
+    }
+    if (cmd == "taxonomy") {
+        // the forest under global: node|parent|sessions (rtk), else the indented tree
+        const cluster::Json parents = data.value("parents", cluster::Json::object());
+        const cluster::Json labels = data.value("labels", cluster::Json::object());
+        std::set<std::string> nodes;
+        for (cluster::Json::const_iterator item = parents.begin(); item != parents.end(); ++item)
+            nodes.insert(item.key());
+        for (cluster::Json::const_iterator item = labels.begin(); item != labels.end(); ++item)
+            nodes.insert(item.key());
+        const std::function<std::string(const std::string&)> parentOf = [&parents](const std::string& node) {
+            return parents.contains(node) && parents[node].is_string() ? parents[node].get<std::string>() : std::string();
+        };
+        const std::function<int(const std::string&)> count = [&labels](const std::string& node) {return labels.value(node, 0);};
+        if (rtk) {
+            std::cout << "node|parent|sessions" << "\n";
+            for (const std::string& node: nodes)
+                std::cout << node << "|" << (parentOf(node).empty() ? std::string("global") : parentOf(node)) << "|" << count(node) << "\n";
+            return;
+        }
+        const std::function<void(const std::string&, const std::string&)> show = [&](const std::string& parent, const std::string& indent) {
+            for (const std::string& node: nodes)
+                if (parentOf(node) == parent) {
+                    std::cout << indent << node << " (" << count(node) << ")" << "\n";
+                    show(node, indent + "  ");
+                }
+        };
+        std::cout << "global" << "\n";
+        show("", "  ");
+        std::cout << "set the parent: claude-cluster taxonomy set_parent <node> [parent] · rename / merge <node> <name> · delete <node> [strip]" << "\n";
         return;
     }
     if (cmd == "list") {

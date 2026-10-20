@@ -86,6 +86,8 @@ _cold const std::vector<cluster::Command>& cluster::commands(void)
         {"rename", "<s> <name>", "rename a session", {"session", "text"}},
         {"describe", "<s> [text]", "the short description of a session (none: written again by claude-cluster)", {"session", "text"}},
         {"label", "<s> --category <c> --tag <a,b>", "category (one word) and tags of a session (empty: removed); list filters: --category, --tag, --state", {"session"}},
+        {"taxonomy", "[list|set_parent <node> [parent]|rename <node> <new>|merge <node> <into>|delete <node> [strip]]",
+            "the tree of the categories and tags (each node has a parent, none: under global); no argument: shows it", {}},
         {"continue", "<s>", "a session goes on where it stopped (interrupted, an error); a retry of the API waited: now", {"session"}},
         {"cd", "<s> <folder>", "move a session to another project", {"session", "folder"}},
         {"close", "<s>", "close a session (to the trash)", {"session"}},

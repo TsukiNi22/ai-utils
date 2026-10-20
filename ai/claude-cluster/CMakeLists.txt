@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.61 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.63 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -85,6 +85,8 @@ set(SRC
     src/cluster/RunProfile.cpp
     src/cluster/Manager-Usage.cpp
     src/cluster/Manager-Describe.cpp
+    src/cluster/Taxonomy.cpp
+    src/cluster/Manager-Taxonomy.cpp
     src/cluster/Manager-Method.cpp
     src/cluster/Manager-Groups.cpp
     src/cluster/Manager-Replica.cpp

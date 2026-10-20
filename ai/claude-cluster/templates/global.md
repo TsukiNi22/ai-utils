@@ -49,6 +49,8 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
   `feature`, `docs`, `refactor`, `research`, `ops`...; the tags = the topic / project / area) and keep them true when its
   topic moves; reuse the words of `session_list` instead of inventing near-duplicates. The user finds, filters and groups
   the sessions by them (`search "#tag"`); no model is called, the values are yours.
+- `taxonomy`: the tree of the categories / tags (`list`, `set_parent` node parent, `rename`, `merge`, `delete`). Group the tags you reuse under one broader node
+  (`api`, `db` under `backend`) so the graph and the grouped list stay readable; a `session_list` filter on a node includes what is below it.
 - `session_interrupt`, `session_close` (to the trash, restorable), `session_restore`, `session_rename`, `session_cd`.
 - `session_trash`, `session_purge`: the closed sessions, delete one (or `*`: all) for good - irreversible, only when
   the user asked for it.

@@ -65,6 +65,10 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"start_over", "Start over: every sub-session to the trash (restorable), the queued tasks cancelled, a new conversation for the global session",
             "type yes to confirm", "", false},
         {"group", std::string("Group the session list by category: ") + (manager.ui("group_by_category", config.groupByCategory ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
+        {"taxonomy_parent", "Taxonomy: set the parent of a category / tag (the graph and the grouped list nest by it; none: under global)", "node [parent]", "", false},
+        {"taxonomy_rename", "Taxonomy: rename a category / tag (on every session)", "node new-name", "", false},
+        {"taxonomy_merge", "Taxonomy: merge a category / tag into another", "node into", "", false},
+        {"taxonomy_delete", "Taxonomy: delete a node (its children go to its parent; the sessions keep the label)", "node", "", false},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
         {"new_project", "New session on a project of this computer (search it by its name)", "", "", true},
@@ -275,6 +279,13 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             if (local) result = *local;
             else manager.send(session, input);
             manager.addHistory({input, {}, {}}, session);
+        } else if (base.starts_with("taxonomy_")) {
+            const std::vector<std::string> parts = cluster::split(cluster::trim(input), ' ');
+            const std::string kind = base.substr(9); // parent | rename | merge | delete
+            if (parts.empty() || parts[0].empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "give the node first: <node> [parent]");
+            if ((kind == "rename" || kind == "merge") && parts.size() < 2) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "give <node> <" + std::string(kind == "rename" ? "new name" : "into") + ">");
+            manager.taxonomyEdit(kind == "parent" ? "set_parent" : kind, parts[0], parts.size() > 1 ? parts[1] : "", false);
+            result.message = "taxonomy: " + kind + " " + parts[0];
         } else if (base == "group") {
             const bool on = manager.ui("group_by_category", manager.config().groupByCategory ? "true" : "false") != "true";
             manager.setUi("group_by_category", on ? "true" : "false");

@@ -932,6 +932,7 @@ _cold void cluster::Manager::adoptProvider_(cluster::SessionSpec& spec) const
 _cold void cluster::Manager::load(void)
 {
     this->startOrchestrator_(); // the heavy jobs of the sessions: queued, limited (its saved jobs settled)
+    this->loadTaxonomy_();      // the forest of the categories / tags
     if (this->_config.historyLimit > 0) // the prompt history kept to its limit at the start
         (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->_config.historyLimit), 0);
     const std::optional<cluster::Json> state = cluster::read_json(state_file_());

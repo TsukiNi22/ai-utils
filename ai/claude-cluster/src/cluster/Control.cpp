@@ -575,9 +575,18 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             for (const std::string& tag: request.value("tags", std::vector<std::string>()))
                 wantedTags.push_back(cluster::clean_label(tag));
             const std::string state = cluster::lower(request.value("state", std::string("open")));
+            // the taxonomy: a category / tag also matches the sessions under the labels below it (descendants: false, only itself);
+            // under: every session below a node of the taxonomy
+            const cluster::Taxonomy taxonomy = manager.taxonomy();
+            const bool below = request.value("descendants", true);
+            const std::string under = cluster::clean_label(request.value("under", std::string()));
             const std::function<bool(const cluster::SessionSpec&)> matches = [&](const cluster::SessionSpec& spec) {
-                if (!category.empty() && spec.category != category) return false;
-                return std::all_of(wantedTags.begin(), wantedTags.end(), [&spec](const std::string& tag) {return std::find(spec.tags.begin(), spec.tags.end(), tag) != spec.tags.end();});
+                if (!under.empty() && !taxonomy.under(spec, under, below)) return false;
+                if (!category.empty() && !taxonomy.scope(category, below).contains(spec.category)) return false;
+                return std::all_of(wantedTags.begin(), wantedTags.end(), [&](const std::string& tag) {
+                    const std::set<std::string> accepted = taxonomy.scope(tag, below);
+                    return std::any_of(spec.tags.begin(), spec.tags.end(), [&accepted](const std::string& own) {return accepted.contains(own);});
+                });
             };
             data = cluster::Json::array();
             if (state != "archived" && state != "trash")
@@ -761,6 +770,28 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 manager.label(arg_(request, "session"), request.contains("category") ? std::optional<std::string>(request.value("category", std::string())) : std::nullopt,
                     request.contains("tags") ? std::optional<std::vector<std::string>>(words("tags")) : std::nullopt, words("add_tags"), words("remove_tags"));
             }
+        } else if (cmd == "taxonomy") {
+            // the forest of the categories / tags: list (default) | set_parent (node, parent: none = under global) | rename (node, to) | delete (node, strip)
+            // | merge (node, into); the global session only when the setting allows it
+            const std::string action = arg_(request, "action", "list");
+            if (action != "list") {
+                if (from_global && !manager.config().taxonomyEdit)
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session may not edit the taxonomy (setting "
+                        "\"Global session can edit the taxonomy\" is off): tell the user, they set the parent by hand (graph, palette, claude-cluster taxonomy)");
+                std::string other = arg_(request, "to");
+                if (other.empty()) other = arg_(request, "parent");
+                if (other.empty()) other = arg_(request, "into");
+                manager.taxonomyEdit(action, arg_(request, "node"), other, request.value("strip", false));
+            }
+            data = manager.taxonomyJson();
+            cluster::Json labels = cluster::Json::object(); // every label used by a live session, with its number of sessions
+            for (const cluster::Snapshot& snap: manager.list(false)) {
+                std::set<std::string> own(snap.spec.tags.begin(), snap.spec.tags.end());
+                if (!snap.spec.category.empty()) own.insert(snap.spec.category);
+                for (const std::string& label: own)
+                    labels[label] = labels.value(label, 0) + 1;
+            }
+            data["labels"] = labels;
         } else if (cmd == "work_method") {
             // read (default), sample (the habits of the user, for the detection) or propose (the user answers Allow / Deny); never written here
             const std::string action = arg_(request, "action", "read");
