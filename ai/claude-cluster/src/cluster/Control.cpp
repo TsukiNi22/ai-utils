@@ -494,7 +494,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "send") {
             // a local /command (/clear, /model, /mode...) runs here like typed in the prompt, the others go to the agent
             const std::string id = session();
-            const std::string text = arg_(request, "text");
+            const std::string text = arg_(request, "text", arg_(request, "prompt")); // "prompt": the name used by session_spawn
+            if (cluster::trim(text).empty() && request.value("images", std::vector<std::string>()).empty())
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "empty prompt: give the text to send in 'text'");
             if (const std::string typed = cluster::trim(text); from_web && !manager.config().web.shell && (typed.starts_with("!")
                 || (typed.starts_with(":") && typed.find('!') != std::string::npos))) // the page and its terminal: the shell only when the computer allows it
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page)");

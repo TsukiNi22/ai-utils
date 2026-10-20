@@ -206,6 +206,13 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     request["origin"] = "mcp"; // the global session: the limits the user set for it
     request["tool"] = name;    // off in the settings (MCP page): refused
     if (name == "session_list") request["global"] = false; // the global session lists the others
+    if (name == "session_send" && !request.contains("text")) { // the model names it like the prompt of session_spawn: never sent empty
+        for (const char* alias: {"prompt", "message", "content"})
+            if (request.contains(alias)) {
+                request["text"] = request[alias];
+                break;
+            }
+    }
     if (name == "session_send" && !request.contains("reply")) request["reply"] = true; // its answer comes back (no polling)
     if (name == "session_send") request["from"] = "global"; // marked for the sub-session: a compact answer, for a model
     cluster::Json response;

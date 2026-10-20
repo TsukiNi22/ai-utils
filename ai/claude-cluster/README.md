@@ -365,6 +365,8 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   parallel). Local only; the global session reads it for a request about a local project, the user or the system;
 - the answer of a sub-session it asked (`session_send`) **comes back to it** as a message `[reply from <name> (<id>)]`
   when the sub-session is done: no polling of `session_read` (each read costs a whole context);
+  the text goes in `text` (`prompt` / `message` / `content` are taken too); a send with no text is refused, never sent as an
+  empty `[from the global session]` prompt (`tests/send_prompt.sh` checks it with a fake `claude`);
 - **notifications** (`[ui] notify`, `notify_global` / `notify_done` / `notify_permission` / `notify_sound`): the end of
   its answers, of the turns of the sub-sessions, a permission waiting; failsafe (no `notify-send`: nothing). See
   [The icon and the notifications](#the-icon-and-the-notifications);
