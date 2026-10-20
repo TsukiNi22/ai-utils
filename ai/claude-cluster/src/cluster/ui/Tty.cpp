@@ -4742,10 +4742,11 @@ class TtyUi {
                 const std::size_t inner = static_cast<std::size_t>(std::max(30, std::min(92, this->_screen.dimx() - 8)));
                 for (int i = 0; i <= static_cast<int>(options.size()); ++i) {
                     const bool other = i == static_cast<int>(options.size());
+                    const bool recorded = !multi && !other && a.answers.value(q.value("question", std::string()), std::string()) == options[static_cast<std::size_t>(i)].value("label", std::string());
                     const std::string mark = multi ? (a.picked.contains(i) || (other && !a.other.empty()) ? "[x] " : "[ ] ") : (i == a.cursor ? "› " : "  ");
                     const std::string head = " " + mark + std::to_string(i + 1) + ". ";
                     const std::string indent(static_cast<std::size_t>(width_(head)), ' ');
-                    const std::string label = other ? "Other: " + (i == a.cursor ? this->_askOther.shown() : a.other) : options[static_cast<std::size_t>(i)].value("label", std::string());
+                    const std::string label = other ? "Other: " + (i == a.cursor ? this->_askOther.shown() : a.other) : options[static_cast<std::size_t>(i)].value("label", std::string()) + (recorded ? "  ✔" : "");
                     const std::string description = other ? "" : options[static_cast<std::size_t>(i)].value("description", std::string());
                     std::vector<std::string> labelLines = wrap_(label, inner - static_cast<std::size_t>(width_(head)));
                     if (labelLines.empty()) labelLines.push_back("");
@@ -4765,12 +4766,12 @@ class TtyUi {
                         }));
                 }
                 lines.push_back(ftxui::text(""));
-                lines.push_back(ftxui::hbox({ftxui::text(std::string(" ↑↓ / 1-9 choose · ") + (multi ? "Space / a click tick · " : "")),
-                    press(ftxui::text(std::string(multi ? "Enter validates the ticked ones (none too), " : "Enter ") + (a.index + 1 < a.questions.size() ? "next" : "answer")),
-                        ftxui::Event::Return),
-                    a.index > 0 ? press(ftxui::text(" · ← / Shift+Tab back"), ftxui::Event::ArrowLeft) : ftxui::emptyElement(),
-                    a.questions.size() > 1 ? press(ftxui::text(a.index + 1 < a.questions.size() ? " · → / Tab next (answered or not)" : " · → / Tab review"), ftxui::Event::ArrowRight)
-                        : ftxui::emptyElement(), ftxui::text(" · type on Other · "),
+                const bool lastOne = a.index + 1 >= a.questions.size();
+                lines.push_back(ftxui::hbox({ftxui::text(" ↑↓ move · 1-9 "), ftxui::text(multi ? "tick · " : "choose · "),
+                    multi ? ftxui::hbox({press(ftxui::text("Enter / Space tick"), ftxui::Event::Return), ftxui::text(" · ")}) : press(ftxui::text("Enter validates · "), ftxui::Event::Return),
+                    a.index > 0 ? press(ftxui::text("← / Shift+Tab back · "), ftxui::Event::ArrowLeft) : ftxui::emptyElement(),
+                    a.questions.size() > 1 || multi ? press(ftxui::text(lastOne ? (a.questions.size() > 1 ? "→ / Tab review · " : "→ / Tab send · ") : "→ / Tab next (the answer kept) · "), ftxui::Event::ArrowRight)
+                        : ftxui::emptyElement(), ftxui::text("type on Other · "),
                     press(ftxui::text("Esc decline"), ftxui::Event::Escape)}) | ftxui::color(this->_theme.muted) | ftxui::dim);
                 // "Chat about this": a side chat about the questions (the session untouched), in its own area: wrapped, within a
                 // height that keeps the popup inside the screen, scrolled (the newest at the bottom)
@@ -5491,15 +5492,16 @@ class TtyUi {
                     } else if (event == ftxui::Event::ArrowDown) {
                         asking.move(1);
                     } else if (event == ftxui::Event::Tab) { // like Claude Code: Tab / Shift+Tab between the questions
-                        (void)asking.forward();
+                        if (!asking.forward()) this->status_("choose an option first (Enter)", true);
                     } else if (event == ftxui::Event::TabReverse) {
                         asking.back();
                     } else if (event == ftxui::Event::ArrowLeft && (ask->cursor != count || (this->_askOther.text.empty() && ask->index > 0))) {
                         asking.back(); // ← on an option, or on an empty Other: the question before
                     } else if (event == ftxui::Event::ArrowRight && (ask->cursor != count || this->_askOther.cursor >= this->_askOther.text.size())) {
-                        (void)asking.forward(); // the next question, answered or not (the review flags the ones left)
+                        if (!asking.forward()) this->status_("choose an option first (Enter)", true); // the next question, answered or not (the review flags the ones left)
                     } else if (event == ftxui::Event::Return) {
-                        this->askNext_(); // several choices: the ones ticked (Space), none is an answer too
+                        if (multi) asking.toggle(); // several choices: Enter ticks / unticks (Tab / → goes on)
+                        else this->askNext_();      // one choice: the option under the cursor is the answer
                     } else if (ask->cursor == count && this->_askOther.key(event, key)) {
                         // on Other: the answer edited with its cursor (digits and spaces too), the question told at each change
                         if (this->_askOther.text != ask->other) asking.setOther(this->_askOther.text);

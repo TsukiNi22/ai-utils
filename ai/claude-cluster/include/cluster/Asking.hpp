@@ -49,6 +49,7 @@ struct Ask {
     std::string other;              // the answer typed
     cluster::Json answers = cluster::Json::object();
     std::vector<std::pair<std::string, std::string>> chat;   // "Chat about this": <user | assistant, text>, the session never touched
+    bool touched = false;           // the cursor or the answer of the question shown acted on (voice: a bare "next" needs it)
     bool chatting = false;          // an answer of the chat awaited
     bool fix = false;               // taken from the review to a question not answered: once answered, back to the review
     bool review = false;            // several questions, all answered: the review (Submit sends, Cancel declines, back edits the last one)
@@ -98,13 +99,13 @@ class Asking {
         _cold _nodiscard std::optional<cluster::Ask> current(void) const;
         _cold void move(const int delta);       // the option above / below
         _cold void choose(const int option);    // an option (multi choice: ticked / unticked); the one after the last: Other
-        _cold void toggle(void);                // multi choice: the option of the cursor ticked / unticked
+        _cold void toggle(void);                // multi choice: the option of the cursor ticked / unticked (recorded at once)
         _cold void type(const std::string& text);       // Other: text added
         _cold void erase(void);                 // Other: its last character
         _cold void setOther(const std::string& text);   // Other: this answer
         _cold _nodiscard std::string next(void);        // the answer recorded: the next question, or all sent ("" or why not)
         _cold void back(void);                  // the previous question
-        _cold bool forward(void);               // the next one, when the one shown is answered and unchanged
+        _cold bool forward(void);               // the next one (answered or not), no answer touched; the only question: sent once answered
         _cold void decline(void);
         _cold _nodiscard std::string toGlobal(void);    // the whole set answered by the global session (what it did, or why not)
         _cold _nodiscard std::string chat(const std::string& text);    // "Chat about this": a message (answered in the background; "" sent)

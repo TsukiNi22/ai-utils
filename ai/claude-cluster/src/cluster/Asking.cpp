@@ -42,6 +42,63 @@ _cold static bool is_(const std::string& key, const std::vector<std::string>& wo
     return std::any_of(words.begin(), words.end(), [&key](const std::string& word) {return cluster::vocabulary_key(word) == key;});
 }
 
+_cold static void restore_(cluster::Ask& a)
+{
+    // the question shown, as it was answered (the option marked, the ticks, the Other text), else the first option; the cursor
+    // moved while browsing is never kept
+    a.touched = false;
+    a.cursor = 0;
+    a.picked.clear();
+    a.other.clear();
+    const auto kept = a.given.find(a.index);
+    if (kept != a.given.end()) {
+        a.cursor = kept->second.cursor;
+        a.picked = kept->second.picked;
+        a.other = kept->second.other;
+        return;
+    }
+    const cluster::Json& q = a.questions[a.index];
+    const std::string previous = a.answers.value(q.value("question", std::string()), std::string());
+    if (previous.empty()) return;
+    // answered by another way (the voice, the page): from its text
+    const cluster::Json options = q.value("options", cluster::Json::array());
+    const bool multi = q.value("multiSelect", false);
+    bool found = false;
+    for (std::size_t i = 0; i < options.size(); ++i) {
+        const std::string label = options[i].value("label", std::string());
+        if (multi ? previous == label || previous.find(label + ", ") != std::string::npos || previous.ends_with(", " + label) : previous == label) {
+            if (!found) a.cursor = static_cast<int>(i);
+            if (multi) a.picked.insert(static_cast<int>(i));
+            found = true;
+        }
+    }
+    if (!found) { // a typed answer: on Other
+        a.cursor = static_cast<int>(options.size());
+        a.other = previous;
+    }
+}
+
+_cold static void record_(cluster::Ask& a)
+{
+    // a multi choice: the answer is the ticked options (and the Other text), recorded at each tick; none ticked: no answer
+    const cluster::Json& q = a.questions[a.index];
+    const cluster::Json options = q.value("options", cluster::Json::array());
+    const int count = static_cast<int>(options.size());
+    std::string value;
+    for (const int i: a.picked) {
+        const std::string part = cluster::trim(i < count ? options[static_cast<std::size_t>(i)].value("label", std::string()) : i == count ? a.other : std::string());
+        if (!part.empty()) value += (value.empty() ? "" : ", ") + part;
+    }
+    const std::string question = q.value("question", std::string());
+    if (value.empty()) {
+        a.answers.erase(question);
+        a.given.erase(a.index);
+        return;
+    }
+    a.answers[question] = value;
+    a.given[a.index] = {a.cursor, a.picked, a.other};
+}
+
 /* constructor */
 _cold cluster::Asking::Asking(cluster::Manager& manager)
     : _manager(manager)
@@ -182,6 +239,7 @@ _cold void cluster::Asking::move(const int delta)
 {
     if (this->_manager.replica()) {
         this->local_([delta](cluster::Ask& a) {
+            a.touched = true;
             const int count = static_cast<int>(a.questions[a.index].value("options", cluster::Json::array()).size());
             a.cursor = std::clamp(a.cursor + delta, 0, count);
         });
@@ -193,6 +251,7 @@ _cold void cluster::Asking::move(const int delta)
     if (!this->_ask) return;
     const int count = static_cast<int>(this->_ask->questions[this->_ask->index].value("options", cluster::Json::array()).size());
     this->_ask->cursor = std::clamp(this->_ask->cursor + delta, 0, count);
+    this->_ask->touched = true; // only the cursor: no answer recorded
     ++this->_version;
 }
 
@@ -216,7 +275,11 @@ _cold void cluster::Asking::choose(const int option)
     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
     if (option < 0 || option > count) return;
     this->_ask->cursor = option;
-    if (q.value("multiSelect", false) && option < count && !this->_ask->picked.erase(option)) this->_ask->picked.insert(option);
+    this->_ask->touched = true;
+    if (q.value("multiSelect", false)) {
+        if (option < count && !this->_ask->picked.erase(option)) this->_ask->picked.insert(option);
+        record_(*this->_ask); // a multi choice: the answer follows the ticks
+    }
     ++this->_version;
 }
 
@@ -231,8 +294,10 @@ _cold void cluster::Asking::toggle(void)
     }
 
     std::lock_guard<std::mutex> lock(this->_mutex);
-    if (!this->_ask) return;
+    if (!this->_ask || !this->_ask->questions[this->_ask->index].value("multiSelect", false)) return;
     if (!this->_ask->picked.erase(this->_ask->cursor)) this->_ask->picked.insert(this->_ask->cursor);
+    this->_ask->touched = true;
+    record_(*this->_ask);
     ++this->_version;
 }
 
@@ -251,6 +316,11 @@ _cold void cluster::Asking::type(const std::string& text)
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     this->_ask->other += text;
+    this->_ask->touched = true;
+    if (this->_ask->questions[this->_ask->index].value("multiSelect", false)) {
+        this->_ask->picked.insert(static_cast<int>(this->_ask->questions[this->_ask->index].value("options", cluster::Json::array()).size()));
+        record_(*this->_ask);
+    }
     ++this->_version;
 }
 
@@ -271,6 +341,7 @@ _cold void cluster::Asking::erase(void)
     std::string& other = this->_ask->other;
     while (!other.empty() && (static_cast<unsigned char>(other.back()) & 0xC0) == 0x80) other.pop_back();
     if (!other.empty()) other.pop_back();
+    if (this->_ask->questions[this->_ask->index].value("multiSelect", false)) record_(*this->_ask);
     ++this->_version;
 }
 
@@ -294,7 +365,11 @@ _cold void cluster::Asking::setOther(const std::string& text)
     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
     this->_ask->other = text;
     this->_ask->cursor = count;
-    if (q.value("multiSelect", false)) this->_ask->picked.insert(count);
+    this->_ask->touched = true;
+    if (q.value("multiSelect", false)) {
+        this->_ask->picked.insert(count);
+        record_(*this->_ask);
+    }
     ++this->_version;
 }
 
@@ -312,15 +387,6 @@ _cold std::string cluster::Asking::next(void)
 
     std::lock_guard<std::mutex> lock(this->_mutex);
     return this->next_();
-}
-
-_cold static void restore_(cluster::Ask& a)
-{
-    // the question shown: its kept selection (answered or not), else the first option
-    const auto kept = a.given.find(a.index);
-    a.cursor = kept != a.given.end() ? kept->second.cursor : 0;
-    a.picked = kept != a.given.end() ? kept->second.picked : std::set<int>();
-    a.other = kept != a.given.end() ? kept->second.other : std::string();
 }
 
 _cold std::string cluster::Asking::next_(void)
@@ -385,8 +451,8 @@ _cold std::string cluster::Asking::next_(void)
 
 _cold bool cluster::Asking::forward(void)
 {
-    // → : the next question, answered or not (its selection kept to come back to, not recorded as an answer); on the last one:
-    // the review, which flags the questions not answered
+    // → / Tab: the next question, answered or not; no answer is recorded or changed by it (the review flags the questions not
+    // answered); on the only question: sent, once it is answered (a multi choice: as ticked, none is an answer too)
     if (this->_manager.replica()) {
         this->flush_();
         try {
@@ -399,11 +465,6 @@ _cold bool cluster::Asking::forward(void)
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask || this->_ask->review) return false;
     cluster::Ask& a = *this->_ask;
-    const std::string question = a.questions[a.index].value("question", std::string());
-    const auto kept = a.given.find(a.index);
-    const bool unchanged = kept != a.given.end() && kept->second.cursor == a.cursor && kept->second.picked == a.picked && kept->second.other == a.other;
-    if (a.answers.contains(question) && unchanged) return this->next_().empty(); // answered, as it was: on with it
-    a.given[a.index] = {a.cursor, a.picked, a.other};
     if (a.index + 1 < a.questions.size()) {
         ++a.index;
         restore_(a);
@@ -415,7 +476,11 @@ _cold bool cluster::Asking::forward(void)
         ++this->_version;
         return true;
     }
-    return false;
+    const cluster::Json& q = a.questions[a.index];
+    if (q.value("multiSelect", false)) return this->next_().empty();
+    if (!a.answers.contains(q.value("question", std::string()))) return false; // nothing validated: Enter on an option
+    a.review = true;
+    return this->next_().empty(); // sends what is recorded
 }
 
 _cold void cluster::Asking::back(void)
@@ -433,40 +498,13 @@ _cold void cluster::Asking::back(void)
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (this->_ask && this->_ask->review) { // the review left: the last question, as answered
         this->_ask->review = false;
+        restore_(*this->_ask);
         ++this->_version;
         return;
     }
     if (!this->_ask || this->_ask->index == 0) return;
-    cluster::Ask& a = *this->_ask;
-    a.given[a.index] = {a.cursor, a.picked, a.other}; // what is on this one so far: kept for the way forward
-    --a.index;
-    // its answer back as it was given (the option, the ticks, the Other text)
-    const auto kept = a.given.find(a.index);
-    if (kept != a.given.end()) {
-        a.cursor = kept->second.cursor;
-        a.picked = kept->second.picked;
-        a.other = kept->second.other;
-    } else { // answered by another way (the voice, the page): from its text
-        const cluster::Json& q = a.questions[a.index];
-        const std::string previous = a.answers.value(q.value("question", std::string()), std::string());
-        const cluster::Json options = q.value("options", cluster::Json::array());
-        a.cursor = 0;
-        a.picked.clear();
-        a.other.clear();
-        bool found = false;
-        for (std::size_t i = 0; i < options.size(); ++i) {
-            const std::string label = options[i].value("label", std::string());
-            if (previous == label || previous.find(label + ", ") != std::string::npos || previous.ends_with(", " + label)) {
-                a.cursor = static_cast<int>(i);
-                a.picked.insert(static_cast<int>(i));
-                found = true;
-            }
-        }
-        if (!found && !previous.empty()) { // a typed answer: on Other
-            a.cursor = static_cast<int>(options.size());
-            a.other = previous;
-        }
-    }
+    --this->_ask->index; // its answer back as it was given, what was only browsed on this one dropped
+    restore_(*this->_ask);
     ++this->_version;
 }
 
@@ -599,6 +637,9 @@ _cold std::string cluster::Asking::spoken(const std::string& sentence)
         return "question declined";
     }
     if (is_(key, words.send) || is_(key, words.next)) {
+        const cluster::Json& shown = ask->questions[ask->index];
+        if (!ask->review && !shown.value("multiSelect", false) && !ask->touched && !ask->answers.contains(shown.value("question", std::string())))
+            return "choose an option first (a number, or its name)"; // the cursor alone is not an answer
         const std::string why = this->next();
         return why.empty() ? (this->current() ? "next question" : "answered") : why;
     }

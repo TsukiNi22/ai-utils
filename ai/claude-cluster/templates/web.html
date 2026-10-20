@@ -1803,8 +1803,14 @@ function renderQuestion(a) {
         input.type = multi ? "checkbox" : "radio";
         input.name = "question";
         input.checked = multi ? (a.picked || []).includes(i) : a.cursor === i;
-        input.addEventListener("change", () => act({cmd: "ask", action: "choose", option: i}));
-        label.append(input, document.createTextNode(" " + (i + 1) + ". " + o.label + " "));
+        // several choices: a click ticks / unticks (recorded at once); one choice: a click validates it (the question goes on)
+        input.addEventListener("change", async () => {
+            if (multi) { act({cmd: "ask", action: "choose", option: i}); return; }
+            await cmd({cmd: "ask", action: "choose", option: i});
+            act({cmd: "ask", action: "next"});
+        });
+        const recorded = !multi && (a.answers || {})[q.question] === o.label;
+        label.append(input, document.createTextNode(" " + (i + 1) + ". " + o.label + (recorded ? " ✔" : "") + " "));
         if (o.description) { const d = document.createElement("small"); d.textContent = o.description; label.append(d); }
         box.append(label);
     });
@@ -1823,10 +1829,16 @@ function renderQuestion(a) {
         return b;
     };
     if (a.index > 0) row.append(button("Back", "", () => act({cmd: "ask", action: "back"})));
-    row.append(button(a.index + 1 < a.questions.length ? "Next" : "Answer", "primary", async () => {
+    // one choice: Validate records the option under the cursor (or the Other text); Next only goes on (the answer kept as it is)
+    const last = a.index + 1 >= a.questions.length;
+    if (!multi) row.append(button(last && a.questions.length === 1 ? "Answer" : "Validate", "primary", async () => {
         if (other.value && other.value !== (a.other || "")) await cmd({cmd: "ask", action: "other", text: other.value});
         act({cmd: "ask", action: "next"});
-    }), button("Decline", "danger", () => act({cmd: "ask", action: "decline"})));
+    }));
+    row.append(...(a.questions.length > 1 || multi ? [button(last ? (a.questions.length > 1 ? "Review" : "Answer") : "Next", multi ? "primary" : "", async () => {
+        if (multi && other.value && other.value !== (a.other || "")) await cmd({cmd: "ask", action: "other", text: other.value});
+        act({cmd: "ask", action: "forward"});
+    })] : []), button("Decline", "danger", () => act({cmd: "ask", action: "decline"})));
     if (a.session !== "g") row.append(button("Global answers", "", () => act({cmd: "ask", action: "global"}).then((d) => { if (d && d.done) toast(d.done); })));
     // "Chat about this": a side chat about the questions, in the popup (the session untouched)
     const chat = el("div", "ask-chat");
@@ -1843,7 +1855,7 @@ function renderQuestion(a) {
     });
     chat.append(chatInput);
     const hint = document.createElement("small");
-    hint.textContent = "voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule";
+    hint.textContent = (multi ? "tick the options, then Next · " : "a click or Validate records the answer, Next keeps it as it is · ") + "voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule";
     hint.style.color = "var(--muted)";
     box.append(row, chat, hint);
 }

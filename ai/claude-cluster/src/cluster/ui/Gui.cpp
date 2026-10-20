@@ -2774,12 +2774,24 @@ class Window: public QMainWindow {
                 QAbstractButton* other = nullptr;
                 QLineEdit* text = nullptr;
             };
+            struct EnterTicks: QObject {
+                bool eventFilter(QObject* watched, QEvent* event) override
+                {
+                    QKeyEvent* key = event->type() == QEvent::KeyPress ? static_cast<QKeyEvent*>(event) : nullptr;
+                    QAbstractButton* button = qobject_cast<QAbstractButton*>(watched);
+                    if (!key || !button || (key->key() != Qt::Key_Return && key->key() != Qt::Key_Enter)) return false;
+                    button->toggle();
+                    return true;
+                }
+            } enterTicks;
             QDialog dialog(this);
             dialog.setWindowTitle(q_(ask.name + " asks"));
             dialog.setMinimumWidth(560);
             QVBoxLayout* layout = new QVBoxLayout(&dialog);
             std::vector<Row> rows;
             bool syncing = false;
+            std::size_t lastIndex = ask.index; // the cursor of the model followed only when it moves (the voice), never as a default answer
+            int lastCursor = ask.cursor;
             for (const cluster::Json& q: ask.questions) {
                 const bool multi = q.value("multiSelect", false);
                 QLabel* title = new QLabel(q_((q.value("header", std::string()).empty() ? "" : q.value("header", std::string()) + "  ·  ") + q.value("question", std::string())), &dialog);
@@ -2794,6 +2806,7 @@ class Window: public QMainWindow {
                     const QString label = q_(option.value("label", std::string()) + (description.empty() ? "" : "   -  " + description));
                     QAbstractButton* button = multi ? static_cast<QAbstractButton*>(new QCheckBox(label, &dialog)) : new QRadioButton(label, &dialog);
                     group->addButton(button);
+                    if (multi) button->installEventFilter(&enterTicks); // Enter ticks / unticks (never the Answer button)
                     layout->addWidget(button);
                     row.options.push_back(button);
                 }
@@ -2805,7 +2818,7 @@ class Window: public QMainWindow {
                 other->addWidget(row.other);
                 other->addWidget(row.text, 1);
                 layout->addLayout(other);
-                if (!multi && !row.options.empty()) row.options.front()->setChecked(true);
+                // one choice: none ticked until the user picks one (the cursor of the model is never an answer)
                 rows.push_back(row);
             }
             // a click on the question being answered: the shared model too (the voice goes on from it)
@@ -2886,15 +2899,22 @@ class Window: public QMainWindow {
                     const int count = static_cast<int>(rows[k].options.size());
                     for (int i = 0; i < count; ++i) {
                         const std::string label = rows[k].question["options"][static_cast<std::size_t>(i)].value("label", std::string());
-                        const bool on = k < now->index ? recorded == label || recorded.find(label + ", ") != std::string::npos || recorded.ends_with(", " + label)
-                            : rows[k].question.value("multiSelect", false) ? now->picked.contains(i) : now->cursor == i;
-                        rows[k].options[static_cast<std::size_t>(i)]->setChecked(on);
+                        const bool multi = rows[k].question.value("multiSelect", false);
+                        if (multi && k == now->index) {
+                            rows[k].options[static_cast<std::size_t>(i)]->setChecked(now->picked.contains(i));
+                        } else if (multi || k < now->index) { // a question left: its recorded answer
+                            if (!recorded.empty()) rows[k].options[static_cast<std::size_t>(i)]->setChecked(multi ? recorded == label || recorded.find(label + ", ") != std::string::npos || recorded.ends_with(", " + label) : recorded == label);
+                        } else if (now->cursor == i && (now->index != lastIndex || now->cursor != lastCursor)) { // moved by the voice
+                            rows[k].options[static_cast<std::size_t>(i)]->setChecked(true);
+                        }
                     }
                     if (k == now->index) {
-                        if (now->cursor == count) rows[k].other->setChecked(true);
+                        if (now->cursor == count && (now->index != lastIndex || now->cursor != lastCursor)) rows[k].other->setChecked(true);
                         if (rows[k].text->text().toStdString() != now->other) rows[k].text->setText(q_(now->other));
                     }
                 }
+                lastIndex = now->index;
+                lastCursor = now->cursor;
                 syncing = false;
             });
             timer.start(200);
