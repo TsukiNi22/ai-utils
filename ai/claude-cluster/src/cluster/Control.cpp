@@ -862,7 +862,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the update is chosen by the user, in a terminal or a window of claude-cluster");
             data = {{"done", manager.upgradeAct(arg_(request, "action"))}};
         } else if (cmd == "models_policy") {
-            data = cluster::policy_json(manager.config());
+            data = manager.modelsPolicyJson();
         } else if (cmd == "plugins_refresh") {
             manager.pluginsRefresh();
         } else if (cmd == "display_act") {

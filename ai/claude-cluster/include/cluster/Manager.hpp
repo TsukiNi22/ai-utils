@@ -139,8 +139,9 @@ class Manager {
         std::set<std::string> _failureGone;        // the ones of the core answered here (until its next sync)
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
         std::atomic<bool> _pluginsBusy{false};     // plugins of repositories: listed / installed by a thread
-        cluster::Json _accounts;                   // accountsJson() kept (the state of a provider can start a process)
+        cluster::Json _accountsProviders;          // the state of the providers (a keyring read starts a process: read in a thread, kept)
         std::int64_t _accountsAt = 0;
+        std::atomic<bool> _accountsBusy{false};
         std::map<std::string, std::function<void(const std::string&)>> _coreAsks;   // the questions of the core waiting for their answer
         std::atomic<int> _coreAskN{0};
         std::string _upgradeVersion;               // a newer binary installed (offered), its version ignored, the binary seen
@@ -258,6 +259,7 @@ class Manager {
         _cold void pluginsRefresh(void);                     // the plugin sources pulled / listed again, the ticks applied
         _cold void askUser(const std::string& session, const std::string& header, const std::string& question, const std::vector<std::pair<std::string, std::string>>& options,
             const std::function<void(const std::string&)>& onAnswer);                 // the core asks the user (a popup on every interface): the label chosen, or "deny"
+        _cold _nodiscard cluster::Json modelsPolicyJson(void);        // the policy + the models (tier, price, the user's cost), the efforts, the limits: the tool of the global session
         _cold std::string modelChange(const std::string& id, const std::string& model, const std::string& effort, const bool gated); // gated: the policy of the global session
         _cold std::function<void(const std::string&)> takeCoreAsk_(const std::string& requestId);   // the callback of a question of the core, once
         _cold _nodiscard double spent(const std::int64_t since) const;      // what the sessions spent since then (the scope of [limits])

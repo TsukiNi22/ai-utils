@@ -498,6 +498,14 @@ the sub-sessions** itself (`session_set_model`, `session_spawn`, `/model` and `/
 | Allowed models / thinking | the only ones it may choose (a name or a part: `haiku, sonnet`) |
 | Ask before a costly choice | the **costly** models (`opus`, `fable`: by name or part) and efforts (`xhigh`, `max`, and above): a question on every interface (Allow / Deny, a notification) |
 
+Its system prompt always carries a **routing guide** (from the binary, `templates/routing.md`): cheap model and low
+thinking for lookups and mechanical work, balanced for ordinary coding, premium and high thinking only for hard problems;
+start low and escalate on a real failure; never move a large session to a stronger model for one step (its whole context
+is re-read at the new price) but open a new sub-session with a short brief, so no context is duplicated, one per sub-task
+that needs another model. The tool `models_policy` gives it your rules live: the models of its provider with their tier,
+price, whether they are costly / allowed and **what a turn of each really cost you**, the efforts ordered by cost, and the
+spending against your limits.
+
 A costly choice returns at once to the global session (`asked`): the session keeps its model (a new sub-session starts
 on the default) until you answer; Allow applies it (the conversation goes on) and tells the global session, Deny keeps it
 and tells it why. These questions are yours alone: the global session cannot answer them (`session_allow`, the ask

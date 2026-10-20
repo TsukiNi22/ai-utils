@@ -583,22 +583,33 @@ _cold void cluster::Manager::limitsWarn(void)
 _cold cluster::Json cluster::Manager::accountsJson(void)
 {
     if (this->_replica) return this->replicaState("accounts");
+    // the state of the providers is read in a thread of its own (the keyring of each one: seconds in all), the last reading kept
+    bool stale = false;
+    cluster::Json providers;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        if (cluster::now_ms() - this->_accountsAt < 8000 && !this->_accounts.is_null()) return this->_accounts;
+        stale = cluster::now_ms() - this->_accountsAt >= 8000;
+        providers = this->_accountsProviders;
     }
-    cluster::Json providers = cluster::Json::array();
-    for (const cluster::Provider& p: this->_auth.providers()) {
-        const auto [ready, detail] = this->_auth.status(p); // a keyring read can start a process: cached
-        providers.push_back({{"name", p.name}, {"driver", p.driver}, {"auth", p.auth == cluster::AuthKind::Key ? "key" : p.auth == cluster::AuthKind::Login ? "login" : "none"},
-            {"ready", ready}, {"detail", detail}, {"local", p.local}});
+    if (stale && !this->_accountsBusy.exchange(true)) {
+        std::thread([this]() {
+            cluster::Json list = cluster::Json::array();
+            for (const cluster::Provider& p: this->_auth.providers()) {
+                const auto [ready, detail] = this->_auth.status(p);
+                list.push_back({{"name", p.name}, {"driver", p.driver}, {"auth", p.auth == cluster::AuthKind::Key ? "key" : p.auth == cluster::AuthKind::Login ? "login" : "none"},
+                    {"ready", ready}, {"detail", detail}, {"local", p.local}});
+            }
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                this->_accountsProviders = list;
+                this->_accountsAt = cluster::now_ms();
+            }
+            ++this->_version;
+            this->_accountsBusy = false;
+        }).detach();
     }
-    cluster::Json json = {{"providers", providers}, {"spent", {{"day", this->spent(window_start_("day"))}, {"week", this->spent(window_start_("week"))},
+    return {{"providers", providers.is_array() ? providers : cluster::Json::array()}, {"spent", {{"day", this->spent(window_start_("day"))}, {"week", this->spent(window_start_("week"))},
         {"month", this->spent(window_start_("month"))}}}};
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    this->_accounts = json;
-    this->_accountsAt = cluster::now_ms();
-    return json;
 }
 
 _cold std::string cluster::Manager::authKind(const std::string& backend) const

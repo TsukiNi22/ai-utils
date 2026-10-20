@@ -105,6 +105,7 @@ _cold static std::vector<std::string> prompt_args_(const std::string& file, cons
     std::string rendering(cluster::templates::RENDERING);
     const std::size_t mark = rendering.find("<!-- global -->");
     if (mark != std::string::npos) rendering = global ? rendering.erase(mark, 15) : rendering.substr(0, mark);
+    if (global) rendering += std::string("\n") + std::string(cluster::templates::ROUTING); // how to choose the model and the thinking of the sub-sessions
     const std::string text = cluster::trim(prompt.str()).empty() ? rendering : prompt.str() + "\n" + rendering;
     return {"--append-system-prompt", text};
 }
@@ -119,6 +120,8 @@ _cold cluster::Manager::Manager(cluster::Config& config)
 _cold cluster::Manager::~Manager()
 {
     this->shutdown();
+    for (int i = 0; i < 100 && (this->_accountsBusy || this->_pluginsBusy); ++i) // the readings of the providers / the plugins end first
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     this->_usageStop = true; // the threads of the usage (a scan, a read of the account) end before anything of this manager goes
     if (this->_scanThread.joinable()) this->_scanThread.join();
     if (this->_accountThread.joinable()) this->_accountThread.join();
