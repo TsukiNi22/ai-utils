@@ -1104,7 +1104,7 @@ async function renderTasks() {
     if (tasksDrawing) return;
     tasksDrawing = true;
     try {
-        const [tasks, schedules, todos] = await Promise.all([cmd({cmd: "task_list"}), cmd({cmd: "schedule_list"}), cmd({cmd: "todos"})]);
+        const [tasks, schedules, todos, jobs] = await Promise.all([cmd({cmd: "task_list"}), cmd({cmd: "schedule_list"}), cmd({cmd: "todos"}), cmd({cmd: "orch_state"}).catch(() => null)]);
         const sessions = (lastState && lastState.sessions) || [];
         const nameOf = (id) => id === "g" ? "global" : ((sessions.find((x) => x.id === id) || {}).name || id);
         const who = (by) => !by ? "you" : nameOf(by);
@@ -1156,6 +1156,30 @@ async function renderTasks() {
             view.append(row);
         }
         if (shown.length > 12) view.append(el("div", "muted", "… +" + (shown.length - 12) + " more"));
+        // the heavy jobs of the resource orchestrator: the gauges, what runs, waits, is stopped
+        if (jobs && jobs.host) {
+            const h = jobs.host;
+            section("Heavy jobs", jobs.running + "/" + jobs.slots + " running · " + jobs.waiting + " waiting" + (jobs.stopped ? " · " + jobs.stopped + " stopped" : "") + " · profile " + jobs.profile + (jobs.enabled ? "" : " · OFF"));
+            const gauge = el("div", "muted", "load " + (h.load_per_core || 0).toFixed(1) + "/core · " + h.mem_avail_mb + " MB free · swap " + h.swap_used_mb + " MB"
+                + (h.psi_mem >= 0 ? " · stall cpu " + Math.round(h.psi_cpu) + "% mem " + Math.round(h.psi_mem) + "% io " + Math.round(h.psi_io) + "%" : "") + " · ");
+            gauge.append(el("b", jobs.level ? "reason" : "", jobs.level === 0 ? "calm" : jobs.level === 1 ? "hold: nothing new starts" : "reduce: jobs slowed"));
+            view.append(gauge);
+            if (jobs.level && jobs.pressure) view.append(el("div", "reason", "↳ " + jobs.pressure));
+            for (const j of (jobs.jobs || []).slice(0, 14)) {
+                const mark = {running: "▶", queued: "◌", stopped: "⏸", done: "✓", failed: "✗", killed: "⊘"}[j.state] || "·";
+                const row = el("div", "task-row " + (j.state === "queued" ? "queued" : j.state === "running" ? "running" : j.state === "done" ? "done" : j.state === "stopped" ? "queued" : "cancelled"));
+                const age = j.state === "queued" ? "#" + j.position + " ETA " + ago(j.eta_s || 0) : j.state === "running" ? ago(now - j.started) : j.state === "stopped" ? "stopped" : ago(now - j.ended) + " ago";
+                row.append(el("span", "mark", mark), el("span", "id", j.id), el("span", "muted", j.class), el("span", "text", j.name || j.command),
+                    el("span", "muted", "→ " + (j.session ? nameOf(j.session) : "you") + " · " + age));
+                if (j.state === "queued" && j.waiting_for) row.append(el("div", "muted", "↳ waits for " + j.waiting_for));
+                if (j.state === "stopped" || j.state === "killed" || j.state === "failed") row.append(el("div", "reason", "↳ " + j.message));
+                row.addEventListener("click", () => jobMenu(j));
+                keyed(row);
+                view.append(row);
+            }
+            for (const d of (jobs.detected || [])) view.append(el("div", "reason", "! outside the queue: " + d.command.slice(0, 100) + " (" + d.cpu_seconds + " s CPU, " + nameOf(d.session) + ")"));
+            if (!(jobs.jobs || []).length) view.append(el("div", "muted", "none: heavy commands go through cluster-run / heavy_run and wait here for a slot"));
+        }
         // the schedules
         const planned = schedules.filter((w) => !w.archived);
         planned.sort((a, b) => ((a.status === "waiting") === (b.status === "waiting") ? (a.status === "waiting" ? a.at_unix - b.at_unix : b.last - a.last) : a.status === "waiting" ? -1 : 1));
@@ -1221,6 +1245,24 @@ function taskMenu(t, told) {
     items.push({label: t.archived ? "Back in the list" : "Archive it", run: () => taskDo("task", t.id, t.archived ? "unarchive" : "archive")});
     items.push({label: "Delete it for good…", danger: true, run: () => taskDo("task", t.id, "delete", told)});
     menuOf(t.id + " · " + t.prompt.slice(0, 60), items);
+}
+async function jobDo(id, cmdName, extra) {
+    try { await act(Object.assign({cmd: cmdName, id}, extra || {})); } catch (error) { toast(error.message); }
+    renderTasks();
+}
+function jobMenu(j) {
+    const items = [];
+    const active = j.state === "queued" || j.state === "running" || j.state === "stopped";
+    if (j.state === "queued") items.push({label: "Run it first (top priority)", run: () => jobDo(j.id, "job_prio", {prio: 10})});
+    if (active) items.push({label: "Priority +1", run: () => jobDo(j.id, "job_prio", {prio: (j.prio || 0) + 1})}, {label: "Priority -1", run: () => jobDo(j.id, "job_prio", {prio: (j.prio || 0) - 1})});
+    if (j.state === "running") items.push({label: "Stop it (keeps its memory, uses no CPU)", run: () => jobDo(j.id, "job_stop")});
+    if (j.state === "stopped") items.push({label: "Resume it", run: () => jobDo(j.id, "job_resume")});
+    if (j.session) items.push({label: "Open its session", run: () => select(j.session)});
+    if (active) items.push({label: "Kill it…", danger: true, run: () => {
+        const reason = prompt("A reason (optional: told to its session)", "");
+        if (reason !== null) jobDo(j.id, "job_kill", {reason});
+    }});
+    menuOf(j.id + " · " + (j.message || j.state), items);
 }
 function schedMenu(w, told) {
     const items = [];

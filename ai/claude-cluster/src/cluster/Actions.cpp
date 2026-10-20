@@ -181,6 +181,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     for (const auto &[name, profile]: config.profiles)
         list.push_back({"profile:" + name, "New session from the profile " + name, "", "", false});
     list.push_back({"task_add", "Queue a task: [target |] prompt", "task", "", false});
+    list.push_back({"jobs_scan", "Orchestrator: scan this computer (cores, RAM, swap, GPU, power)", "", "", false});
     list.push_back({"search", "Search in the history", "text", "", false});
     list.push_back({"transcript_top", "Go to the start of the transcript", "", "", false});
     list.push_back({"transcript_bottom", "Go to the end of the transcript", "", "", false});
@@ -336,6 +337,22 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             result.ui = "pick:task:" + arg;
         } else if (base == "sched_menu") {
             result.ui = "pick:sched:" + arg;
+        } else if (base == "job_act") { // a heavy job (the orchestrator): kill | stop | resume | prio_up | prio_down | first
+            const std::size_t colon = arg.rfind(':');
+            const std::string target = arg.substr(0, colon);
+            const std::string what = colon == std::string::npos ? "" : arg.substr(colon + 1);
+            if (what == "kill") {
+                result.message = manager.jobsCommand("job_kill", {{"id", target}, {"reason", cluster::trim(input)}}).value("message", std::string("killed"));
+            } else if (what == "stop" || what == "resume") {
+                result.message = manager.jobsCommand("job_" + what, {{"id", target}}).value("message", what);
+            } else if (what == "prio_up" || what == "prio_down" || what == "first") {
+                const int current = manager.jobsCommand("job_status", {{"id", target}}).value("prio", 0);
+                result.message = manager.jobsCommand("job_prio", {{"id", target}, {"prio", what == "first" ? 10 : current + (what == "prio_up" ? 1 : -1)}}).value("message", std::string("priority changed"));
+            } else {
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "kill | stop | resume | prio_up | prio_down | first");
+            }
+        } else if (base == "jobs_scan") {
+            result.message = manager.jobsCommand("hardware_scan").value("text", std::string("scanned"));
         } else if (base == "cancel") {
             result.message = "nothing changed";
         } else if (base == "delete_ask") {
@@ -1185,6 +1202,27 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
             if (!t.session.empty()) out.push_back({"focus:" + t.session, "Open its session (" + (manager.snapshot(t.session) ? manager.snapshot(t.session)->spec.name : t.session) + ")", "", "", false});
             out.push_back({"task_act:" + id + (t.archived ? ":unarchive" : ":archive"), t.archived ? "Back in the list" : "Archive " + id, "", "", false});
             out.push_back({"task_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});
+        }
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("job:")) { // a heavy job of the orchestrator
+        const std::string id = cluster::trim(wanted.substr(4));
+        try {
+            const cluster::Json job = manager.jobsCommand("job_status", {{"id", id}});
+            const std::string state = job.value("state", std::string());
+            const std::string told = "a reason (optional: told to " + who(job.value("session", std::string())) + ")";
+            out.push_back({"cancel", id + " · " + job.value("message", std::string()), "", "", false});
+            if (state == "queued") out.push_back({"job_act:" + id + ":first", "Run " + id + " first (top priority)", "", "", false});
+            if (state == "queued" || state == "running" || state == "stopped") {
+                out.push_back({"job_act:" + id + ":prio_up", "Priority of " + id + " +1", "", "", false});
+                out.push_back({"job_act:" + id + ":prio_down", "Priority of " + id + " -1", "", "", false});
+            }
+            if (state == "running") out.push_back({"job_act:" + id + ":stop", "Stop " + id + " (SIGSTOP: keeps its memory, uses no CPU)", "", "", false});
+            if (state == "stopped") out.push_back({"job_act:" + id + ":resume", "Resume " + id, "", "", false});
+            if (state == "queued" || state == "running" || state == "stopped") out.push_back({"job_act:" + id + ":kill", "Kill " + id, told, "", false});
+            if (!job.value("session", std::string()).empty() && manager.snapshot(job.value("session", std::string()))) out.push_back({"focus:" + job.value("session", std::string()), "Open its session", "", "", false});
+        } catch (const utils::exception::IException&) {
+            out.push_back({"cancel", "Job " + id + " is gone", "", "", false});
         }
         return out;
     }

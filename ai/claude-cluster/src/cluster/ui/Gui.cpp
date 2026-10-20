@@ -1169,6 +1169,39 @@ class Window: public QMainWindow {
             }
             html += "</table>" + (tasks.size() > 12 ? "<p class=m>… +" + QString::number(tasks.size() - 12) + " more</p>" : QString())
                 + (tasks.empty() ? "<p class=m>empty: type a prompt below</p>" : QString());
+            // the heavy jobs of the resource orchestrator: the gauges of the computer, what runs, waits, is stopped
+            if (const cluster::Json jobs = this->manager.jobsState(); jobs.is_object() && !jobs.empty()) {
+                const cluster::Json host = jobs.value("host", cluster::Json::object());
+                const int level = jobs.value("level", 0);
+                char gauge[200];
+                std::snprintf(gauge, sizeof(gauge), "load %.1f/core · %ld MB free · swap %ld MB", host.value("load_per_core", 0.0), host.value("mem_avail_mb", 0L), host.value("swap_used_mb", 0L));
+                html += "<h3>Heavy jobs</h3><p class=m>" + QString::number(jobs.value("running", 0)) + "/" + QString::number(jobs.value("slots", 0)) + " running · " + QString::number(jobs.value("waiting", 0))
+                    + " waiting" + (jobs.value("stopped", 0) > 0 ? " · " + QString::number(jobs.value("stopped", 0)) + " stopped" : QString()) + " · profile " + q_(jobs.value("profile", std::string("low")))
+                    + (jobs.value("enabled", true) ? QString() : QString(" · OFF")) + "<br>" + q_(gauge) + " · "
+                    + span_(level == 0 ? st.ok : level == 1 ? st.warn : st.error, level == 0 ? "calm" : level == 1 ? "hold: nothing new starts" : "reduce: jobs slowed")
+                    + (level > 0 && !jobs.value("pressure", std::string()).empty() ? "<br>" + span_(st.warn, "↳ " + esc_(jobs.value("pressure", std::string()))) : QString()) + "</p><table width=100%>";
+                std::size_t listed = 0;
+                for (const cluster::Json& job: jobs.value("jobs", cluster::Json::array())) {
+                    if (++listed > 14) break;
+                    const std::string state = job.value("state", std::string());
+                    const std::string tint = state == "running" ? st.ok : state == "queued" ? st.accent : state == "failed" ? st.error : state == "done" ? st.muted : st.warn;
+                    const std::string mark = state == "running" ? "▶" : state == "queued" ? "◌" : state == "stopped" ? "⏸" : state == "done" ? "✓" : state == "failed" ? "✗" : "⊘";
+                    const std::string session = job.value("session", std::string());
+                    const std::string age = state == "queued" ? "#" + std::to_string(job.value("position", 0)) + " ETA " + span(job.value("eta_s", std::int64_t{0})) : state == "running" ? span(now - job.value("started", now))
+                        : state == "stopped" ? "stopped" : span(now - job.value("ended", now)) + " ago";
+                    const std::string id = job.value("id", std::string());
+                    html += "<tr><td width=18>" + span_(tint, q_(mark)) + "</td><td width=\"55%\">" + link("job:" + id) + span_(st.muted, q_(id)) + " " + span_(st.accent, q_(job.value("class", std::string()))) + " "
+                        + esc_(cluster::one_line(job.value("name", std::string()).empty() ? job.value("command", std::string()) : job.value("name", std::string()), 90)) + "</a>"
+                        + (state == "queued" && !job.value("waiting_for", std::string()).empty() ? "<br>" + span_(st.muted, "↳ waits for " + esc_(job.value("waiting_for", std::string()))) : QString())
+                        + (state == "stopped" || state == "killed" || state == "failed" ? "<br>" + span_(st.warn, "↳ " + esc_(job.value("message", std::string()))) : QString())
+                        + "</td><td class=m>→ " + esc_(session.empty() ? std::string("you") : who(session)) + "</td><td class=m>" + q_(age) + "</td></tr>";
+                }
+                html += "</table>";
+                for (const cluster::Json& d: jobs.value("detected", cluster::Json::array()))
+                    html += "<p>" + span_(st.warn, "! outside the queue: " + esc_(cluster::one_line(d.value("command", std::string()), 100)) + " (" + QString::number(d.value("cpu_seconds", 0)) + " s CPU, "
+                        + esc_(who(d.value("session", std::string()))) + ")") + "</p>";
+                if (jobs.value("jobs", cluster::Json::array()).empty()) html += "<p class=m>none: heavy commands go through cluster-run / heavy_run and wait here for a slot</p>";
+            }
             // the schedules
             std::vector<cluster::Schedule> planned;
             int waiting = 0;

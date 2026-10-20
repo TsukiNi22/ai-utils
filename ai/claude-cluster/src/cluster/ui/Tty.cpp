@@ -3294,6 +3294,47 @@ class TtyUi {
                 if (!task.reason.empty()) out.push_back(ftxui::text("       ↳ " + cluster::one_line(task.reason, static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
             }
             if (shown.size() > 10) out.push_back(ftxui::text("     … +" + std::to_string(shown.size() - 10) + " more") | ftxui::color(t.muted) | ftxui::dim);
+            // the heavy jobs of the resource orchestrator: the gauges of the computer, what runs, waits, is stopped (a click: kill / stop / resume / priority)
+            {
+                const cluster::Json jobs = this->_manager.jobsState();
+                if (jobs.is_object() && !jobs.empty()) {
+                    const cluster::Json host = jobs.value("host", cluster::Json::object());
+                    const int level = jobs.value("level", 0);
+                    title("Heavy jobs", std::to_string(jobs.value("running", 0)) + "/" + std::to_string(jobs.value("slots", 0)) + " running · " + std::to_string(jobs.value("waiting", 0)) + " waiting"
+                        + (jobs.value("stopped", 0) > 0 ? " · " + std::to_string(jobs.value("stopped", 0)) + " stopped" : "") + " · profile " + jobs.value("profile", std::string("low"))
+                        + (jobs.value("enabled", true) ? "" : " · OFF"));
+                    char gauge[200];
+                    std::snprintf(gauge, sizeof(gauge), "   load %.1f/core · %ld MB free · swap %ld MB%s", host.value("load_per_core", 0.0), host.value("mem_avail_mb", 0L), host.value("swap_used_mb", 0L),
+                        host.value("psi_mem", -1.0) >= 0 ? (" · stall cpu " + std::to_string(static_cast<int>(host.value("psi_cpu", 0.0))) + "% mem " + std::to_string(static_cast<int>(host.value("psi_mem", 0.0)))
+                        + "% io " + std::to_string(static_cast<int>(host.value("psi_io", 0.0))) + "%").c_str() : "");
+                    out.push_back(ftxui::hbox({ftxui::text(gauge) | ftxui::color(t.muted), ftxui::text(level == 0 ? "  ● calm" : level == 1 ? "  ● hold: nothing new starts" : "  ● reduce: jobs slowed")
+                        | ftxui::color(level == 0 ? t.ok : level == 1 ? t.warn : t.error), ftxui::filler()}));
+                    if (level > 0 && !jobs.value("pressure", std::string()).empty()) out.push_back(ftxui::text("       ↳ " + jobs.value("pressure", std::string())) | ftxui::color(t.warn) | ftxui::dim);
+                    std::size_t listed = 0;
+                    for (const cluster::Json& job: jobs.value("jobs", cluster::Json::array())) {
+                        if (++listed > 12) break;
+                        const std::string state = job.value("state", std::string());
+                        const ftxui::Color tint = state == "running" ? t.ok : state == "queued" ? t.accent : state == "stopped" ? t.warn : state == "done" ? t.muted : state == "failed" ? t.error : t.warn;
+                        const std::string mark = state == "running" ? "▶" : state == "queued" ? "◌" : state == "stopped" ? "⏸" : state == "done" ? "✓" : state == "failed" ? "✗" : "⊘";
+                        const std::string session = job.value("session", std::string());
+                        const std::string age = state == "queued" ? "#" + std::to_string(job.value("position", 0)) + " ETA " + span(job.value("eta_s", std::int64_t{0})) : state == "running" ? span(now - job.value("started", now))
+                            : state == "stopped" ? "stopped" : span(now - job.value("ended", now)) + " ago";
+                        const std::string id = job.value("id", std::string());
+                        out.push_back(item(4, ftxui::hbox({ftxui::text("  " + mark + " ") | ftxui::color(tint) | ftxui::bold, ftxui::text(id + "  ") | ftxui::color(t.muted),
+                            ftxui::text(job.value("class", std::string()) + "  ") | ftxui::color(t.accent) | ftxui::dim,
+                            ftxui::text(cluster::one_line(job.value("name", std::string()).empty() ? job.value("command", std::string()) : job.value("name", std::string()), static_cast<std::size_t>(std::max(16, room - 60))))
+                            | ftxui::color(state == "done" ? t.muted : t.text), ftxui::filler(), ftxui::text("  → " + cluster::one_line(session.empty() ? std::string("you") : who(session), 14)) | ftxui::color(t.muted),
+                            ftxui::text("  " + age + " ") | ftxui::color(t.muted) | ftxui::dim}), [this, id]() {this->pick_("job:" + id);}));
+                        if (state == "queued" && !job.value("waiting_for", std::string()).empty()) out.push_back(ftxui::text("       ↳ waits for " + cluster::one_line(job.value("waiting_for", std::string()), static_cast<std::size_t>(room - 20))) | ftxui::color(t.muted) | ftxui::dim);
+                        if (state == "stopped") out.push_back(ftxui::text("       ↳ " + cluster::one_line(job.value("message", std::string()), static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
+                        if (state == "killed" || state == "failed") out.push_back(ftxui::text("       ↳ " + cluster::one_line(job.value("message", std::string()), static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
+                    }
+                    for (const cluster::Json& d: jobs.value("detected", cluster::Json::array()))
+                        out.push_back(ftxui::text("  ! outside the queue: " + cluster::one_line(d.value("command", std::string()), static_cast<std::size_t>(std::max(20, room - 40))) + " (" + std::to_string(d.value("cpu_seconds", 0))
+                            + " s CPU, " + who(d.value("session", std::string())) + ")") | ftxui::color(t.warn) | ftxui::dim);
+                    if (jobs.value("jobs", cluster::Json::array()).empty()) out.push_back(ftxui::text("   none: heavy commands go through cluster-run / heavy_run and wait here for a slot") | ftxui::color(t.muted) | ftxui::dim);
+                }
+            }
             // the schedules: the waiting ones by their time, then the ones run / cancelled
             std::vector<cluster::Schedule> planned;
             int waiting = 0;
