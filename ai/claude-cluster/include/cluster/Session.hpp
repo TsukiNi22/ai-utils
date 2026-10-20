@@ -47,6 +47,7 @@ struct Event {
     std::string text;
     bool error = false;
     bool interrupted = false;   // TurnDone: stopped by an interrupt (not an error, nothing to notify)
+    bool spontaneous = false;   // TurnDone: no prompt started it (a background task or a Monitor woke the agent up)
 };
 
 struct Queued {
@@ -92,6 +93,7 @@ class Session {
         std::string _context;               // given with the next prompt (the !commands run since the last one)
         std::string _heldContext;           // a !command waiting for its choice (given or not)
         bool _interrupted = false;          // an interrupt was asked: the end of the turn is not an error
+        bool _prompted = false;             // a prompt was written since the last end of turn (else the next one is a wake-up of the agent)
         cluster::Queued _lastPrompt;        // last prompt sent (rewind: back in the prompt with its images)
         std::set<std::string> _sent;        // uuids of the prompts written here (their replay is not shown twice)
         std::map<std::string, cluster::Json> _inputs;   // the input of the tools running (by tool_use id): a command stopped
@@ -122,7 +124,7 @@ class Session {
         _cold void turnDone_(const std::string& text, const bool error);
         _cold void dispatch_(const cluster::Queued& prompt);  // claude: written now (lock held)
         _cold void queue_(void);                                // snapshot of the queue
-        _cold void emit_(const cluster::Event::Kind kind, const std::string& text = "", const bool error = false, const bool interrupted = false);
+        _cold void emit_(const cluster::Event::Kind kind, const std::string& text = "", const bool error = false, const bool interrupted = false, const bool spontaneous = false);
 
         // ------------ Function ---------- //
         _cold inline void touch_(void) {++this->_version;};

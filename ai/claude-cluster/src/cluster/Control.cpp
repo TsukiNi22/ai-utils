@@ -479,7 +479,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                     if (!cluster::policy_costly_effort(manager.config(), wantedEffort)) wantedEffort.clear();
                 }
             }
-            data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), backend, arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), effort})}};
+            data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), backend, arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), effort, false, "", false, {}, "", from_global && request.value("reply", true)})}};
             if (!wanted.empty() || !wantedEffort.empty()) {
                 const std::string asked = manager.modelChange(data["id"].get<std::string>(), wanted, wantedEffort, true);
                 if (!asked.empty()) data["asked"] = asked + " (the session runs meanwhile on the policy default; the user answers in their interface)";

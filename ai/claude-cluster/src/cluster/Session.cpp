@@ -680,6 +680,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 this->_data.state = cluster::State::Working;
                 this->_turn = {};
                 this->turnStart_();
+                this->_prompted = true;
                 this->emit_(cluster::Event::Kind::Prompt, text); // the history of the prompts too
             }
             return;
@@ -835,7 +836,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             const bool asked = std::any_of(this->_data.permissions.begin(), this->_data.permissions.end(), [](const cluster::Permission& p) {return !p.safety;});
             this->_data.state = asked ? cluster::State::Waiting : cluster::State::Idle;
             this->_data.stopped = error || interrupted; // to continue (Continue / F4)
-            this->emit_(cluster::Event::Kind::TurnDone, text, error, interrupted);
+            this->emit_(cluster::Event::Kind::TurnDone, text, error, interrupted, !std::exchange(this->_prompted, false));
             if (std::erase_if(this->_pending, [](const cluster::Queued& q) {return q.given;}) > 0) this->queue_(); // given: claude has them
             if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) {
                 const cluster::Queued next = this->_pending.front();
@@ -1152,9 +1153,9 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
     }
 }
 
-_cold void cluster::Session::emit_(const cluster::Event::Kind kind, const std::string& text, const bool error, const bool interrupted)
+_cold void cluster::Session::emit_(const cluster::Event::Kind kind, const std::string& text, const bool error, const bool interrupted, const bool spontaneous)
 {
-    pending_events_.push_back({kind, this->_data.spec.id, text, error, interrupted});
+    pending_events_.push_back({kind, this->_data.spec.id, text, error, interrupted, spontaneous});
 }
 
 /* actions */
@@ -1233,6 +1234,7 @@ _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
     const std::string uuid = uuid_();
     this->_sent.insert(uuid);
     this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
+    this->_prompted = true;
     this->_data.state = cluster::State::Working;
     this->_turn = {};
     this->turnStart_();
@@ -1268,6 +1270,7 @@ _cold void cluster::Session::giveQueued(const int delayMs)
             return; // not written: kept, sent at the end of the turn
         }
         queued.given = true;
+        this->_prompted = true;
         this->_lastPrompt = queued;
         this->entry_(cluster::EntryKind::User, prepared.shown);
         changed = true;

@@ -222,7 +222,10 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     session->append(req.history);   // its transcript so far, shown (and in its log)
     if (!req.note.empty()) session->mark(req.note);
     session->start();
-    if (!req.prompt.empty()) session->send(req.prompt);
+    if (!req.prompt.empty()) {
+        if (req.reply) this->replyTo(spec.id); // before the prompt: a short turn could end before it is known
+        session->send(req.prompt);
+    }
     this->notice_(spec.id, "new session " + spec.name + " (" + spec.backend + ") in " + cluster::short_path(spec.cwd));
     this->save();
     return spec.id;
@@ -357,6 +360,10 @@ _cold void cluster::Manager::close(const std::string& id)
     if (id == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session can't be closed (quit claude-cluster)");
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     session->stop();
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_followed.erase(id);
+    }
     this->dropFor_(id, false, session->spec().name); // its tasks and schedules: cancelled (closed)
     cluster::SessionSpec spec = session->spec();
     spec.deleted = cluster::now();
@@ -763,32 +770,13 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             if (event.interrupted) {
                 // stopped on purpose (Ctrl+C, a prompt sent over it...): no answer to speak or notify, not an error
                 this->notice_(event.session, name + ": interrupted");
+                if (event.session != GLOBAL_ID) this->replyEnd_(event, name);
             } else if (event.session == GLOBAL_ID) {
                 if (this->onGlobalAnswer && !event.error) this->onGlobalAnswer(event.text);
                 (void)this->notify({GLOBAL_ID, event.error ? "global session · error" : "global session", event.text, event.error ? cluster::Face::Waiting : cluster::Face::Happy,
                     event.error, event.error ? "dialog-warning" : "message", {{"open", "Open"}}}, event.error ? "error" : "global");
             } else {
-                // asked by the global session (session_send reply): its answer goes back to it, it wakes up on it
-                bool reply = false;
-                {
-                    std::lock_guard<std::mutex> lock(this->_mutex);
-                    auto it = this->_replies.find(event.session);
-                    if (it != this->_replies.end() && it->second > 0) {
-                        reply = true;
-                        if (--it->second == 0) this->_replies.erase(it);
-                    }
-                }
-                if (reply) {
-                    const std::string text = std::string(event.error ? "[error from " : "[reply from ") + name + " (" + event.session + ")]\n"
-                        + (event.text.size() > 6000 ? event.text.substr(0, 6000) + "\n[...]" : event.text);
-                    std::thread([this, text]() {
-                        try {
-                            this->send(GLOBAL_ID, text, true);
-                        } catch (const utils::exception::IException& e) {
-                            this->notice_(GLOBAL_ID, std::string("reply not given to the global session: ") + e.info(), true);
-                        }
-                    }).detach();
-                }
+                this->replyEnd_(event, name); // asked by the global session: its answer goes back to it
                 this->notice_(event.session, name + (event.error ? " failed: " : " done: ") + cluster::one_line(plain_(event.text), 120), event.error);
                 // a limit reached (the usage of the account, the budget): it sleeps until its reset; another error: o_o
                 std::string lower = event.text;
@@ -829,6 +817,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 break;
             }
             this->notice_(event.session, name + ": " + event.text, true);
+            if (event.session != GLOBAL_ID) this->replyEnd_(event, name, true);
             {
                 const std::string sid = event.session;
                 (void)this->fail(name + " running (its agent)", name + " (" + sid + ")", event.text, [this, sid]() {(void)this->resume(sid);});
@@ -1437,6 +1426,43 @@ void cluster::Manager::replyTo(const std::string& id)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
     ++this->_replies[id];
+    this->_followed.insert(id);
+}
+
+void cluster::Manager::replyUndo_(const std::string& id)
+{
+    // the prompt that was to be answered was not sent: its callback forgotten
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    auto it = this->_replies.find(id);
+    if (it != this->_replies.end() && --it->second <= 0) this->_replies.erase(it);
+}
+
+void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string& name, const bool all)
+{
+    // an end of turn (done, error, interrupted, agent exited) of a session the global session started a turn on: one message back to it.
+    // A turn no prompt started (a Monitor / background task woke the agent up) of a followed session is answered too.
+    bool reply = false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = this->_replies.find(event.session);
+        if (it != this->_replies.end() && it->second > 0) {
+            reply = true;
+            if (all || --it->second == 0) this->_replies.erase(it);
+        } else if (event.spontaneous && this->_followed.contains(event.session)) {
+            reply = true;
+        }
+    }
+    if (!reply) return;
+    const char* kind = event.error ? "[error from " : event.interrupted ? "[interrupted: " : "[reply from ";
+    const std::string text = std::string(kind) + name + " (" + event.session + ")]\n" + (event.spontaneous ? "(a turn woken up by a background task / Monitor)\n" : "")
+        + (event.text.size() > 6000 ? event.text.substr(0, 6000) + "\n[...]" : event.text);
+    std::thread([this, text]() {
+        try {
+            this->send(GLOBAL_ID, text, true);
+        } catch (const utils::exception::IException& e) {
+            this->notice_(GLOBAL_ID, std::string("reply not given to the global session: ") + e.info(), true);
+        }
+    }).detach();
 }
 
 _cold void cluster::Manager::showcasePermission(const std::string& id, const cluster::Permission& permission)
