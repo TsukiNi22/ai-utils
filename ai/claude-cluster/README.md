@@ -350,6 +350,11 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
 - its **system prompt** `~/.config/claude-cluster/global.md` (written once, customizable: settings page > Global session >
   *System prompt (edit)* opens it in the editor - `[ui] editor`, else nvim, vim, vi... - and starts the session again on
   the same conversation), added to the global `CLAUDE.md` (an empty file: none);
+  it ends with a compact **toolbox** (`templates/global.md`: the MCP tools by family and when to use each - sessions,
+  callbacks `[reply from ...]`, tasks and schedules, displays, settings - what not to do); the one of the sub-sessions
+  (`templates/sessions.md`, `~/.config/claude-cluster/sessions.md`) tells how their answers are shown, the callback to the
+  global session (compact answers), AskUserQuestion, the cluster commands and what never to do; the long details stay in
+  `cluster_info` and this README (both files are copies written once, never refreshed: `config_files` shows them);
 - the **map of this computer** `~/.config/claude-cluster/machine.md`: you (nickname, email, main editor, language of the
   answers, notes: `[user]` of the config, asked at every sync with their current value ready - Enter keeps it - or a
   suggestion: git identity, editors installed, `$LANG`),
