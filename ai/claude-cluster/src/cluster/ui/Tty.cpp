@@ -4726,11 +4726,18 @@ class TtyUi {
             this->_listFirst = list.size() <= room ? 0 : std::min(this->_listFirst, list.size() - room);
             const std::size_t first = this->_listFirst;
             if (first > 0) rows.push_back(ftxui::text(" ↑ " + std::to_string(first) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            const cluster::Taxonomy taxonomy = this->_manager.taxonomy();
             for (std::size_t i = first; i < list.size() && i < first + room; ++i) {
-                if (grouped && !list[i].spec.global && (i == first || list[i - 1].spec.global || list[i - 1].spec.category != list[i].spec.category)) {
-                    const std::string category = list[i].spec.category;
-                    rows.push_back(ftxui::text(" ▾ " + (category.empty() ? std::string("no category") : cluster::one_line(category, 22))) | ftxui::bold
-                        | ftxui::color(category.empty() ? this->_theme.muted : this->chip_color_(category)));
+                if (grouped && !list[i].spec.global) {
+                    // the heads of the taxonomy: the levels of its path the previous session did not have, one line each, nested (none: "no category")
+                    const std::vector<std::string> path = taxonomy.group(list[i].spec);
+                    const std::vector<std::string> before = i == first || list[i - 1].spec.global ? std::vector<std::string>{"\x01"} : taxonomy.group(list[i - 1].spec);
+                    if (path != before)
+                        for (std::size_t depth = path.empty() ? 0 : cluster::Taxonomy::common_prefix(before, path); depth < std::max<std::size_t>(path.size(), 1); ++depth) {
+                            const std::string node = depth < path.size() ? path[depth] : std::string();
+                            rows.push_back(ftxui::text(std::string(1 + 2 * depth, ' ') + "▾ " + (node.empty() ? std::string("no category") : cluster::one_line(node, 20))) | ftxui::bold
+                                | ftxui::color(node.empty() ? this->_theme.muted : this->chip_color_(node)));
+                        }
                 }
                 rows.push_back(this->sessionRow_(list[i], list[i].spec.id == this->_active, clip));
             if (first + room < list.size()) rows.push_back(ftxui::text(" ↓ " + std::to_string(list.size() - first - room) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
