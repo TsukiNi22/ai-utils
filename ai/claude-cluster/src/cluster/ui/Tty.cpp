@@ -55,6 +55,7 @@ File Description:
 #include <regex>
 #include <cmath>
 #include <set>
+#include <limits>
 #include <map>
 
 namespace {
@@ -651,7 +652,10 @@ class TtyUi {
             std::vector<std::string> joins;
             std::vector<std::vector<Hit>> hits;     // per line: its parts clicked (a display: tick, a button, play...)
         };
+            std::vector<std::size_t> entries;       // per line: its entry of the transcript (npos: none), for the right click (Pin)
         std::map<std::string, View> _views;         // per session
+        std::set<std::string> _pinFolded;           // the sessions whose pinned item is collapsed
+        std::size_t _transcriptLines = 0;           // the lines of the transcript made last (the height the pinned item needs)
         struct Selection {
             std::string session;
             int x0 = 0;                             // cells, from the top left of the transcript
@@ -3414,7 +3418,7 @@ class TtyUi {
             return active ? block | ftxui::bgcolor(this->_theme.surface) : block; // no focus: it would take the cursor of the prompt
         }
 
-        _nodiscard ftxui::Element transcript_(const cluster::Snapshot& s, const int width, const int height, const bool compact)
+        _nodiscard ftxui::Element transcript_(const cluster::Snapshot& s, const int width, const int height, const bool compact, const std::string& owner = "")
         {
             // Wrapped lines of the transcript, the last ones (minus the scroll); kept as text for the mouse selection
             struct Row {
@@ -3442,7 +3446,7 @@ class TtyUi {
                         lines.push_back({(k == 0 ? first : next) + wrapped[k], style, joins[k]});
                 };
             // a rich display (MCP session_display): text, boxed tables, bars, sparklines, pictures in colored blocks (chafa)
-            const std::string sid = s.spec.id;
+            const std::string sid = owner.empty() ? s.spec.id : owner;   // the pinned item: the session it is pinned on
             // a display acted on (ticked, clicked, played): what it did in the status line
             const std::function<std::function<void(void)>(const std::string&, const cluster::Json&)> act = [this, sid](const std::string& displayId, const cluster::Json& what) {
                 return [this, sid, displayId, what]() {
@@ -3993,8 +3997,10 @@ class TtyUi {
                 const cluster::Entry& e = s.entries[i];
                 const bool matched = searching && std::find(this->_matches.begin(), this->_matches.end(), i) != this->_matches.end();
                 if (i == hitEntry) hitLine = static_cast<int>(lines.size());
+            std::vector<std::pair<std::size_t, std::size_t>> starts;   // the first line of each entry
                 const ftxui::Decorator mark = i == hitEntry ? ftxui::inverted : matched ? ftxui::bgcolor(this->_theme.surface) : ftxui::nothing;
                 const std::string text = i == frame.typed ? e.text.substr(0, frame.typedBytes) : e.text;
+                starts.emplace_back(lines.size(), i);
                 const bool block = e.kind != cluster::EntryKind::ToolResult && e.kind != cluster::EntryKind::User && !(compact && e.kind == cluster::EntryKind::Thinking);
                 if (block && !lines.empty() && !lines.back().text.empty()) lines.push_back({"", ftxui::nothing, "\n"});
                 switch (e.kind) {
@@ -4064,6 +4070,7 @@ class TtyUi {
             if (!lines.empty() && !lines.back().text.empty() && ((frame.typed == static_cast<std::size_t>(-1) && frame.partialBytes > 0) || !s.thinking.empty()
                 || s.state == cluster::State::Working))
                 lines.push_back({"", ftxui::nothing, "\n"});
+            const std::size_t entriesEnd = lines.size();
             if (frame.typed == static_cast<std::size_t>(-1) && frame.partialBytes > 0) add(s.partial.substr(0, frame.partialBytes), "⏺ ", "  ", ftxui::color(this->_theme.text));
             if (!s.thinking.empty() && !compact) {
                 if (this->_expanded) {
@@ -4134,6 +4141,7 @@ class TtyUi {
             if (hitLine >= 0) scroll = std::max(0, static_cast<int>(lines.size()) - hitLine - height / 2);
             scroll = std::clamp(scroll, 0, std::max(0, static_cast<int>(lines.size()) - height));
             const int end = static_cast<int>(lines.size()) - scroll;
+            this->_transcriptLines = lines.size();
             const int begin = std::max(0, end - height);
             View& view = this->_views[s.spec.id];
             view.lines.clear();
@@ -4143,6 +4151,7 @@ class TtyUi {
             const bool selecting = this->_selection && this->_selection->session == s.spec.id;
             const Selection sel = selecting ? *this->_selection : Selection{};
             const bool forward = sel.y0 < sel.y1 || (sel.y0 == sel.y1 && sel.x0 <= sel.x1);
+            view.entries.clear();
             const int ya = forward ? sel.y0 : sel.y1;
             const int xa = forward ? sel.x0 : sel.x1;
             const int yb = forward ? sel.y1 : sel.y0;
@@ -4160,6 +4169,8 @@ class TtyUi {
                 const bool pressed = flash && this->_pressView == s.spec.id && this->_pressY == y;
                 const bool hovered = this->_hitView == s.spec.id && this->_hitY == y;
                 const Hit* lit = nullptr;
+                const auto owned = std::upper_bound(starts.begin(), starts.end(), std::make_pair(static_cast<std::size_t>(k), std::numeric_limits<std::size_t>::max()));
+                view.entries.push_back(static_cast<std::size_t>(k) >= entriesEnd || owned == starts.begin() ? std::string::npos : std::prev(owned)->second);
                 for (const Hit& hit: row.hits)
                     if (std::get<0>(hit) == (pressed ? this->_pressFrom : this->_hitFrom) && (pressed || hovered)) lit = &hit;
                 if (lit && !selecting) {
@@ -4430,7 +4441,50 @@ class TtyUi {
         {
             ftxui::Element panels = compact ? ftxui::emptyElement() : this->panels_(s, height - 2);
             const int panelWidth = compact || s.spec.panels.empty() ? 0 : 37;
-            const int bodyHeight = std::max(3, height - (s.permissions.empty() ? 2 : 3) - (s.lastError.empty() ? 0 : 1));
+        _nodiscard std::pair<ftxui::Element, int> pin_(const cluster::Snapshot& s, const int width, const int room)
+        {
+            // the pinned item of the session, above the prompt: its title (a click folds it) and Unpin, then the item as the transcript draws it (live:
+            // a checklist ticks, a form fills), scrolled inside when it is taller than the room; the height taken
+            const cluster::Json block = cluster::display_pinned(s);
+            if (!block.is_object() || room < 5 || width < 20) return {ftxui::emptyElement(), 0};
+            const std::string sid = s.spec.id;
+            const bool folded = this->_pinFolded.contains(sid);
+            const std::string title = s.spec.pin.value("title", std::string("pinned"));
+            ftxui::Element head = ftxui::hbox({
+                this->tap_(ftxui::text(std::string(folded ? "▸ " : "▾ ") + "📌 " + cut_(title, static_cast<std::size_t>(std::max(10, width - 24)))) | ftxui::bold | ftxui::color(this->_theme.accent), 0,
+                    [this, sid]() {if (!this->_pinFolded.erase(sid)) this->_pinFolded.insert(sid);}),
+                ftxui::filler(),
+                this->tap_(ftxui::text(" Unpin ") | ftxui::color(this->_theme.muted), 0, [this, sid]() {
+                    try {
+                        this->_manager.unpin(sid);
+                        this->status_("unpinned");
+                    } catch (const utils::exception::IException& e) {
+                        this->status_(e.info(), true);
+                    }
+                })});
+            if (folded) return {ftxui::vbox({head}) | ftxui::borderRounded | ftxui::color(this->_theme.border), 3};
+            cluster::Snapshot item;
+            item.spec.id = "pin:" + sid;
+            item.state = cluster::State::Idle;
+            if (block.contains("role")) item.entries.push_back({block.value("role", std::string()) == "user" ? cluster::EntryKind::User : block.value("role", std::string()) == "system"
+                ? cluster::EntryKind::System : cluster::EntryKind::Assistant, block.value("text", std::string()), "", 0});
+            else item.entries.push_back({cluster::EntryKind::Display, block.dump(), "", s.spec.pin.value("at", std::int64_t{0})});
+            const int inner = std::min(width - 2, 200);
+            const int most = room - 3;   // the border and the title
+            ftxui::Element body = this->transcript_(item, inner, most, false, sid);
+            int rows = std::min(static_cast<int>(this->_transcriptLines), most);
+            if (static_cast<int>(this->_transcriptLines) > most) {
+                body = this->transcript_(item, inner, most - 1, false, sid);   // its "more lines" mark below
+                rows = most;
+            }
+            rows = std::max(1, rows);
+            return {ftxui::vbox({head, std::move(body) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rows)}) | ftxui::borderRounded | ftxui::color(this->_theme.border), rows + 3};
+        }
+
+            int bodyHeight = std::max(3, height - (s.permissions.empty() ? 2 : 3) - (s.lastError.empty() ? 0 : 1));
+            // the pinned item: at most a third of the room, the transcript keeps the rest
+            std::pair<ftxui::Element, int> pinned = compact ? std::pair<ftxui::Element, int>{ftxui::emptyElement(), 0} : this->pin_(s, width, std::min(bodyHeight / 3 + 3, bodyHeight - 4));
+            bodyHeight = std::max(3, bodyHeight - pinned.second);
             return ftxui::vbox({
                 this->header_(s, compact),
                 ftxui::separatorLight() | ftxui::color(this->_theme.border),
@@ -4439,6 +4493,7 @@ class TtyUi {
             });
         }
 
+                std::move(pinned.first),
         std::pair<std::string, std::string> _voiceWords;   // the words said to send / drop (shown in the voice bar)
         std::int64_t _voiceWordsAt = 0;
 
@@ -5534,6 +5589,14 @@ class TtyUi {
                 if (wheel && this->_mode == Mode::Normal && this->_listBox.Contain(mouse.x, mouse.y)) { // the list of sessions: scrolled, the selection kept
                     this->_listFirst = static_cast<std::size_t>(std::max<int>(0, static_cast<int>(this->_listFirst) + step)); // clamped at the drawing
                     return true;
+                std::string onPin;   // the pinned item under the mouse (its own scroll)
+                if (this->_mode == Mode::Normal)
+                    for (const auto &[id, view]: this->_views)
+                        if (id.starts_with("pin:") && view.box.Contain(mouse.x, mouse.y)) onPin = id;
+                if (!onPin.empty() && (mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown)) {
+                    this->_scroll[onPin] = std::max(0, this->_scroll[onPin] + (mouse.button == ftxui::Mouse::WheelUp ? 3 : -3));
+                    return true;
+                }
                 }
                 if (wheel && this->_mode == Mode::Normal && this->_gridRows > this->_gridVisible && this->_gridBox.Contain(mouse.x, mouse.y) && !mouse.control && !mouse.shift) {
                     this->_gridFirst += step; // the rows of the grid (Ctrl / Shift + wheel: the transcript as before)
@@ -5562,6 +5625,16 @@ class TtyUi {
                 if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Left && this->clickAt_(mouse)) {
                     this->_selection.reset();
                     return true;
+                    }
+                    // a message or a block of a transcript right-clicked: Pin / Unpin (the pinned item itself: Unpin)
+                    for (const auto &[id, view]: this->_views) {
+                        if (!view.box.Contain(mouse.x, mouse.y)) continue;
+                        const std::size_t y = static_cast<std::size_t>(mouse.y - view.box.y_min);
+                        const bool pinView = id.starts_with("pin:");
+                        if (!pinView && (y >= view.entries.size() || view.entries[y] == std::string::npos)) break;
+                        this->_active = pinView ? id.substr(4) : id;
+                        this->pick_("pin_menu:" + this->_active + ":" + (pinView ? std::string("pin") : std::to_string(view.entries[y])));
+                        return true;
                 }
                 if (this->_mode != Mode::Normal) return true;
                 if (mouse.motion == ftxui::Mouse::Pressed && this->_hoverChip >= 0 && this->_hoverChip < static_cast<int>(this->_chips.size())) {
