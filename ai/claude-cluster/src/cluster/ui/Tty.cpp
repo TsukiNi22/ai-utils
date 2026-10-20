@@ -6,7 +6,7 @@ File Name:
 ##  @file Tty.cpp
 
 File Description:
-##  ftxui::Terminal front-end (FTXUI): layouts list / grid / tabs, session
+##  ftxui::Terminal front-end (FTXUI): layouts list / grid, session
 ##  view with its panels, permission and voice bars, palette
 \**************************************************************/
 
@@ -1083,7 +1083,7 @@ class TtyUi {
 
         void moveDir_(const int dx, const int dy)
         {
-            // Session on the left / right / above / below in the current layout (grid: rows and columns; list, tabs: previous / next)
+            // Session on the left / right / above / below in the current layout (grid: rows and columns; list: previous / next)
             const std::vector<cluster::Snapshot> list = this->sessions_();
             const int count = static_cast<int>(list.size());
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
@@ -2021,6 +2021,7 @@ class TtyUi {
         {
             const std::string wanted = cluster::lower(this->_filter);
             this->_actions = cluster::filter_actions(cluster::actions(this->_manager, this->_active), wanted, &this->_manager); // the closest first
+            std::erase_if(this->_actions, [](const cluster::Action& action) {return action.id == "layout:tabs";}); // no tabs in the terminal
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_actions.size()) - 1));
         }
 
@@ -2242,7 +2243,7 @@ class TtyUi {
                 this->run_({"voice_toggle", "", "", "", false}, "");
             } else if (action == "layout") {
                 const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
-                this->_manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : "list");
+                this->_manager.setUi("layout", layout == "list" ? "grid" : "list"); // a stored tabs / hub (window, web page): the list here
             } else if (action == "settings") {
                 this->openSettings_();
             } else if (action == "quit") {
@@ -4390,21 +4391,6 @@ class TtyUi {
                 while (grid.back().size() < static_cast<std::size_t>(columns)) grid.back().push_back(ftxui::filler());
                 return ftxui::gridbox(grid) | ftxui::flex;
             }
-            if (layout == "tabs") {
-                ftxui::Elements tabs;
-                const ftxui::Element first = ftxui::text(" ☰ Tasks ");
-                tabs.push_back(this->tap_(tasksShown ? first | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : first | ftxui::color(this->_theme.muted),
-                    0, [this]() {this->_active = TASKS_ID;}));
-                for (const cluster::Snapshot& s: list) {
-                    const bool active = s.spec.id == this->_active;
-                    ftxui::Element tab = ftxui::text(" " + state_mark_(s.state) + " " + cluster::one_line(s.spec.name, 14) + (s.permissions.empty() ? "" : " !") + " ");
-                    const std::string id = s.spec.id;
-                    this->_rowSessions[static_cast<int>(this->_clicks.size())] = id;
-                    tabs.push_back(this->tap_(active ? tab | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : tab | ftxui::color(this->_theme.muted),
-                        0, [this, id]() {this->_active = id;}));
-                }
-                return ftxui::vbox({ftxui::hbox(std::move(tabs)), (tasksShown ? this->tasksView_(width, height - 1) : this->session_(*it, width, height - 1, false)) | ftxui::flex});
-            }
             // list + active panel
             ftxui::Elements rows = {ftxui::text(" Sessions") | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text("")};
             const int clip = this->clip_();
@@ -5124,7 +5110,7 @@ class TtyUi {
                 this->tap_(ftxui::text(std::string(" ") + cluster::face_text(face.face) + " claude-cluster ") | ftxui::bold | ftxui::color(this->_theme.bg)
                     | ftxui::bgcolor(face.face == cluster::Face::Waiting ? this->_theme.warn : this->_theme.accent), 0,
                     [this]() {(void)this->shortcut_("settings");}),
-                key(" " + layout, "layout"),
+                key(" " + (layout == "tabs" || layout == "hub" ? std::string("list") : layout), "layout"),
                 ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
                 ftxui::filler(),
                 key(c.keys.at("palette") + " palette", "palette"), dot(), key(c.keys.at("settings") + " settings", "settings"), dot(),

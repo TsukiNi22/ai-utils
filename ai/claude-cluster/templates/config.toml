@@ -3,7 +3,7 @@
 
 [ui]
 frontend = "auto"          # auto | tty | gui (the --tty / --gui flags win)
-layout = "list"            # list (list + active panel) | grid | tabs
+layout = "list"            # list (list + active panel) | grid | tabs (window / web page; the terminal shows the list)
 style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized-light | mono, or a [styles.<name>] below
 panels = ["skills", "tokens", "context", "cost", "usage", "git"] # default panels of a new session (+ "diff", "tools", "files")
                            # usage: the vendor of the session today / 7 days / lifetime (tokens, cost), limits left

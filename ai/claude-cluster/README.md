@@ -66,7 +66,7 @@ By hand: `cmake -S ai/claude-cluster -B build -DCMAKE_BUILD_TYPE=Optimized && cm
 claude-cluster                          # terminal interface when in a terminal, else a window
 claude-cluster --gui                    # window (fails when Qt6 is not built in or there is no display)
 claude-cluster -g --tty-mode            # the window showing the terminal interface ([ui] gui_mode = tty keeps it)
-claude-cluster --tty --layout grid      # terminal, sessions in a grid (list | grid | tabs)
+claude-cluster --tty --layout grid      # terminal, sessions in a grid (list | grid; `tabs` is for the window / web page, the terminal shows the list)
 claude-cluster --backend ollama/qwen3-coder   # backend of the new sessions for this run
 claude-cluster --restore | --fresh      # previous run: restore / start new (default: asked, Esc = restore)
 claude-cluster --rescan                 # ask at start to sync the map of this computer (even recent or refused)
@@ -203,7 +203,7 @@ other agents as `@path`). The images are saved by content (`img-<hash>.png`): th
 clicked) is one more reference to the same `[Image #N]` ("here, here and here"), the image itself is sent once; the
 images are numbered in the order of the text when sent.
 
-**The Tasks session** (`☰ Tasks`, first in the list and the tabs; `/tasks`, the palette *Tasks*, the window's *Tasks*
+**The Tasks session** (`☰ Tasks`, first in the list; `/tasks`, the palette *Tasks*, the window's *Tasks*
 button - in the grid: a window of its own; next / previous session and Ctrl+B + an arrow go through it, before the
 global session): what the sessions do and what waits, in place of a conversation. It has no prompt (its rows are
 clicked, the palette, the global session or `claude-cluster task add` / `schedule add` make new ones).
@@ -229,7 +229,7 @@ clicked, the palette, the global session or `claude-cluster task add` / `schedul
   `claude-cluster spawn <name>` and the global session (`session_spawn`) take a folder or the name of a project of the
   map of this computer (its git repositories, `machine.md`): the closest by its name (a typo found: c2dmp-hsm), its
   path / kind / origin far behind. The folders are completed with the projects first (`/cd alph` → alpha-engine).
-- **A right click on a session** (the list, the tabs; a long press in the web page): its menu - open, rename,
+- **A right click on a session** (the list; a long press in the web page): its menu - open, rename,
   describe, move to another folder, open its folder / a terminal there, **archive** (closed, to the trash, restorable)
   and **delete for good** (asked first: yes / no; its conversation gone, not in the trash).
 - **In the session**: `/close` (archived), `/delete` (asked first), `/delete!` (at once, no question). The global

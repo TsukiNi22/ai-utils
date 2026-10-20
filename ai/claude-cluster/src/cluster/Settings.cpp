@@ -140,7 +140,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "interface (a real terminal inside it, every key of it; -g --tty-mode for one run)", false,
                 [](const cluster::Config& cf) {return cf.guiMode;}},
             {"ui", "layout", "Layout", SettingKind::Choice, {"list", "grid", "tabs", "hub"}, "list + active panel, every session in a grid, tabs, or the hub "
-                "(the window, the web page: a graph of the sessions around the global one; the terminal: the list)", false,
+                "(tabs and the hub: the window and the web page only - the hub is a graph of the sessions around the global one; the terminal shows the list)", false,
                 [](const cluster::Config& cf) {return cf.layout;}},
             {"ui", "style", "Style", SettingKind::Choice, styles, "colors of the interface (own ones: [styles.<name>] in the file)", false,
                 [](const cluster::Config& cf) {return cf.style;}},

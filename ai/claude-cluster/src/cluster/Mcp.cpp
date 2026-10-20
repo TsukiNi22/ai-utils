@@ -173,7 +173,7 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"on", {{"type", "boolean"}, {"description", "true: on, false: off"}}}}, {"on"}),
         tool_("ui_state", "What the interface of claude-cluster shows: the session shown, the layout, the style, Remote Control, vim; the choices.", nullptr, {}),
         tool_("ui_focus", "Show a session in the interface (a sub-session, or g: you again), while you go on talking.", {{"session", session}}, {"session"}),
-        tool_("ui_layout", "Layout of the interface: list (the list + one session), grid (every session at once), tabs.",
+        tool_("ui_layout", "Layout of the interface: list (the list + one session), grid (every session at once), tabs (window / web page only: the terminal shows the list).",
             {{"layout", str_("list | grid | tabs")}}, {"layout"}),
         tool_("ui_style", "Colors of the interface (ui_state: the styles).", {{"style", str_("a style name")}}, {"style"}),
         tool_("ui_panel", "Show / hide a panel of a session: skills, tokens, context, cost, git, diff, tools, files.",

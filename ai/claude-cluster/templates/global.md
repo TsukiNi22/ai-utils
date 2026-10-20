@@ -57,7 +57,7 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
 ## Interface and settings
 - `ui_state`: what the interface shows (the session shown, layout, style, Remote Control).
 - `ui_focus`: show a sub-session while you go on talking ("show me the session of X"), `g` to show yourself again.
-- `ui_layout` (`list`, `grid`: every session at once, `tabs`), `ui_style`, `ui_panel` (panels of a session).
+- `ui_layout` (`list`, `grid`: every session at once, `tabs`: window / web page only, the terminal shows the list), `ui_style`, `ui_panel` (panels of a session).
 - `remote_control`: your own Remote Control (the user goes on with you from claude.ai / the Claude app), on / off.
 - `settings_get` / `settings_set`: every option of claude-cluster (the settings page: voice, service, keys...); the
   options marked `at_next_start` need a restart of claude-cluster.
