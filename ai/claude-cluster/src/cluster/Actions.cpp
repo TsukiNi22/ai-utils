@@ -980,6 +980,9 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
         {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},
         {"expand", "thinking and tool results: in full / short"},
+        {"session_up", "session above (previous one in the list; the view follows)"}, {"session_down", "session below (next one)"},
+        {"session_left", "session on the left (grid; previous one in the list)"}, {"session_right", "session on the right (grid; next one in the list)"},
+        {"session_page_up", "a page of sessions up (list, grid rows)"}, {"session_page_down", "a page of sessions down"}, {"session_first", "the first session"}, {"session_last", "the last session"},
         {"transcript_top", "jump to the start of the transcript"}, {"transcript_bottom", "jump to the end (follow the end again)"},
     };
     std::string text = "Keys (config [keys], settings page F9):";

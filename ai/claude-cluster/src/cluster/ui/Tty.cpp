@@ -344,6 +344,8 @@ class FrameOut: public std::streambuf {
         }
 };
 
+static constexpr int GRID_MIN_WIDTH = 38;   // a cell of the grid: its smallest size, the rows that do not fit scroll
+static constexpr int GRID_MIN_HEIGHT = 8;
 static constexpr std::int64_t PASTE_GAP_MS = 30; // keys closer than this after an Enter: a paste, not typing
 
 _nodiscard inline std::int64_t now_ms_(void) {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();};
@@ -378,7 +380,11 @@ _cold std::string key_name_(const ftxui::Event& event)
         if (event == special) return name;
     const std::string& input = event.input();
     static const std::map<std::string, std::string> pages = {{"\x1b[5;2~", "Shift+PageUp"}, {"\x1b[6;2~", "Shift+PageDown"}, {"\x1b[1;5H", "Ctrl+Home"}, {"\x1b[1;5F", "Ctrl+End"}, // xstyle: ignore LU-ANSI (read)
-        {"\x1b[7;5~", "Ctrl+Home"}, {"\x1b[8;5~", "Ctrl+End"}}; // xstyle: ignore LU-ANSI (read)
+        {"\x1b[7;5~", "Ctrl+Home"}, {"\x1b[8;5~", "Ctrl+End"}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b[1;3A", "Alt+Up"}, {"\x1b[1;3B", "Alt+Down"}, {"\x1b[1;3C", "Alt+Right"}, {"\x1b[1;3D", "Alt+Left"}, {"\x1b\x1b[A", "Alt+Up"}, {"\x1b\x1b[B", "Alt+Down"}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b\x1b[C", "Alt+Right"}, {"\x1b\x1b[D", "Alt+Left"}, {"\x1b[5;3~", "Alt+PageUp"}, {"\x1b[6;3~", "Alt+PageDown"}, {"\x1b\x1b[5~", "Alt+PageUp"}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b\x1b[6~", "Alt+PageDown"}, {"\x1b[1;3H", "Alt+Home"}, {"\x1b[1;3F", "Alt+End"}, {"\x1b[7;3~", "Alt+Home"}, {"\x1b[8;3~", "Alt+End"}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b\x1b[H", "Alt+Home"}, {"\x1b\x1b[F", "Alt+End"}}; // xstyle: ignore LU-ANSI (read)
     if (pages.contains(input)) return pages.at(input);
     if (input.size() == 1 && input[0] >= 1 && input[0] <= 26 && input[0] != 9 && input[0] != 10 && input[0] != 13)
         return std::string("Ctrl+") + static_cast<char>('A' + input[0] - 1);
@@ -617,6 +623,16 @@ class TtyUi {
         ftxui::Box _promptBox;
         ftxui::Box _panelBox;                       // the side panels of the session shown (the wheel over them scrolls them)
         int _panelScroll = 0;                       // lines hidden at their top
+        ftxui::Box _listBox{0, -1, 0, -1};          // the list of sessions (list layout): the wheel over it scrolls it
+        std::size_t _listFirst = 0;                 // its first session shown
+        std::size_t _listRoom = 1;                  // the sessions it shows (a page)
+        ftxui::Box _gridBox{0, -1, 0, -1};          // the grid of sessions: the wheel over it scrolls its rows when they do not all fit
+        int _gridFirst = 0;                         // its first row shown
+        int _gridColumns = 1;                       // its columns, rows shown (a page), rows in all, as drawn last
+        int _gridVisible = 1;
+        int _gridRows = 1;
+        std::string _listSeen;                      // the session shown when the list / the grid last followed it (it moved: its row is kept in view)
+        std::string _gridSeen;
         CodePalette _code;                          // the colours of the code boxes (from the theme)
         ftxui::Box _askChatBox;                     // the chat of a question popup (the wheel over it scrolls it)
         int _askChatScroll = 0;                     // its lines hidden below (0: the newest shown)
@@ -1087,7 +1103,7 @@ class TtyUi {
             const std::vector<cluster::Snapshot> list = this->sessions_();
             const int count = static_cast<int>(list.size());
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
-            const int columns = layout == "grid" && count > 1 ? static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))) : 1;
+            const int columns = layout == "grid" && count > 1 ? this->_gridColumns : 1;
             // the Tasks session: in the ring of next / previous (first); the rows of the grid: its sessions only
             if (count == 0 || this->_active == TASKS_ID || dx != 0 || columns == 1) {
                 this->move_(dx != 0 ? dx : dy);
@@ -1098,6 +1114,24 @@ class TtyUi {
             int target = index;
             if (dx != 0 || columns == 1) target = (index + (dx != 0 ? dx : dy) + count) % count;
             else if (index + dy * columns >= 0 && index + dy * columns < count) target = index + dy * columns;
+            this->_active = list[static_cast<std::size_t>(target)].spec.id;
+        }
+
+        void sessionMove_(const std::string& action)
+        {
+            // Alt+arrows: the session around; Alt+PageUp / PageDown: a page of the list / the grid; Alt+Home / End: the first / the last
+            if (action == "session_up" || action == "session_down" || action == "session_left" || action == "session_right") {
+                this->moveDir_(action == "session_left" ? -1 : action == "session_right" ? 1 : 0, action == "session_up" ? -1 : action == "session_down" ? 1 : 0);
+                return;
+            }
+            const std::vector<cluster::Snapshot> list = this->sessions_();
+            if (list.empty()) return;
+            const int count = static_cast<int>(list.size());
+            const bool grid = this->_manager.ui("layout", this->_manager.config().layout) == "grid" && count > 1;
+            const int page = grid ? this->_gridVisible * this->_gridColumns : static_cast<int>(this->_listRoom);
+            auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
+            const int at = it == list.end() ? 0 : static_cast<int>(it - list.begin());
+            const int target = action == "session_first" ? 0 : action == "session_last" ? count - 1 : action == "session_page_up" ? std::max(0, at - page) : std::min(count - 1, at + page);
             this->_active = list[static_cast<std::size_t>(target)].spec.id;
         }
 
@@ -2216,12 +2250,14 @@ class TtyUi {
                 this->openRestore_();
             } else if (action == "prefix") {
                 this->_prefixUntil = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() + 2000;
-                this->status_(this->_manager.config().keys.at("prefix") + ": ← → ↑ ↓ to change of session");
+                this->status_(this->_manager.config().keys.at("prefix") + ": ← → ↑ ↓ to change of session, PageUp / PageDown / Home / End: a page / the first / the last");
             } else if (action == "palette") {
                 this->_filter.clear();
                 this->_selected = 0;
                 this->filter_();
                 this->_mode = Mode::Palette;
+            } else if (action.starts_with("session_")) {
+                this->sessionMove_(action);
             } else if (action == "next_session") {
                 this->move_(1);
             } else if (action == "prev_session") {
@@ -4358,6 +4394,8 @@ class TtyUi {
 
         _nodiscard ftxui::Element body_(const int width, const int height)
         {
+            this->_listBox = ftxui::Box{0, -1, 0, -1};   // drawn again below when the layout shows them
+            this->_gridBox = ftxui::Box{0, -1, 0, -1};
             const std::vector<cluster::Snapshot> list = this->sessions_();
             const bool tasksShown = this->_active == TASKS_ID; // the Tasks session: its view in place of a transcript
             if (list.empty() && tasksShown) return this->tasksView_(width, height); // no session yet: its tasks, its schedules still
@@ -4371,12 +4409,31 @@ class TtyUi {
             if (tasksShown && layout == "grid") return this->tasksView_(width, height);
 
             if (layout == "grid" && list.size() > 1) {
-                const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(list.size()))));
-                const int rows = (static_cast<int>(list.size()) + columns - 1) / columns;
+                // as many columns as the cells keep their minimum size, the rows that do not fit scroll
+                const int count = static_cast<int>(list.size());
+                const int maxColumns = std::max(1, width / GRID_MIN_WIDTH);
+                const int maxRows = std::max(1, height / GRID_MIN_HEIGHT);
+                int columns = std::min(maxColumns, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))));
+                while ((count + columns - 1) / columns > maxRows && columns < maxColumns)
+                    ++columns;
+                const int total = (count + columns - 1) / columns;
+                const bool scrolls = total > maxRows;
+                const int visible = scrolls ? std::max(1, (height - 1) / GRID_MIN_HEIGHT) : total;   // a line kept for the rows indicator
                 const int cellWidth = width / columns - 2;
-                const int cellHeight = height / rows - 2;
+                const int cellHeight = (height - (scrolls ? 1 : 0)) / visible - 2;
+                this->_gridColumns = columns;
+                this->_gridVisible = visible;
+                this->_gridRows = total;
+                const auto at = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
+                const int activeRow = at == list.end() ? 0 : static_cast<int>(at - list.begin()) / columns;
+                if (this->_gridSeen != this->_active) { // the focus moved: its row in view
+                    if (activeRow < this->_gridFirst) this->_gridFirst = activeRow;
+                    else if (activeRow >= this->_gridFirst + visible) this->_gridFirst = activeRow + 1 - visible;
+                    this->_gridSeen = this->_active;
+                }
+                this->_gridFirst = std::clamp(this->_gridFirst, 0, total - visible);
                 std::vector<ftxui::Elements> grid;
-                for (std::size_t i = 0; i < list.size(); ++i) {
+                for (std::size_t i = static_cast<std::size_t>(this->_gridFirst * columns); i < list.size() && i < static_cast<std::size_t>((this->_gridFirst + visible) * columns); ++i) {
                     if (i % static_cast<std::size_t>(columns) == 0) grid.emplace_back();
                     const bool active = list[i].spec.id == this->_active;
                     const std::string id = list[i].spec.id;
@@ -4389,7 +4446,17 @@ class TtyUi {
                         }) | ftxui::flex);
                 }
                 while (grid.back().size() < static_cast<std::size_t>(columns)) grid.back().push_back(ftxui::filler());
-                return ftxui::gridbox(grid) | ftxui::flex;
+                ftxui::Element cells = ftxui::gridbox(grid) | ftxui::flex;
+                if (!scrolls) return cells;
+                const int first = this->_gridFirst;
+                ftxui::Elements bar = {
+                    this->tap_(ftxui::text(" ▲ ") | ftxui::bold | ftxui::color(first > 0 ? this->_theme.accent : this->_theme.muted), 0, [this]() {--this->_gridFirst;}),
+                    this->tap_(ftxui::text(" ▼ ") | ftxui::bold | ftxui::color(first + visible < total ? this->_theme.accent : this->_theme.muted), 0, [this]() {++this->_gridFirst;}),
+                    ftxui::text(" rows " + std::to_string(first + 1) + "-" + std::to_string(first + visible) + " of " + std::to_string(total) + " · " + std::to_string(count)
+                        + " sessions" + (first > 0 ? " · ↑ more" : "") + (first + visible < total ? " · ↓ more" : "")
+                        + " · wheel / Alt+PageUp / Alt+PageDown scroll (Ctrl+wheel: the transcript)") | ftxui::color(this->_theme.muted) | ftxui::dim,
+                };
+                return ftxui::vbox({cells, ftxui::hbox(std::move(bar)) | ftxui::bgcolor(this->_theme.surface)}) | ftxui::flex | ftxui::reflect(this->_gridBox);
             }
             // list + active panel
             ftxui::Elements rows = {ftxui::text(" Sessions") | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text("")};
@@ -4398,13 +4465,20 @@ class TtyUi {
             // more sessions than the room: the ones around the one shown (2 lines each)
             const std::size_t room = static_cast<std::size_t>(std::max(1, (height - 3) / 2));
             const std::size_t at = static_cast<std::size_t>(it - list.begin());
-            const std::size_t first = list.size() <= room || at < room ? 0 : std::min(at + 1 - room, list.size() - room);
+            this->_listRoom = room;
+            if (this->_listSeen != this->_active) { // the selection moved: its row in view (the wheel scrolls freely until then)
+                if (at < this->_listFirst) this->_listFirst = at;
+                else if (at >= this->_listFirst + room) this->_listFirst = at + 1 - room;
+                this->_listSeen = this->_active;
+            }
+            this->_listFirst = list.size() <= room ? 0 : std::min(this->_listFirst, list.size() - room);
+            const std::size_t first = this->_listFirst;
             if (first > 0) rows.push_back(ftxui::text(" ↑ " + std::to_string(first) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
             for (std::size_t i = first; i < list.size() && i < first + room; ++i)
                 rows.push_back(this->sessionRow_(list[i], list[i].spec.id == this->_active, clip));
             if (first + room < list.size()) rows.push_back(ftxui::text(" ↓ " + std::to_string(list.size() - first - room) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
             return ftxui::hbox({
-                ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 30) | ftxui::yframe | this->clipBox_(clip),
+                ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 30) | ftxui::yframe | this->clipBox_(clip) | ftxui::reflect(this->_listBox),
                 ftxui::separatorLight() | ftxui::color(this->_theme.border),
                 (tasksShown ? this->tasksView_(width - 31, height) : this->session_(*it, width - 31, height, false)) | ftxui::flex,
             });
@@ -5310,6 +5384,16 @@ class TtyUi {
                     this->_askChatScroll = mouse.button == ftxui::Mouse::WheelUp ? this->_askChatScroll + 3 : std::max(0, this->_askChatScroll - 3);
                     return true;
                 }
+                const bool wheel = mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown;
+                const int step = mouse.button == ftxui::Mouse::WheelUp ? -1 : 1;
+                if (wheel && this->_mode == Mode::Normal && this->_listBox.Contain(mouse.x, mouse.y)) { // the list of sessions: scrolled, the selection kept
+                    this->_listFirst = static_cast<std::size_t>(std::max<int>(0, static_cast<int>(this->_listFirst) + step)); // clamped at the drawing
+                    return true;
+                }
+                if (wheel && this->_mode == Mode::Normal && this->_gridRows > this->_gridVisible && this->_gridBox.Contain(mouse.x, mouse.y) && !mouse.control && !mouse.shift) {
+                    this->_gridFirst += step; // the rows of the grid (Ctrl / Shift + wheel: the transcript as before)
+                    return true;
+                }
                 if (mouse.button == ftxui::Mouse::WheelUp) {
                     if (list) return this->event_(ftxui::Event::ArrowUp);   // the item above
                     if (onPanels) this->_panelScroll = std::max(0, this->_panelScroll - 3);
@@ -5657,6 +5741,11 @@ class TtyUi {
                 const bool armed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() <= this->_prefixUntil;
                 this->_prefixUntil = 0;
                 this->_status.clear();
+                if (armed && (event == ftxui::Event::PageUp || event == ftxui::Event::PageDown || event == ftxui::Event::Home || event == ftxui::Event::End)) {
+                    this->sessionMove_(event == ftxui::Event::PageUp ? "session_page_up" : event == ftxui::Event::PageDown ? "session_page_down"
+                        : event == ftxui::Event::Home ? "session_first" : "session_last");
+                    return true;
+                }
                 if (armed && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown)) {
                     this->moveDir_(event == ftxui::Event::ArrowLeft ? -1 : event == ftxui::Event::ArrowRight ? 1 : 0,
                         event == ftxui::Event::ArrowUp ? -1 : event == ftxui::Event::ArrowDown ? 1 : 0);

@@ -184,6 +184,14 @@ mode_cycle = "Shift+Tab"   # next permission mode: auto, acceptEdits, plan, bypa
 help = "F1"                # every key
 transcript_top = "Shift+PageUp|Ctrl+Home"        # jump to the first message (many terminals keep Shift+PageUp for their scrollback: Ctrl+Home arrives)
 transcript_bottom = "Shift+PageDown|Ctrl+End"    # jump to the end, new output scrolls into view again
+session_up = "Alt+Up"                # session above / next in the list (the list and the grid scroll to keep it in view)
+session_down = "Alt+Down"
+session_left = "Alt+Left"            # session on the left (grid) / previous one in the list
+session_right = "Alt+Right"
+session_page_up = "Alt+PageUp"       # a page of sessions up / down (the grid: its rows), also after the prefix: PageUp / PageDown / Home / End
+session_page_down = "Alt+PageDown"
+session_first = "Alt+Home"           # the first / the last session
+session_last = "Alt+End"
 # fixed: Alt+1..9 session N, Alt+Enter / Shift+Enter new line, Esc (queued prompt back to edit), Esc Esc (clear the prompt)
 push_to_talk = "F5"
 mute = "F6"
