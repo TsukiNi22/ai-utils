@@ -103,22 +103,22 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             list.push_back({"share:no", "Not given to the agent: this time", "", "", false});
             list.push_back({"share:never", "Never given to the agent (not asked again)", "", "", false});
         }
+        // a model / mode / effort picked: where it applies (this session first: Enter at once)
+        if (const std::string pending = manager.ui("apply", ""); !pending.empty()) {
+            const std::string what = pending.substr(0, pending.find(':')) + " " + pending.substr(pending.find(':') + 1);
+            const std::vector<cluster::Snapshot> subs = manager.list(false);
+            list.push_back({"apply:here", "Apply " + what + " to this session (" + snap->spec.name + ")", "", "", false});
+            if (!snap->spec.global) list.push_back({"apply:global", "Apply " + what + " to the global session", "", "", false});
+            list.push_back({"apply:subs", "Apply " + what + " to every sub-session (" + std::to_string(subs.size()) + ")", "", "", false});
+            list.push_back({"apply:all", "Apply " + what + " to every session (" + std::to_string(subs.size() + 1) + ")", "", "", false});
+            list.push_back({"apply:new", "Apply " + what + " to the next new sub-sessions (their default)", "", "", false});
+            for (const cluster::Snapshot& other: subs)
+                if (other.spec.id != session)
+                    list.push_back({"apply:" + other.spec.id, "Apply " + what + " to " + other.spec.name + " only", "", "", false});
+        }
         if (!snap->spec.global) {
             list.push_back({"cd", "Move the session to another folder", "folder", snap->spec.cwd, false});
             list.push_back({"close_session", "Close the session (to the trash)", "", "", false});
-            // a model / mode / effort picked: where it applies (this session first: Enter at once)
-            if (const std::string pending = manager.ui("apply", ""); !pending.empty()) {
-                const std::string what = pending.substr(0, pending.find(':')) + " " + pending.substr(pending.find(':') + 1);
-                const std::vector<cluster::Snapshot> subs = manager.list(false);
-                list.push_back({"apply:here", "Apply " + what + " to this session (" + snap->spec.name + ")", "", "", false});
-                if (session != GLOBAL_ID) list.push_back({"apply:global", "Apply " + what + " to the global session", "", "", false});
-                list.push_back({"apply:subs", "Apply " + what + " to every sub-session (" + std::to_string(subs.size()) + ")", "", "", false});
-                list.push_back({"apply:all", "Apply " + what + " to every session (" + std::to_string(subs.size() + 1) + ")", "", "", false});
-                list.push_back({"apply:new", "Apply " + what + " to the next new sub-sessions (their default)", "", "", false});
-                for (const cluster::Snapshot& other: subs)
-                    if (other.spec.id != session)
-                        list.push_back({"apply:" + other.spec.id, "Apply " + what + " to " + other.spec.name + " only", "", "", false});
-            }
             if (snap->queued > 0)
                 list.push_back({"send_next", "Send the next queued prompt now (the running turn interrupted): " + cluster::one_line(snap->queue.empty() ? std::string() : snap->queue.front(), 50),
                     "", "", false});

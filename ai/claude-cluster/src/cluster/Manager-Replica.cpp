@@ -175,6 +175,14 @@ _cold cluster::Json cluster::Manager::replicaState(const std::string& key) const
     return this->_replica->state.value(key, cluster::Json());
 }
 
+_cold void cluster::Manager::replicaPatchUi(const std::string& key, const std::string& value)
+{
+    if (!this->_replica) return;
+    std::lock_guard<std::mutex> lock(this->_replica->mutex);
+    if (!this->_replica->state.contains("ui") || !this->_replica->state["ui"].is_object()) this->_replica->state["ui"] = cluster::Json::object();
+    this->_replica->state["ui"][key] = value;
+}
+
 _cold cluster::Link cluster::Manager::link(void) const
 {
     if (!this->_replica || this->_replica->lostSince == 0) return {};

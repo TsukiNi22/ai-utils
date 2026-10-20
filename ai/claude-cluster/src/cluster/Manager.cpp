@@ -334,7 +334,10 @@ _cold void cluster::Manager::setEffort(const std::string& id, const std::string&
 _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::SessionSpec& spec)
 {
     // the session started again with this spec (its conversation: --resume), its transcript kept
-    this->get_(id)->stop();
+    // a turn running or prompts queued: not lost, sent again to the new one (the change applies to them)
+    const std::shared_ptr<cluster::Session> old = this->get_(id);
+    const std::vector<cluster::Queued> unfinished = old->unfinished();
+    old->stop();
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
     session->loadHistory(300);
     {
@@ -347,6 +350,8 @@ _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::Ses
 
 _cold void cluster::Manager::close(const std::string& id)
 {
+    for (const cluster::Queued& queued: unfinished)
+        session->send(queued.text, queued.images);
     if (id == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session can't be closed (quit claude-cluster)");
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     session->stop();
@@ -1578,3 +1583,5 @@ void cluster::Manager::setUi(const std::string& key, const std::string& value)
     ++this->_version;
     this->save();
 }
+        // read at once by the next step (the apply: popup after a model / mode / effort picked): not the sync of the core, a poll later
+        this->replicaPatchUi(key, value);

@@ -265,6 +265,7 @@ class Manager {
         _cold _nodiscard std::uint64_t syncVersion(void);          // the core: the version its interfaces wait for (sessions, questions, voice)
         _cold _nodiscard std::string replicaError(void) const;              // the core not reached ("": in sync)
         _cold _nodiscard cluster::Link link(void) const;                    // an interface: the core lost (since, tries, the next one)
+        _cold void replicaPatchUi(const std::string& key, const std::string& value);   // a ui value set here, read before the next sync
         _cold void retryNow(void);                                          // an interface: the next try now (the core started again if gone)
         _cold void detach_(void);                           // this interface closed: told to the core
         _cold void clientSeen(const std::string& client);   // the core: an interface synced
