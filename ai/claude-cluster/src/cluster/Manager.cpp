@@ -224,6 +224,10 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     session->start();
     if (!req.prompt.empty()) {
         if (req.reply) this->replyTo(spec.id); // before the prompt: a short turn could end before it is known
+        if (req.oneShot && req.reply) {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_oneShot.insert(spec.id);
+        }
         session->send(req.prompt);
     }
     this->notice_(spec.id, "new session " + spec.name + " (" + spec.backend + ") in " + cluster::short_path(spec.cwd));
@@ -363,6 +367,7 @@ _cold void cluster::Manager::close(const std::string& id)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_followed.erase(id);
+        this->_oneShot.erase(id);
     }
     this->dropFor_(id, false, session->spec().name); // its tasks and schedules: cancelled (closed)
     cluster::SessionSpec spec = session->spec();
@@ -1429,6 +1434,12 @@ void cluster::Manager::replyTo(const std::string& id)
     this->_followed.insert(id);
 }
 
+void cluster::Manager::userTouched(const std::string& id)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_oneShot.erase(id);
+}
+
 void cluster::Manager::replyUndo_(const std::string& id)
 {
     // the prompt that was to be answered was not sent: its callback forgotten
@@ -1456,13 +1467,35 @@ void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string&
     const char* kind = event.error ? "[error from " : event.interrupted ? "[interrupted: " : "[reply from ";
     const std::string text = std::string(kind) + name + " (" + event.session + ")]\n" + (event.spontaneous ? "(a turn woken up by a background task / Monitor)\n" : "")
         + (event.text.size() > 6000 ? event.text.substr(0, 6000) + "\n[...]" : event.text);
-    std::thread([this, text]() {
+    const bool finished = !event.error && !event.interrupted && !event.spontaneous;
+    const std::string id = event.session;
+    std::thread([this, text, id, finished]() {
         try {
             this->send(GLOBAL_ID, text, true);
         } catch (const utils::exception::IException& e) {
             this->notice_(GLOBAL_ID, std::string("reply not given to the global session: ") + e.info(), true);
+            return;
         }
+        if (!finished) return;
+        std::this_thread::sleep_for(std::chrono::seconds(2)); // the state settles, a prompt typed just after the answer is seen
+        this->archiveOneShot_(id);
     }).detach();
+}
+
+void cluster::Manager::archiveOneShot_(const std::string& id)
+{
+    // a session started for one task, its answer relayed: closed to the trash (restorable) unless it is still of use - another prompt
+    // waits, the agent asks something, the user typed in it or shows it right now
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (!this->_oneShot.contains(id) || this->_replies.contains(id) || (this->_active == id && this->_focused != 0)) return;
+    }
+    if (!this->_config.archiveOneShot) return;
+    const std::optional<cluster::Snapshot> snap = this->snapshot(id);
+    if (!snap || snap->state != cluster::State::Idle || snap->queued > 0 || !snap->permissions.empty()) return;
+    try {
+        this->close(id);
+    } catch (const utils::exception::IException&) {}
 }
 
 _cold void cluster::Manager::showcasePermission(const std::string& id, const cluster::Permission& permission)

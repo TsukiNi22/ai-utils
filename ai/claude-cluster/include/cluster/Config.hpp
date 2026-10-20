@@ -234,6 +234,7 @@ class Config {
         bool globalAnswers = false;             // the global session may choose the answer of a question of a sub-session
         bool bypassToGlobal = true;             // the permissions a sub-session in bypassPermissions still asks: decided by the global session
         bool globalFork = false;                // the global session may fork a sub-session (MCP session_fork)
+        bool archiveOneShot = true;             // a session the global session started for one task (session_spawn one_shot) is closed to the trash once its answer is relayed
         bool globalEdit = false;                // the global session may rewrite the conversation of a sub-session (MCP session_edit)
         bool globalPromptWrite = false;         // the global session may rewrite its own system prompt (MCP config_write global_prompt)
         bool sessionsPromptWrite = true;        // the global session may rewrite the system prompt of the sub-sessions (MCP config_write sessions_prompt)

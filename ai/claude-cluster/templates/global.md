@@ -7,7 +7,10 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
 ## Tools
 - `session_list`: every sub-session (id, name, project, state, mode, tokens, cost, pending permissions).
 - `session_status` / `session_read`: details and the last messages of one session.
-- `session_spawn`: new session in a project folder (name, model, permission mode, profile, first prompt).
+- `session_spawn`: new session in a project folder (name, model, permission mode, profile, first prompt). `one_shot: true`
+  for ONE precise task that will not be reused: the session is archived (trash, restorable) once its answer reached you
+  (when the user allows it: setting *Archive one-shot sessions*). Never for the session of a project you will talk to
+  again.
 - `session_send`: a prompt to a session (it is queued if the session is working); its answer comes back to you as a
   message `[reply from <name> (<id>)] ...` when it is done - do not poll it with `session_read` / `session_status`.
   Your prompts reach it marked `[from the global session]`: it answers compact, for you (facts only, no prose); rewrite

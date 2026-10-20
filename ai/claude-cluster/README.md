@@ -377,6 +377,10 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   completes (`[reply from ...]` with a note), an API error (`[error from ...]`, weekly limit...), an interrupted turn
   (`[interrupted: ...]`), an agent that exited; a task queued by the global session (`task_add`) is answered the same way
   (`tests/callbacks.sh` checks it with a fake `claude`);
+- **one-shot sessions**: `session_spawn` `one_shot: true` (set by the global session for ONE precise task, never for a project it
+  will talk to again) closes the session to the trash (restorable) once its answer was relayed, when *Archive one-shot sessions*
+  (`[sessions] archive_one_shot`, on by default) allows it - the flag is ignored when it is off. It stays when the user typed
+  in it, shows it right now, it waits for a permission / question, another prompt is queued, or its turn failed / was interrupted;
 - the task queue: a task whose target session does not exist (closed, never created) or whose dependency failed fails
   with its reason (`error` in `task_list`, told to the session that queued it); the finished tasks are archived after
   30 minutes (`task_list` `archived: true` lists them too; the Tasks session shows them under "archived");

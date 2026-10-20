@@ -96,6 +96,7 @@ struct SpawnRequest {
     std::vector<cluster::Entry> history{};  // its transcript so far, shown in the session
     std::string note{};         // a line of the system after it (where it comes from)
     bool reply = false;         // its first prompt's answer (and the later wake-up turns) sent back to the global session
+    bool oneShot = false;       // a session for one task: closed to the trash once its answer is relayed (sessions.archive_one_shot)
 };
 
 struct Notice {
@@ -135,6 +136,7 @@ class Manager {
         std::int64_t _globalRestart = 0;                // last time the global session was started again (its process ended)
         std::atomic<bool> _closing{false};              // claude-cluster quits: the agents ending are not an error
         std::map<std::string, int> _replies;            // sessions whose next turn ends are sent back to the global session
+        std::set<std::string> _oneShot;                 // sessions to close once their answer is relayed (untouched by the user since)
         std::set<std::string> _followed;                // sessions the global session asked a reply from: their wake-up turns (Monitor, background task) come back too
         bool _globalNew = false;                        // the global session starts a new conversation (marked in its transcript)
         std::atomic<std::uint64_t> _focusVersion{0};
@@ -227,6 +229,7 @@ class Manager {
         _cold _nodiscard std::shared_ptr<cluster::Session> make_(cluster::SessionSpec spec);
         _cold void event_(const cluster::Event& event);
         void replyUndo_(const std::string& id);
+        void archiveOneShot_(const std::string& id);        // a one-shot session whose answer was relayed: closed to the trash when nothing keeps it
         void replyEnd_(const cluster::Event& event, const std::string& name, const bool all = false);   // an end of turn: the global session told
         _cold bool describe_(const std::string& id, const std::string& text, const bool given); // false: no such session
         _cold void describeAuto_(const std::string& id);    // written by claude-cluster (its thread)
@@ -394,6 +397,7 @@ class Manager {
         _nodiscard std::string ui(const std::string& key, const std::string& fallback) const;
         void setUi(const std::string& key, const std::string& value);
         void requestFocus(const std::string& id);           // the interfaces show this session (the global session asks it)
+        void userTouched(const std::string& id);            // the user typed in this session: a one-shot one stays
         void replyTo(const std::string& id);                // the end of the next turn of this session sent to the global session
         bool notifyDesktop(const std::string& title, const std::string& text, const bool urgent = false); // false: notifications off
         // its face, buttons, sound; one per session (replaced); kind: global | done | permission | question | error | limit | web | task |

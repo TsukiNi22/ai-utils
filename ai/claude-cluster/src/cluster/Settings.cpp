@@ -277,6 +277,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"sessions", "global_edit", "Global session can edit", SettingKind::Bool, {}, "the global session may rewrite the conversation of a sub-session "
                 "of Claude Code (MCP session_edit: texts replaced, messages deleted, its end cut; a new conversation, the old one kept)", false,
                 [](const cluster::Config& cf) {return cf.globalEdit ? std::string("true") : std::string("false");}},
+            {"sessions", "archive_one_shot", "Archive one-shot sessions", SettingKind::Bool, {}, "a session the global session started for ONE task "
+                "(session_spawn one_shot) is closed to the trash (restorable) once its answer is relayed; kept when you typed in it, look at it or it waits for you. "
+                "Off: the flag is ignored", false, [](const cluster::Config& cf) {return cf.archiveOneShot ? std::string("true") : std::string("false");}},
             {"sessions", "rewrite_global_prompt", "Global session can rewrite its own system prompt", SettingKind::Bool, {}, "the global session may rewrite "
                 "its own system prompt (MCP config_write global_prompt): what it obeys at every start, it is started again on it. Off: it asks you (Ctrl+K: edit the system prompt)",
                 false, [](const cluster::Config& cf) {return cf.globalPromptWrite ? std::string("true") : std::string("false");}},

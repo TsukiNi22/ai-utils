@@ -480,7 +480,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                     if (!cluster::policy_costly_effort(manager.config(), wantedEffort)) wantedEffort.clear();
                 }
             }
-            data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), backend, arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), effort, false, "", false, {}, "", from_global && request.value("reply", true)})}};
+            data = {{"id", manager.spawn({arg_(request, "cwd"), arg_(request, "name"), backend, arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), effort, false, "", false, {}, "", from_global && request.value("reply", true), from_global && request.value("one_shot", false) && manager.config().archiveOneShot})}};
             if (!wanted.empty() || !wantedEffort.empty()) {
                 const std::string asked = manager.modelChange(data["id"].get<std::string>(), wanted, wantedEffort, true);
                 if (!asked.empty()) data["asked"] = asked + " (the session runs meanwhile on the policy default; the user answers in their interface)";
@@ -503,6 +503,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page)");
             if (request.value("raw", false)) { // an interface of another process: its /commands already run, its images
                 manager.noteSender(id, arg_(request, "client"));
+                if (!from_global) manager.userTouched(id);
                 manager.send(id, text, request.value("force", false), request.value("images", std::vector<std::string>()));
                 return {{"ok", true}, {"data", {{"id", id}, {"queued", true}}}};
             }
@@ -524,6 +525,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 if (!local->ui.empty() && local->ui != "fill" && local->ui != "pick:share:" && !local->ui.starts_with("pick:delete:")) message += " (" + local->ui + ": only in the interface, not run)";
                 return {{"ok", true}, {"data", {{"id", id}, {"local", true}, {"message", message}, {"ui", local->ui}, {"fill", local->fill}}}};
             }
+            if (!from_global) manager.userTouched(id);
             const bool reply = request.value("reply", false) && id != GLOBAL_ID;
             if (reply) manager.replyTo(id); // before: a short turn could end before it is known
             // from the global session (MCP): marked, the sub-session answers it compact (sessions.md), not for a human

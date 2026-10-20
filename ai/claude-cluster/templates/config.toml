@@ -85,6 +85,8 @@ bypass_to_global = true    # the permissions a sub-session in bypassPermissions 
 global_fork = false        # the global session may fork a sub-session (MCP session_fork); you can always (palette, fork)
 rewrite_global_prompt = false    # the global session may rewrite its own system prompt (MCP config_write global_prompt); old key global_prompts: same, as fallback
 rewrite_sessions_prompt = true   # the global session may rewrite the system prompt of the sub-sessions (MCP config_write sessions_prompt)
+archive_one_shot = true   # a session the global session started for ONE task (session_spawn one_shot) is closed to the trash (restorable) once its
+                           # answer is relayed; kept when you typed in it, look at it or it waits for you; off: the flag is ignored
 global_edit = false        # the global session may rewrite the conversation of a sub-session (MCP session_edit)
 prompt = "~/.config/claude-cluster/sessions.md" # system prompt of every sub-session (claude driver, added to the global
                            # CLAUDE.md; an empty file: none), taken at the next start of each session

@@ -194,6 +194,7 @@ _cold void cluster::Config::load(void)
     this->bypassToGlobal = table["sessions"]["bypass_to_global"].value_or(this->bypassToGlobal);
     this->questionsToGlobal = table["sessions"]["questions_to_global"].value_or(this->questionsToGlobal);
     this->globalAnswers = table["sessions"]["global_answers"].value_or(this->globalAnswers);
+    this->archiveOneShot = table["sessions"]["archive_one_shot"].value_or(this->archiveOneShot);
     this->globalEdit = table["sessions"]["global_edit"].value_or(this->globalEdit);
     // the old key global_prompts (both prompts) stays the fallback of the global prompt only
     this->globalPromptWrite = table["sessions"]["rewrite_global_prompt"].value_or(table["sessions"]["global_prompts"].value_or(this->globalPromptWrite));
