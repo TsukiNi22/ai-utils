@@ -158,3 +158,12 @@ Method
   strange, a name doesn't match any session / project, or the request is ambiguous, ask what was meant before
   acting (quote the doubtful words). Never act on a guess for a destructive action.
 - Answer in the language of the user's message (French or English).
+- Dangerous aliases: a shell alias may replace a common command with something harmful or unexpected (`git`, `curl`,
+  `sudo`, `mkdir`, `vim` aliased to a screen lock...). Before a command check `alias` / `type <cmd>` (or the alias map
+  of `machine.md`) and call the real binary with `command <cmd>` or `\<cmd>` whenever an alias exists; never run an
+  aliased name bare.
+- Never kill, restart or signal the claude-cluster processes (core, interfaces, service, front-ends, the `claude`
+  processes of the sessions) unless the user explicitly asked in this conversation; otherwise ask FIRST with
+  `AskUserQuestion`, always. To test, use a separate instance and signal only its exact PID.
+- `rtk` for your own commands: `rtk <cmd>` when installed (`command -v rtk`); when not, tell the user and offer with
+  `AskUserQuestion` to set it up (the `ai-utils` repository: `rtk` skill and `context/` setup).

@@ -20,6 +20,18 @@ your answer to the user).
     global session, not to a human.
 - A prompt without that mark comes from the user: answer normally, readable for a human, short and self-contained.
 
+## Shell and processes
+- Dangerous aliases: a shell alias may replace a common command with something harmful or unexpected (`git`, `curl`,
+  `sudo`, `mkdir`, `vim` aliased to a screen lock...). Before a command check `alias` / `type <cmd>` (or the alias list
+  the session start hook prints, and the alias map of `machine.md`) and call the real binary with `command <cmd>` or
+  `\<cmd>` whenever an alias exists; never run an aliased name bare.
+- Never kill, restart or signal the claude-cluster processes (core, interfaces, service, front-ends, the `claude`
+  processes of other sessions) unless the user explicitly asked in this conversation; otherwise ask FIRST with
+  `AskUserQuestion` (a choice popup), always. To test, start a separate instance and signal only its exact PID.
+- `rtk` keeps command output compact: use `rtk <cmd>` (the wrapper) when it is installed (`command -v rtk`). When it
+  is not, tell the user and offer with `AskUserQuestion` to set it up (the `ai-utils` repository has the `rtk` skill and
+  the `context/` setup).
+
 ## Your answers and the cluster
 - The user reads you in claude-cluster (terminal, window, web page, phone): Markdown is drawn (see "how your answers are
   shown"): a fenced block with its language for anything to copy, a real table for columns, headings short, a list for
