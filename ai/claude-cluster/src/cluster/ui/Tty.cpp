@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Attachments.hpp"
 #include "cluster/LineEditor.hpp"
 #include "cluster/Origin.hpp"
+#include "cluster/PromptNav.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
@@ -631,6 +632,8 @@ class TtyUi {
             int offset = 3;                         // cells before the text (" › ", "…")
         };
         std::vector<PromptRow> _promptRows;         // the rows of the prompt drawn (mouse -> position)
+        std::vector<cluster::VisualRow> _visualRows;    // every row of the prompt as wrapped at the last frame (Up / Down by row)
+        cluster::VisualGoal _visualGoal;            // the column kept by Up / Down from one row to the other
         ftxui::Box _promptBox;
         ftxui::Box _panelBox;                       // the side panels of the session shown (the wheel over them scrolls them)
         int _panelScroll = 0;                       // lines hidden at their top
@@ -972,6 +975,23 @@ class TtyUi {
                 });
                 this->_screen.PostEvent(ftxui::Event::Custom);
             });
+        }
+
+        _nodiscard bool rowsKnown_(void) const {return cluster::visual_rows_valid(this->_visualRows, this->_editor.text());};
+
+        _nodiscard bool onFirstRow_(void) const {return this->rowsKnown_() ? cluster::visual_row_of(this->_visualRows, this->_editor.cursor()) == 0 : this->_editor.onFirstLine();};
+
+        _nodiscard bool onLastRow_(void) const {return this->rowsKnown_() ? cluster::visual_row_of(this->_visualRows, this->_editor.cursor()) + 1 >= this->_visualRows.size() : this->_editor.onLastLine();};
+
+        bool visualStep_(const int dy, const bool select)
+        {
+            // Up / Down: the cursor to the row above / below as the prompt is wrapped on the screen, the column kept; false: not
+            // possible (first / last row: the history takes it, or the rows of the last frame do not match the text)
+            if (!this->rowsKnown_()) return false;
+            const std::optional<std::size_t> to = cluster::visual_move(this->_editor, this->_visualRows, dy, this->_visualGoal);
+            if (!to) return false;
+            this->_editor.place(*to, select);
+            return true;
         }
 
         void historyReset_(void)
@@ -1412,6 +1432,7 @@ class TtyUi {
         {
             // the prompt (several lines: Alt+Enter / Shift+Enter): selection inverted, cursor, 8 lines around the cursor
             this->_promptRows.clear();
+            this->_visualRows.clear();
             if (this->_mode == Mode::Search) {
                 return ftxui::hbox({ftxui::text(" find › ") | ftxui::color(this->_theme.warn) | ftxui::bold, this->fieldView_(this->_search, std::max(10, width - 60)),
                     ftxui::text("  " + (this->_matches.empty() ? std::string("no match") : std::to_string(this->_hit + 1) + "/" + std::to_string(this->_matches.size()))
@@ -1472,6 +1493,8 @@ class TtyUi {
                 start = nl + 1;
                 ++count;
             }
+            for (const Row& row: lines)
+                this->_visualRows.push_back({row.start, row.end, row.last});
             std::size_t current = 0;
             for (std::size_t i = 0; i < lines.size(); ++i)
                 if (cursor >= lines[i].start && (cursor < lines[i].end || (cursor == lines[i].end && lines[i].last))) current = i;
@@ -6185,7 +6208,8 @@ class TtyUi {
             else if (home_end_(event) == 'H') this->_editor.home(event.input() == "\x1b[1;2H"); // xstyle: ignore LU-ANSI (read)
             else if (home_end_(event) == 'F') this->_editor.end(event.input() == "\x1b[1;2F"); // xstyle: ignore LU-ANSI (read)
             else if (arrow && arrow->dy != 0 && !arrow->ctrl) {
-                // Up / Down: a line of the prompt; on its first / last line, the history
+                // Up / Down: a visual row of the prompt (as wrapped on the screen); on its first / last row, the history
+                if (this->visualStep_(arrow->dy, arrow->shift)) return true;
                 if (arrow->dy < 0 && !arrow->shift && this->_editor.onFirstLine()) (void)this->historyStep_(1);
                 else if (arrow->dy > 0 && !arrow->shift && this->_editor.onLastLine()) (void)this->historyStep_(-1);
                 else if (arrow->dy < 0) this->_editor.lineUp(arrow->shift);
@@ -6215,7 +6239,8 @@ class TtyUi {
             // k / j (or the arrows) on the first / last line: the history, like the plain prompt
             const bool up = key == "ArrowUp" || (key == "k" && this->_editor.vimPending().empty());
             const bool down = key == "ArrowDown" || (key == "j" && this->_editor.vimPending().empty());
-            if (vim == cluster::VimMode::Normal && ((up && this->_editor.onFirstLine() && this->historyStep_(1)) || (down && this->_editor.onLastLine() && this->historyStep_(-1))))
+            if (vim == cluster::VimMode::Normal && (up || down) && this->visualStep_(up ? -1 : 1, false)) return true;
+            if (vim == cluster::VimMode::Normal && ((up && this->onFirstRow_() && this->historyStep_(1)) || (down && this->onLastRow_() && this->historyStep_(-1))))
                 return true;
             static const std::map<std::string, std::string> keys = {{"ArrowLeft", "h"}, {"ArrowRight", "l"}, {"ArrowUp", "k"}, {"ArrowDown", "j"},
                 {"Backspace", "h"}, {"Home", "0"}, {"End", "$"}, {"Delete", "x"}};

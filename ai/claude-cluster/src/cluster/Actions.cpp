@@ -1175,7 +1175,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         "\n← ↑ ↓ → (grid)              move between the cells when the prompt is empty (else they edit it); Alt + arrows always"
         "\nEsc                           queued prompt back in the prompt (to edit it)"
         "\nEsc Esc                       clear the prompt; empty: the last turn removed, its prompt back"
-        "\n↑ / ↓                         history (first / last line of the prompt)"
+        "\n↑ / ↓                         a visual row of the prompt; on its first / last row: the history"
         "\nEnter                         send (/local commands run here)"
         "\n/vim                          vim mode: Esc Normal (hjkl w b e 0 ^ $ gg G f t x X s S D C dd cc yy d/c/y+motion"
         "\n                              p P u Ctrl+R ~ J r v V counts), i a I A o O Insert, Enter sends"

@@ -201,7 +201,7 @@ window opens instead when there is a display). In the background: `claude-cluste
 | | **Queued prompts** of a Claude Code session are given to claude 1.5 s after they are typed (Esc edits them before): claude takes them at its next step, between two tool calls, like its own queue - not after the whole turn (`[sessions] queue_given = step`; `end`: held until the end of the turn, as before); shown `↳ given` meanwhile |
 | Esc / Ctrl+C with voice prompts waiting | drop the last one / all of them (before anything else these keys do) |
 | Esc Esc | clear the prompt; on an empty prompt (like Claude Code): the last turn leaves the conversation (claude goes on from the message before it, `--resume-session-at`) and its prompt comes back to be edited (again: the one before) |
-| ↑ / ↓ | a line of the prompt; on its first / last line (or empty): the history of the prompts of the session shown, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest |
+| ↑ / ↓ | a **visual row** of the prompt: a prompt wrapped over several screen rows (even without a real line break) moves up / down by row, keeping the column as near as possible (a remembered target column, cells: wide characters and emoji count 2, a pasted-text / image chip is one block, the wrapping follows the width of the box: grid cell or list); on the **first / last** visual row (or empty): the history of the prompts of the session shown, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest. The web page does the same in its prompt (the history only on the first / last visual line of the textarea) |
 | Ctrl+E | edit the prompt in an editor: `[ui] editor`, else the first installed of nvim, vim, vi, `$VISUAL`, `$EDITOR`, emacs -nw, nano (window: a multi-line dialog); the pasted texts are there in full, the ones left unchanged are blocks again after |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
@@ -315,7 +315,7 @@ send the prompt.
 Normal (block cursor, `-- NORMAL --`): `h j k l` / arrows, `w b e`, `0 ^ $`, `gg G`, `f t F T<c>`, `x X s S D C`,
 `dd cc yy`, `d c y` + a motion, `p P`, `u` / `Ctrl+R`, `~`, `J`, `r<c>`, counts (`3w`, `2dd`), `v` / `V` visual
 (`d x c y ~`), `i a I A o O` back to Insert. In Normal: **Enter** sends, **Esc** with nothing pending does the Esc of the
-prompt (queued prompt back, Esc Esc clears), the Ctrl / Alt / F keys stay the shortcuts.
+prompt (queued prompt back, Esc Esc clears, j / k by visual row), the Ctrl / Alt / F keys stay the shortcuts.
 
 **Transcript** like Claude Code: `⏺` the answers and the tool calls (`Bash(ls)`, `Update Todos` with its ☐ ◼ ☒ list),
 `⎿` the first 3 lines of a result (`… +N lines`), `∴ Thinking` folded, the live thinking, and a state line while a turn
