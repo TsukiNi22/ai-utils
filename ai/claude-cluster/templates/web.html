@@ -3303,6 +3303,7 @@ function drawDevice(body) {
         field("The app " + version, "build " + (info.code || "?") + (info.built ? " · built " + info.built : "") + " · " + (info.package || "com.claudecluster.app")
             + " · its updates come from this computer (installed from here, nothing to download)", check);
         field("This phone", (info.model || "") + (info.android ? " · Android " + info.android : "") + (info.sdk ? " (API " + info.sdk + ")" : ""), el("span", "", ""));
+        drawAppNotifications(field);
         const change = el("button", "", "Another computer");
         change.addEventListener("click", () => window.ClusterApp.changeComputer());
         field("Computer", location.host, change);
@@ -3312,6 +3313,51 @@ function drawDevice(body) {
         link.addEventListener("click", (e) => { e.preventDefault(); saveFile("/app.apk", "claude-cluster.apk", link); });
         field("Android app", "the same page in an app: no browser warning, its notifications, updated from this computer", link);
     }
+}
+// the notifications of this phone (the app): the ones of the computer, shown while the app is not in front - on / off, which kinds
+const APP_KINDS = [["global", "The global session answers"], ["done", "A session finishes"], ["permission", "A permission waits"], ["question", "A question of an agent"],
+    ["error", "An error, a crash"], ["limit", "A limit close or reached"], ["task", "The task queue done"], ["reminder", "Reminders"], ["message", "Messages of the agents (notify tool)"],
+    ["ready", "Something slow is ready"], ["web", "Web devices"]];
+function drawAppNotifications(field) {
+    const read = () => { try { return JSON.parse(window.ClusterApp.notifySettings ? window.ClusterApp.notifySettings() : "{}"); } catch (e) { return {}; } };
+    if (!window.ClusterApp.notifySettings) return; // an older app: its notifications are not set from here
+    const box = el("div", "app-notify");
+    const draw = () => {
+        const now = read();
+        box.textContent = "";
+        const kinds = new Set(now.kinds || []);
+        const save = () => window.ClusterApp.setNotify(on.checked, APP_KINDS.filter(([k]) => kinds.has(k)).map(([k]) => k).join(","));
+        const row = (checked, text, change) => {
+            const label = el("label", "check");
+            const input = el("input");
+            input.type = "checkbox";
+            input.checked = checked;
+            input.addEventListener("change", () => change(input));
+            label.append(input, document.createTextNode(" " + text));
+            box.append(label, el("br"));
+            return input;
+        };
+        const on = row(now.on !== false, "Notifications on this phone", () => { save(); draw(); });
+        if (now.on !== false) {
+            for (const [kind, text] of APP_KINDS) row(kinds.has(kind), text, (input) => { if (input.checked) kinds.add(kind); else kinds.delete(kind); save(); });
+            const test = el("button", "", "Send a test");
+            test.addEventListener("click", () => window.ClusterApp.notifyTest());
+            box.append(test);
+            if (now.allowed === false) {
+                const allow = el("button", "primary button", "Allow notifications (Android)");
+                allow.addEventListener("click", () => { window.ClusterApp.notifyAllow(); setTimeout(draw, 4000); });
+                box.append(allow);
+            }
+            if (now.battery === false) {
+                const battery = el("button", "", "Keep running in the background");
+                battery.addEventListener("click", () => { window.ClusterApp.batteryAllow(); setTimeout(draw, 6000); });
+                box.append(battery);
+            }
+        }
+    };
+    draw();
+    field("Notifications of this phone", "the same ones as the computer (its Notifications settings: Android app), shown while this app is not in front - a tap opens the session; "
+        + "no Google services: the app keeps its own connection to the computer (a quiet notification while it does; Android may stop it to save the battery: allow it to keep running)", box);
 }
 $("drawerClose").addEventListener("click", closePanels);
 $("drawerSave").addEventListener("click", async () => {

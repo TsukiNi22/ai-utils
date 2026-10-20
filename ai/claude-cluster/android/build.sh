@@ -27,7 +27,7 @@ command mkdir -p "$work/res/mipmap-mdpi" "$work/res/mipmap-hdpi" "$work/res/mipm
     "$work/gen/com/claudecluster/app" "$work/classes" "$out"
 
 # its icon: ^_^ of claude-cluster on a dark rounded square
-"$binary" icon happy > "$work/icon.svg"
+"$binary" icon happy > "$work/icon.svg" < /dev/null
 for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
     density="${pair%%:*}"
     size="${pair##*:}"
@@ -42,6 +42,24 @@ for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
         exit 0
     fi
 done
+
+# the notifications: the status bar icon is a flat alpha mask (white on transparent: the terminals and its face cut out of the front one,
+# 24 dp at every density) and the large icon the coloured logo (the launcher one, 256 px)
+if command -v magick > /dev/null; then
+    sed -e 's/#8a93a6/#ffffff/g; s/#6d8ef0/#ffffff/g; s/#15171b/#000000/g; s/ opacity="[.0-9]*"//g' "$work/icon.svg" > "$work/stat.svg"
+    for pair in mdpi:24 hdpi:36 xhdpi:48 xxhdpi:72 xxxhdpi:96; do
+        density="${pair%%:*}"
+        size="${pair##*:}"
+        command mkdir -p "$work/res/drawable-$density"
+        magick -background none -density 384 "$work/stat.svg" -resize "${size}x${size}" -gravity center -extent "${size}x${size}" "$work/stat.png"
+        # alpha = its alpha x its brightness (the black face: a hole), the colour white
+        magick "$work/stat.png" \( +clone -alpha extract \) \( -clone 0 -alpha off -colorspace Gray \) -delete 0 -compose Multiply -composite "$work/stat-mask.png"
+        magick -size "${size}x${size}" xc:white "$work/stat-mask.png" -alpha off -compose CopyOpacity -composite "$work/res/drawable-$density/ic_stat.png"
+    done
+    command mkdir -p "$work/res/drawable-nodpi"
+    magick -background none -density 768 "$work/icon.svg" -resize 210x210 -gravity center \
+        \( -size 256x256 xc:none -fill '#1e2128' -draw "roundrectangle 0,0,255,255,52,52" \) +swap -composite "$work/res/drawable-nodpi/ic_large.png"
+fi
 
 # resources, then the code (its version as BuildConfig), then the dex, then signed
 "$tools/aapt2" compile --dir "$work/res" -o "$work/res.zip"

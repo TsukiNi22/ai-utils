@@ -12,7 +12,6 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
@@ -71,13 +70,12 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("claude-cluster", MODE_PRIVATE);
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel("sessions", "Sessions", NotificationManager.IMPORTANCE_HIGH);
-            channel.setDescription("A session finished, waiting for you, an error");
-            getSystemService(NotificationManager.class).createNotificationChannel(channel);
-        }
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+        Alerts.channels(this);
+        // Android 13+: asked at the first start; refused for good, the settings of Android (This device page: Allow notifications)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !prefs.getBoolean("notify_asked", false)) {
+            prefs.edit().putBoolean("notify_asked", true).apply();
             requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 2);
+        }
         final String url = prefs.getString("url", "");
         if (url.isEmpty()) showSetup("");
         else choose(url);
@@ -134,10 +132,9 @@ public class MainActivity extends Activity {
         // out of front: the watch service follows the sessions of this phone (its notifications)
         super.onPause();
         front = false;
-        if (!prefs.getString("url", "").isEmpty() && web != null) {
+        if (!prefs.getString("url", "").isEmpty() && web != null && Alerts.enabled(prefs)) {
             try {
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(new Intent(this, WatchService.class));
-                else startService(new Intent(this, WatchService.class));
+                startForegroundService(new Intent(this, WatchService.class).putExtra("fresh", true));
             } catch (Exception e) {
                 // not allowed now (Android): the notifications while in front only
             }
@@ -519,6 +516,63 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void notify(String title, String body, String session) {
             // out of front the watch service notifies (never twice); in front the page shows it itself
+        }
+
+        @JavascriptInterface
+        public String notifySettings() {
+            // the notifications of this phone: on / off, its kinds, what Android allows (the page draws them in This device)
+            try {
+                org.json.JSONObject out = new org.json.JSONObject();
+                out.put("on", Alerts.enabled(prefs));
+                out.put("kinds", new org.json.JSONArray(Alerts.kinds(prefs)));
+                out.put("allowed", getSystemService(NotificationManager.class).areNotificationsEnabled());
+                out.put("battery", getSystemService(android.os.PowerManager.class).isIgnoringBatteryOptimizations(getPackageName()));
+                return out.toString();
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public void setNotify(boolean on, String kinds) {
+            // on / off and the kinds chosen (comma separated); a service running while the app is in front is not needed: it starts when the app goes out
+            prefs.edit().putBoolean("notify_on", on).putString("notify_kinds", kinds == null ? "" : kinds).apply();
+        }
+
+        @JavascriptInterface
+        public void notifyAllow() {
+            // the permission of Android 13+ (asked once: then the settings of Android for this app)
+            ui.post(() -> {
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !prefs.getBoolean("notify_asked", false)) {
+                    prefs.edit().putBoolean("notify_asked", true).apply();
+                    requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 2);
+                } else {
+                    startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void batteryAllow() {
+            // out of the battery optimization: the watch service is not put to sleep by Doze (the user confirms in Android)
+            ui.post(() -> {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + getPackageName())));
+                } catch (Exception e) {
+                    startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void notifyTest() {
+            // a notification of this phone, to see what it looks like (and that Android shows it)
+            try {
+                Alerts.post(MainActivity.this, new org.json.JSONObject().put("seq", System.currentTimeMillis() % Integer.MAX_VALUE).put("time", System.currentTimeMillis() / 1000)
+                    .put("kind", "message").put("session", "").put("title", "claude-cluster").put("body", "a test notification: a tap opens the app"));
+            } catch (Exception e) {
+                // not shown
+            }
         }
 
         @JavascriptInterface
