@@ -126,6 +126,15 @@ struct UsageConf {
     std::map<std::string, std::pair<double, double>> prices;        // [usage.prices] model = input $/M tokens (output 5x), or [input, output]
 };
 
+struct LimitsConf {                 // [limits]: what the sessions may spend together
+    double dailyUsd = 0.0;          // since the local midnight (0: no limit)
+    double weeklyUsd = 0.0;         // the last 7 days
+    double monthlyUsd = 0.0;        // since the 1st of the local month
+    std::string scope = "keys";     // keys: only the turns billed through an API key | all: every turn (the notional cost of a subscription too)
+    bool block = true;              // a limit reached: the prompts are refused (false: only warned)
+    int warnPercent = 80;           // warned at this share of a limit (0: never before it is reached)
+};
+
 struct ServicesConf {
     std::string refresh = "live";   // the Services tab: live (what changes, at once) | interval (every delay s) | manual (R)
     int delay = 2;                  // seconds: interval; the slow parts (systemd, its journal, tailscale) kept so long
@@ -227,6 +236,7 @@ class Config {
         cluster::ServiceConf service;
         cluster::ServicesConf services;
         cluster::UsageConf usage;
+        cluster::LimitsConf limits;
         cluster::WebConf web;
         cluster::UserConf user;
         int machineDays = 30;                   // the map of this computer older: a sync proposed at start (0: never)

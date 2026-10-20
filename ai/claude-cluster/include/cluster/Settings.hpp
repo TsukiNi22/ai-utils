@@ -21,6 +21,7 @@ File Description:
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include "Config.hpp"           // cluster::Config
+    #include "Types.hpp"            // cluster::Json
     #include <functional>           // std::function
     #include <string>               // std::string
     #include <vector>               // std::vector
@@ -95,6 +96,10 @@ _cold _nodiscard bool setting_protected(const std::string& section, const std::s
 _cold _nodiscard bool web_may(const cluster::Config& config, const std::string& section);   // a device of the web page may change this section ([web] settings)
 _cold _nodiscard std::vector<std::string> protected_changes(const std::string& oldToml, const std::string& newToml); // "section.key" changed
 _cold void settings_write(const cluster::Config& config, const std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes);
+
+// The state of the providers and the spending (computed by the core, read by every interface: the Accounts page)
+_cold void accounts_status_set(const cluster::Json& status);
+_cold _nodiscard cluster::Json accounts_status_get(void);
 
 } // namespace end
 

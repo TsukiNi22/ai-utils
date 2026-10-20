@@ -17,16 +17,19 @@ File Description:
 #include "cluster/Vocabulary.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Plugins.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Types.hpp"
+#include "cluster/Auth.hpp"
 #include "cluster/Mcp.hpp"
 #include <toml++/toml.hpp>
 #include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <mutex>
 #include <set>
 
 /* tools */
@@ -589,6 +592,56 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         const auto mcp = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "mcp";});
         pages.insert(mcp == pages.end() ? pages.end() : mcp + 1, page);
     }
+    // accounts & limits: the providers (store / remove a key, log in) and what the sessions may spend together
+    {
+        const std::function<std::string(const std::string&)> state = [](const std::string& name) {
+            for (const cluster::Json& p: accounts_status_get().value("providers", cluster::Json::array()))
+                if (p.value("name", std::string()) == name)
+                    return std::string(p.value("ready", false) ? "ready" : "not ready") + " · " + p.value("detail", std::string());
+            return std::string("(the core has not answered yet)");
+        };
+        const std::function<std::string(const std::string&, double)> spent = [](const std::string& window, const double limit) {
+            const double now = accounts_status_get().value("spent", cluster::Json::object()).value(window, 0.0);
+            return cluster::human_cost(now) + (limit > 0 ? " of " + cluster::human_cost(limit) + " (" + std::to_string(static_cast<int>(now / limit * 100.0 + 0.5)) + "%)" : std::string(" (no limit)"));
+        };
+        cluster::SettingsPage page{"accounts", "Accounts & limits", {}};
+        for (const cluster::Provider& p: cluster::Auth(c).providers()) {
+            const std::string name = p.name;
+            if (p.auth == cluster::AuthKind::None) continue;
+            page.settings.push_back({"accounts", "account_" + name, name + " (" + p.driver + ")", SettingKind::Action, {}, p.auth == cluster::AuthKind::Key
+                ? "an API key for " + name + ": Enter stores / replaces it (asked without echo; the keyring of the system, else credentials.json 0600; never in config.toml). "
+                  "Use it: [agent] default = \"" + name + "\", or /model, or a profile's backend"
+                : name + " logs in with its own tool (" + cluster::one_line(cluster::Auth(c).loginCommand(p).empty() ? std::string() : cluster::Auth(c).loginCommand(p)[0], 40)
+                  + "): Enter runs it in a terminal; claude-cluster stores nothing", false,
+                [name, state](const cluster::Config&) {return state(name);}});
+            if (p.auth == cluster::AuthKind::Key)
+                page.settings.push_back({"accounts", "account_rm_" + name, "  remove the key of " + name, SettingKind::Action, {}, "Enter removes the stored key of " + name, false,
+                    [](const cluster::Config&) {return std::string("remove");}});
+        }
+        page.settings.push_back({"limits", "daily_usd", "Limit per day (USD)", SettingKind::Float, {}, "what all the sessions may spend since the local midnight; 0: none. Reached: the prompts "
+            "are refused (Block) and you are notified; warned at the share of Warn at", false, [](const cluster::Config& cf) {return number_(cf.limits.dailyUsd);}});
+        page.settings.push_back({"accounts", "spent_day", "  spent today", SettingKind::Action, {}, "the spending of today (the usage ledger, the scope below)", false,
+            [spent](const cluster::Config& cf) {return spent("day", cf.limits.dailyUsd);}});
+        page.settings.push_back({"limits", "weekly_usd", "Limit per week (USD)", SettingKind::Float, {}, "the last 7 days; 0: none", false,
+            [](const cluster::Config& cf) {return number_(cf.limits.weeklyUsd);}});
+        page.settings.push_back({"accounts", "spent_week", "  spent this week", SettingKind::Action, {}, "the last 7 days", false,
+            [spent](const cluster::Config& cf) {return spent("week", cf.limits.weeklyUsd);}});
+        page.settings.push_back({"limits", "monthly_usd", "Limit per month (USD)", SettingKind::Float, {}, "since the 1st of the local month; 0: none", false,
+            [](const cluster::Config& cf) {return number_(cf.limits.monthlyUsd);}});
+        page.settings.push_back({"accounts", "spent_month", "  spent this month", SettingKind::Action, {}, "since the 1st of the month", false,
+            [spent](const cluster::Config& cf) {return spent("month", cf.limits.monthlyUsd);}});
+        page.settings.push_back({"limits", "scope", "Counted", SettingKind::Choice, {"keys", "all"}, "what the limits count.\n• keys: only the turns billed through an API key "
+            "(openrouter, anthropic-api...): a subscription costs nothing more per turn\n• all: every turn, the notional cost of a subscription too (the price of its tokens)", false,
+            [](const cluster::Config& cf) {return cf.limits.scope;}});
+        page.settings.push_back({"limits", "block", "Block at the limit", SettingKind::Bool, {}, "true: a limit reached refuses the new prompts (send --force passes); false: only warned",
+            false, [](const cluster::Config& cf) {return cf.limits.block ? std::string("true") : std::string("false");}});
+        page.settings.push_back({"limits", "warn_percent", "Warn at (%)", SettingKind::Int, {}, "warned (a notice and a notification) at this share of a limit; 0: only when it is reached",
+            false, [](const cluster::Config& cf) {return std::to_string(cf.limits.warnPercent);}});
+        page.settings.push_back({"sessions", "budget_usd", "Budget per session (USD)", SettingKind::Float, {}, "0: none; reached: the session refuses new prompts (also in Sessions)",
+            false, [](const cluster::Config& cf) {return number_(cf.budget);}});
+        const auto usage = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "usage";});
+        pages.insert(usage == pages.end() ? pages.end() : usage + 1, page);
+    }
     for (const auto &[action, key]: c.keys) {
         const std::string name = action;
         pages.back().settings.push_back({"keys", name, name, SettingKind::Text, {}, "Ctrl+<letter>, Ctrl+Shift+<letter>, Alt+<letter>, F1..F12, Tab, Escape; alternatives separated by |", false,
@@ -741,6 +794,22 @@ _cold void cluster::settings_write(const cluster::Config& config,
     if (error) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, config.path().string() + ": " + error.message());
 }
 
+/* the accounts */
+static std::mutex accounts_mutex_;     // NOLINT: the cache of the core's answer
+static cluster::Json accounts_json_;   // NOLINT
+
+_cold void cluster::accounts_status_set(const cluster::Json& status)
+{
+    std::lock_guard<std::mutex> lock(accounts_mutex_);
+    accounts_json_ = status;
+}
+
+_cold cluster::Json cluster::accounts_status_get(void)
+{
+    std::lock_guard<std::mutex> lock(accounts_mutex_);
+    return accounts_json_.is_object() ? accounts_json_ : cluster::Json::object(); // nothing yet: no state
+}
+
 /* the protected settings */
 _cold bool cluster::setting_protected(const std::string& section, const std::string& key)
 {
@@ -748,7 +817,8 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
-    return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || keys.contains(section + "." + key);
+    return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"
+        || (section == "sessions" && key == "budget_usd") || keys.contains(section + "." + key);
 }
 
 _cold std::vector<std::string> cluster::protected_changes(const std::string& oldToml, const std::string& newToml)
@@ -771,7 +841,7 @@ _cold std::vector<std::string> cluster::protected_changes(const std::string& old
         return out.str();
     };
     std::set<std::string> keys;
-    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice", "usage"})
+    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice", "usage", "limits", "policy"})
         for (const toml::table* table: {before.at_path(section).as_table(), after.at_path(section).as_table()})
             if (table != nullptr)
                 for (const auto &[key, node]: *table)

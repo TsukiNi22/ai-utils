@@ -139,6 +139,8 @@ class Manager {
         std::set<std::string> _failureGone;        // the ones of the core answered here (until its next sync)
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
         std::atomic<bool> _pluginsBusy{false};     // plugins of repositories: listed / installed by a thread
+        cluster::Json _accounts;                   // accountsJson() kept (the state of a provider can start a process)
+        std::int64_t _accountsAt = 0;
         std::string _upgradeVersion;               // a newer binary installed (offered), its version ignored, the binary seen
         std::string _upgradeIgnored;
         std::int64_t _exeStamp = 0;
@@ -252,6 +254,10 @@ class Manager {
         _cold _nodiscard std::string vendorOf(const std::string& backend) const;   // its provider ("" unknown)
         _cold _nodiscard cluster::UsageReport usage(const std::string& vendor) const;
         _cold void pluginsRefresh(void);                     // the plugin sources pulled / listed again, the ticks applied
+        _cold _nodiscard double spent(const std::int64_t since) const;      // what the sessions spent since then (the scope of [limits])
+        _cold _nodiscard std::string limitReached(void) const;               // [limits]: the one reached (empty: none)
+        _cold void limitsWarn(void);                                         // the share of a limit reached: told once
+        _cold _nodiscard cluster::Json accountsJson(void);                   // the providers (state) and the spending, cached a few seconds
         _cold _nodiscard cluster::UpgradeOffer upgradeOffer(void) const;    // a newer claude-cluster installed (the core's)
         _cold std::string upgradeAct(const std::string& action);            // update | ignore | quit
         _cold _nodiscard std::vector<std::string> usageVendors(void) const;         // the ones in the ledger

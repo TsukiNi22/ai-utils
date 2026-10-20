@@ -313,6 +313,15 @@ claude-cluster auth login openrouter     # API key asked without echo, stored in
 claude-cluster auth logout openrouter    # key removed (login providers: their own logout)
 ```
 
+**Settings > Accounts & limits** (terminal, window, web page): every provider with its state (key stored / login done /
+not ready and why) - Enter on a key provider asks its API key (without echo; the keyring, else `credentials.json`
+0600; never `config.toml`), the row under it removes it; a login provider runs its own login. The **limits** are what
+the sessions may spend *together* (the USD of the usage ledger): per day (since the local midnight), per week (the last
+7 days), per month (since the 1st), each with its spending shown, **Counted** (`keys`: only what an API key is billed
+for - a subscription costs nothing more per turn - or `all`), **Block at the limit** (the prompts refused, `send
+--force` passes; or only warned) and **Warn at** a share of a limit (a notice and a notification, once per window).
+`[limits]` and `[sessions] budget_usd` are protected: the global session never changes them.
+
 > [!IMPORTANT]
 > The **claude** driver is the complete one: one process per session, live permissions in the interface, the MCP
 > server, Remote Control. The other drivers start one process per turn (the conversation is resumed with its id):

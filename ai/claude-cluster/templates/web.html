@@ -3068,6 +3068,14 @@ function drawDrawer() {
             body.append(row);
             continue;
         }
+        if (s.kind === "action" && (s.key.startsWith("account_") || s.key.startsWith("spent_"))) {
+            // the providers and the spending: shown here; a key is stored from the terminal or the window (never typed in a web page)
+            const row = el("div", "setting");
+            row.append(el("label", "", s.label.trim()), el("div", "setting-help", String(s.value || "")));
+            if (s.key.startsWith("account_") && !s.key.startsWith("account_rm_")) row.append(el("div", "setting-help", "Store or remove its key from the terminal or the window (Settings > Accounts & limits)."));
+            body.append(row);
+            continue;
+        }
         if (s.kind === "action") continue;
         const key = s.section + "." + s.key;
         const row = el("div", "setting" + (settingsChanged.has(key) ? " changed" : ""));

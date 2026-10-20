@@ -241,6 +241,12 @@ _cold void cluster::Manager::send(const std::string& id, const std::string& text
     }
     const cluster::Snapshot snap = session->snapshot();
 
+    if (!force && this->_config.limits.block) {
+        if (const std::string why = this->limitReached(); !why.empty()) {
+            this->notice_(id, why + ": prompt refused", true);
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, why + " (force it, or raise it in Settings > Accounts & limits)");
+        }
+    }
     if (!force && this->_config.budget > 0 && snap.metrics.costKnown && snap.metrics.cost >= this->_config.budget) {
         this->notice_(id, "budget reached (" + cluster::human_cost(snap.metrics.cost) + "): prompt refused", true);
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
@@ -699,6 +705,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             break;
         case cluster::Event::Kind::TurnDone:
             this->recordUsage_(event.session);
+            this->limitsWarn();
             if (event.session != GLOBAL_ID) this->turnCounted_(event.session, event.error || event.interrupted);
             if (event.session == GLOBAL_ID && this->_restartAfterTurn.exchange(false)) {
                 // it changed its own system prompt: started again on it, the same conversation, once its turn is over
@@ -989,6 +996,7 @@ _cold void cluster::Manager::tick(void)
     this->fireSchedules_();
     if (++seconds % 300 == 1) this->purge();
     if (seconds % 3 == 0) this->upgradeCheck_();
+    if (seconds % 5 == 0) cluster::accounts_status_set(this->accountsJson());
     {
         // the prompts queued while a turn runs: given to claude after a moment (its next step)
         std::vector<std::shared_ptr<cluster::Session>> sessions;

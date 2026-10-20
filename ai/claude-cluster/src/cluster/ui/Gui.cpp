@@ -2647,6 +2647,17 @@ class Window: public QMainWindow {
         {
             // an action of the settings: the map of this computer, the system prompt of the global session or of the
             // sub-sessions (edited here), the showcase of the Debug page (in a thread: the window never frozen)
+            if (key.starts_with("account_")) {
+                // a provider: its key asked (without echo) and stored, removed, or its login run
+                const bool remove = key.starts_with("account_rm_");
+                const std::string name = key.substr(remove ? 11 : 8);
+                const std::optional<cluster::Provider> provider = this->manager.auth().find(name);
+                if (!provider) return;
+                if (remove) this->run({"auth_logout:" + name, "", "", "", false}, "");
+                else if (provider->auth == cluster::AuthKind::Key) this->choose({"auth_key:" + name, "Provider " + name + ": store the API key", "API key", "", false});
+                else this->run({"auth_login:" + name, "", "", "", false}, "");
+                return;
+            }
             if (key.starts_with("showcase_")) {
                 std::thread([this, what = key.substr(9)]() {
                     std::string done;

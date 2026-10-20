@@ -16,6 +16,9 @@ File Description:
 #include "cluster/Manager.hpp"
 #include "cluster/Usage.hpp"
 #include "cluster/Tools.hpp"
+#define _Exception
+#define _Attribute
+#include "cluster/Auth.hpp"
 #include <functional>
 #include <algorithm>
 #include <iomanip>
@@ -505,4 +508,95 @@ _cold void cluster::Manager::usageRefresh(void)
 {
     this->scanTranscripts_();
     this->refreshAccount_();
+}
+
+/* limits and accounts */
+_cold static std::int64_t window_start_(const std::string& window)
+{
+    // day: the local midnight; month: the 1st of the local month, midnight; week: the last 7 days
+    const std::int64_t now = cluster::now();
+    if (window == "week") return now - 7 * 86400;
+    std::time_t stamp = static_cast<std::time_t>(now);
+    std::tm local{};
+    ::localtime_r(&stamp, &local);
+    local.tm_hour = 0;
+    local.tm_min = 0;
+    local.tm_sec = 0;
+    if (window == "month") local.tm_mday = 1;
+    return static_cast<std::int64_t>(std::mktime(&local));
+}
+
+_cold double cluster::Manager::spent(const std::int64_t since) const
+{
+    // the usage ledger since then; keys: only the providers billed through a key (never a subscription or a local model)
+    const bool keysOnly = this->_config.limits.scope != "all";
+    std::map<std::string, bool> counted;
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    double total = 0.0;
+    for (auto it = this->_usage.rbegin(); it != this->_usage.rend() && it->time >= since; ++it) {
+        if (!it->costKnown || it->cost <= 0.0) continue;
+        if (keysOnly) {
+            auto known = counted.find(it->vendor);
+            if (known == counted.end()) {
+                const std::optional<cluster::Provider> provider = this->_auth.find(it->vendor);
+                known = counted.emplace(it->vendor, provider && provider->auth == cluster::AuthKind::Key && !provider->local).first;
+            }
+            if (!known->second) continue;
+        }
+        total += it->cost;
+    }
+    return total;
+}
+
+_cold std::string cluster::Manager::limitReached(void) const
+{
+    const cluster::LimitsConf& limits = this->_config.limits;
+    for (const auto &[window, limit]: {std::pair<std::string, double>{"day", limits.dailyUsd}, {"week", limits.weeklyUsd}, {"month", limits.monthlyUsd}})
+        if (limit > 0.0 && this->spent(window_start_(window)) >= limit)
+            return "the limit per " + window + " of " + cluster::human_cost(limit) + " is reached (" + cluster::human_cost(this->spent(window_start_(window))) + " spent)";
+    return "";
+}
+
+_cold void cluster::Manager::limitsWarn(void)
+{
+    // each limit: told at the warn share and when reached, once per window (told again after it opened again)
+    const cluster::LimitsConf& limits = this->_config.limits;
+    for (const auto &[window, limit]: {std::pair<std::string, double>{"day", limits.dailyUsd}, {"week", limits.weeklyUsd}, {"month", limits.monthlyUsd}}) {
+        const double used = limit > 0.0 ? this->spent(window_start_(window)) / limit : 0.0;
+        const int level = limit <= 0.0 ? 0 : used >= 1.0 ? 100 : limits.warnPercent > 0 && used * 100.0 >= limits.warnPercent ? limits.warnPercent : 0;
+        int told = 0;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            told = this->_limitLevel["budget-" + window];
+            if (level != told) this->_limitLevel["budget-" + window] = std::max(level, 0);
+        }
+        if (level <= told) continue;
+        const std::string text = "the limit per " + window + " (" + cluster::human_cost(limit) + "): " + (level >= 100 ? "reached" : std::to_string(static_cast<int>(used * 100.0)) + " % used");
+        this->notice_("", text + (level >= 100 && limits.block ? ": the prompts are refused (send --force passes)" : ""), level >= 100);
+        std::thread([this, window, level, text]() {
+            (void)this->notify({"limit-budget-" + window, "claude-cluster · spending limit", text, level >= 100 ? cluster::Face::Idle : cluster::Face::Waiting, level >= 100,
+                "dialog-warning"}, "limit");
+        }).detach();
+    }
+}
+
+_cold cluster::Json cluster::Manager::accountsJson(void)
+{
+    if (this->_replica) return this->replicaState("accounts");
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (cluster::now_ms() - this->_accountsAt < 8000 && !this->_accounts.is_null()) return this->_accounts;
+    }
+    cluster::Json providers = cluster::Json::array();
+    for (const cluster::Provider& p: this->_auth.providers()) {
+        const auto [ready, detail] = this->_auth.status(p); // a keyring read can start a process: cached
+        providers.push_back({{"name", p.name}, {"driver", p.driver}, {"auth", p.auth == cluster::AuthKind::Key ? "key" : p.auth == cluster::AuthKind::Login ? "login" : "none"},
+            {"ready", ready}, {"detail", detail}, {"local", p.local}});
+    }
+    cluster::Json json = {{"providers", providers}, {"spent", {{"day", this->spent(window_start_("day"))}, {"week", this->spent(window_start_("week"))},
+        {"month", this->spent(window_start_("month"))}}}};
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_accounts = json;
+    this->_accountsAt = cluster::now_ms();
+    return json;
 }

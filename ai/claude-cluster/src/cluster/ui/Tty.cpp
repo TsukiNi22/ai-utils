@@ -786,6 +786,28 @@ class TtyUi {
         {
             // an action of the settings page: the map of this computer (asked first), the system prompt of the global
             // session or of the sub-sessions, the showcase of the Debug page
+            if (key.starts_with("account_")) {
+                // a provider: its key stored / removed, its login run (the settings left for the prompt, the key asked without echo)
+                if (!this->_changes.empty()) {
+                    this->_note = "save (Ctrl+S) or drop your changes first";
+                    return;
+                }
+                const bool remove = key.starts_with("account_rm_");
+                const std::string name = key.substr(remove ? 11 : 8);
+                const std::optional<cluster::Provider> provider = this->_manager.auth().find(name);
+                if (!provider) return;
+                if (remove) {
+                    this->run_({"auth_logout:" + name, "", "", "", false}, "");
+                } else if (provider->auth == cluster::AuthKind::Key) {
+                    this->_pending = {"auth_key:" + name, "Provider " + name + ": store the API key", "API key", "", false};
+                    this->_prompt.clear();
+                    this->_password = true;
+                    this->_mode = Mode::Prompt;
+                } else {
+                    this->run_({"auth_login:" + name, "", "", "", false}, "");
+                }
+                return;
+            }
             if (key.starts_with("showcase_")) {
                 if (!this->_changes.empty()) {
                     this->_note = "save (Ctrl+S) or drop your changes first: the showcase leaves the settings";

@@ -210,3 +210,12 @@ quit = "Ctrl+Q"
 # permission_mode = "acceptEdits"
 # prompt = "Run the unit tests and report the failures"
 # extra_args = ["--effort", "high"]
+
+[limits]
+# What the sessions may spend together (the USD of the usage ledger); 0 = no limit. Settings > Accounts & limits.
+daily_usd = 0.0            # since the local midnight
+weekly_usd = 0.0           # the last 7 days
+monthly_usd = 0.0          # since the 1st of the local month
+scope = "keys"             # keys: only what an API key is billed for | all: every turn, the notional cost of a subscription too
+block = true               # a limit reached: the prompts are refused (send --force passes); false: only warned
+warn_percent = 80          # warned at this share of a limit (0: only when it is reached)

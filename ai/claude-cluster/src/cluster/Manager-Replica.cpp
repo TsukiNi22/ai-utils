@@ -80,6 +80,7 @@ _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& repli
     const bool changed = data.value("version", std::uint64_t{0}) != replica->seen || !replica->error.empty();
     replica->seen = data.value("version", std::uint64_t{0});
     replica->state = std::move(data);
+    cluster::accounts_status_set(replica->state.value("accounts", cluster::Json()));
     if (replica->state.contains("upgrade") && replica->state["upgrade"].is_object() && replica->state["upgrade"].value("upgrading", false))
         replica->follow = cluster::now_ms();
     replica->error.clear();
@@ -339,7 +340,7 @@ _cold cluster::Json cluster::Manager::syncState(const cluster::Json& request)
         {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()}, {"raise_token", this->raiseToken()},
         {"machine_request", this->_machineRequest.load()}, {"machine_ask", this->machineAsk()}, {"machine", machine},
         {"restore_ask", this->_restoreAsk.load() && this->restorable()}, {"listening", listening},
-        {"progress", this->progressAll()}, {"failures", this->failures()}, {"upgrade", upgrade_json_(this->upgradeOffer())}};
+        {"progress", this->progressAll()}, {"failures", this->failures()}, {"upgrade", upgrade_json_(this->upgradeOffer())}, {"accounts", this->accountsJson()}};
 }
 
 _cold bool cluster::start_core(const std::vector<std::string>& args)

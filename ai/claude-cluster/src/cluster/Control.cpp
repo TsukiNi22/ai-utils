@@ -746,6 +746,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // every option of the settings page: its section, key, value, choices and help
             const std::string section = arg_(request, "section");
             data = cluster::Json::array();
+            cluster::accounts_status_set(manager.accountsJson()); // the Accounts page: the providers and the spending as they are now
             for (const cluster::SettingsPage& page: cluster::settings_pages(manager.config()))
                 for (const cluster::Setting& setting: page.settings)
                     if (section.empty() || section == setting.section)

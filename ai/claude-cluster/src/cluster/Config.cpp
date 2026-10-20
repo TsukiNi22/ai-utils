@@ -251,6 +251,12 @@ _cold void cluster::Config::load(void)
     this->service.wakeWord = sv["wake_word"].value_or(std::string());
     this->service.python = sv["python"].value_or(this->service.python);
     this->service.source = table["voice"]["source"].value_or(sv["source"].value_or(this->service.source));
+    this->limits.dailyUsd = std::max(0.0, table["limits"]["daily_usd"].value_or(this->limits.dailyUsd));
+    this->limits.weeklyUsd = std::max(0.0, table["limits"]["weekly_usd"].value_or(this->limits.weeklyUsd));
+    this->limits.monthlyUsd = std::max(0.0, table["limits"]["monthly_usd"].value_or(this->limits.monthlyUsd));
+    this->limits.scope = table["limits"]["scope"].value_or(this->limits.scope) == "all" ? "all" : "keys";
+    this->limits.block = table["limits"]["block"].value_or(this->limits.block);
+    this->limits.warnPercent = std::clamp(static_cast<int>(table["limits"]["warn_percent"].value_or(this->limits.warnPercent)), 0, 99);
     this->usage.account = table["usage"]["account"].value_or(this->usage.account);
     if (table["usage"]["transcripts"].as_array()) this->usage.transcripts = strings_(table["usage"]["transcripts"], this->usage.transcripts);
     else if (const char* env = std::getenv("CLAUDE_CLUSTER_TRANSCRIPTS")) // the environment of the core (tests): folders apart by ':', empty: none
