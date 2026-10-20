@@ -24,6 +24,7 @@ File Description:
     #include "Voice.hpp"            // cluster::Voice
     #include <string>               // std::string
     #include <vector>               // std::vector
+    #include <set>                  // std::set
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
@@ -44,6 +45,13 @@ struct ModelInfo {
     std::string effort;     // empty / default: the one of the agent
     std::vector<std::pair<std::string, std::string>> models;    // <model, description>
     std::vector<std::string> efforts;                           // empty: the driver has none
+};
+
+struct SlashEntry {
+    std::string name;       // as typed, without the "/"
+    std::string source;     // local | built-in | a plugin | the slug of an imported link
+    std::string description;
+    bool command = false;   // a local command of claude-cluster (never a skill: only at the start of the prompt)
 };
 
 struct ActionResult {
@@ -68,6 +76,10 @@ _cold _nodiscard std::string key_action(const cluster::Config& config, const std
 _cold _nodiscard cluster::CompletionProvider completion_provider(cluster::Manager& manager, std::function<std::string(void)> session);
 _cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager& manager, const std::string& session, const std::string& line);
 _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_commands(void);  // local /commands <usage, description>
+// the /commands and the skills of a session as they are typed, with where each comes from (local: ours or the user's skills, built-in: the agent,
+// a plugin name, the slug of an imported link); an imported skill is "<slug>:<skill>" (the plain "/<skill>" works too)
+_cold _nodiscard std::vector<cluster::SlashEntry> slash_entries(cluster::Manager& manager, const std::string& session);
+_cold _nodiscard std::string source_color(const std::string& source);  // the colour (#rrggbb) of the badge of a source: local, built-in, else one of a palette by its name
 // the modes of the prompt (Prompt.cpp): !<command> in the shell of the session, :<command> like vim
 _cold _nodiscard cluster::ActionResult tasks_prompt(cluster::Manager& manager, const std::string& line); // the prompt of the Tasks session
 _cold _nodiscard std::optional<cluster::ActionResult> run_prompt_mode(cluster::Manager& manager, const std::string& session, const std::string& line);

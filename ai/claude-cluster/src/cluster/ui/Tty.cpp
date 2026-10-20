@@ -1998,7 +1998,13 @@ class TtyUi {
             for (int i = start; i < static_cast<int>(items.size()) && i < start + 8; ++i) {
                 const cluster::Candidate& c = items[static_cast<std::size_t>(i)];
                 const std::string prefix = this->_editor.kind() == cluster::CompletionKind::Session ? "::" : this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command || this->_editor.kind() == cluster::CompletionKind::Skill ? "/" : "";
-                ftxui::Element row = ftxui::hbox({ftxui::text("  " + prefix + c.label + "  "), ftxui::text(cluster::one_line(c.description, 70)) | ftxui::dim, ftxui::filler()});
+                ftxui::Elements cells = {ftxui::text("  " + prefix + c.label + "  ")};
+                if (!c.source.empty()) // a /command or a skill: where it comes from
+                    cells.push_back(ftxui::hbox({ftxui::text(" " + c.source + " ") | ftxui::bold | ftxui::color(ftxui::Color::RGB(255, 255, 255)) | ftxui::bgcolor(hex_(cluster::source_color(c.source))),
+                        ftxui::text("  ")}));
+                cells.push_back(ftxui::text(cluster::one_line(c.description, 70)) | ftxui::dim);
+                cells.push_back(ftxui::filler());
+                ftxui::Element row = ftxui::hbox(std::move(cells));
                 rows.push_back(i == selected ? row | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : row | ftxui::color(this->_theme.text));
             }
             rows.push_back(ftxui::text("  Tab complete · Enter accept · ↑↓ choose · Space / Esc close (\\ + Space: a space in the name)") | ftxui::color(this->_theme.muted) | ftxui::dim);
@@ -4642,6 +4648,9 @@ class TtyUi {
                     if (item) {
                         info.push_back(ftxui::hbox({ftxui::text(" " + item->name) | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text("  " + item->kind + " · "
                             + (!item->installed ? "not installed" : item->enabled ? "installed, on" : "installed, off")) | ftxui::color(this->_theme.muted)}));
+                        info.push_back(ftxui::hbox({ftxui::text(" " + (item->kind == "skill" ? "/" + repo.slug + ":" + item->name : "/" + item->name + ":<skill>") + " ") | ftxui::color(this->_theme.accent),
+                            ftxui::text(" " + (item->kind == "skill" ? repo.slug : item->name) + " ") | ftxui::bold | ftxui::color(ftxui::Color::RGB(255, 255, 255))
+                            | ftxui::bgcolor(hex_(cluster::source_color(item->kind == "skill" ? repo.slug : item->name)))}));
                         info.push_back(ftxui::paragraph(" " + (item->description.empty() ? std::string("no description") : item->description)) | ftxui::color(this->_theme.text));
                     } else {
                         info.push_back(ftxui::text(" " + repo.url) | ftxui::bold | ftxui::color(this->_theme.text));

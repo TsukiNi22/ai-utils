@@ -432,7 +432,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = cluster::Json::array();
             for (const cluster::Candidate& c: cluster::completion_provider(manager, [id]() {return id;})(static_cast<cluster::CompletionKind>(request.value("kind", 0)),
                     request.value("query", std::string())))
-                data.push_back({{"value", c.value}, {"label", c.label}, {"description", c.description}, {"directory", c.directory}});
+                data.push_back({{"value", c.value}, {"label", c.label}, {"description", c.description}, {"directory", c.directory}, {"source", c.source}});
         } else if (cmd == "face") {
             // the face of the app now (the web page, claude-cluster icon, a status bar)
             const cluster::AppFace face = manager.appFace(false);

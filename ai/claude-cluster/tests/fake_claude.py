@@ -3,7 +3,8 @@
 import json, os, sys, time
 log = open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8")
 log.write("ARGV " + json.dumps(sys.argv[1:]) + "\n"); log.flush()
-print(json.dumps({"type": "system", "subtype": "init", "session_id": "00000000-0000-0000-0000-000000000001", "model": "claude-sonnet-5-5", "tools": [], "cwd": os.getcwd()}), flush=True)
+print(json.dumps({"type": "system", "subtype": "init", "session_id": "00000000-0000-0000-0000-000000000001", "model": "claude-sonnet-5-5", "tools": [], "cwd": os.getcwd(),
+    "skills": [x for x in os.environ.get("FAKE_CLAUDE_SKILLS", "").split(",") if x], "slash_commands": [x for x in os.environ.get("FAKE_CLAUDE_COMMANDS", "").split(",") if x]}), flush=True)
 for line in sys.stdin:
     try: msg = json.loads(line)
     except ValueError: continue

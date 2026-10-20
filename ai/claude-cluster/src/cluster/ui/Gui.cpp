@@ -3147,8 +3147,20 @@ void PromptEdit::refreshCompletion(void)
     }
     const std::string prefix = this->completion.kind() == cluster::CompletionKind::Session ? "::" : this->completion.kind() == cluster::CompletionKind::File ? "@" : this->completion.kind() == cluster::CompletionKind::Command || this->completion.kind() == cluster::CompletionKind::Skill ? "/" : "";
     this->popup->clear();
-    for (const cluster::Candidate& c: this->completion.items())
-        this->popup->addItem(q_(prefix + c.label + "    " + cluster::one_line(c.description, 80)));
+    for (const cluster::Candidate& c: this->completion.items()) {
+        if (c.source.empty()) {
+            this->popup->addItem(q_(prefix + c.label + "    " + cluster::one_line(c.description, 80)));
+            continue;
+        }
+        // a /command or a skill: its source in a coloured badge at the side
+        QListWidgetItem* item = new QListWidgetItem();
+        this->popup->addItem(item);
+        QLabel* row = new QLabel("&nbsp;" + esc_(prefix + c.label) + "&nbsp;&nbsp;<span style=\"background:" + q_(cluster::source_color(c.source)) + ";color:#fff;font-weight:600\">&nbsp;"
+            + esc_(c.source) + "&nbsp;</span>&nbsp;&nbsp;<small>" + esc_(cluster::one_line(c.description, 80)) + "</small>");
+        row->setAttribute(Qt::WA_TransparentForMouseEvents);
+        this->popup->setItemWidget(item, row);
+        item->setSizeHint(row->sizeHint());
+    }
     this->popup->setCurrentRow(this->completion.selectedItem());
     const int rows = std::min(8, this->popup->count());
     const int height = rows * (this->popup->sizeHintForRow(0) + 2) + 6;

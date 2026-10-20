@@ -16,6 +16,7 @@ File Description:
 #define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Showcase.hpp"
+#include "cluster/Plugins.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Models.hpp"
@@ -1179,7 +1180,7 @@ _cold void cluster::Session::send(const std::string& text, const std::vector<std
         std::lock_guard<std::mutex> lock(this->_mutex);
         context.swap(this->_context);
     }
-    cluster::Queued prompt{text, images, context};
+    cluster::Queued prompt{cluster::unprefix_skill(text), images, context}; // "/<link>:<skill>": the skill alone, the only name of the agent
     prompt.at = cluster::now_ms();
     if (this->persistent()) {
         if (!this->_worker.joinable() || this->_data.state == cluster::State::Stopped || this->_data.state == cluster::State::Error) {

@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Plugins.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Stats.hpp"
 #include "cluster/Match.hpp"
@@ -570,6 +571,48 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
     return list;
 }
 
+_cold std::vector<cluster::SlashEntry> cluster::slash_entries(cluster::Manager& manager, const std::string& session)
+{
+    std::vector<cluster::SlashEntry> entries;
+    for (const auto &[name, description]: cluster::slash_commands())
+        entries.push_back({name, "local", description, true});
+    const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
+    if (!snap) return entries;
+    const std::map<std::string, std::string> imported = cluster::plugin_skill_sources();
+    const std::set<std::string> skills(snap->skillsAvailable.begin(), snap->skillsAvailable.end());
+    const std::function<std::string(const std::string&)> help = [&snap](const std::string& name) {
+        return snap->commandHelp.contains(name) ? snap->commandHelp.at(name) : std::string();
+    };
+    for (const std::string& skill: snap->skillsAvailable) {
+        const std::size_t colon = skill.find(':');
+        const std::string text = help(skill).empty() ? "skill" : help(skill);
+        if (colon != std::string::npos) entries.push_back({skill, skill.substr(0, colon), text, false});         // a plugin: "<plugin>:<skill>" (Claude Code)
+        else if (imported.contains(skill)) entries.push_back({imported.at(skill) + ":" + skill, imported.at(skill), text, false}); // an imported link
+        else entries.push_back({skill, "local", text, false});
+    }
+    for (const std::string& command: snap->slashCommands) {
+        if (skills.contains(command)) continue;
+        const std::size_t colon = command.find(':');
+        const std::string text = help(command).empty() ? "command of the agent" : help(command);
+        if (colon != std::string::npos) entries.push_back({command, command.substr(0, colon), text, false});
+        else if (imported.contains(command)) entries.push_back({imported.at(command) + ":" + command, imported.at(command), text, false});
+        else entries.push_back({command, "built-in", text, false});
+    }
+    return entries;
+}
+
+_cold std::string cluster::source_color(const std::string& source)
+{
+    // the same in the browser (web.html, sourceColor): keep both in step
+    static const std::vector<std::string> palette = {"#c2703d", "#5b8def", "#b062d0", "#d0a23a", "#3aa6b9", "#d05a7a"};
+    if (source == "local") return "#4c9f70";
+    if (source == "built-in") return "#7d8594";
+    std::uint32_t hash = 0;
+    for (const char c: source)
+        hash = hash * 31 + static_cast<unsigned char>(c);
+    return palette[hash % palette.size()];
+}
+
 _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager& manager, std::function<std::string(void)> session)
 {
     return [&manager, session](const cluster::CompletionKind kind, const std::string& query) {
@@ -611,7 +654,7 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
         if (manager.replica()) { // a replica: completed by its core
             try {
                 for (const cluster::Json& c: manager.call({{"cmd", "complete"}, {"session", session()}, {"kind", static_cast<int>(kind)}, {"query", query}}))
-                    items.push_back({c.value("value", std::string()), c.value("label", std::string()), c.value("description", std::string()), c.value("directory", false)});
+                    items.push_back({c.value("value", std::string()), c.value("label", std::string()), c.value("description", std::string()), c.value("directory", false), c.value("source", std::string())});
             } catch (const utils::exception::IException&) {}
             return items;
         }
@@ -686,14 +729,11 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                 break;
             case cluster::CompletionKind::Command:
             case cluster::CompletionKind::Skill:
-                if (kind == cluster::CompletionKind::Command)
-                    for (const auto &[name, description]: cluster::slash_commands())
-                        add(name, description);
-                if (snap) {
-                    for (const std::string& skill: snap->skillsAvailable)
-                        add(skill, snap->commandHelp.contains(skill) ? snap->commandHelp.at(skill) : "skill");
-                    for (const std::string& command: snap->slashCommands)
-                        add(command, snap->commandHelp.contains(command) ? snap->commandHelp.at(command) : "command of the agent");
+                for (const cluster::SlashEntry& entry: cluster::slash_entries(manager, session())) {
+                    if (entry.command && kind != cluster::CompletionKind::Command) continue;
+                    const std::size_t before = items.size();
+                    add(entry.name, entry.description);
+                    if (items.size() > before) items.back().source = entry.source;
                 }
                 break;
             default: break;

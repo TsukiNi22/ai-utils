@@ -614,7 +614,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                     : std::string("false");}});
             for (const cluster::PluginItem& item: repo.items) {
                 const std::string id = item.id;
-                page.settings.push_back({"plugins.select", "\"" + id + "\"", "  " + item.name + " (" + item.kind + (item.installed ? item.enabled ? ", installed" : ", off" : "") + ")",
+                page.settings.push_back({"plugins.select", "\"" + id + "\"", "  " + (item.kind == "skill" ? "/" + repo.slug + ":" + item.name : item.name) + " (" + item.kind + (item.installed ? item.enabled ? ", installed" : ", off" : "") + ")",
                     SettingKind::Bool, {}, (item.description.empty() ? std::string("no description") : item.description) + "\nfrom " + repo.url, false,
                     [id](const cluster::Config& cf) {return cf.pluginSelect.contains(id) && cf.pluginSelect.at(id) ? std::string("true") : std::string("false");}});
                 if (item.installed) // installed: turned off / on (a plugin disabled, a skill unlinked), kept installed

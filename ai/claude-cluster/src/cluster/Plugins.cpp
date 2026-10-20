@@ -26,6 +26,7 @@ File Description:
 #include <algorithm>
 #include <fstream>
 #include <regex>
+#include <mutex>
 #include <set>
 
 //----------------------------------------------------------------//
@@ -247,6 +248,37 @@ _cold std::vector<cluster::PluginRepo> cluster::plugins_scan(const cluster::Plug
     }
     cluster::write_json(root_() / "index.json", index);
     return repos;
+}
+
+_cold std::map<std::string, std::string> cluster::plugin_skill_sources(void)
+{
+    // read again only when the index changed (asked at every prompt drawn)
+    static std::mutex mutex;
+    static std::filesystem::file_time_type stamp{};
+    static std::map<std::string, std::string> cache;
+    std::error_code error;
+    const std::filesystem::file_time_type now = std::filesystem::last_write_time(root_() / "index.json", error);
+    std::lock_guard<std::mutex> lock(mutex);
+    if (error) return cache = {};
+    if (now == stamp) return cache;
+    stamp = now;
+    cache.clear();
+    for (const cluster::PluginRepo& repo: cluster::plugins_index())
+        for (const cluster::PluginItem& item: repo.items)
+            if (item.kind == "skill" && item.installed && item.enabled) cache[item.name] = repo.slug;
+    return cache;
+}
+
+_cold std::string cluster::unprefix_skill(const std::string& text)
+{
+    if (!text.starts_with("/")) return text;
+    const std::size_t end = text.find_first_of(" \t\n");
+    const std::string word = text.substr(1, end == std::string::npos ? std::string::npos : end - 1);
+    const std::size_t colon = word.find(':');
+    if (colon == std::string::npos) return text;
+    const std::map<std::string, std::string> sources = cluster::plugin_skill_sources();
+    const auto it = sources.find(word.substr(colon + 1));
+    return it != sources.end() && it->second == word.substr(0, colon) ? "/" + word.substr(colon + 1) + (end == std::string::npos ? std::string() : text.substr(end)) : text;
 }
 
 _cold std::string cluster::plugins_apply(const cluster::PluginSetup& setup)

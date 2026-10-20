@@ -182,6 +182,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 #pending .when { color: var(--muted); font-size: 13px; }
 #composer { display: flex; gap: 8px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); align-items: flex-end; position: relative; }
 #prompt { flex: 1; resize: none; min-height: 42px; max-height: 40vh; }
+.badge { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; }
 #mic { min-width: 46px; }
 #mic.on { background: var(--error); border-color: var(--error); color: #fff; }
 #mic.heard { box-shadow: 0 0 0 3px rgba(239, 107, 91, .35); }
@@ -189,6 +190,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .complete { position: absolute; z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; max-height: 260px; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,.18); box-sizing: border-box; }
 .complete.floating { position: fixed; }
 .complete div { padding: 6px 10px; cursor: pointer; display: flex; gap: 10px; justify-content: space-between; }
+.complete div .name { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .complete div small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
 .complete div.selected { background: var(--pick); }
 #toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; max-width: 90%; z-index: 40; }
@@ -2256,6 +2258,16 @@ function suggest(input) {
     }, 120);
 }
 
+// the colour of the badge of a source (the same as claude-cluster: Actions.cpp, source_color)
+function sourceColor(source) {
+    if (source === "local") return "#4c9f70";
+    if (source === "built-in") return "#7d8594";
+    const palette = ["#c2703d", "#5b8def", "#b062d0", "#d0a23a", "#3aa6b9", "#d05a7a"];
+    let hash = 0;
+    for (const c of new TextEncoder().encode(source)) hash = (Math.imul(hash, 31) + c) >>> 0;
+    return palette[hash % palette.length];
+}
+
 function drawComplete() {
     if (completion.box) completion.box.remove();
     completion.box = null;
@@ -2266,7 +2278,13 @@ function drawComplete() {
         const row = document.createElement("div");
         if (i === completion.selected) row.className = "selected";
         const label = document.createElement("span");
-        label.textContent = item.label;
+        label.className = "name";
+        label.append(item.label);
+        if (item.source) {
+            const badge = document.createElement("span");
+            badge.className = "badge"; badge.textContent = item.source; badge.style.background = sourceColor(item.source);
+            label.append(badge);
+        }
         const desc = document.createElement("small");
         desc.textContent = item.description || "";
         row.append(label, desc);

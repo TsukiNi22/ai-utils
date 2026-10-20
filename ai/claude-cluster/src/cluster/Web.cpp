@@ -1586,7 +1586,7 @@ self.addEventListener("notificationclick", (e) => {
         cluster::Json items = cluster::Json::array();
         if (kind != cluster::CompletionKind::None)
             for (const cluster::Candidate& c: provider(kind, field("query")))
-                items.push_back({{"value", c.value}, {"label", c.label}, {"description", c.description}, {"directory", c.directory}});
+                items.push_back({{"value", c.value}, {"label", c.label}, {"description", c.description}, {"directory", c.directory}, {"source", c.source}});
         json_(conn, 200, {{"items", items}});
     } else if (post && request.path == "/api/listen") {
     } else if (request.path.starts_with("/api/attach")) {

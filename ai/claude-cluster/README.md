@@ -134,7 +134,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | `/model`, `/mode`, `/effort` alone | a picker of their choices, the current one marked (the terminal and the window: the palette on them; the web page: a list, ↑↓ Enter Esc), (a model / effort change keeps the running prompt and the queued ones: sent again to the restarted session; `tests/model_change.sh`), then **where it applies**: this session (Enter at once), the global session, every sub-session, every session, one session only, or the next new sub-sessions (their default in `[agent]`); also `claude-cluster` command `apply` {kind, value, scope}; `/restore` alone: the trash |
 | short descriptions | a few words under the name of each session (the terminal, the window, the web page, the trash, the completions, `claude-cluster list`): the title Claude Code made, else written by a model after its 1st, 3rd, 9th... turn (its own process, nothing kept: the provider of the session, haiku for Anthropic, or any `[sessions] describe_model = <provider>/<model>`: codex / OpenAI, opencode, qwen, a local Ollama...), else its first prompt (`[sessions] describe = model / prompt / off`); given with `/describe <text>`, the palette, `claude-cluster describe <s> <text>`, the web page (a click on it) or the global session (`session_describe`): kept; empty: written again |
 | where a session runs | its header: its folder (a click opens it), its git branch, the computer, the pid of its agent; the palette: *Open its folder*, *Open a terminal in its folder* (ptyxis, gnome-terminal, kitty, konsole, alacritty, xterm...) |
-| `/` anywhere | a `/word` is completed anywhere in the prompt: first, every command; later, the skills (yours, your plugins', with their description) and the commands of the agent, known from the start of the session |
+| `/` anywhere | a `/word` is completed anywhere in the prompt: first, every command; later, the skills (yours, your plugins', with their description) and the commands of the agent, known from the start of the session; each entry has a coloured **badge** with its source (terminal, window, web page): `local` (claude-cluster's commands, your own skills), `built-in` (the agent's), the name of a plugin, the slug of an imported link |
 | mouse click (terminal) | a session (list, tab, grid cell), the keys of the top bar, the answers of a permission, the items of the palette / history / question / dialogs, the settings (tab, line, its value: changed), a display (a checklist item ticked, a button, play, the form, details); the wheel: the item above / below in the lists |
 
 > [!NOTE]
@@ -761,6 +761,11 @@ every item (the new ones too); turned **off** (`[plugins.off]`): a plugin disabl
 installed; unticked: removed - only what claude-cluster installed (a skill or plugin of the user of the same name is
 never replaced: told). These settings are protected (never changed by the global session, a confirmation for the
 sources: their code runs as you).
+
+Like Claude Code, what comes from outside is told apart from your own: a plugin's skill is `/<plugin>:<skill>`, a skill of an
+imported link is `/<link>:<skill>` (`<link>` = the slug of the source, `owner-repo`, shown in the browser and the settings
+list); `/<skill>` alone still works when no other has the name (the prefix is dropped before the prompt reaches the agent,
+which knows the skill under its own name). The completion of `/` shows the source of each entry in a badge.
 
 The **browser** of the terminal (`/plugins`, the palette *Plugins*): the sources and their items (● on, ◐ off, ○ not
 installed), `i` install, `r` remove, Space toggle, `e` on / off, `a` add a source (a path completed by Tab, a link; a

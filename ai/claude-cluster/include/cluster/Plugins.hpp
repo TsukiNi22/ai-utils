@@ -72,6 +72,8 @@ _cold _nodiscard std::string plugin_source(const std::string& url);         // "
 _cold _nodiscard std::vector<cluster::PluginRepo> plugins_index(void);      // the last listing (<data>/plugins/index.json), installed or not
 _cold _nodiscard std::vector<cluster::PluginRepo> plugins_scan(const cluster::PluginSetup& setup);  // every repository cloned / pulled, listed
 _cold _nodiscard std::string plugins_apply(const cluster::PluginSetup& setup); // the ones ticked installed, the ones unticked removed; what was done
+_cold _nodiscard std::map<std::string, std::string> plugin_skill_sources(void); // the imported skills linked now: <skill, its source (slug of the link)>
+_cold _nodiscard std::string unprefix_skill(const std::string& text);       // "/<source>:<skill> x" of an imported skill -> "/<skill> x" (the agent knows the skill only)
 
 } // namespace end
 #endif /* PLUGINS_H */
