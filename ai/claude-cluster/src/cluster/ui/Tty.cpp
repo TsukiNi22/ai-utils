@@ -676,37 +676,13 @@ class TtyUi {
         std::deque<Click> _clicks;                  // what the mouse clicks, made again by each drawing
         std::string _title;                         // the title of the terminal set (its face)
         bool _askChat = false;                      // a question: its chat being typed ("Chat about this")
-        // a line typed in a popup, edited with a cursor (the answer on Other, the chat draft)
-        struct Line {
-            std::string text;
-            std::size_t cursor = 0;     // byte offset
-
-            void insert(const std::string& what) {this->text.insert(this->cursor, what); this->cursor += what.size();};
-            void left(void) {while (this->cursor > 0 && (static_cast<unsigned char>(this->text[--this->cursor]) & 0xC0) == 0x80) {}};
-            void right(void) {if (this->cursor < this->text.size()) {++this->cursor; while (this->cursor < this->text.size() && (static_cast<unsigned char>(this->text[this->cursor]) & 0xC0) == 0x80) ++this->cursor;}};
-            void backspace(void) {if (this->cursor == 0) return; const std::size_t end = this->cursor; this->left(); this->text.erase(this->cursor, end - this->cursor);};
-            void del(void) {if (this->cursor >= this->text.size()) return; const std::size_t start = this->cursor; this->right(); this->text.erase(start, this->cursor - start); this->cursor = start;};
-            void word(void) {while (this->cursor > 0 && this->text[this->cursor - 1] == ' ') this->backspace(); while (this->cursor > 0 && this->text[this->cursor - 1] != ' ') this->backspace();};
-            void set(const std::string& what) {this->text = what; this->cursor = what.size();};
-            void clear(void) {this->text.clear(); this->cursor = 0;};
-            _nodiscard std::string shown(void) const {return this->text.substr(0, this->cursor) + "▏" + this->text.substr(this->cursor);};
-            // the keys of an editor: true when it was one of them
-            bool key(const ftxui::Event& event, const std::string& name)
-            {
-                if (event == ftxui::Event::ArrowLeft) this->left();
-                else if (event == ftxui::Event::ArrowRight) this->right();
-                else if (event == ftxui::Event::Home || name == "Ctrl+A") this->cursor = 0;
-                else if (event == ftxui::Event::End || name == "Ctrl+E") this->cursor = this->text.size();
-                else if (event == ftxui::Event::Backspace) this->backspace();
-                else if (event == ftxui::Event::Delete) this->del();
-                else if (name == "Ctrl+U") this->clear();
-                else if (name == "Ctrl+W") this->word();
-                else if (event.is_character()) this->insert(event.character());
-                else return false;
-                return true;
-            };
-        };
-        Line _askDraft;
+        // a line typed in a popup, edited like the prompt (cursor, selection, words, kill ring, undo, mouse): the answer on Other, the chat draft
+        using Line = cluster::LineEditor;
+        // the text fields that are plain strings (filters, names, settings, forms...): one editor follows the field being typed in
+        mutable cluster::LineEditor _field;
+        mutable const void* _fieldOf = nullptr;
+        mutable std::vector<cluster::LineEditor*> _fieldsDrawn;     // the fields drawn focused by this frame (the mouse)
+        Line _askDraft{true};           // the chat about the questions: several lines (Alt+Enter)
         Line _askOther;                 // the answer on Other, edited here, pushed to the question at each change
         Line _plugInput;                // the source typed in the plugins browser
         std::string _askOtherKey;       // the question it belongs to (request:index)
@@ -1268,6 +1244,36 @@ class TtyUi {
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_historyItems.size()) - 1));
         }
 
+        _nodiscard cluster::LineColors lineColors_(void) const {return {this->_theme.text, this->_theme.accent, this->_theme.bg, this->_theme.muted};};
+
+        cluster::LineEditor& field_(const std::string& value) const
+        {
+            // the editor of a string field: kept while it is the same field and nobody else changed it, else loaded with it (the cursor at its end)
+            if (this->_fieldOf != &value || this->_field.text() != value) {
+                this->_field.set(value);
+                this->_fieldOf = &value;
+            }
+            return this->_field;
+        }
+
+        bool fieldKey_(std::string& value, const ftxui::Event& event)
+        {
+            // an editing key on a string field (cursor, words, kill ring, undo, selection, clipboard, characters): true when it was one
+            cluster::LineEditor& editor = this->field_(value);
+            if (!editor.key(event)) return false;
+            value = editor.text();
+            return true;
+        }
+
+        _nodiscard ftxui::Element lineView_(cluster::LineEditor& editor, const int width, const int rows, const bool focused = true) const
+        {
+            // drawn in the frame (the cursor is a cell, never the one of the terminal); focused: the mouse can place the cursor in it
+            if (focused) this->_fieldsDrawn.push_back(&editor);
+            return editor.render(width, rows, this->lineColors_(), focused);
+        }
+
+        _nodiscard ftxui::Element fieldView_(const std::string& value, const int width, const bool focused = true) const {return this->lineView_(this->field_(value), width, 1, focused);};
+
         void paste_(void)
         {
             // clipboard: an image is saved and put as [Image #N], else its text is inserted
@@ -1404,8 +1410,8 @@ class TtyUi {
             // the prompt (several lines: Alt+Enter / Shift+Enter): selection inverted, cursor, 8 lines around the cursor
             this->_promptRows.clear();
             if (this->_mode == Mode::Search) {
-                return ftxui::hbox({ftxui::text(" find › ") | ftxui::color(this->_theme.warn) | ftxui::bold, ftxui::text(this->_search) | ftxui::color(this->_theme.text),
-                    ftxui::text("▏") | ftxui::blink, ftxui::text("  " + (this->_matches.empty() ? std::string("no match") : std::to_string(this->_hit + 1) + "/" + std::to_string(this->_matches.size()))
+                return ftxui::hbox({ftxui::text(" find › ") | ftxui::color(this->_theme.warn) | ftxui::bold, this->fieldView_(this->_search, std::max(10, width - 60)),
+                    ftxui::text("  " + (this->_matches.empty() ? std::string("no match") : std::to_string(this->_hit + 1) + "/" + std::to_string(this->_matches.size()))
                     + "  Enter / ↑ older · ↓ newer · Esc close") | ftxui::color(this->_theme.muted), ftxui::filler()});
             }
             if (this->_active == TASKS_ID) // the Tasks session: no prompt, what to do instead
@@ -1635,7 +1641,7 @@ class TtyUi {
 
         _nodiscard ftxui::Decorator clipBox_(const int clip) {return ftxui::reflect(this->_clicks[static_cast<std::size_t>(clip)].box);};
 
-        bool plugEvent_(const ftxui::Event& event, const std::string& key)
+        bool plugEvent_(const ftxui::Event& event)
         {
             if (now_ms_() - this->_plugRead > 1000) { // the index of the core again (a scan, an install done)
                 this->_plug = cluster::plugins_index();
@@ -1648,11 +1654,11 @@ class TtyUi {
                 } else if (event == ftxui::Event::Return) {
                     this->_plugAdd = false;
                     this->_plugHints.clear();
-                    this->plugAddSource_(this->_plugInput.text);
+                    this->plugAddSource_(this->_plugInput.text());
                 } else if (event == ftxui::Event::Tab) {
                     this->plugComplete_();
                 } else {
-                    (void)this->_plugInput.key(event, key);
+                    (void)this->_plugInput.key(event);
                     this->_plugHints.clear();
                 }
                 return true;
@@ -1713,7 +1719,7 @@ class TtyUi {
                 || event.character() == "'" || event.character() == "\""))) {
                 // a source typed, or a file / folder dropped on the terminal (its path pasted)
                 this->_plugAdd = true;
-                this->_plugInput = Line{};
+                this->_plugInput.clear();
                 if (event != ftxui::Event::Character('a')) this->_plugInput.insert(event.character());
             } else if (event == ftxui::Event::Character('u')) {
                 this->_manager.pluginsRefresh();
@@ -1890,12 +1896,10 @@ class TtyUi {
                 f->value = f->options[(index + (event == ftxui::Event::ArrowRight ? 1 : size - 1)) % size];
             } else if (f->type == "bool" && (event == ftxui::Event::Character(' ') || event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight)) {
                 f->value = f->value == "yes" ? "no" : "yes";
-            } else if (typed && event == ftxui::Event::Backspace) {
-                while (!f->value.empty() && (static_cast<unsigned char>(f->value.back()) & 0xC0) == 0x80) f->value.pop_back();
-                if (!f->value.empty()) f->value.pop_back();
-            } else if (typed && event.is_character()) {
-                const std::string c = event.character();
-                if (f->type != "number" || c.find_first_not_of("0123456789.-+eE") == std::string::npos) f->value += c;
+            } else if (typed) {
+                // a number field takes digits only (the editing keys work as in a text field)
+                if (f->type != "number" || !event.is_character() || event.character().find_first_not_of("0123456789.-+eE") == std::string::npos)
+                    (void)this->fieldKey_(f->value, event);
             }
             return true;
         }
@@ -2477,7 +2481,7 @@ class TtyUi {
         void plugComplete_(void)
         {
             // Tab on a path: completed (folders, .zip), the choices shown when several
-            std::string typed = this->_plugInput.text;
+            std::string typed = this->_plugInput.text();
             if (cluster::plugin_kind(typed) == "git" && !typed.starts_with("/") && !typed.starts_with("~")) return;
             const std::filesystem::path full = cluster::expand_home(typed.empty() ? std::string("~/") : typed);
             const bool inside = typed.ends_with("/");
@@ -2498,8 +2502,7 @@ class TtyUi {
             for (const std::string& n: names)
                 while (!n.starts_with(common)) common.pop_back();
             const std::string base = typed.substr(0, inside ? typed.size() : typed.rfind('/') == std::string::npos ? 0 : typed.rfind('/') + 1);
-            this->_plugInput.text = base + common;
-            this->_plugInput.cursor = this->_plugInput.text.size();
+            this->_plugInput.set(base + common);
             if (names.size() == 1) this->_plugHints.clear();
         }
 
@@ -2775,15 +2778,12 @@ class TtyUi {
                     this->_findHit = std::min(this->_findHit + 1, std::max(0, static_cast<int>(this->_hits.size()) - 1));
                 } else if (event == ftxui::Event::ArrowUp) {
                     this->_findHit = std::max(this->_findHit - 1, 0);
-                } else if (event == ftxui::Event::Backspace) {
-                    while (!this->_find.empty() && (static_cast<unsigned char>(this->_find.back()) & 0xC0) == 0x80) this->_find.pop_back();
-                    if (!this->_find.empty()) this->_find.pop_back();
-                    this->_hits = cluster::settings_search(this->_pages, this->_find);
-                    this->_findHit = 0;
-                } else if (event.is_character()) {
-                    this->_find += event.character();
-                    this->_hits = cluster::settings_search(this->_pages, this->_find);
-                    this->_findHit = 0;
+                } else {
+                    const std::string before = this->_find;
+                    if (this->fieldKey_(this->_find, event) && this->_find != before) {
+                        this->_hits = cluster::settings_search(this->_pages, this->_find);
+                        this->_findHit = 0;
+                    }
                 }
                 return true;
             }
@@ -2805,11 +2805,8 @@ class TtyUi {
                     this->_editing = false;
                 } else if (event == ftxui::Event::Escape) {
                     this->_editing = false;
-                } else if (event == ftxui::Event::Backspace) {
-                    while (!this->_edit.empty() && (static_cast<unsigned char>(this->_edit.back()) & 0xC0) == 0x80) this->_edit.pop_back();
-                    if (!this->_edit.empty()) this->_edit.pop_back();
-                } else if (event.is_character()) {
-                    this->_edit += event.character();
+                } else {
+                    (void)this->fieldKey_(this->_edit, event);
                 }
                 return true;
             }
@@ -2951,7 +2948,8 @@ class TtyUi {
                 const bool selected = static_cast<int>(i) == this->_item;
                 const bool changed = this->_changes.contains({setting.section, setting.key});
                 std::string value = this->settingValue_(setting);
-                if (selected && this->_editing) value = this->_edit + "▏";
+                const bool typing = selected && this->_editing;  // its value edited: a field with its cursor (the page keeps it at Enter / Esc)
+                if (typing) value = this->_edit;
                 else if (setting.kind == cluster::SettingKind::Bool) value = value == "true" ? "Enabled" : "Disabled";
                 else if (setting.kind == cluster::SettingKind::Choice) value = "< " + (value.empty() ? std::string("(agent default)") : value) + " >";
                 else if (setting.kind == cluster::SettingKind::Action && page.section == "services") value = cluster::service_summary(value, this->_services); // a sub service: its state
@@ -2976,7 +2974,9 @@ class TtyUi {
                     this->tap_(ftxui::hbox({ftxui::text(setting.label) | (dangerNow ? ftxui::color(t.error) | ftxui::bold : ftxui::color(t.muted)),
                         risky ? ftxui::text(" ⚠") | ftxui::color(t.warn) | ftxui::bold : ftxui::text(""),
                         ftxui::text(" " + std::string(dots, '.') + " ") | ftxui::color(t.muted)}), 2, [pick]() {pick(false);}, clip),
-                    this->tap_(ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
+                    typing ? ftxui::hbox({ftxui::text("[") | ftxui::bold | ftxui::color(t.accent), this->fieldView_(this->_edit, 58) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 58),
+                        ftxui::text("]") | ftxui::bold | ftxui::color(t.accent)})
+                    : this->tap_(ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
                         2, [pick]() {pick(true);}, clip),
                     need.problem.empty() ? ftxui::text("") : ftxui::text("  ✗ " + cluster::one_line(need.problem.substr(0, need.problem.find(':')), 34)) | ftxui::color(t.error) | ftxui::bold,
                     ftxui::filler(),
@@ -3009,7 +3009,7 @@ class TtyUi {
             if (this->_finding) {
                 // the search: every page, the closest first, where it matched (its name / its description)
                 rows.clear();
-                rows.push_back(ftxui::hbox({ftxui::text(" / ") | ftxui::bold | ftxui::color(t.accent), ftxui::text(this->_find + "▏") | ftxui::bold,
+                rows.push_back(ftxui::hbox({ftxui::text(" / ") | ftxui::bold | ftxui::color(t.accent), this->fieldView_(this->_find, 50) | ftxui::bold,
                     ftxui::filler(), ftxui::text(this->_find.empty() ? "type a name or words of its description " : std::to_string(this->_hits.size()) + " found ")
                     | ftxui::color(t.muted)}));
                 rows.push_back(ftxui::separatorLight() | ftxui::color(t.border));
@@ -4800,7 +4800,7 @@ class TtyUi {
                         }));
                 }
                 if (items.empty()) items.push_back(ftxui::text(" nothing matches") | ftxui::color(this->_theme.muted));
-                return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), ftxui::text(this->_filter) | ftxui::color(this->_theme.text), ftxui::text("▏") | ftxui::blink}),
+                return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), this->fieldView_(this->_filter, 72)}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items))}), 80);
             }
             if (this->_mode == Mode::History) {
@@ -4816,14 +4816,16 @@ class TtyUi {
                 }
                 if (items.empty()) items.push_back(ftxui::text(this->_historyAll ? " no prompt yet" : " no prompt in this session yet (Tab: every session)") | ftxui::color(this->_theme.muted));
                 const std::string scope = this->_historyAll ? " history (every session) > " : " history (" + this->_active + ") > ";
-                return box(ftxui::vbox({ftxui::hbox({ftxui::text(scope) | ftxui::color(this->_theme.accent), ftxui::text(this->_filter), ftxui::text("▏") | ftxui::blink}),
+                return box(ftxui::vbox({ftxui::hbox({ftxui::text(scope) | ftxui::color(this->_theme.accent), this->fieldView_(this->_filter, std::max(10, 112 - static_cast<int>(width_(scope))))}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items)), ftxui::text(std::string(" Enter: put in the prompt · Tab: ")
                     + (this->_historyAll ? "this session only" : "every session") + " · Esc: close") | ftxui::dim}), 120);
             }
             if (this->_mode == Mode::Prompt) {
-                const std::string shown = this->_password ? std::string(width_(this->_prompt), '*') : this->_prompt;
+                // a password: stars, no cursor moves, no clipboard (typed and erased at the end only)
+                const ftxui::Element input = this->_password ? ftxui::hbox({ftxui::text(std::string(static_cast<std::size_t>(width_(this->_prompt)), '*')), ftxui::text("▏") | ftxui::blink})
+                    : this->fieldView_(this->_prompt, 72);
                 return box(ftxui::vbox({ftxui::text(" " + this->_pending.title) | ftxui::bold, ftxui::text(" " + this->_pending.input + ":") | ftxui::color(this->_theme.muted),
-                    ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), ftxui::text(shown), ftxui::text("▏") | ftxui::blink}),
+                    ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), input}),
                     ftxui::hbox({press(ftxui::text(" Enter: run"), ftxui::Event::Return), ftxui::text(" · "), press(ftxui::text("Escape: cancel"), ftxui::Event::Escape)}) | ftxui::dim}), 80);
             }
             if (this->_mode == Mode::Plugins) {
@@ -4922,7 +4924,7 @@ class TtyUi {
                 ftxui::Elements bottom;
                 if (this->_plugAdd) {
                     bottom.push_back(ftxui::hbox({ftxui::text(" source › ") | ftxui::color(this->_theme.accent) | ftxui::bold,
-                        ftxui::text(this->_plugInput.text) | ftxui::color(this->_theme.text), ftxui::text("▏") | ftxui::blink | ftxui::color(this->_theme.accent)}));
+                        this->lineView_(this->_plugInput, std::max(20, width - 60), 1)}));
                     std::string hints;
                     for (const std::string& h: this->_plugHints)
                         hints += h + "  ";
@@ -4970,11 +4972,12 @@ class TtyUi {
                     } else {
                         const std::string shown = cluster::one_line(f.value, static_cast<std::size_t>(slot - 3));
                         const std::string hint = f.value.empty() && !on ? (f.type == "date" ? "YYYY-MM-DD" : f.type == "number" ? "a number" : "") : "";
-                        body = this->tap_(ftxui::hbox({ftxui::text(hint.empty() ? shown : hint) | ftxui::color(hint.empty() ? this->_theme.text : this->_theme.muted),
-                            on ? ftxui::text("▏") | ftxui::blink | ftxui::color(this->_theme.accent) : ftxui::text(""), ftxui::filler()})
-                            | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slot) | ftxui::bgcolor(this->_theme.bg), 1, [this, i]() {this->_formFocus = i;});
+                        ftxui::Element content = on ? this->fieldView_(f.value, slot - 3)
+                            : ftxui::hbox({ftxui::text(hint.empty() ? shown : hint) | ftxui::color(hint.empty() ? this->_theme.text : this->_theme.muted), ftxui::filler()});
+                        body = this->tap_(content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slot) | ftxui::bgcolor(this->_theme.bg), 1, [this, i]() {this->_formFocus = i;});
                     }
                     rows.push_back(ftxui::hbox({ftxui::text(" "), (f.type == "text" || f.type == "number" || f.type == "date" ? body | ftxui::borderRounded : body)
+                        // the field focused is edited like the prompt (cursor, selection, words, undo, mouse), a long value scrolls sideways
                         | ftxui::color(edge)}));
                 }
                 const std::size_t count = this->_form.size();
@@ -5014,7 +5017,7 @@ class TtyUi {
                 const cluster::ProfileQuestion& q = this->_questions[this->_question];
                 ftxui::Elements lines = {ftxui::text(" About you (for the global session) - " + std::to_string(this->_question + 1) + "/" + std::to_string(this->_questions.size())) | ftxui::bold,
                     ftxui::text(""), ftxui::text(" " + q.question) | ftxui::color(this->_theme.text),
-                    ftxui::hbox({ftxui::text(" › ") | ftxui::color(this->_theme.accent), ftxui::text(this->_answer + "▏") | ftxui::color(this->_theme.text) | ftxui::bold})};
+                    ftxui::hbox({ftxui::text(" › ") | ftxui::color(this->_theme.accent), this->fieldView_(this->_answer, 82)})};
                 if (!q.choices.empty()) {
                     ftxui::Elements choices = {ftxui::text(" ← → ") | ftxui::color(this->_theme.muted)};
                     for (const std::string& choice: q.choices)
@@ -5039,7 +5042,7 @@ class TtyUi {
                 const cluster::Json options = q.value("options", cluster::Json::array());
                 const bool multi = q.value("multiSelect", false);
                 const std::string askKey = a.requestId + ":" + std::to_string(a.index);
-                if (askKey != this->_askOtherKey || (a.other != this->_askOther.text && a.cursor != static_cast<int>(options.size()))) { // another question, or typed elsewhere
+                if (askKey != this->_askOtherKey || (a.other != this->_askOther.text() && a.cursor != static_cast<int>(options.size()))) { // another question, or typed elsewhere
                     this->_askOther.set(a.other);
                     this->_askOtherKey = askKey;
                 }
@@ -5091,12 +5094,14 @@ class TtyUi {
                     const std::string mark = multi ? (a.picked.contains(i) || (other && !a.other.empty()) ? "[x] " : "[ ] ") : (i == a.cursor ? "› " : "  ");
                     const std::string head = " " + mark + std::to_string(i + 1) + ". ";
                     const std::string indent(static_cast<std::size_t>(width_(head)), ' ');
-                    const std::string label = other ? "Other: " + (i == a.cursor ? this->_askOther.shown() : a.other) : options[static_cast<std::size_t>(i)].value("label", std::string()) + (recorded ? "  ✔" : "");
+                    const bool typing = other && i == a.cursor && !this->_askChat;  // its answer edited here: a field with its cursor
+                    const std::string label = other ? "Other: " + a.other : options[static_cast<std::size_t>(i)].value("label", std::string()) + (recorded ? "  ✔" : "");
                     const std::string description = other ? "" : options[static_cast<std::size_t>(i)].value("description", std::string());
                     std::vector<std::string> labelLines = wrap_(label, inner - static_cast<std::size_t>(width_(head)));
                     if (labelLines.empty()) labelLines.push_back("");
                     ftxui::Elements rows;
-                    for (std::size_t l = 0; l < labelLines.size(); ++l)
+                    if (typing) rows.push_back(ftxui::hbox({ftxui::text(head + "Other: "), this->lineView_(this->_askOther, std::max(8, static_cast<int>(inner) - static_cast<int>(width_(head)) - 8), 1)}));
+                    else for (std::size_t l = 0; l < labelLines.size(); ++l)
                         rows.push_back(ftxui::text((l == 0 ? head : indent) + labelLines[l]));
                     const std::vector<std::string> descriptionLines = description.empty() ? std::vector<std::string>() : wrap_(description, inner - static_cast<std::size_t>(width_(head)) - 2);
                     for (std::size_t l = 0; l < descriptionLines.size(); ++l)
@@ -5178,11 +5183,10 @@ class TtyUi {
                         | ftxui::color(this->_theme.border) | ftxui::reflect(this->_askChatBox));
                 }
                 if (this->_askChat) {
-                    std::vector<std::string> draft = wrap_(this->_askDraft.shown(), inner - 8);
-                    if (draft.empty()) draft.push_back("▏");
-                    for (std::size_t l = 0; l < draft.size(); ++l)
-                        lines.push_back(ftxui::hbox({ftxui::text(l == 0 ? " chat › " : "        ") | ftxui::color(this->_theme.accent) | ftxui::bold, ftxui::text(draft[l]),
-                            ftxui::filler(), l == 0 ? ftxui::text("Enter send · Esc back ") | ftxui::color(this->_theme.muted) | ftxui::dim : ftxui::emptyElement()}));
+                    // several lines (Alt+Enter / Shift+Enter), wrapped, scrolled around the cursor; the keys of an editor, the mouse
+                    lines.push_back(ftxui::hbox({ftxui::text(" chat › ") | ftxui::color(this->_theme.accent) | ftxui::bold,
+                        this->lineView_(this->_askDraft, std::max(10, static_cast<int>(inner) - 32), 6),
+                        ftxui::text("Enter send · Esc back ") | ftxui::color(this->_theme.muted) | ftxui::dim}));
                 } else
                     lines.push_back(this->tap_(ftxui::text(" Ctrl+T: chat about this (the session untouched)") | ftxui::color(this->_theme.accent), 0,
                         [this]() {this->_askChat = true;}));
@@ -5420,6 +5424,7 @@ class TtyUi {
             if (title != this->_title) {
                 this->_title = title;
                 std::cout << "\x1b]0;" << title << "\x07" << std::flush;
+            this->_fieldsDrawn.clear();
             }
             cluster::dock_badge(face.badge, face.urgent);
             const ftxui::Dimensions size = ftxui::Terminal::Size();
@@ -5641,6 +5646,8 @@ class TtyUi {
                     if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);
                 const bool list = this->_mode == Mode::Settings || this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Question;
                 const bool onPanels = this->_mode == Mode::Normal && this->_panelBox.Contain(mouse.x, mouse.y);
+                for (cluster::LineEditor* drawn: this->_fieldsDrawn) // a text field of a popup: its cursor placed, a drag selects, a double click takes a word
+                    if (drawn->mouse(mouse)) return true;
                 if (this->_mode == Mode::Question && this->_askChatBox.Contain(mouse.x, mouse.y)
                     && (mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown)) { // the chat of the popup
                     this->_askChatScroll = mouse.button == ftxui::Mouse::WheelUp ? this->_askChatScroll + 3 : std::max(0, this->_askChatScroll - 3);
@@ -5773,11 +5780,8 @@ class TtyUi {
                         const long at = it == q.choices.end() ? 0 : it - q.choices.begin();
                         const long size = static_cast<long>(q.choices.size());
                         this->_answer = q.choices[static_cast<std::size_t>((at + (event == ftxui::Event::ArrowLeft ? size - 1 : 1)) % size)];
-                    } else if (event == ftxui::Event::Backspace) {
-                        while (!this->_answer.empty() && (static_cast<unsigned char>(this->_answer.back()) & 0xC0) == 0x80) this->_answer.pop_back();
-                        if (!this->_answer.empty()) this->_answer.pop_back();
-                    } else if (event.is_character()) {
-                        this->_answer += event.character();
+                    } else {
+                        (void)this->fieldKey_(this->_answer, event);
                     }
                     return true;
                 }
@@ -5843,11 +5847,11 @@ class TtyUi {
                         if (event == ftxui::Event::Escape) {
                             this->_askChat = false;
                         } else if (event == ftxui::Event::Return) {
-                            const std::string done = asking.chat(this->_askDraft.text);
+                            const std::string done = asking.chat(this->_askDraft.text());
                             if (done.empty()) this->_askDraft.clear();
                             else this->status_(done, true);
                         } else {
-                            (void)this->_askDraft.key(event, key);
+                            (void)this->_askDraft.key(event);
                         }
                         return true;
                     }
@@ -5871,16 +5875,16 @@ class TtyUi {
                         if (!asking.forward()) this->status_("choose an option first (Enter)", true);
                     } else if (event == ftxui::Event::TabReverse) {
                         asking.back();
-                    } else if (event == ftxui::Event::ArrowLeft && (ask->cursor != count || (this->_askOther.text.empty() && ask->index > 0))) {
+                    } else if (event == ftxui::Event::ArrowLeft && (ask->cursor != count || (this->_askOther.text().empty() && ask->index > 0))) {
                         asking.back(); // ← on an option, or on an empty Other: the question before
-                    } else if (event == ftxui::Event::ArrowRight && (ask->cursor != count || this->_askOther.cursor >= this->_askOther.text.size())) {
+                    } else if (event == ftxui::Event::ArrowRight && (ask->cursor != count || this->_askOther.cursor() >= this->_askOther.text().size())) {
                         if (!asking.forward()) this->status_("choose an option first (Enter)", true); // the next question, answered or not (the review flags the ones left)
                     } else if (event == ftxui::Event::Return) {
                         if (multi) asking.toggle(); // several choices: Enter ticks / unticks (Tab / → goes on)
                         else this->askNext_();      // one choice: the option under the cursor is the answer
-                    } else if (ask->cursor == count && this->_askOther.key(event, key)) {
+                    } else if (ask->cursor == count && this->_askOther.key(event)) {
                         // on Other: the answer edited with its cursor (digits and spaces too), the question told at each change
-                        if (this->_askOther.text != ask->other) asking.setOther(this->_askOther.text);
+                        if (this->_askOther.text() != ask->other) asking.setOther(this->_askOther.text());
                     } else if (event.is_character() && event.character().size() == 1 && event.character()[0] >= '1' && event.character()[0] <= '9') {
                         const int pick = event.character()[0] - '1';
                         if (pick <= count) {
@@ -5944,13 +5948,12 @@ class TtyUi {
                     else if (event == ftxui::Event::ArrowDown) this->_selected = std::min(this->_selected + 1, std::max(0, static_cast<int>(this->_actions.size()) - 1));
                     else if (event == ftxui::Event::ArrowUp) this->_selected = std::max(0, this->_selected - 1);
                     else if (event == ftxui::Event::Return) this->choose_();
-                    else if (event == ftxui::Event::Backspace) {
-                        if (!this->_filter.empty()) this->_filter.pop_back();
-                        this->filter_();
-                    } else if (event.is_character()) {
-                        this->_filter += event.character();
-                        this->_selected = 0;
-                        this->filter_();
+                    else {
+                        const std::string before = this->_filter;
+                        if (this->fieldKey_(this->_filter, event) && this->_filter != before) {
+                            this->_selected = 0;
+                            this->filter_();
+                        }
                     }
                     return true;
                 case Mode::Prompt:
@@ -5963,10 +5966,11 @@ class TtyUi {
                     return true;
                 case Mode::Settings:
                     return this->settingsEvent_(event);
+                    else if (!this->_password) (void)this->fieldKey_(this->_prompt, event);
                 case Mode::Form:
                     return this->formEvent_(event);
                 case Mode::Plugins:
-                    return this->plugEvent_(event, key);
+                    return this->plugEvent_(event);
                 case Mode::Search:
                     if (event == ftxui::Event::Escape) {
                         this->_mode = Mode::Normal;
@@ -5975,12 +5979,9 @@ class TtyUi {
                         if (!this->_matches.empty()) this->_hit = (this->_hit + static_cast<int>(this->_matches.size()) - 1) % static_cast<int>(this->_matches.size());
                     } else if (event == ftxui::Event::ArrowDown) {
                         if (!this->_matches.empty()) this->_hit = (this->_hit + 1) % static_cast<int>(this->_matches.size());
-                    } else if (event == ftxui::Event::Backspace) {
-                        if (!this->_search.empty()) this->_search.pop_back();
-                        this->searchUpdate_();
-                    } else if (event.is_character()) {
-                        this->_search += event.character();
-                        this->searchUpdate_();
+                    } else {
+                        const std::string before = this->_search;
+                        if (this->fieldKey_(this->_search, event) && this->_search != before) this->searchUpdate_();
                     }
                     return true;
                 case Mode::History:
@@ -6003,13 +6004,12 @@ class TtyUi {
                             this->historyReset_();
                         }
                         this->_mode = Mode::Normal;
-                    } else if (event == ftxui::Event::Backspace) {
-                        if (!this->_filter.empty()) this->_filter.pop_back();
-                        this->historyFilter_();
-                    } else if (event.is_character()) {
-                        this->_filter += event.character();
-                        this->_selected = 0;
-                        this->historyFilter_();
+                    } else {
+                        const std::string before = this->_filter;
+                        if (this->fieldKey_(this->_filter, event) && this->_filter != before) {
+                            this->_selected = 0;
+                            this->historyFilter_();
+                        }
                     }
                     return true;
                 case Mode::Normal:
