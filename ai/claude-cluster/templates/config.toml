@@ -133,6 +133,18 @@ port = 8787                # several devices at once; private addresses of the s
 https = true               # TLS, certificate of its own (~/.config/claude-cluster/web): encrypted, the microphone of the page allowed
 approve = true             # a new device: its code, then your yes here (allow, allow and trust, deny); the trusted ones: neither
 
+[attachments]              # files, images and photos attached to a prompt (paperclip, drop, paste; the app: the camera) (F9 > Attachments)
+enabled = true
+max_mb = 20                # the largest file; a bigger one is refused
+max_files = 10             # per prompt
+keep = 200                 # kept per session (the oldest go; all go when the session is deleted; 0: all kept)
+max_pixels = 2048          # a larger image is downscaled to this side before it is stored (0: as it is); needs ImageMagick
+strip_exif = true          # images re-encoded without EXIF (GPS, camera); needs ImageMagick
+dir = ""                   # stored where, one folder per session (empty: <data>/attachments)
+link = true                # a file of this computer linked by its path (nothing copied): window, terminal, a page on this computer
+global = true              # the global session may attach a local file to a prompt (project folder / home only, no hidden folder)
+global_max = 5             # files per prompt of the global session
+
 [mcp]                      # MCP of the global session (F9 > MCP)
 servers = []               # custom servers it gets too: "name: command args" (stdio; env VAR=value command... for its
                            # variables) | "name: https://url" (HTTP); its tools: mcp__<name>__*; at its next start

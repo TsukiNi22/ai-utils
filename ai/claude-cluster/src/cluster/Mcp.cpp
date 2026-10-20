@@ -49,7 +49,9 @@ _cold cluster::Json cluster::mcp_tools(void)
             "\"[reply from <name> (<id>)] ...\" when it is done: go on with something else or end your turn, never poll it with session_read / session_status. "
             "A local command of claude-cluster (/clear, /model <m>, /mode <m>, /rename, /cd, /close, /cost, /context, /export...) runs at once, as typed "
             "in its prompt (no reply): /clear starts a new conversation for the session.",
-            {{"session", session}, {"text", str_("the prompt")}, {"reply", {{"type", "boolean"}, {"description", "its answer sent back to you when done (default true)"}}}},
+            {{"session", session}, {"text", str_("the prompt")}, {"reply", {{"type", "boolean"}, {"description", "its answer sent back to you when done (default true)"}}},
+             {"attachments", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "paths of local files to attach to the prompt (images as pictures, the others as @path): "
+                 "inside the project folder of the session or the home of the user only, no hidden folder; the number is limited by a setting"}}}},
             {"session", "text"}),
         tool_("session_wait", "Wait until a session is done (up to timeout seconds, 110 max) and get only its last answer (not its context): when you need "
             "the answer now to go on. A permission waiting is told.", {{"session", session}, {"timeout", {{"type", "integer"}, {"description", "seconds (default 100)"}}}},

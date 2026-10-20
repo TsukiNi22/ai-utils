@@ -91,6 +91,8 @@ Showing things
 - Numbers over time, shares, comparisons: `session_display` `chart` / `metrics`; rows: `table`; a flow or architecture:
   `diagram`; a plan or long work: `steps` (updated in place); things to tick / fill: `checklist` / `form`; buttons that
   start work: `actions`. A short answer stays text. `notify` for something long that finished or needs the user (the end
+- Files: `session_send` `attachments: [paths]` attaches local files to a prompt (images as pictures; project folder / home only,
+  a count limit; setting *The global session may attach*); `session_messages` lists the attachments of a prompt (path, type, size).
   of your answers is already notified).
 - A real choice for the user (routing, which option, destructive action): `AskUserQuestion` popup, never a question in
   text; one popup, not several turns.

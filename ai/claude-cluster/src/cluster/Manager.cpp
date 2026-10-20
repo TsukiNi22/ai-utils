@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Attachments.hpp"
 #include "cluster/Templates.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Plugins.hpp"
@@ -428,6 +429,7 @@ _cold void cluster::Manager::purge(const std::string& id)
     std::error_code error;
     for (const std::string& gone: removed) {
         std::filesystem::remove(log_file_(gone), error);
+        cluster::attach_purge(this->_config, gone); // its attachments
         for (const std::filesystem::directory_entry& file: std::filesystem::directory_iterator(log_file_(gone).parent_path() / "archive", error))
             if (file.path().stem().string().starts_with(gone + "-")) std::filesystem::remove(file.path(), error); // its old conversations
     }

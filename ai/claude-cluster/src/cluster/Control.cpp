@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #include <utils/utils.hpp>
 #include "cluster/VoiceEngines.hpp"
+#include "cluster/Attachments.hpp"
 #include "cluster/External.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
@@ -530,7 +531,23 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (reply) manager.replyTo(id); // before: a short turn could end before it is known
             // from the global session (MCP): marked, the sub-session answers it compact (sessions.md), not for a human
             const bool global = request.value("from", std::string()) == "global" && id != GLOBAL_ID;
-            manager.send(id, global ? "[from the global session] " + text : text, request.value("force", false));
+            // the images of the prompt: the attachments of this session only (never a path given by a page); the files the global session attaches
+            std::string sent = text;
+            std::vector<std::string> images;
+            for (const std::string& path: request.value("images", std::vector<std::string>()))
+                if (const std::string mine = cluster::attach_resolve(manager.config(), id, path); !mine.empty()) images.push_back(mine);
+            if (from_global && request.contains("attachments") && request["attachments"].is_array() && !request["attachments"].empty()) {
+                const cluster::AttachConf& limits = manager.config().attach;
+                if (!limits.globalAttach) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session may not attach files (settings: Attachments > The global session may attach)");
+                if (static_cast<int>(request["attachments"].size()) > limits.globalMax)
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "at most " + std::to_string(limits.globalMax) + " attachments per prompt (settings)");
+                const std::optional<cluster::Snapshot> target = manager.snapshot(id);
+                std::vector<cluster::Attachment> linked;
+                for (const cluster::Json& path: request["attachments"])
+                    if (path.is_string()) linked.push_back(cluster::attach_link(manager.config(), manager.resolve(id), path.get<std::string>(), cluster::AttachScope::Global, target ? target->spec.cwd : ""));
+                sent = cluster::attach_prompt(text, linked, images);
+            }
+            manager.send(id, global ? "[from the global session] " + sent : sent, request.value("force", false), images, "mcp");
             data = {{"id", id}, {"queued", true}, {"reply", reply ? "its answer comes back to you as a message [reply from ...] when done: no need to poll it" : "no"}};
         } else if (cmd == "wait") {
             // until the session is done (idle, nothing queued) or the time is over: its last answer only, not its context

@@ -147,6 +147,19 @@ struct PolicyConf {                 // [policy]: what the global session may cho
     std::vector<std::string> costlyEfforts = {"xhigh", "max"};
 };
 
+struct AttachConf {                 // [attachments]: files, images and photos attached to a prompt
+    bool enabled = true;
+    int maxMb = 20;                 // per file
+    int maxFiles = 10;              // per prompt
+    int keep = 200;                 // kept per session (the oldest go)
+    int maxPixels = 2048;           // an image larger is downscaled to this side (0: as it is)
+    bool stripExif = true;          // images re-encoded without EXIF (location, camera); needs magick
+    std::string dir;                // stored where (empty: <data>/attachments)
+    bool link = true;               // a file of this computer linked by its path, nothing copied (window, terminal, a page on this computer)
+    bool globalAttach = true;       // the global session may attach a file to a prompt (MCP session_send attachments): project folder / home only
+    int globalMax = 5;              // files per prompt of the global session
+};
+
 struct ServicesConf {
     std::string refresh = "live";   // the Services tab: live (what changes, at once) | interval (every delay s) | manual (R)
     int delay = 2;                  // seconds: interval; the slow parts (systemd, its journal, tailscale) kept so long
@@ -255,6 +268,7 @@ class Config {
         cluster::LimitsConf limits;
         cluster::PolicyConf policy;
         cluster::WebConf web;
+        cluster::AttachConf attach;
         cluster::UserConf user;
         int machineDays = 30;                   // the map of this computer older: a sync proposed at start (0: never)
         std::string voiceForce;                 // --voice <mode>: the voice on in this mode for this run (over the file)

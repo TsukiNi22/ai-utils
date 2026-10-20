@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Attachments.hpp"
 #include "cluster/External.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Manager.hpp"
@@ -243,6 +244,7 @@ _cold cluster::Json cluster::Manager::conversationMessages(const std::string& id
         const cluster::Json& content = message["message"].value("content", cluster::Json());
         std::string text;
         std::vector<std::string> tools;
+        int pictures = 0;
         if (content.is_string()) text = content.get<std::string>();
         else if (content.is_array())
             for (const cluster::Json& block: content) {
@@ -250,9 +252,21 @@ _cold cluster::Json cluster::Manager::conversationMessages(const std::string& id
                 if (type == "text") text += block.value("text", std::string());
                 else if (type == "tool_use") tools.push_back(block.value("name", std::string()));
                 else if (type == "tool_result") tools.push_back("result");
+                else if (type == "image") ++pictures;
             }
-        list.push_back({{"index", i}, {"role", message.value("type", std::string())}, {"text", text.size() > 4000 ? text.substr(0, 4000) + " [...]" : text},
-            {"tools", tools}});
+        cluster::Json item = {{"index", i}, {"role", message.value("type", std::string())}, {"text", text.size() > 4000 ? text.substr(0, 4000) + " [...]" : text},
+            {"tools", tools}};
+        // the files attached to the prompt: its "@path" of this session, with their type and size (an image given as a picture: counted)
+        cluster::Json attached = cluster::Json::array();
+        for (std::size_t at = text.find("@/"); at != std::string::npos; at = text.find("@/", at + 1)) {
+            const std::string file = cluster::attach_resolve(this->_config, snap->spec.id, text.substr(at + 1, text.find_first_of(" \t\n", at) == std::string::npos ? std::string::npos : text.find_first_of(" \t\n", at) - at - 1));
+            if (file.empty()) continue;
+            for (const cluster::Attachment& entry: cluster::attach_list(this->_config, snap->spec.id))
+                if (entry.path == file) attached.push_back({{"path", entry.path}, {"type", entry.mime}, {"size", entry.size}, {"name", entry.name}});
+        }
+        if (pictures > 0) item["images"] = pictures;
+        if (!attached.empty()) item["attachments"] = attached;
+        list.push_back(item);
     }
     return {{"session", id}, {"conversation", snap->spec.claudeId}, {"messages", list}};
 }

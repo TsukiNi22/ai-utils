@@ -467,6 +467,30 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.services.refresh;}},
             {"services", "delay", "Delay (s)", SettingKind::Int, {}, "seconds between two reads (interval), the slow parts kept so long (live)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.services.delay);}},
+        {"attachments", "Attachments", {
+            {"attachments", "enabled", "Attachments", SettingKind::Bool, {}, "files, images and photos attached to a prompt (the paperclip, a drop, a paste; the app: the camera)", false,
+                [](const cluster::Config& cf) {return cf.attach.enabled ? std::string("true") : std::string("false");}},
+            {"attachments", "max_mb", "Largest file (MB)", SettingKind::Int, {}, "a bigger file is refused", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxMb);}},
+            {"attachments", "max_files", "Files per prompt", SettingKind::Int, {}, "at most this many attached to one prompt", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxFiles);}},
+            {"attachments", "keep", "Kept per session", SettingKind::Int, {}, "the oldest attachments of a session go past this many (0: all kept); all of them go when the session is deleted", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.keep);}},
+            {"attachments", "max_pixels", "Downscale images above (px)", SettingKind::Int, {}, "a photo larger than this side is reduced before it is stored and sent (0: as it is); needs ImageMagick (magick)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxPixels);}},
+            {"attachments", "strip_exif", "Strip the EXIF of images", SettingKind::Bool, {}, "photos re-encoded without their metadata (GPS position, camera, date); needs ImageMagick (magick)", false,
+                [](const cluster::Config& cf) {return cf.attach.stripExif ? std::string("true") : std::string("false");}},
+            {"attachments", "dir", "Stored in", SettingKind::Text, {}, "the folder of the attachments, one folder per session (empty: <data>/attachments)", false,
+                [](const cluster::Config& cf) {return cf.attach.dir;}},
+            {"attachments", "link", "Allow link mode", SettingKind::Bool, {}, "a file of this computer linked by its path, nothing copied (window, terminal, a page opened on this computer); "
+                "a phone or another computer always uploads", false,
+                [](const cluster::Config& cf) {return cf.attach.link ? std::string("true") : std::string("false");}},
+            {"attachments", "global", "The global session may attach", SettingKind::Bool, {}, "it may attach a local file to a prompt it sends (MCP session_send attachments): "
+                "the project folder of the session and the home of the user only (no hidden folder of the home, nothing of claude-cluster itself)", false,
+                [](const cluster::Config& cf) {return cf.attach.globalAttach ? std::string("true") : std::string("false");}},
+            {"attachments", "global_max", "Files per prompt of the global session", SettingKind::Int, {}, "at most this many", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.globalMax);}},
+        }},
             {"services", "svc_service", "Service (systemd)", SettingKind::Action, {},
                 "the service of your session (systemd --user): it listens for the wake phrase while claude-cluster is closed and opens it when heard.\n"
                 "• Setup: its unit written · Enable: started now and with your session · Disable: stopped, not started any more\n"

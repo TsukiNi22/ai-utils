@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #define _SManip
 #include <utils/utils.hpp>
+#include "cluster/Attachments.hpp"
 #include "cluster/Templates.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
@@ -175,6 +176,8 @@ _cold static bool send_all_(Conn& conn, const std::string& data)
 }
 
 _cold static bool read_request_(Conn& conn, Request& request)
+static std::atomic<std::size_t> attach_cap_{0}; // the largest upload (settings: Attachments), set at each request
+
 {
     // One request: its headers (16 KB at most, 10 s), its body (Content-Length: 1 MB, a recording 16 MB, 60 s); the
     // socket reads time out by themselves (SO_RCVTIMEO)
@@ -208,7 +211,7 @@ _cold static bool read_request_(Conn& conn, Request& request)
             } catch (const std::exception&) {
                 return false;
             }
-            if (length > (request.path == "/api/listen" ? 16000000U : 1000000U)) return false;
+            if (length > (request.path == "/api/listen" ? 16000000U : request.path == "/api/attach" ? attach_cap_.load() + 8192U : 1000000U)) return false;
             // a big body (a recording, a prompt): a device connected only (its cookie); a stranger: a few KB, 10 s
             if (length > 4096 && !(request.headers.contains("cookie") && request.headers.at("cookie").find("cc_web=") != std::string::npos)) return false;
             if (length > 1000000) end = now_ms_() + 60000;
@@ -1257,6 +1260,58 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     if (!host_ok_(host) && !remoteName) {
         respond_(conn, 403, "text/plain", "claude-cluster: open it by the address of this computer\n");
         return;
+_cold void cluster::Web::attach_(void* connection, const void* parsed, const cluster::Json& body, const std::string& peer)
+{
+    // the files of a prompt: uploaded (the body is the file), linked (a page on this computer), listed, removed, served back (only the
+    // ones of the session asked, never a path of another session)
+    Conn& conn = *static_cast<Conn*>(connection);
+    const Request& request = *static_cast<const Request*>(parsed);
+    const cluster::Config& config = this->_manager.config();
+    const auto query = [&request](const char* key) {return request.query.contains(key) ? request.query.at(key) : std::string();};
+    const auto text = [&body](const char* key) {return body.is_object() && body.contains(key) && body[key].is_string() ? body[key].get<std::string>() : std::string();};
+    const bool post = request.method == "POST";
+    try {
+        const std::string wanted = post && request.path != "/api/attach" ? text("session") : query("session");
+        const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(wanted.empty() ? GLOBAL_ID : wanted);
+        if (!snap) {
+            json_(conn, 404, {{"ok", false}, {"error", "no such session"}});
+            return;
+        }
+        const std::string session = snap->spec.id;
+        if (post && request.path == "/api/attach") {
+            json_(conn, 200, {{"ok", true}, {"attachment", cluster::attach_store(config, session, query("name"), request.body).json()}});
+        } else if (post && request.path == "/api/attach/link") {
+            // a path of THIS computer: only from a page opened on it (the browsers never give the path of a file, it is typed or dropped as text)
+            if (!(peer.starts_with("127.") || peer == "::1")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "a file is linked from this computer only: upload it");
+            json_(conn, 200, {{"ok", true}, {"attachment", cluster::attach_link(config, session, text("path"), cluster::AttachScope::User).json()}});
+        } else if (post && request.path == "/api/attach/remove") {
+            json_(conn, 200, {{"ok", cluster::attach_remove(config, session, text("id"))}});
+        } else if (request.method == "GET" && request.path == "/api/attach/list") {
+            cluster::Json list = cluster::Json::array();
+            for (const cluster::Attachment& item: cluster::attach_list(config, session)) list.push_back(item.json());
+            json_(conn, 200, {{"ok", true}, {"attachments", list}});
+        } else if (request.method == "GET" && request.path == "/api/attach/file") {
+            const std::string path = cluster::attach_resolve(config, session, query("path"));
+            std::error_code error;
+            if (path.empty() || std::filesystem::file_size(path, error) > 512ULL * 1024 * 1024) {
+                json_(conn, 404, {{"error", "no such attachment"}});
+                return;
+            }
+            std::ifstream in(path, std::ios::binary);
+            const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::string mime = cluster::attach_sniff(bytes.substr(0, 4096));
+            const bool image = mime == "image/png" || mime == "image/jpeg" || mime == "image/gif" || mime == "image/webp";
+            if (!image) mime = "application/octet-stream"; // text, svg, html...: downloaded, never rendered by the page
+            respond_(conn, 200, mime, bytes, std::string("Content-Disposition: ") + (image ? "inline" : "attachment") + "; filename=\"" + safe_filename_(std::filesystem::path(path).filename().string())
+                + "\"\r\nContent-Security-Policy: sandbox; default-src 'none'\r\n");
+        } else {
+            json_(conn, 404, {{"error", "unknown"}});
+        }
+    } catch (const std::exception& error) {
+        json_(conn, 200, {{"ok", false}, {"error", error.what()}});
+    }
+}
+
     }
     if (toHttps) {
         respond_(conn, 301, "text/plain", "https\n", "Location: https://" + host + request.path + "\r\n");
@@ -1265,6 +1320,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
     if (post && !origin.empty() && origin != scheme + host) {
         json_(conn, 403, {{"error", "another site"}});
         return;
+    attach_cap_ = static_cast<std::size_t>(this->_manager.config().attach.maxMb) * 1048576U;
     }
     if (tty && request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
         // the terminal page (the browser only: the app has its page); its script by a nonce too
@@ -1359,7 +1415,7 @@ self.addEventListener("notificationclick", (e) => {
         json_(conn, 401, {{"error", "not connected"}});
         return;
     }
-    const cluster::Json body = post && request.path != "/api/listen" && request.path != "/api/tty/write"
+    const cluster::Json body = post && request.path != "/api/listen" && request.path != "/api/tty/write" && request.path != "/api/attach"
         ? cluster::Json::parse(request.body.empty() ? "{}" : request.body, nullptr, false) : cluster::Json::object();
     const std::function<std::string(const char*)> field = [&body](const char* key) {
         return body.is_object() && body.contains(key) && body[key].is_string() ? body[key].get<std::string>() : std::string();
@@ -1461,7 +1517,8 @@ self.addEventListener("notificationclick", (e) => {
             {"progress", this->_manager.progressAll()}, {"now_ms", cluster::now_ms()}, {"failures", this->_manager.failures()},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
-            {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"tty_port", this->_ttyFd != -1 ? this->_ttyPort : 0}, {"style", style}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
+            {"attach", {{"enabled", config.attach.enabled}, {"root", cluster::attach_root(config).string()}, {"max_mb", config.attach.maxMb}, {"max_files", config.attach.maxFiles}, {"link", config.attach.link && (peer.starts_with("127.") || peer == "::1")}}},
+            {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"tty_port", this->_ttyFd != -1 ? this->_ttyPort : 0}, {"style", style}, {"prompt_colors", promptColors}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
     } else if (request.method == "GET" && request.path == "/api/file") {
         // a file of a file display of this session (never another path): sent to download
@@ -1532,6 +1589,8 @@ self.addEventListener("notificationclick", (e) => {
                 items.push_back({{"value", c.value}, {"label", c.label}, {"description", c.description}, {"directory", c.directory}});
         json_(conn, 200, {{"items", items}});
     } else if (post && request.path == "/api/listen") {
+    } else if (request.path.starts_with("/api/attach")) {
+        this->attach_(connection, &request, body, peer);
         // a sentence recorded by the browser (wav): its text by the speech model of the settings, its voice word
         if (this->_speech == nullptr || this->_voice == nullptr) {
             json_(conn, 400, {{"error", "no voice in this instance"}});

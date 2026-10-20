@@ -9,6 +9,7 @@ ones (Qwen Code), opencode and the OpenAI Codex CLI work too.
  - [Dependencies](#dependencies)
  - [Installation](#installation)
  - [Usage](#usage)
+ - [Attachments](#attachments)
  - [Backends](#backends)
  - [Global session](#global-session)
  - [Voice](#voice)
@@ -350,6 +351,30 @@ for - a subscription costs nothing more per turn - or `all`), **Block at the lim
 > `local / unknown`. A small local model may not follow the tools of Claude Code well (7B+ coder models recommended).
 
 ## Global session
+
+## Attachments
+
+Files, images and photos go with a prompt, like in a chat: the **paperclip** next to the prompt (the window, the web page, the app),
+**drag and drop** on the prompt, **paste** (Ctrl+V of a picture or of files); the terminal keeps `@path` and the image paste.
+
+- **What the agent gets**: an image as the picture itself (like the image paste of the terminal: `[Image #N]`), any other file
+  as `@path` (text, code, PDF...). The transcript shows them (a thumbnail, a link to open / download).
+- **The picker**: web page: *Files*, *Photo library*, and on a phone *Take a photo / video* (the camera); the window: a file dialog
+  (several files, an images filter); the app: the Android picker (+ the camera, asked once with its reason; the files picked need no
+  permission). A chip per attachment above the prompt (thumbnail or icon, name, size, a **✕** to remove it before sending).
+- **Upload** (copy): the file is sent to the core and stored in `<data>/attachments/<session>/<id>-<name>` (`[attachments] dir`),
+  `0600`, never executable; the name is made safe, the type is sniffed from the content (a program - ELF / PE - is refused), images are
+  re-encoded without their EXIF and downscaled to `max_pixels` (ImageMagick `magick`). Only an authenticated device uploads; a
+  session reads only its own folder; the folder goes with the session when it is deleted for good.
+- **Link instead of copy**: a file of THIS computer attached by its path (a symlink, nothing copied; the original is never touched or
+  removed): the window and the page opened on this computer offer *Link / Copy* (a browser never tells the path of a file: the page asks
+  it); a phone or another computer always uploads. `[attachments] link = false` turns it off.
+- **The global session** sees the attachments in `session_messages` (path, type, size) and may attach local files to a prompt with
+  `session_send` (`attachments: [paths]`): only the project folder of the session and the home of the user (no hidden folder, nothing
+  of claude-cluster itself), at most `global_max` files; `[attachments] global = false` forbids it.
+- **Settings** (page *Attachments*, `[attachments]`): `enabled`, `max_mb` (20, per file), `max_files` (10, per prompt), `keep` (200 per
+  session, the oldest go), `max_pixels` (2048, 0: as it is), `strip_exif`, `dir`, `link`, `global`, `global_max`.
+- **Not in the app**: the system picker gives access to the files picked only, so `READ_MEDIA_IMAGES` is not requested.
 
 A session of its own (`[global]`: folder, model; its provider is `[agent] provider`, a claude-driver one) with:
 - its **system prompt** `~/.config/claude-cluster/global.md` (written once, customizable: settings page > Global session >

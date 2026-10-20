@@ -255,6 +255,18 @@ _cold void cluster::Config::load(void)
     this->web.ttyPort = table["web"]["tty_port"].value_or(this->web.ttyPort);
     this->web.ttyRemotePort = table["web"]["tty_remote_port"].value_or(this->web.ttyRemotePort);
 
+    /* attachments */
+    this->attach.enabled = table["attachments"]["enabled"].value_or(this->attach.enabled);
+    this->attach.maxMb = std::clamp(static_cast<int>(table["attachments"]["max_mb"].value_or(this->attach.maxMb)), 1, 500);
+    this->attach.maxFiles = std::clamp(static_cast<int>(table["attachments"]["max_files"].value_or(this->attach.maxFiles)), 1, 100);
+    this->attach.keep = std::max(0, static_cast<int>(table["attachments"]["keep"].value_or(this->attach.keep)));
+    this->attach.maxPixels = std::max(0, static_cast<int>(table["attachments"]["max_pixels"].value_or(this->attach.maxPixels)));
+    this->attach.stripExif = table["attachments"]["strip_exif"].value_or(this->attach.stripExif);
+    this->attach.dir = table["attachments"]["dir"].value_or(this->attach.dir);
+    this->attach.link = table["attachments"]["link"].value_or(this->attach.link);
+    this->attach.globalAttach = table["attachments"]["global"].value_or(this->attach.globalAttach);
+    this->attach.globalMax = std::clamp(static_cast<int>(table["attachments"]["global_max"].value_or(this->attach.globalMax)), 0, 50);
+
     /* service */
     toml::node_view<const toml::node> sv = std::as_const(table)["service"];
     // merged into Interface / Voice (one setting each): the old [service] keys still read when they are in the file

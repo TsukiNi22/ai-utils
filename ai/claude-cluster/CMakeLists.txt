@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.40 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.41 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -98,6 +98,7 @@ set(SRC
     src/cluster/Manager-External.cpp
     src/cluster/Asking.cpp
     src/cluster/Display.cpp
+    src/cluster/Attachments.cpp
     src/cluster/Icons.cpp
     src/cluster/External.cpp
     src/cluster/Store.cpp

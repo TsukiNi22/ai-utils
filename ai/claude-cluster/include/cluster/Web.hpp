@@ -149,6 +149,7 @@ class Web {
         _cold void serve_(void);
         _cold void client_(const int fd, const std::string& peer, const bool tty);
         _cold void request_(void* connection, const std::string& peer, const bool toHttps, const bool tty);
+        _cold void attach_(void* connection, const void* parsed, const cluster::Json& body, const std::string& peer);   // /api/attach...
         _cold _nodiscard static int listen_(const int port, std::string& error);  // a socket listening on every interface, -1: error
         _cold void login_(void* connection, const void* request, const std::string& peer, const std::string& secure);
         _cold void ws_(void* connection, const void* request, const std::string& device, const std::string& peer);  // the WebSocket of the terminal page
