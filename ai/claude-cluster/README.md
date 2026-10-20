@@ -294,7 +294,11 @@ global session (`session_set_model`). Effort: claude `--effort` (low, medium, hi
 
 ## Backends
 
-`--backend` / `spawn --backend` / `[agent] default` take `<provider>[/<model>]`:
+`--backend` / `spawn --backend` / `[agent] provider` take `<provider>[/<model>]`. `[agent] provider` (settings page > Agent >
+*Provider of every session*, applied at the next start) is the one of the global session, of every sub-session - the
+existing ones too, moved to it at the start - and of the conversations opened with `session_import` / `external`; the
+sessions of another driver (codex, opencode, qwen) keep their own. It replaces `[agent] default` and `[global] backend`,
+still read when `provider` is missing:
 
 | Provider | Driver | What | Credentials |
 |---|---|---|---|
@@ -342,7 +346,7 @@ for - a subscription costs nothing more per turn - or `all`), **Block at the lim
 
 ## Global session
 
-A session of its own (`[global]`: folder, backend - a claude-driver one -, model) with:
+A session of its own (`[global]`: folder, model; its provider is `[agent] provider`, a claude-driver one) with:
 - its **system prompt** `~/.config/claude-cluster/global.md` (written once, customizable: settings page > Global session >
   *System prompt (edit)* opens it in the editor - `[ui] editor`, else nvim, vim, vi... - and starts the session again on
   the same conversation), added to the global `CLAUDE.md` (an empty file: none);
@@ -1052,7 +1056,7 @@ palette (Ctrl+K): the settings found come after the actions (`setting:` alone: o
 search one*), Enter opens the settings page at it.
 
 `~/.config/claude-cluster/config.toml` (written commented on the first run, reloaded when saved): interface
-(`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never`, `notify`), `[agent]` default backend
+(`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never`, `notify`), `[agent]` provider
 and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel`: the parallel sessions, `task_queue`: the tasks waiting for a place, of the task
 queue, `budget_usd`, `prompt`: the system prompt of every sub-session, `~/.config/claude-cluster/sessions.md`, an
 empty file: none, edited from the settings page or the palette, taken at the next start of each session), `[voice]`, `[keys]`, own `[styles.<name>]` (built-in: `html-light`, `html-dark`, `nord`,

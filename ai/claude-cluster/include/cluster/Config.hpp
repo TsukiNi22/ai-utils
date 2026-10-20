@@ -201,7 +201,8 @@ class Config {
         int typewriterSpeed = 400;              // characters per second (faster when a long text is behind)
 
         /* agent */
-        std::string backend = "claude";
+        std::string provider = "claude";    // [agent] provider: the one of EVERY session (global, existing, new, imported), <provider>[/<model>]
+        std::string backend = "claude";     // the backend spec of the new sessions (= provider; --backend overrides it for one run)
         std::string mode = "auto";      // permission mode of the new sessions (empty: the default of the agent)
         std::string effort;             // thinking / reasoning effort of the new sessions (empty: the default of the agent)
         std::map<std::string, std::vector<std::string>> models; // [models] <provider> = [...]: offered in the palette, /model

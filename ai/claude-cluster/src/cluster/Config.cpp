@@ -154,7 +154,13 @@ _cold void cluster::Config::load(void)
     this->typewriterSpeed = table["ui"]["typewriter_speed"].value_or(this->typewriterSpeed);
 
     /* agent */
-    this->backend = table["agent"]["default"].value_or(this->backend);
+    // one provider for everything; the old keys ([agent] default, [global] backend) are the fallback of the old configs
+    const std::optional<std::string> legacyAgent = table["agent"]["default"].value<std::string>();
+    const std::optional<std::string> legacyGlobal = table["global"]["backend"].value<std::string>();
+    if (const std::optional<std::string> provider = table["agent"]["provider"].value<std::string>(); provider && !provider->empty()) this->provider = *provider;
+    else if (legacyAgent && !legacyAgent->empty()) this->provider = *legacyAgent;
+    else if (legacyGlobal && !legacyGlobal->empty()) this->provider = *legacyGlobal;
+    this->backend = this->provider;
     this->mode = table["agent"]["permission_mode"].value_or(this->mode);
     this->effort = table["agent"]["effort"].value_or(this->effort);
     this->allowBypass = table["agent"]["allow_bypass"].value_or(this->allowBypass);
@@ -165,7 +171,7 @@ _cold void cluster::Config::load(void)
 
     /* global */
     this->globalEnabled = table["global"]["enabled"].value_or(this->globalEnabled);
-    this->globalBackend = table["global"]["backend"].value_or(this->globalBackend);
+    this->globalBackend = this->provider.substr(0, this->provider.find('/')); // the provider of every session (its model: [global] model)
     this->globalCwd = table["global"]["cwd"].value_or(this->globalCwd);
     this->globalModel = table["global"]["model"].value_or(this->globalModel);
     this->globalMode = table["global"]["permission_mode"].value_or(this->globalMode);

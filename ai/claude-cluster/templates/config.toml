@@ -32,13 +32,16 @@ typewriter = true          # the answers typed as they come, also when the agent
 typewriter_speed = 400     # characters per second (faster by itself when a long text is behind)
 
 [agent]
-# Backend of a new session: "<provider>[/<model>]" (claude-cluster auth list: every provider and its state)
+# Provider of EVERY session: the global session, every sub-session (existing ones at the next start, new ones, imported
+# conversations): "<provider>[/<model>]" (claude-cluster auth list: every provider and its state). Applied at the next start.
+# The global session needs a claude driver one. Replaces the old [agent] default and [global] backend (still read when
+# this key is missing). A session of another driver (codex, opencode, qwen) keeps its own: its conversation needs it.
 #   claude driver (full: live permissions, MCP, Remote Control): anthropic (= claude, its login), anthropic-api,
 #     ollama (local), openrouter, deepseek, kimi, zai, minimax (Anthropic-compatible endpoints)
 #   qwen driver (Qwen Code): openai, ollama-openai (OpenAI-compatible endpoints)
 #   opencode driver: opencode/<provider>/<model> (its own providers, `opencode auth`)
 #   codex driver: codex[/<model>] (OpenAI Codex CLI, `codex login`)
-default = "claude"
+provider = "claude"
 permission_mode = "auto"   # auto | manual | acceptEdits | plan | dontAsk | bypassPermissions (empty: the default of claude -p, manual)
 effort = ""                # thinking / reasoning effort of the new sessions (empty: the default of the agent):
                            #   claude low | medium | high | xhigh | max, codex / opencode minimal | low | medium | high...
@@ -60,7 +63,6 @@ codex = "codex"
 
 [global]
 enabled = true
-backend = "claude"         # must be a claude-driver provider (the MCP control needs it)
 cwd = ""                   # working folder of the global session; empty: a folder of its own
                            #   (~/.local/share/claude-cluster/global, trusted by claude-cluster for Remote Control:
                            #   claude --bg never runs in the home folder)

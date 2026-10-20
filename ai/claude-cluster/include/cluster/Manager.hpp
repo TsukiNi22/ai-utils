@@ -255,6 +255,7 @@ class Manager {
         std::function<void(const cluster::Notice&)> onNotice;
 
         // ---------- Pre-Function -------- //
+        _cold void adoptProvider_(cluster::SessionSpec& spec) const; // a session of the last run on the provider of the config
         _cold void load(void);                              // state.json: trash, tasks, previous sessions, ui choices
 
         /* several interfaces on one core (Manager-Replica.cpp) */

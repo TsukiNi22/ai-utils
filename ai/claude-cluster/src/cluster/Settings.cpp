@@ -196,8 +196,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.notifySound ? std::string("true") : std::string("false");}},
         }},
         {"agent", "Agent", {
-            {"agent", "default", "Backend of new sessions", SettingKind::Text, {}, "<provider>[/<model>]: claude, claude/opus, ollama/<model>, openai/<model>, opencode/<p>/<m>, codex", false,
-                [](const cluster::Config& cf) {return cf.backend;}},
+            {"agent", "provider", "Provider of every session", SettingKind::Text, {}, "the global session, every sub-session (existing, new, imported conversations): "
+                "<provider>[/<model>] - claude, ollama/<model>, openai/<model>, opencode/<p>/<m>, codex; the global session needs a claude-driver one (claude, ollama, anthropic-api...)", true,
+                [](const cluster::Config& cf) {return cf.provider;}},
             {"agent", "permission_mode", "Permission mode", SettingKind::Choice, modes, "mode of the new sessions (empty: the default of the agent)", false,
                 [](const cluster::Config& cf) {return cf.mode;}},
             {"agent", "effort", "Thinking effort", SettingKind::Choice, efforts, "of the new sessions (empty: the default of the agent; per session: /effort, the palette)", false,
@@ -211,9 +212,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         {"global", "Global session", {
             {"global", "enabled", "Enabled", SettingKind::Bool, {}, "the session that manages the others (MCP)", true,
                 [](const cluster::Config& cf) {return cf.globalEnabled ? std::string("true") : std::string("false");}},
-            {"global", "backend", "Backend", SettingKind::Text, {}, "a claude-driver provider (claude, ollama, anthropic-api, openrouter...)", true,
-                [](const cluster::Config& cf) {return cf.globalBackend;}},
-            {"global", "model", "Model", SettingKind::Text, {}, "empty: the default model of the backend", true,
+            {"global", "model", "Model", SettingKind::Text, {}, "empty: the default model of the provider ([agent] provider)", true,
                 [](const cluster::Config& cf) {return cf.globalModel;}},
             {"global", "permission_mode", "Permission mode", SettingKind::Choice, modes, "applied at every start (bypassPermissions: it never asks)", true,
                 [](const cluster::Config& cf) {return cf.globalMode;}},
@@ -610,7 +609,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             if (p.auth == cluster::AuthKind::None) continue;
             page.settings.push_back({"accounts", "account_" + name, name + " (" + p.driver + ")", SettingKind::Action, {}, p.auth == cluster::AuthKind::Key
                 ? "an API key for " + name + ": Enter stores / replaces it (asked without echo; the keyring of the system, else credentials.json 0600; never in config.toml). "
-                  "Use it: [agent] default = \"" + name + "\", or /model, or a profile's backend"
+                  "Use it: [agent] provider = \"" + name + "\", or /model, or a profile's backend"
                 : name + " logs in with its own tool (" + cluster::one_line(cluster::Auth(c).loginCommand(p).empty() ? std::string() : cluster::Auth(c).loginCommand(p)[0], 40)
                   + "): Enter runs it in a terminal; claude-cluster stores nothing", false,
                 [name, state](const cluster::Config&) {return state(name);}});

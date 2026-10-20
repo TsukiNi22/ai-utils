@@ -148,6 +148,11 @@ _cold std::string cluster::Manager::importConversation(const std::string& agent,
     request.cwd = found->cwd;
     request.name = name.empty() ? slug_(found->title) : name;
     request.backend = cluster::external_backend(found->agent);
+    if (found->agent == "claude") { // the provider of every session, not the login of the CLI (when it drives claude: else its own)
+        try {
+            if (this->_auth.resolve(this->_config.provider).provider.driver == "claude") request.backend = this->_config.provider;
+        } catch (const utils::exception::IException&) {}
+    }
     request.resume = found->id;
     request.fork = copy;
     request.history = cluster::external_entries(*found, 400);

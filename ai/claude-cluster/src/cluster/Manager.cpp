@@ -566,7 +566,7 @@ _cold void cluster::Manager::startGlobal(void)
     if (!this->_config.globalEffort.empty()) spec.effort = this->_config.globalEffort; // else its own (/effort), first: [agent]
     else if (spec.effort.empty()) spec.effort = this->_config.effort;
     if (this->_auth.resolve(spec.backend).provider.driver != "claude") {
-        this->notice_(GLOBAL_ID, "global.backend must use the claude driver (MCP control): '" + spec.backend + "' replaced by claude", true);
+        this->notice_(GLOBAL_ID, "[agent] provider must use the claude driver (MCP control): '" + spec.backend + "' replaced by claude", true);
         spec.backend = "claude";
         spec.claudeId.clear();
     }
@@ -896,6 +896,19 @@ _cold void cluster::Manager::pluginsSync_(void)
     }).detach();
 }
 
+_cold void cluster::Manager::adoptProvider_(cluster::SessionSpec& spec) const
+{
+    // [agent] provider is the one of every session: a session of the last run moves to it (its model too, the models differ
+    // between providers); the ones of another driver keep theirs (their conversation can only be resumed by their own driver)
+    try {
+        const cluster::Backend wanted = this->_auth.resolve(this->_config.provider);
+        const cluster::Backend current = this->_auth.resolve(spec.backend);
+        if (wanted.provider.name == current.provider.name || wanted.provider.driver != current.provider.driver) return;
+        spec.backend = this->_config.provider;
+        spec.model = wanted.model;
+    } catch (const utils::exception::IException&) {} // an unknown provider: left as it was, told when it starts
+}
+
 _cold void cluster::Manager::load(void)
 {
     if (this->_config.historyLimit > 0) // the prompt history kept to its limit at the start
@@ -908,8 +921,10 @@ _cold void cluster::Manager::load(void)
     this->_nextSchedule = state->value("next_schedule", 1);
     for (const cluster::Json& w: state->value("schedules", cluster::Json::array()))
         this->_schedules.push_back(w.get<cluster::Schedule>());
-    for (const cluster::Json& spec: state->value("sessions", cluster::Json::array()))
+    for (const cluster::Json& spec: state->value("sessions", cluster::Json::array())) {
         this->_previous.push_back(spec_from_json_(spec));
+        if (!this->_previous.back().global) this->adoptProvider_(this->_previous.back());
+    }
     for (const cluster::Json& spec: state->value("trash", cluster::Json::array()))
         this->_trash.push_back(spec_from_json_(spec));
     for (const cluster::Json& t: state->value("tasks", cluster::Json::array())) {
