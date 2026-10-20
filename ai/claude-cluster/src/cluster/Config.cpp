@@ -73,7 +73,7 @@ _cold void cluster::Config::defaults_(void)
         {"mode_cycle", "Shift+Tab"}, {"search", "Ctrl+F"}, {"edit", "Ctrl+E"}, {"expand", "Ctrl+O"}, {"help", "F1"},
         {"transcript_top", "Shift+PageUp|Ctrl+Home"}, {"transcript_bottom", "Shift+PageDown|Ctrl+End"},
         {"session_up", "Alt+Up"}, {"session_down", "Alt+Down"}, {"session_left", "Alt+Left"}, {"session_right", "Alt+Right"},
-        {"session_page_up", "Alt+PageUp"}, {"session_page_down", "Alt+PageDown"}, {"session_first", "Alt+Home"}, {"session_last", "Alt+End"},
+        {"grid_open", "Shift+Enter|Alt+O"}, {"session_page_up", "Alt+PageUp"}, {"session_page_down", "Alt+PageDown"}, {"session_first", "Alt+Home"}, {"session_last", "Alt+End"},
     };
 }
 

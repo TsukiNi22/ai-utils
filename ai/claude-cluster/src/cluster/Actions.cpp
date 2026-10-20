@@ -982,6 +982,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"expand", "thinking and tool results: in full / short"},
         {"session_up", "session above (previous one in the list; the view follows)"}, {"session_down", "session below (next one)"},
         {"session_left", "session on the left (grid; previous one in the list)"}, {"session_right", "session on the right (grid; next one in the list)"},
+        {"grid_open", "grid: open the focused session in the list layout"},
         {"session_page_up", "a page of sessions up (list, grid rows)"}, {"session_page_down", "a page of sessions down"}, {"session_first", "the first session"}, {"session_last", "the last session"},
         {"transcript_top", "jump to the start of the transcript"}, {"transcript_bottom", "jump to the end (follow the end again)"},
     };
@@ -992,7 +993,8 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         text += "\n" + key + std::string(key.size() < 30 ? 30 - key.size() : 1, ' ') + description;
     }
     text += "\nAlt+1..9                      session N"
-        "\nAlt+Enter / Shift+Enter       new line in the prompt"
+        "\nAlt+Enter / Shift+Enter       new line in the prompt (grid: Shift+Enter opens the focused session in the list)"
+        "\n← ↑ ↓ → (grid)              move between the cells when the prompt is empty (else they edit it); Alt + arrows always"
         "\nEsc                           queued prompt back in the prompt (to edit it)"
         "\nEsc Esc                       clear the prompt; empty: the last turn removed, its prompt back"
         "\n↑ / ↓                         history (first / last line of the prompt)"

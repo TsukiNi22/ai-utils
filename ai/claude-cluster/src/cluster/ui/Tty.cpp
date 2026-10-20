@@ -381,6 +381,7 @@ _cold std::string key_name_(const ftxui::Event& event)
     const std::string& input = event.input();
     static const std::map<std::string, std::string> pages = {{"\x1b[5;2~", "Shift+PageUp"}, {"\x1b[6;2~", "Shift+PageDown"}, {"\x1b[1;5H", "Ctrl+Home"}, {"\x1b[1;5F", "Ctrl+End"}, // xstyle: ignore LU-ANSI (read)
         {"\x1b[7;5~", "Ctrl+Home"}, {"\x1b[8;5~", "Ctrl+End"}, // xstyle: ignore LU-ANSI (read)
+        {"\x1b[13;2u", "Shift+Enter"}, {"\x1b[27;2;13~", "Shift+Enter"}, // xstyle: ignore LU-ANSI (read)
         {"\x1b[1;3A", "Alt+Up"}, {"\x1b[1;3B", "Alt+Down"}, {"\x1b[1;3C", "Alt+Right"}, {"\x1b[1;3D", "Alt+Left"}, {"\x1b\x1b[A", "Alt+Up"}, {"\x1b\x1b[B", "Alt+Down"}, // xstyle: ignore LU-ANSI (read)
         {"\x1b\x1b[C", "Alt+Right"}, {"\x1b\x1b[D", "Alt+Left"}, {"\x1b[5;3~", "Alt+PageUp"}, {"\x1b[6;3~", "Alt+PageDown"}, {"\x1b\x1b[5~", "Alt+PageUp"}, // xstyle: ignore LU-ANSI (read)
         {"\x1b\x1b[6~", "Alt+PageDown"}, {"\x1b[1;3H", "Alt+Home"}, {"\x1b[1;3F", "Alt+End"}, {"\x1b[7;3~", "Alt+Home"}, {"\x1b[8;3~", "Alt+End"}, // xstyle: ignore LU-ANSI (read)
@@ -1105,16 +1106,34 @@ class TtyUi {
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
             const int columns = layout == "grid" && count > 1 ? this->_gridColumns : 1;
             // the Tasks session: in the ring of next / previous (first); the rows of the grid: its sessions only
-            if (count == 0 || this->_active == TASKS_ID || dx != 0 || columns == 1) {
+            if (count == 0 || this->_active == TASKS_ID || columns == 1) {
                 this->move_(dx != 0 ? dx : dy);
                 return;
             }
             auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
             const int index = it == list.end() ? 0 : static_cast<int>(it - list.begin());
-            int target = index;
-            if (dx != 0 || columns == 1) target = (index + (dx != 0 ? dx : dy) + count) % count;
-            else if (index + dy * columns >= 0 && index + dy * columns < count) target = index + dy * columns;
-            this->_active = list[static_cast<std::size_t>(target)].spec.id;
+            // the grid: left / right turn inside the row (the last one has fewer cells), up / down inside the column, from the top to the bottom
+            // and back; under a shorter last row, its last cell
+            const int rows = (count + columns - 1) / columns;
+            int row = index / columns;
+            int column = index % columns;
+            if (dx != 0) {
+                const int cells = std::min(columns, count - row * columns);
+                column = (column + dx + cells) % cells;
+            } else {
+                row = (row + dy + rows) % rows;
+                column = std::min(column, count - row * columns - 1);
+            }
+            this->_active = list[static_cast<std::size_t>(row * columns + column)].spec.id;
+        }
+
+        bool gridArrow_(const Arrow& arrow)
+        {
+            // grid, empty prompt: the arrows move between the cells (a prompt being written: they edit it as ever; Alt + arrows always move)
+            if (arrow.shift || arrow.ctrl || !this->_editor.text().empty() || this->_editor.completing()) return false;
+            if (this->_manager.ui("layout", this->_manager.config().layout) != "grid" || this->sessions_().size() < 2) return false;
+            this->moveDir_(arrow.dx, arrow.dy);
+            return true;
         }
 
         void sessionMove_(const std::string& action)
@@ -2277,6 +2296,10 @@ class TtyUi {
                 this->run_({"stats", "", "", "", false}, "");
             } else if (action == "push_to_talk") {
                 this->run_({"voice_toggle", "", "", "", false}, "");
+            } else if (action == "grid_open") { // the session of the focused cell: opened in the list
+                if (this->_manager.ui("layout", this->_manager.config().layout) != "grid") return false; // else Shift+Enter stays a new line
+                this->_manager.setUi("layout", "list");
+                this->status_("opened in the list: " + this->_active);
             } else if (action == "layout") {
                 const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
                 this->_manager.setUi("layout", layout == "list" ? "grid" : "list"); // a stored tabs / hub (window, web page): the list here
@@ -5172,6 +5195,8 @@ class TtyUi {
                 error = notices.back().error;
             }
             const cluster::Config& c = this->_manager.config();
+            if (status.empty() && layout == "grid")
+                status = "grid: ←↑↓→ between the cells (empty prompt; Alt+arrows always) · " + c.keys.at("grid_open") + " opens the session in the list";
             const std::optional<cluster::WebStatus> webState = cluster::web_status(this->_manager);
             const std::string web = webState ? cluster::web_line(*webState) : "";
 
@@ -5789,8 +5814,10 @@ class TtyUi {
                 (void)this->shortcut_(cluster::key_action(this->_manager.config(), key));
                 return true;
             }
+            if (const std::optional<Arrow> nav = arrow_(event); nav && this->gridArrow_(*nav)) return true;
             this->vimSync_();
             if (this->vimKey_(event, key)) return true;
+            if (cluster::key_action(this->_manager.config(), key) == "grid_open" && this->shortcut_("grid_open")) return true; // grid: Shift+Enter opens, not a new line
             const std::string& raw = event.input();
             if (raw == "\x1b\r" || raw == "\x1b\n" || raw == "\x1b[13;2u" || raw == "\x1b[27;2;13~") { // xstyle: ignore LU-ANSI (read)
                 this->_editor.insert("\n"); // Alt+Enter / Shift+Enter: new line

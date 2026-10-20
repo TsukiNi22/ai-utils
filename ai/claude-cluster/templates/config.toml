@@ -188,6 +188,7 @@ session_up = "Alt+Up"                # session above / next in the list (the lis
 session_down = "Alt+Down"
 session_left = "Alt+Left"            # session on the left (grid) / previous one in the list
 session_right = "Alt+Right"
+grid_open = "Shift+Enter|Alt+O"      # grid: open the focused session in the list layout (Shift+Enter needs a terminal that reports it: kitty, foot, wezterm...; Alt+O always)
 session_page_up = "Alt+PageUp"       # a page of sessions up / down (the grid: its rows), also after the prefix: PageUp / PageDown / Home / End
 session_page_down = "Alt+PageDown"
 session_first = "Alt+Home"           # the first / the last session

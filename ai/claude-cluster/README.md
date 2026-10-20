@@ -112,6 +112,8 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Ctrl+B then ← → ↑ ↓ | session on the left / right / above / below (grid: rows and columns) |
 | Alt+↑ ↓ ← → (`session_up` ...) | the same without the prefix; Alt+PageUp / Alt+PageDown: a page of sessions (the grid: its rows), Alt+Home / Alt+End: the first / the last session (also after Ctrl+B: PageUp / PageDown / Home / End); the list and the grid scroll to keep the session in view |
 | wheel (terminal) | over the **list of sessions**: scrolls it (↑ n more / ↓ n more), the Tasks entry stays on top and a click on a session works as ever. Over the **grid**: the cells keep a minimum size (38 x 8) and the rows that do not fit scroll (`rows 1-3 of 5`, ▲ ▼ clickable), Ctrl / Shift + wheel scrolls the transcript there |
+| arrows (terminal, grid layout) | **empty prompt**: ← ↑ ↓ → move the focus between the cells (up / down: same column, from the top row to the last and back, a shorter last row: its last cell; left / right turn inside the row); a prompt being written: the arrows edit it as ever (history on ↑ / ↓ of an empty prompt: Ctrl+R in the grid), Alt + arrows always move |
+| Shift+Enter (terminal, grid layout; `grid_open`, also Alt+O) | **opens** the focused session in the list layout (nothing sent, no new line); Alt+Enter still inserts a new line, Enter sends. Needs a terminal that reports Shift+Enter (kitty, foot, wezterm, ghostty...), else Alt+O |
 | Ctrl+G | the global session |
 | Ctrl+T | new session |
 | Ctrl+W | close the session (to the trash) |
