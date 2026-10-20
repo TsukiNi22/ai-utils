@@ -181,7 +181,11 @@ header .muted { color: var(--muted); font-size: 13px; }
 #pending .text { white-space: pre-wrap; }
 #pending .when { color: var(--muted); font-size: 13px; }
 #composer { display: flex; gap: 8px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); align-items: flex-end; position: relative; }
-#prompt { flex: 1; resize: none; min-height: 42px; max-height: 40vh; }
+#promptBox { flex: 1; position: relative; display: flex; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+#prompt { flex: 1; resize: none; min-height: 42px; max-height: 40vh; background: transparent; border: 0; position: relative; z-index: 1; min-width: 0; }
+#promptHl { position: absolute; inset: 0; padding: 8px 10px; font: inherit; line-height: normal; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; color: transparent; pointer-events: none; }
+#promptHl mark { color: transparent; background: color-mix(in srgb, var(--accent) 28%, transparent); border-radius: 4px; }
+#promptHl mark.unknown { background: color-mix(in srgb, var(--error) 32%, transparent); text-decoration: underline wavy var(--error); }
 .badge { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; }
 #mic { min-width: 46px; }
 #mic.on { background: var(--error); border-color: var(--error); color: #fff; }
@@ -482,7 +486,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
         <form id="composer">
             <button id="mic" type="button" title="Microphone">🎤</button>
             <span id="modeBadge" class="mode-badge hidden"></span>
-            <textarea id="prompt" rows="1" placeholder="Message (Enter sends, Shift+Enter: new line, @ file, / command)" spellcheck="false"></textarea>
+            <div id="promptBox"><div id="promptHl" aria-hidden="true"></div><textarea id="prompt" rows="1" placeholder="Message (Enter sends, Shift+Enter: new line, @ file, / command)" spellcheck="false"></textarea></div>
             <button class="primary" type="submit">Send</button>
         </form>
     </main>
@@ -2149,7 +2153,42 @@ function autosize() {
     const p = $("prompt");
     p.style.height = "auto";
     p.style.height = Math.min(p.scrollHeight, window.innerHeight * 0.4) + "px";
+    highlight();
 }
+
+// the prompt coloured behind its text: @files, ::sessions, the /commands and skills that exist; a first /word that does not exist flagged
+// (the same marks as the terminal and the window); the names of the session read once, again when it changes
+var known = {session: null, names: new Set(), at: 0}; // var: autosize() may run before this line
+async function loadKnown() {
+    if (known.session === current && Date.now() - known.at < 30000) return;
+    known.session = current; known.at = Date.now();
+    try { known.names = new Set((await api("/api/complete", {session: current, kind: "known", query: ""})).names || []); highlight(); } catch (error) { /* no names: nothing flagged */ }
+}
+function highlight() {
+    if (!known) return;
+    const text = $("prompt").value;
+    if (text.includes("/")) loadKnown();
+    const first = text.search(/[^ \n]/);
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    let html = "", last = 0, at = 0;
+    while (at < text.length) {
+        if (at !== 0 && text[at - 1] !== " " && text[at - 1] !== "\n") { at++; continue; }
+        let end = text.slice(at).search(/[ \n]/);
+        end = end < 0 ? text.length : at + end;
+        let kind = "";
+        if (text[at] === "@" || text.startsWith("::", at)) kind = "mark";
+        else if (text[at] === "/" && end - at > 1) {
+            const word = text.slice(at + 1, end);
+            if (known.names.has(word)) kind = "mark";
+            else if (at === first && !word.includes("/") && known.names.size) kind = "mark unknown";
+        }
+        if (kind) { html += esc(text.slice(last, at)) + '<mark class="' + kind + '">' + esc(text.slice(at, end)) + "</mark>"; last = end; }
+        at = Math.max(end, at + 1);
+    }
+    $("promptHl").innerHTML = html + esc(text.slice(last)) + "\n";
+    $("promptHl").scrollTop = $("prompt").scrollTop;
+}
+$("prompt").addEventListener("scroll", () => { $("promptHl").scrollTop = $("prompt").scrollTop; });
 
 $("interrupt").addEventListener("click", () => { stopReading(); act({cmd: "interrupt", session: current}); });
 $("resume").addEventListener("click", () => act({cmd: "resume", session: current}).then((d) => { if (d && d.done) toast(d.done); }));

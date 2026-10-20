@@ -1581,6 +1581,10 @@ self.addEventListener("notificationclick", (e) => {
     } else if (post && request.path == "/api/complete") {
         // the completion of the prompt (@file, /command, /cd, /mode, /model...) and of the folder of a new session
         const std::string session = field("session");
+        if (field("kind") == "known") { // every name a /word may be (the colours of the prompt)
+            json_(conn, 200, {{"names", cluster::slash_known(this->_manager, session)}});
+            return;
+        }
         const cluster::CompletionProvider provider = cluster::completion_provider(this->_manager, [session]() {return session;});
         const cluster::CompletionKind kind = completion_kind_(field("kind"));
         cluster::Json items = cluster::Json::array();

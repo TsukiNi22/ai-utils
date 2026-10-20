@@ -54,6 +54,19 @@ struct SlashEntry {
     bool command = false;   // a local command of claude-cluster (never a skill: only at the start of the prompt)
 };
 
+enum class MarkKind {
+    File,       // @path
+    Session,    // ::name
+    Slash,      // a /command or a skill that exists
+    Unknown,    // a /word at the start of the prompt that does not exist
+};
+
+struct PromptMark {
+    std::size_t start;      // bytes of the text
+    std::size_t end;
+    cluster::MarkKind kind;
+};
+
 struct ActionResult {
     std::string message;    // shown to the user
     bool error = false;
@@ -79,7 +92,9 @@ _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_c
 // the /commands and the skills of a session as they are typed, with where each comes from (local: ours or the user's skills, built-in: the agent,
 // a plugin name, the slug of an imported link); an imported skill is "<slug>:<skill>" (the plain "/<skill>" works too)
 _cold _nodiscard std::vector<cluster::SlashEntry> slash_entries(cluster::Manager& manager, const std::string& session);
+_cold _nodiscard std::vector<cluster::PromptMark> prompt_marks(const std::string& text, const std::set<std::string>& known); // what is coloured in a prompt
 _cold _nodiscard std::string source_color(const std::string& source);  // the colour (#rrggbb) of the badge of a source: local, built-in, else one of a palette by its name
+_cold _nodiscard std::set<std::string> slash_known(cluster::Manager& manager, const std::string& session);   // every name a /word may be (both forms)
 // the modes of the prompt (Prompt.cpp): !<command> in the shell of the session, :<command> like vim
 _cold _nodiscard cluster::ActionResult tasks_prompt(cluster::Manager& manager, const std::string& line); // the prompt of the Tasks session
 _cold _nodiscard std::optional<cluster::ActionResult> run_prompt_mode(cluster::Manager& manager, const std::string& session, const std::string& line);

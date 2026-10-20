@@ -178,6 +178,9 @@ class PromptEdit: public QPlainTextEdit {
         QListWidget* popup = nullptr;
         QWidget* chipsBar = nullptr;
         void refreshChips(void);            // one chip per atom of the prompt (images, pasted texts)
+        _nodiscard const std::set<std::string>& knownSlash(void);   // the /words of the session shown (read again when the sessions changed)
+        std::set<std::string> known;
+        std::pair<std::string, std::uint64_t> knownKey;
 
         PromptEdit(Window* owner, QWidget* parent);
         void refreshCompletion(void);
@@ -209,6 +212,20 @@ class AtomHighlighter: public QSyntaxHighlighter {
                 const QString label = QString::fromStdString(this->_edit->completion.atom(i).label);
                 for (int at = text.indexOf(label); at >= 0; at = text.indexOf(label, at + 1))
                     this->setFormat(at, static_cast<int>(label.size()), format);
+            }
+            // @files, ::sessions and the /commands / skills that exist like the atoms; a first /word that does not exist in red
+            const std::string line = text.toStdString();
+            for (const cluster::PromptMark& mark: cluster::prompt_marks(line, this->_edit->knownSlash())) {
+                const bool unknown = mark.kind == cluster::MarkKind::Unknown;
+                if (unknown && this->currentBlock().blockNumber() > 0) continue;
+                QTextCharFormat shown = format;
+                if (unknown) {
+                    shown.setForeground(QColor(0xef, 0x6b, 0x5b));
+                    shown.setBackground(Qt::transparent);
+                    shown.setFontUnderline(true);
+                }
+                const int from = static_cast<int>(QString::fromStdString(line.substr(0, mark.start)).size());
+                this->setFormat(from, static_cast<int>(QString::fromStdString(line.substr(mark.start, mark.end - mark.start)).size()), shown);
             }
         }
 
@@ -3296,6 +3313,16 @@ void PromptEdit::reset(void)
     this->completion.clear();
     this->refreshChips();
     if (this->popup) this->popup->setVisible(false);
+}
+
+const std::set<std::string>& PromptEdit::knownSlash(void)
+{
+    const std::pair<std::string, std::uint64_t> key{this->window->active, this->window->manager.version()};
+    if (key != this->knownKey) {
+        this->knownKey = key;
+        this->known = cluster::slash_known(this->window->manager, this->window->active);
+    }
+    return this->known;
 }
 
 void PromptEdit::vimSync(void)

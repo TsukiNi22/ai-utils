@@ -580,6 +580,8 @@ class TtyUi {
         const bool _webTty = std::getenv("CLAUDE_CLUSTER_WEB_TTY") != nullptr; // run for the terminal page: its rules (the shell, the settings, the services, the keys)
         cluster::Manager& _manager;
         ftxui::ScreenInteractive _screen = ftxui::ScreenInteractive::Fullscreen();
+        std::set<std::string> _known;                                   // the /words of the session shown (coloured in the prompt)
+        std::pair<std::string, std::uint64_t> _knownKey;                // the session and the version of the sessions they were read at
         Theme _theme{};
         Mode _mode = Mode::Normal;
         std::string _active = GLOBAL_ID;
@@ -1356,6 +1358,19 @@ class TtyUi {
             });
         }
 
+        _nodiscard const std::set<std::string>& slashKnown_(const std::string& text)
+        {
+            // the /words that exist for the session shown, read again when the sessions changed (never for a prompt with no /word)
+            static const std::set<std::string> none;
+            if (text.find('/') == std::string::npos) return none;
+            const std::pair<std::string, std::uint64_t> key{this->_active, this->_manager.version()};
+            if (key != this->_knownKey) {
+                this->_knownKey = key;
+                this->_known = cluster::slash_known(this->_manager, this->_active);
+            }
+            return this->_known;
+        }
+
         _nodiscard ftxui::Element prompt_(const int width)
         {
             // the prompt (several lines: Alt+Enter / Shift+Enter): selection inverted, cursor, 8 lines around the cursor
@@ -1424,6 +1439,7 @@ class TtyUi {
             for (std::size_t i = 0; i < lines.size(); ++i)
                 if (cursor >= lines[i].start && (cursor < lines[i].end || (cursor == lines[i].end && lines[i].last))) current = i;
             const std::size_t first = current >= 7 ? current - 7 : 0;
+            const std::vector<cluster::PromptMark> marks = cluster::prompt_marks(text, this->slashKnown_(text));
             ftxui::Elements rows;
             for (std::size_t i = first; i < lines.size() && i < first + 8; ++i) {
                 const std::size_t ls = lines[i].start;
@@ -1438,22 +1454,21 @@ class TtyUi {
                     for (std::size_t at = x; x < y; at = x) {
                         while (at < y && !this->_editor.atomAt(text, at))
                             ++at;
-                        // the text: a /command (skill) at its start and the @files in the accent colour, like the atoms
+                        // the text: the @files, ::sessions and the /commands / skills that exist in the accent colour, like the atoms;
+                        // a first /word that does not exist in the colour of the errors
                         for (std::size_t k = x; k < at;) {
-                            std::size_t end = k;
-                            const bool lead = text[k] == '/' && text.find_first_not_of(" \n") == k;
-                            const bool file = (text[k] == '@' || text.compare(k, 2, "::") == 0) && (k == 0 || text[k - 1] == ' ' || text[k - 1] == '\n');
-                            if (lead || file) {
-                                end = text.find_first_of(" \n", k);
-                                end = std::min(end == std::string::npos ? at : end, at);
-                            } else {
-                                while (end < at && !((text[end] == '@' || text.compare(end, 2, "::") == 0) && (end == 0 || text[end - 1] == ' ' || text[end - 1] == '\n'))
-                                    && !(text[end] == '/' && text.find_first_not_of(" \n") == end))
-                                    ++end;
+                            const cluster::PromptMark* mark = nullptr;
+                            std::size_t end = at;
+                            for (const cluster::PromptMark& m: marks) {
+                                if (m.start <= k && k < m.end) mark = &m;
+                                else if (m.start > k) end = std::min(end, m.start);
                             }
+                            if (mark != nullptr) end = std::min(mark->end, at);
                             if (end == k) ++end;
-                            ftxui::Element element = ftxui::text(text.substr(k, end - k)) | (lead || file ? ftxui::color(this->_theme.accent) | ftxui::bold
-                                | ftxui::bgcolor(this->_theme.surface) : ftxui::color(this->_theme.text));
+                            ftxui::Element element = ftxui::text(text.substr(k, end - k));
+                            if (mark == nullptr) element = element | ftxui::color(this->_theme.text);
+                            else if (mark->kind == cluster::MarkKind::Unknown) element = element | ftxui::color(this->_theme.error) | ftxui::bold | ftxui::underlined;
+                            else element = element | ftxui::color(this->_theme.accent) | ftxui::bold | ftxui::bgcolor(this->_theme.surface);
                             parts.push_back(selected ? element | ftxui::inverted : element);
                             k = end;
                         }

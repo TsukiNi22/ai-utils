@@ -613,6 +613,41 @@ _cold std::string cluster::source_color(const std::string& source)
     return palette[hash % palette.size()];
 }
 
+_cold std::set<std::string> cluster::slash_known(cluster::Manager& manager, const std::string& session)
+{
+    std::set<std::string> known;
+    for (const cluster::SlashEntry& entry: cluster::slash_entries(manager, session)) {
+        known.insert(entry.name);
+        if (!entry.command && entry.source != "built-in" && entry.source != "local" && entry.name.size() > entry.source.size() + 1)
+            known.insert(entry.name.substr(entry.source.size() + 1)); // the plain "/<skill>" of a plugin or an imported one
+    }
+    return known;
+}
+
+_cold std::vector<cluster::PromptMark> cluster::prompt_marks(const std::string& text, const std::set<std::string>& known)
+{
+    // @path and ::name after a space / a line start; /word: coloured when it exists, flagged when it is the first word of the prompt and unknown
+    // (elsewhere an unknown /word may be a path: left alone)
+    std::vector<cluster::PromptMark> marks;
+    const std::size_t first = text.find_first_not_of(" \n");
+    for (std::size_t at = 0; at < text.size();) {
+        if (at != 0 && text[at - 1] != ' ' && text[at - 1] != '\n') {
+            ++at;
+            continue;
+        }
+        const std::size_t end = std::min(text.find_first_of(" \n", at), text.size());
+        if (text[at] == '@') marks.push_back({at, end, cluster::MarkKind::File});
+        else if (text.compare(at, 2, "::") == 0) marks.push_back({at, end, cluster::MarkKind::Session});
+        else if (text[at] == '/' && end - at > 1) {
+            const std::string word = text.substr(at + 1, end - at - 1);
+            if (known.contains(word)) marks.push_back({at, end, cluster::MarkKind::Slash});
+            else if (at == first && word.find('/') == std::string::npos) marks.push_back({at, end, cluster::MarkKind::Unknown});
+        }
+        at = std::max(end, at + 1);
+    }
+    return marks;
+}
+
 _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager& manager, std::function<std::string(void)> session)
 {
     return [&manager, session](const cluster::CompletionKind kind, const std::string& query) {
