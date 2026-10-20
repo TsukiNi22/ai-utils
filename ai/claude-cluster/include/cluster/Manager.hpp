@@ -29,6 +29,7 @@ File Description:
     #include "Usage.hpp"            // cluster::Transcripts
     #include "Auth.hpp"             // cluster::Auth
     #include "Taxonomy.hpp"         // cluster::Taxonomy
+    #include "PromptStash.hpp"      // cluster::StashAdd
     #include <condition_variable>   // std::condition_variable
     #include <functional>           // std::function
     #include <optional>             // std::optional
@@ -426,7 +427,7 @@ class Manager {
         _cold _nodiscard std::vector<cluster::Draft> drafts(const std::size_t max = 500, const std::string& session = "") const; // newest first, no
                                                             // duplicate; a session: its prompts only (the arrows), none: every one (Ctrl+R)
         _cold _nodiscard std::vector<std::string> history(const std::size_t max = 500, const std::string& session = "") const; // their texts
-        _cold void stashPush(const cluster::Draft& draft);                              // prompt put aside (stash.json)
+        _cold cluster::StashAdd stashPush(const cluster::Draft& draft, const std::string& session = "", const bool force = true); // prompt put aside (stash.json); force: a copy, never refused for [ui] stash_max
         _cold _nodiscard std::optional<cluster::Draft> stashPop(void);
         _cold _nodiscard std::size_t stashSize(void) const;
 

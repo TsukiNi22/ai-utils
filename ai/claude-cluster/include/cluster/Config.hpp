@@ -254,6 +254,8 @@ class Config {
         bool groupByCategory = false;           // the session list grouped under the category of its sessions (the palette, /group, a click on the list title)
         int pasteLines = 3;                     // a paste of more lines becomes [Pasted text #N +L lines] (0: never)
         int pasteChars = 800;                   // or of more characters
+        int stashMax = 10;                      // prompts kept in the stash (Ctrl+S, the list: Ctrl+L)
+        std::string stashFull = "refuse";       // the stash is full: refuse (the prompt stays in the editor) | drop_oldest
         std::string editor;                     // Ctrl+E (empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano)
         std::string imageViewer;                // right click on an image chip (empty: xdg-open)
         std::string imagePreview = "blocks";    // terminal preview: blocks (pixels as half blocks) | chafa (symbols)

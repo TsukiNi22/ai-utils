@@ -31,6 +31,10 @@ group_by_category = false  # the session list grouped by the category of its ses
 vim = false                # vim mode of the prompt: Esc Normal (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o Insert
 paste_lines = 3            # a paste of more lines is one [Pasted text #N +L lines] in the prompt (0: never)
 paste_chars = 800          # or of more characters (0: never)
+stash_max = 10             # prompts kept in the stash (Ctrl+S puts the prompt aside, Ctrl+L lists them: load, remove, clear all); stored in
+                           # stash.json of the data folder, over the restarts, shared by every session (each one shows where it was written)
+stash_full = "refuse"      # the stash is full: refuse (the prompt stays in the editor, nothing is lost) | drop_oldest (the oldest one makes room)
+                           # the copies made by themselves (a prompt replaced by another one) are never refused
 editor = ""                # Ctrl+E; empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano (the first installed)
 machine_days = 30          # the map of this computer older than this: a sync proposed at start (0: never)
 image_viewer = ""          # right click on an image chip; empty: xdg-open (the viewer of the desktop)
@@ -260,6 +264,8 @@ cut = "Ctrl+X"
 paste = "Ctrl+V"           # text, or an image of the clipboard ([Image #N])
 stash = "Ctrl+S"           # put the prompt aside
 unstash = "Ctrl+P"         # take the last one back
+stashes = "Ctrl+L"         # the list of the stashed prompts: Enter loads (replace / append / cancel when the prompt is not empty, the
+                           # loaded one leaves the stash), Del / x removes (u undoes), X clears all (two steps: No by default, then Yes)
 history = "Ctrl+R"         # prompts sent before
 edit = "Ctrl+E"            # the prompt in an editor ([ui] editor, else nvim, vim, vi, $VISUAL, $EDITOR, emacs, nano)
 expand = "Ctrl+O"          # transcript: thinking and tool results in full / short

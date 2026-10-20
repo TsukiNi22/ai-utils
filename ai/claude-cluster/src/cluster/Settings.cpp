@@ -165,6 +165,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.groupByCategory ? std::string("true") : std::string("false");}},
             {"ui", "paste_lines", "Paste collapsed above (lines)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N +L lines] in the prompt (0: never)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.pasteLines);}},
+            {"ui", "stash_max", "Stash: prompts kept", SettingKind::Int, {}, "the prompts put aside (Ctrl+S, the list: Ctrl+L); the prompts copied by themselves "
+                "(a prompt replaced by another one) never are refused", false, [](const cluster::Config& cf) {return std::to_string(cf.stashMax);}},
+            {"ui", "stash_full", "Stash: when it is full", SettingKind::Choice, {"refuse", "drop_oldest"}, "refuse: the prompt stays in the editor, nothing is lost; "
+                "drop_oldest: the oldest stashed prompt makes room (with a notice)", false, [](const cluster::Config& cf) {return cf.stashFull;}},
             {"ui", "paste_chars", "Paste collapsed above (characters)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N] in the prompt (0: never)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.pasteChars);}},
             {"ui", "editor", "Editor of the prompt (Ctrl+E)", SettingKind::Text, {}, "empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano (the first installed)", false,

@@ -185,34 +185,22 @@ _cold std::vector<cluster::Draft> cluster::Manager::drafts(const std::size_t max
     return list;
 }
 
-_cold void cluster::Manager::stashPush(const cluster::Draft& draft)
+_cold cluster::StashAdd cluster::Manager::stashPush(const cluster::Draft& draft, const std::string& session, const bool force)
 {
-    if (cluster::trim(draft.text).empty()) return;
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    cluster::Json stash = cluster::read_json(cluster::data_dir() / "stash.json").value_or(cluster::Json::array());
-    if (!stash.is_array()) stash = cluster::Json::array();
-    stash.push_back(cluster::Json::object({{"text", draft.text}, {"images", draft.images}, {"pastes", draft.pastes}}));
-    cluster::write_json(cluster::data_dir() / "stash.json", stash);
+    return cluster::stash_add(draft, session, this->_config.stashMax, this->_config.stashFull == "drop_oldest", force);
 }
 
 _cold std::optional<cluster::Draft> cluster::Manager::stashPop(void)
 {
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    cluster::Json stash = cluster::read_json(cluster::data_dir() / "stash.json").value_or(cluster::Json::array());
-    if (!stash.is_array() || stash.empty()) return std::nullopt;
-    const cluster::Json& last = stash.back(); // a text (older stash) or a draft
-    const cluster::Draft text = last.is_string() ? cluster::Draft{last.get<std::string>(), {}, {}}
-        : cluster::Draft{last.value("text", std::string()), last.value("images", std::vector<std::string>()), last.value("pastes", std::vector<std::string>())};
-    stash.erase(stash.size() - 1);
-    cluster::write_json(cluster::data_dir() / "stash.json", stash);
-    return text;
+    const std::vector<cluster::StashEntry> list = cluster::stash_read();
+    if (list.empty()) return std::nullopt;
+    const std::optional<cluster::StashEntry> entry = cluster::stash_remove(list.size() - 1);
+    return entry ? std::optional<cluster::Draft>(entry->draft) : std::nullopt;
 }
 
 _cold std::size_t cluster::Manager::stashSize(void) const
 {
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    const std::optional<cluster::Json> stash = cluster::read_json(cluster::data_dir() / "stash.json");
-    return stash && stash->is_array() ? stash->size() : 0;
+    return cluster::stash_read().size();
 }
 
 _cold static cluster::Json usage_json_(const cluster::Usage& u)

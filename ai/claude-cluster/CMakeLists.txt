@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.69 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.70 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -94,6 +94,7 @@ set(SRC
     src/cluster/Manager-Replica.cpp
     src/cluster/Prompt.cpp
     src/cluster/PromptNav.cpp
+    src/cluster/PromptStash.cpp
     src/cluster/Match.cpp
     src/cluster/Origin.cpp
     src/cluster/Requirements.cpp
@@ -139,6 +140,8 @@ set(SRC
     src/cluster/ui/Tty.cpp
     src/cluster/ui/LineEditor.cpp
     src/cluster/ui/TtyGraph.cpp
+    src/cluster/ui/Popup.cpp
+    src/cluster/ui/StashPopup.cpp
 )
 set(CLUSTER_WITH_GUI OFF)
 if(CLUSTER_GUI AND Qt6Widgets_FOUND)

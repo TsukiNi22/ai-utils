@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Attachments.hpp"
 #include "cluster/LineEditor.hpp"
 #include "cluster/Origin.hpp"
+#include "cluster/StashPopup.hpp"
 #include "cluster/PromptNav.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
@@ -66,7 +67,7 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph, Stash};
 
 struct FormField {                     // a field of the form of a display, filled in its popup
     std::string name;
@@ -701,6 +702,7 @@ class TtyUi {
         int _webCursor = 0;
         std::string _webConfirm;                    // a dangerous action of the devices waiting for its y (ban, kick_all)
         std::int64_t _lastEscape = 0;               // Esc Esc: clear the prompt
+        cluster::StashPopup _stash;                 // Mode::Stash: the list of the stashed prompts (Ctrl+L)
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
         std::atomic<bool> _sendPending{false};      // Enter waits a few ms: a key right after it is a pasted line break
@@ -975,6 +977,20 @@ class TtyUi {
                 });
                 this->_screen.PostEvent(ftxui::Event::Custom);
             });
+        }
+
+        bool stashKey_(const ftxui::Event& event)
+        {
+            const cluster::StashResult result = this->_stash.key(event, cluster::trim(this->_editor.text()).empty());
+            if (!result.status.empty()) this->status_(result.status, result.error);
+            if (result.load) {
+                if (result.stashCurrent && !cluster::trim(this->_editor.text()).empty()) (void)this->_manager.stashPush(this->_editor.draft(), this->_active);
+                if (result.append) cluster::append_draft(this->_editor, *result.load);
+                else this->_editor.load(*result.load);
+                this->historyReset_();
+            }
+            if (!this->_stash.active() && this->_mode == Mode::Stash) this->_mode = Mode::Normal;
+            return true;
         }
 
         _nodiscard bool rowsKnown_(void) const {return cluster::visual_rows_valid(this->_visualRows, this->_editor.text());};
@@ -1576,7 +1592,7 @@ class TtyUi {
                     piece(ls, le, false);
                 }
                 if (text.empty() && this->_mode == Mode::Normal)
-                    parts.push_back(ftxui::text(" @ file · / command · ! shell · : command · " + this->_manager.config().keys.at("history") + " history · " + this->_manager.config().keys.at("help") + " keys")
+                    parts.push_back(ftxui::text(" @ file · / command · ! shell · : command · " + this->_manager.config().keys.at("history") + " history · " + this->_manager.config().keys.at("stashes") + " stash · " + this->_manager.config().keys.at("help") + " keys")
                         | ftxui::color(this->_theme.muted) | ftxui::dim);
                 parts.push_back(ftxui::filler());
                 if (i == first && this->_editor.vim() != cluster::VimMode::Off) {
@@ -2002,7 +2018,7 @@ class TtyUi {
             }
             for (const Click& c: this->_clicks)
                 if (c.layer == layer && !c.act && c.box.Contain(mouse.x, mouse.y)) return true; // in the dialog: nothing there
-            if (this->_mode == Mode::Palette || this->_mode == Mode::History) this->event_(ftxui::Event::Escape); // outside: closed
+            if (this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Stash) this->event_(ftxui::Event::Escape); // outside: closed
             return true;
         }
 
@@ -2283,11 +2299,23 @@ class TtyUi {
                 if (cluster::trim(this->_editor.text()).empty()) {
                     this->status_("nothing to stash");
                 } else {
-                    this->_manager.stashPush(this->_editor.draft());
-                    this->_editor.clear();
-                    this->historyReset_();
-                    this->status_("prompt stashed (" + std::to_string(this->_manager.stashSize()) + "), " + this->_manager.config().keys.at("unstash") + " to take it back");
+                    const std::size_t before = this->_manager.stashSize();
+                    const cluster::StashAdd added = this->_manager.stashPush(this->_editor.draft(), this->_active, false);
+                    if (added == cluster::StashAdd::Full) {
+                        this->status_("the stash is full (" + std::to_string(before) + "): load or remove one (" + this->_manager.config().keys.at("stashes")
+                            + ") or raise [ui] stash_max; the prompt stays here", true);
+                    } else if (added == cluster::StashAdd::TooBig) {
+                        this->status_("that prompt is too big for the stash; it stays here", true);
+                    } else {
+                        this->_editor.clear();
+                        this->historyReset_();
+                        this->status_("prompt stashed (" + std::to_string(this->_manager.stashSize()) + "/" + std::to_string(this->_manager.config().stashMax) + (before >= static_cast<std::size_t>(this->_manager.config().stashMax) ? ", the oldest one dropped" : "")
+                            + "), " + this->_manager.config().keys.at("stashes") + ": the list, " + this->_manager.config().keys.at("unstash") + ": the last one back");
+                    }
                 }
+            } else if (action == "stashes") {
+                this->_stash.open(this->_active, this->_manager.config().stashMax);
+                this->_mode = Mode::Stash;
             } else if (action == "unstash") {
                 const std::optional<cluster::Draft> text = this->_manager.stashPop();
                 if (!text) {
@@ -4886,6 +4914,16 @@ class TtyUi {
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), this->fieldView_(this->_filter, 72)}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items))}), 80);
             }
+            if (this->_mode == Mode::Stash) {
+                const cluster::PopupColors colors{this->_theme.text, this->_theme.muted, this->_theme.accent, this->_theme.bg, this->_theme.warn, this->_theme.error};
+                const cluster::PopupPress press = [this](ftxui::Element element, const ftxui::Event& pressed, const int row) {
+                    return this->tap_(std::move(element), 1, [this, pressed, row]() {
+                        if (row >= 0) this->_stash.select(row);
+                        (void)this->event_(pressed);
+                    });
+                };
+                return box(this->_stash.render(colors, press), 110);
+            }
             if (this->_mode == Mode::History) {
                 ftxui::Elements items;
                 const int start = std::max(0, this->_selected - 12);
@@ -5731,7 +5769,7 @@ class TtyUi {
                 this->_hoverChip = -1;
                 for (std::size_t i = 0; i < this->_chipBoxes.size(); ++i)
                     if (this->_chipBoxes[i].Contain(mouse.x, mouse.y)) this->_hoverChip = static_cast<int>(i);
-                const bool list = this->_mode == Mode::Settings || this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Question;
+                const bool list = this->_mode == Mode::Settings || this->_mode == Mode::Palette || this->_mode == Mode::History || this->_mode == Mode::Question || this->_mode == Mode::Stash;
                 const bool onPanels = this->_mode == Mode::Normal && this->_panelBox.Contain(mouse.x, mouse.y);
                 for (cluster::LineEditor* drawn: this->_fieldsDrawn) // a text field of a popup: its cursor placed, a drag selects, a double click takes a word
                     if (drawn->mouse(mouse)) return true;
@@ -6103,6 +6141,8 @@ class TtyUi {
                         }
                     }
                     return true;
+                case Mode::Stash:
+                    return this->stashKey_(event);
                 case Mode::Normal:
                     break;
             }

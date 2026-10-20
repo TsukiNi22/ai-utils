@@ -208,7 +208,8 @@ window opens instead when there is a display). In the background: `claude-cluste
 | Ctrl+← → , Home / End | move by word, to the start / end |
 | Ctrl+X / Ctrl+C / Ctrl+V | cut / copy (with a selection) / paste: text, or an **image** of the clipboard as `[Image #N]` |
 | Backspace / Delete / ← → on `[Image #N]`, `[Pasted text #N]` | the whole block at once (one character for the editor, like Claude Code) |
-| Ctrl+S / Ctrl+P | stash the prompt / take the last one back (kept over the runs) |
+| Ctrl+S / Ctrl+P | stash the prompt (and clear the editor) / take the last stashed one back (kept over the runs; full: see `stash_full`) |
+| Ctrl+L (`[keys] stashes`) | the **stash list** (the style of the history popup): newest first, time, first line, the session it was written in, loaded into the session in focus. Enter loads the one chosen and **removes it from the stash** (when the prompt is not empty: Replace - the one being written goes to the stash -, Append or Cancel); Del / x removes one (no confirmation, `u` undoes it); `X` (or Shift+Del) clears all in **two steps**: a question `Clear N stashed prompts?` with `No` chosen, `y` (or a click) chooses `Yes`, Enter (or a second click) does it, Esc cancels. Ctrl+L was free (no redraw key to move) |
 | Ctrl+R | history of the prompts sent to the session shown (type to filter, Enter puts it in the prompt; Tab: every session) |
 
 Local commands: `/pwd` (where the session runs: its folder, the computer, its pid - shown only, nothing sent), `/cd <folder>`, `/new <folder> [backend]`, `/mode <mode>`, `/rename <name>`, `/category <word>`, `/tags a b` (`+a` / `-a`), `/group`, `/close`, `/interrupt`,
@@ -305,6 +306,13 @@ the pasted text; **click** puts it back in the prompt; **right click** opens the
 
 **History and stash** keep the images and the pasted texts of a prompt: one taken back (↑, Ctrl+R, Ctrl+P) has its
 `[Image #N]` and its `[Pasted text #N]` blocks again.
+
+**The stash** (Ctrl+S, list Ctrl+L, Ctrl+P: the last one back) is **global**: one list in `stash.json` of the data folder (atomic
+write, over the restarts, even if never unstashed), each prompt with its time and the session it was written in, loaded into
+whichever session is in focus. At most `[ui] stash_max` prompts (10, settings page > UI); when it is full, Ctrl+S
+**refuses** and the prompt stays in the editor (nothing is lost) - `[ui] stash_full = "drop_oldest"` makes the oldest one
+room instead, with a notice. The copies claude-cluster makes by itself (a prompt replaced by a queued one, a history entry, a
+rewind) are never refused, so the list may pass the maximum until you clean it. Limits: 256 KB a prompt, 4 MB in all.
 
 **Pasted text**: a paste of more than `[ui] paste_lines` lines (3) or `paste_chars` characters (800) is one
 `[Pasted text #N +L lines]` block in the prompt (0: never); it is sent, stashed, edited (Ctrl+E) as its full text. In

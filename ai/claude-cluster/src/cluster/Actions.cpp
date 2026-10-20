@@ -1155,7 +1155,7 @@ _cold std::string cluster::help_text(const cluster::Config& config)
         {"interrupt", "stop the running turn, else clear the prompt (copy with a selection); twice on an empty prompt: quit"}, {"mode_cycle", "next permission mode"},
         {"layout", "next layout"}, {"push_to_talk", "voice: listen / stop"}, {"resume", "retry now / continue the session"}, {"send_next", "the next queued prompt now (the turn interrupted)"}, {"mute", "voice: stop speaking"}, {"quit", "quit"},
         {"undo", "undo"}, {"redo", "redo"}, {"select_all", "select all"}, {"cut", "cut"}, {"paste", "paste (text or image)"},
-        {"stash", "stash the prompt"}, {"unstash", "take the stashed prompt back"}, {"history", "history of the prompts"},
+        {"stash", "stash the prompt"}, {"unstash", "take the last stashed prompt back"}, {"stashes", "list of the stashed prompts"}, {"history", "history of the prompts"},
         {"search", "search in the transcript"}, {"edit", "edit the prompt in $EDITOR"},
         {"expand", "thinking and tool results: in full / short"},
         {"session_up", "session above (previous one in the list; the view follows)"}, {"session_down", "session below (next one)"},
