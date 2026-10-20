@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #define _SManip
 #include <utils/utils.hpp>
+#include "cluster/Attachments.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
@@ -1251,11 +1252,12 @@ class TtyUi {
                 const std::string extension = type == "image/jpeg" ? ".jpg" : type == "image/gif" ? ".gif" : type == "image/webp" ? ".webp" : ".png";
                 const cluster::Captured image = cluster::capture({"wl-paste", "--type", type}, "", 10);
                 if (image.code == 0 && !image.out.empty()) {
-                    std::error_code error;
-                    std::filesystem::create_directories(cluster::data_dir() / "images", error);
-                    const std::filesystem::path path = cluster::data_dir() / "images" / ("img-" + cluster::content_hash(image.out) + extension);
-                    if (!std::filesystem::exists(path, error)) std::ofstream(path, std::ios::binary) << image.out;
-                    if (!this->_editor.addImage(path.string())) this->status_("the same image: one more reference to it (sent once)");
+                    try { // stored with the attachments of the session (caps, EXIF, purge): the same model as the window and the page
+                        const cluster::Attachment item = cluster::attach_store(this->_manager.config(), this->_active, "clipboard", image.out);
+                        if (!this->_editor.addImage(item.path)) this->status_("the same image: one more reference to it (sent once)");
+                    } catch (const utils::exception::IException& e) {
+                        this->status_(std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info()), true);
+                    }
                     return;
                 }
             }

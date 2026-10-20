@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Attachments.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
@@ -72,6 +73,7 @@ File Description:
 #include <QFileInfo>
 #include <QLineEdit>
 #include <QSplitter>
+#include <QToolButton>
 #include <QShortcut>
 #include <QCheckBox>
 #include <QComboBox>
@@ -86,6 +88,7 @@ File Description:
 #include <fstream>
 #include <QWidget>
 #include <QTabBar>
+#include <iterator>
 #include <QDialog>
 #include <cstdlib>
 #include <QImage>
@@ -153,7 +156,8 @@ class Window;
 class PromptEdit: public QPlainTextEdit {
     protected:
         void keyPressEvent(QKeyEvent* event) override;
-        void insertFromMimeData(const QMimeData* source) override;  // a long text pasted: one [Pasted text #N]
+        void insertFromMimeData(const QMimeData* source) override;  // a long text pasted: one [Pasted text #N]; files / images dropped or pasted: attached
+        bool canInsertFromMimeData(const QMimeData* source) const override {return source->hasUrls() || source->hasImage() || QPlainTextEdit::canInsertFromMimeData(source);};
         bool focusNextPrevChild(bool) override {return false;}; // Tab completes, never leaves the prompt
 
     public:
@@ -197,6 +201,9 @@ class PromptEdit: public QPlainTextEdit {
 // The labels of the atoms marked like chips
 class AtomHighlighter: public QSyntaxHighlighter {
     private:
+        void attachFiles(const QStringList& paths, const int mode = 0);   // files of this computer: mode 0 asks link / copy, 1 copy, 2 link
+        void attachBytes(const std::string& name, const std::string& bytes);   // a picture of the clipboard / a drop: copied
+        void attachOne(const cluster::Attachment& item);                       // in the prompt: [Image #N] or @path
         PromptEdit* _edit = nullptr;
 
     protected:
@@ -2515,6 +2522,25 @@ class Window: public QMainWindow {
                         + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">" + QString::number(queued) + " waiting · " + QString::number(waiting) + " scheduled</span>"));
                     QListWidgetItem* item = new QListWidgetItem(this->list);
                     item->setToolTip("the todo lists of the sessions, the task queue, the schedules");
+            QToolButton* clip = new QToolButton(central);
+            clip->setText("📎");
+            clip->setToolTip("Attach files, images (or drop / paste them)");
+            clip->setCursor(Qt::PointingHandCursor);
+            clip->setAutoRaise(true);
+            QObject::connect(clip, &QToolButton::clicked, [this, clip]() {
+                QMenu menu(clip);
+                const bool link = this->manager.config().attach.link;
+                menu.addAction("Files…");
+                QAction* images = menu.addAction("Images…");
+                QAction* linked = link ? menu.addAction("Link files (no copy)…") : nullptr;
+                QAction* chosen = menu.exec(clip->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
+                if (!chosen) return;
+                const QString filter = chosen == images ? "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.heic);;All files (*)" : "All files (*)";
+                const QStringList paths = QFileDialog::getOpenFileNames(this, chosen == linked ? "Link files" : "Attach files", QDir::homePath(), filter);
+                if (!paths.isEmpty()) this->input->attachFiles(paths, chosen == linked ? 2 : 1);
+                this->input->setFocus();
+            });
+            bar->addWidget(clip);
                     item->setSizeHint(QSize(0, row->sizeHint().height() + 4));
                     this->list->setItemWidget(item, row);
                     if (this->active == TASKS_ID) this->list->setCurrentRow(0);
@@ -3286,8 +3312,85 @@ void PromptEdit::refreshChips(void)
 }
 
 void PromptEdit::setText(const QString& text)
+void PromptEdit::attachOne(const cluster::Attachment& item)
+{
+    // an image as the atom [Image #N] (given to the agent as a picture), the others as @path (read by the agent)
+    if (item.image) this->addImage(item.path);
+    else this->insert(q_("@" + item.path + " "));
+}
+
+void PromptEdit::attachBytes(const std::string& name, const std::string& bytes)
+{
+    try {
+        this->attachOne(cluster::attach_store(this->window->manager.config(), this->window->active, name, bytes));
+    } catch (const utils::exception::IException& e) {
+        this->window->message(std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info()), true);
+    }
+}
+
+void PromptEdit::attachFiles(const QStringList& paths, const int mode)
+{
+    const cluster::Config& config = this->window->manager.config();
+    if (!config.attach.enabled) {
+        this->window->message("attachments are off (settings: Attachments)", true);
+        return;
+    }
+    bool link = mode == 2;
+    if (mode == 0 && config.attach.link) { // this computer: nothing to upload, the choice is yours
+        QMessageBox box(QMessageBox::Question, "Attach", "Attach " + QString::number(paths.size()) + " file(s): link them (the files of this computer are read where they are, nothing copied) or copy them?",
+            QMessageBox::NoButton, this);
+        QPushButton* linked = box.addButton("Link", QMessageBox::AcceptRole);
+        QPushButton* copied = box.addButton("Copy", QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.exec();
+        if (box.clickedButton() == linked) link = true;
+        else if (box.clickedButton() != copied) return;
+    }
+    // the files already in this prompt count: the images (atoms) and the @paths of the attachments
+    const std::string root = cluster::attach_root(config).string();
+    std::size_t count = this->completion.images().size();
+    for (qsizetype at = this->text().indexOf(q_("@" + root)); at >= 0; at = this->text().indexOf(q_("@" + root), at + 1)) ++count;
+    for (const QString& path: paths) {
+        if (static_cast<int>(count) >= config.attach.maxFiles) {
+            this->window->message("at most " + std::to_string(config.attach.maxFiles) + " files per prompt (settings: Attachments)", true);
+            break;
+        }
+        try {
+            if (link) {
+                this->attachOne(cluster::attach_link(config, this->window->active, path.toStdString(), cluster::AttachScope::User));
+            } else {
+                std::ifstream file(path.toStdString(), std::ios::binary);
+                const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                this->attachOne(cluster::attach_store(config, this->window->active, QFileInfo(path).fileName().toStdString(), bytes));
+            }
+            ++count;
+        } catch (const utils::exception::IException& e) {
+            this->window->message(std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info()), true);
+        }
+    }
+}
+
 {
     this->setPlainText(text);
+    if (source->hasUrls()) { // files dropped / pasted from a file manager: attached (the other urls: their text)
+        QStringList files;
+        for (const QUrl& url: source->urls())
+            if (url.isLocalFile() && QFileInfo(url.toLocalFile()).isFile()) files << url.toLocalFile();
+        if (!files.isEmpty()) {
+            this->attachFiles(files);
+            return;
+        }
+    }
+    if (source->hasImage() && !source->hasText()) { // a picture dragged from a browser / an editor
+        const QImage image = qvariant_cast<QImage>(source->imageData());
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        if (!image.isNull() && image.save(&buffer, "PNG")) {
+            this->attachBytes("image.png", bytes.toStdString());
+            return;
+        }
+    }
     this->moveCursor(QTextCursor::End);
     this->completion.dismiss(); // the arrows go on browsing; it opens again when the word is changed
     if (this->popup) this->popup->setVisible(false);
@@ -3487,10 +3590,7 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
             QBuffer buffer(&bytes);
             buffer.open(QIODevice::WriteOnly);
             if (!image.isNull() && image.save(&buffer, "PNG")) {
-                // named by its content: the same image pasted again is the same [Image #N]
-                const std::filesystem::path path = cluster::data_dir() / "images" / ("img-" + cluster::content_hash(bytes.toStdString()) + ".png");
-                if (!std::filesystem::exists(path, error)) std::ofstream(path, std::ios::binary) << bytes.toStdString();
-                if (!this->addImage(path.string())) this->window->message("the same image: one more reference to it (sent once)", false);
+                this->attachBytes("clipboard.png", bytes.toStdString()); // stored with the attachments of the session (caps, EXIF, purge)
                 return;
             }
         }
@@ -4096,8 +4196,16 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                     std::string rest = text.starts_with("[voice] ") ? text.substr(8) : text; // the mark is for the agent
                     std::smatch match;
                     while (std::regex_search(rest, match, image)) {
-                        body += esc_(match.prefix().str()) + "<a href=\"" + QUrl::fromLocalFile(q_(match[1].str())).toString() + "\">[Image: "
-                            + esc_(std::filesystem::path(match[1].str()).filename().string()) + "]</a>";
+                        const bool file = match[1].str().empty(); // @/path of an attachment (a file that exists), else the [Image: path]
+                        const std::string path = file ? match[2].str() : match[1].str();
+                        std::error_code exists;
+                        if (file && !std::filesystem::is_regular_file(path, exists)) { // not a file: left as typed
+                            body += esc_(match.prefix().str() + match[0].str());
+                            rest = match.suffix().str();
+                            continue;
+                        }
+                        body += esc_(match.prefix().str()) + "<a href=\"" + QUrl::fromLocalFile(q_(path)).toString() + "\">" + (file ? "📄 " : "[Image: ")
+                            + esc_(std::filesystem::path(path).filename().string()) + (file ? "" : "]") + "</a>";
                         rest = match.suffix().str();
                     }
                     body += esc_(rest);
