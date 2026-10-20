@@ -16,6 +16,7 @@ File Description:
 #define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Attachments.hpp"
+#include "cluster/LineEditor.hpp"
 #include "cluster/Origin.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
@@ -6126,7 +6127,7 @@ class TtyUi {
                 else arrow->dx < 0 ? this->_editor.left(arrow->shift) : this->_editor.right(arrow->shift);
             } else if (event == ftxui::Event::Character(' ')) this->_editor.space();
             else if (event.is_character()) this->_editor.insert(event.character());
-            else return false;
+            else if (!cluster::editing_key(this->_editor, event, true, false)) return false; // the other editing keys (words, kill ring, Ctrl+Backspace...), the bound ones went before
             return true;
         }
 

@@ -80,6 +80,8 @@ using CompletionProvider = std::function<std::vector<cluster::Candidate>(const c
 constexpr char32_t ATOM_BASE = 0xF0000;    // an atom: one character of the Supplementary Private Use Area-A (never typed)
 
 _cold _nodiscard std::string atom_char(const std::size_t index);    // UTF-8 of U+F0000 + index
+_cold _nodiscard std::size_t cell_prev(const std::string& text, const std::size_t at);  // start of the cell before `at` (a character + its marks / emoji sequence)
+_cold _nodiscard std::size_t cell_next(const std::string& text, const std::size_t at);  // end of the cell at `at`
 
 //----------------------------------------------------------------//
 /* CLASS */
@@ -109,14 +111,13 @@ class Editor {
         std::string _count;                         // vim: count typed before the command
         std::string _register;                      // vim: last yank / delete
         bool _linewise = false;                     // the register holds whole lines
+        std::string _killed;                        // the last text killed (Ctrl+U / Ctrl+K / Ctrl+W...): Ctrl+Y puts it back
 
         // ---------- Pre-Function -------- //
         _cold void save_(const bool typing = false);
         _cold void erase_(const std::size_t from, const std::size_t to);
         _cold void refresh_(void);
         _cold void replaceWord_(const cluster::Candidate& candidate, const bool final);
-        _cold _nodiscard std::size_t prev_(const std::size_t at) const;    // previous UTF-8 character
-        _cold _nodiscard std::size_t next_(const std::size_t at) const;
         _cold _nodiscard std::size_t wordStart_(const std::size_t at) const;
         _cold void move_(const std::size_t to, const bool select);
         _cold _nodiscard std::size_t lineStart_(const std::size_t at) const;
@@ -134,6 +135,9 @@ class Editor {
         _cold void wordLeft(const bool select);
         _cold void wordRight(const bool select);
         _cold void selectAll(void);
+        _cold void killWord(const bool forward);    // the word before / after the cursor (or the selection), kept in the kill ring
+        _cold void killLine(const bool toEnd);      // to the end / the start of the line (or the selection), kept in the kill ring
+        _cold void selectWord(const std::size_t at);    // the word around a position (double click)
         _cold void undo(void);
         _cold void redo(void);
         _cold _nodiscard std::string cut(void);     // selected text, removed
@@ -174,6 +178,7 @@ class Editor {
 
         // ---------- Function -------- //
         _nodiscard inline const std::string& text(void) const {return this->_text;};
+        _nodiscard inline const std::string& killed(void) const {return this->_killed;};
         _nodiscard inline std::size_t cursor(void) const {return this->_cursor;};
         _nodiscard inline bool onFirstLine(void) const {return this->lineStart_(this->_cursor) == 0;};
         _nodiscard inline bool onLastLine(void) const {return this->lineEnd_(this->_cursor) >= this->_text.size();};
@@ -189,6 +194,9 @@ class Editor {
         _nodiscard inline std::size_t completionStart(void) const {return this->_start;};
         _nodiscard inline cluster::VimMode vim(void) const {return this->_vim;};
         _nodiscard inline const std::string& vimPending(void) const {return this->_pending;};
+        _cold _nodiscard inline std::size_t prev_(const std::size_t at) const {return cluster::cell_prev(this->_text, at);};    // previous cell (a character and its marks)
+        _cold _nodiscard inline std::size_t next_(const std::size_t at) const {return cluster::cell_next(this->_text, at);};
+        _cold inline void yank(void) {if (!this->_killed.empty()) this->insert(this->_killed);};   // the kill ring put back at the cursor
         _cold inline void left(const bool select) {this->move_(this->prev_(this->_cursor), select);};
         _cold inline void right(const bool select) {this->move_(this->next_(this->_cursor), select);};
         _cold inline void home(const bool select) {this->move_(0, select);};

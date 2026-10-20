@@ -78,21 +78,69 @@ _cold std::vector<cluster::Candidate> cluster::complete_paths(const std::string&
 }
 
 /* tools */
-_cold std::size_t cluster::Editor::prev_(const std::size_t at) const
+namespace {
+
+_cold std::size_t char_size_(const std::string& text, const std::size_t at)
 {
-    std::size_t i = at;
-    if (i == 0) return 0;
-    --i;
-    while (i > 0 && (static_cast<unsigned char>(this->_text[i]) & 0xC0) == 0x80) --i;
+    // bytes of the UTF-8 character at `at` (1 on a broken byte)
+    const unsigned char c = static_cast<unsigned char>(text[at]);
+    const std::size_t size = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+    return std::min(size, text.size() - at);
+}
+
+_cold char32_t code_at_(const std::string& text, const std::size_t at)
+{
+    const std::size_t size = char_size_(text, at);
+    const unsigned char c = static_cast<unsigned char>(text[at]);
+    if (size == 1) return c;
+    char32_t code = static_cast<char32_t>(c & (0xFF >> (size + 1)));
+    for (std::size_t i = 1; i < size; ++i)
+        code = (code << 6) | static_cast<char32_t>(static_cast<unsigned char>(text[at + i]) & 0x3F);
+    return code;
+}
+
+_cold bool extends_(const char32_t c)
+{
+    // a character that stays in the cell of the one before: combining marks, variation selectors, skin tones, tags, joiner
+    return (c >= 0x0300 && c <= 0x036F) || (c >= 0x0483 && c <= 0x0489) || (c >= 0x0591 && c <= 0x05BD) || (c >= 0x064B && c <= 0x065F)
+        || (c >= 0x1AB0 && c <= 0x1AFF) || (c >= 0x1DC0 && c <= 0x1DFF) || (c >= 0x200C && c <= 0x200D) || (c >= 0x20D0 && c <= 0x20FF)
+        || (c >= 0x3099 && c <= 0x309A) || (c >= 0xFE00 && c <= 0xFE0F) || (c >= 0xFE20 && c <= 0xFE2F) || (c >= 0x1F3FB && c <= 0x1F3FF)
+        || (c >= 0xE0020 && c <= 0xE007F) || (c >= 0xE0100 && c <= 0xE01EF);
+}
+
+_cold std::size_t start_before_(const std::string& text, std::size_t at)
+{
+    // start of the UTF-8 character that ends at `at`
+    if (at == 0) return 0;
+    --at;
+    while (at > 0 && (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80) --at;
+    return at;
+}
+
+} // namespace
+
+_cold std::size_t cluster::cell_prev(const std::string& text, const std::size_t at)
+{
+    // the previous cell: a character with the marks / the emoji sequence joined to it
+    if (at == 0) return 0;
+    std::size_t i = start_before_(text, std::min(at, text.size()));
+    while (i > 0) {
+        const std::size_t before = start_before_(text, i);
+        if (!extends_(code_at_(text, i)) && code_at_(text, before) != 0x200D) break;
+        i = before;
+    }
     return i;
 }
 
-_cold std::size_t cluster::Editor::next_(const std::size_t at) const
+_cold std::size_t cluster::cell_next(const std::string& text, const std::size_t at)
 {
-    std::size_t i = at;
-    if (i >= this->_text.size()) return this->_text.size();
-    ++i;
-    while (i < this->_text.size() && (static_cast<unsigned char>(this->_text[i]) & 0xC0) == 0x80) ++i;
+    if (at >= text.size()) return text.size();
+    std::size_t i = at + char_size_(text, at);
+    char32_t last = code_at_(text, at);
+    while (i < text.size() && (extends_(code_at_(text, i)) || last == 0x200D)) {
+        last = code_at_(text, i);
+        i += char_size_(text, i);
+    }
     return i;
 }
 
@@ -182,6 +230,50 @@ _cold void cluster::Editor::selectAll(void)
 {
     this->_anchor = 0;
     this->_cursor = this->_text.size();
+    this->_items.clear();
+}
+
+_cold void cluster::Editor::killWord(const bool forward)
+{
+    // the selection when there is one, else the word before (Ctrl+W, Ctrl+Backspace) / after (Alt+d, Ctrl+Delete) the cursor
+    if (this->selection().first == this->selection().second) {
+        if (forward) this->wordRight(true);
+        else this->wordLeft(true);
+    }
+    const std::string text = this->cut();
+    if (!text.empty()) this->_killed = text;
+}
+
+_cold void cluster::Editor::killLine(const bool toEnd)
+{
+    // to the end (Ctrl+K) / the start (Ctrl+U) of the line; Ctrl+K at the end of a line takes its line break
+    if (this->selection().first == this->selection().second) {
+        if (toEnd) this->move_(this->_cursor == this->lineEnd_(this->_cursor) && this->_cursor < this->_text.size() ? this->_cursor + 1 : this->lineEnd_(this->_cursor), true);
+        else this->move_(this->lineStart_(this->_cursor), true);
+    }
+    const std::string text = this->cut();
+    if (!text.empty()) this->_killed = text;
+}
+
+_cold void cluster::Editor::selectWord(const std::size_t at)
+{
+    // the run of letters / digits / marks around `at` (else the run of spaces, else the character)
+    const std::string& t = this->_text;
+    const std::size_t pos = std::min(at, t.size());
+    const std::function<int(const std::size_t)> klass = [&](const std::size_t i) {
+        const char c = t[i];
+        if (c == ' ' || c == '\t' || c == '\n') return 0;
+        return static_cast<unsigned char>(c) >= 0x80 || std::isalnum(static_cast<unsigned char>(c)) || c == '_' ? 1 : 2;
+    };
+    if (t.empty()) return;
+    std::size_t from = pos >= t.size() ? start_before_(t, t.size()) : pos;
+    const int k = klass(from);
+    std::size_t to = from;
+    while (from > 0 && klass(start_before_(t, from)) == k) from = start_before_(t, from);
+    while (to < t.size() && klass(to) == k) to += char_size_(t, to);
+    this->_anchor = from;
+    this->_cursor = to;
+    this->_typing = false;
     this->_items.clear();
 }
 

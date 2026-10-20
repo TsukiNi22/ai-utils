@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.60 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.61 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -142,6 +142,7 @@ add_executable(${TARGET} ${SRC})
 
 # cluster-run: the wrapper of a heavy command (resource orchestrator), a small binary of its own installed next to claude-cluster
 add_executable(cluster-run src/run/cluster-run.cpp src/cluster/RunProfile.cpp)
+    src/cluster/ui/LineEditor.cpp
 target_include_directories(cluster-run PRIVATE include)
 target_link_libraries(cluster-run PRIVATE nlohmann_json::nlohmann_json)
 
@@ -209,6 +210,26 @@ target_compile_options(${TARGET} PRIVATE
 )
 target_link_options(${TARGET} PRIVATE
     $<$<CONFIG:Asan>:-fsanitize=address,undefined>
+# =========================
+# Tests
+# =========================
+# The unit test of the line editor (no framework, exit code 0 = ok): cmake -DCLUSTER_TESTS=ON, then the target line_editor_test
+option(CLUSTER_TESTS "Build the unit tests (tests/*.cpp)" OFF)
+if(CLUSTER_TESTS)
+    set(TEST_SRC ${SRC})
+    list(FILTER TEST_SRC EXCLUDE REGEX "/(main|Tty|Gui)\\.cpp$")
+    add_executable(line_editor_test tests/line_editor.cpp ${TEST_SRC})
+    target_include_directories(line_editor_test PRIVATE include ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(line_editor_test PRIVATE CLUSTER_VERSION="${PROJECT_VERSION}")
+    target_link_libraries(line_editor_test PRIVATE utils::utils nlohmann_json::nlohmann_json tomlplusplus::tomlplusplus Threads::Threads util ftxui::screen ftxui::dom ftxui::component)
+    if(OpenSSL_FOUND)
+        target_link_libraries(line_editor_test PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        target_compile_definitions(line_editor_test PRIVATE CLUSTER_TLS)
+    endif()
+    # the files of the front-ends that main() starts are not linked: what only they define is never called by this test
+    target_link_options(line_editor_test PRIVATE -Wl,--unresolved-symbols=ignore-all)
+endif()
+
 )
 target_compile_options(cluster-run PRIVATE
     $<$<CONFIG:Debug>:-g -ggdb3>
