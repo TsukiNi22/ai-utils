@@ -443,9 +443,24 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             for (const auto &[tool, on]: manager.config().mcpTools)
                 if (!on) data.push_back(tool);
         } else if (cmd == "list") {
+            // filters: category, tag (several: all of them), state (open: the live sessions, default | archived / trash | all | a state: working, idle...)
+            const std::string category = cluster::clean_label(request.value("category", std::string()));
+            std::vector<std::string> wantedTags = cluster::split_tags(request.value("tag", std::string()));
+            for (const std::string& tag: request.value("tags", std::vector<std::string>()))
+                wantedTags.push_back(cluster::clean_label(tag));
+            const std::string state = cluster::lower(request.value("state", std::string("open")));
+            const std::function<bool(const cluster::SessionSpec&)> matches = [&](const cluster::SessionSpec& spec) {
+                if (!category.empty() && spec.category != category) return false;
+                return std::all_of(wantedTags.begin(), wantedTags.end(), [&spec](const std::string& tag) {return std::find(spec.tags.begin(), spec.tags.end(), tag) != spec.tags.end();});
+            };
             data = cluster::Json::array();
-            for (const cluster::Snapshot& snap: manager.list(request.value("global", true)))
-                data.push_back(manager.toJson(snap, false));
+            if (state != "archived" && state != "trash")
+                for (const cluster::Snapshot& snap: manager.list(request.value("global", true)))
+                    if (matches(snap.spec) && (state == "open" || state == "all" || state == cluster::state_name(snap.state)))
+                        data.push_back(manager.toJson(snap, false));
+            if (state == "archived" || state == "trash" || state == "all")
+                for (const cluster::SessionSpec& spec: manager.trash())
+                    if (matches(spec)) data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"state", "archived"}, {"summary", spec.summary}, {"category", spec.category}, {"tags", spec.tags}});
         } else if (cmd == "status" || cmd == "read") {
             const std::optional<cluster::Snapshot> snap = manager.snapshot(session());
             if (snap) data = manager.toJson(*snap, true);
@@ -607,7 +622,18 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "resume") {
             data = {{"done", manager.resume(arg_(request, "session"))}};
         } else if (cmd == "describe") {
-            manager.describe(arg_(request, "session"), request.value("text", std::string())); // the trash too
+            // the description (text; none given with labels: kept) and / or the category and tags (given by the global session or the user)
+            const bool labels = request.contains("category") || request.contains("tags") || request.contains("add_tags") || request.contains("remove_tags");
+            if (request.contains("text") || !labels) manager.describe(arg_(request, "session"), request.value("text", std::string())); // the trash too
+            if (labels) {
+                const std::function<std::vector<std::string>(const char*)> words = [&request](const char* key) {
+                    if (!request.contains(key)) return std::vector<std::string>();
+                    if (request[key].is_array()) return request[key].get<std::vector<std::string>>();
+                    return cluster::split_tags(request[key].is_string() ? request[key].get<std::string>() : std::string());
+                };
+                manager.label(arg_(request, "session"), request.contains("category") ? std::optional<std::string>(request.value("category", std::string())) : std::nullopt,
+                    request.contains("tags") ? std::optional<std::vector<std::string>>(words("tags")) : std::nullopt, words("add_tags"), words("remove_tags"));
+            }
         } else if (cmd == "mode") {
             manager.setMode(session(), arg_(request, "mode"));
         } else if (cmd == "model") {
@@ -689,7 +715,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "trash") {
             data = cluster::Json::array();
             for (const cluster::SessionSpec& spec: manager.trash())
-                data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"deleted", spec.deleted}, {"summary", spec.summary}});
+                data.push_back({{"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"deleted", spec.deleted}, {"summary", spec.summary}, {"category", spec.category}, {"tags", spec.tags}});
         } else if (cmd == "task_add") {
             const std::string by = request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by"); // the global session (MCP), else you
             data = {{"id", manager.addTask(arg_(request, "prompt"), arg_(request, "target"), request.value("after", std::vector<std::string>()), by)}};
@@ -865,7 +891,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                         if (const std::string warning = cluster::setting_danger(setting, value); !warning.empty())
                             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "confirm: " + warning);
             const bool restart = cluster::settings_set(manager.config(), section, key, value);
-            if (section == "ui" && (key == "layout" || key == "style" || key == "vim")) manager.setUi(key, value);
+            if (section == "ui" && (key == "layout" || key == "style" || key == "vim" || key == "group_by_category")) manager.setUi(key, value);
             (void)manager.config().reload();
             data = {{"value", value}, {"at_next_start", restart}};
         } else if (cmd == "notices") {

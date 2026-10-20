@@ -63,6 +63,9 @@ _nodiscard std::string lower(std::string text);
 _nodiscard std::string one_line(const std::string& text, const std::size_t max);
 _nodiscard std::string language_of(const std::string& text);      // "fr" | "en" | "es" | "it" | "de" | "pt" | "nl"
 _nodiscard std::string summary_of(const std::string& text, const std::size_t max);
+_nodiscard std::string clean_label(const std::string& text);                    // a category / a tag: lower case, one word (- and _ kept), 24 characters at most
+_nodiscard std::vector<std::string> clean_tags(const std::vector<std::string>& tags);   // each cleaned, no duplicate, 8 at most
+_nodiscard std::vector<std::string> split_tags(const std::string& text);        // "a, #b c": the words (commas and spaces), cleaned
 _nodiscard std::string content_hash(const std::string& bytes);   // FNV-1a 64, hexadecimal (same content, same name)
 
 /* format */

@@ -62,6 +62,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"restore_menu", "Reopen a closed session (the trash)", "", "", true},
         {"start_over", "Start over: every sub-session to the trash (restorable), the queued tasks cancelled, a new conversation for the global session",
             "type yes to confirm", "", false},
+        {"group", std::string("Group the session list by category: ") + (manager.ui("group_by_category", config.groupByCategory ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"vim", std::string("Vim mode of the prompt: ") + (manager.ui("vim", config.vim ? "true" : "false") == "true" ? "turn off" : "turn on"), "", "", true},
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
         {"new_project", "New session on a project of this computer (search it by its name)", "", "", true},
@@ -79,6 +80,10 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"rename", "Rename the session", "name", snap->spec.name, false});
         list.push_back({"describe", "Describe the session (its short description: " + (snap->spec.summary.empty() ? std::string("none yet") : cluster::one_line(snap->spec.summary, 50)) + ")",
             "a few words (empty: written again)", snap->spec.summary, false});
+        list.push_back({"category", "Category of the session (" + (snap->spec.category.empty() ? std::string("none") : snap->spec.category) + "): one word, empty removes it",
+            "bugfix, docs, feature...", snap->spec.category, false});
+        list.push_back({"tags", "Tags of the session (" + (snap->spec.tags.empty() ? std::string("none") : cluster::label_text(snap->spec)) + "): words separated by spaces or commas",
+            "a b c", cluster::join_labels(snap->spec.tags), false});
         if (snap->spec.backend.starts_with("anthropic") || snap->spec.backend.starts_with("claude")) { // api | auth: how it is billed
             const bool api = manager.authKind(snap->spec.backend) == "api";
             list.push_back({"backend:anthropic", std::string("Billing: auth - the Claude Code login, a subscription") + (api ? "" : " (current)"), "", "", false});
@@ -162,8 +167,12 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             if (type == "audio") list.push_back({"display_play:" + id, "Play: " + title, "", "", false});
         }
     }
+    for (const cluster::Snapshot& s: manager.list(false)) // the sessions with a category or tags: found by them (#tag, the category)
+        if (!s.spec.global && (!s.spec.category.empty() || !s.spec.tags.empty()))
+            list.push_back({"focus:" + s.spec.id, "Open " + s.spec.name + " · " + cluster::label_text(s.spec), "", "", false});
     for (const cluster::SessionSpec& spec: manager.trash()) {
-        list.push_back({"restore:" + spec.id, "Restore " + spec.name + (spec.summary.empty() ? std::string() : " - " + cluster::one_line(spec.summary, 70)) + " ("
+        list.push_back({"restore:" + spec.id, "Restore " + spec.name + (spec.category.empty() && spec.tags.empty() ? std::string() : " · " + cluster::label_text(spec))
+            + (spec.summary.empty() ? std::string() : " - " + cluster::one_line(spec.summary, 70)) + " ("
             + cluster::short_path(spec.cwd) + ", closed " + cluster::human_age(spec.deleted) + " ago)", "", "", false});
         list.push_back({"purge:" + spec.id, "Delete for good " + spec.name + " (trash: conversation and history)", "", "", false});
     }
@@ -260,6 +269,10 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             if (local) result = *local;
             else manager.send(session, input);
             manager.addHistory({input, {}, {}}, session);
+        } else if (base == "group") {
+            const bool on = manager.ui("group_by_category", manager.config().groupByCategory ? "true" : "false") != "true";
+            manager.setUi("group_by_category", on ? "true" : "false");
+            result.message = on ? "the list grouped by category" : "the list in its order";
         } else if (base == "vim") {
             const bool on = manager.ui("vim", manager.config().vim ? "true" : "false") != "true";
             manager.setUi("vim", on ? "true" : "false");
@@ -280,6 +293,12 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         } else if (base == "describe") {
             manager.describe(session, input);
             result.message = cluster::trim(input).empty() ? "its description written again" : "described";
+        } else if (base == "category") {
+            manager.label(session, cluster::trim(input), std::nullopt);
+            result.message = cluster::trim(input).empty() ? "category removed" : "category set";
+        } else if (base == "tags") {
+            manager.label(session, std::nullopt, cluster::split_tags(input));
+            result.message = cluster::split_tags(input).empty() ? "tags removed" : "tags set";
         } else if (base == "backend") {
             manager.setBackend(session, arg);
             result.message = "billing: " + manager.authKind(arg);
@@ -539,6 +558,8 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"mode", "[mode]: permission mode of the session; none: pick it"},
         {"rename", "<name>: rename the session"},
         {"describe", "[text]: its short description (none: written again)"},
+        {"category", "[word]: its category (one word: bugfix, docs...; none: removed)"},
+        {"tags", "[a b c]: its tags (words; none: removed; +a / -a: add / remove one)"},
         {"continue", "the session goes on where it stopped (interrupted, an error); a retry of the API waited: now (= F4)"},
         {"retry", "an error of the API retried now (= /continue, F4)"},
         {"close", "close the session (to the trash)"},
@@ -565,6 +586,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"now", "the next queued prompt sent now (the running turn interrupted, = F8)"},
         {"tasks", "the Tasks session: the todo lists, the task queue, the schedules"},
         {"settings", "the settings page"},
+        {"group", "the session list grouped by category on / off"},
         {"vim", "vim mode of the prompt on / off"},
         {"help", "the local commands"},
     };
@@ -753,6 +775,7 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                 };
                 for (const cluster::Snapshot& s: manager.list(false))
                     if (!s.spec.global) add(handle(s.spec), std::string("open · ") + cluster::state_name(s.state) + " · " + cluster::short_path(s.spec.cwd)
+                        + (s.spec.category.empty() && s.spec.tags.empty() ? std::string() : " · " + cluster::label_text(s.spec))
                         + (s.spec.summary.empty() ? std::string() : " · " + cluster::one_line(s.spec.summary, 60)));
                 for (const cluster::SessionSpec& spec: manager.trash())
                     add(handle(spec), "closed " + cluster::human_age(spec.deleted) + " ago · " + cluster::short_path(spec.cwd));
@@ -790,7 +813,11 @@ _cold static std::string session_info_(cluster::Manager& manager, const std::str
     const std::string auth = manager.authKind(spec.backend);
     const std::string model = snap->modelUsed.empty() ? spec.model : snap->modelUsed;
     std::string text = spec.name + " (" + spec.id + ")  " + cluster::state_name(snap->state);
-    text += "\n\nagent        " + provider + " · " + (auth == "api" ? "API key (billed per token)" : auth == "auth" ? "login (a subscription)" : "local (no cost)");
+    if (!spec.summary.empty()) text += "\n\n" + spec.summary;
+    text += std::string(spec.summary.empty() ? "\n\n" : "\n") + "category     " + (spec.category.empty() ? std::string("none (/category <word>)") : spec.category)
+        + "\ntags         " + (spec.tags.empty() ? std::string("none (/tags a b c)") : "#" + cluster::join_labels(spec.tags));
+    if (spec.pin.is_object()) text += "\npinned       " + spec.pin.value("id", std::string()) + " · " + spec.pin.value("title", std::string()) + " (" + spec.pin.value("by", std::string("user")) + ")";
+    text += "\nagent        " + provider + " · " + (auth == "api" ? "API key (billed per token)" : auth == "auth" ? "login (a subscription)" : "local (no cost)");
     text += "\nmodel        " + (model.empty() ? std::string("the default of the agent") : model) + (spec.model.empty() || spec.model == model ? "" : "  (asked: " + spec.model + ")");
     text += "\nthinking     " + (spec.effort.empty() ? std::string("default (the one of the agent)") : spec.effort);
     text += "\nmode         " + spec.mode + "\nfolder       " + cluster::short_path(spec.cwd);
@@ -878,6 +905,19 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
         } else if (name == "describe") {
             manager.describe(session, arg);
             result.message = cluster::trim(arg).empty() ? "its description written again" : "described";
+        } else if (name == "category") {
+            manager.label(session, cluster::trim(arg), std::nullopt);
+            result.message = cluster::trim(arg).empty() ? "category removed" : "category set";
+        } else if (name == "tags") {
+            // +a / -a: one added / removed; else the words replace them
+            std::vector<std::string> add, remove;
+            for (const std::string& word: cluster::split(arg, ' ')) {
+                if (word.starts_with("+")) add.push_back(word.substr(1));
+                else if (word.starts_with("-") && word.size() > 1) remove.push_back(word.substr(1));
+            }
+            const bool change = !add.empty() || !remove.empty();
+            manager.label(session, std::nullopt, change ? std::nullopt : std::optional<std::vector<std::string>>(cluster::split_tags(arg)), add, remove);
+            result.message = "tags: " + (cluster::split_tags(arg).empty() && !change ? std::string("removed") : "set");
         } else if (name == "clear") {
             manager.clear(session);
             result.message = "new conversation";
@@ -1004,6 +1044,10 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
             else result.focus = manager.restore(arg);
         } else if (name == "settings") {
             result.ui = "settings";
+        } else if (name == "group") {
+            const bool on = manager.ui("group_by_category", manager.config().groupByCategory ? "true" : "false") != "true";
+            manager.setUi("group_by_category", on ? "true" : "false");
+            result.message = on ? "the list grouped by category" : "the list in its order";
         } else if (name == "vim") {
             const bool on = manager.ui("vim", manager.config().vim ? "true" : "false") != "true";
             manager.setUi("vim", on ? "true" : "false");
@@ -1179,7 +1223,7 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
     }
     out.push_back({"focus:" + id, "Open " + name, "", "", false});
     if (snap->spec.global) return out;
-    static const std::vector<std::string> kept = {"rename", "describe", "cd", "resume", "where_folder", "where_terminal", "close_session"};
+    static const std::vector<std::string> kept = {"rename", "describe", "category", "tags", "cd", "resume", "where_folder", "where_terminal", "close_session"};
     for (const cluster::Action& a: cluster::actions(manager, id))
         if (std::find(kept.begin(), kept.end(), a.id.substr(0, a.id.find(':'))) != kept.end()) {
             cluster::Action shown = a;

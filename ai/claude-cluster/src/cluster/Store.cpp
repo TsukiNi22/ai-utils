@@ -45,9 +45,30 @@ _cold std::vector<cluster::Hit> cluster::Manager::search(const std::string& text
         names[snap.spec.id] = snap.spec.name;
     for (const cluster::SessionSpec& spec: this->trash())
         names[spec.id] = spec.name + " (trash)";
-    const std::string wanted = cluster::lower(text);
+    const bool labelsOnly = cluster::trim(text).starts_with("#");   // "#bugfix": the sessions with that category or tag
+    const std::string wanted = cluster::lower(labelsOnly ? cluster::trim(text).substr(1) : text);
     std::vector<cluster::Hit> hits;
     std::error_code error;
+
+    // the category and the tags of the sessions (alive and in the trash)
+    const std::function<void(const cluster::SessionSpec&, const std::string&)> byLabel = [&](const cluster::SessionSpec& spec, const std::string& name) {
+        std::string tags;
+        bool found = !spec.category.empty() && (labelsOnly ? spec.category == wanted : spec.category.find(wanted) != std::string::npos);
+        for (const std::string& tag: spec.tags) {
+            tags += (tags.empty() ? "" : " ") + std::string("#") + tag;
+            if (labelsOnly ? tag == wanted : tag.find(wanted) != std::string::npos) found = true;
+        }
+        if (found && !wanted.empty()) hits.push_back({spec.id, name, spec.deleted > 0 ? spec.deleted : spec.created, "[label] " + (spec.category.empty() ? std::string() : spec.category + " ") + tags});
+    };
+    for (const cluster::Snapshot& snap: this->list())
+        byLabel(snap.spec, names[snap.spec.id]);
+    for (const cluster::SessionSpec& spec: this->trash())
+        byLabel(spec, names[spec.id]);
+    if (labelsOnly) {
+        std::sort(hits.begin(), hits.end(), [](const cluster::Hit& a, const cluster::Hit& b) {return a.time > b.time;});
+        if (hits.size() > max) hits.resize(max);
+        return hits;
+    }
 
     // the logs of the sessions, then the conversations archived by /clear ("<id>-<time>.jsonl")
     std::vector<std::filesystem::path> files;
@@ -206,7 +227,7 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         {"id", snap.spec.id}, {"name", snap.spec.name}, {"cwd", snap.spec.cwd}, {"backend", snap.spec.backend},
         {"model", snap.modelUsed.empty() ? snap.spec.model : snap.modelUsed}, {"state", cluster::state_name(snap.state)},
         {"mode", snap.spec.mode}, {"effort", snap.spec.effort.empty() ? std::string("default") : snap.spec.effort}, {"auth", this->authKind(snap.spec.backend)},
-        {"queued", snap.queued}, {"queue_given", snap.queueGiven}, {"summary", snap.spec.summary}, {"resumable", cluster::resumable(snap)},
+        {"queued", snap.queued}, {"queue_given", snap.queueGiven}, {"summary", snap.spec.summary}, {"pinned", snap.spec.pin.is_object() ? cluster::Json{{"kind", snap.spec.pin.value("kind", std::string())}, {"id", snap.spec.pin.value("id", std::string())}, {"title", snap.spec.pin.value("title", std::string())}} : cluster::Json()}, {"category", snap.spec.category}, {"tags", snap.spec.tags}, {"resumable", cluster::resumable(snap)},
         {"warning", !snap.warning.empty() && cluster::now() - snap.warningAt < 60 ? snap.warning : std::string()},
         {"tokens", {{"last", m.last.total()}, {"current", m.current.total()}, {"total", m.total.total()},
             {"detail", {{"last", usage_json_(m.last)}, {"current", usage_json_(m.current)}, {"total", usage_json_(m.total)}}}}},

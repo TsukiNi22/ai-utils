@@ -208,6 +208,8 @@ struct SessionSpec {
     std::string summary;            // a short description (what it works on, holds): given, or written by claude-cluster
     bool summaryAuto = true;        // written by claude-cluster (false: given by the user or the global session, kept)
     std::int64_t summaryTurns = 0;  // its turns when it was written (written again after more)
+    std::string category;           // its category (one, lower case: bugfix, docs...), set by the global session or the user
+    std::vector<std::string> tags;  // its labels (several, lower case), same
     std::int64_t turns = 0;         // its turns finished
 };
 
@@ -338,6 +340,10 @@ struct Snapshot {
 /* FUNCTION */
 
 _nodiscard const char* state_name(cluster::State state);
+
+// The labels of a session: "a b c" (the tags, to edit) and "bugfix · #a #b" (its category and tags, to show)
+_nodiscard inline std::string join_labels(const std::vector<std::string>& tags) {std::string out; for (const std::string& tag: tags) out += (out.empty() ? "" : " ") + tag; return out;};
+_nodiscard inline std::string label_text(const cluster::SessionSpec& spec) {std::string out = spec.category; for (const std::string& tag: spec.tags) out += (out.empty() ? "#" : " #") + tag; return out;};
 
 // Permission modes of Claude Code (2.1): <mode, description>; "default" is the old name of "manual"
 _nodiscard inline const std::vector<std::pair<std::string, std::string>>& permission_modes(void) {static const std::vector<std::pair<std::string, std::string>> modes = {{"auto", "the classifier allows the safe actions (default of claude-cluster)"}, {"manual", "asks for every sensitive tool"}, {"default", "same as manual"}, {"acceptEdits", "file edits allowed, the rest asked"}, {"plan", "read only, plans"}, {"dontAsk", "never asks: what is not allowed is refused"}, {"bypassPermissions", "everything allowed"}}; return modes;};

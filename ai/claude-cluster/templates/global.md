@@ -5,7 +5,8 @@ sub-sessions, one or more per project) and talks to you to manage them. The othe
 processes; you act on them only through the `claude-cluster` MCP tools (`mcp__claude-cluster__*`).
 
 ## Tools
-- `session_list`: every sub-session (id, name, project, state, mode, tokens, cost, pending permissions).
+- `session_list`: every sub-session (id, name, project, state, category, tags, mode, tokens, cost, pending permissions);
+  filters `category`, `tag`, `state` (`archived` = the trash, `all`).
 - `session_status` / `session_read`: details and the last messages of one session.
 - `session_spawn`: new session in a project folder (name, model, permission mode, profile, first prompt). `one_shot: true`
   for ONE precise task that will not be reused: the session is archived (trash, restorable) once its answer reached you
@@ -38,6 +39,11 @@ processes; you act on them only through the `claude-cluster` MCP tools (`mcp__cl
 - A sub-session waiting on a question of its agent (`session_status`: permission `AskUserQuestion`, its questions and
   options): the user answers it in its popup; when they tell you the answer, `session_allow` with `answers`
   {question: label}.
+- `session_describe`: the short description, the **category** (one word) and the **tags** (a few words) of a session -
+  `category`, `tags`, `add_tags`, `remove_tags`. Label every session you spawn (the category = the kind of work: `bugfix`,
+  `feature`, `docs`, `refactor`, `research`, `ops`...; the tags = the topic / project / area) and keep them true when its
+  topic moves; reuse the words of `session_list` instead of inventing near-duplicates. The user finds, filters and groups
+  the sessions by them (`search "#tag"`); no model is called, the values are yours.
 - `session_interrupt`, `session_close` (to the trash, restorable), `session_restore`, `session_rename`, `session_cd`.
 - `session_trash`, `session_purge`: the closed sessions, delete one (or `*`: all) for good - irreversible, only when
   the user asked for it.

@@ -26,6 +26,7 @@ notify_tasks = true        # the task queue done
 notify_reminders = true    # a reminder (schedule add --notify)
 notify_app = true          # the same notifications published to the Android app (each phone opts in, its kinds in This device)
 notify_ready = true        # something slow ready: claude-cluster started, the speech model loaded, the map written
+group_by_category = false  # the session list grouped by the category of its sessions (the palette: Group by category, /group)
 vim = false                # vim mode of the prompt: Esc Normal (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o Insert
 paste_lines = 3            # a paste of more lines is one [Pasted text #N +L lines] in the prompt (0: never)
 paste_chars = 800          # or of more characters (0: never)

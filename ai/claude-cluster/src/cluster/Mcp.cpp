@@ -35,8 +35,11 @@ _cold static cluster::Json str_(const std::string& description)
 _cold cluster::Json cluster::mcp_tools(void)
 {
     const cluster::Json session = str_("id (s1, g) or name of the session");
-    return cluster::Json::array({
-        tool_("session_list", "Every session of the cluster: id, name, project folder, backend, state, permission mode, tokens, context, cost, pending permissions.", nullptr, {}),
+    cluster::Json tools = cluster::Json::array({
+        tool_("session_list", "Every session of the cluster: id, name, project folder, backend, state, category, tags, permission mode, tokens, context, cost, pending permissions. "
+            "Filters: category, tag (one or several, all required), state (open: the live ones, default | archived: the trash | all | working, idle...).",
+            {{"category", str_("only this category")}, {"tag", str_("only the sessions with this tag (several: separated by commas)")},
+             {"state", str_("open (default) | archived (the trash) | all | a state: working, idle, waiting...")}}, {}),
         tool_("session_status", "Details of one session and its last 20 messages (skills loaded, files modified).", {{"session", session}}, {"session"}),
         tool_("session_read", "Same as session_status: the last messages of a session.", {{"session", session}}, {"session"}),
         tool_("session_spawn", "Start a new session in a project folder. backend: <provider>[/<model>] (claude, ollama/<model>, openai/<model>, opencode/<provider>/<model>, codex...). "
@@ -91,7 +94,14 @@ _cold cluster::Json cluster::mcp_tools(void)
         tool_("session_continue", "A session goes on where it stopped (interrupted, an error of the API or of the connection): \"continue\" sent in "
             "the same conversation; a turn waiting for a retry of the API: stopped and asked again at once.", {{"session", session}}, {"session"}),
         tool_("session_describe", "Give a session its short description (a few words: what it works on, holds; shown under its name, the trash too, to find it "
-            "again). Given: kept; empty: claude-cluster writes it again.", {{"session", session}, {"text", str_("a few words, empty: written again")}}, {"session"}),
+            "again), its category (ONE word: bugfix, feature, docs, refactor, research, ops...) and its tags (several short words: the topic, the project, the "
+            "kind of work), the way to find and group sessions (session_list filters, search \"#tag\"). Set them when you spawn or route a session and keep them "
+            "true as its topic moves; reuse the ones already in session_list. A text given: kept; empty: claude-cluster writes it again; no text: untouched. "
+            "category \"\" removes it; tags replaces all of them, add_tags / remove_tags change some. The user can edit them too; no model is called.",
+            {{"session", session}, {"text", str_("a few words, empty: written again; leave out to keep it")}, {"category", str_("one word, \"\" removes it")},
+             {"tags", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "all its tags (replaces them)"}}},
+             {"add_tags", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "tags to add"}}},
+             {"remove_tags", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "tags to remove"}}}}, {"session"}),
         tool_("session_cd", "Move a session to another project folder (a new conversation there, same name).", {{"session", session}, {"cwd", str_("folder")}}, {"session", "cwd"}),
         tool_("task_add", "Queue a task: given to a free session (target = session id / name, a project folder, or empty for any idle session), after its dependencies.",
             {{"prompt", str_("the task")}, {"target", str_("session or folder (optional)")}, {"after", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "ids of tasks to finish first"}}}},
@@ -126,7 +136,7 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"text", str_("the message")}, {"title", str_("its title (default: claude-cluster)")}, {"urgent", {{"type", "boolean"}, {"description", "stays on screen"}}}}, {"text"}),
         tool_("schedule_cancel", "Cancel a schedule.", {{"id", str_("schedule id (w1...)")}}, {"id"}),
         tool_("task_cancel", "Cancel a task.", {{"id", str_("task id (t1...)")}}, {"id"}),
-        tool_("search", "Full-text search in the history of every session.", {{"text", str_("text to find")}}, {"text"}),
+        tool_("search", "Full-text search in the history of every session, and in their categories and tags (\"#bugfix\": the sessions with that category or tag only).", {{"text", str_("text to find")}}, {"text"}),
         tool_("export", "Export the conversation of a session as Markdown (to a file when path is given: a .md / .txt out of the hidden folders).",
             {{"session", session}, {"path", str_("file (optional)")}}, {"session"}),
         tool_("providers", "Providers / backends and whether they are ready (logged in, key stored, server up).", nullptr, {}),

@@ -1488,7 +1488,7 @@ self.addEventListener("notificationclick", (e) => {
         const std::string wanted = request.query.contains("session") && !request.query.at("session").empty() ? request.query.at("session") : GLOBAL_ID;
         // each session: its state, its last messages (the cards of the grid and the board), its turn
         cluster::Json sessions = cluster::Json::array();
-        for (const cluster::Snapshot& snap: this->_manager.list(true)) {
+        for (const cluster::Snapshot& snap: this->_manager.shown()) {
             cluster::Json item = this->_manager.toJson(snap, false);
             item["origin"] = this->_manager.origin(snap.spec.id); // who is notified for it: this device or not
             cluster::Json recent = cluster::Json::array();
@@ -1518,6 +1518,7 @@ self.addEventListener("notificationclick", (e) => {
         const auto open = std::count_if(tasks.begin(), tasks.end(), [](const cluster::Task& t) {return t.status == "queued" || t.status == "running";});
         const auto waiting = std::count_if(planned.begin(), planned.end(), [](const cluster::Schedule& w) {return w.status == "waiting";});
         json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
+            {"group", this->_manager.ui("group_by_category", config.groupByCategory ? "true" : "false") == "true"},
             {"tasks_open", open}, {"schedules_waiting", waiting},
             {"progress", this->_manager.progressAll()}, {"now_ms", cluster::now_ms()}, {"failures", this->_manager.failures()},
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},

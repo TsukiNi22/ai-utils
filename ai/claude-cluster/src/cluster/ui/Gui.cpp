@@ -106,6 +106,15 @@ File Description:
 #include <set>
 #include <map>
 
+_cold static std::string chip_color_(const std::string& label)
+{
+    // the color of a category / a tag: made from its text (the same label, the same color everywhere)
+    std::uint32_t hash = 2166136261U;
+    for (const char c: label)
+        hash = (hash ^ static_cast<unsigned char>(c)) * 16777619U;
+    return QColor::fromHsv(static_cast<int>(hash % 360), 150, 215).name().toStdString();
+}
+
 _cold static std::string mix_(const std::string& a, const std::string& b, const double weight)
 {
     // a + (b - a) * weight, as #rrggbb (the tints of the style sheet)
@@ -1114,7 +1123,7 @@ class Window: public QMainWindow {
                 "(target | prompt: for it), +30m &lt;text&gt; / 18:00 &lt;text&gt;: a reminder</p>";
             // the todo lists
             QString todos;
-            for (const cluster::Snapshot& s: this->manager.list(true)) {
+            for (const cluster::Snapshot& s: this->manager.shown()) {
                 if (s.todos.empty()) continue;
                 const auto done = std::count_if(s.todos.begin(), s.todos.end(), [](const cluster::Todo& d) {return d.status == "completed";});
                 todos += "<p>" + link("focus:" + s.spec.id) + "<b>" + esc_(s.spec.global ? "global" : s.spec.name) + "</b></a> " + span_(st.muted, QString::number(done) + "/"
@@ -1353,7 +1362,7 @@ class Window: public QMainWindow {
             for (int n = 1; n <= 9; ++n) {
                 QShortcut* shortcut = new QShortcut(QKeySequence(q_("Alt+" + std::to_string(n))), this);
                 QObject::connect(shortcut, &QShortcut::activated, [this, n]() {
-                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    const std::vector<cluster::Snapshot> all = this->manager.shown();
                     if (static_cast<std::size_t>(n) <= all.size()) this->active = all[static_cast<std::size_t>(n - 1)].spec.id;
                     this->refresh(true);
                 });
@@ -1512,7 +1521,7 @@ class Window: public QMainWindow {
         void moveDir(const int dx, const int dy)
         {
             // grid: rows and columns; list, tabs: previous / next
-            const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
+            const std::vector<cluster::Snapshot> sessions = this->manager.shown();
             const int count = static_cast<int>(sessions.size());
             if (count == 0) return;
             auto it = std::find_if(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;});
@@ -1934,7 +1943,7 @@ class Window: public QMainWindow {
                     this->message(std::string("not saved: ") + e.info(), true);
                     return;
                 }
-                for (const char* key: {"layout", "style", "vim"})
+                for (const char* key: {"layout", "style", "vim", "group_by_category"})
                     if (now.contains({"ui", key})) this->manager.setUi(key, now.at({"ui", key}).second);
                 (void)this->manager.config().reload();
                 dialog.setWindowTitle(q_("claude-cluster setup - " + std::to_string(now.size()) + " setting(s) saved"));
@@ -1985,7 +1994,7 @@ class Window: public QMainWindow {
                 this->message(std::string("not saved: ") + e.info(), true);
                 return;
             }
-            for (const char* key: {"layout", "style", "vim"})
+            for (const char* key: {"layout", "style", "vim", "group_by_category"})
                 if (changes.contains({"ui", key})) this->manager.setUi(key, changes.at({"ui", key}).second);
             (void)this->manager.config().reload();
             this->bindKeys();
@@ -1998,7 +2007,7 @@ class Window: public QMainWindow {
             // next / previous: the Tasks session first (not in the grid: its own window), then the sessions
             std::vector<std::string> ids;
             if (this->manager.ui("layout", this->manager.config().layout) != "grid") ids.push_back(TASKS_ID);
-            for (const cluster::Snapshot& s: this->manager.list(true))
+            for (const cluster::Snapshot& s: this->manager.shown())
                 ids.push_back(s.spec.id);
             if (ids.empty()) return;
             auto it = std::find(ids.begin(), ids.end(), this->active);
@@ -2267,7 +2276,7 @@ class Window: public QMainWindow {
         void rebuild(void)
         {
             // Central widget for the current layout and set of sessions
-            const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
+            const std::vector<cluster::Snapshot> sessions = this->manager.shown();
             const std::string layout = this->manager.ui("layout", this->manager.config().layout);
             std::string sig = layout;
             for (const cluster::Snapshot& s: sessions)
@@ -2368,14 +2377,14 @@ class Window: public QMainWindow {
                 this->tabs->setContextMenuPolicy(Qt::CustomContextMenu);
                 QObject::connect(this->tabs, &QTabBar::customContextMenuRequested, this, [this](const QPoint& pos) {
                     const int index = this->tabs->tabAt(pos) - 1; // the Tasks session first
-                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    const std::vector<cluster::Snapshot> all = this->manager.shown();
                     if (index >= 0 && static_cast<std::size_t>(index) < all.size()) this->sessionMenu(all[static_cast<std::size_t>(index)].spec.id, this->tabs->mapToGlobal(pos));
                 });
                 this->tabs->addTab("☰ Tasks");
                 for (const cluster::Snapshot& s: sessions)
                     this->tabs->addTab(q_(s.spec.name));
                 QObject::connect(this->tabs, &QTabBar::currentChanged, [this](int index) {
-                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    const std::vector<cluster::Snapshot> all = this->manager.shown();
                     if (index == 0) this->active = TASKS_ID;
                     else if (index > 0 && static_cast<std::size_t>(index - 1) < all.size()) this->active = all[static_cast<std::size_t>(index - 1)].spec.id;
                     this->refresh(true);
@@ -2393,7 +2402,7 @@ class Window: public QMainWindow {
                 this->list->setCursor(Qt::PointingHandCursor);
                 QObject::connect(this->list, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
                     const int row = this->list->indexAt(pos).row() - 1; // the Tasks session first
-                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    const std::vector<cluster::Snapshot> all = this->manager.shown();
                     if (row >= 0 && static_cast<std::size_t>(row) < all.size()) this->sessionMenu(all[static_cast<std::size_t>(row)].spec.id, this->list->viewport()->mapToGlobal(pos));
                 });
                 this->list->setMinimumWidth(220);
@@ -2401,7 +2410,7 @@ class Window: public QMainWindow {
                 this->list->setTextElideMode(Qt::ElideMiddle);
                 this->list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
                 QObject::connect(this->list, &QListWidget::currentRowChanged, [this](int row) {
-                    const std::vector<cluster::Snapshot> all = this->manager.list(true);
+                    const std::vector<cluster::Snapshot> all = this->manager.shown();
                     const std::string chosen = row == 0 ? std::string(TASKS_ID) : row > 0 && static_cast<std::size_t>(row - 1) < all.size() ? all[static_cast<std::size_t>(row - 1)].spec.id : "";
                     if (!chosen.empty() && chosen != this->active) {
                         this->active = chosen;
@@ -2494,7 +2503,7 @@ class Window: public QMainWindow {
             const std::uint64_t version = this->manager.version() + this->app.voice->version();
             if (!force && version == this->lastVersion && !this->animating) return;
             this->lastVersion = version;
-            const std::vector<cluster::Snapshot> sessions = this->manager.list(true);
+            const std::vector<cluster::Snapshot> sessions = this->manager.shown();
             const cluster::Style& st = this->theme();
 
             if (this->hub != nullptr) {
@@ -2546,7 +2555,18 @@ class Window: public QMainWindow {
                     this->list->setItemWidget(item, row);
                     if (this->active == TASKS_ID) this->list->setCurrentRow(0);
                 }
+                const bool grouped = this->manager.ui("group_by_category", this->manager.config().groupByCategory ? "true" : "false") == "true";
+                const cluster::Snapshot* before = nullptr;
                 for (const cluster::Snapshot& s: sessions) {
+                    // grouped: the category over the first session of each group; its chips (category, tags) under its description
+                    QString header;
+                    if (grouped && !s.spec.global && (before == nullptr || before->spec.global || before->spec.category != s.spec.category))
+                        header = "<div>" + span_(s.spec.category.empty() ? st.muted : chip_color_(s.spec.category), "<b>▾ " + esc_(s.spec.category.empty() ? std::string("no category") : s.spec.category) + "</b>") + "</div>";
+                    before = &s;
+                    QString chips;
+                    if (!s.spec.category.empty()) chips += "<br><span style=\"background:" + q_(chip_color_(s.spec.category)) + ";color:" + q_(st.bg) + ";font-size:8.5pt\">&nbsp;<b>" + esc_(s.spec.category) + "</b>&nbsp;</span>";
+                    for (const std::string& tag: s.spec.tags)
+                        chips += (chips.isEmpty() ? "<br>" : " ") + span_(chip_color_(tag), "<span style=\"font-size:8.5pt\">#" + esc_(tag) + "</span>");
                     const std::string dot = s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting || !s.permissions.empty() ? st.warn
                         : s.state == cluster::State::Error ? st.error : st.muted;
                     const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
@@ -2562,7 +2582,8 @@ class Window: public QMainWindow {
                         + esc_(s.spec.summary.empty() ? s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd) : cluster::one_line(s.spec.summary, 44))
                         + "</span>"));
                     QListWidgetItem* item = new QListWidgetItem(this->list);
-                    item->setToolTip(q_((s.spec.summary.empty() ? std::string() : s.spec.summary + "\n") + cluster::short_path(s.spec.cwd)));
+                    item->setToolTip(q_((s.spec.summary.empty() ? std::string() : s.spec.summary + "\n") + cluster::short_path(s.spec.cwd)
+                        + (s.spec.category.empty() && s.spec.tags.empty() ? std::string() : "\n" + cluster::label_text(s.spec))));
                     item->setSizeHint(QSize(0, row->sizeHint().height() + 4));
                     this->list->setItemWidget(item, row);
                     if (s.spec.id == this->active) this->list->setCurrentRow(this->list->count() - 1);

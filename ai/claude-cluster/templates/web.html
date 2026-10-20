@@ -62,6 +62,11 @@ header .muted { color: var(--muted); font-size: 13px; }
 .session.active { background: var(--surface); border-color: var(--line); }
 .session .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .session .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.chip { font-size: 11px; border-radius: 9px; padding: 0 7px; border: 1px solid var(--chip); color: var(--chip); }
+.chip.category { background: var(--chip); color: var(--bg); font-weight: 600; }
+.group-head { font-size: 12px; font-weight: 600; margin: 6px 4px 0; color: var(--chip, var(--muted)); }
+#groupToggle { align-self: flex-end; font-size: 11px; padding: 0 8px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot.working { background: var(--ok); } .dot.waiting { background: var(--warn); } .dot.error { background: var(--error); }
 .badge { background: var(--warn); color: #000; border-radius: 9px; font-size: 11px; padding: 0 6px; }
@@ -145,6 +150,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .picker-row small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .picker-row.selected, .picker-row:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 #sessionDesc { font-size: 12px; color: var(--muted); font-style: italic; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#sessionLabels { font-size: 12px; color: var(--accent); cursor: pointer; white-space: nowrap; } #sessionLabels.empty { opacity: .55; color: var(--muted); font-style: italic; }
 #sessionDesc.empty { opacity: .55; } #sessionDesc:hover { color: var(--accent); }
 .card-desc { font-size: 12px; color: var(--muted); font-style: italic; margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sessionWhere { font-family: var(--mono, monospace); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -456,6 +462,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
         </div>
     </header>
     <nav id="side">
+        <button id="groupToggle" title="The list grouped under the category of the sessions (the global session sets it; /category, the menu of a session)">Group by category</button>
         <div id="sessions"></div>
         <form id="newSession" autocomplete="off">
             <div class="title">New session</div>
@@ -475,6 +482,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
             <button id="sessionName" class="link" title="Sessions" style="border:none;background:none;padding:0;font-weight:600"></button>
             <span class="muted" id="sessionInfo"></span>
             <span class="where" id="sessionWhere"></span>
+            <span class="desc" id="sessionLabels" title="Its category and tags (click: edit; the category first, then the tags, e.g. bugfix #api #urgent)"></span>
             <span class="desc" id="sessionDesc" title="Its short description (click: edit; empty: written again)"></span>
             <span class="grow"></span>
             <button id="fork" title="A copy of this session: its conversation so far, each one goes on apart">Fork</button>
@@ -809,6 +817,16 @@ async function run(id) {
 }
 
 let polling = null;   // the long poll running (aborted when the page asks again at once)
+// its category and tags edited: "bugfix #api #urgent" (the first word without # is the category)
+document.addEventListener("click", async (e) => {
+    if (e.target.id !== "sessionLabels" || current === "g") return;
+    const s = lastState && lastState.session;
+    const text = prompt("Its category (one word) and tags (#words): bugfix #api #urgent", s ? labelText(s) : "");
+    if (text === null) return;
+    const words = text.split(/[\s,]+/).filter(Boolean);
+    const category = words.find((w) => !w.startsWith("#")) || "";
+    try { await cmd({cmd: "describe", session: current, category, tags: words.filter((w) => w.startsWith("#")).map((w) => w.slice(1))}); refresh(); } catch (error) { alert(error.message); }
+});
 // its description edited (empty: written again by claude-cluster)
 document.addEventListener("click", async (e) => {
     if (e.target.id !== "sessionDesc" || current === "g") return;
@@ -843,6 +861,21 @@ function paintTty(state) {
     button.classList.toggle("hidden", !port);
     button.onclick = () => { location.href = location.protocol + "//" + location.hostname + ":" + port + "/"; };
 }
+// the category (a filled chip) and the tags (#words) of a session, each one in a color made from its text
+function chipColor(label) {
+    let hash = 2166136261;
+    for (const c of label) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619) >>> 0;
+    return "hsl(" + (hash % 360) + ", 65%, 52%)";
+}
+function labelText(s) { return [s.category, ...(s.tags || []).map((t) => "#" + t)].filter(Boolean).join(" "); }
+function chipsOf(s) {
+    if (!s.category && !(s.tags && s.tags.length)) return null;
+    const box = el("div", "chips");
+    if (s.category) { const c = el("span", "chip category", s.category); c.style.setProperty("--chip", chipColor(s.category)); box.append(c); }
+    for (const t of s.tags || []) { const c = el("span", "chip", "#" + t); c.style.setProperty("--chip", chipColor(t)); box.append(c); }
+    return box;
+}
+$("groupToggle").addEventListener("click", () => act({cmd: "settings_set", section: "ui", key: "group_by_category", value: lastState && lastState.group ? "false" : "true"}).then(() => refresh()).catch(() => {}));
 function render(state) {
     paintTty(state);
     lastState = state;
@@ -865,7 +898,16 @@ function render(state) {
         item.addEventListener("click", () => select("tasks"));
         list.append(item);
     }
+    $("groupToggle").classList.toggle("active", !!state.group);
+    $("groupToggle").textContent = state.group ? "Ungroup" : "Group by category";
+    let before = null;
     for (const s of state.sessions) {
+        if (state.group && s.id !== "g" && (!before || before.id === "g" || (before.category || "") !== (s.category || ""))) {
+            const head = el("div", "group-head", "▾ " + (s.category || "no category"));
+            if (s.category) head.style.setProperty("--chip", chipColor(s.category));
+            list.append(head);
+        }
+        before = s;
         const item = document.createElement("div");
         item.className = "session" + (s.id === current ? " active" : "");
         const name = document.createElement("div");
@@ -882,8 +924,10 @@ function render(state) {
         const sub = document.createElement("div");
         sub.className = "sub";
         sub.textContent = s.summary || s.state + " · " + (s.cwd || "");
-        item.title = [s.summary, s.cwd].filter(Boolean).join("\n");
+        item.title = [s.summary, s.cwd, labelText(s)].filter(Boolean).join("\n");
         item.append(name, sub);
+        const chips = chipsOf(s);
+        if (chips) item.append(chips);
         item.addEventListener("click", () => select(s.id));
         // its menu: a right click, a long press (a phone)
         item.addEventListener("contextmenu", (e) => { e.preventDefault(); sessionMenu(s); });
@@ -914,6 +958,8 @@ function render(state) {
     $("sessionInfo").title = [w.folder, w.branch ? "branch " + w.branch : "", w.host ? "on " + w.host : "", w.pid ? "pid " + w.pid : ""].filter(Boolean).join("\n");
     $("sessionDesc").textContent = s.id === "g" ? "" : s.summary || "add a description";
     $("sessionDesc").classList.toggle("empty", !s.summary);
+    $("sessionLabels").textContent = s.id === "g" ? "" : labelText(s) || "add a category / tags";
+    $("sessionLabels").classList.toggle("empty", !labelText(s));
     $("sessionWhere").textContent = [shortPath(w.folder), w.branch ? "⎇ " + w.branch : "", w.host, w.pid ? "pid " + w.pid : ""].filter(Boolean).join(" · ");
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
@@ -1066,6 +1112,7 @@ async function renderTasks() {
         $("sessionName").textContent = "☰ Tasks";
         $("sessionInfo").textContent = "the todo lists of the sessions, the task queue, the schedules";
         $("sessionDesc").textContent = "";
+        $("sessionLabels").textContent = "";
         $("sessionWhere").textContent = "a row: its actions";
         for (const id of ["resume", "closeSession", "fork"]) $(id).classList.add("hidden");
         const box = $("transcript");
@@ -2097,6 +2144,7 @@ function sessionMenu(s) {
     if (s.id !== "g") {
         items.push({label: "Rename", run: async () => { const v = prompt("New name of " + name, name); if (v && v.trim()) await act({cmd: "rename", session: s.id, name: v.trim()}); }});
         items.push({label: "Describe", run: async () => { const v = prompt("Its short description (empty: written again)", s.summary || ""); if (v !== null) await act({cmd: "describe", session: s.id, text: v}); }});
+        items.push({label: "Category and tags", run: async () => { const v = prompt("Its category (one word) and tags (#words): bugfix #api #urgent", labelText(s)); if (v === null) return; const words = v.split(/[\s,]+/).filter(Boolean); await act({cmd: "describe", session: s.id, category: words.find((w) => !w.startsWith("#")) || "", tags: words.filter((w) => w.startsWith("#")).map((w) => w.slice(1))}); }});
         items.push({label: "Archive (to the trash, restorable)", run: () => act({cmd: "close", session: s.id})});
         items.push({label: "Delete for good…", danger: true, run: () => deleteSession(s.id, name)});
     }
@@ -2911,6 +2959,8 @@ function card(s, tools) {
     head.addEventListener("click", (e) => { if (!e.target.closest(".tile-tools")) openSession(s.id); });
     c.append(head, el("div", "card-meta", [s.model, s.mode, shortPath(s.cwd)].filter(Boolean).join(" · ")));
     if (s.summary) c.append(el("div", "card-desc", s.summary));
+    const cardChips = chipsOf(s);
+    if (cardChips) c.append(cardChips);
     const body = el("div", "card-body");
     const recent = (s.recent || []).slice(-4);
     if (!recent.length) body.append(el("div", "line tool", "nothing yet"));

@@ -340,6 +340,9 @@ class Manager {
         // of the next sub-sessions) or a session id; what it did
         _cold _nodiscard std::string applyTo(const std::string& kind, const std::string& value, const std::string& scope, const std::string& current);      // "Chat about this": its last message answered by the model of the session (background)
         _cold void describe(const std::string& id, const std::string& text); // its short description (empty: written again)
+        // its category (none given: kept; "" removes it) and tags (tags: replaces them; add / remove: changes them), the trash too
+        _cold void label(const std::string& id, const std::optional<std::string>& category, const std::optional<std::vector<std::string>>& tags,
+            const std::vector<std::string>& add = {}, const std::vector<std::string>& remove = {});
         _cold void setMode(const std::string& id, const std::string& mode);
         _cold _nodiscard cluster::Queued rewind(const std::string& id); // the last turn removed, its prompt back (Esc Esc)
         _cold void cd(const std::string& id, const std::string& cwd);
@@ -391,6 +394,14 @@ class Manager {
 
         /* state */
         _nodiscard std::vector<cluster::Snapshot> list(const bool withGlobal = true) const;
+        _nodiscard std::vector<cluster::Snapshot> shown(void) const;    // list(), in the order of the interfaces (grouped by category when asked)
+        // the taxonomy of the categories / tags (Manager-Taxonomy.cpp): categories and tags form a forest under the root "global"; replicated
+        _cold _nodiscard cluster::Taxonomy taxonomy(void) const;
+        _cold _nodiscard cluster::Json taxonomyJson(void) const;        // {root, parents: {node: parent}, edit: the global session may edit it}
+        // action: set_parent (node, other = the parent, "" / global: the root) | rename (other = the new name) | delete (strip: the label removed from the sessions too)
+        // | merge (other = the node it joins); throws why (a cycle, a bad name)
+        _cold void taxonomyEdit(const std::string& action, const std::string& node, const std::string& other, const bool strip = false);
+        _cold _nodiscard std::vector<std::string> groupPath(const cluster::SessionSpec& spec) const;   // its group in the list: the path of its category / first tag (empty: none)
         _nodiscard std::optional<cluster::Snapshot> snapshot(const std::string& id) const;
         _nodiscard std::vector<cluster::SessionSpec> trash(void) const;
         _nodiscard std::vector<cluster::SessionSpec> previous(void) const;

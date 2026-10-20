@@ -159,6 +159,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.restore;}},
             {"ui", "vim", "Vim mode of the prompt", SettingKind::Bool, {}, "Esc: Normal mode (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o: Insert", false,
                 [](const cluster::Config& cf) {return cf.vim ? std::string("true") : std::string("false");}},
+            {"ui", "group_by_category", "Group the session list by category", SettingKind::Bool, {}, "the sessions under the category the global session or you gave them (terminal, window, web page; the palette: Group by category)", false,
+                [](const cluster::Config& cf) {return cf.groupByCategory ? std::string("true") : std::string("false");}},
             {"ui", "paste_lines", "Paste collapsed above (lines)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N +L lines] in the prompt (0: never)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.pasteLines);}},
             {"ui", "paste_chars", "Paste collapsed above (characters)", SettingKind::Int, {}, "a longer paste is one [Pasted text #N] in the prompt (0: never)", false,

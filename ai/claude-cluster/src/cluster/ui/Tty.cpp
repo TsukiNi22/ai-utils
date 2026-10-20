@@ -1046,7 +1046,17 @@ class TtyUi {
         std::int64_t _statusTime = 0;
 
         // ---------- Pre-Function -------- //
-        _nodiscard std::vector<cluster::Snapshot> sessions_(void) const {return this->_manager.list(true);};
+        _nodiscard bool grouped_(void) const {return this->_manager.ui("group_by_category", this->_manager.config().groupByCategory ? "true" : "false") == "true";};
+        _nodiscard std::vector<cluster::Snapshot> sessions_(void) const {return this->_manager.shown();};
+
+        // a chip of a label: a color made from its text (the same label, the same color everywhere)
+        _nodiscard static ftxui::Color chip_color_(const std::string& label)
+        {
+            std::uint32_t hash = 2166136261U;
+            for (const char c: label)
+                hash = (hash ^ static_cast<unsigned char>(c)) * 16777619U;
+            return ftxui::Color::HSV(static_cast<std::uint8_t>(hash % 256), 140, 235);
+        }
 
         void quit_(void)
         {
@@ -2710,7 +2720,7 @@ class TtyUi {
                     return;
                 }
                 // the live choices of layout / style follow the saved ones
-                for (const char* key: {"layout", "style", "vim"})
+                for (const char* key: {"layout", "style", "vim", "group_by_category"})
                     if (this->_changes.contains({"ui", key})) this->_manager.setUi(key, this->_changes.at({"ui", key}).second);
                 bool restart = false;
                 for (const auto &[where, change]: this->_changes)
@@ -3342,7 +3352,24 @@ class TtyUi {
                 | ftxui::color(this->_theme.muted) | ftxui::dim;
             const std::string id = s.spec.id;
             this->_rowSessions[static_cast<int>(this->_clicks.size())] = id; // a right click: its menu
-            ftxui::Element block = this->tap_(ftxui::vbox({line, sub}), 0, [this, id]() {this->_active = id;}, clip); // clicked: shown
+            ftxui::Elements lines = {line, sub};
+            if (!s.spec.category.empty() || !s.spec.tags.empty()) {
+                // its category (a filled chip) and its tags (colored #words) on a line of their own, as many as fit
+                ftxui::Elements chips = {ftxui::text(" ")};
+                std::size_t used = 1;
+                if (!s.spec.category.empty()) {
+                    chips.push_back(ftxui::text(" " + cluster::one_line(s.spec.category, 14) + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->chip_color_(s.spec.category)));
+                    used += width_(cluster::one_line(s.spec.category, 14)) + 3;
+                }
+                for (const std::string& tag: s.spec.tags) {
+                    const std::string text = "#" + cluster::one_line(tag, 12);
+                    if (used + width_(text) + 1 > 28) break;
+                    chips.push_back(ftxui::text(" " + text) | ftxui::color(this->chip_color_(tag)));
+                    used += width_(text) + 1;
+                }
+                lines.push_back(ftxui::hbox(std::move(chips)));
+            }
+            ftxui::Element block = this->tap_(ftxui::vbox(std::move(lines)), 0, [this, id]() {this->_active = id;}, clip); // clicked: shown
             return active ? block | ftxui::bgcolor(this->_theme.surface) : block; // no focus: it would take the cursor of the prompt
         }
 
@@ -4522,7 +4549,15 @@ class TtyUi {
             const int clip = this->clip_();
             rows.push_back(this->tasksRow_(tasksShown, clip)); // the Tasks session first
             // more sessions than the room: the ones around the one shown (2 lines each)
-            const std::size_t room = static_cast<std::size_t>(std::max(1, (height - 3) / 2));
+            const bool grouped = this->grouped_();
+            std::set<std::string> categories;
+            std::size_t labelled = 0;   // the sessions with a third line (their chips)
+            for (const cluster::Snapshot& s: list) {
+                categories.insert(s.spec.global ? std::string("\x01") : s.spec.category);
+                labelled += s.spec.category.empty() && s.spec.tags.empty() ? 0 : 1;
+            }
+            const std::size_t spare = (grouped ? categories.size() : 0) + labelled / 2;   // the lines taken by the headers and the chips, on average
+            const std::size_t room = static_cast<std::size_t>(std::max<int>(1, (height - 3 - static_cast<int>(spare)) / 2));
             const std::size_t at = static_cast<std::size_t>(it - list.begin());
             this->_listRoom = room;
             if (this->_listSeen != this->_active) { // the selection moved: its row in view (the wheel scrolls freely until then)
@@ -4533,7 +4568,12 @@ class TtyUi {
             this->_listFirst = list.size() <= room ? 0 : std::min(this->_listFirst, list.size() - room);
             const std::size_t first = this->_listFirst;
             if (first > 0) rows.push_back(ftxui::text(" ↑ " + std::to_string(first) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
-            for (std::size_t i = first; i < list.size() && i < first + room; ++i)
+            for (std::size_t i = first; i < list.size() && i < first + room; ++i) {
+                if (grouped && !list[i].spec.global && (i == first || list[i - 1].spec.global || list[i - 1].spec.category != list[i].spec.category)) {
+                    const std::string category = list[i].spec.category;
+                    rows.push_back(ftxui::text(" ▾ " + (category.empty() ? std::string("no category") : cluster::one_line(category, 22))) | ftxui::bold
+                        | ftxui::color(category.empty() ? this->_theme.muted : this->chip_color_(category)));
+                }
                 rows.push_back(this->sessionRow_(list[i], list[i].spec.id == this->_active, clip));
             if (first + room < list.size()) rows.push_back(ftxui::text(" ↓ " + std::to_string(list.size() - first - room) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
             return ftxui::hbox({

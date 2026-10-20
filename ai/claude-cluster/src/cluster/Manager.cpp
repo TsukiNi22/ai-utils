@@ -41,7 +41,8 @@ _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
         {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId}, {"leaf", spec.leaf}, {"resume_at", spec.resumeAt}, {"fork", spec.fork},
         {"model", spec.model}, {"mode", spec.mode}, {"effort", spec.effort}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
         {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
-        {"summary", spec.summary}, {"summary_auto", spec.summaryAuto}, {"summary_turns", spec.summaryTurns}, {"turns", spec.turns},
+        {"summary", spec.summary}, {"summary_auto", spec.summaryAuto}, {"summary_turns", spec.summaryTurns}, {"category", spec.category}, {"tags", spec.tags}, {"turns", spec.turns},
+        {"pin", spec.pin},
     };
 }
 
@@ -70,6 +71,8 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.summary = json.value("summary", std::string());
     spec.summaryAuto = json.value("summary_auto", true);
     spec.summaryTurns = json.value("summary_turns", std::int64_t{0});
+    spec.category = json.value("category", std::string());
+    spec.tags = json.value("tags", std::vector<std::string>());
     spec.turns = json.value("turns", std::int64_t{0});
     return spec;
 }

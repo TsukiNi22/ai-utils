@@ -1591,6 +1591,14 @@ _cold void cluster::Session::describe(const std::string& text, const bool given)
     this->touch_();
 }
 
+_cold void cluster::Session::label(const std::string& category, const std::vector<std::string>& tags)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_data.spec.category = category;
+    this->_data.spec.tags = tags;
+    this->touch_();
+}
+
 _cold void cluster::Session::addContext(const std::string& text)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);

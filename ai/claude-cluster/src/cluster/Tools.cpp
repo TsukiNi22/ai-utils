@@ -26,6 +26,7 @@ File Description:
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <cctype>
 #include <atomic>
 #include <thread>
 #include <chrono>
@@ -189,6 +190,39 @@ std::string cluster::summary_of(const std::string& text, const std::size_t max)
     std::size_t cut = clean.rfind(". ", max);
     if (cut == std::string::npos || cut < max / 3) return cluster::one_line(clean, max);
     return clean.substr(0, cut + 1);
+}
+
+std::string cluster::clean_label(const std::string& text)
+{
+    // a label: lower case, letters / digits / - / _ / . only (a space becomes -), a leading # dropped
+    std::string out;
+    for (const char c: cluster::lower(cluster::trim(text))) {
+        if (std::isalnum(static_cast<unsigned char>(c)) || (static_cast<unsigned char>(c) >= 0x80) || c == '-' || c == '_' || c == '.') out += c;
+        else if ((c == ' ' || c == '/') && !out.empty() && out.back() != '-') out += '-';
+    }
+    while (!out.empty() && (out.back() == '-' || out.back() == '.')) out.pop_back();
+    while (!out.empty() && out.front() == '-') out.erase(0, 1);
+    return out.substr(0, 24);
+}
+
+std::vector<std::string> cluster::clean_tags(const std::vector<std::string>& tags)
+{
+    std::vector<std::string> out;
+    for (const std::string& tag: tags) {
+        const std::string clean = cluster::clean_label(tag);
+        if (!clean.empty() && std::find(out.begin(), out.end(), clean) == out.end() && out.size() < 8) out.push_back(clean);
+    }
+    return out;
+}
+
+std::vector<std::string> cluster::split_tags(const std::string& text)
+{
+    std::string spaced = text;
+    std::replace(spaced.begin(), spaced.end(), ',', ' ');
+    std::vector<std::string> words;
+    for (const std::string& word: cluster::split(spaced, ' '))
+        if (!cluster::trim(word).empty()) words.push_back(word);
+    return cluster::clean_tags(words);
 }
 
 std::string cluster::content_hash(const std::string& bytes)

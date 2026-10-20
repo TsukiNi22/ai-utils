@@ -174,6 +174,9 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("prompt", {"", "", "prompt", ""}, {{"text", true, any}}, "spawn: first prompt");
     this->_parser.setFlag("target", {"", "", "target", ""}, {{"session|folder", true, any}}, "task add: session or folder");
     this->_parser.setFlag("after", {"", "", "after", ""}, {{"t1,t2", true, any}}, "task add: tasks to finish first");
+    this->_parser.setFlag("category", {"", "", "category", ""}, {{"category", true, any}}, "list: only this category; label: the category of the session (empty: removed)");
+    this->_parser.setFlag("tag", {"", "", "tag", ""}, {{"a,b", true, any}}, "list: only the sessions with these tags; label: the tags of the session (empty: removed)");
+    this->_parser.setFlag("state", {"", "", "state", ""}, {{"state", true, any}}, "list: open (default) | archived | all | working | idle...");
     this->_parser.setFlag("force", {"f", "", "force", ""}, {}, "send: ignore the budget");
     this->_parser.setFlag("rtk", {"", "", "rtk", "CLAUDE_CLUSTER_RTK"}, {}, "Compact output for an AI (headless commands)");
     this->_parser.setFlag("json", {"j", "", "json", ""}, {}, "Raw JSON output (headless commands)");
@@ -189,7 +192,7 @@ _cold std::vector<std::string> cluster::Core::extract_(const int argc, char* arg
 {
     // ArgParser has no positional arguments: the command and its words are taken out before the parsing
     static const std::unordered_set<std::string> values = {"b", "backend", "layout", "style", "n", "name", "m", "mode", "p", "profile",
-        "prompt", "target", "after", "completion", "voice", "every"};
+        "prompt", "target", "after", "completion", "voice", "every", "category", "tag", "state"};
     std::vector<std::string> arguments = {argc > 0 ? argv[0] : "claude-cluster"};
     bool rest = false;
 
@@ -511,7 +514,15 @@ _cold int cluster::Core::headless_(void)
     cluster::Json request = {{"cmd", cmd}};
     std::string shown = cmd;
 
-    if (cmd == "list" || cmd == "trash" || cmd == "notices" || cmd == "providers") {
+    if (cmd == "list") {
+        for (const char* key: {"category", "tag", "state"})
+            if (v.contains(key)) request[key] = v.at(key);
+    } else if (cmd == "trash" || cmd == "notices" || cmd == "providers") {
+    } else if (cmd == "label") {
+        request.update({{"cmd", "describe"}, {"session", word(1, "session")}});
+        if (v.contains("category")) request["category"] = v.at("category");
+        if (v.contains("tag")) request["tags"] = value("tag");
+        if (!v.contains("category") && !v.contains("tag")) word(2, "--category / --tag");
     } else if (cmd == "web") {
         request["action"] = w.size() > 1 ? w[1] : "";
         if (request["action"] == "approve") request.update({{"id", word(2, "id")}, {"answer", w.size() > 3 ? w[3] : "allow"}});
@@ -586,6 +597,16 @@ _cold int cluster::Core::headless_(void)
     return 0;
 }
 
+_cold static std::string join_tags_(const cluster::Json& session, const bool hash = false)
+{
+    // the tags of a session of the list: "a,b" (hash: "#a #b")
+    std::string out;
+    if (!session.contains("tags") || !session["tags"].is_array()) return out;
+    for (const cluster::Json& tag: session["tags"])
+        out += (out.empty() ? "" : hash ? " " : ",") + std::string(hash ? "#" : "") + tag.get<std::string>();
+    return out;
+}
+
 _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& data) const
 {
     if (this->_options.json) {
@@ -645,7 +666,7 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         return;
     }
     if (cmd == "list") {
-        if (rtk) std::cout << "id|name|state|backend|mode|tok_total|ctx%|cost|perm|cwd" << "\n";
+        if (rtk) std::cout << "id|name|state|backend|mode|tok_total|ctx%|cost|perm|cwd|summary|category|tags" << "\n";
         for (const cluster::Json& s: data) {
             const std::int64_t window = std::max<std::int64_t>(1, s["context"].value("window", std::int64_t{1}));
             const std::int64_t ctx = 100 * s["context"].value("used", std::int64_t{0}) / window;
@@ -653,13 +674,16 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
             const std::string tok = cluster::human_tokens(s["tokens"].value("total", std::int64_t{0}));
             if (rtk) {
                 std::cout << s.value("id", "") << "|" << s.value("name", "") << "|" << s.value("state", "") << "|" << s.value("backend", "") << "|"
-                    << s.value("mode", "") << "|" << tok << "|" << ctx << "|" << cost << "|" << s["permissions"].size() << "|" << cluster::short_path(s.value("cwd", "")) << "|" << s.value("summary", std::string()) << "\n";
+                    << s.value("mode", "") << "|" << tok << "|" << ctx << "|" << cost << "|" << s["permissions"].size() << "|" << cluster::short_path(s.value("cwd", "")) << "|" << s.value("summary", std::string())
+                    << "|" << s.value("category", std::string()) << "|" << join_tags_(s) << "\n";
             } else {
                 std::cout << std::left << std::setw(4) << s.value("id", "") << std::setw(18) << cluster::one_line(s.value("name", ""), 17)
                     << std::setw(11) << s.value("state", "") << std::setw(22) << cluster::one_line(s.value("backend", ""), 21)
                     << std::setw(8) << tok << std::setw(6) << (std::to_string(ctx) + "%") << std::setw(9) << cost
                     << (s["permissions"].empty() ? "" : "[" + std::to_string(s["permissions"].size()) + " perm] ") << cluster::short_path(s.value("cwd", ""))
-                    << (s.value("summary", std::string()).empty() ? "" : "  " + s.value("summary", std::string())) << "\n";
+                    << (s.value("summary", std::string()).empty() ? "" : "  " + s.value("summary", std::string()))
+                    << (s.value("category", std::string()).empty() ? "" : "  [" + s.value("category", std::string()) + "]")
+                    << (s.contains("tags") ? "  " + join_tags_(s, true) : "") << "\n";
             }
         }
         if (data.empty() && !rtk) std::cout << "no session" << "\n";

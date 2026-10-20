@@ -155,6 +155,7 @@ _cold void cluster::Config::load(void)
     this->notifyApp = table["ui"]["notify_app"].value_or(this->notifyApp);
     this->notifyReady = table["ui"]["notify_ready"].value_or(this->notifyReady);
     this->vim = table["ui"]["vim"].value_or(this->vim);
+    this->groupByCategory = table["ui"]["group_by_category"].value_or(this->groupByCategory);
     this->pasteLines = table["ui"]["paste_lines"].value_or(this->pasteLines);
     this->pasteChars = table["ui"]["paste_chars"].value_or(this->pasteChars);
     this->editor = table["ui"]["editor"].value_or(this->editor);

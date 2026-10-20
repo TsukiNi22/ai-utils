@@ -210,6 +210,7 @@ class Config {
         bool notifyApp = true;                  // the Android app: the notifications published to it (the kinds below apply; each device opts in)
         bool notifyReady = true;                // something slow ready: claude-cluster started, the speech model loaded, the map written
         bool vim = false;                       // vim mode of the prompt (Insert / Normal / Visual)
+        bool groupByCategory = false;           // the session list grouped under the category of its sessions (the palette, /group, a click on the list title)
         int pasteLines = 3;                     // a paste of more lines becomes [Pasted text #N +L lines] (0: never)
         int pasteChars = 800;                   // or of more characters
         std::string editor;                     // Ctrl+E (empty: nvim, vim, vi, $VISUAL, $EDITOR, emacs -nw, nano)

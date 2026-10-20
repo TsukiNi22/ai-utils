@@ -162,6 +162,76 @@ _cold void cluster::Manager::describe(const std::string& id, const std::string& 
     if (clean.empty()) this->describeAuto_(found);
 }
 
+_cold std::vector<cluster::Snapshot> cluster::Manager::shown(void) const
+{
+    // the order of the lists of the interfaces: the global session first, then (grouped by category: [ui] group_by_category, the palette)
+    // the category in alphabetical order, none last, the order of the sessions kept in a group
+    std::vector<cluster::Snapshot> all = this->list(true);
+    if (this->ui("group_by_category", this->_config.groupByCategory ? "true" : "false") != "true") return all;
+    // nested: the path of each session in the taxonomy (its category, else its first tag, under its parents), alphabetical level by level
+    const cluster::Taxonomy taxonomy = this->taxonomy();
+    std::vector<std::vector<std::string>> paths;
+    for (const cluster::Snapshot& s: all)
+        paths.push_back(s.spec.global ? std::vector<std::string>() : taxonomy.group(s.spec));
+    std::vector<std::size_t> order(all.size());
+    std::iota(order.begin(), order.end(), static_cast<std::size_t>(0));
+    const auto rank = [&](const std::size_t i) {return all[i].spec.global ? 0 : paths[i].empty() ? 2 : 1;};
+    std::stable_sort(order.begin(), order.end(), [&](const std::size_t a, const std::size_t b) {
+        return rank(a) != rank(b) ? rank(a) < rank(b) : rank(a) == 1 && paths[a] < paths[b];
+    });
+    std::vector<cluster::Snapshot> sorted;
+    for (const std::size_t i: order)
+        sorted.push_back(all[i]);
+    return sorted;
+}
+
+_cold void cluster::Manager::label(const std::string& id, const std::optional<std::string>& category, const std::optional<std::vector<std::string>>& tags,
+    const std::vector<std::string>& add, const std::vector<std::string>& remove)
+{
+    // set by the global session or the user, kept with the session (the trash, a restore, /clear); no model involved
+    std::string found = id;
+    try {
+        found = this->resolve(id);
+    } catch (const utils::exception::IException&) {
+        for (const cluster::SessionSpec& spec: this->trash())
+            if (spec.id == id || spec.name == id) found = spec.id;
+    }
+    const std::function<void(std::string&, std::vector<std::string>&)> change = [&](std::string& newCategory, std::vector<std::string>& newTags) {
+        if (category) newCategory = cluster::clean_label(*category);
+        if (tags) newTags = cluster::clean_tags(*tags);
+        for (const std::string& tag: cluster::clean_tags(add))
+            if (std::find(newTags.begin(), newTags.end(), tag) == newTags.end()) newTags.push_back(tag);
+        for (const std::string& tag: cluster::clean_tags(remove))
+            std::erase(newTags, tag);
+        newTags = cluster::clean_tags(newTags);
+    };
+    std::shared_ptr<cluster::Session> session;
+    bool done = false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (auto it = this->_sessions.find(found); it != this->_sessions.end()) {
+            session = it->second;
+        } else {
+            for (cluster::SessionSpec& spec: this->_trash)
+                if (spec.id == found) {
+                    change(spec.category, spec.tags);
+                    done = true;
+                }
+        }
+    }
+    if (session) {
+        const cluster::SessionSpec spec = session->snapshot().spec;
+        std::string newCategory = spec.category;
+        std::vector<std::string> newTags = spec.tags;
+        change(newCategory, newTags);
+        session->label(newCategory, newTags);
+        done = true;
+    }
+    if (!done) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session " + id);
+    this->save();
+    ++this->_version;
+}
+
 _cold bool cluster::Manager::describe_(const std::string& id, const std::string& text, const bool given)
 {
     // a live session or one of the trash; one written by claude-cluster never replaces one given
