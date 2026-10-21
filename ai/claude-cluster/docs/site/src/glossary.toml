@@ -1,0 +1,211 @@
+# glossary of the documentation: term, English and French definitions (generated page + search entries)
+
+[[term]]
+name = "Core"
+en = "The one process per user that owns the sessions (`claude-cluster serve`); every terminal, window, web page and phone is an interface of it."
+fr = "Le processus unique par utilisateur qui possède les sessions (`claude-cluster serve`) ; chaque terminal, fenêtre, page web et téléphone en est une interface."
+
+[[term]]
+name = "Session"
+en = "One running agent in one project folder, with its conversation, mode, model and permissions."
+fr = "Un agent en cours dans un dossier de projet, avec sa conversation, son mode, son modèle et ses permissions."
+
+[[term]]
+name = "Global session"
+en = "The session that drives the others through its own MCP server, by text or voice."
+fr = "La session qui pilote les autres avec son propre serveur MCP, au texte ou à la voix."
+
+[[term]]
+name = "Sub-session"
+en = "A session driven by the global session: its own agent process, conversation and permissions."
+fr = "Une session pilotée par la session globale : son propre processus d'agent, sa conversation et ses permissions."
+
+[[term]]
+name = "Sub-global"
+en = "Planned: one lead session per category, under the global session."
+fr = "Prévu : une session responsable par catégorie, sous la session globale."
+
+[[term]]
+name = "Fork"
+en = "A copy of a Claude Code conversation so far; each copy then goes its own way."
+fr = "Une copie d'une conversation Claude Code à ce jour ; chaque copie suit ensuite son chemin."
+
+[[term]]
+name = "Subagent"
+en = "A helper a Claude Code session starts inside itself; invisible to claude-cluster."
+fr = "Un assistant qu'une session Claude Code lance en elle-même ; invisible pour claude-cluster."
+
+[[term]]
+name = "Driver"
+en = "The way an agent is run: claude (one process per session, live permissions), or qwen / opencode / codex (one process per turn)."
+fr = "La façon dont un agent est lancé : claude (un processus par session, permissions en direct), ou qwen / opencode / codex (un processus par tour)."
+
+[[term]]
+name = "Provider"
+en = "Where the model comes from (`claude`, `ollama`, `openrouter`, `codex`...), written `<provider>[/<model>]`; also called backend."
+fr = "D'où vient le modèle (`claude`, `ollama`, `openrouter`, `codex`...), écrit `<fournisseur>[/<modèle>]` ; appelé aussi backend."
+
+[[term]]
+name = "Map of the computer"
+en = "`machine.md`: what the global session knows of your OS, tools, shell and projects."
+fr = "`machine.md` : ce que la session globale sait de votre système, outils, shell et projets."
+
+[[term]]
+name = "Callback"
+en = "The message that brings a result back to the global session (`[reply from ...]`, `[job ...]`, `[tasks] ...`) so it never polls."
+fr = "Le message qui ramène un résultat à la session globale (`[reply from ...]`, `[job ...]`, `[tasks] ...`) pour qu'elle n'interroge jamais."
+
+[[term]]
+name = "Fan-out"
+en = "A request split into one task per project (`session_fanout`), answered once and merged."
+fr = "Une demande découpée en une tâche par projet (`session_fanout`), répondue une fois et fusionnée."
+
+[[term]]
+name = "One-shot"
+en = "A session made for one precise task that archives itself once its answer was relayed."
+fr = "Une session faite pour une tâche précise qui s'archive d'elle-même une fois sa réponse relayée."
+
+[[term]]
+name = "Trash"
+en = "Where closed sessions wait, restorable for `trash_days`."
+fr = "Où attendent les sessions fermées, restaurables pendant `trash_days`."
+
+[[term]]
+name = "Category"
+en = "The one word that classes a session; its primary label in the taxonomy."
+fr = "Le mot unique qui classe une session ; son étiquette principale dans la taxonomie."
+
+[[term]]
+name = "Tag"
+en = "One of several extra labels of a session."
+fr = "L'une des étiquettes supplémentaires d'une session."
+
+[[term]]
+name = "Taxonomy"
+en = "The forest of categories and tags: each node has an optional parent, `global` is the root."
+fr = "La forêt de catégories et tags : chaque nœud a un parent optionnel, `global` est la racine."
+
+[[term]]
+name = "Hub"
+en = "The graph view of the sessions (web page, window, app): a tree of the taxonomy or a ring."
+fr = "La vue graphe des sessions (page web, fenêtre, application) : un arbre de la taxonomie ou un anneau."
+
+[[term]]
+name = "Task"
+en = "A prompt queued for a session, with conditions, priority and a result."
+fr = "Un prompt mis en file pour une session, avec conditions, priorité et résultat."
+
+[[term]]
+name = "Schedule"
+en = "A prompt, notification, command or task at a time, repeated by `every` or `cron`."
+fr = "Un prompt, une notification, une commande ou une tâche à une heure, répétée par `every` ou `cron`."
+
+[[term]]
+name = "Orchestrator"
+en = "The scheduler that makes heavy jobs (builds, tests, containers, GPU) take turns."
+fr = "L'ordonnanceur qui fait se relayer les travaux lourds (compilations, tests, conteneurs, GPU)."
+
+[[term]]
+name = "cluster-run"
+en = "The wrapper to put before a heavy command so it waits for a slot in the orchestrator."
+fr = "Le wrapper à placer devant une commande lourde pour qu'elle attende un créneau dans l'orchestrateur."
+
+[[term]]
+name = "Job"
+en = "A heavy command in the orchestrator queue: queued, running, stopped, done, failed or killed."
+fr = "Une commande lourde dans la file de l'orchestrateur : en attente, en cours, arrêtée, finie, échouée ou tuée."
+
+[[term]]
+name = "Slot"
+en = "A place to run one heavy job; their number follows the hardware and the load."
+fr = "Une place pour exécuter un travail lourd ; leur nombre suit le matériel et la charge."
+
+[[term]]
+name = "Display"
+en = "A rich block (table, chart, form, checklist...) put in a transcript by the global session; the agent never sees it."
+fr = "Un bloc riche (tableau, graphique, formulaire, liste à cocher...) placé dans une transcription par la session globale ; l'agent ne le voit jamais."
+
+[[term]]
+name = "Pin"
+en = "A message or display kept above the prompt, one per session."
+fr = "Un message ou un affichage gardé au-dessus du prompt, un par session."
+
+[[term]]
+name = "Stash"
+en = "The global list of prompts put aside with Ctrl+S."
+fr = "La liste globale des prompts mis de côté avec Ctrl+S."
+
+[[term]]
+name = "Palette"
+en = "The Ctrl+K list of every action, with typo-tolerant matching."
+fr = "La liste Ctrl+K de toutes les actions, avec une recherche tolérante aux fautes."
+
+[[term]]
+name = "c2dmp-hsm"
+en = "The string matching of libutils used by completions, the palette and setting search: a typo, a missing, doubled or swapped letter still finds the item."
+fr = "La comparaison de chaînes de libutils utilisée par les complétions, la palette et la recherche de réglages : une faute, une lettre manquante, doublée ou échangée trouve quand même l'élément."
+
+[[term]]
+name = "MCP"
+en = "Model Context Protocol: how an agent calls tools; claude-cluster has a server for the global session."
+fr = "Model Context Protocol : la façon dont un agent appelle des outils ; claude-cluster a un serveur pour la session globale."
+
+[[term]]
+name = "auto mode"
+en = "A permission mode where the classifier of Claude Code allows the safe actions."
+fr = "Un mode de permission où le classificateur de Claude Code autorise les actions sûres."
+
+[[term]]
+name = "bypassPermissions"
+en = "A permission mode that never asks; the default of the global session."
+fr = "Un mode de permission qui ne demande jamais ; le défaut de la session globale."
+
+[[term]]
+name = "Safety check"
+en = "A Claude Code check on a command it cannot resolve; only a person may approve it."
+fr = "Un contrôle de Claude Code sur une commande qu'il ne sait pas résoudre ; seule une personne peut l'approuver."
+
+[[term]]
+name = "Protected setting"
+en = "A setting the global session can never change; you change it in the settings page."
+fr = "Un réglage que la session globale ne peut jamais changer ; vous le changez dans la page de réglages."
+
+[[term]]
+name = "Web access"
+en = "The https page of your computer that other devices of your network (or tailnet) use, with a code and your approval."
+fr = "La page https de votre ordinateur qu'utilisent d'autres appareils de votre réseau (ou tailnet), avec un code et votre accord."
+
+[[term]]
+name = "Trusted device"
+en = "A web device you allowed and trusted: it comes back without a code or approval."
+fr = "Un appareil web que vous avez autorisé et approuvé : il revient sans code ni accord."
+
+[[term]]
+name = "Authority"
+en = "The certificate authority of your computer that signs the https certificate; trusted once per device."
+fr = "L'autorité de certification de votre ordinateur qui signe le certificat https ; approuvée une fois par appareil."
+
+[[term]]
+name = "Tailscale"
+en = "A WireGuard network (tailnet) used to reach claude-cluster from outside without opening the Internet."
+fr = "Un réseau WireGuard (tailnet) utilisé pour joindre claude-cluster de l'extérieur sans ouvrir Internet."
+
+[[term]]
+name = "Remote Control"
+en = "Claude Code feature that puts the global session itself on claude.ai and the Claude app."
+fr = "Fonction de Claude Code qui met la session globale elle-même sur claude.ai et l'application Claude."
+
+[[term]]
+name = "Face"
+en = "The expression of the claude-cluster icon (^_^, >_<, o_o...) that follows what it does."
+fr = "L'expression de l'icône de claude-cluster (^_^, >_<, o_o...) qui suit ce qu'il fait."
+
+[[term]]
+name = "Work method"
+en = "How you like work organised (list-review, one-task, plan-first, custom), followed by the global session."
+fr = "La façon dont vous aimez organiser le travail (list-review, one-task, plan-first, custom), suivie par la session globale."
+
+[[term]]
+name = "Showcase"
+en = "The Debug session that shows everything claude-cluster can draw, without spending anything."
+fr = "La session Debug qui montre tout ce que claude-cluster sait dessiner, sans rien dépenser."

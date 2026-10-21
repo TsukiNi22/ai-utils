@@ -1,0 +1,42 @@
++++
+title = "The interfaces"
+summary = "Terminal, window, web page and phone: the same sessions everywhere, in sync."
+section = "guide"
+order = 30
+keywords = "terminal tty window gui qt web page phone android app headless serve shared core hub grid board"
++++
+
+Every interface is a view of one **core** (`claude-cluster serve --linger`, started by the first terminal or window). Several terminals, windows, web pages and phones can be open at once, in sync: the same sessions, prompts, questions and notices (`[ui] shared_core`, on). Closing one leaves the others; the last one closed stops the core, unless the [background service](page:settings#service) is the core.
+
+## Terminal {#terminal}
+
+`claude-cluster` in a terminal (or `--tty`). Built with FTXUI: a list of sessions, the conversation, panels, popups, the mouse (click, drag to select, wheel) and the keys of [the keys page](page:keys).
+
+- Layouts (`F2`, `--layout`): `list` (list plus active panel) and `grid` (every session in a cell; arrows move between cells on an empty prompt, `Shift+Enter` / `Alt+O` opens one). See [Layouts](page:layouts).
+- `Alt+G` opens the [graph view](page:taxonomy#graph): the global session in the middle, the sessions around it.
+- The terminal stays in the foreground: `Ctrl+Z` is undo in the prompt, never a suspend.
+- Images in the transcript need `chafa` or ImageMagick (`magick`).
+
+## Window {#window}
+
+`claude-cluster --gui` (built when Qt6 Widgets is found): the same features in a native window with tabs, a header per session, dialogs for settings and a hub graph. `claude-cluster -g --tty-mode` shows the terminal interface inside the window (`[ui] gui_mode = tty` keeps it). The service opens it when you say the wake phrase.
+
+## Web page {#web}
+
+Open the web access (settings *Web*, the palette *Web access: open*, `claude-cluster web on` or `--web`) and a browser on the same network drives claude-cluster: sessions, transcripts, prompts, Stop, permissions and questions, new sessions, settings.
+
+- **Views**: *Chat*, *Grid*, *Board* (your own dashboard of tiles), *Hub* (a graph of the sessions, a tree of the [taxonomy](page:taxonomy)) and *Tree* (sessions by folder).
+- **Getting in**: https with a certificate of your own authority (trusted once per device from the login page, no browser warning afterwards), a **6-digit code** that changes at each opening, then **your approval** on the computer (*Allow*, *Allow and trust*, *Deny*). Trusted devices come back by themselves.
+- **Terminal mode**: the ⌨ button runs a real `claude-cluster --tty` for that device in the browser.
+- **Beyond the LAN**: `[web] remote = tailscale` (recommended) or `router`. See [Security](page:security).
+- **Docs**: this documentation is served by the core at `/docs` and opens in a panel with `Ctrl+K` then *Docs*.
+
+By default only private addresses of the subnets of your computer are served, and from the page you cannot open a shell or change the web settings unless you allowed it (see [Security](page:security)).
+
+## Phone {#phone}
+
+Any phone browser works. On Android the page offers an **app** (`/app.apk`): the same page in a thin shell that trusts your computer once, shows the notifications of the desktop, and can use the microphone. See [Notifications and the phone app](page:notifications-apk). iPhone: the browser page, with the certificate steps shown on the login page.
+
+## Headless {#headless}
+
+`claude-cluster serve` runs the core without any interface. Everything is then driven by the headless commands (`list`, `send`, `spawn`, `allow`, `task`, `schedule`, `web`... with `--rtk` for a compact output made for an AI, `--json` raw) and by the MCP server. See the [protocol](page:protocol).

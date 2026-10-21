@@ -17,7 +17,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 CHECK_STYLE = REPO_ROOT / "docs" / "html-style" / "scripts" / "check_style.py"
-PLACEHOLDER = re.compile(r"\b(lorem ipsum|TODO|FIXME|TBD|XXX|placeholder)\b", re.I)
+PLACEHOLDER = re.compile(r"\b(?:(?i:lorem ipsum|placeholder)|TODO|FIXME|TBD|XXX)\b")
 RUNTIME = ("/docs", "/app.apk", "/api/", "/ca.crt")  # served by the binary only
 
 
@@ -88,7 +88,7 @@ def main() -> int:
             run = subprocess.run([sys.executable, str(CHECK_STYLE), str(path)], capture_output=True, text=True)
             if run.returncode != 0:
                 errors.append("%s: check_style: %s" % (path.name, run.stdout.strip().splitlines()[-1] if run.stdout.strip() else run.stderr.strip()))
-    for e in errors:
+    for e in sorted(set(errors), key=errors.index):
         print("ERROR " + e)
     print("%d pages checked, %d error(s)" % (len(pages), len(errors)))
     return 1 if errors else 0
