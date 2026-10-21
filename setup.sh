@@ -39,7 +39,18 @@
 #   --no-rtk             context: don't install rtk
 #   --no-hooks           context: don't touch ~/.claude/settings.json
 #   --purge              with remove: also delete the managed clone (curl/wget mode)
+#   --verbose            tools: stream the raw build output instead of the progress display
+#   --quiet              tools: only the final line of each tool (and the failures)
 #   -h, --help           show this help
+#
+# Build progress (tools, install / update): 4 steps (configure, build, install, completion + post-install), during
+# the build the percentage, a bar, the current file, the elapsed time and an ETA (parsed from the output, which goes
+# unchanged to the log <cache>/tsukini-skills/build/<tool>.log). On a terminal: one updating line (width-aware,
+# colours unless NO_COLOR is set, the cursor is restored on Ctrl-C); otherwise (pipe, CI): a line per 10% and per step.
+# A failure shows the step, the last 20 lines of the log and its path (the tool is skipped, never fatal).
+#   SETUP_PROGRESS=plain|bar|off   force the display (default: bar on a terminal, plain otherwise; off: no progress)
+#   SETUP_JOBS=N                   parallel jobs of the builds (default: the processors, lowered when there is
+#                                  less than ~1.5 GB of free memory per job)
 #
 # Run without a clone (curl/wget), the repository is cloned/updated into $SKILLS_HOME
 # (default: ~/.local/share/tsukini-skills) and the script runs from there.
@@ -102,6 +113,9 @@ CONTEXT=true       # the context is handled by default
 CONTEXT_NAMED=false
 CONTEXT_OPTS=()
 PROJECT=false
+PG_FORCE=""        # progress mode forced by --verbose / --quiet
+JOBS=1
+JOBS_NOTE=""
 
 # =========================
 # Helpers
@@ -140,7 +154,7 @@ remote_setup() {
 }
 
 usage() {
-    sed -n '2,41p' "$REPO/setup.sh" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^$/p' "$REPO/setup.sh" | sed '$d' | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -185,9 +199,259 @@ tool_installed() {
     [[ -x "$PREFIX/bin/$1" ]] && "$PREFIX/bin/$1" --version 2> /dev/null | grep -q "^$1 "
 }
 
-# Build with CMake (Optimized) then install into the prefix, skipped (not fatal) when it can't be built
+# =========================
+# Progress display of the builds
+# =========================
+# Modes (PG_MODE): bar = one updating line (interactive terminal), plain = a line per 10% / per step (pipes, CI),
+# verbose = the raw output streamed, quiet = the final line of each tool only, off = no progress (messages only)
+PG_MODE="plain"
+PG_TOTAL=4          # steps of a tool: configure, build, install, completion + post-install
+PG_N=0              # current step
+PG_NAME=""          # its name
+PG_PCT=-1           # percentage parsed from the output of the running command (-1: unknown)
+PG_LAST=""          # its last line of output
+PG_PID=""           # process running the step
+PG_COLS=80
+C_HEAD=""
+C_BAR=""
+C_OK=""
+C_ERR=""
+C_DIM=""
+C_OFF=""
+
+# Pick the mode (--verbose / --quiet, else SETUP_PROGRESS=plain|bar|off, else bar on a terminal) and the colours
+progress_init() {
+    local colors=0
+    if [[ -n "$PG_FORCE" ]]; then PG_MODE="$PG_FORCE"
+    else
+        case "${SETUP_PROGRESS:-auto}" in
+            plain|bar|off) PG_MODE="$SETUP_PROGRESS" ;;
+            *) if [[ -t 1 ]]; then PG_MODE="bar"; else PG_MODE="plain"; fi ;;
+        esac
+    fi
+    PG_COLS="${COLUMNS:-}"
+    [[ "$PG_COLS" =~ ^[0-9]+$ ]] || PG_COLS="$(tput cols 2> /dev/null || echo 80)"
+    [[ "$PG_COLS" =~ ^[0-9]+$ ]] && [[ "$PG_COLS" -ge 20 ]] || PG_COLS=80
+    if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && [[ "${TERM:-dumb}" != "dumb" ]]; then
+        colors="$(tput colors 2> /dev/null || echo 0)"
+        [[ "$colors" =~ ^[0-9]+$ ]] || colors=0
+        if [[ "$colors" -ge 8 ]]; then
+            C_HEAD=$'\033[36m' C_BAR=$'\033[32m' C_OK=$'\033[32m' C_ERR=$'\033[31m' C_DIM=$'\033[2m' C_OFF=$'\033[0m'
+        fi
+    fi
+    trap progress_exit EXIT
+    trap progress_abort INT TERM
+}
+
+# Restore the cursor whatever the way out
+progress_exit() {
+    [[ "$PG_MODE" = "bar" ]] && printf '\033[?25h' || true
+}
+
+# Ctrl-C / TERM: stop the running step (the processes started by this script only), restore the terminal
+progress_abort() {
+    trap '' INT TERM
+    [[ -n "$PG_PID" ]] && kill_tree "$PG_PID"
+    [[ "$PG_MODE" = "bar" ]] && printf '\r\033[K\033[?25h' || true
+    echo "  interrupted"
+    exit 130
+}
+
+# Kill a process and its descendants (the background jobs of a script ignore SIGINT)
+kill_tree() {
+    local child
+    for child in $(pgrep -P "$1" 2> /dev/null); do kill_tree "$child"; done
+    kill "$1" 2> /dev/null || true
+}
+
+# 75 -> 1m15s
+fmt_time() {
+    local s="$1"
+    if [[ "$s" -ge 3600 ]]; then printf '%dh%02dm' $((s / 3600)) $((s % 3600 / 60))
+    elif [[ "$s" -ge 60 ]]; then printf '%dm%02ds' $((s / 60)) $((s % 60))
+    else printf '%ds' "$s"
+    fi
+}
+
+# Percentage + current line from the end of the log: "[ 42%] Building ..." (Makefile), "[12/345] ..." (Ninja),
+# "step 2/5" (post-install scripts), else any "NN%"; the percentage stays unknown (-1) when none is printed
+progress_parse() {
+    local chunk line pct
+    local re_make='^\[ *([0-9]+)%\]' re_ninja='^\[([0-9]+)/([0-9]+)\]' re_step='[Ss][Tt][Ee][Pp] ([0-9]+)/([0-9]+)' re_pct='(^|[^0-9.])([0-9]{1,3})%'
+    chunk="$(tail -c 3000 "$1" 2> /dev/null | tr '\r' '\n' | tr -d '\000-\010\013-\037' || true)"
+    while IFS= read -r line; do
+        [[ -z "${line// /}" ]] && continue
+        pct=""
+        if [[ "$line" =~ $re_make ]]; then pct="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ $re_ninja ]] && [[ "${BASH_REMATCH[2]}" -gt 0 ]]; then pct=$((BASH_REMATCH[1] * 100 / BASH_REMATCH[2]))
+        elif [[ "$line" =~ $re_step ]] && [[ "${BASH_REMATCH[2]}" -gt 0 ]]; then pct=$((BASH_REMATCH[1] * 100 / BASH_REMATCH[2]))
+        elif [[ "$line" =~ $re_pct ]]; then pct="${BASH_REMATCH[2]}"
+        fi
+        [[ -n "$pct" ]] && { [[ "$pct" -gt 100 ]] && pct=100; PG_PCT="$pct"; }
+        [[ "$line" = "["* ]] && line="${line#*] }"
+        if [[ "$line" = *" object "* ]]; then line="${line%% object *} ${line##*/}"; fi
+        PG_LAST="$line"
+    done <<< "$chunk"
+}
+
+# [#####...............]
+progress_bar() {
+    local filled=$((PG_PCT * 20 / 100)) i out=""
+    for ((i = 0; i < 20; i++)); do
+        if [[ "$i" -lt "$filled" ]]; then out="$out#"; else out="$out."; fi
+    done
+    printf '%s' "$out"
+}
+
+# Live line (bar mode), cut to the width of the terminal
+progress_draw() {
+    local elapsed="$1" tick="$2" head mid time eta="" plain colored room last spin
+    local frames='|/-\' pct="$PG_PCT"
+    head="[$PG_N/$PG_TOTAL] $PG_NAME"
+    spin="${frames:$((tick % 4)):1}"
+    time="$(fmt_time "$elapsed")"
+    if [[ "$pct" -ge 0 ]]; then
+        mid="[$(progress_bar)] $(printf '%3d' "$pct")%"
+        [[ "$pct" -ge 10 && "$pct" -lt 100 ]] && eta=" eta ~$(fmt_time $((elapsed * (100 - pct) / pct)))"
+        colored="  $C_HEAD$head$C_OFF $C_BAR$mid$C_OFF $time$eta"
+    else
+        mid="$spin"
+        colored="  $C_HEAD$head$C_OFF $mid $time"
+    fi
+    plain="  $head $mid $time$eta"
+    if [[ "${#plain}" -ge "$PG_COLS" ]]; then # narrow terminal: no bar, no ETA, the head cut if needed
+        [[ "$pct" -ge 0 ]] && mid="${pct}%"
+        plain="  $head $mid $time"
+        [[ "${#plain}" -ge "$PG_COLS" ]] && head="${head:0:$((PG_COLS - ${#plain} + ${#head} - 2))}~"
+        plain="  $head $mid $time"
+        colored="  $C_HEAD$head$C_OFF $C_BAR$mid$C_OFF $time"
+    fi
+    room=$((PG_COLS - 1 - ${#plain} - 2))
+    last="$PG_LAST"
+    if [[ "$room" -ge 8 && -n "$last" ]]; then
+        [[ "${#last}" -gt "$room" ]] && last="${last:0:$((room - 1))}~"
+        colored="$colored  $C_DIM$last$C_OFF"
+    fi
+    printf '\r\033[K\033[?25l%s' "$colored"
+}
+
+# Run a command of a step with its output in the log, showing its progress according to the mode;
+# PG_N / PG_NAME name the step; returns the status of the command
+progress_run() {
+    local log="$1" rc=0 start now elapsed tick=0 bucket=0 last_bucket=0 beat=30 mark
+    shift
+    start="$(date +%s)"
+    PG_PCT=-1
+    PG_LAST=""
+    case "$PG_MODE" in
+        verbose)
+            echo "  [$PG_N/$PG_TOTAL] $PG_NAME"
+            if "$@" 2>&1 | tee -a "$log"; then rc=0; else rc="${PIPESTATUS[0]}"; fi
+            ;;
+        quiet|off)
+            "$@" >> "$log" 2>&1 || rc=$?
+            ;;
+        *)
+            "$@" >> "$log" 2>&1 &
+            PG_PID=$!
+            while kill -0 "$PG_PID" 2> /dev/null; do
+                progress_parse "$log"
+                now="$(date +%s)"
+                elapsed=$((now - start))
+                if [[ "$PG_MODE" = "bar" ]]; then
+                    progress_draw "$elapsed" "$tick"
+                else
+                    bucket=$((PG_PCT / 10))
+                    if [[ "$PG_PCT" -ge 0 && "$bucket" -gt "$last_bucket" && "$bucket" -lt 10 ]]; then
+                        echo "  [$PG_N/$PG_TOTAL] $PG_NAME $((bucket * 10))% ($(fmt_time "$elapsed"))${PG_LAST:+ $PG_LAST}"
+                        last_bucket="$bucket"
+                    elif [[ "$PG_PCT" -lt 0 && "$elapsed" -ge "$beat" ]]; then
+                        echo "  [$PG_N/$PG_TOTAL] $PG_NAME still running ($(fmt_time "$elapsed"))${PG_LAST:+ $PG_LAST}"
+                        beat=$((beat + 30))
+                    fi
+                fi
+                tick=$((tick + 1))
+                sleep 0.25 2> /dev/null || sleep 1
+            done
+            wait "$PG_PID" || rc=$?
+            PG_PID=""
+            ;;
+    esac
+    now="$(date +%s)"
+    progress_done "$rc" $((now - start))
+    return "$rc"
+}
+
+# Permanent line of a finished step (replaces the live line)
+progress_done() {
+    local rc="$1" secs="$2" state="ok" color="$C_OK"
+    [[ "$rc" -ne 0 ]] && { state="FAILED"; color="$C_ERR"; }
+    case "$PG_MODE" in
+        quiet|off|verbose) [[ "$PG_MODE" = "verbose" ]] || return 0 ;;
+        bar) printf '\r\033[K\033[?25h' ;;
+    esac
+    echo "  $C_HEAD[$PG_N/$PG_TOTAL] $PG_NAME$C_OFF $color$state$C_OFF ($(fmt_time "$secs"))"
+}
+
+# A step of a tool: pg_step <n> <name> <log> <command...>
+pg_step() {
+    PG_N="$1"
+    PG_NAME="$2"
+    shift 2
+    progress_run "$@"
+}
+
+# Free memory in MB (empty when unknown): MemAvailable on Linux, free + inactive + speculative pages on macOS
+free_memory_mb() {
+    local mb=""
+    if [[ -r /proc/meminfo ]]; then
+        mb="$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo 2> /dev/null || true)"
+    elif command -v vm_stat > /dev/null 2>&1; then
+        mb="$(vm_stat 2> /dev/null | awk '
+            /page size of/ { for (i = 1; i <= NF; i++) if ($i == "of") size = $(i + 1) }
+            /^Pages (free|inactive|speculative):/ { gsub(/\./, "", $NF); pages += $NF }
+            END { if (size > 0) print int(pages * size / 1048576) }' || true)"
+    fi
+    echo "$mb"
+}
+
+# Parallel jobs of a build (JOBS, with a note in JOBS_NOTE): the processors, lowered when the free memory is
+# under ~1.5 GB per job (clang runs out of memory otherwise), SETUP_JOBS=N overrides everything
+choose_jobs() {
+    local cpu mb max
+    cpu="$(cpus)"
+    JOBS="$cpu"
+    JOBS_NOTE="$cpu cpus"
+    if [[ "${SETUP_JOBS:-}" =~ ^[0-9]+$ ]] && [[ "$SETUP_JOBS" -ge 1 ]]; then
+        JOBS="$SETUP_JOBS"
+        JOBS_NOTE="SETUP_JOBS"
+        return 0
+    fi
+    mb="$(free_memory_mb)"
+    [[ "$mb" =~ ^[0-9]+$ ]] || return 0
+    max=$((mb * 2 / 3072))
+    [[ "$max" -lt 1 ]] && max=1
+    JOBS_NOTE="$cpu cpus, $((mb / 1024)).$((mb % 1024 * 10 / 1024)) GB free"
+    [[ "$max" -lt "$JOBS" ]] && JOBS="$max"
+    return 0
+}
+
+# Failure of a step: what failed, the last lines of the log and its path (never fatal: the caller returns 0)
+tool_failed() {
+    local tool="$1" msg="$2" log="$3" t0="$4"
+    echo "  skip $tool: $msg"
+    [[ "$PG_MODE" = "quiet" ]] && return 0
+    echo "  failed at step $PG_N/$PG_TOTAL ($PG_NAME) after $(fmt_time $(($(date +%s) - t0))), log: $log"
+    if [[ "$PG_MODE" != "verbose" ]]; then
+        echo "  last 20 lines:"
+        tail -n 20 "$log" | sed 's/^/    | /'
+    fi
+}
+
+# Build with CMake (Optimized) then install into the prefix, skipped (not fatal) when it can't be built;
+# the 4 steps (configure, build, install, completion + post-install) show their progress, see "Progress display"
 install_tool() {
-    local tool="$1" dir build log
+    local tool="$1" dir build log t0 package hint
     dir="$(tool_dir "$tool")"
     build="$TOOLS_BUILD/$tool"
     log="$TOOLS_BUILD/$tool.log"
@@ -199,37 +463,52 @@ install_tool() {
     if [[ -f "$build/CMakeCache.txt" ]] && ! grep -qx "CMAKE_HOME_DIRECTORY:INTERNAL=$dir" "$build/CMakeCache.txt"; then
         rm -rf "$build"
     fi
-    echo "  building $tool (log: $log)..."
-    if ! cmake -S "$dir" -B "$build" -DCMAKE_BUILD_TYPE=Optimized > "$log" 2>&1; then
+    : > "$log"
+    t0="$(date +%s)"
+    [[ "$PG_MODE" = "quiet" ]] || echo "  building $tool (log: $log)..."
+    if ! pg_step 1 "configure" "$log" cmake -S "$dir" -B "$build" -DCMAKE_BUILD_TYPE=Optimized; then
         if grep -qE "Could not find a package configuration file.*utils|find_package\(utils|utilsConfig\.cmake" "$log"; then
-            echo "  skip $tool: libutils is required (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh))"
+            tool_failed "$tool" "libutils is required (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/libutils/main/setup.sh))" "$log" "$t0"
         elif package="$(grep -oE 'provided by "[^"]+"' "$log" | head -1 | cut -d'"' -f2)" && [[ -n "$package" ]]; then
             case "$package" in
                 nlohmann_json) hint="dnf: json-devel, apt: nlohmann-json3-dev" ;;
                 tomlplusplus) hint="dnf: tomlplusplus-devel, apt: libtomlplusplus-dev" ;;
                 *) hint="its development package" ;;
             esac
-            echo "  skip $tool: $package is required ($hint), see $log"
+            tool_failed "$tool" "$package is required ($hint), see $log" "$log" "$t0"
         else
-            echo "  skip $tool: CMake configuration failed, see $log"
+            tool_failed "$tool" "CMake configuration failed, see $log" "$log" "$t0"
         fi
         return 0
     fi
-    if ! cmake --build "$build" --parallel "$(cpus)" >> "$log" 2>&1; then
-        echo "  skip $tool: build failed, see $log"
+    choose_jobs
+    [[ "$PG_MODE" = "quiet" ]] || echo "  parallel jobs: $JOBS ($JOBS_NOTE; SETUP_JOBS=N to force)"
+    if ! pg_step 2 "build" "$log" cmake --build "$build" --parallel "$JOBS"; then
+        tool_failed "$tool" "build failed, see $log" "$log" "$t0"
         return 0
     fi
-    if ! cmake --install "$build" --prefix "$PREFIX" >> "$log" 2>&1; then
-        echo "  skip $tool: can't install into $PREFIX (--prefix <dir> to change it), see $log"
+    if ! pg_step 3 "install" "$log" cmake --install "$build" --prefix "$PREFIX"; then
+        tool_failed "$tool" "can't install into $PREFIX (--prefix <dir> to change it), see $log" "$log" "$t0"
         return 0
-    fi
-    echo "  installed $tool -> $PREFIX/bin/$tool"
-    install_completion "$tool"
-    # its own last step (ex: the Android app of claude-cluster): <tool dir>/post-install.sh <prefix>
-    if [[ -x "$dir/post-install.sh" ]]; then
-        "$dir/post-install.sh" "$PREFIX" >> "$log" 2>&1 && tail -1 "$log" | sed 's/^/  /' || echo "  $tool: its post-install failed, see $log"
     fi
     TOOLS_CHANGED=true
+    # completion for the shells, then its own last step (ex: the Android app of claude-cluster): <tool dir>/post-install.sh <prefix>
+    local completion
+    completion="$(install_completion "$tool")"
+    if [[ -x "$dir/post-install.sh" ]]; then
+        if pg_step 4 "completion + post-install" "$log" "$dir/post-install.sh" "$PREFIX"; then
+            [[ "$PG_MODE" = "quiet" ]] || { [[ -n "$completion" ]] && echo "$completion"; tail -n 1 "$log" | sed 's/^/  /'; }
+        else
+            echo "  $tool: its post-install failed, see $log"
+            [[ "$PG_MODE" = "quiet" ]] || { tail -n 20 "$log" | sed 's/^/    | /'; }
+        fi
+    else
+        PG_N=4
+        PG_NAME="completion"
+        progress_done 0 0
+        [[ "$PG_MODE" = "quiet" ]] || { [[ -n "$completion" ]] && echo "$completion"; }
+    fi
+    echo "  installed $tool -> $PREFIX/bin/$tool (total $(fmt_time $(($(date +%s) - t0))))"
     case ":$PATH:" in
         *":$PREFIX/bin:"*) ;;
         *) echo "  warning: $PREFIX/bin is not in the PATH (add: export PATH=\"$PREFIX/bin:\$PATH\")" ;;
@@ -356,6 +635,8 @@ while [[ $# -gt 0 ]]; do
         --force) FORCE=true ;;
         --purge) PURGE=true ;;
         --no-context) CONTEXT=false ;;
+        --verbose) PG_FORCE="verbose" ;;
+        --quiet) PG_FORCE="quiet" ;;
         --no-rtk|--no-hooks) CONTEXT_OPTS+=("$1") ;;
         -h|--help) usage 0 ;;
         -*) error "unknown option '$1'" ;;
@@ -365,6 +646,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$COMMAND" ]] && usage 1
+progress_init
 
 # Names: skills or tools (none = every skill and every tool)
 if [[ ${#SKILLS[@]} -eq 0 ]]; then

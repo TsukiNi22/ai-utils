@@ -161,6 +161,9 @@ cd ai-utils
 ./setup.sh install --no-context           # everything but the context
 ./setup.sh install --project ~/my/project # in <project>/.claude/skills instead
 ./setup.sh install --copy                 # copy instead of symlink
+./setup.sh install xstyle --verbose       # the raw build output instead of the progress display (--quiet: one line per tool)
+SETUP_PROGRESS=plain ./setup.sh install   # force the display: plain | bar | off (default: bar on a terminal, plain in a pipe / CI)
+SETUP_JOBS=2 ./setup.sh install tools     # parallel jobs of the builds (default: the processors, lowered under ~1.5 GB free per job)
 ./setup.sh update                         # git pull of the repository (+ rebuild of the installed tools)
 ./setup.sh remove                         # remove every skill, tool and the context of this repo
 ./setup.sh remove cpp-class               # remove only one (`remove context` restores the replaced files)
@@ -172,6 +175,11 @@ cd ai-utils
 By default the skills are **symlinked**: an update (or a local edit) is used right away,
 no need to reinstall. `remove` only deletes skills that come from this repository
 (use `--force` otherwise).
+
+The tools show their build progress (steps configure / build / install / completion + post-install, percentage, bar,
+current file, elapsed time and ETA parsed from the build output, which goes to `~/.cache/tsukini-skills/build/<tool>.log`):
+one updating line on a terminal (`NO_COLOR` is honoured), a line per 10% and per step in a pipe or CI. A failed build
+shows its step and the last 20 lines of the log, and the tool is skipped.
 
 ## Plugin marketplace (Claude Code)
 
