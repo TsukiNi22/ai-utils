@@ -89,6 +89,7 @@ struct Theme {
     ftxui::Color warn;
     ftxui::Color error;
     bool dark = true;
+    ftxui::Color okInk = ftxui::Color::Default;     // the text on a plate of the ok colour (bg or text: the more contrasted)
 };
 
 //----------------------------------------------------------------//
@@ -231,10 +232,31 @@ _cold std::vector<cluster::Cell> highlight_(const std::string& line, const std::
     return out;
 }
 
+_nodiscard double luminance_(const std::string& hex)
+{
+    // WCAG relative luminance of "#rrggbb"
+    if (hex.size() != 7 || hex[0] != '#') return 0.0;
+    double sum = 0.0;
+    const double weight[3] = {0.2126, 0.7152, 0.0722};
+    for (int k = 0; k < 3; ++k) {
+        const double v = std::stoi(hex.substr(1 + 2 * static_cast<std::size_t>(k), 2), nullptr, 16) / 255.0;
+        sum += weight[k] * (v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4));
+    }
+    return sum;
+}
+
+_nodiscard double contrast_(const std::string& a, const std::string& b)
+{
+    const double la = luminance_(a);
+    const double lb = luminance_(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
 _cold Theme make_theme_(const cluster::Style& style)
 {
     return {hex_(style.bg), hex_(style.surface), hex_(style.text), hex_(style.muted), hex_(style.accent), hex_(style.border),
-        hex_(style.ok), hex_(style.warn), hex_(style.error), style.dark};
+        hex_(style.ok), hex_(style.warn), hex_(style.error), style.dark,
+        hex_(contrast_(style.ok, style.bg) >= contrast_(style.ok, style.text) ? style.bg : style.text)};
 }
 
 _cold std::size_t width_(const std::string& text)
@@ -369,6 +391,23 @@ _cold std::size_t byte_at_(const std::string& line, const int column)
             ++at;
     }
     return at;
+}
+
+_cold std::string code_slice_(const std::string& raw, const int from, const int to)
+{
+    // the part of a code line (tabs kept) drawn on the cells [from, to) (a tab is drawn as 4 cells, a character as 1)
+    std::string out;
+    int column = 0;
+    for (std::size_t at = 0; at < raw.size() && column < to;) {
+        std::size_t end = at + 1;
+        while (end < raw.size() && (static_cast<unsigned char>(raw[end]) & 0xC0) == 0x80)
+            ++end;
+        const int size = raw[at] == '\t' ? 4 : 1;
+        if (column + size > from) out += raw.substr(at, end - at);
+        column += size;
+        at = end;
+    }
+    return out;
 }
 
 _cold std::string cut_(const std::string& line, const std::size_t columns)
@@ -655,10 +694,20 @@ class TtyUi {
         std::size_t _askChatSeen = 0;               // its messages when drawn last (a new one: back to the newest)
         int _panelHidden = 0;                       // lines below the room at the last drawing
         using Hit = std::tuple<int, int, std::function<void(void)>>;   // the cells [from, to] of a line clicked: what it does
+        struct CodeRow {
+            // a row of a fenced code block: what the selection copies from it (the box and its padding are not text)
+            int block = -1;                         // the block (-1: not a row of a block)
+            bool text = false;                      // a line of code (false: the border / header of the box)
+            bool button = false;                    // the header with the copy button
+            int from = 0;                           // the cells of the code text [from, to)
+            int to = 0;
+            std::string raw;                        // the code of this row as written (tabs kept; a wrapped line: its part)
+        };
         struct View {
             ftxui::Box box;
             std::vector<std::string> lines;         // transcript lines shown (mouse selection)
             std::vector<std::string> joins;
+            std::vector<CodeRow> code;              // per line: the code block it belongs to
             std::vector<std::vector<Hit>> hits;     // per line: its parts clicked (a display: tick, a button, play...)
             std::vector<std::size_t> entries;       // per line: its entry of the transcript (npos: none), for the right click (Pin)
         };
@@ -671,7 +720,10 @@ class TtyUi {
             int y0 = 0;
             int x1 = 0;
             int y1 = 0;
+            int block = -1;                         // started in a code block: stays inside its code text
         };
+        std::string _copiedBlock;                   // the code block just copied (its button says copied for a while)
+        std::int64_t _copiedAt = 0;
         std::optional<Selection> _selection;        // mouse selection in a transcript (copied when released)
         std::string _drag;                          // "prompt", a session id, or empty
         struct Click {
@@ -1720,6 +1772,38 @@ class TtyUi {
             return std::min(at, row.end);
         }
 
+        struct CodeSpan {
+            int first = -1;     // the rows of code of a block around a row, the cells of its text
+            int last = -1;
+            int xMin = 0;
+            int xMax = 0;
+        };
+
+        _nodiscard static CodeSpan codeSpan_(const View& view, const int y)
+        {
+            // the block drawn on the row y: its first / last row of code and its widest text (none: first < 0)
+            CodeSpan span;
+            if (y < 0 || y >= static_cast<int>(view.code.size()) || view.code[static_cast<std::size_t>(y)].block < 0) return span;
+            const int block = view.code[static_cast<std::size_t>(y)].block;
+            int top = y;
+            int bottom = y;
+            while (top > 0 && view.code[static_cast<std::size_t>(top - 1)].block == block)
+                --top;
+            while (bottom + 1 < static_cast<int>(view.code.size()) && view.code[static_cast<std::size_t>(bottom + 1)].block == block)
+                ++bottom;
+            for (int k = top; k <= bottom; ++k) {
+                const CodeRow& row = view.code[static_cast<std::size_t>(k)];
+                if (!row.text) continue;
+                if (span.first < 0) {
+                    span.first = k;
+                    span.xMin = row.from;
+                }
+                span.last = k;
+                span.xMax = std::max(span.xMax, row.to);
+            }
+            return span;
+        }
+
         _nodiscard std::string selectedText_(void) const
         {
             // the cells selected in a transcript, its lines joined back as they were (wrapped or not)
@@ -1732,11 +1816,24 @@ class TtyUi {
             const int yb = forward ? sel.y1 : sel.y0;
             const int xb = forward ? sel.x1 : sel.x0;
             std::string text;
+            bool started = false;    // something copied: the next row is joined to it
             for (int y = std::max(ya, 0); y <= yb && y < static_cast<int>(view.lines.size()); ++y) {
+                const CodeRow& code = view.code[static_cast<std::size_t>(y)];
+                if (code.block >= 0) {
+                    // a code block: its code as written, without the box, its padding or its header
+                    if (!code.text) continue;
+                    const int a = std::max(code.from, y == ya ? xa : 0);
+                    const int b = std::min(code.to, y == yb ? xb + 1 : code.to);
+                    if (started) text += view.joins[static_cast<std::size_t>(y)];
+                    started = true;
+                    if (b > a) text += code_slice_(code.raw, a - code.from, b - code.from);
+                    continue;
+                }
                 const std::string& line = view.lines[static_cast<std::size_t>(y)];
                 const std::size_t from = y == ya ? byte_at_(line, xa) : 0;
                 const std::size_t to = y == yb ? byte_at_(line, xb + 1) : line.size();
-                if (y != ya) text += view.joins[static_cast<std::size_t>(y)];
+                if (started) text += view.joins[static_cast<std::size_t>(y)];
+                started = true;
                 if (to > from) text += line.substr(from, to - from);
             }
             return text;
@@ -2133,7 +2230,14 @@ class TtyUi {
                     if (!view.box.Contain(mouse.x, mouse.y)) continue;
                     const int x = mouse.x - view.box.x_min;
                     const int y = mouse.y - view.box.y_min;
+                    const CodeSpan span = codeSpan_(view, y);
                     this->_selection = Selection{id, x, y, x, y};
+                    if (span.first >= 0) {
+                        // started in a code block: it stays in its text
+                        this->_selection->block = view.code[static_cast<std::size_t>(y)].block;
+                        this->_selection->y0 = this->_selection->y1 = std::clamp(y, span.first, span.last);
+                        this->_selection->x0 = this->_selection->x1 = std::clamp(x, span.xMin, std::max(span.xMin, span.xMax - 1));
+                    }
                     this->_drag = id;
                     return;
                 }
@@ -2148,6 +2252,13 @@ class TtyUi {
                     const ftxui::Box& box = this->_views.at(this->_drag).box;
                     this->_selection->x1 = std::clamp(mouse.x, box.x_min, box.x_max) - box.x_min;
                     this->_selection->y1 = std::clamp(mouse.y, box.y_min, box.y_max) - box.y_min;
+                    if (this->_selection->block >= 0) {
+                        const CodeSpan span = codeSpan_(this->_views.at(this->_drag), this->_selection->y0);
+                        if (span.first >= 0) {
+                            this->_selection->y1 = std::clamp(this->_selection->y1, span.first, span.last);
+                            this->_selection->x1 = std::clamp(this->_selection->x1, span.xMin, std::max(span.xMin, span.xMax - 1));
+                        }
+                    }
                 }
                 return;
             }
@@ -3631,6 +3742,7 @@ class TtyUi {
                 std::string join;   // before it when copied
                 std::vector<cluster::Cell> cells{};     // a line of a picture: its runs of colors (text: what is copied)
                 std::vector<Hit> hits{};                // its parts clicked
+                CodeRow code{};                         // a row of a code block: its text as written, its cells
             };
             std::vector<Row> lines;
             const bool searching = this->_mode == Mode::Search && s.spec.id == this->_active && !this->_matches.empty();
@@ -3661,44 +3773,75 @@ class TtyUi {
                     }
                 };
             };
-            // a fenced code block: boxed, its language and ⧉ copy (a click) on its top line, its lines coloured
+            // a fenced code block: boxed, its language and the ⧉ copy button (a click) on its top line, its lines coloured; each
+            // row keeps its block, its cells of text and its code as written (the selection copies that, not the box)
             const std::function<void(const std::string&, const std::vector<std::string>&, const std::string&)> codeBox =
                 [&](const std::string& language, const std::vector<std::string>& code, const std::string& indent) {
                     const std::size_t inner = room > width_(indent) + 6 ? room - width_(indent) - 4 : 20;
                     const std::string label = language.empty() ? std::string("code") : language;
-                    const std::string copy = " ⧉ copy ";
-                    std::string top = indent + "╭─ " + label + " ";
-                    const std::size_t used = width_(top) - width_(indent);
-                    for (std::size_t k = used + width_(copy) + 1; k < inner + 4; ++k)
-                        top += "─";
-                    const int copyAt = static_cast<int>(width_(top));
-                    top += copy + "╮";
+                    const std::string copy = "  ⧉ copy  ";     // 10 cells, like " ✓ copied "
                     std::string all;
                     for (const std::string& line: code)
                         all += (all.empty() ? "" : "\n") + line;
+                    const std::string id = std::to_string(std::hash<std::string>{}(language + "\n" + all) & 0x7fffffff);
+                    const int block = static_cast<int>(std::stoll(id));
+                    const bool copied = this->_copiedBlock == id && now_ms_() - this->_copiedAt < 1500;
+                    if (copied) this->_animating = true; // drawn again when "copied" goes
+                    const std::string shown = copied ? " ✓ copied " : copy;
+                    const int textFrom = static_cast<int>(width_(indent)) + 2;
+                    std::string top = indent + "╭─ " + label + " ";
+                    const std::size_t used = width_(top) - width_(indent);
+                    for (std::size_t k = used + width_(shown) + 1; k < inner + 4; ++k)
+                        top += "─";
+                    const int copyAt = static_cast<int>(width_(top));
+                    top += shown + "╮";
                     lines.push_back({top, ftxui::color(this->_theme.border), "\n"});
-                    lines.back().hits.emplace_back(copyAt, copyAt + static_cast<int>(width_(copy)), [this, all]() {
+                    lines.back().code = {block, false, true, copyAt, copyAt + static_cast<int>(width_(shown)), ""};
+                    lines.back().hits.emplace_back(copyAt, copyAt + static_cast<int>(width_(shown)) - 1, [this, all, id]() {
                         cluster::detach({"wl-copy", "--", all});
+                        this->_copiedBlock = id;
+                        this->_copiedAt = now_ms_();
                         this->status_("code copied (" + std::to_string(all.size()) + " characters)");
                     });
                     bool comment = false;
                     for (const std::string& raw: code) {
-                        std::string line = raw;
-                        for (std::size_t tab = line.find('\t'); tab != std::string::npos; tab = line.find('\t'))
-                            line.replace(tab, 1, "    ");
-                        // a line longer than the box: cut (the copy gives it whole)
-                        if (width_(line) > inner) line = cut_(line, inner);
-                        std::vector<cluster::Cell> cells = {{indent + "│ ", this->_code.comment, 0, true, false}};
-                        for (const cluster::Cell& cell: highlight_(line, language, this->_code, comment))
-                            cells.push_back(cell);
-                        const std::size_t shown = width_(line);
-                        cells.push_back({std::string(inner > shown ? inner - shown : 0, ' ') + " │", this->_code.comment, 0, true, false});
-                        lines.push_back({indent + "│ " + line, ftxui::color(this->_theme.text), "\n", cells});
+                        // a line longer than the box goes on the next rows (a part of the raw line each, joined back when copied)
+                        std::vector<std::string> parts;
+                        std::string part;
+                        std::size_t size = 0;
+                        for (std::size_t at = 0; at < raw.size();) {
+                            std::size_t end = at + 1;
+                            while (end < raw.size() && (static_cast<unsigned char>(raw[end]) & 0xC0) == 0x80)
+                                ++end;
+                            const std::size_t cells = raw[at] == '\t' ? 4 : 1;
+                            if (size + cells > inner && !part.empty()) {
+                                parts.push_back(part);
+                                part.clear();
+                                size = 0;
+                            }
+                            part += raw.substr(at, end - at);
+                            size += cells;
+                            at = end;
+                        }
+                        parts.push_back(part);
+                        for (std::size_t n = 0; n < parts.size(); ++n) {
+                            std::string line = parts[n];
+                            for (std::size_t tab = line.find('\t'); tab != std::string::npos; tab = line.find('\t'))
+                                line.replace(tab, 1, "    ");
+                            std::vector<cluster::Cell> cells = {{indent + "│ ", this->_code.comment, 0, true, false}};
+                            for (const cluster::Cell& cell: highlight_(line, language, this->_code, comment))
+                                cells.push_back(cell);
+                            const std::size_t drawn = width_(line);
+                            cells.push_back({std::string(inner > drawn ? inner - drawn : 0, ' ') + " │", this->_code.comment, 0, true, false});
+                            lines.push_back({indent + "│ " + line, ftxui::color(this->_theme.text), n == 0 ? "\n" : "", cells});
+                            lines.back().code = {block, true, false, textFrom, textFrom + static_cast<int>(drawn), parts[n]};
+                        }
                     }
                     std::string bottom = indent + "╰";
                     for (std::size_t k = 0; k < inner + 2; ++k)
                         bottom += "─";
                     lines.push_back({bottom + "╯", ftxui::color(this->_theme.border), "\n"});
+                    lines.back().code = {block, false, false, 0, 0, ""};
                 };
             const std::function<void(std::size_t, const std::function<void(void)>&)> clickable = [&](const std::size_t from, const std::function<void(void)>& run) {
                 for (std::size_t k = from; k < lines.size(); ++k)
@@ -4387,6 +4530,7 @@ class TtyUi {
             View& view = this->_views[s.spec.id];
             view.lines.clear();
             view.joins.clear();
+            view.code.clear();
             view.hits.clear();
             // the mouse selection of this transcript: from (xa, ya) to (xb, yb), cells
             const bool selecting = this->_selection && this->_selection->session == s.spec.id;
@@ -4405,6 +4549,7 @@ class TtyUi {
                 const int y = k - begin;
                 view.lines.push_back(row.text);
                 view.joins.push_back(row.join);
+                view.code.push_back(row.code);
                 view.hits.push_back(row.hits);
                 // a clickable part under the mouse: lit like a button; just clicked: flashed
                 const bool pressed = flash && this->_pressView == s.spec.id && this->_pressY == y;
@@ -4414,6 +4559,39 @@ class TtyUi {
                 view.entries.push_back(static_cast<std::size_t>(k) >= entriesEnd || owned == starts.begin() ? std::string::npos : std::prev(owned)->second);
                 for (const Hit& hit: row.hits)
                     if (std::get<0>(hit) == (pressed ? this->_pressFrom : this->_hitFrom) && (pressed || hovered)) lit = &hit;
+                if (row.code.button) {
+                    // the copy button: a plate (text colour as background), underlined under the mouse, inverted when pressed
+                    const bool copied = this->_copiedBlock == std::to_string(row.code.block) && now_ms_() - this->_copiedAt < 1500;
+                    ftxui::Decorator plate = copied ? ftxui::color(this->_theme.okInk) | ftxui::bgcolor(this->_theme.ok) | ftxui::bold
+                        : ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.text) | ftxui::bold;
+                    if (lit && pressed) plate = ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg) | ftxui::bold;
+                    else if (lit) plate = plate | ftxui::underlined;
+                    const std::size_t x0 = byte_at_(row.text, row.code.from);
+                    const std::size_t x1 = byte_at_(row.text, row.code.to);
+                    shown.push_back(ftxui::hbox({ftxui::text(row.text.substr(0, x0)) | row.style, ftxui::text(row.text.substr(x0, x1 - x0)) | plate,
+                        ftxui::text(row.text.substr(x1)) | row.style}));
+                    continue;
+                }
+                if (row.code.text && selecting && y >= ya && y <= yb && !(ya == yb && xa == xb)) {
+                    // a line of code: only its text cells are lit (not the box, not the padding)
+                    const int a = std::max(row.code.from, y == ya ? xa : 0);
+                    const int b = std::min(row.code.to, y == yb ? xb + 1 : row.code.to);
+                    ftxui::Elements parts;
+                    int column = 0;
+                    for (const cluster::Cell& c: row.cells) {
+                        const ftxui::Decorator style = (c.hasFg ? ftxui::color(ftxui::Color::RGB((c.fg >> 16) & 255, (c.fg >> 8) & 255, c.fg & 255)) : ftxui::nothing)
+                            | (c.hasBg ? ftxui::bgcolor(ftxui::Color::RGB((c.bg >> 16) & 255, (c.bg >> 8) & 255, c.bg & 255)) : ftxui::nothing);
+                        const int size = static_cast<int>(width_(c.text));
+                        const std::size_t p0 = byte_at_(c.text, std::clamp(a - column, 0, size));
+                        const std::size_t p1 = std::max(p0, byte_at_(c.text, std::clamp(b - column, 0, size)));
+                        if (p0 > 0) parts.push_back(ftxui::text(c.text.substr(0, p0)) | style);
+                        if (p1 > p0) parts.push_back(ftxui::text(c.text.substr(p0, p1 - p0)) | style | ftxui::inverted);
+                        if (p1 < c.text.size()) parts.push_back(ftxui::text(c.text.substr(p1)) | style);
+                        column += size;
+                    }
+                    shown.push_back(ftxui::hbox(std::move(parts)));
+                    continue;
+                }
                 if (lit && !selecting) {
                     // its runs (colours of the cells, or the style of the line) cut at the cells of the part
                     std::vector<std::pair<std::string, ftxui::Decorator>> runs;
@@ -4468,6 +4646,7 @@ class TtyUi {
                 shown.push_back(ftxui::text(cue) | ftxui::color(this->_theme.accent) | (lit ? ftxui::bold : ftxui::dim));
                 view.lines.push_back(cue);
                 view.joins.push_back("\n");
+                view.code.emplace_back();
                 view.hits.push_back({Hit(0, 100000, [this, id = s.spec.id]() {this->_scroll[id] = 0;})});
                 view.entries.push_back(std::string::npos);
             }

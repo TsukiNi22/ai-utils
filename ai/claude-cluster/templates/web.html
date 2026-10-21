@@ -306,9 +306,12 @@ button:active:not(:disabled) { transform: translateY(1px); filter: brightness(.9
 .session, .picker-row, .complete div, .card-head, .tree .row, .hit, button { transition: background .12s, border-color .12s, filter .12s; }
 a:hover { text-decoration: underline; }
 .code-wrap { position: relative; }
-.copy-code { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 11px; opacity: 0; transition: opacity .15s; }
-.code-wrap:hover .copy-code, .copy-code:focus-visible { opacity: 1; }
-@media (hover: none) { .copy-code { opacity: .75; } }
+.copy-code { position: absolute; top: 6px; right: 6px; padding: 3px 10px; font-size: 12px; font-weight: 600; line-height: 1.4; cursor: pointer;
+    background: var(--text); color: var(--bg); border: 1px solid var(--text); border-radius: 5px; opacity: 1; }
+.copy-code:hover { text-decoration: underline; filter: brightness(1.12); }
+.copy-code:active { transform: translateY(1px); filter: brightness(.85); }
+.copy-code:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.copy-code.copied { background: var(--ok); border-color: var(--ok); color: var(--bg); }
 .setting { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .setting .help { grid-column: 1 / 3; color: var(--muted); font-size: 12.5px; }
 .setting .help.next { color: var(--warn); }
@@ -4289,7 +4292,10 @@ document.addEventListener("click", async (e) => {
     if (!pre || (!button && window.getSelection().toString())) return;
     if (await copyText(pre.textContent)) {
         toast("copied");
-        if (button) { button.textContent = "copied ✓"; setTimeout(() => { button.textContent = "copy"; }, 1500); }
+        if (button) {
+            button.textContent = "✓ copied"; button.classList.add("copied");
+            setTimeout(() => { button.textContent = "⧉ copy"; button.classList.remove("copied"); }, 1500);
+        }
     } else {
         const range = document.createRange(); range.selectNodeContents(pre);
         const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
@@ -4303,9 +4309,10 @@ new MutationObserver(() => {
         const wrap = document.createElement("div");
         wrap.className = "code-wrap";
         pre.replaceWith(wrap);
-        const button = el("button", "copy-code", "copy");
+        const button = el("button", "copy-code", "⧉ copy");
         button.type = "button";
         button.title = "copy this code";
+        button.setAttribute("aria-label", "Copy this code block");
         wrap.append(button, pre);
     }
 }).observe(document.body, {childList: true, subtree: true});
