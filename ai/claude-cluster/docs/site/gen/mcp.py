@@ -26,7 +26,7 @@ GROUPS = [
         "job_prio", "hardware_scan", "orchestrator_config"]),
     ("interface", "Interface", "Interface", ["ui_state", "ui_focus", "ui_layout", "ui_style", "ui_panel"]),
     ("settings", "Settings, policy and the computer", "Réglages, politique et ordinateur", ["settings_get", "settings_set", "config_files", "config_read", "config_write", "cluster_info",
-        "models_policy", "work_method", "usage", "providers", "voice_engines", "web_access", "remote_control", "machine_sync"]),
+        "models_policy", "work_method", "usage", "providers", "voice_engines", "web_access", "remote_control", "machine_sync", "docs"]),
 ]
 FIRST = {"sessions": ("Sessions", "Sessions")}
 

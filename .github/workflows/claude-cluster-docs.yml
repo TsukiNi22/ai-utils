@@ -1,0 +1,85 @@
+name: Docs - claude-cluster (CD)
+
+# The documentation of claude-cluster (ai/claude-cluster/docs/site) on GitHub Pages: its own folder of the gh-pages branch,
+# claude-cluster/ (the graph explorer and the index at the root of the branch are never touched).
+# Run by hand (workflow_dispatch) or when the sources of the docs change on main.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ai/claude-cluster/docs/site/**"
+      - "ai/claude-cluster/templates/config.toml"
+      - "ai/claude-cluster/src/cluster/Mcp.cpp"
+      - "ai/claude-cluster/src/cluster/Settings.cpp"
+      - "ai/claude-cluster/src/cluster/Orchestrator-Control.cpp"
+      - "ai/claude-cluster/src/cluster/Orchestrator-Settings.cpp"
+      - "docs/html-style/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: claude-cluster-docs
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ${{ vars.RUNNER }}
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: python:3.13-slim # python3 >= 3.11 (tomllib); git for the history and the branch
+
+    steps:
+      - name: Install git and node
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq git nodejs > /dev/null
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        timeout-minutes: 5
+
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the changelog is the git history of ai/claude-cluster
+
+      - name: Build the site
+        run: |
+          set -euo pipefail
+          python3 ai/claude-cluster/docs/site/build.py --out site
+          python3 ai/claude-cluster/docs/site/tools/check.py site
+          node ai/claude-cluster/docs/site/tools/test_search.js site
+          echo "✓ site built and checked"
+        timeout-minutes: 10
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v5
+        with:
+          ref: gh-pages
+          path: pages
+
+      - name: Publish claude-cluster/ on gh-pages
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/pages"
+          mkdir -p pages/claude-cluster
+          find pages/claude-cluster -mindepth 1 -delete
+          cp -r site/. pages/claude-cluster/
+          touch pages/.nojekyll
+          cd pages
+          git add claude-cluster .nojekyll
+          if git diff --cached --quiet; then
+            echo "claude-cluster/ is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "docs(claude-cluster): documentation site ${GITHUB_SHA::7}"
+          git push origin gh-pages
+          echo "✓ claude-cluster/ published"
+        timeout-minutes: 5
