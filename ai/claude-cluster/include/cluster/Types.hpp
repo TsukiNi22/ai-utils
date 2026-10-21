@@ -33,6 +33,9 @@ namespace cluster { // namespace start
 
 using Json = nlohmann::json;
 
+// a dump never throws on a text cut inside a character (a bad byte becomes U+FFFD): one bad string must not kill the core
+inline constexpr Json::error_handler_t JSON_LENIENT = Json::error_handler_t::replace;
+
 //----------------------------------------------------------------//
 /* ENUM */
 

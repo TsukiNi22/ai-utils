@@ -151,7 +151,7 @@ _cold cluster::Json cluster::Manager::modelsPolicyJson(void)
                     ++turns;
                 }
             cluster::Json entry = {{"model", model}, {"description", description}, {"tier", tier_(model)}, {"costly", cluster::policy_costly_model(this->_config, model)},
-                {"allowed", this->_config.policy.allowedModels.empty() || cluster::policy_matches(model, cluster::Json(this->_config.policy.allowedModels).dump())
+                {"allowed", this->_config.policy.allowedModels.empty() || cluster::policy_matches(model, cluster::Json(this->_config.policy.allowedModels).dump(-1, ' ', false, cluster::JSON_LENIENT))
                     || [&]() {
                         for (const std::string& allowed: this->_config.policy.allowedModels)
                             if (cluster::policy_matches(model, allowed)) return true;

@@ -61,7 +61,7 @@ _cold static std::string tool_summary_(const cluster::Json& input)
     if (!input.is_object()) return input.is_string() ? cluster::one_line(input.get<std::string>(), 160) : "";
     for (const char* key: {"command", "file_path", "path", "pattern", "url", "query", "description", "prompt"})
         if (input.contains(key) && input[key].is_string()) return cluster::one_line(input[key].get<std::string>(), 160);
-    return cluster::one_line(input.dump(), 160);
+    return cluster::one_line(input.dump(-1, ' ', false, cluster::JSON_LENIENT), 160);
 }
 
 _cold static std::vector<std::filesystem::path> files_(const std::filesystem::path& root, const std::string& pattern, const int depth)

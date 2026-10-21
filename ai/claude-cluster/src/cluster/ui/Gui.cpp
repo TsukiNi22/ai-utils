@@ -4174,7 +4174,7 @@ _cold static QImage chart_(const cluster::Json& d, const cluster::Style& st)
     const cluster::Json labels = d.value("labels", cluster::Json::array());
     const cluster::Json& series = d["series"];
     const std::function<double(const cluster::Json&)> number = [](const cluster::Json& v) {return v.is_number() ? v.get<double>() : 0.0;};
-    const std::function<QString(const cluster::Json&)> label = [](const cluster::Json& v) {return v.is_string() ? q_(v.get<std::string>()) : q_(v.dump());};
+    const std::function<QString(const cluster::Json&)> label = [](const cluster::Json& v) {return v.is_string() ? q_(v.get<std::string>()) : q_(v.dump(-1, ' ', false, cluster::JSON_LENIENT));};
     p.setPen(QColor(q_(st.text)));
     QFont font = p.font();
     font.setPointSize(8);
@@ -4276,7 +4276,7 @@ _cold static QImage timeline_(const cluster::Json& d, const cluster::Style& st)
         p.setBrush(colors[k % colors.size()]);
         p.drawRoundedRect(QRectF(a, y + 3, std::max(4.0, b - a), 14), 3, 3);
         p.setPen(QColor(q_(st.muted)));
-        const std::function<QString(const cluster::Json&)> date = [](const cluster::Json& v) {return v.is_string() ? q_(v.get<std::string>()) : q_(v.dump());};
+        const std::function<QString(const cluster::Json&)> date = [](const cluster::Json& v) {return v.is_string() ? q_(v.get<std::string>()) : q_(v.dump(-1, ' ', false, cluster::JSON_LENIENT));};
         p.drawText(QRectF(area.right() + 6, y, 110, 20), Qt::AlignVCenter, date(tasks[k]["start"]) + " → " + date(tasks[k]["end"]));
     }
     return image;
@@ -4333,13 +4333,13 @@ void SessionView::displayForm(Window* window, const std::string& displayId)
     std::vector<std::pair<std::string, std::function<cluster::Json()>>> reads;
     for (const cluster::Json& field: d["fields"]) {
         const std::string type = field.value("type", std::string("text"));
-        const QString value = field.contains("value") ? q_(field["value"].is_string() ? field["value"].get<std::string>() : field["value"].dump()) : QString();
+        const QString value = field.contains("value") ? q_(field["value"].is_string() ? field["value"].get<std::string>() : field["value"].dump(-1, ' ', false, cluster::JSON_LENIENT)) : QString();
         QWidget* widget = nullptr;
         std::function<cluster::Json()> read;
         if (type == "choice") {
             QComboBox* box = new QComboBox(&dialog);
             for (const cluster::Json& option: field.value("options", cluster::Json::array()))
-                box->addItem(q_(option.is_string() ? option.get<std::string>() : option.dump()));
+                box->addItem(q_(option.is_string() ? option.get<std::string>() : option.dump(-1, ' ', false, cluster::JSON_LENIENT)));
             box->setCurrentText(value);
             read = [box]() {return cluster::Json(box->currentText().toStdString());};
             widget = box;
@@ -4379,7 +4379,7 @@ QString SessionView::displayHtml(const cluster::Json& d, const std::string& key,
     const std::string type = d.value("type", std::string());
     QString html = "<div style=\"margin-top:10px; margin-left:12px\">";
     if (!d.value("title", std::string()).empty()) html += "<p>" + span_(st.accent, "▣ <b>" + esc_(d.value("title", std::string())) + "</b>") + "</p>";
-    const std::function<QString(const cluster::Json&)> cell = [](const cluster::Json& v) {return esc_(v.is_string() ? v.get<std::string>() : v.dump());};
+    const std::function<QString(const cluster::Json&)> cell = [](const cluster::Json& v) {return esc_(v.is_string() ? v.get<std::string>() : v.dump(-1, ' ', false, cluster::JSON_LENIENT));};
     if (type == "markdown") {
         QTextDocument doc;
         doc.setMarkdown(q_(d.value("text", std::string())));
@@ -4498,7 +4498,7 @@ QString SessionView::displayHtml(const cluster::Json& d, const std::string& key,
     } else if (type == "metrics") {
         html += "<table cellspacing=\"6\"><tr>";
         for (const cluster::Json& m: d["items"]) {
-            const std::string delta = m.contains("delta") ? (m["delta"].is_string() ? m["delta"].get<std::string>() : m["delta"].dump()) : "";
+            const std::string delta = m.contains("delta") ? (m["delta"].is_string() ? m["delta"].get<std::string>() : m["delta"].dump(-1, ' ', false, cluster::JSON_LENIENT)) : "";
             html += "<td bgcolor=\"" + q_(st.surface) + "\" width=\"140\">" + span_(st.muted, esc_(m.value("label", std::string()))) + "<br><span style=\"font-size:18pt\"><b>"
                 + cell(m.value("value", cluster::Json(""))) + esc_(m.value("unit", std::string())) + "</b></span><br>"
                 + (delta.empty() ? QString() : span_(delta.starts_with("-") ? st.error : st.ok, esc_((delta.starts_with("-") ? "▼ " : "▲ ") + delta)))
@@ -4990,7 +4990,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         this->pinKey.clear();
     } else {
         const std::string title = s.spec.pin.value("title", std::string("pinned"));
-        const std::string drawn = pinned.dump() + "|" + title + "|" + st.name + "|" + (this->pinFolded ? "f" : "") + std::to_string(this->width() / 40);
+        const std::string drawn = pinned.dump(-1, ' ', false, cluster::JSON_LENIENT) + "|" + title + "|" + st.name + "|" + (this->pinFolded ? "f" : "") + std::to_string(this->width() / 40);
         this->pinBox->setVisible(true);
         if (drawn != this->pinKey) {
             this->pinKey = drawn;

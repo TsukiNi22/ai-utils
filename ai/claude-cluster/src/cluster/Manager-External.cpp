@@ -254,7 +254,7 @@ _cold cluster::Json cluster::Manager::conversationMessages(const std::string& id
                 else if (type == "tool_result") tools.push_back("result");
                 else if (type == "image") ++pictures;
             }
-        cluster::Json item = {{"index", i}, {"role", message.value("type", std::string())}, {"text", text.size() > 4000 ? text.substr(0, 4000) + " [...]" : text},
+        cluster::Json item = {{"index", i}, {"role", message.value("type", std::string())}, {"text", cluster::head_utf8(text, 4000)},
             {"tools", tools}};
         // the files attached to the prompt: its "@path" of this session, with their type and size (an image given as a picture: counted)
         cluster::Json attached = cluster::Json::array();
@@ -371,7 +371,7 @@ _cold std::string cluster::Manager::editConversation(const std::string& id, cons
     {
         std::ofstream log(cluster::data_dir() / "logs" / (id + ".jsonl"), std::ios::trunc);
         for (const cluster::Entry& e: entries)
-            log << cluster::Json{{"time", e.time}, {"kind", static_cast<int>(e.kind)}, {"text", e.text}, {"tool", e.tool}}.dump() << "\n";
+            log << cluster::Json{{"time", e.time}, {"kind", static_cast<int>(e.kind)}, {"text", e.text}, {"tool", e.tool}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
     }
     cluster::SessionSpec spec = snap->spec;
     spec.claudeId = conversation;
@@ -546,7 +546,7 @@ _cold std::string cluster::Manager::displayAct(const std::string& id, const std:
     if (const std::optional<cluster::Snapshot> owner = this->snapshot(id); owner && owner->spec.name == "showcase" && (type == "actions" || type == "form")) {
         // the showcase: what it would do, said; nothing sent to an agent
         const std::string what = type == "actions" && item < d["buttons"].size() ? "its prompt would be sent: " + d["buttons"][item].value("prompt", std::string())
-            : "its values would go to the global session: " + act.value("values", cluster::Json::object()).dump();
+            : "its values would go to the global session: " + act.value("values", cluster::Json::object()).dump(-1, ' ', false, cluster::JSON_LENIENT);
         this->notice(id, "showcase: " + what);
         if (type == "form") {
             d["values"] = act.value("values", cluster::Json::object());
@@ -596,7 +596,7 @@ _cold std::string cluster::Manager::displayAct(const std::string& id, const std:
         }
         d["values"] = kept;
         d["submitted"] = true;
-        if (this->snapshot(GLOBAL_ID)) this->send(GLOBAL_ID, "[form \"" + d.value("title", displayId) + "\" (" + displayId + ") filled by the user] " + kept.dump(), false, {}, "mcp");
+        if (this->snapshot(GLOBAL_ID)) this->send(GLOBAL_ID, "[form \"" + d.value("title", displayId) + "\" (" + displayId + ") filled by the user] " + kept.dump(-1, ' ', false, cluster::JSON_LENIENT), false, {}, "mcp");
         done = "form sent";
     } else if (type == "audio") {
         // played on this computer (the web page plays it itself)

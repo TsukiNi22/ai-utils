@@ -192,7 +192,7 @@ _cold void cluster::Manager::recordUsage_(const std::string& session)
     std::ofstream(usage_file_(), std::ios::app) << cluster::Json{{"time", record.time}, {"vendor", record.vendor}, {"model", record.model},
         {"session", record.session}, {"tokens", record.tokens}, {"cache", record.cache}, {"cost", record.cost}, {"cost_known", record.costKnown},
         {"input", record.input}, {"cache_write", record.cacheWrite}, {"cache_write_1h", record.cacheWrite1h}, {"cache_read", record.cacheRead},
-        {"output", record.output}, {"thinking", record.thinking}, {"dur_ms", record.durMs}}.dump() << "\n";
+        {"output", record.output}, {"thinking", record.thinking}, {"dur_ms", record.durMs}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
 }
 
 /* statistics */
@@ -210,7 +210,7 @@ _cold void cluster::Manager::statsRecord(const std::string& kind, const cluster:
     line["t"] = cluster::now();
     line["kind"] = kind;
     std::lock_guard<std::mutex> lock(this->_statsMutex);
-    std::ofstream(cluster::data_dir() / "stats.jsonl", std::ios::app) << line.dump() << "\n";
+    std::ofstream(cluster::data_dir() / "stats.jsonl", std::ios::app) << line.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
 }
 
 _cold std::vector<cluster::Json> cluster::Manager::statsEvents(const std::int64_t since) const

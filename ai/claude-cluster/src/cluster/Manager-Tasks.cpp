@@ -541,7 +541,7 @@ _cold void cluster::Manager::schedule_(void)
                     for (const cluster::Task& before: this->_tasks)
                         if (before.id == dep && !before.answer.empty() && task.prompt.find("{{" + dep + ".") == std::string::npos && task.prompt.find("{{ " + dep + ".") == std::string::npos)
                             prompt += "\n\n[the answer of " + (before.label.empty() ? before.id : before.label) + " (" + before.id + "), this task builds on it]\n"
-                                + (before.answer.size() > 4000 ? before.answer.substr(0, 4000) + "\n[...]" : before.answer);
+                                + (cluster::head_utf8(before.answer, 4000));
             }
         }
         if (expect == "compact") prompt += "\n\n[output asked: answer compactly - the facts only, no recap; your answer is kept as the result of this task and may be chained into other prompts]";

@@ -116,7 +116,7 @@ _cold static std::optional<std::string> read_line_(const int fd, std::string& bu
 _cold static std::string arg_(const cluster::Json& request, const char* key, const std::string& fallback = "")
 {
     if (!request.contains(key) || request[key].is_null()) return fallback;
-    return request[key].is_string() ? request[key].get<std::string>() : request[key].dump();
+    return request[key].is_string() ? request[key].get<std::string>() : request[key].dump(-1, ' ', false, cluster::JSON_LENIENT);
 }
 
 #define WEB_READ_ONLY "read only from the web page: the computer allows it in its settings (Web > Settings from the page)"
@@ -137,7 +137,7 @@ _cold static bool job_serve_(cluster::Manager& manager, const int fd, const std:
     }
     if (request.value("cmd", std::string()) != "job_run") return false;
     if (manager.orchestrator() == nullptr) {
-        (void)send_line_(fd, cluster::Json{{"ok", false}, {"error", "the orchestrator is not running here"}}.dump());
+        (void)send_line_(fd, cluster::Json{{"ok", false}, {"error", "the orchestrator is not running here"}}.dump(-1, ' ', false, cluster::JSON_LENIENT));
         return true;
     }
     manager.orchestrator()->serve(fd, request);
@@ -226,7 +226,7 @@ _cold void cluster::Control::client_(const int fd)
         } catch (const std::exception& e) { // not JSON, or anything a request may throw: told, the core goes on
             response = {{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
         }
-        if (!send_line_(fd, response.dump())) break;
+        if (!send_line_(fd, response.dump(-1, ' ', false, cluster::JSON_LENIENT))) break;
     }
     ::close(fd);
 }
@@ -240,7 +240,7 @@ _cold cluster::Json cluster::Control::request(const cluster::Json& request, std:
     if (current) *current = fd;
     std::string buffer;
     bool closed = false;
-    const bool sent = send_line_(fd, request.dump());
+    const bool sent = send_line_(fd, request.dump(-1, ' ', false, cluster::JSON_LENIENT));
     const std::optional<std::string> line = sent ? read_line_(fd, buffer, 120000, closed) : std::nullopt;
     if (current) *current = -1;
     ::close(fd);
@@ -723,7 +723,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             std::string answer;
             for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && answer.empty(); ++it)
                 if (it->kind == cluster::EntryKind::Assistant) answer = it->text;
-            data = {{"id", id}, {"state", cluster::state_name(snap->state)}, {"done", !busy()}, {"answer", answer.size() > 6000 ? answer.substr(0, 6000) + "\n[...]" : answer}};
+            data = {{"id", id}, {"state", cluster::state_name(snap->state)}, {"done", !busy()}, {"answer", cluster::head_utf8(answer, 6000)}};
             if (busy()) data["note"] = "still working: wait again, or send with reply and go on (its answer will come back)";
             if (!snap->permissions.empty()) data["permission"] = snap->permissions.front().tool + ": " + cluster::one_line(snap->permissions.front().description, 200);
         } else if (cmd == "close") {
@@ -839,7 +839,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const ConfigFile file = config_file_(manager, arg_(request, "name"));
             std::ifstream in(file.path);
             std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            if (content.size() > 200000) content = content.substr(0, 200000) + "\n[... cut at 200 000 characters]";
+            if (content.size() > 200000) content = cluster::head_utf8(content, 200000);
             data = {{"name", file.name}, {"path", file.path.string()}, {"content", content}};
         } else if (cmd == "config_write") {
             // the whole file replaced (read it first); config.toml checked before; the global prompt: started again after the turn

@@ -137,6 +137,7 @@ class Manager {
         std::string _focus;                             // the session the interfaces are asked to show
         std::optional<cluster::MachineProgress> _scan;  // the last map of this computer (its progress)
         std::int64_t _scanEnd = 0;                      // ms of its end (0: running)
+        std::atomic<bool> _globalRetrying{false};       // a loop starts the global session again until it runs
         std::int64_t _globalRestart = 0;                // last time the global session was started again (its process ended)
         std::atomic<bool> _closing{false};              // claude-cluster quits: the agents ending are not an error
         std::map<std::string, int> _replies;            // sessions whose next turn ends are sent back to the global session
@@ -257,6 +258,7 @@ class Manager {
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
         _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
         _cold void writeMcpConfig_(void) const;
+        _cold void retryGlobal_(void);                  // the global session started again until it runs
         _cold _nodiscard std::vector<std::string> subArgs_(const std::string& id) const;   // the MCP of a sub-session (its tasks / schedules): its arguments, none when closed
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
         _cold void schedule_(void);                         // Manager-Tasks.cpp

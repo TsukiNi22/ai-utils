@@ -397,7 +397,7 @@ _cold void cluster::Manager::chatAbout(const cluster::Ask& ask)
     for (const auto &[role, text]: ask.chat)
         chat += (role == "user" ? "user: " : "you: ") + text + "\n";
     const std::string prompt = "An agent working in " + cluster::short_path(snap->spec.cwd) + " (session " + snap->spec.name + ") asks the user these "
-        "questions before going on: " + ask.questions.dump() + "\n\nThe last messages of that session:\n" + context + "\nThe user talks with you "
+        "questions before going on: " + ask.questions.dump(-1, ' ', false, cluster::JSON_LENIENT) + "\n\nThe last messages of that session:\n" + context + "\nThe user talks with you "
         "about these questions before answering them (you do not answer the agent, you help the user choose: explain the options, their "
         "consequences, what you would pick and why). Answer the last message of the user, short and clear, in their language.\n\n" + chat;
     const std::filesystem::path file = cluster::data_dir() / ("chat-" + ask.requestId + ".txt");

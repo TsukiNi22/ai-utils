@@ -247,7 +247,7 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
         for (cluster::Json& column: display["columns"]) {
             if (!column.contains("cards")) column["cards"] = cluster::Json::array();
             for (cluster::Json& card: column["cards"])
-                if (card.is_object()) card = card.value("text", card.dump());
+                if (card.is_object()) card = card.value("text", card.dump(-1, ' ', false, cluster::JSON_LENIENT));
         }
     }
     if (type == "actions") {
@@ -370,7 +370,7 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
         static std::atomic<unsigned> next{0};
         display["id"] = "d" + std::to_string(::time(nullptr) % 1000000) + "-" + std::to_string(++next);
     }
-    if (display.dump().size() > 16 * 1024 * 1024) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display: 8 MB at most");
+    if (display.dump(-1, ' ', false, cluster::JSON_LENIENT).size() > 16 * 1024 * 1024) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display: 8 MB at most");
     return display;
 }
 
@@ -384,12 +384,12 @@ _cold std::string cluster::display_text(const cluster::Json& d)
     if (type == "table") {
         if (d.contains("columns")) {
             for (const cluster::Json& c: d["columns"])
-                text += (c.is_string() ? c.get<std::string>() : c.dump()) + " | ";
+                text += (c.is_string() ? c.get<std::string>() : c.dump(-1, ' ', false, cluster::JSON_LENIENT)) + " | ";
             text += "\n";
         }
         for (const cluster::Json& row: d["rows"]) {
             for (const cluster::Json& c: row)
-                text += (c.is_string() ? c.get<std::string>() : c.dump()) + " | ";
+                text += (c.is_string() ? c.get<std::string>() : c.dump(-1, ' ', false, cluster::JSON_LENIENT)) + " | ";
             text += "\n";
         }
         return text;
@@ -397,13 +397,13 @@ _cold std::string cluster::display_text(const cluster::Json& d)
     if (type == "chart") {
         text += "[" + d.value("kind", std::string("bar")) + " chart]";
         for (const cluster::Json& s: d["series"])
-            text += " " + s.value("name", std::string()) + ": " + s["values"].dump();
+            text += " " + s.value("name", std::string()) + ": " + s["values"].dump(-1, ' ', false, cluster::JSON_LENIENT);
         return text;
     }
-    if (type == "progress") return text + "[progress " + d["value"].dump() + " / " + d["max"].dump() + "] " + d.value("label", std::string());
+    if (type == "progress") return text + "[progress " + d["value"].dump(-1, ' ', false, cluster::JSON_LENIENT) + " / " + d["max"].dump(-1, ' ', false, cluster::JSON_LENIENT) + "] " + d.value("label", std::string());
     if (type == "diagram") return text + "[diagram]\n" + d.value("dot", std::string());
     if (type == "diff") return text + d.value("diff", std::string());
-    if (type == "json") return text + d["data"].dump(2);
+    if (type == "json") return text + d["data"].dump(2, ' ', false, cluster::JSON_LENIENT);
     if (type == "terminal") return text + std::regex_replace(d.value("output", std::string()), std::regex("\x1b\\[[0-9;]*[A-Za-z]"), "");
     if (type == "math") return text + d.value("unicode", std::string());
     if (type == "file") {
@@ -416,7 +416,7 @@ _cold std::string cluster::display_text(const cluster::Json& d)
         + d["right"].value("title", std::string()) + ":\n" + d["right"].value("text", std::string());
     const std::map<std::string, std::string> lists = {{"checklist", "items"}, {"steps", "steps"}, {"timeline", "tasks"}, {"kanban", "columns"},
         {"actions", "buttons"}, {"form", "fields"}, {"metrics", "items"}};
-    if (lists.contains(type)) return text + "[" + type + "] " + d[lists.at(type)].dump() + (d.contains("values") ? " values: " + d["values"].dump() : "");
+    if (lists.contains(type)) return text + "[" + type + "] " + d[lists.at(type)].dump(-1, ' ', false, cluster::JSON_LENIENT) + (d.contains("values") ? " values: " + d["values"].dump(-1, ' ', false, cluster::JSON_LENIENT) : "");
     return text + "[" + type + "] " + d.value("alt", d.value("caption", std::string()));
 }
 
@@ -666,7 +666,7 @@ _cold std::vector<std::pair<std::string, char>> cluster::display_json_lines(cons
                 lines.emplace_back(indent + (object ? "}" : "]"), 'o');
                 return;
             }
-            lines.emplace_back(head + value.dump(), value.is_string() ? 's' : value.is_number() ? 'n' : 'o');
+            lines.emplace_back(head + value.dump(-1, ' ', false, cluster::JSON_LENIENT), value.is_string() ? 's' : value.is_number() ? 'n' : 'o');
         };
     walk("", data, "", depth);
     if (lines.size() >= max) lines.emplace_back("…", 'o');

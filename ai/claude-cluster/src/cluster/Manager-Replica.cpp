@@ -445,7 +445,7 @@ _cold void cluster::Manager::answerQuestions(const std::string& id, const std::s
     if (callback) {
         std::string label = "deny";
         for (const auto &[question, answer]: answers.items()) {
-            label = answer.is_string() ? answer.get<std::string>() : answer.dump();
+            label = answer.is_string() ? answer.get<std::string>() : answer.dump(-1, ' ', false, cluster::JSON_LENIENT);
             break;
         }
         std::thread([callback, label]() {callback(label);}).detach();

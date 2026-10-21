@@ -371,7 +371,7 @@ _cold cluster::Json cluster::WebTty::frame(const std::string& device, std::vecto
     }
     const cluster::Json state = {session->vt.cols(), session->vt.rows(), session->vt.cursorX(), session->vt.cursorY(), session->vt.cursorShown(),
         session->vt.mouse(), session->vt.bracketedPaste(), session->alive};
-    const std::string stateText = state.dump();
+    const std::string stateText = state.dump(-1, ' ', false, cluster::JSON_LENIENT);
     if (!all && rows.empty() && stateText == sent.back()) return nullptr;
     sent.back() = stateText;
     return {{"t", "f"}, {"full", all}, {"cols", session->vt.cols()}, {"rows", session->vt.rows()}, {"x", session->vt.cursorX()}, {"y", session->vt.cursorY()},

@@ -690,5 +690,5 @@ std::uint64_t cluster::Asking::version(void) const
 {
     if (!this->_manager.replica()) return this->_version;
     const cluster::Json j = this->_manager.replicaState("asking");
-    return std::hash<std::string>{}(j.dump()); // its content: changed when it changes
+    return std::hash<std::string>{}(j.dump(-1, ' ', false, cluster::JSON_LENIENT)); // its content: changed when it changes
 }

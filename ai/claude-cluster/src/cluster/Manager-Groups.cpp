@@ -270,7 +270,7 @@ _cold void cluster::Manager::groupUpdate_(const std::string& id)
             const std::optional<cluster::Snapshot> snap = this->_sessions.contains(t->session) ? std::optional<cluster::Snapshot>(this->_sessions.at(t->session)->snapshot()) : std::nullopt;
             std::string text = "--- " + t->label + " (" + t->session + (snap ? ", " + cluster::short_path(snap->spec.cwd) : std::string()) + ") · "
                 + (t->status == "done" ? "done in " : "failed after ") + took_(t->started, t->ended) + "\n";
-            return text + (t->answer.size() > 6000 ? t->answer.substr(0, 6000) + "\n[...]" : t->answer) + "\n";
+            return text + cluster::head_utf8(t->answer, 6000) + "\n";
         };
         if (met && !group->woken) {
             group->woken = true;

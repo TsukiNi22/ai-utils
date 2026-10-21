@@ -2050,9 +2050,9 @@ class TtyUi {
                 FormField f{field.value("name", std::string()), field.value("label", field.value("name", std::string())),
                     field.value("type", std::string(field.contains("options") ? "choice" : "text")), {}, ""};
                 for (const cluster::Json& o: field.value("options", cluster::Json::array()))
-                    f.options.push_back(o.is_string() ? o.get<std::string>() : o.dump());
+                    f.options.push_back(o.is_string() ? o.get<std::string>() : o.dump(-1, ' ', false, cluster::JSON_LENIENT));
                 const cluster::Json value = values.contains(f.name) ? values[f.name] : field.value("value", cluster::Json(""));
-                f.value = value.is_string() ? value.get<std::string>() : value.is_boolean() ? (value.get<bool>() ? "yes" : "no") : value.dump();
+                f.value = value.is_string() ? value.get<std::string>() : value.is_boolean() ? (value.get<bool>() ? "yes" : "no") : value.dump(-1, ' ', false, cluster::JSON_LENIENT);
                 if (f.type == "bool" && f.value != "yes" && f.value != "true") f.value = "no";
                 if (f.type == "bool" && f.value == "true") f.value = "yes";
                 if (f.type == "choice" && f.value.empty() && !f.options.empty()) f.value = f.options.front();
@@ -3855,7 +3855,7 @@ class TtyUi {
                 const std::string type = d.value("type", std::string());
                 const std::string title = d.value("title", std::string());
                 const std::vector<ftxui::Color> palette = {th.accent, th.ok, th.warn, th.error, th.text};
-                const std::function<std::string(const cluster::Json&)> cell = [](const cluster::Json& v) {return v.is_string() ? v.get<std::string>() : v.dump();};
+                const std::function<std::string(const cluster::Json&)> cell = [](const cluster::Json& v) {return v.is_string() ? v.get<std::string>() : v.dump(-1, ' ', false, cluster::JSON_LENIENT);};
                 const std::function<std::string(const std::string&, const std::size_t)> pad = [](const std::string& text, const std::size_t size) {
                     const std::string cut = width_(text) > size ? cluster::one_line(text, size) : text;
                     return cut + std::string(size > width_(cut) ? size - width_(cut) : 0, ' ');
@@ -4104,14 +4104,14 @@ class TtyUi {
                         const std::string fieldName = field.value("name", std::string());
                         const std::string kind = field.value("type", std::string(field.contains("options") ? "choice" : "text"));
                         const cluster::Json given = values.contains(fieldName) ? values[fieldName] : field.value("value", cluster::Json(""));
-                        const std::string value = given.is_string() ? given.get<std::string>() : given.is_boolean() ? (given.get<bool>() ? "yes" : "no") : given.dump();
+                        const std::string value = given.is_string() ? given.get<std::string>() : given.is_boolean() ? (given.get<bool>() ? "yes" : "no") : given.dump(-1, ' ', false, cluster::JSON_LENIENT);
                         Row row{"", ftxui::color(th.text), "\n"};
                         const std::string label = "  " + pad(field.value("label", fieldName), labelWidth) + "  ";
                         row.cells.push_back({label, this->_code.text, 0, true, false});
                         row.text = label;
                         if (kind == "choice") {
                             for (const cluster::Json& o: field.value("options", cluster::Json::array())) {
-                                const std::string option = o.is_string() ? o.get<std::string>() : o.dump();
+                                const std::string option = o.is_string() ? o.get<std::string>() : o.dump(-1, ' ', false, cluster::JSON_LENIENT);
                                 const bool on = option == value || (value.empty() && option == cell(field["options"][0]));
                                 const std::string chip = std::string(on ? "(•) " : "( ) ") + option;
                                 const int from = static_cast<int>(width_(row.text));
@@ -4912,7 +4912,7 @@ class TtyUi {
             item.state = cluster::State::Idle;
             if (block.contains("role")) item.entries.push_back({block.value("role", std::string()) == "user" ? cluster::EntryKind::User : block.value("role", std::string()) == "system"
                 ? cluster::EntryKind::System : cluster::EntryKind::Assistant, block.value("text", std::string()), "", 0});
-            else item.entries.push_back({cluster::EntryKind::Display, block.dump(), "", s.spec.pin.value("at", std::int64_t{0})});
+            else item.entries.push_back({cluster::EntryKind::Display, block.dump(-1, ' ', false, cluster::JSON_LENIENT), "", s.spec.pin.value("at", std::int64_t{0})});
             const int inner = std::min(width - 2, 200);
             const int most = room - 3;   // the border and the title
             ftxui::Element body = this->transcript_(item, inner, most, false, sid);

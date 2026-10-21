@@ -63,7 +63,7 @@ _cold std::string duration_(const std::int64_t ms)
 _cold std::string str_(const cluster::Json& o, const char* key, const std::string& fallback = "")
 {
     if (!o.contains(key) || o[key].is_null()) return fallback;
-    return o[key].is_string() ? o[key].get<std::string>() : o[key].dump();
+    return o[key].is_string() ? o[key].get<std::string>() : o[key].dump(-1, ' ', false, cluster::JSON_LENIENT);
 }
 
 _cold int int_(const cluster::Json& o, const char* key, const int fallback)
@@ -614,7 +614,7 @@ _cold void cluster::Orchestrator::sessionGone(const std::string& session, const 
 _cold void cluster::Orchestrator::serve(const int fd, const cluster::Json& request)
 {
     const std::function<bool(const cluster::Json&)> send = [fd](const cluster::Json& message) {
-        const std::string line = message.dump() + "\n";
+        const std::string line = message.dump(-1, ' ', false, cluster::JSON_LENIENT) + "\n";
         std::size_t sent = 0;
         while (sent < line.size()) {
             const ssize_t size = ::send(fd, line.data() + sent, line.size() - sent, MSG_NOSIGNAL);

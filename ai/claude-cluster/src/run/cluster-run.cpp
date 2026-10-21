@@ -90,7 +90,7 @@ int connect_(const std::string& path)
 
 bool send_(const int fd, const Json& message)
 {
-    const std::string line = message.dump() + "\n";
+    const std::string line = message.dump(-1, ' ', false, Json::error_handler_t::replace) + "\n";
     std::size_t sent = 0;
     while (sent < line.size()) {
         const ssize_t size = ::send(fd, line.data() + sent, line.size() - sent, MSG_NOSIGNAL);

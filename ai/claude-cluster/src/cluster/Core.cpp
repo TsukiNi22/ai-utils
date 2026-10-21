@@ -646,7 +646,7 @@ _cold static std::string join_tags_(const cluster::Json& session, const bool has
 _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& data) const
 {
     if (this->_options.json) {
-        std::cout << data.dump(2) << std::endl;
+        std::cout << data.dump(2, ' ', false, cluster::JSON_LENIENT) << std::endl;
         return;
     }
     const bool rtk = this->_options.rtk;
@@ -786,7 +786,7 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         std::cout << data["markdown"].get<std::string>();
     } else if (cmd == "status" || cmd == "read") {
         if (rtk) {
-            std::cout << data.dump() << "\n";
+            std::cout << data.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
             return;
         }
         std::cout << data.value("name", "") << " (" << data.value("id", "") << ") " << data.value("state", "") << " " << data.value("backend", "")
@@ -799,7 +799,7 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
         for (const cluster::Json& n: data)
             std::cout << cluster::clock_time(n.value("time", std::int64_t{0})) << " " << (n.value("error", false) ? "! " : "") << n.value("text", "") << "\n";
     } else if (!data.is_null()) {
-        std::cout << (data.is_object() && data.contains("id") ? data["id"].get<std::string>() : data.dump()) << "\n";
+        std::cout << (data.is_object() && data.contains("id") ? data["id"].get<std::string>() : data.dump(-1, ' ', false, cluster::JSON_LENIENT)) << "\n";
     } else if (!rtk) {
         std::cout << "ok" << "\n";
     }

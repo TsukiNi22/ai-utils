@@ -377,7 +377,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     };
     cluster::Json data = response.value("data", cluster::Json());
     prune(data);
-    const std::string text = ok ? (data.is_null() || (data.is_object() && data.empty()) ? "done" : data.dump()) : response.value("error", std::string("error"));
+    const std::string text = ok ? (data.is_null() || (data.is_object() && data.empty()) ? "done" : data.dump(-1, ' ', false, cluster::JSON_LENIENT)) : response.value("error", std::string("error"));
     return {{"content", {{{"type", "text"}, {"text", text}}}}, {"isError", !ok}};
 }
 
@@ -464,7 +464,7 @@ _cold int cluster::mcp_serve(void)
         } else {
             response["error"] = {{"code", -32601}, {"message", "method not found: " + method}};
         }
-        std::cout << response.dump() << std::endl;
+        std::cout << response.dump(-1, ' ', false, cluster::JSON_LENIENT) << std::endl;
     }
     return 0;
 }

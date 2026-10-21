@@ -512,7 +512,7 @@ _cold void cluster::Manager::askGlobal(const std::string& id, const std::string&
     if (!this->snapshot(GLOBAL_ID)) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no global session");
     const std::optional<cluster::Snapshot> asking = this->snapshot(id);
     const std::string name = asking ? asking->spec.name : id;
-    this->send(GLOBAL_ID, "[questions from " + name + " (" + id + "), the user asks you to answer them for them] " + questions.dump()
+    this->send(GLOBAL_ID, "[questions from " + name + " (" + id + "), the user asks you to answer them for them] " + questions.dump(-1, ' ', false, cluster::JSON_LENIENT)
         + "\nAnswer all of them at once with session_allow {session: \"" + id + "\", request_id: \"" + requestId + "\", answers: {<question>: <label>}} "
         "(several labels: \"a, b\"; none fits: a short text of your own): choose what the user would want from this conversation, the project and "
         "machine.md; ask the user first (AskUserQuestion) only when it may destroy data. Then tell them in one line what you answered.", false, {}, "mcp");
@@ -638,7 +638,29 @@ _cold void cluster::Manager::startGlobal(void)
         session->start();
     } catch (const utils::exception::IException& e) {
         this->notice_(GLOBAL_ID, std::string("global session: ") + e.what() + ": " + e.info(), true);
+        this->retryGlobal_();
+    } catch (const std::exception& e) { // a bad conversation file (JSON...) must not leave the cluster without its global session
+        this->notice_(GLOBAL_ID, std::string("global session: ") + e.what(), true);
+        this->retryGlobal_();
     }
+}
+
+_cold void cluster::Manager::retryGlobal_(void)
+{
+    // the global session must always exist: started again every 15 s until its process runs
+    if (this->_globalRetrying.exchange(true)) return;
+    std::thread([this]() {
+        for (int attempt = 0; attempt < 240; ++attempt) {
+            std::this_thread::sleep_for(std::chrono::seconds(15));
+            const std::optional<cluster::Snapshot> snap = this->snapshot(GLOBAL_ID);
+            if (snap && snap->state != cluster::State::Error) break;
+            try {
+                if (snap) this->get_(GLOBAL_ID)->restart();
+                else this->startGlobal();
+            } catch (...) {} // tried again at the next turn of the loop
+        }
+        this->_globalRetrying = false;
+    }).detach();
 }
 
 _cold std::filesystem::path cluster::Manager::globalDir_(void) const
@@ -667,7 +689,7 @@ _cold void trust_folder_(const std::filesystem::path& folder)
     const std::filesystem::path temporary = file.string() + ".claude-cluster";
     {
         std::ofstream out(temporary);
-        out << data.dump(2);
+        out << data.dump(2, ' ', false, cluster::JSON_LENIENT);
         if (!out) return;
     }
     std::error_code error;
@@ -734,7 +756,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                     // the global session may choose the answer (the user may answer it first: its popup)
                     const cluster::Permission& p = snap->permissions.back();
                     try {
-                        this->send(GLOBAL_ID, "[question from " + name + " (" + event.session + ")] " + p.input.value("questions", cluster::Json::array()).dump()
+                        this->send(GLOBAL_ID, "[question from " + name + " (" + event.session + ")] " + p.input.value("questions", cluster::Json::array()).dump(-1, ' ', false, cluster::JSON_LENIENT)
                             + "\nAnswer it with session_allow {session: \"" + event.session + "\", request_id: \"" + p.requestId + "\", answers: {question: label}} "
                             "when you know what the user wants; else leave it to the user (its popup is shown to them).", false, {}, "mcp");
                     } catch (const utils::exception::IException&) {}
@@ -1501,7 +1523,7 @@ void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string&
     if (!reply) return;
     const char* kind = event.error ? "[error from " : event.interrupted ? "[interrupted: " : "[reply from ";
     const std::string text = std::string(kind) + name + " (" + event.session + ")]\n" + (event.spontaneous ? "(a turn woken up by a background task / Monitor)\n" : "")
-        + (event.text.size() > 6000 ? event.text.substr(0, 6000) + "\n[...]" : event.text);
+        + cluster::head_utf8(event.text, 6000);
     const bool finished = !event.error && !event.interrupted && !event.spontaneous;
     const std::string id = event.session;
     std::thread([this, text, id, finished]() {

@@ -152,7 +152,7 @@ _cold void cluster::Manager::addHistory(const cluster::Draft& draft, const std::
     std::filesystem::create_directories(cluster::data_dir(), error);
     std::lock_guard<std::mutex> lock(this->_mutex);
     std::ofstream(cluster::data_dir() / "history.jsonl", std::ios::app) << cluster::Json{{"time", cluster::now()}, {"session", session}, {"text", text},
-        {"images", draft.images}, {"pastes", draft.pastes}}.dump() << "\n";
+        {"images", draft.images}, {"pastes", draft.pastes}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
     if (this->_config.historyLimit > 0 && this->_historyWrites++ % 25 == 0) // its oldest prompts dropped (checked every 25: not rewritten each time)
         (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->_config.historyLimit), 0);
 }

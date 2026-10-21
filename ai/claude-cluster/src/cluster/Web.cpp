@@ -471,7 +471,7 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
             cluster::Json light = cluster::Json::parse(e.text, nullptr, false);
             if (!light.is_object()) continue;
             light = light_display_(light);
-            json["messages"].push_back({{"kind", "display"}, {"text", light.dump()}, {"tool", ""}, {"time", e.time}, {"index", i}});
+            json["messages"].push_back({{"kind", "display"}, {"text", light.dump(-1, ' ', false, cluster::JSON_LENIENT)}, {"tool", ""}, {"time", e.time}, {"index", i}});
             continue;
         }
         const bool long_text = e.kind == cluster::EntryKind::Assistant || e.kind == cluster::EntryKind::User;
@@ -1947,7 +1947,7 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
             this->_ttys.resize(device, json.value("cols", 120), json.value("rows", 36));
             dirty = true;
         } else if (type == "ping") { // the page measures its latency: answered at once
-            return ws_send_(conn, 0x1, cluster::Json{{"t", "pong"}, {"n", json.value("n", 0.0)}}.dump());
+            return ws_send_(conn, 0x1, cluster::Json{{"t", "pong"}, {"n", json.value("n", 0.0)}}.dump(-1, ' ', false, cluster::JSON_LENIENT));
         } else if (type == "full") {
             full = true;
             dirty = true;

@@ -173,7 +173,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
                 std::string fill;
                 for (const cluster::Json& field: d["fields"])
                     fill += (fill.empty() ? "" : "; ") + field.value("name", std::string()) + "=" + (field.contains("value") ? (field["value"].is_string()
-                        ? field["value"].get<std::string>() : field["value"].dump()) : "");
+                        ? field["value"].get<std::string>() : field["value"].dump(-1, ' ', false, cluster::JSON_LENIENT)) : "");
                 list.push_back({"display_form:" + id, "Fill the form: " + title, "name=value; ...", fill, false});
             }
             if (type == "audio") list.push_back({"display_play:" + id, "Play: " + title, "", "", false});

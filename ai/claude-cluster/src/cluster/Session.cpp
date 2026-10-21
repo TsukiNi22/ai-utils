@@ -89,7 +89,7 @@ _cold static std::string tool_summary_(const std::string& name, const cluster::J
     }
     for (const char* key: {"command", "file_path", "filePath", "notebook_path", "path", "pattern", "url", "query", "skill", "description", "prompt"})
         if (input.contains(key) && input[key].is_string()) return cluster::one_line(input[key].get<std::string>(), 120);
-    return name == "TodoWrite" ? "todo list" : cluster::one_line(input.dump(), 120);
+    return name == "TodoWrite" ? "todo list" : cluster::one_line(input.dump(-1, ' ', false, cluster::JSON_LENIENT), 120);
 }
 
 _cold static bool is_picture_(const std::string& path)
@@ -118,7 +118,7 @@ _cold static std::string picture_in_(const std::string& command, const std::file
 _cold static std::string clip_(const std::string& text, const std::size_t max)
 {
     // a tool result kept on its lines (the interfaces show the first ones, Ctrl+O all of them)
-    std::string out = text.size() > max ? text.substr(0, max) + "\n…" : text;
+    std::string out = cluster::head_utf8(text, max);
     while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
     return out;
 }
@@ -576,7 +576,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->_data.stepDetail = "~" + cluster::human_tokens(event.value("estimated_tokens", static_cast<std::int64_t>(0))) + " tokens of thinking (its text not sent by the model)";
     } else if (type == "system" && subtype == "api_retry") {
         // an error of the API: tried again after a delay
-        const std::string error = event.value("error", cluster::Json("")).is_string() ? event.value("error", std::string()) : event["error"].dump();
+        const std::string error = event.value("error", cluster::Json("")).is_string() ? event.value("error", std::string()) : event["error"].dump(-1, ' ', false, cluster::JSON_LENIENT);
         const cluster::Json status = event.value("error_status", cluster::Json());
         this->step_("retry");
         this->_data.stepDetail = "API error" + (status.is_number() ? " " + std::to_string(status.get<int>()) : std::string()) + (error.empty() ? "" : " (" + error + ")")
@@ -741,7 +741,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         permission.suggestions = request.value("permission_suggestions", cluster::Json::array());
         permission.reason = request.value("decision_reason", std::string());
         permission.time = cluster::now();
-        if (!this->_approved.empty() && permission.input.dump() == this->_approved) {
+        if (!this->_approved.empty() && permission.input.dump(-1, ' ', false, cluster::JSON_LENIENT) == this->_approved) {
             this->write_({{"type", "control_response"}, {"response", {{"subtype", "success"}, {"request_id", permission.requestId},
                 {"response", {{"behavior", "allow"}, {"updatedInput", permission.input}}}}}});
             this->entry_(cluster::EntryKind::System, "allowed " + permission.tool + " (the user allowed it after the safety check)");
@@ -875,7 +875,7 @@ _cold void cluster::Session::opencode_(const cluster::Json& event)
                 run.error = error;
             }
         const cluster::Json output = state.value("output", cluster::Json());
-        this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(output.is_string() ? output.get<std::string>() : output.dump(), 6000));
+        this->entry_(error ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(output.is_string() ? output.get<std::string>() : output.dump(-1, ' ', false, cluster::JSON_LENIENT), 6000));
     } else if (type == "step_finish") {
         const cluster::Json tokens = part.value("tokens", cluster::Json::object());
         cluster::Usage usage;
@@ -893,7 +893,7 @@ _cold void cluster::Session::opencode_(const cluster::Json& event)
         this->_data.metrics.lastCost += cost;
     } else if (type == "error") {
         const cluster::Json error = event.value("error", cluster::Json::object());
-        const std::string message = error.contains("data") ? error["data"].value("message", error.dump()) : error.dump();
+        const std::string message = error.contains("data") ? error["data"].value("message", error.dump(-1, ' ', false, cluster::JSON_LENIENT)) : error.dump(-1, ' ', false, cluster::JSON_LENIENT);
         this->entry_(cluster::EntryKind::Error, message);
     }
 }
@@ -945,7 +945,7 @@ _cold void cluster::Session::codex_(const cluster::Json& event)
         fit_window_(this->_data.metrics);
     } else if (type == "turn.failed" || type == "error") {
         const cluster::Json error = event.value("error", cluster::Json::object());
-        this->entry_(cluster::EntryKind::Error, error.is_object() ? error.value("message", event.dump()) : event.value("message", event.dump()));
+        this->entry_(cluster::EntryKind::Error, error.is_object() ? error.value("message", event.dump(-1, ' ', false, cluster::JSON_LENIENT)) : event.value("message", event.dump(-1, ' ', false, cluster::JSON_LENIENT)));
     }
 }
 
@@ -994,7 +994,7 @@ _cold void cluster::Session::tool_(const std::string& id, const std::string& nam
                 this->_data.todos.push_back({"", todo.value("content", std::string()), todo.value("status", std::string("pending")), todo.value("activeForm", std::string())});
     }
     if (name == "TaskUpdate") { // Claude Code 2: its tasks one by one (TaskCreate: its number in the result)
-        const std::string taskId = input.contains("taskId") ? (input["taskId"].is_string() ? input["taskId"].get<std::string>() : input["taskId"].dump()) : "";
+        const std::string taskId = input.contains("taskId") ? (input["taskId"].is_string() ? input["taskId"].get<std::string>() : input["taskId"].dump(-1, ' ', false, cluster::JSON_LENIENT)) : "";
         const std::string status = input.value("status", std::string());
         for (auto it = this->_data.todos.begin(); it != this->_data.todos.end(); ++it) {
             if (it->id != taskId) continue;
@@ -1032,7 +1032,7 @@ _cold void cluster::Session::append(const std::vector<cluster::Entry>& entries)
     std::lock_guard<std::mutex> lock(this->_mutex);
     for (const cluster::Entry& entry: entries) {
         this->_data.entries.push_back(entry);
-        if (this->_log) this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(entry.kind)}, {"text", entry.text}, {"tool", entry.tool}, {"origin", entry.origin}}.dump() << "\n";
+        if (this->_log) this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(entry.kind)}, {"text", entry.text}, {"tool", entry.tool}, {"origin", entry.origin}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
     }
     if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.end() - 1500);
     if (this->_log) this->_log.flush();
@@ -1106,7 +1106,7 @@ _cold void cluster::Session::updateDisplay(const std::string& displayId, const s
         cluster::Json json = cluster::Json::parse(*it, nullptr, false);
         if (!json.is_object() || json.value("kind", 0) != static_cast<int>(cluster::EntryKind::Display)) continue;
         json["text"] = text;
-        *it = json.dump();
+        *it = json.dump(-1, ' ', false, cluster::JSON_LENIENT);
         break;
     }
     this->_log.close();
@@ -1151,7 +1151,7 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
     }
     if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.begin() + 500);
     if (this->_log) {
-        this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(kind)}, {"text", text}, {"tool", tool}, {"origin", origin}}.dump() << "\n";
+        this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(kind)}, {"text", text}, {"tool", tool}, {"origin", origin}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
         this->_log.flush();
     }
 }
@@ -1165,7 +1165,7 @@ _cold void cluster::Session::emit_(const cluster::Event::Kind kind, const std::s
 _cold void cluster::Session::write_(const cluster::Json& message)
 {
     if (this->_in == -1) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "session " + this->_data.spec.id + " is not running");
-    const std::string line = message.dump() + "\n";
+    const std::string line = message.dump(-1, ' ', false, cluster::JSON_LENIENT) + "\n";
     std::size_t written = 0;
     while (written < line.size()) {
         const ssize_t size = ::write(this->_in, line.data() + written, line.size() - written);
@@ -1313,7 +1313,7 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
             this->touch_();
             return;
         }
-        this->_approved = stopped.input.dump();
+        this->_approved = stopped.input.dump(-1, ' ', false, cluster::JSON_LENIENT);
         const std::string mode = this->_data.spec.mode;
         if (mode == "auto" || mode == "dontAsk") {
             this->_modeBack = mode;
@@ -1324,7 +1324,7 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
         this->entry_(cluster::EntryKind::System, "allowed by the user after the safety check: " + cluster::one_line(stopped.description, 160));
         this->touch_();
         lock.unlock();
-        const std::string command = stopped.input.contains("command") ? stopped.input.value("command", std::string()) : stopped.input.dump();
+        const std::string command = stopped.input.contains("command") ? stopped.input.value("command", std::string()) : stopped.input.dump(-1, ' ', false, cluster::JSON_LENIENT);
         this->send("I approve, myself, the command the safety check stopped (I am the person it asked for). Run it again now, exactly unchanged: "
             "it goes through a permission prompt that I accept.\n" + command);
         return;
@@ -1383,7 +1383,7 @@ _cold void cluster::Session::answerQuestions(const std::string& requestId, const
             {"response", {{"behavior", "allow"}, {"updatedInput", input}}}}}});
     std::string said;
     for (const auto &[question, answer]: answers.items())
-        said += (said.empty() ? "" : " · ") + question + " → " + (answer.is_string() ? answer.get<std::string>() : answer.dump());
+        said += (said.empty() ? "" : " · ") + question + " → " + (answer.is_string() ? answer.get<std::string>() : answer.dump(-1, ' ', false, cluster::JSON_LENIENT));
     this->entry_(cluster::EntryKind::System, "answered: " + said);
     this->_data.permissions.erase(it);
     if (this->_data.permissions.empty() && this->_data.state == cluster::State::Waiting) this->_data.state = cluster::State::Working;

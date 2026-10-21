@@ -389,6 +389,15 @@ std::string cluster::tail_utf8(const std::string& text, const std::size_t max)
     return "…" + text.substr(from);
 }
 
+std::string cluster::head_utf8(const std::string& text, const std::size_t max)
+{
+    // the start of a text, cut on a character (a cut inside one made an invalid string: a JSON dump threw)
+    if (text.size() <= max) return text;
+    std::size_t to = max;
+    while (to > 0 && (static_cast<unsigned char>(text[to]) & 0xC0) == 0x80) --to;
+    return text.substr(0, to) + "\n[...]";
+}
+
 _cold void cluster::detach(const std::vector<std::string>& args)
 {
     if (args.empty() || !cluster::has_command(args[0])) return;
@@ -518,7 +527,7 @@ _cold void cluster::write_json(const std::filesystem::path& path, const cluster:
     {
         std::ofstream file(tmp);
         if (!file) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, tmp.string());
-        file << data.dump(2) << "\n";
+        file << data.dump(2, ' ', false, cluster::JSON_LENIENT) << "\n";
     }
     std::filesystem::rename(tmp, path, error);
     if (error) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, path.string() + ": " + error.message());
