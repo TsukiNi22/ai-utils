@@ -2230,7 +2230,7 @@ class TtyUi {
                     if (!view.box.Contain(mouse.x, mouse.y)) continue;
                     const int x = mouse.x - view.box.x_min;
                     const int y = mouse.y - view.box.y_min;
-                    const CodeSpan span = codeSpan_(view, y);
+                    const CodeSpan span = this->codeSpan_(view, y);
                     this->_selection = Selection{id, x, y, x, y};
                     if (span.first >= 0) {
                         // started in a code block: it stays in its text
@@ -2253,7 +2253,7 @@ class TtyUi {
                     this->_selection->x1 = std::clamp(mouse.x, box.x_min, box.x_max) - box.x_min;
                     this->_selection->y1 = std::clamp(mouse.y, box.y_min, box.y_max) - box.y_min;
                     if (this->_selection->block >= 0) {
-                        const CodeSpan span = codeSpan_(this->_views.at(this->_drag), this->_selection->y0);
+                        const CodeSpan span = this->codeSpan_(this->_views.at(this->_drag), this->_selection->y0);
                         if (span.first >= 0) {
                             this->_selection->y1 = std::clamp(this->_selection->y1, span.first, span.last);
                             this->_selection->x1 = std::clamp(this->_selection->x1, span.xMin, std::max(span.xMin, span.xMax - 1));
@@ -6086,7 +6086,8 @@ class TtyUi {
                 if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Left && this->clickAt_(mouse)) {
                     this->_selection.reset();
                     return true;
-                    }
+                }
+                if (mouse.motion == ftxui::Mouse::Pressed && mouse.button == ftxui::Mouse::Right && this->_mode == Mode::Normal) {
                     // a message or a block of a transcript right-clicked: Pin / Unpin (the pinned item itself: Unpin)
                     for (const auto &[id, view]: this->_views) {
                         if (!view.box.Contain(mouse.x, mouse.y)) continue;
@@ -6096,6 +6097,7 @@ class TtyUi {
                         this->_active = pinView ? id.substr(4) : id;
                         this->pick_("pin_menu:" + this->_active + ":" + (pinView ? std::string("pin") : std::to_string(view.entries[y])));
                         return true;
+                    }
                 }
                 if (this->_mode != Mode::Normal) return true;
                 if (mouse.motion == ftxui::Mouse::Pressed && this->_hoverChip >= 0 && this->_hoverChip < static_cast<int>(this->_chips.size())) {

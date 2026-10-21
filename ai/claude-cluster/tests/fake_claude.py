@@ -13,5 +13,5 @@ for line in sys.stdin:
     if "slow" in json.dumps(content):  # a long turn: a first message at once (the session is working), the end later
         print(json.dumps({"type": "assistant", "message": {"role": "assistant", "model": "claude-sonnet-5-5", "content": [{"type": "text", "text": "thinking"}], "usage": {"input_tokens": 1, "output_tokens": 1}}}), flush=True)
         time.sleep(float(os.environ.get("FAKE_CLAUDE_DELAY", "0")))
-    print(json.dumps({"type": "assistant", "message": {"role": "assistant", "model": "claude-sonnet-5-5", "content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 1, "output_tokens": 1}}}), flush=True)
+    print(json.dumps({"type": "assistant", "message": {"role": "assistant", "model": "claude-sonnet-5-5", "content": [{"type": "text", "text": os.environ.get("FAKE_CLAUDE_REPLY", "ok")}], "usage": {"input_tokens": 1, "output_tokens": 1}}}), flush=True)
     print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "ok", "session_id": "00000000-0000-0000-0000-000000000001", "total_cost_usd": 0, "duration_ms": 1, "num_turns": 1, "usage": {"input_tokens": 1, "output_tokens": 1}}), flush=True)
