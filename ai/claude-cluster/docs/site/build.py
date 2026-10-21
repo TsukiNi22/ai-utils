@@ -195,7 +195,7 @@ def home_body(ctx: Context, all_pages: list[dict], changes: list[dict], download
     out.append("</div>")
     out.append('<div class="two"><section id="downloads"><h2>%s</h2>' % both("Downloads", "Téléchargements"))
     out.append('<div class="table-wrap"><table><thead><tr><th>%s</th><th>Version</th><th>%s</th></tr></thead><tbody>' % (both("File", "Fichier"), both("Size", "Taille")))
-    for d in downloads:
+    for d in downloads[:4]:
         out.append('<tr><td><a href="%s">%s</a></td><td>%s</td><td>%s</td></tr>' % (esc(d["href"]), esc(d["name"]), esc(d["version"]), esc(d["size"])))
     out.append('</tbody></table></div><p><a href="downloads.html">%s</a></p></section>' % both("All downloads", "Tous les téléchargements"))
     out.append('<section id="changelog"><h2>Changelog</h2><ul class="cl">')
@@ -262,7 +262,7 @@ def split_assets(ctx: Context) -> None:
     (ctx.out / "site.js").write_text(script)
 
 MIMES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
-         ".svg": "image/svg+xml", ".pdf": "application/pdf", ".xml": "application/xml"}
+         ".svg": "image/svg+xml", ".md": "text/markdown; charset=utf-8", ".pdf": "application/pdf", ".xml": "application/xml"}
 
 def write_cpp(ctx: Context, target: Path) -> None:
     """--cpp: the files of the site as byte arrays of a C++ source (no string literal over the 64 KB a compiler must accept)."""
@@ -281,6 +281,11 @@ def write_cpp(ctx: Context, target: Path) -> None:
 def copy_downloads(ctx: Context) -> None:
     """The files of downloads/ (the audit report PDF) next to the pages."""
     target = ctx.out / "downloads"
+    for name in _data.PROMPT_FILES:  # the prompts, as the sources have them
+        source = ctx.code_root / "templates" / name
+        if source.exists():
+            target.mkdir(parents=True, exist_ok=True)
+            (target / name).write_bytes(source.read_bytes())
     for path in sorted((HERE / "downloads").glob("*")):
         target.mkdir(parents=True, exist_ok=True)
         (target / path.name).write_bytes(path.read_bytes())

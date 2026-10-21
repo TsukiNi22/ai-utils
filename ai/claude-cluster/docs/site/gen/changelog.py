@@ -81,6 +81,9 @@ def downloads_md(ctx, lang: str) -> str:
     for r in rows:
         out.append("| [%s](%s) | %s | %s |" % (r["name"], r["href"], r["version"], r["size"]))
     out.append("")
+    out.append("## %s {#prompts}\n" % ("System prompts" if en else "Prompts système"))
+    out.append("The default prompts, taken from `templates/` of the build named in the Version column: [global.md](downloads/global.md), [sessions.md](downloads/sessions.md), [rendering.md](downloads/rendering.md). See [System prompts](page:system-prompts).\n" if en else
+               "Les prompts par défaut, pris dans `templates/` du build nommé dans la colonne Version : [global.md](downloads/global.md), [sessions.md](downloads/sessions.md), [rendering.md](downloads/rendering.md). Voir [Prompts système](page:system-prompts).\n")
     out.append("## %s {#script}\n" % ("Install script" if en else "Script d'installation"))
     out.append("`setup.sh` builds and installs claude-cluster for your user (see [Install](page:install)):\n" if en else "`setup.sh` compile et installe claude-cluster pour votre utilisateur (voir [Installation](page:install)) :\n")
     out.append("```bash\ncurl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install claude-cluster\n```\n")

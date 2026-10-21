@@ -6,6 +6,7 @@
 import re
 from pathlib import Path
 
+PROMPT_FILES = ("global.md", "sessions.md", "rendering.md")
 SUBJECT = re.compile(r"^(?:feat|fix|docs|refactor|perf|test|chore|build)\(claude-cluster\):\s*(.*?)(?:,\s*(\d+\.\d+\.\d+))?\s*$")
 
 
@@ -66,4 +67,8 @@ def downloads(ctx) -> list[dict]:
     pdf = artifact(ctx, "claude-cluster-audit-report.pdf") or (ctx.out / "downloads" / "claude-cluster-audit-report.pdf")
     if pdf.exists():
         rows.append({"name": "audit-report.pdf", "href": "downloads/claude-cluster-audit-report.pdf", "version": ctx.version, "size": human_size(pdf.stat().st_size)})
+    for name in PROMPT_FILES:
+        source = ctx.code_root / "templates" / name
+        if source.exists():
+            rows.append({"name": name, "href": "downloads/" + name, "version": "%s (%s)" % (ctx.version, ctx.commit), "size": human_size(source.stat().st_size)})
     return rows
