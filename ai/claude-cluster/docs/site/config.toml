@@ -1,0 +1,70 @@
+# claude-cluster documentation site - sections, contextual help map, home texts
+
+[site]
+name = "claude-cluster"
+repo = "https://github.com/TsukiNi22/ai-utils"
+pages_url = "https://tsukini22.github.io/skills/claude-cluster/"
+source_dir = "ai/claude-cluster"
+release_url = "https://github.com/TsukiNi22/ai-utils/releases"
+
+[home]
+tagline_en = "Run many Claude Code sessions at once, from a terminal, a window, the web or your phone."
+tagline_fr = "Pilotez plusieurs sessions Claude Code à la fois, depuis un terminal, une fenêtre, le web ou votre téléphone."
+
+[[sections]]
+id = "guide"
+en = "User guide"
+fr = "Guide utilisateur"
+desc_en = "Install, first session, interfaces, keys, voice, settings."
+desc_fr = "Installation, première session, interfaces, touches, voix, réglages."
+icon = '<path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14"/>'
+
+[[sections]]
+id = "concepts"
+en = "Advanced concepts"
+fr = "Concepts avancés"
+desc_en = "Sub-sessions, global and sub-global, tasks, orchestrator, taxonomy."
+desc_fr = "Sous-sessions, global et sous-global, tâches, orchestrateur, taxonomie."
+icon = '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/>'
+
+[[sections]]
+id = "reference"
+en = "Reference"
+fr = "Référence"
+desc_en = "Architecture, MCP tools, configuration, keys, protocol, data formats."
+desc_fr = "Architecture, outils MCP, configuration, touches, protocole, formats de données."
+icon = '<path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/>'
+
+[[sections]]
+id = "security"
+en = "Security and audit"
+fr = "Sécurité et audit"
+desc_en = "Threat model, permissions, secrets, audit report."
+desc_fr = "Modèle de menaces, permissions, secrets, rapport d'audit."
+icon = '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>'
+
+[[sections]]
+id = "resources"
+en = "Resources"
+fr = "Ressources"
+desc_en = "Downloads, changelog, FAQ, glossary."
+desc_fr = "Téléchargements, historique, FAQ, glossaire."
+icon = '<path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h4"/>'
+
+# contextual help: a screen of the app -> a page of the docs (the '?' buttons and the MCP tool docs)
+[contexts]
+settings = "settings"
+question = "callbacks-mcp#questions"
+graph = "taxonomy#graph"
+orchestrator = "orchestrator"
+tasks = "tasks-schedules"
+schedules = "tasks-schedules#schedules"
+attachments = "attachments"
+voice = "voice"
+pins = "pins"
+web = "interfaces#web"
+phone = "notifications-apk"
+palette = "keys"
+prompt = "prompt-editing"
+permissions = "permissions-models"
+sub-global = "sub-global"
