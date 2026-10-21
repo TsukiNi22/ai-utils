@@ -19,6 +19,7 @@ File Description:
 #include "cluster/Showcase.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Docs.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Origin.hpp"
@@ -2472,6 +2473,13 @@ class Window: public QMainWindow {
             return answer == QMessageBox::Yes;
         }
 
+        void openDocs(const std::string& screen)
+        {
+            // the documentation embedded in this binary, in the browser of the desktop (its copy on disk: nothing to serve, no web access needed)
+            const cluster::DocOpened docs = cluster::docs_open(screen);
+            this->message(docs.url.empty() ? "the documentation is not in this build" : (docs.opened ? "docs: " : "docs, open it in a browser: ") + docs.url, docs.url.empty());
+        }
+
         void settings(const std::string& focus = "", const bool search = false)
         {
             // Every option of config.toml, one tab per section; saved in the file (comments kept), reloaded live; focus: the
@@ -2813,6 +2821,10 @@ class Window: public QMainWindow {
                 if (this->confirmDangers(now, &dialog)) dialog.accept(); // back: the page stays open
             });
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+            if (cluster::docs_built()) { // the help of this page: its docs page in the browser of the desktop
+                QPushButton* help = buttons->addButton("Help", QDialogButtonBox::HelpRole);
+                QObject::connect(help, &QPushButton::clicked, &dialog, [this]() {this->openDocs("settings");});
+            }
             // Ctrl+S: saved, the page stays (the values written become the current ones); F10: save and close
             QShortcut* saveKey = new QShortcut(QKeySequence("Ctrl+S"), &dialog);
             QObject::connect(saveKey, &QShortcut::activated, [this, &fields, &dialog, &opened, changed]() {
@@ -3232,8 +3244,9 @@ class Window: public QMainWindow {
                 segRow->addWidget(seg);
             }
             top->addStretch(1);
-            for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Tasks", "tasks"}, {"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}}) {
+            for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Tasks", "tasks"}, {"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}, {"Docs", "docs"}}) {
                 if (action == "devices" && !cluster::web_status(this->manager)) continue;
+                if (action == "docs" && !cluster::docs_built()) continue;
                 QPushButton* button = new QPushButton(q_(label), topbar);
                 button->setCursor(Qt::PointingHandCursor);
                 const std::string name = action;
@@ -3241,6 +3254,7 @@ class Window: public QMainWindow {
                     if (name == "tasks") this->showTasks();
                     else if (name == "devices") this->webDevices();
                     else if (name == "settings") this->settings();
+                    else if (name == "docs") this->openDocs("");
                     else this->shortcut(name);
                 });
                 top->addSpacing(6);
@@ -3975,6 +3989,10 @@ class Window: public QMainWindow {
                 if (done.empty()) chatInput->clear();
                 else this->message(done, true);
             });
+            if (cluster::docs_built()) {
+                QPushButton* help = buttons->addButton("Help", QDialogButtonBox::HelpRole);
+                QObject::connect(help, &QPushButton::clicked, &dialog, [this]() {this->openDocs("question");});
+            }
             QPushButton* chatButton = buttons->addButton("Chat about this", QDialogButtonBox::ActionRole);
             QObject::connect(chatButton, &QPushButton::clicked, &dialog, [chatBox, chatInput]() {
                 chatBox->setVisible(!chatBox->isVisible());

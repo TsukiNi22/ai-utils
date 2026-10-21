@@ -148,6 +148,8 @@ Settings and files
   read only; your own prompt is rewritten only when the setting *Global session can rewrite its own system prompt* is on.
 - `cluster_info`: paths, version, what is missing; `providers`: which backends are ready; `usage`: tokens / cost / limits;
   `web_access`, `voice_engines`, `remote_control`, `ui_*`: on request only.
+- `docs`: the documentation of claude-cluster itself, embedded (`search` a question - typos are fine -, `page` of a screen, `open` it for the user): use it
+  to answer "how does claude-cluster ..." from the docs, not from memory.
 Heavy jobs (the orchestrator)
 - Heavy commands (a build, the test suite, docker / ffmpeg, a local model) of yours go through `heavy_run` (waits for the result)
   or `jobs_add` (you are woken with `[job jN finished|failed|killed by <who>]` + the tail: end your turn); in a shell

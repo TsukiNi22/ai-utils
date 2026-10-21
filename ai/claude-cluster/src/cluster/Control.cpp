@@ -23,6 +23,7 @@ File Description:
 #include "cluster/Showcase.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Control.hpp"
+#include "cluster/Docs.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
@@ -1235,6 +1236,25 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 {"https", status.https}, {"tty_port", status.ttyPort}, {"fingerprint", status.fingerprint}, {"certificate", status.certificate}, {"certificate_why", status.certificateWhy}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState}, {"remote_ok", status.remoteOk},
                 {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
                 {"trusted", list(status.trusted)}, {"banned", list(status.banned)}, {"ping", status.ping}};
+        } else if (cmd == "docs") {
+            // the documentation embedded in this binary: searched, the page of a screen of the app, or opened in the browser of the desktop (a web device opens its own panel)
+            if (!cluster::docs_built())
+                throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "the documentation is not in this build of claude-cluster (python3 3.11+ is needed to build it)");
+            const std::string action = arg_(request, "action").empty() ? "search" : arg_(request, "action");
+            const std::string lang = arg_(request, "lang") == "fr" ? "fr" : "en";
+            const std::string target = arg_(request, "page").empty() ? arg_(request, "screen") : arg_(request, "page");
+            if (action == "search") {
+                data = cluster::docs_search(arg_(request, "query"), lang, static_cast<std::size_t>(std::clamp(request.value("limit", 8), 1, 20)));
+            } else if (action == "page") {
+                data = {{"page", cluster::docs_page(target)}};
+            } else if (action == "open") {
+                if (from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the page opens the documentation in its own panel (/docs/)");
+                const cluster::Web* web = manager.web();
+                const cluster::DocOpened opened = cluster::docs_open(target, web != nullptr && web->status().on ? web->status().url : std::string());
+                data = {{"url", opened.url}, {"opened", opened.opened}};
+            } else {
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "docs: action search | page | open");
+            }
         } else if (cmd == "voice_engines") {
             // the engines of the voice: what each one handles, its limits, its free use, its links, ready, used
             data = cluster::voice_engines_json(manager.config());

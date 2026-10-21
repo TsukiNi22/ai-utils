@@ -27,6 +27,7 @@ File Description:
 #include "cluster/Plugins.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Docs.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Origin.hpp"
@@ -2396,7 +2397,7 @@ class TtyUi {
         void run_(const cluster::Action& action, const std::string& input)
         {
             const std::string base = action.id.substr(0, action.id.find(':'));
-            if (this->_webTty && (base.starts_with("auth_") || base == "web_trust_ca" || base == "quit_all")) { // the keys and the computer: from it only
+            if (this->_webTty && (base.starts_with("auth_") || base == "web_trust_ca" || base == "quit_all" || base == "docs")) { // the keys and the computer: from it only
                 this->status_("from the computer only", true);
                 this->_mode = Mode::Normal;
                 return;
@@ -3197,6 +3198,11 @@ class TtyUi {
             }
             if (!this->_editing && this->_note.empty() && (event == ftxui::Event::Character('i') || event == ftxui::Event::Character('I')) && !this->_need.package.empty()) {
                 this->install_(this->_need.package); // what the setting chosen needs
+                return true;
+            }
+            if (!this->_editing && !this->_finding && this->_note != "confirm" && !this->_webTty && event == ftxui::Event::Character('?')) { // the help of this page: its docs page
+                const cluster::DocOpened docs = cluster::docs_open("settings");
+                this->status_(docs.url.empty() ? "the documentation is not in this build" : (docs.opened ? "docs: " : "docs, open it in a browser: ") + docs.url, docs.url.empty());
                 return true;
             }
             if (!this->_editing && this->_note != "confirm" && (event == ftxui::Event::Character('/') || event.input() == std::string(1, '\x06'))) {

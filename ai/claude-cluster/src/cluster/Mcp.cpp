@@ -255,6 +255,11 @@ _cold cluster::Json cluster::mcp_tools(void)
              {"index", {{"type", "integer"}, {"description", "an entry of the transcript (negative: from the end)"}}}, {"title", str_("its title")}}, {"session"}),
         tool_("session_unpin", "Remove the pin of a session (its item stays in the transcript).", {{"session", session}}, {"session"}),
         tool_("session_pin_get", "What is pinned on a session: {kind, id, title, by}, or nothing.", {{"session", session}}, {"session"}),
+        tool_("docs", "The documentation of claude-cluster itself (its sessions, tools, settings, keys, interfaces, security), embedded in the program: action search (default) "
+            "finds the pages, settings, tools and keys that answer a question (typos are tolerated); page gives the page of a screen of the app or a page name; open shows it to the user "
+            "in their browser. Use it to answer a question about how claude-cluster works instead of guessing.",
+            {{"action", str_("search (default) | page | open")}, {"query", str_("what to look for (search)")}, {"page", str_("a page (settings, orchestrator, taxonomy...) or a screen of the app (settings, question, graph...) (page, open)")},
+             {"lang", str_("en (default) | fr")}}, {}),
         tool_("voice_engines", "The engines of the voice: speech to text ([voice] listen_model) and text to speech ([voice] say_engine), "
             "local or free-tier APIs: what each one handles (languages), its strengths and limits against the others, its free use, its "
             "voices, its links, ready (installed / API key stored), used. To change one: settings_set; a key: the user runs "
@@ -328,7 +333,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"work_method", "work_method"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"taxonomy", "taxonomy"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_edit", "schedule_edit"}, {"schedule_act", "schedule_act"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
-        {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
+        {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"docs", "docs"}, {"web_access", "web"},
         {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"session_pin", "pin"}, {"session_unpin", "unpin"}, {"session_pin_get", "pin_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
         {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
         {"ui_style", "ui_style"}, {"ui_panel", "ui_panel"}, {"settings_get", "settings_get"}, {"settings_set", "settings_set"},

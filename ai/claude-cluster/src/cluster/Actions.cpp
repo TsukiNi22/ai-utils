@@ -17,6 +17,7 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
+#include "cluster/Docs.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Plugins.hpp"
 #include "cluster/Models.hpp"
@@ -198,6 +199,11 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     list.push_back({"task_add", "Queue a task: [target |] prompt", "task", "", false});
     list.push_back({"jobs_scan", "Orchestrator: scan this computer (cores, RAM, swap, GPU, power)", "", "", false});
     list.push_back({"search", "Search in the history", "text", "", false});
+    if (cluster::docs_built()) {
+        list.push_back({"docs", "Docs: open the documentation (a word to search it)", "Search the documentation (empty: the home page)", "", false});
+        for (const std::string& screen: cluster::docs_screens()) // the help of each screen of the app
+            list.push_back({"docs:" + screen, "Docs: " + screen, "", "", false});
+    }
     list.push_back({"transcript_top", "Go to the start of the transcript", "", "", false});
     list.push_back({"transcript_bottom", "Go to the end of the transcript", "", "", false});
     list.push_back({"providers", "Providers / backends: state", "", "", false});
@@ -409,6 +415,17 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
                 result.message = terminal.empty() ? "no terminal found (ptyxis, gnome-terminal, kitty, konsole, alacritty, xterm...)" : terminal + " opened in " + folder.string();
                 result.error = terminal.empty();
             }
+        } else if (base == "docs") {
+            // the documentation embedded in this binary: a word searched (its best page opened), else the page of a screen (docs:settings) or the home page
+            if (!cluster::docs_built()) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "the documentation is not in this build (python3 3.11+ is needed)");
+            const cluster::Web* web = manager.web();
+            std::string target = arg;
+            if (!arg.empty() && cluster::docs_page(arg) == "index.html") { // not a page or a screen: a search, its best hit
+                const cluster::Json found = cluster::docs_search(arg, "en", 1);
+                if (!found["results"].empty()) target = found["results"][0].value("u", std::string());
+            }
+            const cluster::DocOpened opened = cluster::docs_open(target, web != nullptr && web->status().on ? web->status().url : std::string());
+            result.message = (opened.opened ? "docs opened: " : "docs, no display: open ") + opened.url;
         } else if (base == "web_trust_ca") {
             // claude-cluster web trust-ca in the background (the window of the password), its end told
             std::thread([&manager]() {

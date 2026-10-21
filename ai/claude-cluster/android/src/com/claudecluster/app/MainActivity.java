@@ -673,6 +673,24 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void openDocs(String target) {
+            // the documentation of the computer (its /docs) in the browser of the phone: the page of THIS computer only (its LAN or outside address)
+            ui.post(() -> {
+                try {
+                    final android.net.Uri uri = android.net.Uri.parse(target);
+                    boolean ours = false;
+                    for (String known : new String[] {prefs.getString("url", ""), prefs.getString("remote", "")}) {
+                        final android.net.Uri home = android.net.Uri.parse(known);
+                        ours = ours || (!known.isEmpty() && uri.getHost() != null && uri.getHost().equals(home.getHost()) && uri.getPort() == home.getPort());
+                    }
+                    if (ours && uri.getPath() != null && uri.getPath().startsWith("/docs/")) startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                } catch (Exception e) {
+                    // no browser: the panel of the page has it
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void quit() {
             // the computer lost (its Reconnecting popup): the app closed
             ui.post(() -> finishAndRemoveTask());

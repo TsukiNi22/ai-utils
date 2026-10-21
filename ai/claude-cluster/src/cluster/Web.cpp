@@ -20,6 +20,7 @@ File Description:
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Display.hpp"
+#include "cluster/Docs.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Origin.hpp"
 #include "cluster/Icons.hpp"
@@ -329,6 +330,37 @@ _cold static void respond_(Conn& conn, const int code, const std::string& type, 
 _cold static void json_(Conn& conn, const int code, const cluster::Json& body, const std::string& extra = "")
 {
     respond_(conn, code, "application/json; charset=utf-8", body.dump(-1, ' ', false, cluster::Json::error_handler_t::replace), extra);
+}
+
+// the documentation (embedded in the binary): public like /ca.crt, nothing secret in it; cached by the browser (one ETag per build), framed by this
+// origin only (the panel of the page), scripts of the site only
+_cold static void docs_(Conn& conn, const Request& request)
+{
+    const std::string path = request.path.size() > 6 ? request.path.substr(6) : std::string();
+    if (request.path == "/docs") {
+        respond_(conn, 301, "text/plain", "docs\n", "Location: /docs/\r\n");
+        return;
+    }
+    if (path == "search") { // /docs/search?q=text&lang=fr: the ranking of libutils (c2dmp-hsm), the same engine as the search of the settings
+        const std::string query = request.query.contains("q") ? request.query.at("q") : "";
+        const std::string lang = request.query.contains("lang") && request.query.at("lang") == "fr" ? "fr" : "en";
+        json_(conn, 200, cluster::docs_search(cluster::trim(query).substr(0, 200), lang, 8));
+        return;
+    }
+    const std::optional<cluster::DocAsset> asset = cluster::docs_built() ? cluster::docs_asset(path) : std::nullopt;
+    if (!asset) {
+        respond_(conn, 404, "text/plain", cluster::docs_built() ? "no such page\n" : "the documentation was not built into this claude-cluster (python3 3.11+ is needed at build)\n");
+        return;
+    }
+    const std::string headers = "Cache-Control: public, max-age=3600\r\nETag: " + asset->etag + "\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n"
+        "X-Frame-Options: SAMEORIGIN\r\nContent-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'\r\n" + (hsts_on_ ? "Strict-Transport-Security: max-age=31536000\r\n" : "");
+    if (request.headers.contains("if-none-match") && request.headers.at("if-none-match") == asset->etag) {
+        (void)send_all_(conn, "HTTP/1.1 304 Not Modified\r\n" + headers + "Connection: close\r\n\r\n");
+        return;
+    }
+    (void)send_all_(conn, "HTTP/1.1 200 OK\r\nContent-Type: " + asset->mime + "\r\nContent-Length: " + std::to_string(asset->body.size()) + "\r\n" + headers
+        + "Connection: close\r\n\r\n" + asset->body);
 }
 
 _cold static bool private_(const std::uint32_t ip)
@@ -1413,6 +1445,10 @@ self.addEventListener("notificationclick", (e) => {
         const std::string apk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         if (apk.empty()) respond_(conn, 404, "text/plain", "no Android app built on this computer (the Android SDK: setup.sh install claude-cluster)\n");
         else respond_(conn, 200, "application/vnd.android.package-archive", apk, "Content-Disposition: attachment; filename=\"claude-cluster.apk\"\r\n");
+        return;
+    }
+    if (request.method == "GET" && (request.path == "/docs" || request.path.starts_with("/docs/"))) { // the documentation: no login (nothing secret in it)
+        docs_(conn, request);
         return;
     }
     if (!request.path.starts_with("/api/")) {

@@ -17,6 +17,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/StartMenu.hpp"
+#include "cluster/Docs.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Service.hpp"
@@ -282,6 +283,7 @@ _cold void cluster::Core::run(void)
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
     else if (cmd == "engines") this->_exit = this->engines_();
+    else if (cmd == "docs") this->_exit = this->docs_();
     else if (cmd == "vt-test") this->_exit = cluster::vt_test(this->_words);
     else if (cmd == "icon") this->_exit = this->icon_();
     else if (cmd == "web" && this->_words.size() > 1 && (this->_words[1] == "trust-ca" || this->_words[1] == "untrust-ca")) this->_exit = this->trustCa_();
@@ -922,6 +924,36 @@ _cold int cluster::Core::engines_(void)
             std::cout << "      " << line << "\n";
     }
     if (!rtk) std::cout << "\n* used   change: settings page > Voice (F9), or config.toml   a key: claude-cluster auth login <provider>\n";
+    return 0;
+}
+
+_cold int cluster::Core::docs_(void)
+{
+    // claude-cluster docs [open [page|screen]] | search <words> | url [page|screen]: the documentation embedded in this binary
+    if (!cluster::docs_built()) {
+        std::cerr << "the documentation is not in this build (python3 3.11+ is needed to build claude-cluster with it)" << std::endl;
+        return 1;
+    }
+    const std::string sub = this->_words.size() > 1 ? this->_words[1] : "open";
+    const bool known = sub == "open" || sub == "search" || sub == "url";
+    std::string rest;
+    for (std::size_t i = known ? 2 : 1; i < this->_words.size(); ++i)
+        rest += (rest.empty() ? "" : " ") + this->_words[i];
+    if (sub == "search" || !known) {
+        const std::string lang = std::getenv("LANG") != nullptr && std::string(std::getenv("LANG")).starts_with("fr") ? "fr" : "en";
+        const cluster::Json found = cluster::docs_search(rest, lang, 8);
+        for (const cluster::Json& hit: found["results"])
+            std::cout << hit.value("k", std::string()) << "  " << hit.value("t", std::string()) << "  " << hit.value("u", std::string()) << "\n";
+        if (found["results"].empty()) std::cout << "nothing found\n";
+        return found["results"].empty() ? 1 : 0;
+    }
+    const std::string page = cluster::docs_page(rest);
+    if (sub == "url") {
+        std::cout << "file://" << (cluster::docs_extract() / page.substr(0, page.find('#'))).string() << (page.find('#') == std::string::npos ? "" : page.substr(page.find('#'))) << "\n";
+        return 0;
+    }
+    const cluster::DocOpened opened = cluster::docs_open(rest);
+    std::cout << (opened.opened ? "opened " : "no display, open it in a browser: ") << opened.url << "\n";
     return 0;
 }
 

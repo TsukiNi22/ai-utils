@@ -100,6 +100,7 @@ class Core {
         _cold int headless_(void);
         _cold int auth_(void);
         _cold int engines_(void);                   // the engines of the voice, their state
+        _cold int docs_(void);                      // the documentation: open, search, url (embedded in the binary, no running core needed)
         _cold int icon_(void);                      // the SVG of a face (happy, grin, attentive, waiting, idle, working) and its badge
         _cold int trustCa_(void);                   // web trust-ca / untrust-ca: the authority of the web access in the system store
         _cold int machine_(void);                   // machine sync [--yes] | show | path

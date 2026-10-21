@@ -56,6 +56,10 @@ header .grow { flex: 1; }
 header .muted { color: var(--muted); font-size: 13px; }
 #settings { position: absolute; right: 14px; top: 52px; z-index: 20; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; width: 290px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
 #settings .note { color: var(--muted); font-size: 12px; }
+#docs { width: min(920px, 100vw); } #docs .panel-head a { color: var(--accent); font-size: 13px; text-decoration: none; }
+#docsFrame { flex: 1; border: 0; width: 100%; background: var(--bg); }
+.help { padding: 0 7px; margin-left: 8px; font-size: 12px; border-radius: 50%; line-height: 20px; height: 22px; min-width: 22px; vertical-align: middle; }
+#login .docs-link { display: block; margin-top: 14px; font-size: 13px; color: var(--muted); }
 #side { border-right: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; min-width: 0; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .session { padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .session:hover { background: var(--surface); }
@@ -363,7 +367,7 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
     #app { padding-bottom: 58px; } #viewPane { padding: 10px 10px 70px; }
     .board .card.m, .board .card.l { grid-column: auto; grid-row: auto; }
     .cards, .board { grid-template-columns: 1fr; }
-    #settingsButton, #bell, #logout { display: none; }
+    #settingsButton, #bell, #logout, #docsButton { display: none; }
 @media (max-width: 760px) {
     #app { grid-template-columns: 1fr; }
     header { grid-column: 1; }
@@ -446,6 +450,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
         <div id="loginWait" class="hidden"><span class="spin"></span> Waiting for the approval on the computer…<br><small>its popup there: Allow, or Allow and trust (no code next time)</small></div>
         <div id="loginError"></div>
         <a href="#" id="caHelp" class="ca-link">No browser warning on this device: trust this computer once</a>
+        <a href="/docs/?embed=0" class="docs-link" target="_blank" rel="noopener">Documentation</a>
     </form>
     <div id="caSteps" class="hidden">
         <h2>Trust this computer once</h2>
@@ -473,6 +478,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
         <span class="muted" id="who"></span>
         <button id="bell" title="Notifications" aria-label="Notifications">🔔<span id="bellCount" class="count hidden"></span></button>
         <button id="ttyButton" class="hidden" title="The terminal interface of claude-cluster in this browser (its own port)">⌨</button>
+        <button id="docsButton" title="Documentation (Ctrl+K)" aria-label="Documentation">?</button>
         <button id="settingsButton" title="Settings">⚙</button>
         <button id="logout">Log out</button>
         <div id="settings" class="hidden">
@@ -558,11 +564,15 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
     <section id="viewPane" class="hidden"></section>
 </div>
 <aside id="drawer" class="panel hidden" aria-label="Settings">
-    <div class="panel-head"><b>Settings</b><span class="grow"></span><button id="drawerClose" aria-label="Close">✕</button></div>
+    <div class="panel-head"><b>Settings</b><span class="grow"></span><button id="drawerHelp" class="help" title="Help: the documentation of the settings" aria-label="Help">?</button><button id="drawerClose" aria-label="Close">✕</button></div>
     <input id="drawerFind" type="search" placeholder="Search a setting: its name or words of its description" autocomplete="off">
     <div id="drawerTabs" class="tabs"></div>
     <div id="drawerBody"></div>
     <div class="panel-foot"><span id="drawerNote" class="muted"></span><span class="grow"></span><button id="drawerSave" class="primary">Save</button></div>
+</aside>
+<aside id="docs" class="panel hidden" aria-label="Documentation">
+    <div class="panel-head"><b>Docs</b><span class="grow"></span><a id="docsTab" href="/docs/" target="_blank" rel="noopener">Open in a tab</a><button id="docsPhone" class="hidden" title="Open the documentation in the browser of the phone">Phone browser</button><button id="docsClose" aria-label="Close">✕</button></div>
+    <iframe id="docsFrame" title="Documentation" referrerpolicy="no-referrer"></iframe>
 </aside>
 <aside id="alerts" class="panel hidden" aria-label="Notifications">
     <div class="panel-head"><b>Notifications</b><span class="grow"></span><button id="alertsClose" aria-label="Close">✕</button></div>
@@ -577,6 +587,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
     <button data-tab="hub"><span>◎</span>Hub</button>
     <button data-tab="tree"><span>⑂</span>Tree</button>
     <button data-tab="alerts"><span>🔔</span>Alerts</button>
+    <button data-tab="docs"><span>?</span>Docs</button>
     <button data-tab="settings"><span>⚙</span>Settings</button>
 </nav>
 <div id="toast" class="hidden"></div>
@@ -1207,7 +1218,8 @@ async function renderTasks() {
         const box = $("transcript");
         box.textContent = "";
         const view = el("div", "tasks-view");
-        const section = (title, count) => { view.append(el("h3", "", title), el("div", "muted", count)); };
+        const helpScreens = {"Todo lists": "tasks", "Task queue": "tasks", "Heavy jobs": "orchestrator", "Scheduled": "schedules"};
+        const section = (title, count) => { const h = el("h3", "", title); if (helpScreens[title]) h.append(helpButton(helpScreens[title])); view.append(h, el("div", "muted", count)); };
         // the todo lists
         section("Todo lists", todos.length + " session(s)");
         if (!todos.length) view.append(el("div", "muted", "none: a session writes its list while it works"));
@@ -2330,6 +2342,7 @@ function renderAsk(s) {
     };
     if (p.questions) {
         what.textContent = "Question of the agent";
+        what.append(helpButton("question"));
         box.append(what);
         const answers = [];
         p.questions.forEach((q, qi) => {
@@ -3269,6 +3282,7 @@ for (const b of document.querySelectorAll("#tabbar button"))
         else if (tab === "chat") { $("side").classList.remove("open"); setView("chat"); select(store.get("cc-last-chat", "g") || "g"); } // the last chat opened
         else if (tab === "alerts") openAlerts();
         else if (tab === "settings") openDrawer();
+        else if (tab === "docs") openDocs("");
         else setView(tab);
     });
 
@@ -3808,6 +3822,7 @@ function renderHubTree(pane, sessions, graph) {
     // the bar: the way down to the root, the choices, and what can be done with the node selected
     const bar = el("div", "hub-bar");
     const button = (label, title, run) => { const b = el("button", "", label); b.type = "button"; b.title = title; b.addEventListener("click", run); bar.append(b); return b; };
+    bar.append(helpButton("graph"));
     button("global", "the graph from the root again", () => hubSet("cc-hub-focus", ""));
     for (const name of focus ? taxPath(focus) : []) { bar.append(el("span", "muted", "›")); button(name, "the graph from this node", () => hubSet("cc-hub-focus", name)); }
     button(showArchived ? "Archived: shown" : "Archived: hidden", "the archived sessions (the trash), greyed", () => hubSet("cc-hub-archived", showArchived ? "0" : "1"));
@@ -4037,8 +4052,56 @@ $("browserNotify").addEventListener("click", async () => {
 function closePanels() {
     $("alerts").classList.add("hidden");
     $("drawer").classList.add("hidden");
+    $("docs").classList.add("hidden");
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanels(); });
+
+// ---- the documentation: the pages of this computer (/docs, embedded in claude-cluster, no network needed) in a panel; a ? opens the page of its screen ----
+let docsMap = null;
+async function docsPage(screen) {
+    // docs-map.json: the screens of the app and their page ("settings", "question" -> "callbacks-mcp#questions")
+    if (!screen) return "index.html";
+    if (!docsMap) { try { docsMap = await (await fetch("/docs/docs-map.json")).json(); } catch (e) { docsMap = {}; } }
+    const target = docsMap[screen];
+    if (!target) return screen.endsWith(".html") ? screen : "index.html";
+    const hash = target.indexOf("#");
+    return hash < 0 ? target + ".html" : target.slice(0, hash) + ".html" + target.slice(hash);
+}
+function docsTheme() {
+    const mode = store.get("cc-theme", "cluster");
+    return mode === "dark" ? "dark" : mode === "light" ? "light" : (lastState && lastState.style ? (lastState.style.dark ? "dark" : "light") : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+}
+async function openDocs(screen, query) {
+    closePanels();
+    const page = await docsPage(screen);
+    const hash = page.indexOf("#");
+    const file = hash < 0 ? page : page.slice(0, hash);
+    const lang = (navigator.language || "en").startsWith("fr") ? "fr" : "en";
+    $("docsFrame").src = "/docs/" + file + "?embed=1&lang=" + lang + "&theme=" + docsTheme() + (query ? "&q=" + encodeURIComponent(query) : "") + (hash < 0 ? "" : page.slice(hash));
+    $("docsTab").href = "/docs/" + file + (hash < 0 ? "" : page.slice(hash));
+    $("docsPhone").classList.toggle("hidden", !(window.ClusterApp && ClusterApp.openDocs));
+    $("docs").classList.remove("hidden");
+    $("docsFrame").onload = () => { // the search box of the docs ready to type (Ctrl+K)
+        try { if (!screen) $("docsFrame").contentWindow.document.querySelector(".sbox input").focus(); } catch (e) { /* the same origin: not expected to fail */ }
+    };
+}
+function helpButton(screen) {
+    // a ? next to a part of the app: the page of the documentation about it
+    const b = el("button", "help", "?");
+    b.type = "button";
+    b.title = "Help: the documentation about this";
+    b.setAttribute("aria-label", "Help");
+    b.addEventListener("click", (event) => { event.stopPropagation(); openDocs(screen); });
+    return b;
+}
+$("docsButton").addEventListener("click", () => openDocs(""));
+$("drawerHelp").addEventListener("click", () => openDocs("settings"));
+$("docsClose").addEventListener("click", () => $("docs").classList.add("hidden"));
+$("docsPhone").addEventListener("click", () => { try { ClusterApp.openDocs($("docsTab").href); } catch (e) { /* no bridge: the link opens it */ } });
+document.addEventListener("keydown", (e) => { // Ctrl+K: the documentation (the web page has no palette)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k" && !$("app").classList.contains("hidden")) { e.preventDefault(); openDocs(""); }
+});
+
 
 // ---- the settings: every page of claude-cluster, and this device ----
 let settingsData = [];
@@ -4314,6 +4377,9 @@ function drawDevice(body) {
             + " · its updates come from this computer (installed from here, nothing to download)", check);
         field("This phone", (info.model || "") + (info.android ? " · Android " + info.android : "") + (info.sdk ? " (API " + info.sdk + ")" : ""), el("span", "", ""));
         drawAppNotifications(field);
+        const docs = el("button", "", "Open the docs");
+        docs.addEventListener("click", () => { if (window.ClusterApp.openDocs) window.ClusterApp.openDocs(location.origin + "/docs/"); else openDocs(""); }); // the phone browser, else the panel
+        field("Documentation", "the docs of this computer, in the browser of the phone (or the panel of the page: ?)", docs);
         const change = el("button", "", "Another computer");
         change.addEventListener("click", () => window.ClusterApp.changeComputer());
         field("Computer", location.host, change);

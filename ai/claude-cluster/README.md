@@ -16,6 +16,7 @@ ones (Qwen Code), opencode and the OpenAI Codex CLI work too.
  - [Resource orchestrator](#resource-orchestrator)
  - [Security](#security)
  - [Background service](#background-service)
+ - [Documentation](#documentation)
  - [Configuration](#configuration)
  - [How it works](#how-it-works)
 
@@ -1279,6 +1280,19 @@ in 20 s`. Nothing heard is written there out of `--debug`.
   written over in place and zeroed; the recognition sees at most 3 s at a time; of its text only the last characters
   that can hold the phrase are compared (its length + 10); only the wake event leaves the detector, its buffer zeroed.
 - `--voice auto|wake|push` also works by hand: the voice on for this run, whatever the config says.
+
+## Documentation
+
+The documentation of claude-cluster (user guide, concepts, MCP tools, configuration and keys generated from the code, security audit, changelog, FAQ,
+glossary; English and French) is **embedded in the binary** and served by the core at `/docs` of the web access (without a login: nothing secret is in it;
+a phone reads it from the web page, the app opens it in the phone browser), with its own search (`/docs/search?q=`, c2dmp-hsm of libutils: a typo is
+found). In the interfaces: `Ctrl+K` in the web page (a panel), the palette *Docs: ...* (a page per screen: settings, question, graph, orchestrator...) in the
+terminal and the window, a **?** in the settings, the question popup, the graph and the Tasks session; the terminal settings page: `?`. `claude-cluster docs
+[open|search|url] [words|page]` from a shell (the pages are written once in `<data>/docs/<version>-<commit>/` for the browser: no web access to open), and
+the MCP tool `docs` (search / page / open) for the global session. Sources: `docs/site/` (Markdown EN + FR with TOML front matter, `build.py`, the generators of
+the tools / settings / keys / changelog, the checkers `tools/check.py` and `tools/test_search.js`); built by CMake with python3 3.11+ (`DocsData.cpp`,
+optional: without python3 the program says where the docs would open). The copy of GitHub Pages is the `claude-cluster/` folder of the `gh-pages` branch
+(`docs/site/publish-pages.sh`, workflow `claude-cluster-docs.yml`). Test: `tests/docs.sh`.
 
 ## Configuration
 
