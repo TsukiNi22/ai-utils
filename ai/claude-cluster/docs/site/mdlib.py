@@ -197,5 +197,6 @@ def plain_text(markdown: str) -> str:
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"\{#[\w-]+\}|^\s*-{3,}\s*$", " ", text, flags=re.M)
-    text = re.sub(r"[`*>#|]", " ", text)
+    text = re.sub(r"[`*]", "", text)
+    text = re.sub(r"[>#|]", " ", text)
     return re.sub(r"\s+", " ", text).strip()

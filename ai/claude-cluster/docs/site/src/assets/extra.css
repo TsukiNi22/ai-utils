@@ -65,3 +65,5 @@ main li > ul, main li > ol { margin-top: 4px; }
 .helpbtn { display: inline-block; margin-left: 8px; }
 .sec-top { float: right; font-size: 13px; }
 @media print { .topbar, .sidebar, .pager, .feedback, .sbox { display: none !important; } }
+.topbar .sbox.small .results { left: auto; right: 0; width: 440px; max-width: 92vw; }
+.topbar .sbox.small.mob .results { left: 12px; right: 12px; width: auto; }
