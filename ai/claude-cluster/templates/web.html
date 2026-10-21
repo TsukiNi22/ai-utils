@@ -204,6 +204,17 @@ header .muted { color: var(--muted); font-size: 13px; }
 #promptHl mark.unknown { background: color-mix(in srgb, var(--error) 32%, transparent); text-decoration: underline wavy var(--error); }
 .badge { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; }
 #mic { min-width: 46px; }
+#attach { min-width: 42px; padding: 0 8px; }
+#chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 14px 0; } #chips:empty { display: none; }
+.achip { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; font-size: 12px; max-width: 230px; }
+.achip img { width: 34px; height: 34px; object-fit: cover; border-radius: 4px; flex: none; }
+.achip .ico { font-size: 22px; flex: none; } .achip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .achip small { color: var(--muted); display: block; }
+.achip.err { border-color: var(--error); } .achip button { padding: 0 6px; min-width: 0; }
+#composer.drop-over { outline: 2px dashed var(--accent); outline-offset: -4px; }
+#attachMenu { position: absolute; bottom: 100%; left: 14px; z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px; display: flex; flex-direction: column; min-width: 190px; }
+#attachMenu button { text-align: left; border: 0; background: transparent; }
+.attached { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; border: 1px solid var(--line); border-radius: 8px; padding: 2px 6px; margin: 2px 0; text-decoration: none; color: inherit; }
+.attached img { max-width: 220px; max-height: 160px; border-radius: 6px; display: block; }
 #mic.on { background: var(--error); border-color: var(--error); color: #fff; }
 #mic.heard { box-shadow: 0 0 0 3px rgba(239, 107, 91, .35); }
 #micState { color: var(--muted); font-size: 12px; padding: 0 14px 4px; min-height: 0; }
@@ -219,17 +230,6 @@ header .muted { color: var(--muted); font-size: 13px; }
 .face { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-left: 10px; }
 .segmented button { border: none; border-radius: 0; padding: 6px 12px; background: transparent; font-size: 13px; }
-#attach { min-width: 42px; padding: 0 8px; }
-#chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 14px 0; } #chips:empty { display: none; }
-.achip { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; font-size: 12px; max-width: 230px; }
-.achip img { width: 34px; height: 34px; object-fit: cover; border-radius: 4px; flex: none; }
-.achip .ico { font-size: 22px; flex: none; } .achip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .achip small { color: var(--muted); display: block; }
-.achip.err { border-color: var(--error); } .achip button { padding: 0 6px; min-width: 0; }
-#composer.drop-over { outline: 2px dashed var(--accent); outline-offset: -4px; }
-#attachMenu { position: absolute; bottom: 100%; left: 14px; z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px; display: flex; flex-direction: column; min-width: 190px; }
-#attachMenu button { text-align: left; border: 0; background: transparent; }
-.attached { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; border: 1px solid var(--line); border-radius: 8px; padding: 2px 6px; margin: 2px 0; text-decoration: none; color: inherit; }
-.attached img { max-width: 220px; max-height: 160px; border-radius: 6px; display: block; }
 .segmented button + button { border-left: 1px solid var(--line); }
 .segmented button.on { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); font-weight: 600; }
 #bell { position: relative; }
@@ -360,36 +360,6 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
 .review-ready { font-weight: 600; margin: 12px 0 6px; }
 .link-lost { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 9999; }
 .link-card { background: var(--surface, #1b1e24); border: 1px solid var(--warn, #d29922); border-radius: 10px; padding: 16px 18px; max-width: 90vw; display: flex; flex-direction: column; gap: 8px; }
-</style>
-</head>
-<body>
-<div id="login">
-    <form id="loginForm" autocomplete="off">
-        <h1>claude-cluster</h1>
-        <p>The 6-digit code shown by claude-cluster on the computer</p>
-        <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000" autofocus>
-        <input id="deviceName" maxlength="40" placeholder="Name of this device (optional)" spellcheck="false">
-        <button class="primary" type="submit">Connect</button>
-        <div id="loginWait" class="hidden"><span class="spin"></span> Waiting for the approval on the computer…<br><small>its popup there: Allow, or Allow and trust (no code next time)</small></div>
-        <div id="loginError"></div>
-        <a href="#" id="caHelp" class="ca-link">No browser warning on this device: trust this computer once</a>
-    </form>
-    <div id="caSteps" class="hidden">
-        <h2>Trust this computer once</h2>
-        <p>The browser warns because this computer made its own certificate (a local network has no public one). Install its authority once on this device: its pages open without warning, and stay encrypted.</p>
-        <button type="button" class="primary button" id="caDownload">Download the certificate</button>
-        <details open><summary>Android</summary><ol><li>Download it (above).</li><li>Settings › Security › More security settings › Encryption &amp; credentials › Install a certificate › CA certificate.</li><li>Pick <code>claude-cluster-ca.crt</code>, then reload this page.</li></ol></details>
-        <details><summary>iPhone / iPad</summary><ol><li>Download it (above), then Settings › Profile downloaded › Install.</li><li>Settings › General › About › Certificate Trust Settings: turn on <i>claude-cluster</i>.</li></ol></details>
-        <details><summary>Firefox (any system)</summary><ol><li>Download it, then Settings › Privacy &amp; Security › Certificates › View Certificates › Authorities › Import.</li><li>Tick <i>Trust this CA to identify websites</i>.</li></ol></details>
-        <details><summary>Windows / macOS / Linux (Chrome, Edge, Safari)</summary><ol><li>Windows: open the file › Install › Local machine › Trusted Root Certification Authorities.</li><li>macOS: open it in Keychain Access › System › Always trust.</li><li>Linux: <code>sudo trust anchor --store claude-cluster-ca.crt</code> (on the computer of claude-cluster itself: its palette, <i>Web access: trust its certificate</i>).</li></ol></details>
-        <button type="button" id="caBack">Back</button>
-    </div>
-</div>
-<div id="app" class="hidden">
-    <header>
-        <button id="picker" title="Sessions">☰</button>
-        <span class="title"><span id="brandFace" class="face">^_^</span> claude-cluster</span>
-        <nav id="views" class="segmented" aria-label="View">
 /* ---- phones and the apk: popups inside the visible viewport (status bar, notch, gesture bar, keyboard), buttons always reachable ----
    --vvh / --vvt: the visible viewport (script below), for the WebViews whose keyboard does not resize the page; the env() insets are 0 in the apk
    (the activity pads the page itself) and real in a browser with viewport-fit=cover */
@@ -444,6 +414,36 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
     #ask input[type=text], #ask textarea, #ask select { min-height: 44px; font-size: 16px; }
     .picker-row { display: flex; align-items: center; }
 }
+</style>
+</head>
+<body>
+<div id="login">
+    <form id="loginForm" autocomplete="off">
+        <h1>claude-cluster</h1>
+        <p>The 6-digit code shown by claude-cluster on the computer</p>
+        <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000" autofocus>
+        <input id="deviceName" maxlength="40" placeholder="Name of this device (optional)" spellcheck="false">
+        <button class="primary" type="submit">Connect</button>
+        <div id="loginWait" class="hidden"><span class="spin"></span> Waiting for the approval on the computer…<br><small>its popup there: Allow, or Allow and trust (no code next time)</small></div>
+        <div id="loginError"></div>
+        <a href="#" id="caHelp" class="ca-link">No browser warning on this device: trust this computer once</a>
+    </form>
+    <div id="caSteps" class="hidden">
+        <h2>Trust this computer once</h2>
+        <p>The browser warns because this computer made its own certificate (a local network has no public one). Install its authority once on this device: its pages open without warning, and stay encrypted.</p>
+        <button type="button" class="primary button" id="caDownload">Download the certificate</button>
+        <details open><summary>Android</summary><ol><li>Download it (above).</li><li>Settings › Security › More security settings › Encryption &amp; credentials › Install a certificate › CA certificate.</li><li>Pick <code>claude-cluster-ca.crt</code>, then reload this page.</li></ol></details>
+        <details><summary>iPhone / iPad</summary><ol><li>Download it (above), then Settings › Profile downloaded › Install.</li><li>Settings › General › About › Certificate Trust Settings: turn on <i>claude-cluster</i>.</li></ol></details>
+        <details><summary>Firefox (any system)</summary><ol><li>Download it, then Settings › Privacy &amp; Security › Certificates › View Certificates › Authorities › Import.</li><li>Tick <i>Trust this CA to identify websites</i>.</li></ol></details>
+        <details><summary>Windows / macOS / Linux (Chrome, Edge, Safari)</summary><ol><li>Windows: open the file › Install › Local machine › Trusted Root Certification Authorities.</li><li>macOS: open it in Keychain Access › System › Always trust.</li><li>Linux: <code>sudo trust anchor --store claude-cluster-ca.crt</code> (on the computer of claude-cluster itself: its palette, <i>Web access: trust its certificate</i>).</li></ol></details>
+        <button type="button" id="caBack">Back</button>
+    </div>
+</div>
+<div id="app" class="hidden">
+    <header>
+        <button id="picker" title="Sessions">☰</button>
+        <span class="title"><span id="brandFace" class="face">^_^</span> claude-cluster</span>
+        <nav id="views" class="segmented" aria-label="View">
             <button data-view="chat" title="One session and its conversation">Chat</button>
             <button data-view="grid" title="Every session as a card">Grid</button>
             <button data-view="board" title="Your dashboard: tiles ordered and sized as you want">Board</button>
@@ -518,7 +518,18 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
         </div>
         <div id="pinned" class="hidden"></div>
         <div id="micState"></div>
+        <div id="chips"></div>
         <form id="composer">
+            <button id="attach" type="button" title="Attach files, photos (or drop / paste them)">📎</button>
+            <div id="attachMenu" class="hidden">
+                <button type="button" data-pick="files">📄 Files…</button>
+                <button type="button" data-pick="photos">🖼 Photo library…</button>
+                <button type="button" data-pick="camera" class="touch">📷 Take a photo / video</button>
+                <button type="button" data-pick="link" class="local">🔗 Link a file of this computer…</button>
+            </div>
+            <input id="attachFiles" type="file" multiple class="hidden">
+            <input id="attachPhotos" type="file" multiple accept="image/*,video/*" class="hidden">
+            <input id="attachCamera" type="file" accept="image/*,video/*" capture="environment" class="hidden">
             <button id="mic" type="button" title="Microphone">🎤</button>
             <span id="modeBadge" class="mode-badge hidden"></span>
             <div id="promptBox"><div id="promptHl" aria-hidden="true"></div><textarea id="prompt" rows="1" placeholder="Message (Enter sends, Shift+Enter: new line, @ file, / command)" spellcheck="false"></textarea></div>
@@ -536,18 +547,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
 </aside>
 <aside id="alerts" class="panel hidden" aria-label="Notifications">
     <div class="panel-head"><b>Notifications</b><span class="grow"></span><button id="alertsClose" aria-label="Close">✕</button></div>
-        <div id="chips"></div>
     <div class="alerts-actions"><button id="browserNotify">Notify me in this browser</button></div>
-            <button id="attach" type="button" title="Attach files, photos (or drop / paste them)">📎</button>
-            <div id="attachMenu" class="hidden">
-                <button type="button" data-pick="files">📄 Files…</button>
-                <button type="button" data-pick="photos">🖼 Photo library…</button>
-                <button type="button" data-pick="camera" class="touch">📷 Take a photo / video</button>
-                <button type="button" data-pick="link" class="local">🔗 Link a file of this computer…</button>
-            </div>
-            <input id="attachFiles" type="file" multiple class="hidden">
-            <input id="attachPhotos" type="file" multiple accept="image/*,video/*" class="hidden">
-            <input id="attachCamera" type="file" accept="image/*,video/*" capture="environment" class="hidden">
     <div id="alertsList"></div>
 </aside>
 <nav id="tabbar" aria-label="Sections">
@@ -560,6 +560,23 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
 </nav>
 <div id="toast" class="hidden"></div>
 <script>
+// the visible viewport for the popups (a keyboard that does not resize the page) + the typed field kept in view
+(() => {
+    const vv = window.visualViewport;
+    const fit = () => {
+        const root = document.documentElement.style;
+        if (!vv || Math.abs(vv.height - window.innerHeight) < 2 && vv.offsetTop < 1) { root.removeProperty("--vvh"); root.removeProperty("--vvt"); return; }
+        root.setProperty("--vvh", vv.height + "px");
+        root.setProperty("--vvt", vv.offsetTop + "px");
+    };
+    if (vv) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
+    document.addEventListener("focusin", (event) => {
+        const field = event.target;
+        if (!(field instanceof HTMLElement) || !field.matches("input:not([type=radio]):not([type=checkbox]), textarea, select")) return;
+        setTimeout(() => field.scrollIntoView({block: "nearest", inline: "nearest"}), 300); // after the keyboard is up
+    });
+})();
+
 "use strict";
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -605,23 +622,6 @@ async function api(path, body, signal) {
     const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
     const response = await fetch(path, Object.assign({credentials: "same-origin", cache: "no-store", signal}, options));
     const data = await response.json().catch(() => ({}));
-// the visible viewport for the popups (a keyboard that does not resize the page) + the typed field kept in view
-(() => {
-    const vv = window.visualViewport;
-    const fit = () => {
-        const root = document.documentElement.style;
-        if (!vv || Math.abs(vv.height - window.innerHeight) < 2 && vv.offsetTop < 1) { root.removeProperty("--vvh"); root.removeProperty("--vvt"); return; }
-        root.setProperty("--vvh", vv.height + "px");
-        root.setProperty("--vvt", vv.offsetTop + "px");
-    };
-    if (vv) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
-    document.addEventListener("focusin", (event) => {
-        const field = event.target;
-        if (!(field instanceof HTMLElement) || !field.matches("input:not([type=radio]):not([type=checkbox]), textarea, select")) return;
-        setTimeout(() => field.scrollIntoView({block: "nearest", inline: "nearest"}), 300); // after the keyboard is up
-    });
-})();
-
     if (response.status === 401 && path !== "/api/login") { reconnect(); throw new Error("not connected"); }
     if (!response.ok) throw new Error(data.error || response.statusText);
     return data;
@@ -1373,6 +1373,7 @@ function select(id) {
     lastKey = -1;
     spoken.session = "";
     $("side").classList.remove("open");
+    drawChips();
     refresh();
 }
 
@@ -1493,7 +1494,6 @@ function picture(d) {
     if (d.type === "image") img.src = `data:${d.mime || "image/png"};base64,${d.data || ""}`;
     else img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(d.svg || "")));
     img.alt = d.alt || d.type;
-    drawChips();
     return img;
 }
 
@@ -2070,30 +2070,6 @@ document.addEventListener("keydown", (e) => {
     else jumpToEnd();
 });
 
-// the prompts by their origin (mcp / task / scheduled): a colour (--o-mcp, --o-task: applyOrigin) and a label, so not by colour alone;
-// yours keep the look they had unless [ui] prompt_color_user is set
-let originOn = true;
-function markOrigin(div, m) {
-    const origin = m.origin || "user";
-    const group = origin === "schedule" ? "task" : origin;
-    const label = origin === "mcp" ? "mcp" : origin === "task" ? "task" : origin === "schedule" ? "scheduled" : "";
-    if (!originOn || (group === "user" && !document.documentElement.style.getPropertyValue("--o-user"))) return;
-    div.dataset.origin = origin;
-    div.style.setProperty("--o", "var(--o-" + group + ")");
-    if (label) div.append(el("div", "origin-tag", label));
-}
-        if (m.index !== undefined) div.dataset.index = m.index;
-function applyOrigin(style, colors) {
-    const mode = store.get("cc-theme", "cluster");
-    const dark = mode === "dark" ? true : mode === "light" ? false : style ? !!style.dark : window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const root = document.documentElement.style;
-    const own = colors || {};
-    originOn = own.on !== false;
-    root.setProperty("--o-mcp", own.mcp || (dark ? "#bb8cf2" : "#8a3fb5"));
-    root.setProperty("--o-task", own.task || (dark ? "#f08ccb" : "#b3267a"));
-    if (own.user) root.setProperty("--o-user", own.user); else root.removeProperty("--o-user");
-}
-
 function renderTranscript(messages, error) {
     const box = $("transcript");
     const spot = viewSpot(box);
@@ -2106,8 +2082,10 @@ function renderTranscript(messages, error) {
     for (const m of messages) {
         const div = document.createElement("div");
         div.className = "msg " + m.kind;
+        if (m.index !== undefined) div.dataset.index = m.index;
         if (m.kind === "user") markOrigin(div, m);
         if (m.kind === "display") renderDisplay(div, m);
+        else if (m.kind === "user") renderUser(div, m.text);
         else renderText(div, m.kind === "tool" ? "▸ " + (m.tool ? m.tool + " " : "") + m.text : m.text);
         box.append(div);
     }
@@ -2297,7 +2275,6 @@ async function act(request) {
         shownAsk = "";
         refresh();
         return data;
-        else if (m.kind === "user") renderUser(div, m.text);
     } catch (error) {
         if (error.message === "not connected") return null;
         failureLocal = {action: request.cmd.replace(/_/g, " ") + (request.session ? " (" + request.session + ")" : ""), source: "the computer",
@@ -2373,10 +2350,6 @@ function scope(kind, value) {
     });
     const keys = (e) => {
         if (e.key === "Escape") { e.preventDefault(); close(); }
-    pickMenu(name, items);
-}
-
-function pickMenu(name, items) {
         else if (e.key === "ArrowDown") { e.preventDefault(); selected = (selected + 1) % items.length; draw(); }
         else if (e.key === "ArrowUp") { e.preventDefault(); selected = (selected + items.length - 1) % items.length; draw(); }
         else if (e.key === "Enter") { e.preventDefault(); choose(items[selected]); }
@@ -2400,6 +2373,10 @@ function sessionMenu(s) {
         items.push({label: "Archive (to the trash, restorable)", run: () => act({cmd: "close", session: s.id})});
         items.push({label: "Delete for good…", danger: true, run: () => deleteSession(s.id, name)});
     }
+    pickMenu(name, items);
+}
+
+function pickMenu(name, items) {
     const veil = el("div", "picker-veil");
     const box = el("div", "picker");
     box.append(el("div", "picker-title", name));
@@ -2464,6 +2441,152 @@ function shareShell() {
     veil.append(box);
     document.body.append(veil);
     draw();
+}
+
+// ---- attachments: files, photos, pictures of the clipboard, a file of this computer linked; chips above the prompt ----
+const attached = {};   // session -> [{name, size, image, path, id, url, state}]
+const attachInfo = () => (lastState && lastState.attach) || {enabled: false, max_mb: 20, max_files: 10, link: false, root: ""};
+const attachList = () => attached[current] || (attached[current] = []);
+const sizeText = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " B";
+const attachUrl = (session, path) => "/api/attach/file?session=" + encodeURIComponent(session) + "&path=" + encodeURIComponent(path);
+
+function drawChips() {
+    const box = $("chips");
+    box.textContent = "";
+    for (const f of attachList()) {
+        const chip = el("div", "achip" + (f.state === "error" ? " err" : ""));
+        if (f.image && f.url) { const img = el("img"); img.src = f.url; img.alt = f.name; chip.append(img); } else chip.append(el("span", "ico", "📄"));
+        const label = el("span", "nm", f.name);
+        label.append(el("small", "", f.state === "uploading" ? "uploading…" : f.state === "error" ? f.error : sizeText(f.size) + (f.linked ? " · linked" : "")));
+        chip.append(label);
+        const x = el("button", "", "✕");
+        x.type = "button"; x.title = "Remove";
+        x.addEventListener("click", () => removeAttachment(f));
+        chip.append(x);
+        box.append(chip);
+    }
+}
+
+async function addFiles(files) {
+    const info = attachInfo();
+    if (!info.enabled) { toast("Attachments are off (settings)"); return; }
+    const list = attachList();
+    const session = current;
+    for (const file of files) {
+        if (list.length >= info.max_files) { toast("At most " + info.max_files + " files per prompt"); break; }
+        const f = {name: file.name || "image.png", size: file.size, image: file.type.startsWith("image/"), state: "uploading", url: file.type.startsWith("image/") ? URL.createObjectURL(file) : ""};
+        list.push(f);
+        drawChips();
+        if (file.size > info.max_mb * 1048576) { f.state = "error"; f.error = "over " + info.max_mb + " MB"; drawChips(); continue; }
+        try {
+            const r = await fetch("/api/attach?session=" + encodeURIComponent(session) + "&name=" + encodeURIComponent(f.name), {method: "POST", credentials: "same-origin", body: file});
+            if (r.status === 401) { reconnect(); throw new Error("not connected"); }
+            const d = await r.json().catch(() => ({ok: false, error: r.statusText}));
+            if (!d.ok) throw new Error(d.error || "refused");
+            Object.assign(f, d.attachment, {state: "ready", name: d.attachment.name});
+        } catch (error) { f.state = "error"; f.error = error.message; }
+        if (session === current) drawChips();
+    }
+}
+
+async function linkFile() {
+    const path = prompt("Path of a file of this computer (linked, nothing copied):");
+    if (!path) return;
+    try {
+        const d = await api("/api/attach/link", {session: current, path: path.trim()});
+        if (!d.ok) throw new Error(d.error);
+        attachList().push(Object.assign({state: "ready", url: d.attachment.image ? attachUrl(current, d.attachment.path) : ""}, d.attachment));
+        drawChips();
+    } catch (error) { toast(error.message); }
+}
+
+function removeAttachment(f) {
+    const list = attachList();
+    list.splice(list.indexOf(f), 1);
+    if (f.id) api("/api/attach/remove", {session: current, id: f.id}).catch(() => {});
+    drawChips();
+}
+
+function takeAttachments() {   // what the prompt sends: the files ready (the chips are cleared, the files stay for the transcript)
+    const ready = attachList().filter((f) => f.state === "ready");
+    attached[current] = attachList().filter((f) => f.state === "uploading");
+    drawChips();
+    return ready;
+}
+
+const attachMenu = $("attachMenu");
+document.addEventListener("click", (e) => { if (!e.target.closest("#attach, #attachMenu")) attachMenu.classList.add("hidden"); });
+$("attach").addEventListener("click", () => {
+    const info = attachInfo();
+    attachMenu.querySelector(".touch").classList.toggle("hidden", !matchMedia("(pointer: coarse)").matches);
+    attachMenu.querySelector(".local").classList.toggle("hidden", !info.link);
+    attachMenu.classList.toggle("hidden");
+});
+attachMenu.addEventListener("click", (e) => {
+    const pick = e.target.dataset && e.target.dataset.pick;
+    attachMenu.classList.add("hidden");
+    if (pick === "link") linkFile();
+    else if (pick) $({files: "attachFiles", photos: "attachPhotos", camera: "attachCamera"}[pick]).click();
+});
+for (const id of ["attachFiles", "attachPhotos", "attachCamera"])
+    $(id).addEventListener("change", (e) => { addFiles(Array.from(e.target.files)); e.target.value = ""; });
+$("prompt").addEventListener("paste", (e) => {
+    const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
+    if (!files.length) return;
+    e.preventDefault();
+    addFiles(files);
+});
+for (const name of ["dragenter", "dragover"]) $("composer").addEventListener(name, (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); $("composer").classList.add("drop-over"); } });
+$("composer").addEventListener("dragleave", () => $("composer").classList.remove("drop-over"));
+$("composer").addEventListener("drop", (e) => {
+    $("composer").classList.remove("drop-over");
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    addFiles(Array.from(e.dataTransfer.files));
+});
+
+// a prompt of the transcript: its "[Image: path]" and "@path" of the attachments of this session as a thumbnail / a download link
+// the prompts by their origin (mcp / task / scheduled): a colour (--o-mcp, --o-task: applyOrigin) and a label, so not by colour alone;
+// yours keep the look they had unless [ui] prompt_color_user is set
+let originOn = true;
+function markOrigin(div, m) {
+    const origin = m.origin || "user";
+    const group = origin === "schedule" ? "task" : origin;
+    const label = origin === "mcp" ? "mcp" : origin === "task" ? "task" : origin === "schedule" ? "scheduled" : "";
+    if (!originOn || (group === "user" && !document.documentElement.style.getPropertyValue("--o-user"))) return;
+    div.dataset.origin = origin;
+    div.style.setProperty("--o", "var(--o-" + group + ")");
+    if (label) div.append(el("div", "origin-tag", label));
+}
+function applyOrigin(style, colors) {
+    const mode = store.get("cc-theme", "cluster");
+    const dark = mode === "dark" ? true : mode === "light" ? false : style ? !!style.dark : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const root = document.documentElement.style;
+    const own = colors || {};
+    originOn = own.on !== false;
+    root.setProperty("--o-mcp", own.mcp || (dark ? "#bb8cf2" : "#8a3fb5"));
+    root.setProperty("--o-task", own.task || (dark ? "#f08ccb" : "#b3267a"));
+    if (own.user) root.setProperty("--o-user", own.user); else root.removeProperty("--o-user");
+}
+
+function renderUser(div, text) {
+    const root = attachInfo().root ? attachInfo().root + "/" + current + "/" : null;
+    if (!root) { renderText(div, text); return; }
+    let last = 0;
+    const re = /\[Image: (\/[^\]]+)\]|@(\/\S+)/g;
+    for (let m; (m = re.exec(text));) {
+        const path = m[1] || m[2];
+        if (!path.startsWith(root)) continue;
+        renderText(div, text.slice(last, m.index));
+        const link = el("a", "attached");
+        link.href = attachUrl(current, path);
+        link.target = "_blank"; link.rel = "noopener";
+        const name = path.slice(root.length).replace(/^[0-9a-f]{8}-/, "");
+        if (m[1]) { const img = el("img"); img.src = link.href; img.alt = name; img.loading = "lazy"; link.append(img); } else link.textContent = "📄 " + name;
+        div.append(link);
+        last = m.index + m[0].length;
+    }
+    renderText(div, text.slice(last));
 }
 
 // the mode of the prompt: ! a command of the shell, : a command of claude-cluster (its indicator)
@@ -2656,152 +2779,6 @@ function sourceColor(source) {
     if (source === "local") return "#4c9f70";
     if (source === "built-in") return "#7d8594";
     const palette = ["#c2703d", "#5b8def", "#b062d0", "#d0a23a", "#3aa6b9", "#d05a7a"];
-// ---- attachments: files, photos, pictures of the clipboard, a file of this computer linked; chips above the prompt ----
-const attached = {};   // session -> [{name, size, image, path, id, url, state}]
-const attachInfo = () => (lastState && lastState.attach) || {enabled: false, max_mb: 20, max_files: 10, link: false, root: ""};
-const attachList = () => attached[current] || (attached[current] = []);
-const sizeText = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " B";
-const attachUrl = (session, path) => "/api/attach/file?session=" + encodeURIComponent(session) + "&path=" + encodeURIComponent(path);
-
-function drawChips() {
-    const box = $("chips");
-    box.textContent = "";
-    for (const f of attachList()) {
-        const chip = el("div", "achip" + (f.state === "error" ? " err" : ""));
-        if (f.image && f.url) { const img = el("img"); img.src = f.url; img.alt = f.name; chip.append(img); } else chip.append(el("span", "ico", "📄"));
-        const label = el("span", "nm", f.name);
-        label.append(el("small", "", f.state === "uploading" ? "uploading…" : f.state === "error" ? f.error : sizeText(f.size) + (f.linked ? " · linked" : "")));
-        chip.append(label);
-        const x = el("button", "", "✕");
-        x.type = "button"; x.title = "Remove";
-        x.addEventListener("click", () => removeAttachment(f));
-        chip.append(x);
-        box.append(chip);
-    }
-}
-
-async function addFiles(files) {
-    const info = attachInfo();
-    if (!info.enabled) { toast("Attachments are off (settings)"); return; }
-    const list = attachList();
-    const session = current;
-    for (const file of files) {
-        if (list.length >= info.max_files) { toast("At most " + info.max_files + " files per prompt"); break; }
-        const f = {name: file.name || "image.png", size: file.size, image: file.type.startsWith("image/"), state: "uploading", url: file.type.startsWith("image/") ? URL.createObjectURL(file) : ""};
-        list.push(f);
-        drawChips();
-        if (file.size > info.max_mb * 1048576) { f.state = "error"; f.error = "over " + info.max_mb + " MB"; drawChips(); continue; }
-        try {
-            const r = await fetch("/api/attach?session=" + encodeURIComponent(session) + "&name=" + encodeURIComponent(f.name), {method: "POST", credentials: "same-origin", body: file});
-            if (r.status === 401) { reconnect(); throw new Error("not connected"); }
-            const d = await r.json().catch(() => ({ok: false, error: r.statusText}));
-            if (!d.ok) throw new Error(d.error || "refused");
-            Object.assign(f, d.attachment, {state: "ready", name: d.attachment.name});
-        } catch (error) { f.state = "error"; f.error = error.message; }
-        if (session === current) drawChips();
-    }
-}
-
-async function linkFile() {
-    const path = prompt("Path of a file of this computer (linked, nothing copied):");
-    if (!path) return;
-    try {
-        const d = await api("/api/attach/link", {session: current, path: path.trim()});
-        if (!d.ok) throw new Error(d.error);
-        attachList().push(Object.assign({state: "ready", url: d.attachment.image ? attachUrl(current, d.attachment.path) : ""}, d.attachment));
-        drawChips();
-    } catch (error) { toast(error.message); }
-}
-
-function removeAttachment(f) {
-    const list = attachList();
-    list.splice(list.indexOf(f), 1);
-    if (f.id) api("/api/attach/remove", {session: current, id: f.id}).catch(() => {});
-    drawChips();
-}
-
-function takeAttachments() {   // what the prompt sends: the files ready (the chips are cleared, the files stay for the transcript)
-    const ready = attachList().filter((f) => f.state === "ready");
-    attached[current] = attachList().filter((f) => f.state === "uploading");
-    drawChips();
-    return ready;
-}
-
-const attachMenu = $("attachMenu");
-document.addEventListener("click", (e) => { if (!e.target.closest("#attach, #attachMenu")) attachMenu.classList.add("hidden"); });
-$("attach").addEventListener("click", () => {
-    const info = attachInfo();
-    attachMenu.querySelector(".touch").classList.toggle("hidden", !matchMedia("(pointer: coarse)").matches);
-    attachMenu.querySelector(".local").classList.toggle("hidden", !info.link);
-    attachMenu.classList.toggle("hidden");
-});
-attachMenu.addEventListener("click", (e) => {
-    const pick = e.target.dataset && e.target.dataset.pick;
-    attachMenu.classList.add("hidden");
-    if (pick === "link") linkFile();
-    else if (pick) $({files: "attachFiles", photos: "attachPhotos", camera: "attachCamera"}[pick]).click();
-});
-for (const id of ["attachFiles", "attachPhotos", "attachCamera"])
-    $(id).addEventListener("change", (e) => { addFiles(Array.from(e.target.files)); e.target.value = ""; });
-$("prompt").addEventListener("paste", (e) => {
-    const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
-    if (!files.length) return;
-    e.preventDefault();
-    addFiles(files);
-});
-for (const name of ["dragenter", "dragover"]) $("composer").addEventListener(name, (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); $("composer").classList.add("drop-over"); } });
-$("composer").addEventListener("dragleave", () => $("composer").classList.remove("drop-over"));
-$("composer").addEventListener("drop", (e) => {
-    $("composer").classList.remove("drop-over");
-    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
-    e.preventDefault();
-    addFiles(Array.from(e.dataTransfer.files));
-});
-
-// a prompt of the transcript: its "[Image: path]" and "@path" of the attachments of this session as a thumbnail / a download link
-// the prompts by their origin (mcp / task / scheduled): a colour (--o-mcp, --o-task: applyOrigin) and a label, so not by colour alone;
-// yours keep the look they had unless [ui] prompt_color_user is set
-let originOn = true;
-function markOrigin(div, m) {
-    const origin = m.origin || "user";
-    const group = origin === "schedule" ? "task" : origin;
-    const label = origin === "mcp" ? "mcp" : origin === "task" ? "task" : origin === "schedule" ? "scheduled" : "";
-    if (!originOn || (group === "user" && !document.documentElement.style.getPropertyValue("--o-user"))) return;
-    div.dataset.origin = origin;
-    div.style.setProperty("--o", "var(--o-" + group + ")");
-    if (label) div.append(el("div", "origin-tag", label));
-}
-function applyOrigin(style, colors) {
-    const mode = store.get("cc-theme", "cluster");
-    const dark = mode === "dark" ? true : mode === "light" ? false : style ? !!style.dark : window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const root = document.documentElement.style;
-    const own = colors || {};
-    originOn = own.on !== false;
-    root.setProperty("--o-mcp", own.mcp || (dark ? "#bb8cf2" : "#8a3fb5"));
-    root.setProperty("--o-task", own.task || (dark ? "#f08ccb" : "#b3267a"));
-    if (own.user) root.setProperty("--o-user", own.user); else root.removeProperty("--o-user");
-}
-
-function renderUser(div, text) {
-    const root = attachInfo().root ? attachInfo().root + "/" + current + "/" : null;
-    if (!root) { renderText(div, text); return; }
-    let last = 0;
-    const re = /\[Image: (\/[^\]]+)\]|@(\/\S+)/g;
-    for (let m; (m = re.exec(text));) {
-        const path = m[1] || m[2];
-        if (!path.startsWith(root)) continue;
-        renderText(div, text.slice(last, m.index));
-        const link = el("a", "attached");
-        link.href = attachUrl(current, path);
-        link.target = "_blank"; link.rel = "noopener";
-        const name = path.slice(root.length).replace(/^[0-9a-f]{8}-/, "");
-        if (m[1]) { const img = el("img"); img.src = link.href; img.alt = name; img.loading = "lazy"; link.append(img); } else link.textContent = "📄 " + name;
-        div.append(link);
-        last = m.index + m[0].length;
-    }
-    renderText(div, text.slice(last));
-}
-
     let hash = 0;
     for (const c of new TextEncoder().encode(source)) hash = (Math.imul(hash, 31) + c) >>> 0;
     return palette[hash % palette.length];

@@ -31,7 +31,7 @@ your answer to the user).
 - Heavy commands (a build, the whole test suite, a docker / ffmpeg job, a local model) go through the resource orchestrator of
   this computer so the sessions take turns: `cluster-run -- <command>` in your shell (it waits in the queue, prints `queued:
   position N`, then runs in the low profile with the parallelism you are granted; stdout and the exit code are the
-  command's) or the tools `heavy_run` / `jobs_add` (the second wakes you with `[job jN finished|failed|killed]`). Never start
+  command's) or, when you have them (the user allows them), the tools `heavy_run` / `jobs_add` (the second wakes you with `[job jN finished|failed|killed]`). Never start
   your own parallel builds beyond what you are granted (no hand-made `-j$(nproc)` / several builds at once: inside
   `cluster-run` the share is applied for you). A job waiting or running: ask `job_status` (cheap), never poll in a loop; a
   `killed` job says by whom (user, global session, pressure, archived). Light commands (`ls`, `grep`, `git status`...) never go

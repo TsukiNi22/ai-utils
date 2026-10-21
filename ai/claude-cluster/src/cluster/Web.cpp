@@ -176,9 +176,9 @@ _cold static bool send_all_(Conn& conn, const std::string& data)
     return true;
 }
 
-_cold static bool read_request_(Conn& conn, Request& request)
 static std::atomic<std::size_t> attach_cap_{0}; // the largest upload (settings: Attachments), set at each request
 
+_cold static bool read_request_(Conn& conn, Request& request)
 {
     // One request: its headers (16 KB at most, 10 s), its body (Content-Length: 1 MB, a recording 16 MB, 60 s); the
     // socket reads time out by themselves (SO_RCVTIMEO)
@@ -479,6 +479,7 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
         cluster::Json message = {{"kind", kind_name_(e.kind)}, {"text", text}, {"tool", e.tool}, {"time", e.time}, {"index", i}};
         if (e.kind == cluster::EntryKind::User) message["origin"] = cluster::prompt_origin(e.origin, e.text); // user | mcp | task | schedule
         json["messages"].push_back(message);
+    }
     // the pinned item, drawn at the bottom of the view: the display as it is now (its entry index for a picture), or the message
     if (const cluster::Json block = cluster::display_pinned(*snap); block.is_object()) {
         json["pin_block"] = light_display_(block);
@@ -488,7 +489,6 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
                     json["pin_index"] = i - 1;
                     break;
                 }
-    }
     }
     return json;
 }
@@ -1261,26 +1261,6 @@ _cold void cluster::Web::client_(const int fd, const std::string& peer, const bo
     --this->_busy;
 }
 
-_cold void cluster::Web::request_(void* connection, const std::string& peer, const bool toHttps, const bool tty)
-{
-    // The right host, no other site; the page, the code; the browser connected for the API
-    static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
-        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "pin", "unpin", "settings_get", "settings_search", "settings_set", "ui_state", "delete",
-        "projects", "send_next", "install_package", "failure", "services", "service_act", "showcase", "task_act", "orch_state", "job_status", "job_kill", "job_stop", "job_resume", "job_prio", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel", "schedule_edit"};
-    Conn& conn = *static_cast<Conn*>(connection);
-    Request request;
-    if (!read_request_(conn, request)) return;
-    const std::string host = request.headers.contains("host") ? request.headers.at("host") : "";
-    const std::string origin = request.headers.contains("origin") ? request.headers.at("origin") : "";
-    const bool post = request.method == "POST";
-    const std::string scheme = this->_tls == nullptr ? "http://" : "https://";
-    const std::string secure = this->_tls != nullptr ? "; Secure" : "";
-
-    const std::string named = cluster::lower(host.substr(0, host.rfind(':') == std::string::npos ? host.size() : host.rfind(':')));
-    const bool remoteName = std::find(this->_remoteNames.begin(), this->_remoteNames.end(), named) != this->_remoteNames.end();
-    if (!host_ok_(host) && !remoteName) {
-        respond_(conn, 403, "text/plain", "claude-cluster: open it by the address of this computer\n");
-        return;
 _cold void cluster::Web::attach_(void* connection, const void* parsed, const cluster::Json& body, const std::string& peer)
 {
     // the files of a prompt: uploaded (the body is the file), linked (a page on this computer), listed, removed, served back (only the
@@ -1288,8 +1268,8 @@ _cold void cluster::Web::attach_(void* connection, const void* parsed, const clu
     Conn& conn = *static_cast<Conn*>(connection);
     const Request& request = *static_cast<const Request*>(parsed);
     const cluster::Config& config = this->_manager.config();
-    const auto query = [&request](const char* key) {return request.query.contains(key) ? request.query.at(key) : std::string();};
-    const auto text = [&body](const char* key) {return body.is_object() && body.contains(key) && body[key].is_string() ? body[key].get<std::string>() : std::string();};
+    const std::function<std::string(const char*)> query = [&request](const char* key) {return request.query.contains(key) ? request.query.at(key) : std::string();};
+    const std::function<std::string(const char*)> text = [&body](const char* key) {return body.is_object() && body.contains(key) && body[key].is_string() ? body[key].get<std::string>() : std::string();};
     const bool post = request.method == "POST";
     try {
         const std::string wanted = post && request.path != "/api/attach" ? text("session") : query("session");
@@ -1333,6 +1313,26 @@ _cold void cluster::Web::attach_(void* connection, const void* parsed, const clu
     }
 }
 
+_cold void cluster::Web::request_(void* connection, const std::string& peer, const bool toHttps, const bool tty)
+{
+    // The right host, no other site; the page, the code; the browser connected for the API
+    static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
+        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "pin", "unpin", "settings_get", "settings_search", "settings_set", "ui_state", "delete",
+        "projects", "send_next", "install_package", "failure", "services", "service_act", "showcase", "task_act", "orch_state", "job_status", "job_kill", "job_stop", "job_resume", "job_prio", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel", "schedule_edit"};
+    Conn& conn = *static_cast<Conn*>(connection);
+    Request request;
+    if (!read_request_(conn, request)) return;
+    const std::string host = request.headers.contains("host") ? request.headers.at("host") : "";
+    const std::string origin = request.headers.contains("origin") ? request.headers.at("origin") : "";
+    const bool post = request.method == "POST";
+    const std::string scheme = this->_tls == nullptr ? "http://" : "https://";
+    const std::string secure = this->_tls != nullptr ? "; Secure" : "";
+
+    const std::string named = cluster::lower(host.substr(0, host.rfind(':') == std::string::npos ? host.size() : host.rfind(':')));
+    const bool remoteName = std::find(this->_remoteNames.begin(), this->_remoteNames.end(), named) != this->_remoteNames.end();
+    if (!host_ok_(host) && !remoteName) {
+        respond_(conn, 403, "text/plain", "claude-cluster: open it by the address of this computer\n");
+        return;
     }
     if (toHttps) {
         respond_(conn, 301, "text/plain", "https\n", "Location: https://" + host + request.path + "\r\n");
@@ -1341,8 +1341,8 @@ _cold void cluster::Web::attach_(void* connection, const void* parsed, const clu
     if (post && !origin.empty() && origin != scheme + host) {
         json_(conn, 403, {{"error", "another site"}});
         return;
-    attach_cap_ = static_cast<std::size_t>(this->_manager.config().attach.maxMb) * 1048576U;
     }
+    attach_cap_ = static_cast<std::size_t>(this->_manager.config().attach.maxMb) * 1048576U;
     if (tty && request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
         // the terminal page (the browser only: the app has its page); its script by a nonce too
         const std::string agent = request.headers.contains("user-agent") ? request.headers.at("user-agent") : "";
@@ -1526,8 +1526,8 @@ self.addEventListener("notificationclick", (e) => {
         const cluster::Style& st = config.styles.contains(styleName) ? config.styles.at(styleName) : config.currentStyle();
         const cluster::Json style = {{"name", st.name}, {"dark", st.dark}, {"bg", st.bg}, {"surface", st.surface}, {"text", st.text}, {"muted", st.muted},
             {"accent", st.accent}, {"border", st.border}, {"ok", st.ok}, {"warn", st.warn}, {"error", st.error}};
-        const cluster::OriginColors origin = cluster::origin_colors(); // the colours of the prompts by origin (the page has the defaults of each theme)
-        const cluster::Json promptColors = {{"on", origin.enabled}, {"user", origin.user}, {"mcp", origin.mcp}, {"task", origin.task}};
+        const cluster::OriginColors colors = cluster::origin_colors(); // the colours of the prompts by origin (the page has the defaults of each theme)
+        const cluster::Json promptColors = {{"on", colors.enabled}, {"user", colors.user}, {"mcp", colors.mcp}, {"task", colors.task}};
         const cluster::VoiceConf& voice = this->_manager.config().voice;
         const cluster::AppFace face = this->_manager.appFace(false);
         // the Tasks session of the list: what waits / runs, what is scheduled

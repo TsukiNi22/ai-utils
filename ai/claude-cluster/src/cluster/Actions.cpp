@@ -146,12 +146,13 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         list.push_back({"where_terminal", "Open a terminal in its folder (" + cluster::short_path(snap->spec.cwd) + ")", "", "", false});
         if (!snap->spec.global && !snap->spec.claudeId.empty() && snap->spec.backend.substr(0, snap->spec.backend.find('/')) != "codex")
             list.push_back({"fork", "Fork the session (a copy of its conversation, each one goes on apart)", "", "", false});
+        // the pin of its view: removed, or the last answer pinned
+        if (snap->spec.pin.is_object()) list.push_back({"unpin", "Unpin: " + snap->spec.pin.value("title", std::string("the pinned item")), "", "", false});
+        list.push_back({"pin_last", "Pin the last answer (kept at the bottom of the view)", "", "", false});
         // its displays: tick, click, fill, play (the last 30)
         std::size_t seen = 0;
         for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && seen < 30; ++it) {
             if (it->kind != cluster::EntryKind::Display) continue;
-        if (snap->spec.pin.is_object()) list.push_back({"unpin", "Unpin: " + snap->spec.pin.value("title", std::string("the pinned item")), "", "", false});
-        list.push_back({"pin_last", "Pin the last answer (kept at the bottom of the view)", "", "", false});
             ++seen;
             const cluster::Json d = cluster::Json::parse(it->text, nullptr, false);
             if (!d.is_object()) continue;
@@ -162,8 +163,9 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
                 for (std::size_t i = 0; i < d["items"].size(); ++i)
                     list.push_back({"display_tick:" + id + ":" + std::to_string(i), std::string(d["items"][i].value("done", false) ? "Untick: " : "Tick: ")
                         + cluster::one_line(d["items"][i].value("text", std::string()), 60) + " (" + title + ")", "", "", false});
-            if (type == "actions")
+            if (!(snap->spec.pin.is_object() && snap->spec.pin.value("id", std::string()) == id))
                 list.push_back({"pin_display:" + id, "Pin: " + title + " (" + type + ")", "", "", false});
+            if (type == "actions")
                 for (std::size_t i = 0; i < d["buttons"].size(); ++i)
                     list.push_back({"display_click:" + id + ":" + std::to_string(i), "Action: " + d["buttons"][i].value("label", std::string())
                         + (d["buttons"][i].contains("clicked") ? " (again)" : ""), "", "", false});
@@ -1312,6 +1314,19 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
         if (out.empty()) out.push_back({"cancel", "Nothing archived", "", "", false});
         return out;
     }
+    if (cluster::lower(wanted).starts_with("pin_menu:")) {
+        // the right click on a message / a block of a transcript: <session>:<entry>
+        const std::string rest = cluster::trim(wanted.substr(9));
+        const std::size_t colon = rest.rfind(':');
+        const std::optional<cluster::Snapshot> shown = manager.snapshot(rest.substr(0, colon));
+        if (!shown || colon == std::string::npos) return out;
+        const std::string index = rest.substr(colon + 1);
+        const std::size_t at = static_cast<std::size_t>(std::strtoul(index.c_str(), nullptr, 10));
+        const bool block = at < shown->entries.size() && shown->entries[at].kind == cluster::EntryKind::Display;
+        if (!index.empty() && std::isdigit(static_cast<unsigned char>(index[0]))) out.push_back({"pin_entry:" + index, std::string("Pin this ") + (block ? "block" : "message") + " (kept at the bottom of the view)", "", "", false});
+        if (shown->spec.pin.is_object()) out.push_back({"unpin", "Unpin: " + shown->spec.pin.value("title", std::string("the pinned item")), "", "", false});
+        return out;
+    }
     const bool menu = cluster::lower(wanted).starts_with("menu:");
     const bool remove = cluster::lower(wanted).starts_with("delete:");
     if (!menu && !remove) return out;
@@ -1347,19 +1362,6 @@ _cold std::vector<cluster::Action> cluster::filter_actions(const std::vector<clu
     const cluster::Config* config = manager != nullptr ? &manager->config() : nullptr;
     std::vector<std::pair<float, cluster::Action>> found;
     std::string wanted = cluster::trim(filter);
-    if (cluster::lower(wanted).starts_with("pin_menu:")) {
-        // the right click on a message / a block of a transcript: <session>:<entry>
-        const std::string rest = cluster::trim(wanted.substr(9));
-        const std::size_t colon = rest.rfind(':');
-        const std::optional<cluster::Snapshot> shown = manager.snapshot(rest.substr(0, colon));
-        if (!shown || colon == std::string::npos) return out;
-        const std::string index = rest.substr(colon + 1);
-        const std::size_t at = static_cast<std::size_t>(std::strtoul(index.c_str(), nullptr, 10));
-        const bool block = at < shown->entries.size() && shown->entries[at].kind == cluster::EntryKind::Display;
-        if (!index.empty() && std::isdigit(static_cast<unsigned char>(index[0]))) out.push_back({"pin_entry:" + index, std::string("Pin this ") + (block ? "block" : "message") + " (kept at the bottom of the view)", "", "", false});
-        if (shown->spec.pin.is_object()) out.push_back({"unpin", "Unpin: " + shown->spec.pin.value("title", std::string("the pinned item")), "", "", false});
-        return out;
-    }
     const bool settingsOnly = cluster::lower(wanted).starts_with("setting:");
     if (!settingsOnly)
         for (const cluster::Action& action: actions)

@@ -11,6 +11,7 @@ WORK="$(mktemp -d)"
 trap 'kill "${SERVE:-0}" 2>/dev/null || true; rm -rf "${WORK}"' EXIT
 
 export CLAUDE_CLUSTER_CONFIG_DIR="${WORK}/cfg" CLAUDE_CLUSTER_DATA_DIR="${WORK}/data" CLAUDE_CLUSTER_SOCKET="${WORK}/sock"
+source "$(dirname "${BASH_SOURCE[0]}")/isolate.sh"   # refuses the real config / data / socket of the user, a home of its own
 export FAKE_CLAUDE_LOG="${WORK}/log"
 command mkdir -p "${WORK}/cfg" "${WORK}/data" "${WORK}/proj"
 printf '[commands]\nclaude = "%s/fake_claude.py"\n[agent]\nwork_method = "one-task"\nwork_method_text = "be brief"\nwork_method_detect = true\nwork_method_every = 1\n' "${HERE}" > "${WORK}/cfg/config.toml"
@@ -70,7 +71,7 @@ absent "the setting is unchanged before the answer" 'plan-first' "$(cat "${WORK}
 answer Deny
 sleep 2
 absent "a Deny keeps the method" 'plan-first' "$(cat "${WORK}/cfg/config.toml")"
-check "the proposal is cleared" '"method":"one-task"' "$(mcp work_method '{}')"
+check "the proposal is cleared" '\"method\":\"one-task\"' "$(mcp work_method '{}')"
 check "a second proposal is asked" 'asked' "$(mcp work_method '{"action":"propose","preset":"list-review","text":"review twice"}')"
 answer Allow
 sleep 3

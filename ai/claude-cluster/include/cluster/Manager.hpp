@@ -441,18 +441,11 @@ class Manager {
         // | merge (other = the node it joins); throws why (a cycle, a bad name)
         _cold void taxonomyEdit(const std::string& action, const std::string& node, const std::string& other, const bool strip = false);
         _cold _nodiscard std::vector<std::string> groupPath(const cluster::SessionSpec& spec) const;   // its group in the list: the path of its category / first tag (empty: none)
-        // the taxonomy of the categories / tags (Manager-Taxonomy.cpp): categories and tags form a forest under the root "global"; replicated
-        _cold _nodiscard cluster::Taxonomy taxonomy(void) const;
-        _cold _nodiscard cluster::Json taxonomyJson(void) const;        // {root, parents: {node: parent}, edit: the global session may edit it}
-        // action: set_parent (node, other = the parent, "" / global: the root) | rename (other = the new name) | delete (strip: the label removed from the sessions too)
-        // | merge (other = the node it joins); throws why (a cycle, a bad name)
-        _cold void taxonomyEdit(const std::string& action, const std::string& node, const std::string& other, const bool strip = false);
         /* heavy jobs (Manager-Jobs.cpp) */
         _cold _nodiscard cluster::Json jobsCommand(const std::string& cmd, const cluster::Json& request = cluster::Json::object());  // job_list, job_kill...: the core's orchestrator (a replica: through the core)
         _cold _nodiscard cluster::Json jobsState(void) const;                      // the gauges, limits and jobs the interfaces show
         _nodiscard inline cluster::Orchestrator* orchestrator(void) const {return this->_orch.get();};
 
-        _cold _nodiscard std::vector<std::string> groupPath(const cluster::SessionSpec& spec) const;   // its group in the list: the path of its category / first tag (empty: none)
         _nodiscard std::optional<cluster::Snapshot> snapshot(const std::string& id) const;
         _nodiscard std::vector<cluster::SessionSpec> trash(void) const;
         _nodiscard std::vector<cluster::SessionSpec> previous(void) const;

@@ -176,7 +176,7 @@ _cold std::vector<cluster::Snapshot> cluster::Manager::shown(void) const
         paths.push_back(s.spec.global ? std::vector<std::string>() : taxonomy.group(s.spec));
     std::vector<std::size_t> order(all.size());
     std::iota(order.begin(), order.end(), static_cast<std::size_t>(0));
-    const auto rank = [&](const std::size_t i) {return all[i].spec.global ? 0 : paths[i].empty() ? 2 : 1;};
+    const std::function<int(const std::size_t)> rank = [&](const std::size_t i) {return all[i].spec.global ? 0 : paths[i].empty() ? 2 : 1;};
     std::stable_sort(order.begin(), order.end(), [&](const std::size_t a, const std::size_t b) {
         return rank(a) != rank(b) ? rank(a) < rank(b) : rank(a) == 1 && paths[a] < paths[b];
     });

@@ -13,6 +13,7 @@ WORK="$(mktemp -d)"
 trap 'kill "${SERVE:-0}" 2>/dev/null || true; kill "${BG1:-0}" "${BG2:-0}" 2>/dev/null || true; rm -rf "${WORK}"' EXIT
 
 export CLAUDE_CLUSTER_CONFIG_DIR="${WORK}/cfg" CLAUDE_CLUSTER_DATA_DIR="${WORK}/data" CLAUDE_CLUSTER_SOCKET="${WORK}/sock"
+source "$(dirname "${BASH_SOURCE[0]}")/isolate.sh"   # refuses the real config / data / socket of the user, a home of its own
 export FAKE_CLAUDE_LOG="${WORK}/log"
 command mkdir -p "${WORK}/cfg" "${WORK}/data" "${WORK}/proj" "${WORK}/proc/pressure"
 
@@ -31,7 +32,7 @@ write_config() { # <extra [orchestrator] lines>
         printf '%s\n' "$1"
     } > "${WORK}/cfg/config.toml"
 }
-write_config 'kill_on_oom = false'
+write_config $'kill_on_oom = false\nsub_add = true'   # off by default (no permission asked on the MCP path): the checks of the sub-sessions below need it on
 
 start_core() {
     "${BIN}" serve > "${WORK}/serve.log" 2>&1 &
@@ -116,8 +117,8 @@ has "class: cmake --build is build" "$(status "$(jid "${OUT}")")" 'class\":\"bui
 sleep 2
 
 # (3) the limits and the order: max_jobs = 2, four jobs, the priority decides who waits
-A="$(jid "$(call jobs_add '{"command":"sleep 6","name":"a","prio":0,"callback":false}')")"
-B="$(jid "$(call jobs_add '{"command":"sleep 6","name":"b","prio":0,"callback":false}')")"
+A="$(jid "$(call jobs_add '{"command":"sleep 10","name":"a","prio":0,"callback":false}')")"
+B="$(jid "$(call jobs_add '{"command":"sleep 10","name":"b","prio":0,"callback":false}')")"
 C="$(jid "$(call jobs_add '{"command":"sleep 2","name":"c-low","prio":-5,"callback":false}')")"
 D="$(jid "$(call jobs_add '{"command":"sleep 2","name":"d-high","prio":5,"callback":false}')")"
 LIST="$(call jobs_list '{}')"
@@ -202,10 +203,10 @@ has "cluster-run: the slot is free again" "$(call jobs_list '{}')" 'running\":0'
 # (7) the callback: a sub-session added a job, it is woken up with its end
 SPAWNED="$(call session_spawn "{\"cwd\":\"${WORK}/proj\",\"name\":\"worker\",\"reply\":false}")"
 sleep 2
-SUBID="$(grep -o 's[0-9]*' <<< "${SPAWNED}" | head -1)"
+SUBID="$(grep -o 's[0-9][0-9]*' <<< "${SPAWNED}" | head -1)"
 SPAWNED2="$(call session_spawn "{\"cwd\":\"${WORK}/proj\",\"name\":\"other\",\"reply\":false}")"
 sleep 2
-OTHER="$(grep -o 's[0-9]*' <<< "${SPAWNED2}" | head -1)"
+OTHER="$(grep -o 's[0-9][0-9]*' <<< "${SPAWNED2}" | head -1)"
 SUBTOOLS="$(tools "${SUBID}")"
 has "sub: heavy_run offered" "${SUBTOOLS}" 'heavy_run'
 has "sub: jobs_add offered" "${SUBTOOLS}" 'jobs_add'

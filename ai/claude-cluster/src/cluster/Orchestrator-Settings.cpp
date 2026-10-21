@@ -100,7 +100,7 @@ _cold cluster::SettingsPage cluster::orchestrator_settings_page(void)
     }
     s.push_back(count_("resume_after", "Resume after (seconds)", "calm for so long before the stopped jobs resume (hysteresis)", &cluster::OrchConf::resumeAfter));
     s.push_back(flag_("kill_on_oom", "Kill on out-of-memory", "under the out-of-memory threshold the newest job is killed (never by default: the jobs are only slowed)", &cluster::OrchConf::killOnOom));
-    s.push_back(flag_("sub_add", "Sub-sessions may add jobs", "heavy_run, jobs_add for the sub-sessions", &cluster::OrchConf::subAdd));
+    s.push_back(flag_("sub_add", "Sub-sessions may add jobs (MCP)", "heavy_run, jobs_add for the sub-sessions: off by default, nothing asks the permission of their mode on this path (their shell cluster-run is not concerned)", &cluster::OrchConf::subAdd));
     s.push_back(flag_("sub_kill_own", "Sub-sessions may kill their jobs", "job_kill on their own jobs", &cluster::OrchConf::subKillOwn));
     s.push_back(flag_("sub_see_others", "Sub-sessions see the other jobs", "jobs_list / job_status of the jobs of the other sessions", &cluster::OrchConf::subSeeOthers));
     s.push_back(flag_("notify_killed", "Notify a killed job", "a notification (desktop, app) when a job is killed", &cluster::OrchConf::notifyKilled));

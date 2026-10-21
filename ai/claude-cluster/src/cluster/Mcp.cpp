@@ -246,6 +246,15 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"session", session}, {"id", str_("its id")}, {"display", {{"type", "object"}, {"description", "{type, ...}"}}}}, {"session", "id", "display"}),
         tool_("session_display_get", "A display of a session as it is now: the items the user ticked (checklist), the buttons clicked "
             "(actions), the values sent (form, they also come to you as a message).", {{"session", session}, {"id", str_("its id")}}, {"session", "id"}),
+        tool_("session_pin", "Pin something at the bottom of the view of a session (above its prompt, always visible whatever the scroll; one pin "
+            "per session, a new one replaces it): a task list / checklist / steps / form the user needs to keep seeing, a table, a note. A live "
+            "display stays live while pinned (session_display_update). Give display (the id of a display, or a block {type, ...} put in the "
+            "transcript and pinned at once) or index (an entry of session_transcript: a display or a message). Only when the user allowed it "
+            "(settings: Global session can pin); they can unpin by hand.",
+            {{"session", session}, {"display", {{"description", "id of a display (session_display), or a block {type, ...}"}}},
+             {"index", {{"type", "integer"}, {"description", "an entry of the transcript (negative: from the end)"}}}, {"title", str_("its title")}}, {"session"}),
+        tool_("session_unpin", "Remove the pin of a session (its item stays in the transcript).", {{"session", session}}, {"session"}),
+        tool_("session_pin_get", "What is pinned on a session: {kind, id, title, by}, or nothing.", {{"session", session}}, {"session"}),
         tool_("voice_engines", "The engines of the voice: speech to text ([voice] listen_model) and text to speech ([voice] say_engine), "
             "local or free-tier APIs: what each one handles (languages), its strengths and limits against the others, its free use, its "
             "voices, its links, ready (installed / API key stored), used. To change one: settings_set; a key: the user runs "
@@ -296,6 +305,9 @@ _cold cluster::Json cluster::mcp_sub_tools(const std::string& session)
             for (const char* key: {"target", "lane", "max_concurrency", "notify"})
                 properties.erase(key);
             if (!spawn) properties.erase("spawn");
+        } else if (name == "session_pin" || name == "session_unpin" || name == "session_pin_get") {
+            properties.erase("session");   // its own view only
+            tool["inputSchema"]["required"] = cluster::Json::array();
         } else if (name == "schedule_add" || name == "schedule_edit") {
             for (const char* key: {"session", "dry_run"})
                 properties.erase(key);
@@ -316,9 +328,6 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"work_method", "work_method"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"taxonomy", "taxonomy"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
         {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_edit", "schedule_edit"}, {"schedule_act", "schedule_act"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
-        } else if (name == "session_pin" || name == "session_unpin" || name == "session_pin_get") {
-            properties.erase("session");   // its own view only
-            tool["inputSchema"]["required"] = cluster::Json::array();
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"web_access", "web"},
         {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"session_pin", "pin"}, {"session_unpin", "unpin"}, {"session_pin_get", "pin_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
         {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
@@ -348,15 +357,6 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
     if (name == "session_send") request["from"] = "global"; // marked for the sub-session: a compact answer, for a model
     cluster::Json response;
     try {
-        tool_("session_pin", "Pin something at the bottom of the view of a session (above its prompt, always visible whatever the scroll; one pin "
-            "per session, a new one replaces it): a task list / checklist / steps / form the user needs to keep seeing, a table, a note. A live "
-            "display stays live while pinned (session_display_update). Give display (the id of a display, or a block {type, ...} put in the "
-            "transcript and pinned at once) or index (an entry of session_transcript: a display or a message). Only when the user allowed it "
-            "(settings: Global session can pin); they can unpin by hand.",
-            {{"session", session}, {"display", {{"description", "id of a display (session_display), or a block {type, ...}"}}},
-             {"index", {{"type", "integer"}, {"description", "an entry of the transcript (negative: from the end)"}}}, {"title", str_("its title")}}, {"session"}),
-        tool_("session_unpin", "Remove the pin of a session (its item stays in the transcript).", {{"session", session}}, {"session"}),
-        tool_("session_pin_get", "What is pinned on a session: {kind, id, title, by}, or nothing.", {{"session", session}}, {"session"}),
         response = cluster::Control::request(request);
     } catch (const utils::exception::IException& e) {
         return {{"content", {{{"type", "text"}, {"text", e.info()}}}}, {"isError", true}};

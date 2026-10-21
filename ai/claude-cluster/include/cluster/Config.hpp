@@ -191,7 +191,7 @@ struct OrchConf {                   // [orchestrator]: the heavy jobs of the ses
     bool killOnOom = false;
     int agingSeconds = 30;          // a waiting job gains one point of priority every so many seconds
     int focusBoost = 15;            // points of the session the user looks at
-    bool subAdd = true;             // a sub-session may queue heavy jobs (MCP)
+    bool subAdd = false;            // a sub-session may queue heavy jobs (MCP heavy_run, jobs_add): off until the permissions of its mode gate them; its Bash cluster-run is not concerned
     bool subKillOwn = true;         // ... kill its own
     bool subSeeOthers = false;      // ... see the jobs of the others
     bool notifyKilled = true;       // a notification when a job is killed
@@ -284,7 +284,7 @@ class Config {
         std::string globalModel;
         std::string globalMode = "bypassPermissions"; // never asked (empty: the mode of [agent])
         std::string globalEffort;               // empty: the one of [agent]
-        std::string globalPrompt = "~/.config/claude-cluster/global.md";
+        std::string globalPrompt{};              // empty here, <config dir>/global.md when load() finds no [global] prompt (never a path built from HOME)
         std::string remoteName = "claude-cluster";
 
         /* sessions */
@@ -315,7 +315,7 @@ class Config {
         bool globalEdit = false;                // the global session may rewrite the conversation of a sub-session (MCP session_edit)
         bool globalPromptWrite = false;         // the global session may rewrite its own system prompt (MCP config_write global_prompt)
         bool sessionsPromptWrite = true;        // the global session may rewrite the system prompt of the sub-sessions (MCP config_write sessions_prompt)
-        std::string sessionsPrompt = "~/.config/claude-cluster/sessions.md"; // system prompt of the sub-sessions (empty: none)
+        std::string sessionsPrompt{};           // system prompt of the sub-sessions: <config dir>/sessions.md when load() finds no [sessions] prompt (empty in the file: none)
 
         /* mcp */
         std::map<std::string, bool> mcpTools;   // [mcp_tools] <tool> = false: a tool of the global session off (missing: on)

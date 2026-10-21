@@ -81,9 +81,9 @@ File Description:
 #include <QTabWidget>
 #include <QClipboard>
 #include <QFileInfo>
+#include <QToolButton>
 #include <QLineEdit>
 #include <QSplitter>
-#include <QToolButton>
 #include <QShortcut>
 #include <QCheckBox>
 #include <QComboBox>
@@ -96,9 +96,9 @@ File Description:
 #include <QBuffer>
 #include <QCursor>
 #include <fstream>
+#include <iterator>
 #include <QWidget>
 #include <QTabBar>
-#include <iterator>
 #include <QDialog>
 #include <cstdlib>
 #include <QImage>
@@ -209,6 +209,9 @@ class PromptEdit: public QPlainTextEdit {
         void refreshCompletion(void);
         void apply(const bool final);
         bool addImage(const std::string& path, const bool insert = true); // false: this image was already in the prompt
+        void attachFiles(const QStringList& paths, const int mode = 0);   // files of this computer: mode 0 asks link / copy, 1 copy, 2 link
+        void attachBytes(const std::string& name, const std::string& bytes);   // a picture of the clipboard / a drop: copied
+        void attachOne(const cluster::Attachment& item);                       // in the prompt: [Image #N] or @path
         void reset(void);
         _nodiscard std::string raw(void) const {return this->completion.atomize(this->text().toStdString());}; // labels -> atoms
         _nodiscard std::string plain(void) const {return this->completion.expand(this->raw());};               // to send / stash
@@ -220,9 +223,6 @@ class PromptEdit: public QPlainTextEdit {
 // The labels of the atoms marked like chips
 class AtomHighlighter: public QSyntaxHighlighter {
     private:
-        void attachFiles(const QStringList& paths, const int mode = 0);   // files of this computer: mode 0 asks link / copy, 1 copy, 2 link
-        void attachBytes(const std::string& name, const std::string& bytes);   // a picture of the clipboard / a drop: copied
-        void attachOne(const cluster::Attachment& item);                       // in the prompt: [Image #N] or @path
         PromptEdit* _edit = nullptr;
 
     protected:
@@ -728,10 +728,10 @@ class HubView: public QGraphicsView {
             std::vector<LabelSpot> spots;           // the text of each node, placed once all of them are drawn (no text over a node or another text)
             std::vector<QRectF> spokes;             // the key points of the lines: obstacles of the labels
             const std::function<void(const cluster::Snapshot&, double, double, double)> node = [this, &st, &color, &active, &spots](const cluster::Snapshot& s, const double x, const double y, const double r) {
-                QGraphicsEllipseItem* ring = this->_scene.addEllipse(x - r, y - r, 2 * r, 2 * r, QPen(color(s), s.spec.id == active ? 3.5 : 2), QBrush(QColor(QString::fromStdString(st.surface))));
-                ring->setData(0, QString::fromStdString(s.spec.id));
-                ring->setCursor(Qt::PointingHandCursor);
-                ring->setToolTip(QString::fromStdString(s.spec.name + " · " + cluster::state_name(s.state) + " · " + cluster::short_path(s.spec.cwd)));
+                QGraphicsEllipseItem* circle = this->_scene.addEllipse(x - r, y - r, 2 * r, 2 * r, QPen(color(s), s.spec.id == active ? 3.5 : 2), QBrush(QColor(QString::fromStdString(st.surface))));
+                circle->setData(0, QString::fromStdString(s.spec.id));
+                circle->setCursor(Qt::PointingHandCursor);
+                circle->setToolTip(QString::fromStdString(s.spec.name + " · " + cluster::state_name(s.state) + " · " + cluster::short_path(s.spec.cwd)));
                 const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
                 QGraphicsSimpleTextItem* faceItem = this->_scene.addSimpleText(face, QFont(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(), r > 40 ? 13 : 10));
                 faceItem->setBrush(color(s));
@@ -781,18 +781,18 @@ class HubView: public QGraphicsView {
             const QFontMetricsF boldMetrics(bold);
             const QFontMetricsF plainMetrics((QFont()));
             std::map<std::pair<int, int>, std::vector<QRectF>> grid;
-            const auto cells = [](const QRectF& box) {
+            const std::function<std::vector<std::pair<int, int>>(const QRectF&)> cells = [](const QRectF& box) {
                 std::vector<std::pair<int, int>> out;
                 for (int i = static_cast<int>(std::floor(box.left() / 80)); i <= static_cast<int>(std::floor(box.right() / 80)); ++i)
                     for (int j = static_cast<int>(std::floor(box.top() / 80)); j <= static_cast<int>(std::floor(box.bottom() / 80)); ++j)
                         out.emplace_back(i, j);
                 return out;
             };
-            const auto add = [&](const QRectF& box) {
+            const std::function<void(const QRectF&)> add = [&](const QRectF& box) {
                 for (const std::pair<int, int>& cell: cells(box))
                     grid[cell].push_back(box);
             };
-            const auto isFree = [&](const QRectF& box) {
+            const std::function<bool(const QRectF&)> isFree = [&](const QRectF& box) {
                 for (const std::pair<int, int>& cell: cells(box)) {
                     const auto found = grid.find(cell);
                     if (found == grid.end()) continue;
@@ -860,7 +860,7 @@ class HubView: public QGraphicsView {
                 QGraphicsRectItem* back = this->_scene.addRect(box, QPen(Qt::NoPen), QBrush(plate));
                 back->setZValue(2);
                 back->setData(0, n.id);
-                const auto at = [&](const double width) {return side == 0 ? box.center().x() - width / 2 : side == 1 ? box.left() + 4 : box.right() - 4 - width;};
+                const std::function<double(const double)> at = [&](const double width) {return side == 0 ? box.center().x() - width / 2 : side == 1 ? box.left() + 4 : box.right() - 4 - width;};
                 QGraphicsSimpleTextItem* name = this->_scene.addSimpleText(title, bold);
                 name->setBrush(QColor(QString::fromStdString(st.text)));
                 name->setPos(at(name->boundingRect().width()), box.top() + 2);
@@ -929,13 +929,13 @@ class HubView: public QGraphicsView {
                 for (const std::string& child: kids[name])
                     collect(child, ids, depth + 1);
             };
-            const auto below = [&](const std::string& name) {
+            const std::function<std::size_t(const std::string&)> below = [&](const std::string& name) {
                 std::set<std::string> ids;
                 collect(name, ids, 0);
                 return ids.size();
             };
-            std::string focus = this->focus;
-            if (!focus.empty() && !names.contains(focus)) focus.clear();
+            std::string focusNode = this->focus;
+            if (!focusNode.empty() && !names.contains(focusNode)) focusNode.clear();
             QFont bold;
             bold.setBold(true);
             const QFontMetricsF boldMetrics(bold);
@@ -984,7 +984,7 @@ class HubView: public QGraphicsView {
                 nodes[index].children = children;
                 return index;
             };
-            const std::size_t root = grow(focus.empty() ? 0 : 1, focus, nullptr, 0);
+            const std::size_t root = grow(focusNode.empty() ? 0 : 1, focusNode, nullptr, 0);
             // the rows: a leaf a row, a node in the middle of its children; the columns: as wide as their widest node
             double row = 0;
             int deepest = 0;
@@ -1008,8 +1008,8 @@ class HubView: public QGraphicsView {
                 left[d] = left[d - 1] + width[d - 1] + 56;
             const double ox = -(left.back() + width.back()) / 2;
             const double oy = -std::max(row - 46, 0.0) / 2;
-            const auto X = [&](const Node& n) {return ox + left[static_cast<std::size_t>(n.depth)];};
-            const auto Y = [&](const Node& n) {return oy + n.y;};
+            const std::function<double(const Node&)> X = [&](const Node& n) {return ox + left[static_cast<std::size_t>(n.depth)];};
+            const std::function<double(const Node&)> Y = [&](const Node& n) {return oy + n.y;};
             const std::function<QColor(const cluster::Snapshot&)> color = [&st](const cluster::Snapshot& s) {
                 return QColor(QString::fromStdString(!s.permissions.empty() ? st.warn : s.state == cluster::State::Working || s.state == cluster::State::Starting ? st.ok
                     : s.state == cluster::State::Error ? st.error : st.muted));
@@ -1033,9 +1033,9 @@ class HubView: public QGraphicsView {
                 const double x = X(n), y = Y(n);
                 if (n.kind == 0) {
                     const QColor c = global != nullptr ? color(*global) : QColor(QString::fromStdString(st.accent));
-                    QGraphicsEllipseItem* ring = this->_scene.addEllipse(x, y - 22, 44, 44, QPen(c, 2), QBrush(surface));
-                    ring->setZValue(1);
-                    ring->setToolTip(global != nullptr ? "the global session (click: open it)" : "claude-cluster");
+                    QGraphicsEllipseItem* circle = this->_scene.addEllipse(x, y - 22, 44, 44, QPen(c, 2), QBrush(surface));
+                    circle->setZValue(1);
+                    circle->setToolTip(global != nullptr ? "the global session (click: open it)" : "claude-cluster");
                     const char* face = global == nullptr ? "^_^" : !global->permissions.empty() ? "•_•" : global->state == cluster::State::Working ? ">_<" : global->state == cluster::State::Error ? "o_o" : "-_-";
                     QGraphicsSimpleTextItem* faceItem = this->_scene.addSimpleText(face, QFont(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(), 10));
                     faceItem->setBrush(c);
@@ -1046,7 +1046,7 @@ class HubView: public QGraphicsView {
                     count->setPos(x + 22 - count->boundingRect().width() / 2, y + 26);
                     count->setZValue(2);
                     if (global != nullptr)
-                        for (QGraphicsItem* item: std::vector<QGraphicsItem*>{ring, faceItem, count})
+                        for (QGraphicsItem* item: std::vector<QGraphicsItem*>{circle, faceItem, count})
                             item->setData(0, QString::fromStdString(global->spec.id));
                 } else if (n.kind == 1) {
                     const QColor c(QString::fromStdString(chip_color_(n.name)));
@@ -1085,17 +1085,17 @@ class HubView: public QGraphicsView {
                     const QString id = live ? QString::fromStdString(item.spec->id) : QString();
                     QPen pen(c, item.spec->id == this->activeId ? 3.5 : 2);
                     if (!live) pen.setStyle(Qt::DotLine);
-                    QGraphicsEllipseItem* ring = this->_scene.addEllipse(x, y - 9, 18, 18, pen, QBrush(surface));
+                    QGraphicsEllipseItem* circle = this->_scene.addEllipse(x, y - 9, 18, 18, pen, QBrush(surface));
                     QGraphicsEllipseItem* dot = this->_scene.addEllipse(x + 5.5, y - 3.5, 7, 7, QPen(Qt::NoPen), QBrush(c));
                     QGraphicsRectItem* back = this->_scene.addRect(QRectF(x + 22, y - 10, boldMetrics.horizontalAdvance(n.text) + 8, 20), QPen(Qt::NoPen), QBrush(plate));
                     QGraphicsSimpleTextItem* text = this->_scene.addSimpleText(n.text, bold);
                     text->setBrush(QColor(QString::fromStdString(st.text)));
                     text->setPos(x + 26, y - text->boundingRect().height() / 2);
                     const std::string labels = cluster::label_text(*item.spec);
-                    for (QGraphicsItem* part: std::vector<QGraphicsItem*>{ring, dot, back, text}) {
+                    for (QGraphicsItem* part: std::vector<QGraphicsItem*>{circle, dot, back, text}) {
                         part->setData(0, id);
                         part->setOpacity(opacity);
-                        part->setZValue(part == ring || part == dot ? 1 : 2);
+                        part->setZValue(part == circle || part == dot ? 1 : 2);
                         part->setToolTip(QString::fromStdString(item.spec->name + (item.archived ? " · archived" : " · " + std::string(cluster::state_name(item.snap->state)) + " · " + cluster::short_path(item.spec->cwd))
                             + (labels.empty() ? std::string() : "\n" + labels)));
                         if (live) part->setCursor(Qt::PointingHandCursor);
@@ -1796,7 +1796,6 @@ class Window: public QMainWindow {
             this->shortcuts.clear();
             for (const auto &[action, key]: this->manager.config().keys) {
                 if (action == "prefix") continue; // only the chords below
-                if (action.starts_with("graph_")) continue; // the keys inside the terminal graph view (bare letters, Tab, Escape): not shortcuts of the window
                 if (action == "undo" || action == "redo" || action == "select_all" || action == "cut" || action == "paste") continue; // the prompt (Qt)
                 if (action == "mode_cycle") continue; // Shift+Tab: in the prompt (else it moves the focus)
                 for (const std::string& alternative: cluster::split(key, '|')) {
@@ -1930,7 +1929,7 @@ class Window: public QMainWindow {
         {
             // the right click in the graph: a node of the taxonomy (focus, set parent, rename, merge, delete), else the graph (tree / ring, archived, tags, fold)
             const cluster::Taxonomy taxonomy = this->manager.taxonomy();
-            const auto edit = [this](const std::string& action, const std::string& name, const std::string& other, const bool strip) {
+            const std::function<void(const std::string&, const std::string&, const std::string&, const bool)> edit = [this](const std::string& action, const std::string& name, const std::string& other, const bool strip) {
                 try {
                     this->manager.taxonomyEdit(action, name, other, strip);
                     this->message("taxonomy: " + action + " " + name, false);
@@ -3008,6 +3007,25 @@ class Window: public QMainWindow {
             composer->setObjectName("composer");
             composer->setLayout(bar);
             bar->setContentsMargins(8, 6, 6, 6);
+            QToolButton* clip = new QToolButton(central);
+            clip->setText("📎");
+            clip->setToolTip("Attach files, images (or drop / paste them)");
+            clip->setCursor(Qt::PointingHandCursor);
+            clip->setAutoRaise(true);
+            QObject::connect(clip, &QToolButton::clicked, [this, clip]() {
+                QMenu menu(clip);
+                const bool link = this->manager.config().attach.link;
+                menu.addAction("Files…");
+                QAction* images = menu.addAction("Images…");
+                QAction* linked = link ? menu.addAction("Link files (no copy)…") : nullptr;
+                QAction* chosen = menu.exec(clip->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
+                if (!chosen) return;
+                const QString filter = chosen == images ? "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.heic);;All files (*)" : "All files (*)";
+                const QStringList paths = QFileDialog::getOpenFileNames(this, chosen == linked ? "Link files" : "Attach files", QDir::homePath(), filter);
+                if (!paths.isEmpty()) this->input->attachFiles(paths, chosen == linked ? 2 : 1);
+                this->input->setFocus();
+            });
+            bar->addWidget(clip);
             bar->addWidget(this->input, 1);
             bar->addWidget(this->input->vimLabel);
             bar->addWidget(this->target);
@@ -3065,25 +3083,6 @@ class Window: public QMainWindow {
                         + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">" + QString::number(queued) + " waiting · " + QString::number(waiting) + " scheduled</span>"));
                     QListWidgetItem* item = new QListWidgetItem(this->list);
                     item->setToolTip("the todo lists of the sessions, the task queue, the schedules");
-            QToolButton* clip = new QToolButton(central);
-            clip->setText("📎");
-            clip->setToolTip("Attach files, images (or drop / paste them)");
-            clip->setCursor(Qt::PointingHandCursor);
-            clip->setAutoRaise(true);
-            QObject::connect(clip, &QToolButton::clicked, [this, clip]() {
-                QMenu menu(clip);
-                const bool link = this->manager.config().attach.link;
-                menu.addAction("Files…");
-                QAction* images = menu.addAction("Images…");
-                QAction* linked = link ? menu.addAction("Link files (no copy)…") : nullptr;
-                QAction* chosen = menu.exec(clip->mapToGlobal(QPoint(0, -menu.sizeHint().height())));
-                if (!chosen) return;
-                const QString filter = chosen == images ? "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.heic);;All files (*)" : "All files (*)";
-                const QStringList paths = QFileDialog::getOpenFileNames(this, chosen == linked ? "Link files" : "Attach files", QDir::homePath(), filter);
-                if (!paths.isEmpty()) this->input->attachFiles(paths, chosen == linked ? 2 : 1);
-                this->input->setFocus();
-            });
-            bar->addWidget(clip);
                     item->setSizeHint(QSize(0, row->sizeHint().height() + 4));
                     this->list->setItemWidget(item, row);
                     if (this->active == TASKS_ID) this->list->setCurrentRow(0);
@@ -3100,7 +3099,7 @@ class Window: public QMainWindow {
                         const std::vector<std::string> path = taxonomy.group(s.spec);
                         const std::vector<std::string> beforePath = before == nullptr || before->spec.global ? std::vector<std::string>{"\x01"} : taxonomy.group(before->spec);
                         if (path != beforePath)
-                            for (std::size_t depth = path.empty() ? 0 : cluster::Taxonomy::common_prefix(beforePath, path); depth < std::max<std::size_t>(path.size(), 1); ++depth) {
+                            for (std::size_t depth = path.empty() ? 0: cluster::Taxonomy::common_prefix(beforePath, path); depth < std::max<std::size_t>(path.size(), 1); ++depth) {
                                 const std::string node = depth < path.size() ? path[depth] : std::string();
                                 header += "<div style=\"margin-left:" + QString::number(static_cast<int>(depth) * 12) + "px\">" + span_(node.empty() ? st.muted : chip_color_(node),
                                     "<b>▾ " + esc_(node.empty() ? std::string("no category") : node) + "</b>") + "</div>";
@@ -3124,7 +3123,8 @@ class Window: public QMainWindow {
                         + "</td><td align=\"right\">" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::human_tokens(s.metrics.total.total()))
                         + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">"
                         + esc_(s.spec.summary.empty() ? s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd) : cluster::one_line(s.spec.summary, 44))
-                        + "</span>"));
+                        + "</span>") + chips);
+                    if (!header.isEmpty()) row->setText(header + row->text());
                     QListWidgetItem* item = new QListWidgetItem(this->list);
                     item->setToolTip(q_((s.spec.summary.empty() ? std::string() : s.spec.summary + "\n") + cluster::short_path(s.spec.cwd)
                         + (s.spec.category.empty() && s.spec.tags.empty() ? std::string() : "\n" + cluster::label_text(s.spec))));
@@ -3867,8 +3867,8 @@ void PromptEdit::attachFiles(const QStringList& paths, const int mode)
     }
 }
 
+void PromptEdit::insertFromMimeData(const QMimeData* source)
 {
-    this->setPlainText(text);
     if (source->hasUrls()) { // files dropped / pasted from a file manager: attached (the other urls: their text)
         QStringList files;
         for (const QUrl& url: source->urls())
@@ -3888,7 +3888,6 @@ void PromptEdit::attachFiles(const QStringList& paths, const int mode)
             return;
         }
     }
-    this->moveCursor(QTextCursor::End);
     if (source->hasText() && !source->hasImage()) {
         this->insertPlainText(QString::fromStdString(this->completion.shown(this->completion.newPaste(source->text().toStdString()))));
         return;
@@ -3900,10 +3899,10 @@ bool PromptEdit::addImage(const std::string& path, const bool insert)
 {
     // the same image (file named by its content) again: one more reference to it, one image sent
     const std::string label = this->completion.shown(this->completion.newImage(path));
-    const bool known = this->text().contains(q_(label));
+    const bool present = this->text().contains(q_(label));
     if (insert) this->insert(q_(label + " "));
     this->refreshChips();
-    return !known;
+    return !present;
 }
 
 void PromptEdit::refreshChips(void)
@@ -3958,6 +3957,7 @@ void PromptEdit::refreshChips(void)
 void PromptEdit::setText(const QString& text)
 {
     this->setPlainText(text);
+    this->moveCursor(QTextCursor::End);
     this->completion.dismiss(); // the arrows go on browsing; it opens again when the word is changed
     if (this->popup) this->popup->setVisible(false);
 }
@@ -4150,8 +4150,6 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
         const QMimeData* mime = QApplication::clipboard()->mimeData();
         if (mime && mime->hasImage()) {
             const QImage image = qvariant_cast<QImage>(mime->imageData());
-            std::error_code error;
-            std::filesystem::create_directories(cluster::data_dir() / "images", error);
             QByteArray bytes;
             QBuffer buffer(&bytes);
             buffer.open(QIODevice::WriteOnly);
@@ -4645,6 +4643,7 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     this->log->document()->setResourceProvider(picture);
     const std::function<void(const QUrl&)> hover = [](const QUrl& url) {
         if (url.isLocalFile() && !QImage(url.toLocalFile()).isNull()) QToolTip::showText(QCursor::pos(), "<img src=\"" + url.toLocalFile() + "\" width=\"420\">");
+        else QToolTip::hideText();
     };
     QObject::connect(this->log, &QTextBrowser::highlighted, hover);
     // a right click on a message or a block: Pin / Unpin
@@ -4669,7 +4668,7 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
         } catch (const utils::exception::IException& e) {
             window->message(e.info(), true);
         }
-        else QToolTip::hideText();
+    });
     pinHead->addWidget(this->pinFold, 1);
     pinHead->addWidget(unpin);
     this->pinLog = new QTextBrowser(this->pinBox);
@@ -4686,7 +4685,6 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     pinLayout->addLayout(pinHead);
     pinLayout->addWidget(this->pinLog);
     this->pinBox->setVisible(false);
-    });
     this->panels = new QLabel(this);
     this->panels->setObjectName("panels");
     this->panels->setTextFormat(Qt::RichText);
@@ -4726,16 +4724,7 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
     body->setSpacing(8);
     body->addWidget(this->log, 1);
     body->addWidget(this->panels);
-    inside->addWidget(this->pinBox);
     inside->addLayout(body, 1);
-    inside->addWidget(this->permBar);
-    layout->addWidget(this->header);
-    layout->addWidget(card, 1);
-    this->outline = new Outline(this);
-    this->outline->raise();
-}
-void SessionView::entryMenu(Window* window, QTextBrowser* from, const QPoint& at)
-{
     this->newCue = new QPushButton("↓ new output", this);
     this->newCue->setFlat(true);
     this->newCue->setCursor(Qt::PointingHandCursor);
@@ -4750,6 +4739,15 @@ void SessionView::entryMenu(Window* window, QTextBrowser* from, const QPoint& at
     });
     inside->addWidget(this->newCue);
     inside->addWidget(this->pinBox);
+    inside->addWidget(this->permBar);
+    layout->addWidget(this->header);
+    layout->addWidget(card, 1);
+    this->outline = new Outline(this);
+    this->outline->raise();
+}
+
+void SessionView::entryMenu(Window* window, QTextBrowser* from, const QPoint& at)
+{
     // the entry under the mouse: the last anchor (cc-e<index>) before the cursor; Pin it, Unpin, Copy
     QMenu menu(from);
     const std::optional<cluster::Snapshot> snap = window->manager.snapshot(this->id);
@@ -4784,7 +4782,6 @@ void SessionView::entryMenu(Window* window, QTextBrowser* from, const QPoint& at
     if (from->textCursor().hasSelection()) menu.addAction("Copy", [from]() {from->copy();});
     if (!menu.isEmpty()) menu.exec(from->mapToGlobal(at));
 }
-
 
 void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, cluster::Manager& manager, const bool compact, cluster::Reveal& reveal, const bool expanded)
 {
@@ -4844,9 +4841,9 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         QString html;
         const std::size_t start = s.entries.size() > 400 ? s.entries.size() - 400 : 0;
         const QString more = " (" + q_(config.keys.contains("expand") ? config.keys.at("expand") : std::string("Ctrl+O")) + " to expand)";
+        const std::function<QString(const std::string&)> pre = [](const std::string& text) {return "<pre style=\"margin:0;white-space:pre-wrap\">" + esc_(text) + "</pre>";};
         // an empty anchor at the start of each entry (cc-e<index>): the right click finds the entry under the mouse by it
         const std::function<QString(const std::size_t)> entryAnchor = [](const std::size_t index) {return "<a name=\"cc-e" + QString::number(index) + "\"></a>";};
-        const std::function<QString(const std::string&)> pre = [](const std::string& text) {return "<pre style=\"margin:0;white-space:pre-wrap\">" + esc_(text) + "</pre>";};
         for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
             const cluster::Entry& e = s.entries[i];
             const std::string text = i == frame.typed ? e.text.substr(0, frame.typedBytes) : e.text;
@@ -4854,7 +4851,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                 case cluster::EntryKind::User: {
                     // [Image: path] -> link, previewed on hover
                     QString body;
-                    static const std::regex image(R"(\[Image: ([^\]]+)\])");
+                    static const std::regex image(R"(\[Image: ([^\]]+)\]|@(/[^\s]+))");
                     std::string rest = text.starts_with("[voice] ") ? text.substr(8) : text; // the mark is for the agent
                     std::smatch match;
                     while (std::regex_search(rest, match, image)) {
@@ -4873,13 +4870,13 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                     body += esc_(rest);
                     // coloured by its origin (mcp / task), with its label; the user: the accent, as before
                     std::string ink = st.accent;
-                    QString head = "› ";
+                    QString lead = "› ";
                     if (cluster::origin_colors().enabled) {
                         const std::string origin = cluster::prompt_origin(e.origin, e.text);
                         if (const std::string color = cluster::origin_color(origin, st.dark); !color.empty()) ink = color;
-                        if (const std::string label = cluster::origin_label(origin); !label.empty()) head += q_(label) + " · ";
+                        if (const std::string label = cluster::origin_label(origin); !label.empty()) lead += q_(label) + " · ";
                     }
-                    html += "<p>" + entryAnchor(i) + span_(ink, head + body, true) + "</p>";
+                    html += "<p>" + entryAnchor(i) + span_(ink, lead + body, true) + "</p>";
                     break;
                 }
                 case cluster::EntryKind::Assistant: html += "<p>" + entryAnchor(i) + span_(st.text, "⏺ " + esc_(text)) + "</p>"; break;
@@ -4949,6 +4946,23 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         QScrollBar* bar = this->log->verticalScrollBar();
         const bool bottom = bar->value() >= bar->maximum() - 4;
         const int value = bar->value();
+        const int maximum = bar->maximum();
+        // scrolled up: the entry at the top of the view (the last anchor cc-e<index> before it) and how far the view is inside it, to keep that line where it is
+        long topEntry = -1;
+        int inside = 0;
+        QTextDocument* document = this->log->document();
+        if (!bottom) {
+            const int position = this->log->cursorForPosition(QPoint(0, 0)).position();
+            QTextBlock topBlock;
+            for (QTextBlock block = document->begin(); block.isValid() && block.position() <= position; block = block.next())
+                for (QTextBlock::iterator it = block.begin(); !it.atEnd() && it.fragment().position() <= position; ++it)
+                    for (const QString& name: it.fragment().charFormat().anchorNames())
+                        if (name.startsWith("cc-e")) {
+                            topEntry = name.mid(4).toLong();
+                            topBlock = block;
+                        }
+            if (topEntry >= 0) inside = value - static_cast<int>(document->documentLayout()->blockBoundingRect(topBlock).top());
+        }
         this->log->setHtml(html);
         int target = bottom ? bar->maximum() : value;
         if (topEntry >= 0) {
@@ -4968,28 +4982,12 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         if (bottom) this->newCue->setVisible(false);
         else if (bar->maximum() > maximum) this->newCue->setVisible(true);
     }
+
     // the pinned item: the display as it is now (a checklist ticked, a form submitted: drawn again), or the message
     const cluster::Json pinned = compact ? cluster::Json() : cluster::display_pinned(s);
     if (!pinned.is_object()) {
         this->pinBox->setVisible(false);
         this->pinKey.clear();
-        const int maximum = bar->maximum();
-        // scrolled up: the entry at the top of the view (the last anchor cc-e<index> before it) and how far the view is inside it, to keep that line where it is
-        long topEntry = -1;
-        int inside = 0;
-        QTextDocument* document = this->log->document();
-        if (!bottom) {
-            const int position = this->log->cursorForPosition(QPoint(0, 0)).position();
-            QTextBlock topBlock;
-            for (QTextBlock block = document->begin(); block.isValid() && block.position() <= position; block = block.next())
-                for (QTextBlock::iterator it = block.begin(); !it.atEnd() && it.fragment().position() <= position; ++it)
-                    for (const QString& name: it.fragment().charFormat().anchorNames())
-                        if (name.startsWith("cc-e")) {
-                            topEntry = name.mid(4).toLong();
-                            topBlock = block;
-                        }
-            if (topEntry >= 0) inside = value - static_cast<int>(document->documentLayout()->blockBoundingRect(topBlock).top());
-        }
     } else {
         const std::string title = s.spec.pin.value("title", std::string("pinned"));
         const std::string drawn = pinned.dump() + "|" + title + "|" + st.name + "|" + (this->pinFolded ? "f" : "") + std::to_string(this->width() / 40);
@@ -5011,7 +5009,6 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             pinBar->setValue(pinValue);
         }
     }
-
 
     // permission bar (a question of this sub-session shown on the global session: it waits there)
     this->permBar->setVisible(!s.permissions.empty());

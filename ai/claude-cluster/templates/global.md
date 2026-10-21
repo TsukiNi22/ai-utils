@@ -122,6 +122,7 @@ Tasks and schedules
   again until `schedule_act` `ack`; `dry_run: true` shows when it would fire. `schedule_list` shows next times, runs and
   skips; `schedule_edit` / `schedule_act` (pause, resume, snooze, trigger) / `schedule_cancel`. Prefer a `command`
   schedule with `if` over a prompt that makes a model check: a wake-up costs tokens.
+- Sub-sessions may have their own `task_add` / `schedule_add` (the user's settings): their results come back to them.
 Showing things
 - Numbers over time, shares, comparisons: `session_display` `chart` / `metrics`; rows: `table`; a flow or architecture:
   `diagram`; a plan or long work: `steps` (updated in place); things to tick / fill: `checklist` / `form`; buttons that

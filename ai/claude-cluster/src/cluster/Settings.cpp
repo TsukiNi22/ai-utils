@@ -253,6 +253,14 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "(MCP schedule_add, schedule_edit): off by default - a repeated schedule runs by itself, long after", false, [](const cluster::Config& cf) {return cf.subSchedules ? std::string("true") : std::string("false");}},
             {"agent", "sub_spawn", "Sub-sessions: tasks that start sessions", SettingKind::Bool, {}, "a task or a schedule of a sub-session may start "
                 "sessions of its own (each costs tokens): off by default", false, [](const cluster::Config& cf) {return cf.subSpawn ? std::string("true") : std::string("false");}},
+            {"agent", "global_pin", "Global session can pin", SettingKind::Bool, {}, "the global session may pin a message or a display block at the bottom of the view of "
+                "any session (MCP session_pin, session_unpin); you can always pin by hand (right click, Ctrl+K: Pin / Unpin)", false,
+                [](const cluster::Config& cf) {return cf.pinGlobal ? std::string("true") : std::string("false");}},
+            {"agent", "taxonomy_edit", "Global session can edit the taxonomy", SettingKind::Bool, {}, "the global session may set the parent of a category / tag, rename, delete "
+                "and merge them (MCP taxonomy), which moves the sessions in the graph and the grouped list; you can always edit it by hand (graph, palette, `claude-cluster taxonomy`)", false,
+                [](const cluster::Config& cf) {return cf.taxonomyEdit ? std::string("true") : std::string("false");}},
+            {"agent", "sub_pin", "Sub-sessions can pin", SettingKind::Bool, {}, "a sub-session may pin an item on its own view (a task list, a form you keep seeing); "
+                "never on another session", false, [](const cluster::Config& cf) {return cf.subPin ? std::string("true") : std::string("false");}},
             {"agent", "sub_spawn_cap", "Sub-sessions: sessions started at most", SettingKind::Int, {}, "the sessions of its tasks / schedules a sub-session "
                 "may have waiting or open at once (past it a new one is refused); the global session has no cap", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.subSpawnCap);}},
@@ -261,14 +269,6 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         }},
         {"commands", "Commands", {}},
         {"global", "Global session", {
-            {"agent", "taxonomy_edit", "Global session can edit the taxonomy", SettingKind::Bool, {}, "the global session may set the parent of a category / tag, rename, delete "
-                "and merge them (MCP taxonomy), which moves the sessions in the graph and the grouped list; you can always edit it by hand (graph, palette, `claude-cluster taxonomy`)", false,
-                [](const cluster::Config& cf) {return cf.taxonomyEdit ? std::string("true") : std::string("false");}},
-            {"agent", "sub_pin", "Sub-sessions can pin", SettingKind::Bool, {}, "a sub-session may pin an item on its own view (a task list, a form you keep seeing); "
-                "never on another session", false, [](const cluster::Config& cf) {return cf.subPin ? std::string("true") : std::string("false");}},
-            {"agent", "global_pin", "Global session can pin", SettingKind::Bool, {}, "the global session may pin a message or a display block at the bottom of the view of "
-                "any session (MCP session_pin, session_unpin); you can always pin by hand (right click, Ctrl+K: Pin / Unpin)", false,
-                [](const cluster::Config& cf) {return cf.pinGlobal ? std::string("true") : std::string("false");}},
             {"global", "enabled", "Enabled", SettingKind::Bool, {}, "the session that manages the others (MCP)", true,
                 [](const cluster::Config& cf) {return cf.globalEnabled ? std::string("true") : std::string("false");}},
             {"global", "model", "Model", SettingKind::Text, {}, "empty: the default model of the provider ([agent] provider)", true,
@@ -473,6 +473,30 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "• off: plain http, no microphone", false,
                 [](const cluster::Config& cf) {return cf.web.https ? std::string("true") : std::string("false");}},
         }},
+        {"attachments", "Attachments", {
+            {"attachments", "enabled", "Attachments", SettingKind::Bool, {}, "files, images and photos attached to a prompt (the paperclip, a drop, a paste; the app: the camera)", false,
+                [](const cluster::Config& cf) {return cf.attach.enabled ? std::string("true") : std::string("false");}},
+            {"attachments", "max_mb", "Largest file (MB)", SettingKind::Int, {}, "a bigger file is refused", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxMb);}},
+            {"attachments", "max_files", "Files per prompt", SettingKind::Int, {}, "at most this many attached to one prompt", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxFiles);}},
+            {"attachments", "keep", "Kept per session", SettingKind::Int, {}, "the oldest attachments of a session go past this many (0: all kept); all of them go when the session is deleted", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.keep);}},
+            {"attachments", "max_pixels", "Downscale images above (px)", SettingKind::Int, {}, "a photo larger than this side is reduced before it is stored and sent (0: as it is); needs ImageMagick (magick)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxPixels);}},
+            {"attachments", "strip_exif", "Strip the EXIF of images", SettingKind::Bool, {}, "photos re-encoded without their metadata (GPS position, camera, date); needs ImageMagick (magick)", false,
+                [](const cluster::Config& cf) {return cf.attach.stripExif ? std::string("true") : std::string("false");}},
+            {"attachments", "dir", "Stored in", SettingKind::Text, {}, "the folder of the attachments, one folder per session (empty: <data>/attachments)", false,
+                [](const cluster::Config& cf) {return cf.attach.dir;}},
+            {"attachments", "link", "Allow link mode", SettingKind::Bool, {}, "a file of this computer linked by its path, nothing copied (window, terminal, a page opened on this computer); "
+                "a phone or another computer always uploads", false,
+                [](const cluster::Config& cf) {return cf.attach.link ? std::string("true") : std::string("false");}},
+            {"attachments", "global", "The global session may attach", SettingKind::Bool, {}, "it may attach a local file to a prompt it sends (MCP session_send attachments): "
+                "the project folder of the session and the home of the user only (no hidden folder of the home, nothing of claude-cluster itself)", false,
+                [](const cluster::Config& cf) {return cf.attach.globalAttach ? std::string("true") : std::string("false");}},
+            {"attachments", "global_max", "Files per prompt of the global session", SettingKind::Int, {}, "at most this many", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.attach.globalMax);}},
+        }},
         {"mcp", "MCP", {
             {"mcp", "servers", "Custom MCP servers", SettingKind::List, {}, "more tools for the global session (MCP servers), comma separated.\n"
                 "• a local program: name: command args (stdio; env VAR=value command... for its variables)\n"
@@ -525,30 +549,6 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.services.refresh;}},
             {"services", "delay", "Delay (s)", SettingKind::Int, {}, "seconds between two reads (interval), the slow parts kept so long (live)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.services.delay);}},
-        {"attachments", "Attachments", {
-            {"attachments", "enabled", "Attachments", SettingKind::Bool, {}, "files, images and photos attached to a prompt (the paperclip, a drop, a paste; the app: the camera)", false,
-                [](const cluster::Config& cf) {return cf.attach.enabled ? std::string("true") : std::string("false");}},
-            {"attachments", "max_mb", "Largest file (MB)", SettingKind::Int, {}, "a bigger file is refused", false,
-                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxMb);}},
-            {"attachments", "max_files", "Files per prompt", SettingKind::Int, {}, "at most this many attached to one prompt", false,
-                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxFiles);}},
-            {"attachments", "keep", "Kept per session", SettingKind::Int, {}, "the oldest attachments of a session go past this many (0: all kept); all of them go when the session is deleted", false,
-                [](const cluster::Config& cf) {return std::to_string(cf.attach.keep);}},
-            {"attachments", "max_pixels", "Downscale images above (px)", SettingKind::Int, {}, "a photo larger than this side is reduced before it is stored and sent (0: as it is); needs ImageMagick (magick)", false,
-                [](const cluster::Config& cf) {return std::to_string(cf.attach.maxPixels);}},
-            {"attachments", "strip_exif", "Strip the EXIF of images", SettingKind::Bool, {}, "photos re-encoded without their metadata (GPS position, camera, date); needs ImageMagick (magick)", false,
-                [](const cluster::Config& cf) {return cf.attach.stripExif ? std::string("true") : std::string("false");}},
-            {"attachments", "dir", "Stored in", SettingKind::Text, {}, "the folder of the attachments, one folder per session (empty: <data>/attachments)", false,
-                [](const cluster::Config& cf) {return cf.attach.dir;}},
-            {"attachments", "link", "Allow link mode", SettingKind::Bool, {}, "a file of this computer linked by its path, nothing copied (window, terminal, a page opened on this computer); "
-                "a phone or another computer always uploads", false,
-                [](const cluster::Config& cf) {return cf.attach.link ? std::string("true") : std::string("false");}},
-            {"attachments", "global", "The global session may attach", SettingKind::Bool, {}, "it may attach a local file to a prompt it sends (MCP session_send attachments): "
-                "the project folder of the session and the home of the user only (no hidden folder of the home, nothing of claude-cluster itself)", false,
-                [](const cluster::Config& cf) {return cf.attach.globalAttach ? std::string("true") : std::string("false");}},
-            {"attachments", "global_max", "Files per prompt of the global session", SettingKind::Int, {}, "at most this many", false,
-                [](const cluster::Config& cf) {return std::to_string(cf.attach.globalMax);}},
-        }},
             {"services", "svc_service", "Service (systemd)", SettingKind::Action, {},
                 "the service of your session (systemd --user): it listens for the wake phrase while claude-cluster is closed and opens it when heard.\n"
                 "• Setup: its unit written · Enable: started now and with your session · Disable: stopped, not started any more\n"

@@ -31,6 +31,7 @@ File Description:
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <unistd.h>
 #include <cstdio>
 #include <thread>
 #include <chrono>
@@ -1330,9 +1331,20 @@ _cold void cluster::Manager::notifyMonitor_(void)
         this->_notifyMonitorUp = false;
         return;
     }
+    // read on the descriptor, not with fgets: a thread blocked in fgets holds the lock of the FILE, and exit() (flushing every FILE) never returned
+    const int fd = ::fileno(pipe);
     std::array<char, 4096> buffer{};
-    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-        const std::string line(buffer.data());
+    std::string pending;
+    for (;;) {
+        const std::size_t end = pending.find('\n');
+        if (end == std::string::npos) {
+            const ssize_t size = ::read(fd, buffer.data(), buffer.size());
+            if (size <= 0) break;
+            pending.append(buffer.data(), static_cast<std::size_t>(size));
+            continue;
+        }
+        const std::string line = pending.substr(0, end + 1);
+        pending.erase(0, end + 1);
         // "/org/freedesktop/Notifications: org.freedesktop.Notifications.ActionInvoked (uint32 623, 'default')"
         const std::size_t signal = line.find("org.freedesktop.Notifications.");
         if (signal == std::string::npos) continue;
@@ -1582,12 +1594,12 @@ _cold void cluster::Manager::answerRestore(const bool restore)
             spec.resumeAt.clear();
             spec.cost = 0.0;
             spec.tokens = 0;
+            spec.pin = nullptr;
         }
         this->_globalNew = true;
     }
     this->startGlobal();
 }
-            spec.pin = nullptr;
 
 std::vector<cluster::SessionSpec> cluster::Manager::previous(void) const
 {

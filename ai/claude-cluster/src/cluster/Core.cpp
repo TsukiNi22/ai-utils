@@ -735,19 +735,24 @@ _cold void cluster::Core::print_(const std::string& cmd, const cluster::Json& da
     if (cmd == "list") {
         if (rtk) std::cout << "id|name|state|backend|mode|tok_total|ctx%|cost|perm|cwd|summary|category|tags" << "\n";
         for (const cluster::Json& s: data) {
-            const std::int64_t window = std::max<std::int64_t>(1, s["context"].value("window", std::int64_t{1}));
-            const std::int64_t ctx = 100 * s["context"].value("used", std::int64_t{0}) / window;
-            const std::string cost = s["cost_usd"].is_number() ? cluster::human_cost(s["cost_usd"].get<double>()) : "local";
-            const std::string tok = cluster::human_tokens(s["tokens"].value("total", std::int64_t{0}));
+            // an archived session (the trash) has only its labels: no context, tokens or permissions
+            const cluster::Json none = cluster::Json::object();
+            const cluster::Json& context = s.contains("context") ? s.at("context") : none;
+            const cluster::Json& tokens = s.contains("tokens") ? s.at("tokens") : none;
+            const std::size_t permissions = s.contains("permissions") ? s.at("permissions").size() : 0;
+            const std::int64_t window = std::max<std::int64_t>(1, context.value("window", std::int64_t{1}));
+            const std::int64_t ctx = 100 * context.value("used", std::int64_t{0}) / window;
+            const std::string cost = s.contains("cost_usd") && s.at("cost_usd").is_number() ? cluster::human_cost(s.at("cost_usd").get<double>()) : "local";
+            const std::string tok = cluster::human_tokens(tokens.value("total", std::int64_t{0}));
             if (rtk) {
                 std::cout << s.value("id", "") << "|" << s.value("name", "") << "|" << s.value("state", "") << "|" << s.value("backend", "") << "|"
-                    << s.value("mode", "") << "|" << tok << "|" << ctx << "|" << cost << "|" << s["permissions"].size() << "|" << cluster::short_path(s.value("cwd", "")) << "|" << s.value("summary", std::string())
+                    << s.value("mode", "") << "|" << tok << "|" << ctx << "|" << cost << "|" << permissions << "|" << cluster::short_path(s.value("cwd", "")) << "|" << s.value("summary", std::string())
                     << "|" << s.value("category", std::string()) << "|" << join_tags_(s) << "\n";
             } else {
                 std::cout << std::left << std::setw(4) << s.value("id", "") << std::setw(18) << cluster::one_line(s.value("name", ""), 17)
                     << std::setw(11) << s.value("state", "") << std::setw(22) << cluster::one_line(s.value("backend", ""), 21)
                     << std::setw(8) << tok << std::setw(6) << (std::to_string(ctx) + "%") << std::setw(9) << cost
-                    << (s["permissions"].empty() ? "" : "[" + std::to_string(s["permissions"].size()) + " perm] ") << cluster::short_path(s.value("cwd", ""))
+                    << (permissions == 0 ? "" : "[" + std::to_string(permissions) + " perm] ") << cluster::short_path(s.value("cwd", ""))
                     << (s.value("summary", std::string()).empty() ? "" : "  " + s.value("summary", std::string()))
                     << (s.value("category", std::string()).empty() ? "" : "  [" + s.value("category", std::string()) + "]")
                     << (s.contains("tags") ? "  " + join_tags_(s, true) : "") << "\n";

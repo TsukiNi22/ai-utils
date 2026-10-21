@@ -175,7 +175,7 @@ _cold void cluster::Config::load(void)
     // one provider for everything; the old keys ([agent] default, [global] backend) are the fallback of the old configs
     const std::optional<std::string> legacyAgent = table["agent"]["default"].value<std::string>();
     const std::optional<std::string> legacyGlobal = table["global"]["backend"].value<std::string>();
-    if (const std::optional<std::string> provider = table["agent"]["provider"].value<std::string>(); provider && !provider->empty()) this->provider = *provider;
+    if (const std::optional<std::string> chosen = table["agent"]["provider"].value<std::string>(); chosen && !chosen->empty()) this->provider = *chosen;
     else if (legacyAgent && !legacyAgent->empty()) this->provider = *legacyAgent;
     else if (legacyGlobal && !legacyGlobal->empty()) this->provider = *legacyGlobal;
     this->backend = this->provider;
@@ -198,7 +198,7 @@ _cold void cluster::Config::load(void)
     this->globalModel = table["global"]["model"].value_or(this->globalModel);
     this->globalMode = table["global"]["permission_mode"].value_or(this->globalMode);
     this->globalEffort = table["global"]["effort"].value_or(this->globalEffort);
-    this->globalPrompt = table["global"]["prompt"].value_or(this->globalPrompt);
+    this->globalPrompt = table["global"]["prompt"].value_or((cluster::config_dir() / "global.md").string()); // the config dir of this process (CLAUDE_CLUSTER_CONFIG_DIR), not the one of HOME
     this->remoteName = table["global"]["remote_name"].value_or(this->remoteName);
 
     /* sessions */
@@ -221,7 +221,7 @@ _cold void cluster::Config::load(void)
     this->transcriptLimitMb = std::max(0, table["sessions"]["transcript_limit_mb"].value_or(this->transcriptLimitMb));
     this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
-    this->sessionsPrompt = table["sessions"]["prompt"].value_or(this->sessionsPrompt);
+    this->sessionsPrompt = table["sessions"]["prompt"].value_or((cluster::config_dir() / "sessions.md").string());
     this->globalFork = table["sessions"]["global_fork"].value_or(this->globalFork);
     this->bypassToGlobal = table["sessions"]["bypass_to_global"].value_or(this->bypassToGlobal);
     this->questionsToGlobal = table["sessions"]["questions_to_global"].value_or(this->questionsToGlobal);
@@ -455,13 +455,13 @@ _cold void cluster::Config::load(void)
         for (const auto &[name, node]: *providersTable) {
             const toml::table* p = node.as_table();
             if (!p) continue;
-            cluster::ProviderConf provider;
-            provider.name = std::string(name.str());
-            provider.driver = (*p)["driver"].value_or(std::string("claude"));
-            provider.baseUrl = (*p)["base_url"].value_or(std::string());
-            provider.model = (*p)["model"].value_or(std::string());
-            provider.key = (*p)["key"].value_or(false);
-            this->providers[provider.name] = provider;
+            cluster::ProviderConf entry;
+            entry.name = std::string(name.str());
+            entry.driver = (*p)["driver"].value_or(std::string("claude"));
+            entry.baseUrl = (*p)["base_url"].value_or(std::string());
+            entry.model = (*p)["model"].value_or(std::string());
+            entry.key = (*p)["key"].value_or(false);
+            this->providers[entry.name] = entry;
         }
     }
 }

@@ -426,7 +426,9 @@ _cold static void subGate_(cluster::Manager& manager, const std::string& owner, 
     if (cmd == "sub_tools") return;
     const cluster::Json allowed = sub_tools_(manager.config()).at("tools");
     if (tool.empty() || std::find(allowed.begin(), allowed.end(), tool) == allowed.end())
-        refuse("the tool " + tool + " is off for the sub-sessions ([agent] sub_read / sub_tasks / sub_schedules in the settings): ask the user");
+        refuse("the tool " + tool + " is off for the sub-sessions ("
+            + std::string(tool == "heavy_run" || tool == "jobs_add" ? "[orchestrator] sub_add: its permissions are not asked on this path; in a shell, cluster-run works as usual" : "[agent] sub_read / sub_tasks / sub_schedules")
+            + " in the settings): ask the user");
     const bool spawn = manager.config().subSpawn;
     const std::function<bool(const cluster::Json&)> spawns = [&](const cluster::Json& o) {return o.contains("spawn") && o["spawn"].is_object() && !arg_(o["spawn"], "cwd").empty();};
     const std::function<bool(const cluster::Json&)> local = [&](const cluster::Json& on) {return on.is_object() && arg_(on, "type") == "command";};
@@ -702,7 +704,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                     if (path.is_string()) linked.push_back(cluster::attach_link(manager.config(), manager.resolve(id), path.get<std::string>(), cluster::AttachScope::Global, target ? target->spec.cwd : ""));
                 sent = cluster::attach_prompt(text, linked, images);
             }
-            manager.send(id, global ? "[from the global session] " + sent : sent, request.value("force", false), images, "mcp");
+            manager.send(id, global ? "[from the global session] " + sent : sent, request.value("force", false), images, from_global ? "mcp" : "");   // typed by the user (CLI, page): no origin
             data = {{"id", id}, {"queued", true}, {"reply", reply ? "its answer comes back to you as a message [reply from ...] when done: no need to poll it" : "no"}};
         } else if (cmd == "wait") {
             // until the session is done (idle, nothing queued) or the time is over: its last answer only, not its context
@@ -1218,6 +1220,14 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 const auto [ready, detail] = manager.auth().status(p);
                 data.push_back({{"name", p.name}, {"driver", p.driver}, {"ready", ready}, {"detail", detail}, {"local", p.local}, {"description", p.description}});
             }
+        } else if (cmd == "pin" || cmd == "unpin" || cmd == "pin_get") {
+            // the pinned item of a session's view: the user (any), the global session, a sub-session (its own view only), per the settings
+            const bool bySub = request.value("origin", std::string()) == "sub";   // the MCP of a sub-session: its own view only
+            const std::string target = bySub ? manager.resolve(arg_(request, "owner")) : session();
+            const std::string by = from_global ? "global" : bySub ? "sub" : "user";
+            if (cmd == "pin") data = manager.pin(target, request, by);
+            else if (cmd == "unpin") manager.unpin(target, by);
+            else data = manager.pinOf(target);
         } else {
             return {{"ok", false}, {"error", "unknown command '" + cmd + "'"}};
         }
@@ -1227,13 +1237,5 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         // a number out of range, a wrong type...: told, the core goes on (a request never stops every session)
         return {{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
     }
-        } else if (cmd == "pin" || cmd == "unpin" || cmd == "pin_get") {
-            // the pinned item of a session's view: the user (any), the global session, a sub-session (its own view only), per the settings
-            const bool bySub = request.value("origin", std::string()) == "sub";   // the MCP of a sub-session: its own view only
-            const std::string target = bySub ? manager.resolve(arg_(request, "owner")) : session();
-            const std::string by = from_global ? "global" : bySub ? "sub" : "user";
-            if (cmd == "pin") data = manager.pin(target, request, by);
-            else if (cmd == "unpin") manager.unpin(target, by);
-            else data = manager.pinOf(target);
     return {{"ok", true}, {"data", data}};
 }

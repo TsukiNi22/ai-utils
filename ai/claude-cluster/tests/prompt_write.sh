@@ -9,6 +9,7 @@ BIN="${1:-/tmp/cc-build/claude-cluster}"
 WORK="$(mktemp -d)"
 trap 'kill "${SERVE:-0}" 2>/dev/null || true; rm -rf "${WORK}"' EXIT
 export CLAUDE_CLUSTER_CONFIG_DIR="${WORK}/cfg" CLAUDE_CLUSTER_DATA_DIR="${WORK}/data" CLAUDE_CLUSTER_SOCKET="${WORK}/sock"
+source "$(dirname "${BASH_SOURCE[0]}")/isolate.sh"   # refuses the real config / data / socket of the user, a home of its own
 command mkdir -p "${WORK}/cfg" "${WORK}/data"
 
 fail=0

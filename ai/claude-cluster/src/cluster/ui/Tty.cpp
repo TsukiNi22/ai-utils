@@ -660,8 +660,8 @@ class TtyUi {
             std::vector<std::string> lines;         // transcript lines shown (mouse selection)
             std::vector<std::string> joins;
             std::vector<std::vector<Hit>> hits;     // per line: its parts clicked (a display: tick, a button, play...)
-        };
             std::vector<std::size_t> entries;       // per line: its entry of the transcript (npos: none), for the right click (Pin)
+        };
         std::map<std::string, View> _views;         // per session
         std::set<std::string> _pinFolded;           // the sessions whose pinned item is collapsed
         std::size_t _transcriptLines = 0;           // the lines of the transcript made last (the height the pinned item needs)
@@ -4197,11 +4197,11 @@ class TtyUi {
                 }
                 if (first && head != "  ") add("", head, "  ", ftxui::color(this->_theme.text) | mark);
             };
+            std::vector<std::pair<std::size_t, std::size_t>> starts;   // the first line of each entry
             for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
                 const cluster::Entry& e = s.entries[i];
                 const bool matched = searching && std::find(this->_matches.begin(), this->_matches.end(), i) != this->_matches.end();
                 if (i == hitEntry) hitLine = static_cast<int>(lines.size());
-            std::vector<std::pair<std::size_t, std::size_t>> starts;   // the first line of each entry
                 const ftxui::Decorator mark = i == hitEntry ? ftxui::inverted : matched ? ftxui::bgcolor(this->_theme.surface) : ftxui::nothing;
                 const std::string text = i == frame.typed ? e.text.substr(0, frame.typedBytes) : e.text;
                 starts.emplace_back(lines.size(), i);
@@ -4421,9 +4421,9 @@ class TtyUi {
                     for (const cluster::Cell& c: row.cells)
                         runs.emplace_back(c.text, (c.hasFg ? ftxui::color(ftxui::Color::RGB((c.fg >> 16) & 255, (c.fg >> 8) & 255, c.fg & 255)) : ftxui::nothing)
                             | (c.hasBg ? ftxui::bgcolor(ftxui::Color::RGB((c.bg >> 16) & 255, (c.bg >> 8) & 255, c.bg & 255)) : ftxui::nothing));
-                    const int total = static_cast<int>(width_(row.text));
+                    const int rowWidth = static_cast<int>(width_(row.text));
                     const int a = std::get<0>(*lit);
-                    const int b = std::min(std::get<1>(*lit), total - 1);
+                    const int b = std::min(std::get<1>(*lit), rowWidth - 1);
                     const ftxui::Decorator mark = pressed ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) | ftxui::bold
                         : ftxui::bgcolor(this->_theme.border) | ftxui::bold;
                     ftxui::Elements parts;
@@ -4693,6 +4693,19 @@ class TtyUi {
         {
             ftxui::Element panels = compact ? ftxui::emptyElement() : this->panels_(s, height - 2);
             const int panelWidth = compact || s.spec.panels.empty() ? 0 : 37;
+            int bodyHeight = std::max(3, height - (s.permissions.empty() ? 2 : 3) - (s.lastError.empty() ? 0 : 1));
+            // the pinned item: at most a third of the room, the transcript keeps the rest
+            std::pair<ftxui::Element, int> pinned = compact ? std::pair<ftxui::Element, int>{ftxui::emptyElement(), 0} : this->pin_(s, width, std::min(bodyHeight / 3 + 3, bodyHeight - 4));
+            bodyHeight = std::max(3, bodyHeight - pinned.second);
+            return ftxui::vbox({
+                this->header_(s, compact),
+                ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                ftxui::hbox({this->transcript_(s, width - panelWidth, bodyHeight, compact) | ftxui::flex, panelWidth ? ftxui::separatorLight() | ftxui::color(this->_theme.border) : ftxui::emptyElement(), panels}) | ftxui::flex,
+                std::move(pinned.first),
+                this->permission_(s),
+            });
+        }
+
         _nodiscard std::pair<ftxui::Element, int> pin_(const cluster::Snapshot& s, const int width, const int room)
         {
             // the pinned item of the session, above the prompt: its title (a click folds it) and Unpin, then the item as the transcript draws it (live:
@@ -4732,20 +4745,6 @@ class TtyUi {
             rows = std::max(1, rows);
             return {ftxui::vbox({head, std::move(body) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rows)}) | ftxui::borderRounded | ftxui::color(this->_theme.border), rows + 3};
         }
-
-            int bodyHeight = std::max(3, height - (s.permissions.empty() ? 2 : 3) - (s.lastError.empty() ? 0 : 1));
-            // the pinned item: at most a third of the room, the transcript keeps the rest
-            std::pair<ftxui::Element, int> pinned = compact ? std::pair<ftxui::Element, int>{ftxui::emptyElement(), 0} : this->pin_(s, width, std::min(bodyHeight / 3 + 3, bodyHeight - 4));
-            bodyHeight = std::max(3, bodyHeight - pinned.second);
-            return ftxui::vbox({
-                this->header_(s, compact),
-                ftxui::separatorLight() | ftxui::color(this->_theme.border),
-                ftxui::hbox({this->transcript_(s, width - panelWidth, bodyHeight, compact) | ftxui::flex, panelWidth ? ftxui::separatorLight() | ftxui::color(this->_theme.border) : ftxui::emptyElement(), panels}) | ftxui::flex,
-                this->permission_(s),
-            });
-        }
-
-                std::move(pinned.first),
         std::pair<std::string, std::string> _voiceWords;   // the words said to send / drop (shown in the voice bar)
         std::int64_t _voiceWordsAt = 0;
 
@@ -4923,13 +4922,14 @@ class TtyUi {
                     const std::vector<std::string> path = taxonomy.group(list[i].spec);
                     const std::vector<std::string> before = i == first || list[i - 1].spec.global ? std::vector<std::string>{"\x01"} : taxonomy.group(list[i - 1].spec);
                     if (path != before)
-                        for (std::size_t depth = path.empty() ? 0 : cluster::Taxonomy::common_prefix(before, path); depth < std::max<std::size_t>(path.size(), 1); ++depth) {
+                        for (std::size_t depth = path.empty() ? 0: cluster::Taxonomy::common_prefix(before, path); depth < std::max<std::size_t>(path.size(), 1); ++depth) {
                             const std::string node = depth < path.size() ? path[depth] : std::string();
                             rows.push_back(ftxui::text(std::string(1 + 2 * depth, ' ') + "▾ " + (node.empty() ? std::string("no category") : cluster::one_line(node, 20))) | ftxui::bold
                                 | ftxui::color(node.empty() ? this->_theme.muted : this->chip_color_(node)));
                         }
                 }
                 rows.push_back(this->sessionRow_(list[i], list[i].spec.id == this->_active, clip));
+            }
             if (first + room < list.size()) rows.push_back(ftxui::text(" ↓ " + std::to_string(list.size() - first - room) + " more") | ftxui::color(this->_theme.muted) | ftxui::dim);
             return ftxui::hbox({
                 ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 30) | ftxui::yframe | this->clipBox_(clip) | ftxui::reflect(this->_listBox),
@@ -5003,14 +5003,14 @@ class TtyUi {
             if (this->_mode == Mode::Rewind || this->_mode == Mode::Stash) {
                 const cluster::PopupColors colors{this->_theme.text, this->_theme.muted, this->_theme.accent, this->_theme.bg, this->_theme.warn, this->_theme.error};
                 const bool rewind = this->_mode == Mode::Rewind;
-                const cluster::PopupPress press = [this, rewind](ftxui::Element element, const ftxui::Event& pressed, const int row) {
+                const cluster::PopupPress popupPress = [this, rewind](ftxui::Element element, const ftxui::Event& pressed, const int row) {
                     return this->tap_(std::move(element), 1, [this, rewind, pressed, row]() {
                         if (row >= 0 && rewind) this->_rewind.select(row);
                         else if (row >= 0) this->_stash.select(row);
                         (void)this->event_(pressed);
                     });
                 };
-                return box(rewind ? this->_rewind.render(colors, press) : this->_stash.render(colors, press), 110);
+                return box(rewind ? this->_rewind.render(colors, popupPress) : this->_stash.render(colors, popupPress), 110);
             }
             if (this->_mode == Mode::History) {
                 ftxui::Elements items;
@@ -6172,14 +6172,19 @@ class TtyUi {
                 case Mode::Prompt:
                     if (event == ftxui::Event::Escape) this->_mode = Mode::Normal;
                     else if (event == ftxui::Event::Return) this->run_(this->_pending, this->_prompt);
-                    else if (event == ftxui::Event::Backspace) {
-                        while (!this->_prompt.empty() && (static_cast<unsigned char>(this->_prompt.back()) & 0xC0) == 0x80) this->_prompt.pop_back();
-                        if (!this->_prompt.empty()) this->_prompt.pop_back();
-                    } else if (event.is_character()) this->_prompt += event.character();
+                    else if (this->_password) { // blind: typed and erased at the end only (no cursor moves, no clipboard)
+                        if (event == ftxui::Event::Backspace) {
+                            while (!this->_prompt.empty() && (static_cast<unsigned char>(this->_prompt.back()) & 0xC0) == 0x80) this->_prompt.pop_back();
+                            if (!this->_prompt.empty()) this->_prompt.pop_back();
+                        } else if (event.is_character()) {
+                            this->_prompt += event.character();
+                        }
+                    } else {
+                        (void)this->fieldKey_(this->_prompt, event);
+                    }
                     return true;
                 case Mode::Settings:
                     return this->settingsEvent_(event);
-                    else if (!this->_password) (void)this->fieldKey_(this->_prompt, event);
                 case Mode::Form:
                     return this->formEvent_(event);
                 case Mode::Plugins:

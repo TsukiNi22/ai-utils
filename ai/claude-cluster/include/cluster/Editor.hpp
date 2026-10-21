@@ -65,7 +65,7 @@ struct Candidate {
     std::string label;          // shown in the list
     std::string description;
     bool directory = false;     // Tab / Enter go on inside it
-    std::string source;         // a /command or a skill: where it comes from (local, built-in, a plugin, an imported link), shown as a badge
+    std::string source{};       // a /command or a skill: where it comes from (local, built-in, a plugin, an imported link), shown as a badge
 };
 
 // [Image #N] / [Pasted text #N +L lines]: one character of the text (U+F0000 + index), shown as its label

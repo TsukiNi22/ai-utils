@@ -376,7 +376,7 @@ _cold cluster::Json cluster::Orchestrator::add_(const cluster::Json& request, co
     if (job.command.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "give the command to run");
     const cluster::OrchConf c = this->_config.orch;
     if (caller.kind == "sub" && !c.subAdd) refuse_("not allowed: a sub-session may not queue heavy jobs ([orchestrator] sub_add in the settings): ask the user");
-    job.origin = str_(request, "origin", "run");
+    job.origin = str_(request, "origin", "run") == "wrap" ? "wrap" : "run";   // only the wrapper connection says "wrap": the "origin" of the callers (mcp / sub / web) is not the one of the job
     job.cls = str_(request, "class");
     if (job.cls.empty()) job.cls = cluster::job_class(job.command, job.argv, c.patterns);
     if (job.cls.empty()) job.cls = "custom";

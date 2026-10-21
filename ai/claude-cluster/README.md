@@ -1066,8 +1066,13 @@ go through it. Design, protocol and state machine: [docs/orchestrator.md](docs/o
 | The computer | `hardware_scan`, `orchestrator_config` (global session) |
 | Interface | the **Tasks** session: a Jobs section (queue, gauges, kill / stop / resume / priority); settings tab **Orchestrator** |
 
-The global session sees and manages every job; a sub-session adds, follows, waits and kills **its own** jobs (settings
-`[orchestrator] sub_add`, `sub_kill_own`, `sub_see_others`). Limits: automatic (cores, RAM, swap, `/proc/pressure`), manual
+The global session sees and manages every job; a sub-session follows, waits and kills **its own** jobs (settings
+`[orchestrator] sub_kill_own`, `sub_see_others`) and runs its commands in its shell with `cluster-run` (its Bash tool, with the
+usual permissions of its mode). `heavy_run` / `jobs_add` through the MCP are the global session's: a sub-session has them only with
+`[orchestrator] sub_add = true` (off by default: that path asks no permission).
+TODO (security): gate `heavy_run` / `jobs_add` / the `cluster-run` socket of a sub-session through the permission policy of its mode
+(the same as its Bash tool), the identity checked core-side (peer credentials of the socket and the process tree of the session, not
+the environment the client claims); then `sub_add` can default to on again. Limits: automatic (cores, RAM, swap, `/proc/pressure`), manual
 (`max_jobs`, per session, per class, reserved CPU / RAM, profile `low` / `normal` / `max`), pressure (no new job above the
 thresholds, the running ones reniced and the lowest priority stopped, resumed with hysteresis; never killed unless
 `kill_on_oom`) and priorities (session shown first, aging so nothing starves). A closed / archived session loses its jobs.
