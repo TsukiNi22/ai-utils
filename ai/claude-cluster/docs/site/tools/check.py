@@ -9,6 +9,7 @@
 # =============================================================================
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -83,6 +84,12 @@ def main() -> int:
                 errors.append("%s: link %s: no such file" % (name, link))
             elif frag and target in parsed and frag not in parsed[target].ids:
                 errors.append("%s: link %s: no id %s" % (name, link, frag))
+    mapping = site / "docs-map.json"
+    if mapping.exists():  # the contextual help: every screen points at a page (and an id) that exists
+        for screen, target in json.loads(mapping.read_text()).items():
+            page, _, frag = target.partition("#")
+            if page + ".html" not in parsed or (frag and frag not in parsed[page + ".html"].ids):
+                errors.append("docs-map.json: %s -> %s does not exist" % (screen, target))
     if not args.no_style and CHECK_STYLE.exists():
         for path in pages:
             run = subprocess.run([sys.executable, str(CHECK_STYLE), str(path)], capture_output=True, text=True)

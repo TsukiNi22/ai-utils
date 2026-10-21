@@ -256,8 +256,17 @@ def build_index(ctx: Context, all_pages: list[dict], extra: list[dict]) -> list[
     return entries
 
 
+def copy_downloads(ctx: Context) -> None:
+    """The files of downloads/ (the audit report PDF) next to the pages."""
+    target = ctx.out / "downloads"
+    for path in sorted((HERE / "downloads").glob("*")):
+        target.mkdir(parents=True, exist_ok=True)
+        (target / path.name).write_bytes(path.read_bytes())
+
+
 def write_site(ctx: Context) -> None:
     ctx.out.mkdir(parents=True, exist_ok=True)
+    copy_downloads(ctx)
     pages, extra = load_generated_pages(ctx)
     static = load_static_pages()
     for slug in static:
