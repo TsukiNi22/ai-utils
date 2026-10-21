@@ -18,20 +18,8 @@
   function index() { return (window.DOCS_INDEX && window.DOCS_INDEX.entries) || []; } // search-index.js is deferred: read it when searching
 
   function lang() { return root.lang === 'fr' ? 'fr' : 'en'; }
-  // score: prefix 3000 > substring 2000 > subsequence 1000 (tighter = better), -1 = no match
-  function score(q, s) {
-    q = q.toLowerCase(); s = (s || '').toLowerCase();
-    if (!q) return -1;
-    var i = s.indexOf(q);
-    if (i === 0) return 3000 - s.length;
-    if (i > 0) return 2000 - i * 10 - s.length;
-    var p = 0, first = -1, last = 0;
-    for (var j = 0; j < s.length && p < q.length; j++) if (s[j] === q[p]) { if (first < 0) first = j; last = j; p++; }
-    if (p === q.length) return 1000 - (last - first);
-    return typo(q, s);
-  }
-  // typo tolerance (the idea of c2dmp-hsm: a missing, doubled, wrong or swapped letter still finds it): a word of the text
-  // within 1 edit of the query (2 from 8 letters), swaps counted as one
+  // a query is words: each one must be found (prefix 3000 > start of a word 2600 > inside 2000 > a typo 900 / 800 > letters in order);
+  // the title counts fully, the description a little less, the body text least
   function dist(a, b, max) {
     if (Math.abs(a.length - b.length) > max) return max + 1;
     var prev2 = null, prev = [], cur, i, j;
@@ -46,9 +34,10 @@
     }
     return prev[b.length];
   }
+  // typo tolerance (the idea of c2dmp-hsm: a missing, doubled, wrong or swapped letter still finds it), swaps counted as one
   function typo(q, s) {
     if (q.length < 4) return -1;
-    var max = q.length >= 8 ? 2 : 1, words = s.split(/[^a-z0-9_]+/), best = max + 1;
+    var max = q.length >= 8 ? 2 : 1, words = s.split(/[^a-z0-9]+/), best = max + 1;
     for (var k = 0; k < words.length; k++) {
       var w = words[k];
       if (w.length < 3) continue;
@@ -57,19 +46,43 @@
     }
     return best <= max ? 900 - best * 100 : -1;
   }
+  function wscore(w, s) {
+    s = (s || '').toLowerCase();
+    var i = s.indexOf(w);
+    if (i === 0) return 3000 - s.length / 10;
+    if (i > 0) return (/[^a-z0-9]/.test(s[i - 1]) ? 2600 : 2000) - i / 10;
+    var t = typo(w, s);
+    if (t >= 0) return t;
+    if (w.length >= 4) { // letters in order, tight (sesend -> session_send)
+      var p = 0, first = -1, last = 0;
+      for (var j = 0; j < s.length && p < w.length; j++) if (s[j] === w[p]) { if (first < 0) first = j; last = j; p++; }
+      if (p === w.length && last - first <= w.length * 2) return 600 - (last - first);
+    }
+    return -1;
+  }
+  function entryScore(words, e) {
+    var total = 0;
+    for (var n = 0; n < words.length; n++) {
+      var w = words[n], best = Math.max(wscore(w, e.t), wscore(w, e.d) - 400, wscore(w, e.x) - 800);
+      if (best < 0) return -1;
+      total += best;
+    }
+    return total / words.length;
+  }
+  function queryWords(q) { return q.toLowerCase().split(/\s+/).filter(Boolean); }
   function esc(x) { return String(x).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function mark(q, s) {
-    var l = s.toLowerCase(), ql = q.toLowerCase(), i = l.indexOf(ql), out = '', p = 0;
-    if (i >= 0) return esc(s.slice(0, i)) + '<mark>' + esc(s.slice(i, i + q.length)) + '</mark>' + esc(s.slice(i + q.length));
-    for (var j = 0; j < s.length; j++) {
-      if (p < ql.length && l[j] === ql[p]) { out += '<mark>' + esc(s[j]) + '</mark>'; p++; } else out += esc(s[j]);
-    }
+    var out = esc(s);
+    queryWords(q).forEach(function (w) {
+      var re = new RegExp('(' + esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+      out = out.replace(re, '<mark>$1</mark>');
+    });
     return out;
   }
   function localSearch(q) {
-    var l = lang();
+    var l = lang(), words = queryWords(q);
     return index().filter(function (e) { return !e.l || e.l === l; }).map(function (e) {
-      return { e: e, s: Math.max(score(q, e.t), score(q, e.d) - 500, score(q, e.x) - 1000) };
+      return { e: e, s: entryScore(words, e) };
     }).filter(function (x) { return x.s >= 0; }).sort(function (a, b) { return b.s - a.s; }).slice(0, 8).map(function (x) { return x.e; });
   }
   function remoteSearch(q, done) {
