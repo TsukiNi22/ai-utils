@@ -44,4 +44,4 @@ Les outils sont autorisés sans demande (`--allowedTools mcp__claude-cluster`) ;
 
 ## L'outil docs {#docs}
 
-L'outil `docs` permet à la session globale de chercher dans cette documentation ou d'ouvrir une page pour vous (`search`, `open`). Voir la [référence des outils MCP](page:mcp-tools).
+L'outil `docs` permet à la session globale de chercher dans cette documentation ou d'ouvrir une page pour vous (`search`, `page`, `open`). Voir la [référence des outils MCP](page:mcp-tools).

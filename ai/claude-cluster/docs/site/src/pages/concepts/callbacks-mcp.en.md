@@ -44,4 +44,4 @@ The tools are allowed without a prompt (`--allowedTools mcp__claude-cluster`); w
 
 ## The docs tool {#docs}
 
-The tool `docs` lets the global session search this documentation or open a page for you (`search`, `open`). See the [MCP tools reference](page:mcp-tools).
+The tool `docs` lets the global session search this documentation or open a page for you (`search`, `page`, `open`). See the [MCP tools reference](page:mcp-tools).
