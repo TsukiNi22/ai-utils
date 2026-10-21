@@ -33,7 +33,6 @@ LANGS = ("en", "fr")
 VERSION_TOKEN = "@@CC_VERSION@@"
 COMMIT_TOKEN = "@@CC_COMMIT@@"
 
-
 # ----- context -----
 class Context:
     def __init__(self, args: argparse.Namespace):
@@ -60,7 +59,6 @@ class Context:
     def shown_version(self) -> tuple[str, str]:
         return (VERSION_TOKEN, COMMIT_TOKEN) if self.embed else (self.version, self.commit)
 
-
 # ----- pages -----
 def load_static_pages() -> dict[str, dict]:
     pages: dict[str, dict] = {}
@@ -75,7 +73,6 @@ def load_static_pages() -> dict[str, dict]:
             page["section"] = front["section"]
             page["order"] = front.get("order", 100)
     return pages
-
 
 def load_generated_pages(ctx: Context) -> tuple[dict[str, dict], list[dict]]:
     pages: dict[str, dict] = {}
@@ -92,7 +89,6 @@ def load_generated_pages(ctx: Context) -> tuple[dict[str, dict], list[dict]]:
             extra += module.search_entries(ctx)
     return pages, extra
 
-
 def split_sections(blocks: list[dict]) -> tuple[list[str], list[dict]]:
     """The blocks before the first h2 (intro) and the h2 sections (id, title, raw, html)."""
     intro: list[str] = []
@@ -106,7 +102,6 @@ def split_sections(blocks: list[dict]) -> tuple[list[str], list[dict]]:
         else:
             (sections[-1]["html"] if sections else intro).append(b["html"])
     return intro, sections
-
 
 def parse_page(page: dict) -> None:
     for lang in LANGS:
@@ -124,7 +119,6 @@ def parse_page(page: dict) -> None:
     if ids_en != ids_fr:
         raise SystemExit("page %s: the sections differ between EN %s and FR %s" % (page["slug"], ids_en, ids_fr))
 
-
 def ordered(pages: dict[str, dict], sections: list[dict]) -> list[dict]:
     rank = {s["id"]: n for n, s in enumerate(sections)}
     for p in pages.values():
@@ -132,15 +126,12 @@ def ordered(pages: dict[str, dict], sections: list[dict]) -> list[dict]:
             raise SystemExit("page %s: unknown section %r" % (p["slug"], p["section"]))
     return sorted(pages.values(), key=lambda p: (rank[p["section"]], p["order"], p["slug"]))
 
-
 # ----- html -----
 def both(en: str, fr: str) -> str:
     return '<span data-lang="en">%s</span><span data-lang="fr">%s</span>' % (en, fr)
 
-
 def esc(text: str) -> str:
     return html.escape(text, quote=True)
-
 
 def sidebar(ctx: Context, page: dict | None, all_pages: list[dict]) -> str:
     out = ['<aside class="sidebar" id="sidebar"><p data-i18n>Contents</p>']
@@ -157,7 +148,6 @@ def sidebar(ctx: Context, page: dict | None, all_pages: list[dict]) -> str:
                 out.append('<a href="%s.html"%s>%s</a>' % (p["slug"], cls, both(esc(p["en"]["title"]), esc(p["fr"]["title"]))))
     out.append("</aside>")
     return "".join(out)
-
 
 def page_body(ctx: Context, page: dict, all_pages: list[dict]) -> str:
     sec = next(s for s in ctx.config["sections"] if s["id"] == page["section"])
@@ -185,10 +175,8 @@ def page_body(ctx: Context, page: dict, all_pages: list[dict]) -> str:
     out.append('<nav class="pager">%s</nav></main>' % "".join(pager))
     return "".join(out)
 
-
 TILE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">%s</svg>'
 SEARCH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>'
-
 
 def home_body(ctx: Context, all_pages: list[dict], changes: list[dict], downloads: list[dict]) -> str:
     home = ctx.config["home"]
@@ -217,7 +205,6 @@ def home_body(ctx: Context, all_pages: list[dict], changes: list[dict], download
     out.append('<div class="links"><a href="downloads.html">%s</a><a href="changelog.html">Changelog</a><a href="faq.html">FAQ</a><a href="glossary.html">%s</a></div></main>' % (both("Downloads", "Téléchargements"), both("Glossary", "Glossaire")))
     return "".join(out)
 
-
 def make_page(ctx: Context, body: str, out: Path, title: str, wide: bool = False) -> None:
     ver, commit = ctx.shown_version()
     tmp = ctx.out / ".body.html"
@@ -243,7 +230,6 @@ def make_page(ctx: Context, body: str, out: Path, title: str, wide: bool = False
     text = text.replace("</body>", '<script src="search-index.js" defer></script>\n</body>', 1)
     out.write_text(text)
 
-
 # ----- search index -----
 def build_index(ctx: Context, all_pages: list[dict], extra: list[dict]) -> list[dict]:
     entries: list[dict] = []
@@ -255,7 +241,6 @@ def build_index(ctx: Context, all_pages: list[dict], extra: list[dict]) -> list[
                 entries.append({"k": "docs", "l": lang, "t": "%s › %s" % (d["title"], s["raw"]), "d": s["text"][:110], "u": "%s.html#%s" % (p["slug"], s["id"]), "x": s["text"][:600]})
     entries += extra
     return entries
-
 
 def split_assets(ctx: Context) -> None:
     """--embed: the style and the scripts every page repeats (about 40 KB) move to site.css / site.js (the pages stay valid on file://)."""
@@ -276,10 +261,8 @@ def split_assets(ctx: Context) -> None:
     (ctx.out / "site.css").write_text(style)
     (ctx.out / "site.js").write_text(script)
 
-
 MIMES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
          ".svg": "image/svg+xml", ".pdf": "application/pdf", ".xml": "application/xml"}
-
 
 def write_cpp(ctx: Context, target: Path) -> None:
     """--cpp: the files of the site as byte arrays of a C++ source (no string literal over the 64 KB a compiler must accept)."""
@@ -295,14 +278,12 @@ def write_cpp(ctx: Context, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("\n".join(lines) + "\n")
 
-
 def copy_downloads(ctx: Context) -> None:
     """The files of downloads/ (the audit report PDF) next to the pages."""
     target = ctx.out / "downloads"
     for path in sorted((HERE / "downloads").glob("*")):
         target.mkdir(parents=True, exist_ok=True)
         (target / path.name).write_bytes(path.read_bytes())
-
 
 def write_site(ctx: Context) -> None:
     ctx.out.mkdir(parents=True, exist_ok=True)
@@ -336,7 +317,6 @@ def write_site(ctx: Context) -> None:
         write_cpp(ctx, ctx.cpp)
     print("built %d pages + index in %s (v%s %s)" % (len(all_pages), ctx.out, ctx.version, ctx.commit))
 
-
 def main() -> None:
     ap = argparse.ArgumentParser(description="Generator of the claude-cluster documentation site")
     ap.add_argument("--out", required=True)
@@ -348,7 +328,6 @@ def main() -> None:
     ap.add_argument("--artifacts", default="", help="folder of the built packages (RPM / DEB / APK / PDF) for the downloads sizes")
     ctx = Context(ap.parse_args())
     write_site(ctx)
-
 
 if __name__ == "__main__":
     main()

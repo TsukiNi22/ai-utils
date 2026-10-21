@@ -17,18 +17,15 @@ CALLOUTS = {"NOTE": "", "WARN": " warn", "OK": " ok", "PLANNED": " warn", "SOON"
 CALLOUT_LABEL = {"PLANNED": ("Planned", "Prévu"), "SOON": ("Coming soon", "Bientôt")}
 BLOCK_START = r"^(#{1,4}\s|```|:::|>|\||---+\s*$|(\s*)([-*]|\d+\.)\s)"
 
-
 def split_front(text: str) -> tuple[dict, str]:
     if not text.startswith("+++\n"):
         return {}, text
     end = text.index("\n+++\n", 4)
     return tomllib.loads(text[4:end]), text[end + 5:]
 
-
 def slugify(text: str) -> str:
     text = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return text or "section"
-
 
 class Renderer:
     def __init__(self, lang: str):
@@ -188,7 +185,6 @@ class Renderer:
             return "".join(out)
 
         return parse(items, len(re.match(r"^\s*", items[0]).group(0)))
-
 
 def plain_text(markdown: str) -> str:
     """Text of a block of Markdown without the markup (search index)."""
