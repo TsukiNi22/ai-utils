@@ -282,6 +282,16 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
                 }
         }
     }
+    if (coreFd >= 0 && killedBy.empty() && WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM) {
+        // the core stopped the command itself and tells who right after: its event is waited for a moment (the command ended first)
+        Json message;
+        for (int tries = 0; tries < 5 && killedBy.empty(); ++tries) {
+            if (read_line_(coreFd, buffer, message, 100) > 0 && message.value("event", std::string()) == "killed") {
+                killedBy = message.value("by", std::string("claude-cluster"));
+                killedWhy = message.value("reason", std::string());
+            }
+        }
+    }
     const int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
     if (coreFd >= 0) {
         (void)send_(coreFd, {{"event", "exit"}, {"code", code}, {"signal", WIFSIGNALED(status) ? WTERMSIG(status) : 0}, {"tail", tail}});
