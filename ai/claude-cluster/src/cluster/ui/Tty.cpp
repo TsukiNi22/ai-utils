@@ -6834,6 +6834,8 @@ class TtyUi {
                 return true;
             }
             if (this->_active == TASKS_ID) { // the Tasks session: no prompt; its items by the keys, its shortcuts still (next / previous, Ctrl+B...)
+                // the grid: Shift+Enter / Alt+O (and o, a terminal sending Shift+Enter as a plain Enter) open the Tasks in the list
+                if (event == ftxui::Event::Character('o') && this->shortcut_("grid_open")) return true;
                 if (this->tasksKey_(event)) return true;
                 (void)this->shortcut_(cluster::key_action(this->_manager.config(), key));
                 return true;
