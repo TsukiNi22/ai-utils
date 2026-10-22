@@ -383,21 +383,74 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     return result;
 }
 
+static bool claude_driver_(const std::string& provider)
+{
+    return provider == "claude" || provider.starts_with("anthropic");
+}
+
+static cluster::Json claude_settings_(void)
+{
+    static cluster::Json cached;
+    static std::int64_t at = 0;
+    if (cluster::now() - at > 20) {
+        at = cluster::now();
+        cached = cluster::read_json(cluster::expand_home("~/.claude/settings.json")).value_or(cluster::Json::object());
+    }
+    return cached;
+}
+
+_cold std::string cluster::claude_default_model(void)
+{
+    // the "model" of ~/.claude/settings.json; an alias (sonnet, opus...) resolved to the id of the last turn run on it (the usage ledger), else the alias
+    const cluster::Json settings = claude_settings_();
+    const std::string model = settings.is_object() ? settings.value("model", std::string()) : std::string();
+    if (model.empty() || std::any_of(model.begin(), model.end(), [](const unsigned char c) {return std::isdigit(c) != 0;})) return model;
+    std::ifstream ledger(cluster::data_dir() / "usage.jsonl");
+    std::string line;
+    std::string found;
+    while (std::getline(ledger, line)) {
+        const std::size_t at = line.find("\"model\":\"");
+        if (at == std::string::npos) continue;
+        const std::string id = line.substr(at + 9, line.find('"', at + 9) - at - 9);
+        if (id.find(model) != std::string::npos) found = id;
+    }
+    if (found.empty() && settings.contains("modelSettings") && settings["modelSettings"].is_object()) // never run here: a model of its modelSettings that the alias names
+        for (const auto &[name, value]: settings["modelSettings"].items())
+            if (name.find(model) != std::string::npos && name > found) found = name;
+    return found.empty() ? model : found;
+}
+
+_cold std::string cluster::claude_default_effort(const std::string& model)
+{
+    const cluster::Json settings = claude_settings_();
+    if (model.empty() || !settings.is_object() || !settings.contains("modelSettings") || !settings["modelSettings"].is_object()) return "";
+    std::string best;
+    for (const auto &[name, value]: settings["modelSettings"].items())
+        if (value.is_object() && value.contains("effortLevel") && (model.find(name) == 0 || name.find(model) != std::string::npos) && name.size() >= best.size()) best = value.value("effortLevel", std::string());
+    return best;
+}
+
 _cold std::string cluster::model_label(const std::string& backend, const std::string& modelUsed)
 {
-    // "claude/opus-5-5" when a model is chosen (in the backend, claude/opus) or loaded; else the provider and (default) - the model of the provider
+    // "claude/opus-5-5" when a model is chosen (in the backend, claude/opus) or loaded; else the one Claude Code starts on, marked (default)
     const std::size_t slash = backend.find('/');
     const std::string provider = backend.substr(0, slash);
     const bool chosen = slash != std::string::npos;
-    const std::string model = chosen ? backend.substr(slash + 1) : modelUsed;
+    std::string model = chosen ? backend.substr(slash + 1) : modelUsed;
+    if (model.empty() && claude_driver_(provider)) model = claude_default_model();
     if (model.empty()) return provider + " (default)";
     return provider + "/" + (modelUsed.empty() ? model : modelUsed) + (chosen ? "" : " (default)");
 }
 
-_cold std::string cluster::effort_label(const std::string& effort, const std::string& configured)
+_cold std::string cluster::effort_label(const std::string& effort, const std::string& configured, const std::string& backend, const std::string& modelUsed)
 {
     if (!effort.empty() && effort != "default") return "think " + effort;
-    return "think " + (configured.empty() ? std::string("default") : configured + " (default)");
+    // not chosen: the level of [agent] effort, else the one of the model in the settings of Claude Code - always shown, even before a first message
+    if (!configured.empty()) return "think " + configured + " (default)";
+    const std::string provider = backend.substr(0, backend.find('/'));
+    const std::string model = !modelUsed.empty() ? modelUsed : backend.find('/') != std::string::npos ? backend.substr(backend.find('/') + 1) : claude_driver_(provider) ? claude_default_model() : std::string();
+    const std::string level = claude_driver_(provider) ? claude_default_effort(model) : std::string();
+    return "think " + (level.empty() ? std::string("default") : level + " (default)");
 }
 
 std::string cluster::tail_utf8(const std::string& text, const std::size_t max)

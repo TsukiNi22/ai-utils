@@ -4954,7 +4954,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     };
     QString head = "<span style=\"font-size:11.5pt\"><b>" + esc_(s.spec.name) + "</b></span>&nbsp;&nbsp;" + chip(tone, cluster::state_name(s.state)) + "&nbsp; "
         + chip(st.accent, model) + "&nbsp; " + chip(manager.authKind(s.spec.backend) == "api" ? st.warn : st.ok, manager.authKind(s.spec.backend))
-        + "&nbsp; " + chip(st.muted, cluster::effort_label(s.spec.effort, manager.config().effort)) + "&nbsp; " + chip(st.muted, "mode " + s.spec.mode)
+        + "&nbsp; " + chip(st.muted, cluster::effort_label(s.spec.effort, manager.config().effort, s.spec.backend, s.modelUsed)) + "&nbsp; " + chip(st.muted, "mode " + s.spec.mode)
         + (compact ? QString() : "&nbsp;&nbsp;<a href=\"cluster-folder:\" style=\"color:" + q_(st.muted) + ";text-decoration:none;font-family:monospace;font-size:9pt\">"
             + esc_(cluster::short_path(s.spec.cwd)) + "</a>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(
                 (this->branch.empty() ? std::string() : "  ⎇ " + this->branch) + "  " + cluster::host_name() + (s.pid > 0 ? "  pid " + std::to_string(s.pid) : ""))

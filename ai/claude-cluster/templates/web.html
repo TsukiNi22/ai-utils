@@ -1027,7 +1027,7 @@ function render(state) {
         return;
     }
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
-    $("sessionInfo").textContent = [s.warning ? "⚠ " + s.warning : "", s.state, s.model, s.auth, s.effort ? "think " + s.effort : "", s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    $("sessionInfo").textContent = [s.warning ? "⚠ " + s.warning : "", s.state, s.model_label || s.model, s.auth, s.effort_label || (s.effort ? "think " + s.effort : ""), s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
     // a prompt queued: sent now (the running turn interrupted)
     $("sendNext").classList.toggle("hidden", !s.queued);
     // retry now (an API error retried later) / continue (stopped: interrupted, an error)
