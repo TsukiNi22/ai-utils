@@ -3762,6 +3762,16 @@ class TtyUi {
         {
             // the Tasks session without the mouse: an item chosen, its part jumped to, its actions opened
             const int count = static_cast<int>(this->_taskItems.size());
+            const bool grid = this->_manager.ui("layout", this->_manager.config().layout) == "grid" && !this->sessions_().empty();
+            // the grid: the Tasks is a cell; left leaves it, up / down leave it from the first / the last item (nothing to choose: always)
+            if (grid && event == ftxui::Event::ArrowLeft) {
+                this->moveDir_(-1, 0);
+                return true;
+            }
+            if (grid && ((event == ftxui::Event::ArrowUp && this->_taskSel <= 0) || (event == ftxui::Event::ArrowDown && this->_taskSel >= count - 1))) {
+                this->moveDir_(0, event == ftxui::Event::ArrowUp ? -1 : 1);
+                return true;
+            }
             if (count == 0) return false;
             int& sel = this->_taskSel;
             sel = std::clamp(sel, 0, count - 1);
@@ -6264,7 +6274,8 @@ class TtyUi {
             }
             const std::optional<cluster::MachineProgress> scan = this->scanShown_();
             // Normal: the note of a sub-session whose question waits on the global session (modal_, empty else)
-            ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : this->_mode == Mode::Graph ? this->graph_(size) : ftxui::dbox({document, this->modal_()});
+            ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : this->_mode == Mode::Graph ? ftxui::vbox({top, this->graph_(ftxui::Dimensions{size.dimx, std::max(5, size.dimy - 1)}) | ftxui::flex})
+                | ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg) : ftxui::dbox({document, this->modal_()});
             // a long operation: its popup over the screen (its spinner turning); one running: redrawn (its popup at 0.4 s)
             if (this->_manager.progressActive()) this->_spinning = true;
             const std::optional<cluster::Progress> running = this->_manager.progress();
@@ -6717,6 +6728,11 @@ class TtyUi {
                 case Mode::Plugins:
                     return this->plugEvent_(event);
                 case Mode::Graph:
+                    if (cluster::key_action(this->_manager.config(), key) == "layout") { // F2: the graph is the last of list -> grid -> graph, then the list again
+                        this->_manager.setUi("layout", "list");
+                        this->_mode = Mode::Normal;
+                        return true;
+                    }
                     if (cluster::key_action(this->_manager.config(), key) == "graph" || this->_graph.key(event, key, this->_manager.config().keys) == cluster::GraphView::Result::Close)
                         this->_mode = Mode::Normal;
                     return true;
@@ -6901,6 +6917,7 @@ class TtyUi {
         {
             this->theme_();
             this->vimSync_();
+            if (this->_manager.ui("layout", this->_manager.config().layout) == "grid") this->_manager.setUi("layout", "list"); // every start on the list (F2: the grid, the graph)
             this->_machineStartup = this->_app.askMachine != 0 && !this->_webTty; // the terminal page never maps the computer
             this->_machineKind = this->_app.askMachine;
             if (this->_app.askRestore) this->_mode = Mode::Restore;

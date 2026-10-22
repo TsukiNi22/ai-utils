@@ -57,6 +57,8 @@ try:
 
     def where(word: str) -> tuple[int, int] | None:  # (column, line) of a word on the screen
         for y, line in enumerate(screen.display):
+            if y == 0:
+                continue   # the bar at the top (kept in the graph) names the app too
             x = line.find(word)
             if x >= 0:
                 return x, y
