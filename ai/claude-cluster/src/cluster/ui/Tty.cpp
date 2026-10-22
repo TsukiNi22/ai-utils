@@ -35,6 +35,7 @@ File Description:
 #include "cluster/Reveal.hpp"
 #include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Demo.hpp"
 #include "cluster/Cron.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
@@ -5462,7 +5463,7 @@ class TtyUi {
             if (this->upgradeShown_()) {
                 const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
                 // a choice: under the cursor, filled in its colour with arrows around; the others a quiet button with their key (a click = the key)
-                const auto choice = [&](const int index, const std::string& label, const std::string& letter, const ftxui::Color& color, const ftxui::Event& key) {
+                const std::function<ftxui::Element(int, const std::string&, const std::string&, const ftxui::Color&, const ftxui::Event&)> choice = [&](const int index, const std::string& label, const std::string& letter, const ftxui::Color& color, const ftxui::Event& key) {
                     const bool focused = this->_upgradeFocus == index;
                     return press(focused ? ftxui::text("❯" + label + "[" + letter + "] ❮") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(color)
                         : ftxui::text(" " + label + "[" + letter + "]  ") | ftxui::color(color) | ftxui::bgcolor(this->_theme.surface), key);
@@ -6201,6 +6202,7 @@ class TtyUi {
                 this->tap_(ftxui::text(std::string(" ") + cluster::face_text(face.face) + " claude-cluster ") | ftxui::bold | ftxui::color(this->_theme.bg)
                     | ftxui::bgcolor(face.face == cluster::Face::Waiting ? this->_theme.warn : this->_theme.accent), 0,
                     [this]() {(void)this->shortcut_("settings");}),
+                cluster::demo_enabled() ? ftxui::text(" DEMO ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.warn) : ftxui::emptyElement(),
                 key(" " + (layout == "tabs" || layout == "hub" ? std::string("list") : layout), "layout"),
                 ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
                 ftxui::filler(),

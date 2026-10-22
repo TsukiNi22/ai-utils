@@ -22,6 +22,7 @@ File Description:
 #include "cluster/Machine.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Icons.hpp"
+#include "cluster/Demo.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Mcp.hpp"
 #include <unordered_map>
@@ -189,6 +190,7 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("tag", {"", "", "tag", ""}, {{"a,b", true, any}}, "list: only the sessions with these tags; label: the tags of the session (empty: removed)");
     this->_parser.setFlag("state", {"", "", "state", ""}, {{"state", true, any}}, "list: open (default) | archived | all | working | idle...");
     this->_parser.setFlag("force", {"f", "", "force", ""}, {}, "send: ignore the budget");
+    this->_parser.setFlag("demo", {"", "", "demo", ""}, {}, "A demo: fictional projects, sessions, tasks and schedules in an instance of its own (nothing real is touched or spent; with --web: read only)");
     this->_parser.setFlag("rtk", {"", "", "rtk", "CLAUDE_CLUSTER_RTK"}, {}, "Compact output for an AI (headless commands)");
     this->_parser.setFlag("json", {"j", "", "json", ""}, {}, "Raw JSON output (headless commands)");
 
@@ -233,6 +235,8 @@ _cold void cluster::Core::init(const int argc, char* argv[])
     const std::vector<std::string> arguments = this->extract_(argc, argv);
     const utils::arguments::ParsedUsages usages = this->_parser.parse(arguments);
     if (usages.empty()) return;
+    if (std::find(arguments.begin(), arguments.end(), "--demo") != arguments.end()) // before anything reads a path: the demo folder, its own socket
+        cluster::demo_prepare(std::find(arguments.begin(), arguments.end(), "--web") != arguments.end());
 
     for (const auto &[id, option, values]: usages[0].arguments) {
         const std::string value = values.empty() ? "" : values[0];
@@ -272,6 +276,7 @@ _cold void cluster::Core::run(void)
     }
     const std::string& cmd = this->_words[0];
     if (cmd == "mcp") this->_exit = cluster::mcp_serve();
+    else if (cmd == "demo-agent") this->_exit = cluster::demo_agent();
     else if (cmd == "__complete") this->complete_(this->_words.size() > 1 ? this->_words[1] : "");
     else if (cmd == "serve") this->_exit = this->ui_(true);
     else if (cmd == "auth") this->_exit = this->auth_();
@@ -415,7 +420,7 @@ _cold int cluster::Core::ui_(const bool serve)
         if (!this->_options.layout.empty()) app.manager->setUi("layout", this->_options.layout);
         if (!this->_options.style.empty()) app.manager->setUi("style", this->_options.style);
         app.askRestore = app.manager->restorable();
-        app.askMachine = this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk();
+        app.askMachine = cluster::demo_enabled() ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk();
         app.voice = std::make_unique<cluster::Voice>(*app.manager);
         app.start();
     } else {
@@ -437,12 +442,13 @@ _cold int cluster::Core::ui_(const bool serve)
         else app.askRestore = true;
     }
     if (!app.askRestore && !askedLater) app.manager->startGlobal(); // asked: started by the answer (resumed or new); the tick starts it if it is missing anyway
-    app.askMachine = serve ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
+    app.askMachine = serve || cluster::demo_enabled() ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
     app.web = std::make_unique<cluster::Web>(*app.manager, app.voice.get(), this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);
     app.manager->setWeb(app.web.get());
     app.manager->setVoice(app.voice.get());
     app.start();
+    if (cluster::demo_enabled()) cluster::demo_seed(*app.manager); // the fictional sessions, one after the other
     }
     } catch (...) { // a start failing: what it started stopped (its sessions, its threads)
         app.stop();

@@ -73,6 +73,7 @@ claude-cluster --backend ollama/qwen3-coder   # backend of the new sessions for 
 claude-cluster --restore | --fresh      # previous run: restore / start new (default: asked, Esc = restore)
 claude-cluster --rescan                 # ask at start to sync the map of this computer (even recent or refused)
 claude-cluster serve                    # no interface: driven by the commands below and the MCP server
+claude-cluster --demo [--web]           # the demo: fictional projects, sessions, tasks, schedules (nothing real, nothing spent; see Demo mode)
 ```
 
 Headless commands, on the running instance (`--rtk` compact output for an AI, `--json` raw):
@@ -676,9 +677,23 @@ characters each), only when the detection is on, once per N sessions it started 
 **Allow** / **Deny**, a notification); only Allow writes the setting, Deny is final for that proposal and is told to the
 global session. Never applied silently. State: `method.json` in the data folder (counter, the proposal waiting).
 
+### Demo mode
+
+`claude-cluster --demo` opens an instance of its own - its config, data and control socket live in `~/.cache/claude-cluster-demo` (made again at each
+start, never your real sessions) - filled with a fictional company: five projects (`acme-shop`, `acme-api`, `orbit-mobile`, `nova-docs`, `lumen-ml`,
+`infra-ops`), eight sessions under categories and tags (`frontend`, `backend`, `mobile`, `docs`, `ml`, `ops`, `#checkout`, `#payments`, `#urgent`...),
+the global session orchestrating (listing, splitting, spawning), todo lists, a task queue with dependencies, four schedules (a prompt soon, one every
+weekday, a notification), thirty days of usage and the limits of an account. The agents are a fake one (`claude-cluster demo-agent`): the sessions think,
+read, edit and run tools for real-looking steps and never end (*Working*), one waits for a permission (answer it: the build "uploads"), one fails after a
+minute (the failure popup), two are idle with a conversation already had. Nothing is read or changed on the computer and nothing is spent; a prompt typed
+in a demo session gets a short fixed reply. The top bar says **DEMO**.
+
+`--web` opens its web access (port 8444, terminal mode 2223, no device approval) **read only**: the page lists and reads, `send`, `spawn`, the answers,
+the settings and every other change are refused. Without `--web` there is no web access at all.
+
 ### The graph view (terminal)
 
-`Alt+G` (key `graph`), the palette (*Graph*) or `/graph`-like palette entry opens the same graph as the *Hub* of the web page and the window:
+`F2` goes list → grid → graph → list. `Alt+G` (key `graph`), the palette (*Graph*) or `/graph`-like palette entry opens the same graph as the *Hub* of the web page and the window:
 the **global** session in the middle, the sessions around it, linked (solid link: working, dashed: idle). A node is a box with the state
 colour (green working, orange waiting for a permission, red error, grey idle - the colours of the web hub) and the name; the session shown
 in the other views is in bold. Nothing is changed from it (read only); the screen is redrawn on an input or a change of state, never
@@ -1179,6 +1194,11 @@ What protects the three ways of using claude-cluster, and what stays your respon
   - never anything else; its updates come from the computer and keep the signing key of the app.
 
 ## Background service
+
+**Locked or asleep.** A locked screen never stops claude-cluster (nor its agents): only a *suspend* does. `[service] keep_awake`
+(*Keep the computer awake*) keeps the computer from suspending by itself (idle) with a `systemd-inhibit` that claude-cluster renews
+every 100 s: `off` - never; `working` (default) - while a session works on a turn; `always` - while claude-cluster runs. The lid and the
+suspend menu still work (idle suspend only); the inhibitor ends by itself, even if claude-cluster dies.
 
 `claude-cluster service enable` installs and starts a systemd user unit (`~/.config/systemd/user/claude-cluster.service`,
 started with the graphical session): saying the wake phrase (`[service] wake_word`, else `[voice] wake_word`: "ok

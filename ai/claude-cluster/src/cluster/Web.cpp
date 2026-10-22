@@ -24,6 +24,7 @@ File Description:
 #include "cluster/Origin.hpp"
 #include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Demo.hpp"
 #include "cluster/Wire.hpp"
 #include "cluster/Web.hpp"
 #ifdef CLUSTER_TLS
@@ -1595,8 +1596,9 @@ self.addEventListener("notificationclick", (e) => {
         // a shell of this computer from the page: only when allowed ([web] shell)
         const std::string text = command.contains("text") && command["text"].is_string() ? cluster::trim(command["text"].get<std::string>()) : "";
         const bool shell = cmd == "send" && (text.starts_with("!") || (text.starts_with(":") && text.find('!') != std::string::npos));
-        if (!allowed.contains(cmd)) {
-            json_(conn, 400, {{"ok", false}, {"error", "command not allowed from the web: '" + cmd + "'"}});
+        if (!allowed.contains(cmd) || (cluster::demo_enabled() && !cluster::demo_web_allows(cmd))) {
+            json_(conn, 400, {{"ok", false}, {"error", cluster::demo_enabled() && allowed.contains(cmd) ? "the demo is read only from the web: '" + cmd + "' is not available"
+                : "command not allowed from the web: '" + cmd + "'"}});
         } else if (shell && !this->_manager.config().web.shell) {
             json_(conn, 200, {{"ok", false}, {"error", "the shell from the page is off (settings: Web > Shell from the page)"}});
         } else {
