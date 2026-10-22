@@ -95,3 +95,27 @@ details.quiz > :not(summary) { padding: 0 14px; }
 @media (prefers-reduced-motion: reduce) {
   .stepper svg *, .stepper .progress i, .stepper .captions > li { transition: none !important; }
 }
+/* Phones and touch screens */
+@media (max-width: 600px) {
+  .tldr { font-size: 16px; padding: 12px 14px; }
+  .playground { padding: 14px 12px; }
+  .playground .inputs { gap: 12px; }
+  .playground input[type="range"] { width: 100%; }
+  .playground label { width: 100%; }
+  .playground .out b { font-size: 19px; }
+  .formula { padding: 10px 12px; }
+  .stepper .controls .progress { flex-basis: 100%; order: 5; }
+}
+@media (pointer: coarse) {
+  .stepper .controls button { height: 44px; min-width: 44px; }
+  .playground button { height: 44px; }
+  .playground input[type="range"] { height: 32px; }
+  .level-switch { height: 40px; }
+  .level-switch button { height: 32px; min-width: 52px; }
+  dfn[data-def] { min-height: 24px; }
+}
+@media (hover: none) {
+  dfn[data-def]:hover::after { display: none; }              /* tap = focus: the definition shows with :focus */
+  dfn[data-def]:focus::after { left: 0; max-width: min(300px, 86vw); }
+}
+@media print { .stepper .controls, .level-switch { display: none; } .stepper svg .off { opacity: 1; } }

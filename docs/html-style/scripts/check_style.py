@@ -13,6 +13,9 @@ Checks (each file):
   override rule `<parent> <element> { color: ... }`;
 - diagrams: arrows whose ends touch no shape (rect / circle / ellipse; data-from / data-to arrows are computed by
   base.js and skipped), text out of the drawing or crossing the border of a box;
+- responsive (HTML pages): viewport meta `width=device-width`, a `max-width` media query, no fixed `width` > 360px
+  on a block without `max-width` (horizontal scroll on a phone), `hover:` effects with a `(hover: none)` fallback
+  for what only shows on hover, `<img>` / `<svg>` / `<table>` that can overflow (warnings for the last ones);
 - self-contained: no external script / stylesheet / @import / url(http...), no web font, no gradient.
 --compare: lists the tokens whose value differs from the reference (the style source is html-style/templates/style.css).
 Exit 1 when an error is found (warnings don't fail).
@@ -235,6 +238,27 @@ def check_diagrams(html_text: str) -> tuple[list[str], list[str]]:
                     break
     return errors, warnings
 
+def check_responsive(html_text: str, css: str) -> tuple[list[str], list[str]]:
+    """Phones and other platforms: viewport, breakpoints, touch fallbacks, fixed widths."""
+    errors, warnings = [], []
+    if not re.search(r"<meta[^>]+name=[\"']viewport[\"'][^>]+width=device-width", html_text):
+        errors.append("no <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">: the page is shown zoomed out on a phone")
+    if not re.search(r"@media[^{]*max-width", css):
+        errors.append("no @media (max-width: ...) rule: no layout for phones")
+    if re.search(r"user-scalable\s*=\s*no|maximum-scale\s*=\s*1(\.0)?\b", html_text):
+        errors.append("viewport blocks the zoom (user-scalable=no / maximum-scale=1): inaccessible")
+    if re.search(r":hover", css) and not re.search(r"@media[^{]*hover:\s*none", css) and re.search(r"opacity:\s*0\b[^}]*}[^{]*:hover", css):
+        warnings.append("something only appears on :hover (opacity: 0) and there is no @media (hover: none) fallback for touch screens")
+    for sel, decl in rules(css):
+        m = re.fullmatch(r"(\d+)px", decl.get("width", "").strip())
+        if m and int(m.group(1)) > 360 and "max-width" not in decl and not sel.startswith(("@", "html", "body")) and "min(" not in decl.get("width", ""):
+            warnings.append(f"{sel}: width {m.group(1)}px without max-width (overflows a 360px phone)")
+    for m in re.finditer(r"<img\b[^>]*>", html_text):
+        if "width" not in m.group(0) and "style" not in m.group(0) and not re.search(r"\bimg\s*[,{][^}]*max-width", css):
+            warnings.append(f"line {html_text.count(chr(10), 0, m.start()) + 1}: <img> without max-width rule")
+            break
+    return errors, warnings
+
 def check(path: Path, reference: dict | None) -> int:
     raw = css_of(path)
     css = strip_comments(raw)
@@ -292,6 +316,9 @@ def check(path: Path, reference: dict | None) -> int:
             errors.append(f"{what} found (pages are self-contained, no gradient / web font)")
 
     if path.suffix.lower() in (".html", ".htm"):
+        e, w = check_responsive(html, css)
+        errors += e
+        warnings += w
         e, w = check_diagrams(html)
         errors += e
         warnings += w

@@ -67,6 +67,12 @@ is needed when the audience of the tool is not obvious.
 - Before delivering: valid HTML, every tab/summary link points to an existing page/`id`, readable in both themes
   and at phone width (860px breakpoint, no horizontal scroll).
 
+- **Responsive on every platform** (phone, tablet, TV, touch laptop; rules in `html-style`, already in the three
+  templates - keep them when editing): viewport with `viewport-fit=cover`, safe areas, off-canvas menu closing on a tap
+  / outside / Escape, no hover-only feature, 44px tap targets, 16px fields. The graph page works by touch: one
+  finger drags / orbits / taps a node, **two fingers pinch to zoom and pan** (no mouse, Shift or wheel needed),
+  the filter panel is a drawer, the details card a bottom sheet. Check each page at 375, 768 and 1280px.
+
 ## 1. Guide (`templates/user.html`, optional)
 For people who just want to **use** the tool: no jargon, no internal detail, task oriented.
 - Sections: About, Installation, First steps, Usage (one sub-part per task, "I want to… / I do…"

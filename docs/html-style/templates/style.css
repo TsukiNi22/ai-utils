@@ -296,3 +296,80 @@ html, body { overscroll-behavior: none; }
 :root[data-theme="dark"] .top-actions .theme-switch { border-color: var(--border); box-shadow: none; }
 :root[data-theme="dark"] .top-actions .theme-switch .knob { transform: translateX(26px); }
 @media (max-width: 480px) { .top-actions .divider { display: none; } }
+/* ---------- Responsive: phones, tablets, touch screens, notches, TVs, print ---------- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+img, video, canvas, svg { max-width: 100%; }
+main h1, main h2, main h3, main p, main li, main td, main th, main figcaption { overflow-wrap: break-word; }
+code { overflow-wrap: anywhere; }
+pre code { overflow-wrap: normal; }
+.sidebar { max-height: calc(100vh - 100px); max-height: calc(100dvh - 100px); overscroll-behavior: contain; }
+/* Notches and rounded corners (viewport-fit=cover): the content stays inside the safe area */
+.topbar { padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+.layout { padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)); }
+footer.site { padding-bottom: max(30px, env(safe-area-inset-bottom)); }
+/* Very large screens (TV, 4K): a bigger base so the page stays readable at a distance */
+@media (min-width: 1900px) { html { font-size: 18px; } }
+@media (min-width: 2600px) { html { font-size: 21px; } }
+/* Tablets and small laptops: tighter column gap */
+@media (min-width: 861px) and (max-width: 1100px) { .layout { gap: 24px; grid-template-columns: 210px minmax(0, 1fr); } }
+@media (max-width: 860px) {
+  .topbar { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .layout { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  .sidebar { top: 56px; bottom: 0; height: auto; padding-bottom: max(16px, env(safe-area-inset-bottom)); overflow-y: auto; }
+  input, select, textarea { font-size: 16px; } /* under 16px iOS zooms the page on focus */
+  table { font-size: 13.5px; }
+  th, td { padding: 6px 8px; }
+  pre { font-size: 12.5px; padding: 12px; }
+  .formula { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+@media (max-width: 600px) {
+  .pager { flex-direction: column; }
+  .pager a.next { text-align: left; }
+  section { border-radius: 8px; }
+  h2 { font-size: 20px; }
+  .ctabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .ctabs button { white-space: nowrap; flex: none; }
+}
+@media (max-width: 480px) {
+  .layout { padding-top: 16px; }
+  header h1 { font-size: 24px; }
+  header .lead { font-size: 16px; }
+  .callout { padding: 10px 12px; }
+}
+/* Phone held sideways: little height, keep the bar slim */
+@media (max-height: 480px) and (orientation: landscape) {
+  .topbar { height: 48px; }
+  .sidebar { top: 48px; }
+  section { scroll-margin-top: 56px; }
+}
+/* Touch (no hover): what only showed on hover is always there, and targets are finger sized */
+@media (hover: none) {
+  pre .copy { opacity: 1; }
+  h2 .anchor, h3 .anchor { opacity: .6; }
+  dfn[data-def] { cursor: pointer; }
+}
+@media (pointer: coarse) {
+  .icon-btn { width: 44px; height: 44px; }
+  .top-actions .icon-btn { width: 40px; height: 40px; }
+  .tabs a, .ctabs button, .sidebar a { min-height: 44px; display: flex; align-items: center; }
+  .sidebar a { padding-top: 0; padding-bottom: 0; }
+  .lang-switch button, .top-actions .lang-switch button { min-height: 32px; min-width: 38px; }
+  pre .copy { padding: 8px 12px; font-size: 13px; }
+  summary { min-height: 44px; display: flex; align-items: center; }
+  .pager a, .btn { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+@media (forced-colors: active) {
+  .theme-switch, .lang-switch, .icon-btn { border: 1px solid ButtonText; }
+  .tabs a.current, .ctabs button.active, .lang-switch button.on { outline: 2px solid Highlight; }
+}
+@media print {
+  .topbar, .sidebar, .pager, .menu-btn, pre .copy, .top-actions, .h-anchor, .anchor { display: none !important; }
+  .layout { display: block; max-width: none; padding: 0; }
+  section { break-inside: avoid-page; border: 0; padding: 0 0 12px; background: none; }
+  pre { white-space: pre-wrap; overflow: visible; }
+  body { background: #fff; color: #000; }
+  a { color: inherit; }
+}

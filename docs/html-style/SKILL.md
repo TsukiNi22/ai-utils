@@ -1,6 +1,6 @@
 ---
 name: html-style
-description: The user's visual style for any HTML page (taken from html-doc - R-Type doc colors + context-forge layout) - color tokens for the light and dark themes, system font stacks and type scale, spacing / radius / layout / breakpoints, components (top bar, cards, callouts, tables, code blocks with copy, content tabs, sidebar, pager, SVG diagram classes, sun/moon theme switch, EN/FR switch), rules (self-contained, no CDN / web font / gradient / emoji, WCAG contrast in both themes) - with scripts to build a self-contained page (new_page.py) and check a page or a palette (check_style.py). Use whenever creating or restyling an HTML page, a small web tool, a dashboard or a page component for the user, or when defining / changing a palette, color, font or theme, unless the user asks for another style.
+description: The user's visual style for any HTML page (taken from html-doc - R-Type doc colors + context-forge layout) - color tokens for the light and dark themes, system font stacks and type scale, spacing / radius / layout / breakpoints, components (top bar, cards, callouts, tables, code blocks with copy, content tabs, sidebar, pager, SVG diagram classes, sun/moon theme switch, EN/FR switch), rules (responsive on phone, tablet, TV and touch screens, self-contained, no CDN / web font / gradient / emoji, WCAG contrast in both themes) - with scripts to build a self-contained page (new_page.py) and check a page or a palette (check_style.py). Use whenever creating or restyling an HTML page, a small web tool, a dashboard or a page component for the user, or when defining / changing a palette, color, font or theme, unless the user asks for another style.
 ---
 
 # HTML style
@@ -48,7 +48,7 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 - Text width `75ch` max (`70ch` for the lead). Radius: cards 10px, code blocks 8px, tabs / buttons 6px, inline
   code 4px, pills 999px. Card padding 28px 32px (20px 16px mobile), 24px between cards.
 - Layout `.layout`: sidebar 250px + content, max 1180px; from 1340px the content column (880px) is centered and
-  the sidebar sits on its left. Breakpoints 860px (sidebar off-canvas, menu button, tabs hidden) and 480px.
+  the sidebar sits on its left. Breakpoints 480 / 600 / 860px (sidebar off-canvas, menu button, tabs hidden) / 1100 / 1340 / 1900px, see the Responsive rule.
 - **Logo of the brand** (one for the whole site, never one per page): **always ask** (AskUserQuestion, French) when
   the site has none chosen yet or the user wants to change it - **"Quel logo pour la documentation ?"**:
   - `Logo du dépôt` (one option per logo found: `scripts/set_logo.py <docs dir> --list`, preview its path), only
@@ -109,6 +109,22 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
   color (accent button, dark table head, colored banner) gets an explicit override
   (`th code { background: rgba(255,255,255,.18); color: #fff; }`): it never inherits a color unreadable on its
   own background (`check_style.py` finds them).
+- **Responsive (every page, every platform)**: the pages must work as well on a phone, a tablet, a TV, a foldable
+  or a touch laptop as on a desktop (`templates/style.css`, "Responsive" block, already in the templates - keep it):
+  - `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`, never
+    `user-scalable=no` / `maximum-scale=1`; `text-size-adjust: 100%`; safe-area insets (`env(safe-area-inset-*)`)
+    on the bar, the layout and the footer (notches, rounded corners, landscape);
+  - mobile first thinking, breakpoints 480 / 600 / 860 / 1100 / 1340 / 1900px (phone, large phone, tablet and
+    off-canvas menu, small laptop, centered column, TV / 4K bigger base font) + short landscape screens
+    (`max-height: 480px`); no fixed width beyond `min(..., 100%)`, tables / code / formulas / wide drawings scroll
+    inside their own box (`.table-wrap`, `pre`, `.formula`), long words / paths wrap (`overflow-wrap`);
+  - **touch**: nothing that needs hover - `@media (hover: none)` shows the copy buttons / anchors, no tooltip
+    that needs a hover (`dfn` opens on tap / focus), `@media (pointer: coarse)` gives targets of 44px minimum;
+    form fields 16px on small screens (iOS zooms under that); the sidebar menu closes on a tapped entry,
+    on an outside tap and on Escape; 100dvh (not only 100vh) for full-height panels;
+  - interactions have a touch equivalent (drag = one finger, zoom = pinch, pan = two fingers, tap = click; right
+    click / Shift / keyboard are shortcuts only), `touch-action` set on canvases;
+  - `prefers-reduced-motion`, `forced-colors`, and a print style (no bar / sidebar / buttons, cards without border).
 - Motion: transitions 0.15-0.3s; animations stop under `@media (prefers-reduced-motion: reduce)`.
 - `localStorage` (theme, language, view state) always in `try / catch` under `<storage-key>-<name>`.
 
@@ -129,5 +145,7 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 ## 7. Check before delivering
 - `check_style.py` on the page: 0 error.
 - Open the page (or a headless screenshot, `firefox --headless --screenshot out.png --window-size 1280,900 file://...`)
-  in light and dark, at 1280px and at 390px: no horizontal scroll, every text readable, switches working.
+  in light and dark, at 1280px, 768px and 375px (also landscape 667x375): no horizontal scroll, every text readable, tap targets
+  usable, switches and the menu working (`check_style.py` checks the viewport meta, the `max-width` media queries, hover-only
+  effects, fixed widths).
 - No `{{...}}` left (`new_page.py` reports them).

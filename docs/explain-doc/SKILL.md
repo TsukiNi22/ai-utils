@@ -104,6 +104,12 @@ playground, quiz, glossary): keep its structure and components, replace its cont
 - Size: `viewBox="0 0 760 H"` with H <= ~360, cells / boxes 36-48px, labels 12-14px (the stepper caps the drawing
   at 400px high); bigger drawings are split into several figures.
 
+### Phones and touch
+Pages follow the responsive rules of `html-style` (viewport, safe areas, 44px targets, no hover-only content). Here:
+steppers keep readable labels (the drawing scrolls horizontally under 860px instead of shrinking), the controls and
+the progress bar wrap on a phone, sliders are full width with 16px fields, a `<dfn>` shows its definition on **tap**
+(focus), nothing relies on hover or the keyboard alone, and the print style drops the controls.
+
 ## 6. Accuracy
 - Every number of the page is computed, never written from memory: the playground formulas are the same functions
   as the ones of the text, and the static tables / captions are checked with them (`node -e` with the page

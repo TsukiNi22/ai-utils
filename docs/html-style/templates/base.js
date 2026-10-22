@@ -206,6 +206,8 @@ window.docDiagram = (function () {
   var menu = document.getElementById('menuBtn'), side = document.getElementById('sidebar');
   if (menu && side) {
     menu.addEventListener('click', function () { side.classList.toggle('open'); });
+    side.addEventListener('click', function (e) { if (e.target.closest('a')) side.classList.remove('open'); }); // a tapped entry closes the menu
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') side.classList.remove('open'); });
     document.addEventListener('click', function (e) { if (!side.contains(e.target) && !menu.contains(e.target)) side.classList.remove('open'); });
   }
   var links = document.querySelectorAll('.sidebar a[href^="#"]');

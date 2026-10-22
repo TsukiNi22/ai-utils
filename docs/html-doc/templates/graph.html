@@ -2,7 +2,7 @@
 <html lang="en" data-page="graph" data-storage-key="{{STORAGE_KEY}}" data-repo="{{GITHUB_REPO}}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{{PROJECT}} · Project graph</title>
 <style>
 
@@ -362,6 +362,27 @@ html, body { overscroll-behavior: none; }
 :root[data-theme="dark"] .top-actions .theme-switch { border-color: var(--border); box-shadow: none; }
 :root[data-theme="dark"] .top-actions .theme-switch .knob { transform: translateX(26px); }
 @media (max-width: 480px) { .top-actions .divider { display: none; } }
+/* Responsive: notches, touch targets, short screens */
+@supports (padding: max(0px)) { .topbar { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); } }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+@media (hover: none) { .hint { display: none; } }
+@media (pointer: coarse) {
+  .icon-btn { width: 44px; height: 44px; }
+  .btn, .seg button, .chip, .legend .lg, .mini { min-height: 40px; }
+  .details .close, .helpcard .close { width: 44px; height: 44px; font-size: 26px; }
+  input, select, textarea { font-size: 16px; } /* no zoom of the page on focus (iOS) */
+}
+@media (max-width: 860px) {
+  .panel { padding-bottom: max(16px, env(safe-area-inset-bottom)); overflow-y: auto; }
+  .details { bottom: max(12px, env(safe-area-inset-bottom)); }
+  .flowbar select { max-width: 46vw; }
+}
+@media (max-width: 480px) {
+  .panel { width: 100vw; }
+  .topbar .icon-btn[href] { display: none; }
+}
+@media (max-height: 480px) and (orientation: landscape) { .topbar { height: 48px; } .panel { top: 48px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 </style>
 </head>
 <body>
@@ -2995,9 +3016,12 @@ extractGraph.wanted = function (p) {
         e.preventDefault();
         // Touchpad: many small pixel deltas (a mouse wheel sends big steps): damped, and capped for both
         const pad = e.deltaMode === 0 && Math.abs(e.deltaY) < 50, dy = Math.max(-120, Math.min(120, e.deltaY)) * (pad ? 0.35 : 1);
-        const c = state.cam, f = Math.exp(-dy * 0.0015), r = canvas.getBoundingClientRect();
-        // Anchor of the zoom: the selected node, else the mouse (the point under it stays under it, zoom in and out)
-        let ax = e.clientX - r.left, ay = e.clientY - r.top;
+        zoomAt(Math.exp(-dy * 0.0015), e.clientX, e.clientY);
+    }, {passive: false});
+    function zoomAt(f, clientX, clientY) { // factor f > 1: zoom in (wheel and two finger pinch)
+        const c = state.cam, r = canvas.getBoundingClientRect();
+        // Anchor of the zoom: the selected node, else the mouse / the fingers (the point under it stays under it, zoom in and out)
+        let ax = clientX - r.left, ay = clientY - r.top;
         if (state.lock && state.mode === "3d" && state.pos.get(state.lock)) { // focus of F: zoom towards / from the node, it stays the center
             c.dist = Math.max(20, Math.min(20000, c.dist / f)); state.dirty = true; return;
         }
@@ -3015,7 +3039,32 @@ extractGraph.wanted = function (p) {
             c.x += mx / c.k - mx / k; c.y += my / c.k - my / k; c.k = k;
         }
         state.dirty = true;
-    }, {passive: false});
+    }
+
+    // Touch screens: two fingers = pinch to zoom + move to pan (one finger keeps drag / orbit / tap to select)
+    const touches = new Map();
+    let pinch = null;
+    function pinchState() { const [a, b] = [...touches.values()]; return {d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}; }
+    canvas.addEventListener("pointerdown", (e) => {
+        if (e.pointerType !== "touch") return;
+        touches.set(e.pointerId, {x: e.clientX, y: e.clientY});
+        if (touches.size === 2) { drag = null; canvas.classList.remove("dragging"); pinch = pinchState(); $("nodeTip").hidden = true; } // the first finger no longer drags
+    });
+    canvas.addEventListener("pointermove", (e) => {
+        if (!touches.has(e.pointerId)) return;
+        touches.set(e.pointerId, {x: e.clientX, y: e.clientY});
+        if (!pinch || touches.size !== 2) return;
+        const n = pinchState(), c = state.cam, dx = n.x - pinch.x, dy = n.y - pinch.y;
+        zoomAt(n.d / pinch.d, n.x, n.y);
+        if (!state.lock) { // the middle of the fingers moves the view like a pan
+            if (state.mode !== "3d") { c.x -= dx / c.k; c.y -= dy / c.k; }
+            else { const s = 700 / c.dist, w = unrotateDir(-dx / s, -dy / s, 0); c.x += w.x; c.y += w.y; c.z += w.z; }
+        }
+        pinch = n; state.dirty = true;
+    });
+    function touchEnd(e) { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; }
+    canvas.addEventListener("pointerup", touchEnd);
+    canvas.addEventListener("pointercancel", touchEnd);
 
     // ---------- Details ---------- //
     function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c]); }
