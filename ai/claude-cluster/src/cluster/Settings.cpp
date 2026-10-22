@@ -965,15 +965,24 @@ _cold static const std::vector<std::string>& key_names_(void)
 
 _cold static bool key_valid_(const std::string& key)
 {
-    // modifiers (Ctrl, Alt, Shift, each once) joined by +, then a key: one character, a letter / digit / sign, or a name of the list
-    const std::vector<std::string> parts = cluster::split(key, '+');
-    if (parts.empty()) return false;
-    std::set<std::string> used;
-    for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
-        if ((parts[i] != "Ctrl" && parts[i] != "Alt" && parts[i] != "Shift") || !used.insert(parts[i]).second) return false;
+    // modifiers (Ctrl, Alt, Shift, each once) joined by +, then a key: one character (a letter, a digit, a sign, the plus itself: "+", "Ctrl++"), or a name of the list
+    std::string modifiers;
+    std::string last;
+    if (key == "+") return true;
+    if (key.size() >= 2 && key.back() == '+' && key[key.size() - 2] == '+') { // "Ctrl++": the plus is the key
+        modifiers = key.substr(0, key.size() - 2);
+        last = "+";
+    } else {
+        const std::size_t plus = key.rfind('+');
+        modifiers = plus == std::string::npos ? std::string() : key.substr(0, plus);
+        last = plus == std::string::npos ? key : key.substr(plus + 1);
     }
-    const std::string& last = parts.back();
-    if (last.empty() && parts.size() >= 2) return true; // "Ctrl++": the plus itself
+    std::set<std::string> used;
+    if (!modifiers.empty() || key.find('+') != std::string::npos) {
+        for (const std::string& m: cluster::split(modifiers, '+')) {
+            if ((m != "Ctrl" && m != "Alt" && m != "Shift") || !used.insert(m).second) return false;
+        }
+    }
     if (last.size() == 1 && static_cast<unsigned char>(last[0]) > 32) return true;
     return std::find(key_names_().begin(), key_names_().end(), last) != key_names_().end();
 }
