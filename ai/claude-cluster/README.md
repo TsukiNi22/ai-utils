@@ -680,18 +680,25 @@ global session. Never applied silently. State: `method.json` in the data folder 
 ### The start menu
 
 Every start of the terminal opens a menu first (`[ui] start_menu`, on by default; `--restore` / `--fresh` skip it, and so do an isolated
-run - `CLAUDE_CLUSTER_SOCKET` set -, the demo, the web terminal and a voice start). What it offers follows what is there:
+run - `CLAUDE_CLUSTER_SOCKET` set -, the demo, the web terminal and a voice start). The main menu follows what is there:
 
 | Choice | When | Does |
 |---|---|---|
-| `o` Open the running claude-cluster | a core runs (its sessions and working ones counted) | attaches to it, nothing asked |
-| `r` Restore the previous run | none runs, a previous run has sessions | they come back, the global conversation goes on |
+| `o` Connect to the running claude-cluster | a core runs (its sessions and working ones counted) | attaches to it, nothing asked |
+| `r` Restore the previous run | none runs, a previous run has sessions (the last use of the global session says how old it is) | they come back, the global conversation goes on |
 | `n` Start new | none runs | nothing restored: the previous sessions go to the trash (an empty start when there were none) |
-| `1`, `2`... Open the independent instance "name" | an independent instance exists (running, or stopped with its sessions kept) | opens it |
-| `i` Start an independent instance | always | an instance of its own (`<data>/instances/indep-N`: its sessions, global session, control socket and `mcp.json`; the config stays the same; **no web access**), nothing shared with the main one |
+| `i` Independent instances (N) | always | the list below |
 | `q` Quit | always | nothing is started |
 
-Arrows (or `Tab`) move the choice, `Enter` does it, the letter picks it, `Esc` quits.
+**Independent instances.** An instance of its own: `<data>/instances/<name>` holds its sessions, its global session, its control socket and its
+`mcp.json`; the config stays the same; **no web access**; nothing is shared with the main one. The list shows the valid ones - running, or stopped with
+sessions kept - each with its state, its sessions and the time since its last use (the conversation of its global session, else its saved state);
+an empty one (started and left at once) is removed. A long list scrolls (`PgUp` / `PgDn`, `Home` / `End`, `↑ n more`).
+`Enter` opens one (connects when it runs, restores when it was stopped), `n` makes a new one (you name it: letters, digits, `- _ .`, 32 at most; empty:
+`indep-N`; an existing name opens it), `d` deletes the one under the cursor after a confirmation (its sessions, its global conversation and its data
+go for good - the Claude Code conversations stay; a running one must be closed first), `Esc` goes back.
+
+Arrows (or `Tab`) move the choice, `Enter` does it, the letter picks it, `Esc` quits (back in a list).
 
 ### Demo mode
 
