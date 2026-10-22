@@ -26,6 +26,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Policy.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Stats.hpp"
@@ -1127,6 +1128,21 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::optional<cluster::Json> d = manager.displayOf(session(), arg_(request, "id"));
             if (!d) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no display " + arg_(request, "id"));
             data = *d;
+        } else if (cmd == "ask_preview") {
+            // the picture of the preview of an option (a path, ![](path) or {"type": "image", "path"}): read here, the browser cannot reach the file; only a file
+            // the question being asked names itself
+            const std::optional<cluster::Ask> current = manager.asking().current();
+            if (!current || request.value("question", -1) < 0 || request.value("question", -1) >= static_cast<int>(current->questions.size()))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no question");
+            const cluster::Json options = current->questions[static_cast<std::size_t>(request.value("question", 0))].value("options", cluster::Json::array());
+            const int at = request.value("option", -1);
+            if (at < 0 || at >= static_cast<int>(options.size())) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no such option");
+            std::string source = cluster::trim(options[static_cast<std::size_t>(at)].value("preview", std::string()));
+            const cluster::Json block = source.starts_with("{") ? cluster::Json::parse(source, nullptr, false) : cluster::Json();
+            if (block.is_object() && block.contains("path")) source = block.value("path", std::string());
+            else if (source.starts_with("![") && source.find("](") != std::string::npos) source = source.substr(source.find("](") + 2, source.rfind(')') - source.find("](") - 2);
+            const cluster::Json prepared = cluster::display_prepare({{"type", "image"}, {"path", cluster::trim(source)}});
+            data = {{"mime", prepared.value("mime", std::string())}, {"data", prepared.value("data", std::string())}};
         } else if (cmd == "ask") {
             // the question of an agent being answered (shared by the interfaces and the voice): choose, toggle, other, next, back, decline
             cluster::Asking& asking = manager.asking();

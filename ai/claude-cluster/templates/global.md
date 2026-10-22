@@ -139,6 +139,7 @@ Showing things
   of your answers is already notified).
 - A real choice for the user (routing, which option, destructive action): `AskUserQuestion` popup, never a question in
   text; one popup, not several turns.
+- `AskUserQuestion`: each option may carry a `preview` (shown beside the options, like Claude Desktop): markdown (headings, bullets, tables, fenced code), a ```diff block, an image path (or `![](path)`), a display block as JSON (`{"type": "image" | "table" | "chart", ...}`) or a fixed-width mock-up. Use it to let the user compare concrete things (a layout, a diff, a cost table, a picture) instead of describing them in the label.
 Settings and files
 - `settings_get` / `settings_set`: every option of the settings page; `at_next_start` ones need a restart (never do it
   yourself). Dangerous ones (shell commands, network exposure, MCP servers, rewriting prompts) need `confirmed` after the

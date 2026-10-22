@@ -145,6 +145,125 @@ _cold QString q_(const std::string& text)
     return QString::fromStdString(text);
 }
 
+_cold static QString preview_html_(const std::string& source, const cluster::Style& st)
+{
+    // the preview of an option of a question: markdown (headings, bullets, tables, fenced code, a diff in green / red), a picture (a path, ![](path)),
+    // a display block ({"type": "image" | "table" | "chart"}), a mock-up in a fixed font
+    const std::string text = cluster::trim(source);
+    const std::function<QString(const std::string&)> escape = [](const std::string& s) {return QString::fromStdString(s).toHtmlEscaped();};
+    const std::function<bool(const std::string&)> isPicture = [](const std::string& raw) {
+        const std::filesystem::path path = cluster::expand_home(cluster::trim(raw));
+        std::error_code error;
+        std::string extension = path.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
+        static const std::set<std::string> kinds = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"};
+        return kinds.contains(extension) && std::filesystem::is_regular_file(path, error);
+    };
+    const std::function<QString(const std::string&)> picture = [&](const std::string& raw) {
+        return "<p><img src=\"" + QString::fromStdString(cluster::expand_home(cluster::trim(raw)).string()).toHtmlEscaped() + "\" width=\"420\"></p>";
+    };
+    const cluster::Json block = text.starts_with("{") ? cluster::Json::parse(text, nullptr, false) : cluster::Json();
+    if (block.is_object() && block.contains("type")) {
+        const std::string type = block.value("type", std::string());
+        if (type == "image" && isPicture(block.value("path", std::string()))) return picture(block.value("path", std::string()));
+        if (type == "table" && block.contains("rows") && block["rows"].is_array()) {
+            QString html = "<table cellspacing=\"0\" cellpadding=\"4\">";
+            if (block.contains("columns") && block["columns"].is_array()) {
+                html += "<tr>";
+                for (const cluster::Json& c: block["columns"]) html += "<th align=\"left\" style=\"color:" + q_(st.accent) + "\">" + escape(c.is_string() ? c.get<std::string>() : c.dump()) + "</th>";
+                html += "</tr>";
+            }
+            for (const cluster::Json& r: block["rows"]) {
+                html += "<tr>";
+                if (r.is_array()) for (const cluster::Json& c: r) html += "<td>" + escape(c.is_string() ? c.get<std::string>() : c.dump()) + "</td>";
+                html += "</tr>";
+            }
+            return html + "</table>";
+        }
+        if (type == "chart" && block.contains("series") && block["series"].is_array() && !block["series"].empty()) {
+            const cluster::Json values = block["series"][0].value("values", cluster::Json::array());
+            const cluster::Json labels = block.value("labels", cluster::Json::array());
+            double biggest = 0.0;
+            for (const cluster::Json& v: values) biggest = std::max(biggest, v.is_number() ? v.get<double>() : 0.0);
+            QString html = block.contains("title") ? "<p><b>" + escape(block.value("title", std::string())) + "</b></p>" : QString();
+            html += "<table cellspacing=\"2\">";
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                const double v = values[i].is_number() ? values[i].get<double>() : 0.0;
+                const int bar = biggest > 0 ? static_cast<int>(v / biggest * 260) : 0;
+                html += "<tr><td>" + escape(i < labels.size() && labels[i].is_string() ? labels[i].get<std::string>() : std::to_string(i + 1)) + "</td><td><table cellspacing=\"0\"><tr><td width=\""
+                    + QString::number(std::max(1, bar)) + "\" bgcolor=\"" + q_(st.accent) + "\">&nbsp;</td></tr></table></td><td>" + QString::number(v) + "</td></tr>";
+            }
+            return html + "</table>";
+        }
+    }
+    const std::vector<std::string> lines = cluster::split(text, '\n');
+    std::size_t counted = 0;
+    std::size_t signs = 0;
+    for (const std::string& line: lines) {
+        if (cluster::trim(line).empty()) continue;
+        ++counted;
+        signs += (line.starts_with("+") || line.starts_with("-") || line.starts_with("@@") || line.starts_with("diff ") || line.starts_with(" ")) && !line.starts_with("- ") ? 1 : 0;
+    }
+    const bool wholeDiff = counted >= 2 && signs * 10 >= counted * 8 && text.find("```") == std::string::npos;
+    const std::function<QString(const std::string&)> diffLine = [&](const std::string& line) {
+        QString style = "color:" + q_(st.text);
+        if (line.starts_with("+++") || line.starts_with("---") || line.starts_with("diff ")) style = "color:" + q_(st.muted) + ";font-weight:bold";
+        else if (line.starts_with("@@")) style = "color:" + q_(st.accent);
+        else if (line.starts_with("+")) style = "color:" + q_(st.ok) + ";background:rgba(60,200,100,0.14)";
+        else if (line.starts_with("-")) style = "color:" + q_(st.error) + ";background:rgba(230,70,80,0.16)";
+        return "<div style=\"white-space:pre;font-family:monospace;" + style + "\">" + escape(line.empty() ? " " : line) + "</div>";
+    };
+    QString html;
+    bool fenced = false;
+    std::string language;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const std::string& line = lines[i];
+        if (line.starts_with("```")) {
+            fenced = !fenced;
+            language = fenced ? cluster::trim(line.substr(3)) : std::string();
+            continue;
+        }
+        if (wholeDiff || (fenced && (language == "diff" || language == "patch"))) {
+            html += diffLine(line);
+        } else if (fenced) {
+            html += "<div style=\"white-space:pre;font-family:monospace;background:" + q_(st.surface) + ";\">&nbsp;" + escape(line) + "</div>";
+        } else if (line.starts_with("![") && line.find("](") != std::string::npos && isPicture(line.substr(line.find("](") + 2, line.rfind(')') - line.find("](") - 2))) {
+            html += picture(line.substr(line.find("](") + 2, line.rfind(')') - line.find("](") - 2));
+        } else if (isPicture(line)) {
+            html += picture(line);
+        } else if (line.starts_with("|")) { // a table: its consecutive lines, the separator dropped
+            std::vector<std::vector<std::string>> grid;
+            for (; i < lines.size() && lines[i].starts_with("|"); ++i) {
+                std::vector<std::string> cells = cluster::split(lines[i], '|');
+                if (!cells.empty() && cluster::trim(cells.front()).empty()) cells.erase(cells.begin());
+                if (!cells.empty() && cluster::trim(cells.back()).empty()) cells.pop_back();
+                const bool separator = !cells.empty() && std::all_of(cells.begin(), cells.end(), [](const std::string& c) {return cluster::trim(c).find_first_not_of("-: ") == std::string::npos;});
+                if (!separator) grid.push_back(cells);
+            }
+            --i;
+            html += "<table cellspacing=\"0\" cellpadding=\"4\">";
+            for (std::size_t r = 0; r < grid.size(); ++r) {
+                html += "<tr>";
+                for (const std::string& c: grid[r])
+                    html += (r == 0 ? "<th align=\"left\" style=\"color:" + q_(st.accent) + "\">" : QString("<td>")) + escape(cluster::trim(c)) + (r == 0 ? "</th>" : "</td>");
+                html += "</tr>";
+            }
+            html += "</table>";
+        } else if (line.starts_with("#")) {
+            html += "<p><b style=\"color:" + q_(st.accent) + "\">" + escape(cluster::trim(line.substr(line.find_first_not_of('#')))) + "</b></p>";
+        } else if (line.starts_with("- ") || line.starts_with("* ")) {
+            html += "<div>&bull; " + escape(line.substr(2)) + "</div>";
+        } else if (cluster::trim(line).empty()) {
+            html += "<div>&nbsp;</div>";
+        } else if (line.starts_with("    ") || line.starts_with("\t") || line.find("  ") != std::string::npos) {
+            html += "<div style=\"white-space:pre;font-family:monospace\">" + escape(line) + "</div>"; // a mock-up: its spaces kept
+        } else {
+            html += "<div>" + escape(line) + "</div>";
+        }
+    }
+    return html;
+}
+
 // xstyle: ignore-next CPP-SINGLE-STATEMENT (helper of this file only)
 _cold QString esc_(const std::string& text)
 {
@@ -3424,7 +3543,7 @@ class Window: public QMainWindow {
             } enterTicks;
             QDialog dialog(this);
             dialog.setWindowTitle(q_(ask.name + " asks"));
-            dialog.setMinimumWidth(560);
+            dialog.setMinimumWidth(620);
             QVBoxLayout* layout = new QVBoxLayout(&dialog);
             std::vector<Row> rows;
             bool syncing = false;
@@ -3447,6 +3566,25 @@ class Window: public QMainWindow {
                     if (multi) button->installEventFilter(&enterTicks); // Enter ticks / unticks (never the Answer button)
                     layout->addWidget(button);
                     row.options.push_back(button);
+                }
+                // an option with a preview (Claude Desktop): a box under the options showing the one chosen or pointed at
+                std::vector<std::string> previews;
+                for (const cluster::Json& option: q.value("options", cluster::Json::array()))
+                    previews.push_back(option.value("preview", std::string()));
+                if (std::any_of(previews.begin(), previews.end(), [](const std::string& p) {return !p.empty();})) {
+                    QTextBrowser* previewBox = new QTextBrowser(&dialog);
+                    previewBox->setMinimumHeight(190);
+                    previewBox->setOpenLinks(false);
+                    const cluster::Style style = this->theme();
+                    const std::function<void(std::size_t)> show = [previewBox, previews, style](const std::size_t at) {
+                        previewBox->setHtml(at < previews.size() && !previews[at].empty() ? preview_html_(previews[at], style) : QString("<i style=\"color:gray\">(no preview for this option)</i>"));
+                    };
+                    show(0);
+                    for (std::size_t i = 0; i < row.options.size(); ++i) {
+                        QObject::connect(row.options[i], &QAbstractButton::toggled, previewBox, [show, i](const bool on) {if (on) show(i);});
+                        QObject::connect(row.options[i], &QAbstractButton::pressed, previewBox, [show, i]() {show(i);});
+                    }
+                    layout->addWidget(previewBox);
                 }
                 QHBoxLayout* other = new QHBoxLayout();
                 row.other = multi ? static_cast<QAbstractButton*>(new QCheckBox("Other:", &dialog)) : new QRadioButton("Other:", &dialog);

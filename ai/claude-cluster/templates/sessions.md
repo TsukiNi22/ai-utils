@@ -66,3 +66,4 @@ your answer to the user).
 - Spend few tokens: `rtk`, quiet commands, parts of files, no re-reading what you wrote, no long recaps.
 - The user can pin a message or a block at the bottom of your view (right click). When you have the `session_pin` tool
   (setting *Sub-sessions can pin*), pin a task list or a form they must keep seeing, on yourself only, and unpin it when done.
+- `AskUserQuestion`: each option may carry a `preview` (shown beside the options, like Claude Desktop): markdown (headings, bullets, tables, fenced code), a ```diff block, an image path (or `![](path)`), a display block as JSON (`{"type": "image" | "table" | "chart", ...}`) or a fixed-width mock-up. Use it to let the user compare concrete things (a layout, a diff, a cost table, a picture) instead of describing them in the label.

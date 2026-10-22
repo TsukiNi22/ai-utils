@@ -113,6 +113,17 @@ header .muted { color: var(--muted); font-size: 13px; }
 #composer.mode-shell { box-shadow: inset 0 0 0 2px var(--warn, #e0a030); } #composer.mode-ex { box-shadow: inset 0 0 0 2px var(--accent); }
 .mode-badge { font-family: var(--mono, monospace); font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 6px; align-self: center; white-space: nowrap; }
 #composer.mode-shell .mode-badge { color: var(--warn, #e0a030); } #composer.mode-ex .mode-badge { color: var(--accent); }
+.ask-layout { display: grid; grid-template-columns: minmax(180px, 2fr) 3fr; gap: 12px; align-items: start; }
+.ask-options { display: flex; flex-direction: column; gap: 6px; }
+.ask-preview { border: 1px solid var(--border, #444); border-radius: 10px; padding: 10px 12px; min-height: 120px; max-height: 46vh; overflow: auto; background: var(--surface, rgba(255,255,255,0.03)); font-size: 0.95em; }
+.ask-preview img { max-width: 100%; border-radius: 6px; }
+.ask-preview table { border-collapse: collapse; } .ask-preview th, .ask-preview td { text-align: left; padding: 3px 10px 3px 0; }
+.ask-preview th { color: var(--accent); }
+.ask-preview .code { font-family: ui-monospace, monospace; white-space: pre; background: var(--surface, rgba(255,255,255,0.05)); padding: 0 6px; }
+.ask-preview .diff { background: transparent; padding: 0 6px; } .ask-preview .diff.add { color: var(--ok, #4ec97b); background: rgba(60,200,100,0.14); } .ask-preview .diff.del { color: var(--error, #f0646e); background: rgba(230,70,80,0.16); }
+.ask-preview .diff.hunk { color: var(--accent); } .ask-preview .diff.head { color: var(--muted); font-weight: 600; }
+.ask-preview .bar { display: flex; align-items: center; gap: 8px; } .ask-preview .bar-fill { height: 12px; background: var(--accent); border-radius: 3px; min-width: 2px; }
+@media (max-width: 640px) { .ask-layout { grid-template-columns: 1fr; } }
 .ask-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; border-top: 1px solid var(--border, #444); padding-top: 8px; }
 .ask-chat-user { color: var(--text); } .ask-chat-assistant { color: var(--accent); white-space: pre-wrap; }
 .picker-veil { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
@@ -2142,8 +2153,21 @@ function renderQuestion(a) {
     question.textContent = q.question;
     question.style.fontWeight = "600";
     box.append(what, question);
+    // an option with a preview (Claude Desktop): the options on the left, the preview of the one pointed at / chosen on the right (under the list on a phone)
+    const withPreview = options.some((o) => o.preview);
+    const list = withPreview ? el("div", "ask-options") : box;
+    const pane = withPreview ? el("div", "ask-preview") : null;
+    const showPreview = (i) => { if (pane) renderPreview(pane, options[i] ? options[i].preview : "", a.index, i); };
+    if (withPreview) {
+        const layout = el("div", "ask-layout");
+        layout.append(list, pane);
+        box.append(layout);
+        showPreview(Math.max(0, a.cursor || 0));
+    }
     options.forEach((o, i) => {
         const label = document.createElement("label");
+        label.addEventListener("mouseenter", () => showPreview(i));
+        label.addEventListener("focusin", () => showPreview(i));
         const input = document.createElement("input");
         input.type = multi ? "checkbox" : "radio";
         input.name = "question";
@@ -2157,7 +2181,7 @@ function renderQuestion(a) {
         const recorded = !multi && (a.answers || {})[q.question] === o.label;
         label.append(input, document.createTextNode(" " + (i + 1) + ". " + o.label + (recorded ? " ✔" : "") + " "));
         if (o.description) { const d = document.createElement("small"); d.textContent = o.description; label.append(d); }
-        box.append(label);
+        list.append(label);
     });
     const other = document.createElement("input");
     other.placeholder = "Other (typed)";
@@ -2203,6 +2227,79 @@ function renderQuestion(a) {
     hint.textContent = (multi ? "tick the options, then Next · " : "a click or Validate records the answer, Next keeps it as it is · ") + "voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule";
     hint.style.color = "var(--muted)";
     box.append(row, chat, hint);
+}
+
+// the preview of an option: markdown (headings, bullets, tables, fenced code, a diff in green / red), a picture (a path, ![](path)), a display block
+// ({"type": "image" | "table" | "chart"}), a mock-up in a fixed font; everything set as text (never as HTML)
+function renderPreview(pane, source, question, option) {
+    pane.textContent = "";
+    const text = (source || "").trim();
+    if (!text) { pane.append(el("div", "muted", "(no preview for this option)")); return; }
+    const picture = async () => {
+        const img = document.createElement("img");
+        img.alt = "preview";
+        pane.append(img);
+        try {
+            const d = await cmd({cmd: "ask_preview", question, option});
+            if (d && d.data) img.src = "data:" + (d.mime || "image/png") + ";base64," + d.data;
+        } catch (e) { img.replaceWith(el("div", "muted", "(the picture could not be read)")); }
+    };
+    let block = null;
+    if (text.startsWith("{")) { try { block = JSON.parse(text); } catch (e) { block = null; } }
+    if (block && block.type === "image") { picture(); return; }
+    if (block && block.type === "table" && Array.isArray(block.rows)) {
+        const table = document.createElement("table");
+        if (block.columns) { const tr = table.insertRow(); block.columns.forEach((c) => { const th = document.createElement("th"); th.textContent = String(c); tr.append(th); }); }
+        block.rows.forEach((r) => { const tr = table.insertRow(); (r || []).forEach((c) => { tr.insertCell().textContent = String(c); }); });
+        pane.append(table);
+        return;
+    }
+    if (block && block.type === "chart" && Array.isArray(block.series) && block.series[0]) {
+        const values = block.series[0].values || [];
+        const biggest = Math.max(1, ...values.map(Number));
+        if (block.title) pane.append(el("b", "", block.title));
+        values.forEach((v, i) => {
+            const row = el("div", "bar");
+            const fill = el("span", "bar-fill");
+            fill.style.width = Math.round(Number(v) / biggest * 70) + "%";
+            row.append(el("small", "", String((block.labels || [])[i] ?? i + 1)), fill, el("small", "", String(v)));
+            pane.append(row);
+        });
+        return;
+    }
+    const lines = text.split("\n");
+    const signs = lines.filter((l) => l.trim() && /^([+-](?! )|@@|diff |\+\+\+|---| )/.test(l)).length;
+    const counted = lines.filter((l) => l.trim()).length;
+    const wholeDiff = counted >= 2 && signs * 10 >= counted * 8 && !text.includes("```");
+    const diff = (line) => {
+        const d = el("div", "code diff" + (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") ? " head" : line.startsWith("@@") ? " hunk" : line.startsWith("+") ? " add" : line.startsWith("-") ? " del" : ""), line || " ");
+        pane.append(d);
+    };
+    let fenced = false, language = "";
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.startsWith("```")) { fenced = !fenced; language = fenced ? line.slice(3).trim() : ""; continue; }
+        if (wholeDiff || (fenced && (language === "diff" || language === "patch"))) diff(line);
+        else if (fenced) pane.append(el("div", "code", line || " "));
+        else if (/^!\[.*\]\(.+\)$/.test(line.trim()) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(line.trim())) { if (/^[^ ]+\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(line.trim()) || line.trim().startsWith("![")) picture(); else pane.append(el("div", "", line)); }
+        else if (line.startsWith("|")) {
+            const rows = [];
+            for (; i < lines.length && lines[i].startsWith("|"); i++) {
+                const cells = lines[i].split("|").map((c) => c.trim());
+                cells.shift(); if (cells.length && cells[cells.length - 1] === "") cells.pop();
+                if (cells.every((c) => /^[-: ]*$/.test(c))) continue;
+                rows.push(cells);
+            }
+            i--;
+            const table = document.createElement("table");
+            rows.forEach((r, k) => { const tr = table.insertRow(); r.forEach((c) => { const cell = document.createElement(k === 0 ? "th" : "td"); cell.textContent = c; tr.append(cell); }); });
+            pane.append(table);
+        } else if (line.startsWith("#")) pane.append(el("b", "", line.replace(/^#+\s*/, "")));
+        else if (/^[-*] /.test(line)) pane.append(el("div", "", "• " + line.slice(2)));
+        else if (!line.trim()) pane.append(el("div", "", " "));
+        else if (/^\s{2,}|\t|\s{2,}/.test(line)) pane.append(el("div", "code", line)); // a mock-up: its spaces kept
+        else pane.append(el("div", "", line));
+    }
 }
 
 function renderAsk(s) {

@@ -713,6 +713,14 @@ first starts the new binary in isolation - if it does not run, the update is can
 are asked at every start by default (`[ui] restore = "ask"`: r restore, n new, q quit). In the terminal, Shift+Enter (or Alt+Enter) is a new line;
 text values of the settings suggest models, providers, folders and programs (Tab takes the first, arrows choose).
 
+### Previews in the questions
+
+The options of an `AskUserQuestion` may carry a `preview` field (like Claude Desktop): the terminal (screen of 120 columns or more), the window and
+the web page / app show it beside the options, following the one chosen or pointed at - markdown (headings, bullets, aligned tables, fenced code),
+a coloured diff (a ```diff block or a text of + / - lines), a picture (a path, `![](path)`, or `{"type": "image", "path": ...}`, drawn with chafa / blocks
+in the terminal, read by the core for the page), a display block (`{"type": "table" | "chart", ...}`) or a mock-up in a fixed font; narrower screens show the
+preview under the list. The system prompts tell the agents to use it.
+
 ### Statistics
 
 `F10`, `/stats` or the palette (*Statistics*) opens the **Stats** session, built by the core from the usage ledger (`usage.jsonl`)

@@ -3272,6 +3272,200 @@ class TtyUi {
             return ftxui::hbox(std::move(parts));
         }
 
+        _nodiscard ftxui::Element askPreview_(const std::string& source, const int width, const int maxRows)
+        {
+            // the preview of an option of a question (Claude Desktop): markdown with its code blocks, tables and diffs, an image (a path or ![](path)), a
+            // display block ({"type": "image" | "table" | "chart", ...}), a plain mock-up; the colours of the theme
+            const Theme& t = this->_theme;
+            ftxui::Elements out;
+            int more = 0;
+            const std::function<void(ftxui::Element)> add = [&out, &more, maxRows](ftxui::Element element) {
+                if (static_cast<int>(out.size()) < maxRows) out.push_back(std::move(element));
+                else ++more;
+            };
+            const std::set<std::string> pictures = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"};
+            const std::function<bool(const std::string&)> image = [&](const std::string& raw) {
+                const std::filesystem::path path = cluster::expand_home(cluster::trim(raw));
+                std::error_code error;
+                std::string extension = path.extension().string();
+                std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
+                if (!pictures.contains(extension) || !std::filesystem::is_regular_file(path, error)) return false;
+                const bool chafa = this->_manager.config().imagePreview == "chafa";
+                const int cols = std::clamp(width - 2, 12, 100);
+                const int rows = std::clamp(maxRows - 1, 6, 22);
+                const Preview& shown = chafa ? preview_(path.string(), cols, rows, true) : preview_(path.string(), cols, rows, false);
+                if (!shown.cells.empty()) {
+                    for (const std::vector<Cell>& cells: shown.cells) {
+                        ftxui::Elements parts;
+                        for (const Cell& cell: cells) {
+                            ftxui::Element part = ftxui::text(cell.glyph);
+                            if (cell.fg) part = part | ftxui::color(*cell.fg);
+                            if (cell.bg) part = part | ftxui::bgcolor(*cell.bg);
+                            parts.push_back(part);
+                        }
+                        add(ftxui::hbox(std::move(parts)));
+                    }
+                } else if (shown.width > 0) {
+                    for (int y = 0; y + 1 < shown.height + 1; y += 2) {
+                        ftxui::Elements parts;
+                        for (int x = 0; x < shown.width; ++x) {
+                            const std::size_t top = static_cast<std::size_t>((y * shown.width + x) * 3);
+                            const std::size_t bottom = static_cast<std::size_t>((std::min(y + 1, shown.height - 1) * shown.width + x) * 3);
+                            parts.push_back(ftxui::text("▀") | ftxui::color(ftxui::Color::RGB(shown.rgb[top], shown.rgb[top + 1], shown.rgb[top + 2]))
+                                | ftxui::bgcolor(ftxui::Color::RGB(shown.rgb[bottom], shown.rgb[bottom + 1], shown.rgb[bottom + 2])));
+                        }
+                        add(ftxui::hbox(std::move(parts)));
+                    }
+                } else {
+                    add(ftxui::text("(no preview of " + path.filename().string() + ": chafa or magick needed)") | ftxui::color(t.muted) | ftxui::dim);
+                }
+                return true;
+            };
+            const std::string text = cluster::trim(source);
+            const cluster::Json block = text.starts_with("{") ? cluster::Json::parse(text, nullptr, false) : cluster::Json();
+            if (block.is_object() && block.contains("type")) {
+                const std::string type = block.value("type", std::string());
+                if (type == "image" && image(block.value("path", std::string()))) return ftxui::vbox(std::move(out));
+                if (type == "table" && block.contains("rows") && block["rows"].is_array()) { // a table: its columns padded to the widest cell
+                    std::vector<std::vector<std::string>> grid;
+                    if (block.contains("columns") && block["columns"].is_array()) {
+                        std::vector<std::string> head;
+                        for (const cluster::Json& c: block["columns"]) head.push_back(c.is_string() ? c.get<std::string>() : c.dump());
+                        grid.push_back(head);
+                    }
+                    for (const cluster::Json& r: block["rows"]) {
+                        std::vector<std::string> cells;
+                        if (r.is_array()) for (const cluster::Json& c: r) cells.push_back(c.is_string() ? c.get<std::string>() : c.dump());
+                        grid.push_back(cells);
+                    }
+                    std::vector<std::size_t> widths;
+                    for (const std::vector<std::string>& r: grid)
+                        for (std::size_t c = 0; c < r.size(); ++c) {
+                            if (widths.size() <= c) widths.resize(c + 1, 0);
+                            widths[c] = std::max(widths[c], width_(r[c]));
+                        }
+                    for (std::size_t r = 0; r < grid.size(); ++r) {
+                        std::string row;
+                        for (std::size_t c = 0; c < grid[r].size(); ++c)
+                            row += grid[r][c] + std::string(widths[c] - width_(grid[r][c]) + 2, ' ');
+                        add(ftxui::text(row) | (r == 0 && block.contains("columns") ? ftxui::bold | ftxui::color(t.accent) : ftxui::color(t.text)));
+                    }
+                    return ftxui::vbox(std::move(out));
+                }
+                if (type == "chart" && block.contains("series") && block["series"].is_array() && !block["series"].empty()) { // bars of the first series
+                    const cluster::Json& values = block["series"][0].value("values", cluster::Json::array());
+                    const cluster::Json labels = block.value("labels", cluster::Json::array());
+                    double biggest = 0.0;
+                    for (const cluster::Json& v: values) biggest = std::max(biggest, v.is_number() ? v.get<double>() : 0.0);
+                    if (block.contains("title")) add(ftxui::text(block.value("title", std::string())) | ftxui::bold | ftxui::color(t.accent));
+                    for (std::size_t i = 0; i < values.size(); ++i) {
+                        const double v = values[i].is_number() ? values[i].get<double>() : 0.0;
+                        const int bar = biggest > 0 ? static_cast<int>(std::round(v / biggest * std::max(6, width - 22))) : 0;
+                        const std::string label = i < labels.size() && labels[i].is_string() ? labels[i].get<std::string>() : std::to_string(i + 1);
+                        add(ftxui::hbox({ftxui::text(label.substr(0, 10) + std::string(11 - std::min<std::size_t>(10, width_(label)), ' ')) | ftxui::color(t.muted),
+                            ftxui::text(std::string(static_cast<std::size_t>(std::max(0, bar)), '#')) | ftxui::color(t.accent), ftxui::text(" " + cluster::human_tokens(static_cast<std::int64_t>(v)))}));
+                    }
+                    return ftxui::vbox(std::move(out));
+                }
+            }
+            // markdown: fenced blocks (diff coloured, the others in the code colours), tables, headings, bullets, pictures, text wrapped
+            std::vector<std::string> lines;
+            {
+                // the markdown tables (consecutive | lines) padded to their columns: the header marked \x01, the separator row dropped
+                const std::vector<std::string> raw = cluster::split(text, '\n');
+                bool fence = false;
+                for (std::size_t i = 0; i < raw.size();) {
+                    if (raw[i].starts_with("```")) fence = !fence;
+                    if (fence || !raw[i].starts_with("|")) {
+                        lines.push_back(raw[i++]);
+                        continue;
+                    }
+                    std::vector<std::vector<std::string>> grid;
+                    for (; i < raw.size() && raw[i].starts_with("|"); ++i) {
+                        std::vector<std::string> cells = cluster::split(raw[i], '|');
+                        if (!cells.empty() && cluster::trim(cells.front()).empty()) cells.erase(cells.begin());
+                        if (!cells.empty() && cluster::trim(cells.back()).empty()) cells.pop_back();
+                        const bool separator = !cells.empty() && std::all_of(cells.begin(), cells.end(), [](const std::string& c) {return cluster::trim(c).find_first_not_of("-: ") == std::string::npos;});
+                        if (separator) continue;
+                        for (std::string& c: cells)
+                            c = cluster::trim(c);
+                        grid.push_back(cells);
+                    }
+                    std::vector<std::size_t> widths;
+                    for (const std::vector<std::string>& r: grid)
+                        for (std::size_t c = 0; c < r.size(); ++c) {
+                            if (widths.size() <= c) widths.resize(c + 1, 0);
+                            widths[c] = std::max(widths[c], width_(r[c]));
+                        }
+                    for (std::size_t r = 0; r < grid.size(); ++r) {
+                        std::string row = r == 0 ? "\x01" : "";
+                        for (std::size_t c = 0; c < grid[r].size(); ++c)
+                            row += grid[r][c] + std::string(widths[c] - width_(grid[r][c]) + 2, ' ');
+                        lines.push_back(row);
+                    }
+                }
+            }
+            std::size_t signs = 0; // a whole text of + / - lines: a diff
+            std::size_t counted = 0;
+            for (const std::string& line: lines) {
+                if (cluster::trim(line).empty()) continue;
+                ++counted;
+                signs += (line.starts_with("+") || line.starts_with("-") || line.starts_with("@@") || line.starts_with("diff ") || line.starts_with(" ")) && !line.starts_with("- ") ? 1 : 0;
+            }
+            const bool wholeDiff = counted >= 2 && signs * 10 >= counted * 8 && text.find("```") == std::string::npos;
+            const std::function<ftxui::Element(const std::string&)> diffLine = [&t](const std::string& line) {
+                if (line.starts_with("+++") || line.starts_with("---") || line.starts_with("diff ") || line.starts_with("index ")) return ftxui::text(line) | ftxui::bold | ftxui::color(t.muted);
+                if (line.starts_with("@@")) return ftxui::text(line) | ftxui::color(t.accent);
+                if (line.starts_with("+")) return ftxui::text(line) | ftxui::color(t.ok) | ftxui::bgcolor(ftxui::Color::RGB(0x14, 0x2b, 0x1d));
+                if (line.starts_with("-")) return ftxui::text(line) | ftxui::color(t.error) | ftxui::bgcolor(ftxui::Color::RGB(0x33, 0x18, 0x1d));
+                return ftxui::text(line) | ftxui::color(t.text);
+            };
+            bool fenced = false;
+            std::string language;
+            bool comment = false;
+            for (const std::string& raw: lines) {
+                const std::string line = raw;
+                if (line.starts_with("```")) {
+                    fenced = !fenced;
+                    language = fenced ? cluster::trim(line.substr(3)) : std::string();
+                    comment = false;
+                    continue;
+                }
+                if (wholeDiff || (fenced && (language == "diff" || language == "patch"))) {
+                    add(diffLine(line));
+                } else if (fenced) {
+                    ftxui::Elements parts = {ftxui::text(" ")};
+                    for (const cluster::Cell& cell: highlight_(line, language, this->_code, comment)) {
+                        ftxui::Element part = ftxui::text(cell.text);
+                        if (cell.hasFg) part = part | ftxui::color(ftxui::Color::RGB((cell.fg >> 16) & 0xff, (cell.fg >> 8) & 0xff, cell.fg & 0xff));
+                        parts.push_back(part);
+                    }
+                    add(ftxui::hbox(std::move(parts)) | ftxui::bgcolor(t.surface));
+                } else if (line.starts_with("![") && line.find("](") != std::string::npos && image(line.substr(line.find("](") + 2, line.rfind(')') - line.find("](") - 2))) {
+                    continue;
+                } else if (image(line)) {
+                    continue;
+                } else if (line.starts_with("\x01")) {
+                    add(ftxui::text(line.substr(1)) | ftxui::bold | ftxui::color(t.accent)); // a table header
+                } else if (line.starts_with("#")) {
+                    add(ftxui::text(cluster::trim(line.substr(line.find_first_not_of('#')))) | ftxui::bold | ftxui::color(t.accent));
+                } else if (line.starts_with("- ") || line.starts_with("* ")) {
+                    std::vector<std::string> wrapped = wrap_(line.substr(2), static_cast<std::size_t>(std::max(10, width - 2)));
+                    for (std::size_t k = 0; k < wrapped.size(); ++k)
+                        add(ftxui::text((k == 0 ? "• " : "  ") + wrapped[k]) | ftxui::color(t.text));
+                } else if (cluster::trim(line).empty()) {
+                    add(ftxui::text(""));
+                } else if (line.starts_with("    ") || line.starts_with("\t") || line.find("  ") != std::string::npos) {
+                    add(ftxui::text(line) | ftxui::color(t.text)); // a mock-up: its spaces kept
+                } else {
+                    for (const std::string& part: wrap_(line, static_cast<std::size_t>(std::max(10, width))))
+                        add(ftxui::text(part) | ftxui::color(t.text));
+                }
+            }
+            if (more > 0) out.push_back(ftxui::text("… " + std::to_string(more) + " more line(s)") | ftxui::color(t.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(out));
+        }
+
         _nodiscard ftxui::Element settings_(const ftxui::Dimensions& size)
         {
             const Theme& t = this->_theme;
@@ -5567,7 +5761,12 @@ class TtyUi {
                     ftxui::paragraph(" " + q.value("question", std::string())) | ftxui::color(this->_theme.text), ftxui::text("")};
                 // the options: the label, then its description, each wrapped on the width of the popup (never cut); Other: what
                 // is typed, wrapped too, the cursor at its end
-                const std::size_t inner = static_cast<std::size_t>(std::max(30, std::min(92, this->_screen.dimx() - 8)));
+                const bool anyPreview = std::any_of(options.begin(), options.end(), [](const cluster::Json& o) {return o.is_object() && !o.value("preview", std::string()).empty();});
+                const bool sideBySide = anyPreview && this->_screen.dimx() >= 120;
+                const int boxWidth = anyPreview ? std::clamp(this->_screen.dimx() - 4, 96, 150) : 96;
+                const int leftWidth = 54; // the list of the options when the preview is beside it
+                const std::size_t inner = sideBySide ? static_cast<std::size_t>(leftWidth - 4) : static_cast<std::size_t>(std::max(30, std::min(92, this->_screen.dimx() - 8)));
+                ftxui::Elements optionRows;
                 for (int i = 0; i <= static_cast<int>(options.size()); ++i) {
                     const bool other = i == static_cast<int>(options.size());
                     const bool recorded = !multi && !other && a.answers.value(q.value("question", std::string()), std::string()) == options[static_cast<std::size_t>(i)].value("label", std::string());
@@ -5589,11 +5788,31 @@ class TtyUi {
                     ftxui::Element row = ftxui::vbox(std::move(rows));
                     const int count = static_cast<int>(options.size());
                     // clicked: chosen (one choice: answered; several: ticked; Other: typed on)
-                    lines.push_back(this->tap_(i == a.cursor ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row | ftxui::color(this->_theme.text), 1,
+                    optionRows.push_back(this->tap_(i == a.cursor ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row | ftxui::color(this->_theme.text), 1,
                         [this, i, count, multi]() {
                             this->_manager.asking().choose(i);
                             if (!multi && i < count) this->askNext_();
                         }));
+                }
+                if (anyPreview) {
+                    // the preview of the option under the cursor (Other: none): beside the list, or under it on a narrow screen
+                    const std::string previewText = a.cursor >= 0 && a.cursor < static_cast<int>(options.size()) ? options[static_cast<std::size_t>(a.cursor)].value("preview", std::string()) : std::string();
+                    const int rowsRoom = std::clamp(this->_screen.dimy() - 14, 6, 26);
+                    const int paneWidth = sideBySide ? boxWidth - leftWidth - 6 : boxWidth - 6;
+                    ftxui::Element pane = previewText.empty() ? ftxui::text(" (no preview for this option)") | ftxui::color(this->_theme.muted) | ftxui::dim
+                        : this->askPreview_(previewText, paneWidth, rowsRoom);
+                    if (sideBySide) {
+                        lines.push_back(ftxui::hbox({ftxui::vbox(std::move(optionRows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, leftWidth), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                            ftxui::hbox({ftxui::text(" "), pane}) | ftxui::flex}));
+                    } else {
+                        for (ftxui::Element& row: optionRows)
+                            lines.push_back(std::move(row));
+                        lines.push_back(ftxui::separatorLight() | ftxui::color(this->_theme.border));
+                        lines.push_back(ftxui::hbox({ftxui::text(" "), pane}));
+                    }
+                } else {
+                    for (ftxui::Element& row: optionRows)
+                        lines.push_back(std::move(row));
                 }
                 lines.push_back(ftxui::text(""));
                 const bool lastOne = a.index + 1 >= a.questions.size();
@@ -5679,7 +5898,7 @@ class TtyUi {
                         }));
                 if (this->_manager.config().voice.enabled)
                     lines.push_back(ftxui::text(" voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule") | ftxui::color(this->_theme.muted) | ftxui::dim);
-                return box(ftxui::vbox(std::move(lines)), 96);
+                return box(ftxui::vbox(std::move(lines)), boxWidth);
             }
             if (this->_mode == Mode::Normal && asked && asked->session == this->_active && !this->askShown_(*asked)) {
                 const cluster::Json& q = asked->questions[asked->index];
