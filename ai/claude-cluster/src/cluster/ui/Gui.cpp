@@ -44,6 +44,7 @@ File Description:
 #include <QGraphicsRectItem>
 #include <QDialogButtonBox>
 #include <QDesktopServices>
+#include <QStringListModel>
 #include <QDoubleSpinBox>
 #include <QPlainTextEdit>
 #include <QGraphicsScene>
@@ -80,6 +81,7 @@ File Description:
 #include <functional>
 #include <QTabWidget>
 #include <QClipboard>
+#include <QCompleter>
 #include <QFileInfo>
 #include <QLineEdit>
 #include <QSplitter>
@@ -2284,6 +2286,18 @@ class Window: public QMainWindow {
                         QLineEdit* line = new QLineEdit(q_(current), tab);
                         read = [line]() {return cluster::trim(line->text().toStdString());};
                         widget = line;
+                        if (setting.kind == cluster::SettingKind::Text || setting.kind == cluster::SettingKind::List) { // the values it takes, suggested as typed
+                            QStringListModel* model = new QStringListModel(line);
+                            QCompleter* completer = new QCompleter(model, line);
+                            completer->setCompletionMode(QCompleter::UnfilteredPopupCompletion); // already ranked and complete values: shown as they are
+                            line->setCompleter(completer);
+                            QObject::connect(line, &QLineEdit::textEdited, line, [model, line, setting, &config]() {
+                                QStringList values;
+                                for (const std::string& value: cluster::setting_suggestions(config, setting, line->text().toStdString()))
+                                    values << q_(value);
+                                model->setStringList(values);
+                            });
+                        }
                     }
                     widget->setToolTip(tip);
                     QLabel* label = new QLabel(tab);

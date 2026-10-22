@@ -64,19 +64,20 @@ try:
 
     os.kill(client_pid, 0)
     pump(3)
+    send("n", 0.8)  # the first-start question (map of this computer): no
     send("\x1bg", 1.0)  # Alt+G
     shown = text()
     check("the graph opens (title)", "Graph" in shown and "sessions" in shown)
-    check("the sessions are drawn as nodes", all(("node%d" % i) in shown for i in range(6)) and "global" in shown)
+    check("the sessions are drawn as nodes", all(("node%d" % i) in shown for i in range(6)) and "claude-cluster" in shown)
     check("the nodes are boxes", "╭" in shown and "╰" in shown)
     check("the links are braille dots", any(0x2800 < ord(c) <= 0x28FF for c in shown))
     check("the hint line lists the keys", "pan" in shown and "zoom" in shown)
-    before = where("global")
+    before = where("claude-cluster")
     send("d", 0.6)  # pan right: the nodes move left
-    after = where("global")
-    check("D pans (global moved)", before is not None and after is not None and after[0] < before[0])
+    after = where("claude-cluster")
+    check("D pans (the root node moved)", before is not None and after is not None and after[0] < before[0])
     send("0", 0.6)
-    check("0 fits again (global back)", where("global") == before)
+    check("0 fits again (the root node back)", where("claude-cluster") == before)
     width_before = text().count("╭")
     send("a", 0.6)
     send("a", 0.6)

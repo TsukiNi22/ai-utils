@@ -863,8 +863,12 @@ _cold std::vector<cluster::SettingHit> cluster::settings_search(const std::vecto
         for (std::size_t i = 0; i < pages[p].settings.size(); ++i) {
             const cluster::Setting& s = pages[p].settings[i];
             std::optional<float> name = cluster::match_words(query, s.label);
-            for (const std::string& key: {s.key, s.section + "." + s.key})
+            for (const std::string& key: {s.key, s.section + "." + s.key}) {
                 if (const std::optional<float> k = cluster::match_score(cluster::trim(query), key); k && (!name || *k < *name)) name = k;
+                std::string spaced = key; // "shell_context" found by "shell context"
+                std::replace_if(spaced.begin(), spaced.end(), [](const char c) {return c == '_' || c == '.';}, ' ');
+                if (const std::optional<float> k = cluster::match_words(query, spaced); k && (!name || *k < *name)) name = k;
+            }
             const std::optional<float> about = cluster::match_words(query, s.description);
             if (!name && !about) continue;
             const float described = about ? *about + DESCRIPTION : 1e9F;
@@ -952,7 +956,7 @@ _cold cluster::Json cluster::accounts_status_get(void)
 }
 
 /* the suggestions of a text value */
-_cold std::vector<std::string> cluster::setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed)
+_cold std::vector<std::string> cluster::setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed, const bool local)
 {
     if (setting.kind != SettingKind::Text && setting.kind != SettingKind::List) return {};
     // a list: the item being typed is the one completed, the others kept
@@ -971,6 +975,7 @@ _cold std::vector<std::string> cluster::setting_suggestions(const cluster::Confi
     std::vector<std::string> pool;
     bool names = true; // ranked by the matching; a path or a program: the entries of the folder / PATH starting with the word
     if (ends("cwd") || ends("dir") || ends("folder") || ends("path") || ends("file") || ends("editor") || setting.section == "commands" || ends("command") || ends("terminal")) {
+        if (!local) return {};
         const bool program = setting.section == "commands" || ends("command") || ends("editor") || ends("terminal");
         const bool pathy = word.find('/') != std::string::npos || word.starts_with("~") || word.starts_with(".");
         if (!program || pathy) { // a path: the folder typed, its entries

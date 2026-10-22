@@ -4095,6 +4095,22 @@ function drawDrawer() {
             if (s.kind === "float") input.step = "0.1";
             input.value = value;
             input.addEventListener("change", () => { settingsChanged.set(key, input.value); drawDrawer(); });
+            if (s.kind === "text" || s.kind === "list") { // the values it takes (models, providers...) suggested as typed
+                const list = el("datalist");
+                list.id = id + "-list";
+                input.setAttribute("list", list.id);
+                row.append(list);
+                let waiting = 0;
+                input.addEventListener("input", () => {
+                    clearTimeout(waiting);
+                    waiting = setTimeout(async () => {
+                        try {
+                            const values = await cmd({cmd: "settings_suggest", section: key.slice(0, key.indexOf(".")), key: key.slice(key.indexOf(".") + 1), typed: input.value});
+                            list.replaceChildren(...(values || []).map(v => { const o = el("option"); o.value = v; return o; }));
+                        } catch (e) { /* none */ }
+                    }, 150);
+                });
+            }
         }
         input.id = id;
         if (s.web_editable === false) { input.disabled = true; row.classList.add("readonly"); } // the computer did not allow this section from the page

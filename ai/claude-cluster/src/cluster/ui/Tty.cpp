@@ -3286,8 +3286,7 @@ class TtyUi {
                 else if (setting.kind == cluster::SettingKind::Action && page.section == "services") value = cluster::service_summary(value, this->_services); // a sub service: its state
                 else if (setting.kind == cluster::SettingKind::Action) value = "▶ " + value;
                 else if (value.empty()) value = "(empty)";
-                const bool typed = setting.kind == cluster::SettingKind::Text || setting.kind == cluster::SettingKind::List || setting.kind == cluster::SettingKind::Int
-                    || setting.kind == cluster::SettingKind::Float; // a value typed: between brackets; a switch, a choice, an action: as they are
+                const bool typed = setting.kind != cluster::SettingKind::Bool && setting.kind != cluster::SettingKind::Choice; // between brackets; a switch and a choice have their own marks
                 const bool risky = static_cast<bool>(setting.danger);
                 const bool dangerNow = risky && !cluster::setting_danger(setting, this->settingValue_(setting)).empty();
                 const std::string label = setting.label + (risky ? " ⚠ " : " ");

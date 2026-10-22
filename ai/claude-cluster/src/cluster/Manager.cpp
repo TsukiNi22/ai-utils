@@ -110,16 +110,16 @@ _cold static std::string orchestration_text_(const std::string& mode)
     // the mode of orchestration of the user ([agent] orchestration), told to the global session
     if (mode == "compact")
         return "## Orchestration mode: compact\n"
-               "The user wants the fewest tokens and the fewest sessions. Put several tasks of the same project in ONE session (one session per "
-               "project, reusing the one that already has the context; `task_add` to it). Never spawn a sub-session for a medium task, and never a sub-global. "
-               "When splitting would clearly help (very large or independent jobs), ask the user with an `AskUserQuestion` popup first and do not do it yourself.\n";
+                "The user wants the fewest tokens and the fewest sessions. Put several tasks of the same project in ONE session (one session per "
+                "project, reusing the one that already has the context; `task_add` to it). Never spawn a sub-session for a medium task, and never a sub-global. "
+                "When splitting would clearly help (very large or independent jobs), ask the user with an `AskUserQuestion` popup first and do not do it yourself.\n";
     if (mode == "ultra")
         return "## Orchestration mode: ultra\n"
-               "The user wants maximum parallelism: use a separate sub-session for each different task, and sub-globals to coordinate big pieces of work, "
-               "without asking, whenever it makes the work faster or the contexts cleaner.\n";
+                "The user wants maximum parallelism: use a separate sub-session for each different task, and sub-globals to coordinate big pieces of work, "
+                "without asking, whenever it makes the work faster or the contexts cleaner.\n";
     return "## Orchestration mode: hybrid\n"
-           "Balance tokens and speed: reuse a session for follow-ups and small or medium tasks of the same project; spawn several sub-sessions only when the jobs are "
-           "independent and large enough to pay for a new context; use a sub-global rarely (a big multi-session job), and tell the user when you do.\n";
+            "Balance tokens and speed: reuse a session for follow-ups and small or medium tasks of the same project; spawn several sub-sessions only when the jobs are "
+            "independent and large enough to pay for a new context; use a sub-global rarely (a big multi-session job), and tell the user when you do.\n";
 }
 
 _cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global, const std::string& method, const std::string& orchestration)

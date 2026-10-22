@@ -691,7 +691,8 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
     if (this->_legend)
         all.push_back(ftxui::hbox({ftxui::text(" ● working") | ftxui::color(colors.ok), ftxui::text("  ◆ waiting for you") | ftxui::color(colors.warn), ftxui::text("  ✖ error") | ftxui::color(colors.error),
             ftxui::text("  ○ idle") | ftxui::color(colors.muted), ftxui::text("  ◉ global") | ftxui::color(colors.accent) | ftxui::bold,
-            ftxui::text("  ── working link  ┄ idle link  (n) = sessions under a node  bold name = the session shown") | ftxui::color(colors.muted)}));
+            ftxui::text(cols >= 150 ? "  ── working link  ┄ idle link  (n) = sessions under a node  bold name = the session shown" : cols >= 100 ? "  ── working  ┄ idle link  (n) = sessions under" : "")
+                | ftxui::color(colors.muted)}));  // the marks never squeezed: the explanation shortened, then dropped, when the width is short
     all.push_back(ftxui::text(cut_(details, static_cast<std::size_t>(cols))) | ftxui::color(colors.text));
     all.push_back(ftxui::text(cut_(hint, static_cast<std::size_t>(cols))) | ftxui::color(colors.muted) | ftxui::dim);
     return ftxui::vbox(all);

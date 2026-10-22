@@ -487,15 +487,15 @@ _cold std::string cluster::upgrade_selftest(const std::filesystem::path& binary)
     std::ofstream(dir / "cfg" / "config.toml") << "[global]\nenabled = false\n[ui]\nnotify = false\nmachine_days = 0\n[user]\nname = \"t\"\nemail = \"t@t.t\"\n[usage]\naccount = false\n";
     const std::string socket = (dir / "sock").string();
     std::string problem;
-    const pid_t child = ::fork();
+    const pid_t child = ::fork(); // xstyle: ignore LU-SYSCALL (the new binary tried alone: a process of its own)
     if (child < 0) return "fork failed (" + std::string(std::strerror(errno)) + ")";
     if (child == 0) {
         ::setsid();
         const int null = ::open("/dev/null", O_RDWR);
         if (null >= 0) {
-            ::dup2(null, 0);
-            ::dup2(null, 1);
-            ::dup2(null, 2);
+            ::dup2(null, 0); // xstyle: ignore LU-SYSCALL (the new binary tried alone: a process of its own)
+            ::dup2(null, 1); // xstyle: ignore LU-SYSCALL (the new binary tried alone: a process of its own)
+            ::dup2(null, 2); // xstyle: ignore LU-SYSCALL (the new binary tried alone: a process of its own)
         }
         ::setenv("CLAUDE_CLUSTER_CONFIG_DIR", (dir / "cfg").c_str(), 1);
         ::setenv("CLAUDE_CLUSTER_DATA_DIR", (dir / "data").c_str(), 1);
@@ -513,7 +513,7 @@ _cold std::string cluster::upgrade_selftest(const std::filesystem::path& binary)
             std::filesystem::remove_all(dir, error);
             return problem;
         }
-        const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0); // xstyle: ignore LU-SOCKET (the new binary tried alone: a process of its own)
         if (fd < 0) continue;
         sockaddr_un address{};
         address.sun_family = AF_UNIX;

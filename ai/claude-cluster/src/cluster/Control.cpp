@@ -1059,6 +1059,14 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                             {"kind", setting.kind == cluster::SettingKind::Bool ? "bool" : setting.kind == cluster::SettingKind::Int ? "int"
                                 : setting.kind == cluster::SettingKind::Float ? "float" : setting.kind == cluster::SettingKind::Choice ? "choice"
                                 : setting.kind == cluster::SettingKind::List ? "list" : setting.kind == cluster::SettingKind::Action ? "action" : "text"}});
+        } else if (cmd == "settings_suggest") {
+            // the values a text setting takes for what is typed (the page shows them as a list); the folders and programs of the computer only for its own interfaces
+            data = cluster::Json::array();
+            for (const cluster::SettingsPage& page: cluster::settings_pages(manager.config()))
+                for (const cluster::Setting& setting: page.settings)
+                    if (setting.section == arg_(request, "section") && setting.key == arg_(request, "key"))
+                        for (const std::string& value: cluster::setting_suggestions(manager.config(), setting, arg_(request, "typed"), !from_web))
+                            data.push_back(value);
         } else if (cmd == "settings_set") {
             // one option written in config.toml (its comments kept), loaded again; the live ones of the interface follow
             const std::string section = arg_(request, "section");
