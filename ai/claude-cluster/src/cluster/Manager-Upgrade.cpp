@@ -91,10 +91,43 @@ _cold cluster::UpgradeOffer cluster::Manager::upgradeOffer(void) const
     return {this->_upgradeVersion, this->_upgradeStarted.load(), this->_upgrading.load()};
 }
 
+_cold void cluster::Manager::showcaseUpgrade(void)
+{
+    if (this->_replica) {
+        (void)this->call({{"cmd", "showcase"}, {"what", "upgrade"}});
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_upgradeShowcase = true;
+        this->_upgradeVersion = "9.9.9";
+    }
+    ++this->_version;
+}
+
 _cold std::string cluster::Manager::upgradeAct(const std::string& action)
 {
     // update (the default) | ignore (this version) | quit (everything stopped, to start again by hand)
     if (this->_replica) return this->call({{"cmd", "upgrade"}, {"action", action}}).value("done", std::string());
+    if (this->_upgradeShowcase) { // the Debug page's pretend update: the popup closes, a progress popup plays, nothing is installed or stopped
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_upgradeShowcase = false;
+            this->_upgradeVersion.clear();
+        }
+        ++this->_version;
+        if (action == "update") {
+            std::thread([this]() {
+                const std::uint64_t id = this->progressBegin("Updating claude-cluster to 9.9.9 (showcase)");
+                for (const char* step: {"trying the new binary first", "waiting for the turns running", "saving the sessions", "starting claude-cluster 9.9.9"}) {
+                    this->progressStep(id, step);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+                }
+                this->progressEnd(id, true, "showcase: nothing was installed or stopped", false);
+            }).detach();
+        }
+        return "showcase: " + action + " (nothing installed or stopped)";
+    }
     std::string version;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);

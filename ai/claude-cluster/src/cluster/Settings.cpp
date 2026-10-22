@@ -550,6 +550,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"debug", "showcase_questions", "Questions popup", SettingKind::Action, {}, "the questions of an agent: a single choice, a multiple choice, "
                 "a free answer (Other), the chat about them, back / next, the review before Submit / Cancel - answered here, sent to nobody", false,
                 [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_previews", "Questions with previews", SettingKind::Action, {}, "a question whose options carry a preview beside the list: markdown, "
+                "a coloured diff, a table, a chart, a mock-up and a picture - answered here, sent to nobody", false, [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "showcase_upgrade", "Update popup", SettingKind::Action, {}, "the popup of a newer claude-cluster installed (Update / Ignore / Quit with the arrows "
+                "and Enter): a pretend version, nothing is installed or stopped", false, [](const cluster::Config&) {return std::string("show");}},
             {"debug", "showcase_permission", "Permission popup", SettingKind::Action, {}, "a permission asked by an agent (Allow / Always / Deny): "
                 "nothing is run", false, [](const cluster::Config&) {return std::string("show");}},
             {"debug", "showcase_states", "Session states", SettingKind::Action, {}, "the showcase session working, waiting, in error, idle: its icon, "

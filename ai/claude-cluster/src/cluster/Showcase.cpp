@@ -249,6 +249,32 @@ namespace {
         manager.showcasePermission(id, ask);
     }
 
+    void previews_(cluster::Manager& manager, const std::string& id)
+    {
+        // options with a preview (Claude Desktop): markdown, a diff, a table with code, then a chart, a mock-up and a picture
+        const std::filesystem::path folder = cluster::data_dir() / "showcase";
+        std::filesystem::create_directories(folder);
+        const std::filesystem::path picture = folder / "picture.png";
+        std::ofstream(picture, std::ios::binary) << png_(320, 180);
+        cluster::Permission ask;
+        ask.requestId = "showcase-v" + std::to_string(++showcaseNext);
+        ask.tool = "AskUserQuestion";
+        ask.description = "questions with previews (showcase)";
+        ask.time = cluster::now();
+        const cluster::Json chart = {{"type", "chart"}, {"title", "Cost per level"}, {"labels", {"L1", "L2", "L3", "L4"}}, {"series", {{{"name", "k"}, {"values", {50, 100, 200, 400}}}}}};
+        const cluster::Json image = {{"type", "image"}, {"path", picture.string()}};
+        ask.input = {{"questions", {
+            {{"question", "Which cost curve? (the preview follows the option: arrows, hover)"}, {"header", "Curve"}, {"multiSelect", false},
+                {"options", {{{"label", "Average (Recommended)"}, {"description", "a markdown note"}, {"preview", "# Levels\nLevel 1 50 k\nLevel 2 100 k\nLevel 3 200 k\n\nTotal 350 k"}},
+                    {{"label", "Soft"}, {"description", "a coloured diff"}, {"preview", "```diff\n--- a/costs.py\n+++ b/costs.py\n@@ -1,3 +1,3 @@\n COSTS = [\n-    50, 100, 200\n+    50, 80, 120\n ]\n```"}},
+                    {{"label", "Hard"}, {"description", "a table and code"}, {"preview", "| Level | Cost |\n|---|---|\n| 1 | 50 k |\n| 2 | 150 k |\n\n```python\ndef cost(level):\n    return 50_000 * 3 ** (level - 1)\n```"}}}}},
+            {{"question", "Which layout? (a chart, a mock-up, a picture)"}, {"header", "Layout"}, {"multiSelect", false},
+                {"options", {{{"label", "Chart"}, {"description", "a display block"}, {"preview", chart.dump()}},
+                    {{"label", "Mock-up"}, {"description", "fixed-width text"}, {"preview", "┌──────────────┐\n│  Menu        │\n│  [ OK ] [ X ]│\n└──────────────┘"}},
+                    {{"label", "Picture"}, {"description", "an image file"}, {"preview", image.dump()}}}}}}}};
+        manager.showcasePermission(id, ask);
+    }
+
     bool notifications_(cluster::Manager& manager, const std::string& id)
     {
         // a plain one and an urgent one with its buttons (a click shows the showcase session), whatever the settings
@@ -278,9 +304,9 @@ namespace {
 _cold std::string cluster::showcase(cluster::Manager& manager, const std::string& what, const std::string& platform)
 {
     if (manager.replica()) return manager.call({{"cmd", "showcase"}, {"what", what}, {"platform", platform}}).value("message", std::string());
-    static const std::set<std::string> known = {"all", "displays", "questions", "permission", "states", "progress", "failure", "notify"};
+    static const std::set<std::string> known = {"all", "displays", "questions", "previews", "upgrade", "permission", "states", "progress", "failure", "notify"};
     if (!known.contains(what)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "showcase: " + what
-        + " (all, displays, questions, permission, states, progress, failure, notify)");
+        + " (all, displays, questions, previews, upgrade, permission, states, progress, failure, notify)");
     const std::string id = session_(manager);
     manager.requestFocus(id);
     const std::string shown = platform.empty() ? std::string("interface") : platform;
@@ -297,6 +323,14 @@ _cold std::string cluster::showcase(cluster::Manager& manager, const std::string
     if (what == "questions") {
         questions_(manager, id);
         return "the popup of the questions of an agent";
+    }
+    if (what == "previews") {
+        previews_(manager, id);
+        return "the questions with a preview beside their options";
+    }
+    if (what == "upgrade") {
+        manager.showcaseUpgrade();
+        return "the popup of a newer claude-cluster (a pretend version: nothing installed or stopped)";
     }
     if (what == "permission") {
         permission_(manager, id);
