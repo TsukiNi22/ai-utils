@@ -6541,8 +6541,8 @@ class TtyUi {
             if (this->vimKey_(event, key)) return true;
             if (cluster::key_action(this->_manager.config(), key) == "grid_open" && this->shortcut_("grid_open")) return true; // grid: Shift+Enter opens, not a new line
             const std::string& raw = event.input();
-            if (raw == "\n" || raw == "\x1b\r" || raw == "\x1b\n" || raw == "\x1b[13;2u" || raw == "\x1b[27;2;13~") { // xstyle: ignore LU-ANSI (read)
-                this->_editor.insert("\n"); // Ctrl+J / Alt+Enter / Shift+Enter: new line
+            if (raw == "\x1b\r" || raw == "\x1b\n" || raw == "\x1b[13;2u" || raw == "\x1b[27;2;13~") { // xstyle: ignore LU-ANSI (read)
+                this->_editor.insert("\n"); // Alt+Enter / Shift+Enter: new line
                 return true;
             }
             if (key.size() == 5 && key.starts_with("Alt+") && key[4] >= '1' && key[4] <= '9') {

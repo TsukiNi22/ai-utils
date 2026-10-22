@@ -710,7 +710,7 @@ the tasks (`t1`) and the working sessions - and `/kill <id>` stops one (`/kill a
 
 The global session always exists: if it is missing (a restore waiting, a failed start) the core starts it again, and a live update
 first starts the new binary in isolation - if it does not run, the update is cancelled and nothing is stopped. The previous sessions
-come back at every start by default (`[ui] restore = "always"`). In the terminal, Shift+Enter (or Ctrl+J / Alt+Enter) is a new line;
+come back at every start by default (`[ui] restore = "always"`). In the terminal, Shift+Enter (or Alt+Enter) is a new line;
 text values of the settings suggest models, providers, folders and programs (Tab takes the first, arrows choose).
 
 ### Statistics
