@@ -1291,26 +1291,27 @@ class TtyUi {
             const int count = static_cast<int>(list.size());
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
             const int columns = layout == "grid" && count >= 1 ? this->_gridColumns : 1;
-            // the Tasks session: in the ring of next / previous (first); the rows of the grid: its sessions only
-            if (count == 0 || this->_active == TASKS_ID || columns == 1) {
+            if (count == 0 || columns == 1) {
                 this->move_(dx != 0 ? dx : dy);
                 return;
             }
+            // the grid: the sessions, then the Tasks as the last cell; left / right turn inside the row (the last one has fewer cells), up / down inside
+            // the column, from the top to the bottom and back; under a shorter last row, its last cell
+            const int cellCount = count + 1;
             auto it = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->_active;});
-            const int index = it == list.end() ? 0 : static_cast<int>(it - list.begin());
-            // the grid: left / right turn inside the row (the last one has fewer cells), up / down inside the column, from the top to the bottom
-            // and back; under a shorter last row, its last cell
-            const int rows = (count + columns - 1) / columns;
+            const int index = this->_active == TASKS_ID ? count : it == list.end() ? 0 : static_cast<int>(it - list.begin());
+            const int rows = (cellCount + columns - 1) / columns;
             int row = index / columns;
             int column = index % columns;
             if (dx != 0) {
-                const int cells = std::min(columns, count - row * columns);
+                const int cells = std::min(columns, cellCount - row * columns);
                 column = (column + dx + cells) % cells;
             } else {
                 row = (row + dy + rows) % rows;
-                column = std::min(column, count - row * columns - 1);
+                column = std::min(column, cellCount - row * columns - 1);
             }
-            this->_active = list[static_cast<std::size_t>(row * columns + column)].spec.id;
+            const int target = row * columns + column;
+            this->_active = target == count ? std::string(TASKS_ID) : list[static_cast<std::size_t>(target)].spec.id;
         }
 
         bool gridArrow_(const Arrow& arrow)
@@ -2626,7 +2627,13 @@ class TtyUi {
                 this->status_("opened in the list: " + this->_active);
             } else if (action == "layout") {
                 const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
-                this->_manager.setUi("layout", layout == "list" ? "grid" : "list"); // a stored tabs / hub (window, web page): the list here
+                // list -> grid -> graph -> list (the graph is a view of its own, closed back on the list); a stored tabs / hub (window, web page): the list here
+                if (layout == "grid") {
+                    this->_manager.setUi("layout", "list");
+                    this->openGraph_();
+                } else {
+                    this->_manager.setUi("layout", layout == "list" ? "grid" : "list");
+                }
             } else if (action == "settings") {
                 this->openSettings_();
             } else if (action == "quit") {
@@ -5159,16 +5166,10 @@ class TtyUi {
             // the pinned item: at most a third of the room, the transcript keeps the rest
             std::pair<ftxui::Element, int> pinned = compact ? std::pair<ftxui::Element, int>{ftxui::emptyElement(), 0} : this->pin_(s, width, std::min(bodyHeight / 3 + 3, bodyHeight - 4));
             bodyHeight = std::max(3, bodyHeight - pinned.second);
-            ftxui::Element view = ftxui::vbox({
-                this->header_(s, compact),
-                ftxui::separatorLight() | ftxui::color(this->_theme.border),
-                ftxui::hbox({this->transcript_(s, width - panelWidth, bodyHeight, compact) | ftxui::flex, panelWidth ? ftxui::separatorLight() | ftxui::color(this->_theme.border) : ftxui::emptyElement(), panels}) | ftxui::flex,
-                std::move(pinned.first),
-                this->permission_(s),
-            });
+            ftxui::Element transcriptView = this->transcript_(s, width - panelWidth, bodyHeight, compact);
             if (s.spec.global && (s.state == cluster::State::Starting || s.state == cluster::State::Error) && s.warning.starts_with("global session ")) {
                 // the global session is not running yet (loading, started again after a crash, waiting for the answer to the previous-run question): a popup in the
-                // middle of its view, never a small line in a corner
+                // middle of its transcript (not of the panels beside it), never a small line in a corner
                 this->_spinning = true;
                 static const std::array<const char*, 10> turn = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
                 const bool failing = s.state == cluster::State::Error;
@@ -5178,8 +5179,15 @@ class TtyUi {
                     ftxui::text(" " + what + " ") | ftxui::color(this->_theme.text),
                     ftxui::text(""), ftxui::text(failing ? " it is started again by itself (every few seconds) " : " the other sessions are available meanwhile ") | ftxui::color(this->_theme.muted) | ftxui::dim})
                     | ftxui::borderRounded | ftxui::color(failing ? this->_theme.warn : this->_theme.accent) | ftxui::bgcolor(this->_theme.surface) | ftxui::center;
-                view = ftxui::dbox({view, popup});
+                transcriptView = ftxui::dbox({transcriptView, popup});
             }
+            const ftxui::Element view = ftxui::vbox({
+                this->header_(s, compact),
+                ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                ftxui::hbox({transcriptView | ftxui::flex, panelWidth ? ftxui::separatorLight() | ftxui::color(this->_theme.border) : ftxui::emptyElement(), panels}) | ftxui::flex,
+                std::move(pinned.first),
+                this->permission_(s),
+            });
             return view;
         }
 
@@ -5330,6 +5338,8 @@ class TtyUi {
                 const int visible = scrolls ? std::max(1, (height - 1) / GRID_MIN_HEIGHT) : total;   // a line kept for the rows indicator
                 const int cellWidth = width / columns - 2;
                 const int cellHeight = (height - (scrolls ? 1 : 0)) / visible - 2;
+                const int outerWidth = width / columns;     // every cell exactly its share, whatever its content
+                const int outerHeight = cellHeight + 2;
                 this->_gridColumns = columns;
                 this->_gridVisible = visible;
                 this->_gridRows = total;
@@ -5346,7 +5356,8 @@ class TtyUi {
                     if (i % static_cast<std::size_t>(columns) == 0) grid.emplace_back();
                     if (i == list.size()) { // the Tasks session: a cell like the sessions
                         grid.back().push_back(this->click_(this->tasksView_(cellWidth, cellHeight) | ftxui::borderStyled(tasksShown ? ftxui::HEAVY : ftxui::ROUNDED)
-                            | ftxui::color(tasksShown ? this->_theme.accent : this->_theme.border), 0, [this]() {
+                            | ftxui::color(tasksShown ? this->_theme.accent : this->_theme.border) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, outerWidth)
+                            | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, outerHeight), 0, [this]() {
                                 if (this->_active == TASKS_ID) return false;
                                 this->_active = TASKS_ID;
                                 return true;
@@ -5357,7 +5368,8 @@ class TtyUi {
                     const std::string id = list[i].spec.id;
                     // clicked: shown (the one shown: its text selected as usual)
                     grid.back().push_back(this->click_(this->session_(list[i], cellWidth, cellHeight, true) | ftxui::borderStyled(active ? ftxui::HEAVY : ftxui::ROUNDED)
-                        | ftxui::color(active ? this->_theme.accent : this->_theme.border), 0, [this, id]() {
+                        | ftxui::color(active ? this->_theme.accent : this->_theme.border) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, outerWidth)
+                        | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, outerHeight), 0, [this, id]() {
                             if (this->_active == id) return false;
                             this->_active = id;
                             return true;
@@ -6160,7 +6172,7 @@ class TtyUi {
             }
             const cluster::Config& c = this->_manager.config();
             if (status.empty() && layout == "grid")
-                status = "grid: ←↑↓→ between the cells (empty prompt; Alt+arrows always) · " + c.keys.at("grid_open") + " opens the session in the list";
+                status = "grid: ←↑↓→ between the cells (empty prompt; Alt+arrows always) · " + c.keys.at("grid_open") + " or Enter (empty prompt) opens the session in the list";
             const std::optional<cluster::WebStatus> webState = cluster::web_status(this->_manager);
             const std::string web = webState ? cluster::web_line(*webState) : "";
 
@@ -6811,6 +6823,8 @@ class TtyUi {
                 return true;
             }
             if (const std::optional<Arrow> nav = arrow_(event); nav && this->gridArrow_(*nav)) return true;
+            // grid, empty prompt: Enter opens the focused session in the list too (a terminal that sends Shift+Enter as a plain Enter)
+            if (event == ftxui::Event::Return && this->_editor.text().empty() && !this->_editor.completing() && this->shortcut_("grid_open")) return true;
             this->vimSync_();
             if (this->vimKey_(event, key)) return true;
             if (cluster::key_action(this->_manager.config(), key) == "grid_open" && this->shortcut_("grid_open")) return true; // grid: Shift+Enter opens, not a new line

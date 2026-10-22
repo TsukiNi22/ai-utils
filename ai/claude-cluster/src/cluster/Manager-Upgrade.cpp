@@ -100,7 +100,11 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         std::lock_guard<std::mutex> lock(this->_mutex);
         version = this->_upgradeVersion;
     }
-    if (version.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no newer claude-cluster installed");
+    if (version.empty()) {
+        const std::string installed = cluster::binary_version(cluster::self_exe());
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, std::string("no newer claude-cluster installed (running ") + CLUSTER_VERSION
+            + (installed.empty() ? std::string(", installed: unknown") : ", installed " + installed) + ")");
+    }
     if (action == "ignore") {
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
