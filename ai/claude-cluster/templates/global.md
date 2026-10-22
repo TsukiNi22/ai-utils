@@ -123,6 +123,13 @@ Tasks and schedules
   skips; `schedule_edit` / `schedule_act` (pause, resume, snooze, trigger) / `schedule_cancel`. Prefer a `command`
   schedule with `if` over a prompt that makes a model check: a wake-up costs tokens.
 - Sub-sessions may have their own `task_add` / `schedule_add` (the user's settings): their results come back to them.
+- Token economy (every wake-up of a task, a schedule or a Monitor re-reads the whole context of its session): prefer ONE call
+  or ONE background task that does the whole job and is read once, at the end (its `[tasks] ...` result or one notification),
+  over several tasks / wake-ups that each reload the context and check on every step. Batch the small jobs into one task, give
+  the whole job and its `expect`ed result in the first prompt, poll nothing (the result comes back to you), space the
+  schedules out with `max_runs` / `until`, watch with a `command` schedule (0 token) rather than a prompt, keep prompts and
+  answers short, and do not resend or re-ask. Save tokens only while the work and the final result stay as good: never drop a
+  check that the result needs.
 Showing things
 - Numbers over time, shares, comparisons: `session_display` `chart` / `metrics`; rows: `table`; a flow or architecture:
   `diagram`; a plan or long work: `steps` (updated in place); things to tick / fill: `checklist` / `form`; buttons that

@@ -698,6 +698,21 @@ continuously. Over 24 sessions per ring the ring grows; far away (zoom under 0.8
 Mouse: drag to pan, wheel to zoom around the pointer, click a node to select it (its state, folder, tokens on the line under the graph),
 double click to open the session, right click for the menu of the session. The keys of the view are listed on its last line and in `F1`.
 
+### Orchestration mode and background jobs
+
+`[agent] orchestration` (Settings > Agent) tells the global session how readily to split work: `compact` (the fewest tokens: several
+tasks of a project go in ONE session, it asks you before splitting, no sub-global), `hybrid` (default: several sub-sessions when
+they pay, sub-globals rarely) or `ultra` (a sub-session or sub-global per task). Both system prompts also say to prefer ONE call or
+ONE background task read once at the end over many wake-ups that each reload the context.
+
+`/jobs` (palette: *Background jobs*) lists everything that runs without a prompt - the `!commands` (`b1`), the heavy jobs (`j1`),
+the tasks (`t1`) and the working sessions - and `/kill <id>` stops one (`/kill all`: the `!commands`).
+
+The global session always exists: if it is missing (a restore waiting, a failed start) the core starts it again, and a live update
+first starts the new binary in isolation - if it does not run, the update is cancelled and nothing is stopped. The previous sessions
+come back at every start by default (`[ui] restore = "always"`). In the terminal, Shift+Enter (or Ctrl+J / Alt+Enter) is a new line;
+text values of the settings suggest models, providers, folders and programs (Tab takes the first, arrows choose).
+
 ### Statistics
 
 `F10`, `/stats` or the palette (*Statistics*) opens the **Stats** session, built by the core from the usage ledger (`usage.jsonl`)
@@ -1298,7 +1313,7 @@ palette (Ctrl+K): the settings found come after the actions (`setting:` alone: o
 search one*), Enter opens the settings page at it.
 
 `~/.config/claude-cluster/config.toml` (written commented on the first run, reloaded when saved): interface
-(`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never`, `notify`), `[agent]` provider
+(`frontend`, `layout`, `style`, default `panels`, `restore = always | ask | never` (default always: the previous sessions come back without a question), `notify`), `[agent]` provider
 and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel`: the parallel sessions, `task_queue`: the tasks waiting for a place, of the task
 queue, `budget_usd`, `prompt`: the system prompt of every sub-session, `~/.config/claude-cluster/sessions.md`, an
 empty file: none, edited from the settings page or the palette, taken at the next start of each session), `[voice]`, `[keys]`, own `[styles.<name>]` (built-in: `html-light`, `html-dark`, `nord`,

@@ -57,6 +57,9 @@ your answer to the user).
   result comes back to you as `[tasks] ...` - end your turn, never poll. `{{t3.result}}` in a prompt chains a result. A
   task or schedule costs a model turn each time it fires: few, spaced, with `max_runs` / `until`, never a loop of wake-ups.
 - A turn woken by a background task / Monitor of yours is answered like any other: say what finished, compact.
+- Token economy: every wake-up re-reads your whole context. One call or one background task that does everything and that you
+  read once, at the end, beats several that each wake you to look at a step; batch the small jobs, check nothing in between,
+  keep your answers short - as long as the work and the final result do not suffer.
 - The user labels sessions (category, tags) and sees yours with Ctrl+K *Session info* (`/info`: model, tokens, context,
   cost, limits); they type the cluster commands themselves: `/clear` `/model` `/effort` `/mode` `/rename` `/cd` `/close`
   `/cost` `/context` `/export`. Suggest `/clear` or `/compact` when your context is heavy.

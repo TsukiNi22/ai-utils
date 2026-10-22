@@ -27,11 +27,13 @@ File Description:
 #include <filesystem>
 #include <algorithm>
 #include <fstream>
-#include <cctype>
 #include <cstdlib>
+#include <cctype>
 #include <regex>
 
 _cold static std::string session_info_(cluster::Manager& manager, const std::string& id); // everything about a session (a popup)
+_cold static std::string jobs_text_(cluster::Manager& manager);                              // what runs in the background (a popup)
+_cold static std::string jobs_kill_(cluster::Manager& manager, const std::string& which);   // stop one of them by its id
 
 /* actions */
 _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, const std::string& session)
@@ -54,6 +56,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"upgrade", "Update claude-cluster to the newer version installed (the sessions kept, nothing to restart)", "", "", false},
         {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
         {"stats", "Statistics: cost and tokens per day / model / provider, sessions ranking, cache, uptime, heatmap, tools, limits (F10)", "", "", false},
+        {"jobs", "Background jobs: what runs (!commands, heavy jobs, tasks, working sessions) with the id to stop it (a popup, /kill <id>)", "", "", false},
         {"shells", "Background shells: the !commands running (a popup), stop one with /kill", "", "", false},
         {"shells_kill", "Background shells: stop them all", "", "", false},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
@@ -462,6 +465,9 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             result.message = manager.displayAct(session, arg, {{"values", values}});
         } else if (base == "stats") {
             result.message = "statistics: session " + cluster::stats_open(manager, true);
+        } else if (base == "jobs") {
+            const std::optional<cluster::ActionResult> shown = cluster::run_slash(manager, session, "/jobs");
+            if (shown) result = *shown;
         } else if (base == "shells") {
             const std::optional<cluster::ActionResult> shown = cluster::run_slash(manager, session, "/shells");
             if (shown) result = *shown;
@@ -636,6 +642,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"skills", "the skills and plugins loaded for the sessions (yours, the project's, the plugins): a popup"},
         {"info", "everything about the session in focus: agent, model, thinking, api / login, cost, limits (a popup)"},
         {"stats", "the statistics: usage, activity (the Stats session, F10)"},
+        {"jobs", "everything running in the background (!commands, heavy jobs, tasks, working sessions) in a popup; /kill <id> stops one"},
         {"shells", "the !commands running in the background (and the last ended ones): a popup; /kill <id|all> stops them"},
         {"kill", "<id|all>: stop a background shell (and everything it started)"},
         {"status", "the same as /info"},
@@ -863,6 +870,57 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
     };
 }
 
+_cold static std::string jobs_text_(cluster::Manager& manager)
+{
+    // everything that runs without a prompt: the !commands (b1...), the heavy jobs of the orchestrator (j1...), the tasks (t1...), the
+    // sessions working; each with the id /kill takes
+    std::string out = "Background jobs";
+    int count = 0;
+    const cluster::Json shells = manager.shells();
+    for (const cluster::Json& j: shells) {
+        if (!j.value("running", false)) continue;
+        ++count;
+        out += "\n" + j.value("id", std::string()) + "  !command  running " + std::to_string(j.value("seconds", std::int64_t{0})) + " s  " + cluster::one_line(j.value("command", std::string()), 70);
+    }
+    const cluster::Json heavy = manager.jobsState();
+    if (heavy.is_object() && heavy.contains("jobs") && heavy["jobs"].is_array())
+        for (const cluster::Json& j: heavy["jobs"]) {
+            const std::string state = j.value("state", std::string());
+            if (state == "done" || state == "failed" || state == "killed" || state == "cancelled") continue;
+            ++count;
+            out += "\n" + j.value("id", std::string()) + "  heavy job  " + state + "  " + cluster::one_line(j.value("command", std::string()), 70)
+                + (j.value("session", std::string()).empty() ? "" : "  (" + j.value("session", std::string()) + ")");
+        }
+    for (const cluster::Task& t: manager.tasks()) {
+        if (t.status != "running" && t.status != "queued") continue;
+        ++count;
+        out += "\n" + t.id + "  task  " + t.status + (t.session.empty() ? "" : " in " + t.session) + "  " + cluster::one_line(t.prompt, 70);
+    }
+    for (const cluster::Snapshot& s: manager.list(true))
+        if (s.state == cluster::State::Working) {
+            ++count;
+            out += "\n" + s.spec.id + "  session  working  " + s.spec.name + " (Ctrl+C in it stops the turn)";
+        }
+    if (count == 0) out += "\nnothing runs: no !command, heavy job, task or working session";
+    else out += "\n\n/kill <id> stops one (b1 a !command, j1 a heavy job, t1 a task), /kill all the !commands";
+    return out;
+}
+
+_cold static std::string jobs_kill_(cluster::Manager& manager, const std::string& which)
+{
+    if (which.empty() || which == "all" || (which.size() > 1 && which[0] == 'b' && std::all_of(which.begin() + 1, which.end(), [](const unsigned char c) {return std::isdigit(c) != 0;})))
+        return manager.shellKill(which.empty() ? std::string("all") : which);
+    if (which.size() > 1 && which[0] == 't' && std::all_of(which.begin() + 1, which.end(), [](const unsigned char c) {return std::isdigit(c) != 0;})) {
+        manager.cancelTask(which);
+        return "task " + which + " cancelled";
+    }
+    if (which.size() > 1 && which[0] == 'j') {
+        (void)manager.jobsCommand("job_kill", {{"id", which}});
+        return "job " + which + " killed";
+    }
+    throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no job '" + which + "' (b1 a !command, j1 a heavy job, t1 a task)");
+}
+
 _cold static std::string session_info_(cluster::Manager& manager, const std::string& id)
 {
     // everything about a session: how it runs (agent, model, thinking, api | auth), where, its conversation, what it used and what limits it
@@ -1014,6 +1072,9 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 + (m.contextWindow > 0 ? " (" + std::to_string(100 * m.contextUsed / m.contextWindow) + "%)" : std::string());
         } else if (name == "stats") {
             result.message = "statistics: session " + cluster::stats_open(manager, true);
+        } else if (name == "jobs") {
+            result.message = jobs_text_(manager);
+            result.ui = "message";
         } else if (name == "shells") {
             const cluster::Json jobs = manager.shells();
             result.message = jobs.empty() ? std::string("no !command yet: the ones that last more than a few seconds run here in the background (!tail -f log, !npm run dev...)") : "shells";
@@ -1023,7 +1084,7 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
             result.message += jobs.empty() ? "" : "\n\n/kill <id|all> stops one";
             result.ui = "message";
         } else if (name == "kill") {
-            result.message = manager.shellKill(arg.empty() ? std::string("all") : arg);
+            result.message = jobs_kill_(manager, arg);
         } else if (name == "info" || name == "status") {
             result.message = session_info_(manager, session);
             result.ui = "message";

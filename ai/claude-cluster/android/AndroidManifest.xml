@@ -29,9 +29,9 @@
             </intent-filter>
         </receiver>
         <service android:name=".WatchService" android:exported="false" android:foregroundServiceType="specialUse">
-        <provider android:name=".PhotoProvider" android:authorities="com.claudecluster.app.photos" android:exported="false" android:grantUriPermissions="true"/>
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Follows the claude-cluster sessions of this phone on its own computer to notify when one finishes or waits"/>
         </service>
+        <provider android:name=".PhotoProvider" android:authorities="com.claudecluster.app.photos" android:exported="false" android:grantUriPermissions="true"/>
     </application>
 </manifest>

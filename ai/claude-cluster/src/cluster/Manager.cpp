@@ -29,9 +29,9 @@ File Description:
 #include "cluster/Mcp.hpp"
 #include <filesystem>
 #include <algorithm>
+#include <unistd.h>
 #include <fstream>
 #include <sstream>
-#include <unistd.h>
 #include <cstdio>
 #include <thread>
 #include <chrono>
@@ -105,7 +105,24 @@ _cold static std::string plain_(const std::string& markdown)
     return out;
 }
 
-_cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global, const std::string& method)
+_cold static std::string orchestration_text_(const std::string& mode)
+{
+    // the mode of orchestration of the user ([agent] orchestration), told to the global session
+    if (mode == "compact")
+        return "## Orchestration mode: compact\n"
+               "The user wants the fewest tokens and the fewest sessions. Put several tasks of the same project in ONE session (one session per "
+               "project, reusing the one that already has the context; `task_add` to it). Never spawn a sub-session for a medium task, and never a sub-global. "
+               "When splitting would clearly help (very large or independent jobs), ask the user with an `AskUserQuestion` popup first and do not do it yourself.\n";
+    if (mode == "ultra")
+        return "## Orchestration mode: ultra\n"
+               "The user wants maximum parallelism: use a separate sub-session for each different task, and sub-globals to coordinate big pieces of work, "
+               "without asking, whenever it makes the work faster or the contexts cleaner.\n";
+    return "## Orchestration mode: hybrid\n"
+           "Balance tokens and speed: reuse a session for follow-ups and small or medium tasks of the same project; spawn several sub-sessions only when the jobs are "
+           "independent and large enough to pay for a new context; use a sub-global rarely (a big multi-session job), and tell the user when you do.\n";
+}
+
+_cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global, const std::string& method, const std::string& orchestration)
 {
     // a system prompt file added to the one of claude (CLAUDE.md kept), then how the answers are drawn (always, from
     // the binary: the files of the user are copies never refreshed); the display blocks for the global session only
@@ -115,7 +132,7 @@ _cold static std::vector<std::string> prompt_args_(const std::string& file, cons
     std::string rendering(cluster::templates::RENDERING);
     const std::size_t mark = rendering.find("<!-- global -->");
     if (mark != std::string::npos) rendering = global ? rendering.erase(mark, 15) : rendering.substr(0, mark);
-    if (global) rendering += std::string("\n") + std::string(cluster::templates::ROUTING); // how to choose the model and the thinking of the sub-sessions
+    if (global) rendering += std::string("\n") + std::string(cluster::templates::ROUTING) + "\n" + orchestration_text_(orchestration); // how to choose the model and the thinking of the sub-sessions, how readily to split
     if (!method.empty()) rendering += std::string("\n") + method; // the work method of the user (short)
     const std::string text = cluster::trim(prompt.str()).empty() ? rendering : prompt.str() + "\n" + rendering;
     return {"--append-system-prompt", text};
@@ -164,7 +181,7 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     if (launch.backend.provider.driver == "claude") {
         launch.extraArgs = this->_config.extraArgs;
         if (!spec.global) {
-            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false, cluster::method_text(this->_config, false));
+            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false, cluster::method_text(this->_config, false), this->_config.orchestration);
             launch.extraArgs.insert(launch.extraArgs.end(), prompt.begin(), prompt.end());
             const std::vector<std::string> mcp = this->subArgs_(spec.id);
             launch.extraArgs.insert(launch.extraArgs.end(), mcp.begin(), mcp.end());
@@ -564,7 +581,7 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
 _cold std::vector<std::string> cluster::Manager::globalArgs_(void) const
 {
     std::vector<std::string> args = {"--mcp-config", cluster::mcp_config_path().string(), "--allowedTools", "mcp__claude-cluster"};
-    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt, true, cluster::method_text(this->_config, true));
+    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt, true, cluster::method_text(this->_config, true), this->_config.orchestration);
     args.insert(args.end(), prompt.begin(), prompt.end());
     return args;
 }
@@ -643,6 +660,23 @@ _cold void cluster::Manager::startGlobal(void)
         this->notice_(GLOBAL_ID, std::string("global session: ") + e.what(), true);
         this->retryGlobal_();
     }
+}
+
+_cold void cluster::Manager::ensureGlobal_(void)
+{
+    // the global session must always be there: missing (and its start not waiting for the answer of the previous-run question), it is started
+    // again, at most every 10 s, out of the tick (the start may wait for claude)
+    if (!this->_config.globalEnabled || this->_restoreAsk || this->_closing || this->_globalRetrying.load()) return;
+    if (this->snapshot(GLOBAL_ID)) return;
+    const std::int64_t now = cluster::now();
+    if (now - this->_globalEnsured < 10) return;
+    this->_globalEnsured = now;
+    if (this->_globalRetrying.exchange(true)) return;
+    std::thread([this]() {
+        this->notice_(GLOBAL_ID, "the global session was missing: started again", true);
+        this->startGlobal();
+        this->_globalRetrying = false;
+    }).detach();
 }
 
 _cold void cluster::Manager::retryGlobal_(void)
@@ -1082,6 +1116,7 @@ _cold void cluster::Manager::tick(void)
     const int key = static_cast<int>(face.face) * 100000 + face.badge * 2 + (face.urgent ? 1 : 0);
     if (this->_faceKey.exchange(key) != key) ++this->_version;
     static int seconds = 0;
+    this->ensureGlobal_();
     if (this->_statsUp == 0) this->statsRecord("start");
     if (cluster::now() - this->_statsUp >= 60) {
         this->_statsUp = cluster::now();

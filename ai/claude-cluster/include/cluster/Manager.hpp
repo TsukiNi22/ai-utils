@@ -20,6 +20,8 @@ File Description:
     /* type */
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
+    #include "PromptStash.hpp"      // cluster::StashAdd
+    #include "Taxonomy.hpp"         // cluster::Taxonomy
     #include "Machine.hpp"          // cluster::MachineProgress
     #include "Session.hpp"          // cluster::Session, cluster::Event
     #include "Config.hpp"           // cluster::Config
@@ -28,8 +30,6 @@ File Description:
     #include "Icons.hpp"            // cluster::Notification, cluster::AppFace
     #include "Usage.hpp"            // cluster::Transcripts
     #include "Auth.hpp"             // cluster::Auth
-    #include "Taxonomy.hpp"         // cluster::Taxonomy
-    #include "PromptStash.hpp"      // cluster::StashAdd
     #include <condition_variable>   // std::condition_variable
     #include <functional>           // std::function
     #include <optional>             // std::optional
@@ -137,6 +137,7 @@ class Manager {
         std::string _focus;                             // the session the interfaces are asked to show
         std::optional<cluster::MachineProgress> _scan;  // the last map of this computer (its progress)
         std::int64_t _scanEnd = 0;                      // ms of its end (0: running)
+        std::atomic<std::int64_t> _globalEnsured{0};    // the last time the tick started the missing global session
         std::atomic<bool> _globalRetrying{false};       // a loop starts the global session again until it runs
         std::int64_t _globalRestart = 0;                // last time the global session was started again (its process ended)
         std::atomic<bool> _closing{false};              // claude-cluster quits: the agents ending are not an error
@@ -258,6 +259,7 @@ class Manager {
         _cold _nodiscard std::vector<std::string> globalArgs_(void) const;
         _cold _nodiscard std::filesystem::path globalDir_(void) const;     // global.cwd, empty: <data>/global
         _cold void writeMcpConfig_(void) const;
+        _cold void ensureGlobal_(void);             // the tick: the global session started when it is missing
         _cold void retryGlobal_(void);                  // the global session started again until it runs
         _cold _nodiscard std::vector<std::string> subArgs_(const std::string& id) const;   // the MCP of a sub-session (its tasks / schedules): its arguments, none when closed
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed

@@ -12,8 +12,8 @@ File Description:
 ##  zoomed by the mouse or the keyboard
 \**************************************************************/
 
-#ifndef CLUSTER_TTY_GRAPH_H
-    #define CLUSTER_TTY_GRAPH_H
+#ifndef TTYGRAPH_H
+    #define TTYGRAPH_H
 
     //----------------------------------------------------------------//
     /* INCLUDE */
@@ -149,4 +149,4 @@ class GraphView {
 
 } // namespace end
 
-#endif /* CLUSTER_TTY_GRAPH_H */
+#endif /* TTYGRAPH_H */

@@ -235,7 +235,7 @@ class Config {
         std::string guiMode = "gui";            // the window: gui (its own interface) | tty (the terminal interface in it)
         std::string style = "html-dark";
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "usage", "git"};
-        std::string restore = "ask";
+        std::string restore = "always";
         bool notify = true;                     // desktop notifications at all
         bool notifyGlobal = true;               // the global session answered
         bool notifyDone = true;                 // a sub-session finished its turn
@@ -268,6 +268,7 @@ class Config {
         std::string backend = "claude";     // the backend spec of the new sessions (= provider; --backend overrides it for one run)
         std::string mode = "auto";      // permission mode of the new sessions (empty: the default of the agent)
         std::string effort;             // thinking / reasoning effort of the new sessions (empty: the default of the agent)
+        std::string orchestration = "hybrid"; // how readily the global session splits work into sub-sessions: compact | hybrid | ultra
         std::string workMethod = "free";    // the work method: free | list-review | one-task | plan-first | custom (Method.hpp)
         std::string workMethodText;         // what the user adds to it (short: injected in the prompts of the sessions)
         bool workMethodDetect = false;      // the global session may propose a method from the habits of the user (the user answers Allow / Deny)

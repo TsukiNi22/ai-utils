@@ -33,10 +33,10 @@ File Description:
     #include "Types.hpp"                    // cluster::Json, cluster::SessionSpec
 
     /* type */
-    #include <map>                          // std::map
-    #include <set>                          // std::set
     #include <string>                       // std::string
     #include <vector>                       // std::vector
+    #include <map>                          // std::map
+    #include <set>                          // std::set
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//

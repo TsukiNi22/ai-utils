@@ -15,27 +15,27 @@ File Description:
 #define _Encapsulation
 #define _SManip
 #include <utils/utils.hpp>
+#include "cluster/RewindChooser.hpp"
 #include "cluster/Attachments.hpp"
 #include "cluster/LineEditor.hpp"
-#include "cluster/Origin.hpp"
-#include "cluster/RewindChooser.hpp"
 #include "cluster/StashPopup.hpp"
 #include "cluster/PromptNav.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
+#include "cluster/TtyGraph.hpp"
 #include "cluster/Plugins.hpp"
-#include "cluster/Cron.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Session.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Origin.hpp"
 #include "cluster/Worker.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Reveal.hpp"
-#include "cluster/TtyGraph.hpp"
 #include "cluster/Icons.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Cron.hpp"
 #include "cluster/Core.hpp"
 #include "cluster/Git.hpp"
 #include <ftxui/component/screen_interactive.hpp>
@@ -57,11 +57,11 @@ File Description:
 #include <cerrno>
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <deque>
 #include <regex>
 #include <cmath>
 #include <set>
-#include <limits>
 #include <map>
 
 namespace {
@@ -887,7 +887,7 @@ class TtyUi {
         void terminalModes_(void)
         {
             // bracketed paste, focus reporting: at start and after a program in the foreground (an editor turns them off)
-            std::cout << "\x1b[?2004h\x1b[?1004h" << std::flush; // xstyle: ignore LU-ANSI (modes of the terminal, no color)
+            std::cout << "\x1b[?2004h\x1b[?1004h\x1b[>4;1m" << std::flush; // + Shift+Enter told apart from Enter (modifyOtherKeys level 1: only the keys that would be ambiguous) // xstyle: ignore LU-ANSI (modes of the terminal, no color)
         }
 
         void settingsAction_(const std::string& key)
@@ -1199,6 +1199,8 @@ class TtyUi {
         std::vector<cluster::SettingHit> _hits;
         int _findHit = 0;
         bool _editing = false;
+        bool _suggestOpen = false;                      // the settings: the suggestions of the value typed, one chosen with the arrows
+        int _suggest = 0;                               // the one chosen
         std::string _edit;
         std::string _note;
         std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> _changes;
@@ -2281,13 +2283,18 @@ class TtyUi {
             const int selected = this->_editor.selectedItem();
             const int start = std::max(0, std::min(selected - 4, static_cast<int>(items.size()) - 8));
             ftxui::Elements rows;
+            const std::string prefix = this->_editor.kind() == cluster::CompletionKind::Session ? "::" : this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command || this->_editor.kind() == cluster::CompletionKind::Skill ? "/" : "";
+            int labelWidth = 0; // the columns (name, source, description) aligned over the rows shown
+            int sourceWidth = 0;
+            for (int i = start; i < static_cast<int>(items.size()) && i < start + 8; ++i) {
+                labelWidth = std::max(labelWidth, ftxui::string_width(prefix + items[static_cast<std::size_t>(i)].label));
+                sourceWidth = std::max(sourceWidth, ftxui::string_width(items[static_cast<std::size_t>(i)].source));
+            }
             for (int i = start; i < static_cast<int>(items.size()) && i < start + 8; ++i) {
                 const cluster::Candidate& c = items[static_cast<std::size_t>(i)];
-                const std::string prefix = this->_editor.kind() == cluster::CompletionKind::Session ? "::" : this->_editor.kind() == cluster::CompletionKind::File ? "@" : this->_editor.kind() == cluster::CompletionKind::Command || this->_editor.kind() == cluster::CompletionKind::Skill ? "/" : "";
-                ftxui::Elements cells = {ftxui::text("  " + prefix + c.label + "  ")};
-                if (!c.source.empty()) // a /command or a skill: where it comes from
-                    cells.push_back(ftxui::hbox({ftxui::text(" " + c.source + " ") | ftxui::bold | ftxui::color(ftxui::Color::RGB(255, 255, 255)) | ftxui::bgcolor(hex_(cluster::source_color(c.source))),
-                        ftxui::text("  ")}));
+                ftxui::Elements cells = {ftxui::text("  " + prefix + c.label) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth + 4)};
+                if (sourceWidth > 0) // a /command or a skill: where it comes from (the colour of its source, no background)
+                    cells.push_back((c.source.empty() ? ftxui::text("") : i == selected ? ftxui::text(c.source) : ftxui::text(c.source) | ftxui::color(hex_(cluster::source_color(c.source)))) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, sourceWidth + 2));
                 cells.push_back(ftxui::text(cluster::one_line(c.description, 70)) | ftxui::dim);
                 cells.push_back(ftxui::filler());
                 ftxui::Element row = ftxui::hbox(std::move(cells));
@@ -3101,13 +3108,34 @@ class TtyUi {
             }
             if (this->_editing) {
                 const cluster::Setting& setting = page.settings[static_cast<std::size_t>(this->_item)];
+                const std::vector<std::string> suggestions = cluster::setting_suggestions(this->_manager.config(), setting, this->_edit);
+                this->_suggest = std::min(this->_suggest, std::max(0, static_cast<int>(suggestions.size()) - 1));
                 if (event == ftxui::Event::Return) {
+                    if (this->_suggestOpen && !suggestions.empty()) { // a suggestion chosen with the arrows: taken, the field goes on
+                        this->_edit = suggestions[static_cast<std::size_t>(this->_suggest)];
+                        this->_suggestOpen = false;
+                        this->_suggest = 0;
+                        return true;
+                    }
                     this->setSetting_(setting, cluster::trim(this->_edit));
                     this->_editing = false;
+                    this->_suggestOpen = false;
+                    this->_suggest = 0;
                 } else if (event == ftxui::Event::Escape) {
-                    this->_editing = false;
+                    if (this->_suggestOpen) this->_suggestOpen = false; // the list closes first
+                    else this->_editing = false;
+                } else if (event == ftxui::Event::Tab && !suggestions.empty()) {
+                    this->_edit = suggestions[static_cast<std::size_t>(this->_suggest)]; // Tab takes the first / the chosen one
+                    this->_suggestOpen = false;
+                    this->_suggest = 0;
+                } else if (!suggestions.empty() && (event == ftxui::Event::ArrowDown || event == ftxui::Event::ArrowUp)) {
+                    this->_suggestOpen = true;
+                    const int total = static_cast<int>(suggestions.size());
+                    this->_suggest = (this->_suggest + (event == ftxui::Event::ArrowDown ? 1 : total - 1)) % total;
                 } else {
                     (void)this->fieldKey_(this->_edit, event);
+                    this->_suggest = 0;
+                    this->_suggestOpen = false;
                 }
                 return true;
             }
@@ -3224,9 +3252,11 @@ class TtyUi {
                 return this->tap_(ftxui::text(label), 2, [this, key]() {(void)this->event_(key);});
             };
             ftxui::Elements tabs;
+            std::vector<int> tabWidths;
             for (std::size_t i = 0; i < this->_pages.size(); ++i) {
                 const bool active = static_cast<int>(i) == this->_page;
                 ftxui::Element tab = ftxui::text("  " + this->_pages[i].title + "  ");
+                tabWidths.push_back(ftxui::string_width(this->_pages[i].title) + 4);
                 const int index = static_cast<int>(i);
                 tabs.push_back(this->tap_(active ? tab | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : tab | ftxui::color(t.text), 2, [this, index]() {
                     if (this->_editing) (void)this->event_(ftxui::Event::Return);
@@ -3251,11 +3281,13 @@ class TtyUi {
                 std::string value = this->settingValue_(setting);
                 const bool typing = selected && this->_editing;  // its value edited: a field with its cursor (the page keeps it at Enter / Esc)
                 if (typing) value = this->_edit;
-                else if (setting.kind == cluster::SettingKind::Bool) value = value == "true" ? "Enabled" : "Disabled";
-                else if (setting.kind == cluster::SettingKind::Choice) value = "< " + (value.empty() ? std::string("(agent default)") : value) + " >";
+                else if (setting.kind == cluster::SettingKind::Bool) value = value == "true" ? "● Enabled" : "○ Disabled";
+                else if (setting.kind == cluster::SettingKind::Choice) value = "‹ " + (value.empty() ? std::string("(agent default)") : value) + " ›";
                 else if (setting.kind == cluster::SettingKind::Action && page.section == "services") value = cluster::service_summary(value, this->_services); // a sub service: its state
                 else if (setting.kind == cluster::SettingKind::Action) value = "▶ " + value;
                 else if (value.empty()) value = "(empty)";
+                const bool typed = setting.kind == cluster::SettingKind::Text || setting.kind == cluster::SettingKind::List || setting.kind == cluster::SettingKind::Int
+                    || setting.kind == cluster::SettingKind::Float; // a value typed: between brackets; a switch, a choice, an action: as they are
                 const bool risky = static_cast<bool>(setting.danger);
                 const bool dangerNow = risky && !cluster::setting_danger(setting, this->settingValue_(setting)).empty();
                 const std::string label = setting.label + (risky ? " ⚠ " : " ");
@@ -3277,12 +3309,20 @@ class TtyUi {
                         ftxui::text(" " + std::string(dots, '.') + " ") | ftxui::color(t.muted)}), 2, [pick]() {pick(false);}, clip),
                     typing ? ftxui::hbox({ftxui::text("[") | ftxui::bold | ftxui::color(t.accent), this->fieldView_(this->_edit, 58) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 58),
                         ftxui::text("]") | ftxui::bold | ftxui::color(t.accent)})
-                    : this->tap_(ftxui::text("[" + cluster::one_line(value, 60) + "]") | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
+                    : this->tap_(ftxui::text((typed ? "[" : " ") + cluster::one_line(value, 60) + (typed ? "]" : " ")) | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
                         2, [pick]() {pick(true);}, clip),
                     need.problem.empty() ? ftxui::text("") : ftxui::text("  ✗ " + cluster::one_line(need.problem.substr(0, need.problem.find(':')), 34)) | ftxui::color(t.error) | ftxui::bold,
                     ftxui::filler(),
                 });
                 rows.push_back(selected ? line | ftxui::focus : line);
+                if (typing) { // the suggestions of what is typed, under the field (Tab takes the first, ↑↓ choose, Enter takes the chosen one)
+                    const std::vector<std::string> suggestions = cluster::setting_suggestions(this->_manager.config(), setting, this->_edit);
+                    for (std::size_t s = 0; s < suggestions.size(); ++s) {
+                        const bool chosen = this->_suggestOpen && static_cast<int>(s) == this->_suggest;
+                        rows.push_back(ftxui::text("      ↳ " + cluster::one_line(suggestions[s], 80)) | (chosen ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : s == 0 && !this->_suggestOpen ? ftxui::color(t.accent) : ftxui::color(t.muted)));
+                    }
+                    if (!suggestions.empty()) rows.push_back(ftxui::text("      Tab take the first · ↑↓ choose · Enter take it") | ftxui::color(t.muted) | ftxui::dim);
+                }
                 if (page.section == "services" && setting.key.starts_with("svc_"))
                     for (ftxui::Element& e: this->svcCard_(setting.key.substr(4), selected, index, clip))
                         rows.push_back(std::move(e));
@@ -3437,10 +3477,27 @@ class TtyUi {
                 popup = ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.warn) | ftxui::bgcolor(t.bg) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 80)
                     | ftxui::center;
             }
+            // the tabs: on as many rows as the width needs (none cut off on the right when the pages are many)
+            ftxui::Elements tabRows;
+            {
+                ftxui::Elements current;
+                int used = 0;
+                for (std::size_t i = 0; i < tabs.size(); ++i) {
+                    if (!current.empty() && used + tabWidths[i] > size.dimx) {
+                        tabRows.push_back(ftxui::hbox(std::move(current)) | ftxui::bgcolor(t.surface));
+                        current.clear();
+                        used = 0;
+                    }
+                    used += tabWidths[i];
+                    current.push_back(std::move(tabs[i]));
+                }
+                if (!current.empty()) tabRows.push_back(ftxui::hbox(std::move(current)) | ftxui::bgcolor(t.surface));
+            }
+            const ftxui::Element tabBar = ftxui::vbox(std::move(tabRows));
             return ftxui::dbox({ftxui::vbox({
                 ftxui::hbox({ftxui::text(" claude-cluster setup ") | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent), ftxui::filler(),
                     ftxui::text(" config.toml ") | ftxui::color(t.muted)}),
-                ftxui::hbox(std::move(tabs)) | ftxui::bgcolor(t.surface),
+                tabBar,
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
                 ftxui::hbox({ftxui::vbox(std::move(rows)) | ftxui::yframe | this->clipBox_(clip) | ftxui::flex, ftxui::separatorLight() | ftxui::color(t.border), helpBox}) | ftxui::flex,
                 ftxui::separatorHeavy() | ftxui::color(t.accent),
@@ -5083,7 +5140,10 @@ class TtyUi {
                 labelled += s.spec.category.empty() && s.spec.tags.empty() ? 0 : 1;
             }
             const std::size_t spare = (grouped ? categories.size() : 0) + labelled / 2;   // the lines taken by the headers and the chips, on average
-            const std::size_t room = static_cast<std::size_t>(std::max<int>(1, (height - 3 - static_cast<int>(spare)) / 2));
+            // the room really there: the height the list had in the last frame (the chrome around it taken off), else the estimate
+            const int measured = this->_listBox.y_max - this->_listBox.y_min + 1;
+            const int usable = measured > 6 && measured <= height ? measured - 4 : height - 6; // the title, the Tasks row and the two "more" lines
+            const std::size_t room = static_cast<std::size_t>(std::max<int>(1, (usable - static_cast<int>(spare)) / 2));
             const std::size_t at = static_cast<std::size_t>(it - list.begin());
             this->_listRoom = room;
             if (this->_listSeen != this->_active) { // the selection moved: its row in view (the wheel scrolls freely until then)
@@ -6481,8 +6541,8 @@ class TtyUi {
             if (this->vimKey_(event, key)) return true;
             if (cluster::key_action(this->_manager.config(), key) == "grid_open" && this->shortcut_("grid_open")) return true; // grid: Shift+Enter opens, not a new line
             const std::string& raw = event.input();
-            if (raw == "\x1b\r" || raw == "\x1b\n" || raw == "\x1b[13;2u" || raw == "\x1b[27;2;13~") { // xstyle: ignore LU-ANSI (read)
-                this->_editor.insert("\n"); // Alt+Enter / Shift+Enter: new line
+            if (raw == "\n" || raw == "\x1b\r" || raw == "\x1b\n" || raw == "\x1b[13;2u" || raw == "\x1b[27;2;13~") { // xstyle: ignore LU-ANSI (read)
+                this->_editor.insert("\n"); // Ctrl+J / Alt+Enter / Shift+Enter: new line
                 return true;
             }
             if (key.size() == 5 && key.starts_with("Alt+") && key[4] >= '1' && key[4] <= '9') {
@@ -6607,7 +6667,7 @@ class TtyUi {
             // shown, the synchronized update closed
             std::cout << std::flush;
             std::cout.rdbuf(previous);
-            std::cout << "\x1b[?2026l\x1b[?1004l\x1b[?2004l\x1b[?25h" << std::flush; // xstyle: ignore LU-ANSI (modes of the terminal, no color)
+            std::cout << "\x1b[?2026l\x1b[?1004l\x1b[?2004l\x1b[>4;0m\x1b[?25h" << std::flush; // xstyle: ignore LU-ANSI (modes of the terminal, no color)
             if (tty) ::tcsetattr(STDIN_FILENO, TCSANOW, &original);
             alive = false;
             refresher.join();
@@ -6625,7 +6685,7 @@ namespace {
     // what the terminal gets back when the interface ends abnormally (a crash, an abort): no mouse reports, the main screen,
     // the cursor, no bracketed paste / focus events (async signal safe: one write)
     // xstyle: ignore-next LU-ANSI (one write, async signal safe: no libutils call in a signal handler)
-    constexpr const char TERMINAL_RESET[] = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?2004l\x1b[?1004l\x1b[?1049l\x1b[?25h\x1b[0m";
+    constexpr const char TERMINAL_RESET[] = "\x1b[>4;0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?2004l\x1b[?1004l\x1b[?1049l\x1b[?25h\x1b[0m";
 
     void terminal_reset_(void)
     {

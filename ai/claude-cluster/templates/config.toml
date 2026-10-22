@@ -7,7 +7,7 @@ layout = "list"            # list (list + active panel) | grid | tabs (window / 
 style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized-light | mono, or a [styles.<name>] below
 panels = ["skills", "tokens", "context", "cost", "usage", "git"] # default panels of a new session (+ "diff", "tools", "files")
                            # usage: the vendor of the session today / 7 days / lifetime (tokens, cost), limits left
-restore = "ask"            # ask | always | never: sessions of the previous run at start (like Firefox)
+restore = "always"         # always | ask | never: sessions of the previous run at start (ask: like Firefox, asked at every start)
 prompt_origin = true       # the prompts of a transcript coloured by where they come from (+ a label: mcp, task, scheduled); false: all as before
 prompt_color_user = ""     # "#rrggbb" of the prompts you type (empty: the accent of the style, as before)
 prompt_color_mcp = ""      # of the prompts of the global session and the cluster (session_send / session_spawn, [reply from ...], answers): empty = violet
@@ -67,6 +67,7 @@ global_pin = true          # the global session may pin a message / display bloc
 taxonomy_edit = true       # the global session may edit the taxonomy of the categories / tags (MCP taxonomy: parent, rename, delete, merge)
 #   free (nothing) | list-review (a task list, then a review, repeated until good) | one-task (one task at a time)
 #   | plan-first (a plan, then the work) | custom (only the text below)
+orchestration = "hybrid"  # compact | hybrid | ultra: how readily the global session splits work into sub-sessions (compact: the fewest, one per project, asks before splitting)
 work_method = "free"
 work_method_text = ""      # your own words, added to the preset (400 characters at most)
 work_method_detect = false # the global session may PROPOSE a method from how you phrase requests (a small sample of your prompts, no model):

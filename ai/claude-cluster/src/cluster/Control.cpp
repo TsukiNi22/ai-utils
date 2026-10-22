@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #include <utils/utils.hpp>
 #include "cluster/VoiceEngines.hpp"
+#include "cluster/Orchestrator.hpp"
 #include "cluster/Attachments.hpp"
 #include "cluster/External.hpp"
 #include "cluster/Settings.hpp"
@@ -25,7 +26,6 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Machine.hpp"
-#include "cluster/Orchestrator.hpp"
 #include "cluster/Policy.hpp"
 #include "cluster/Editor.hpp"
 #include "cluster/Stats.hpp"

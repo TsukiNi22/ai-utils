@@ -18,6 +18,7 @@ File Description:
 \**************************************************************/
 
 #define _Attribute
+#define _Exception
 #include <utils/utils.hpp>
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"

@@ -81,6 +81,9 @@ struct SettingHit {
 
 _cold _nodiscard std::vector<cluster::SettingsPage> settings_pages(const cluster::Config& config);
 _cold _nodiscard std::string setting_next(const cluster::Setting& setting, const std::string& value, const int step); // Bool / Choice / Int / Float
+// The values a text setting takes, for what is typed so far (models, providers, folders, files, programs; a list: the last item), the closest first;
+// each one is the whole new value
+_cold _nodiscard std::vector<std::string> setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed);
 _cold _nodiscard std::string setting_check(const cluster::Setting& setting, const std::string& value); // error message, empty: valid
 _cold bool settings_set(const cluster::Config& config, const std::string& section, const std::string& key, const std::string& value);
 // the settings matching a text: their name (c2dmp-hsm, [ui] matching) far before their description, the closest first

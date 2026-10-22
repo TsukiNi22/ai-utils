@@ -127,6 +127,18 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
     std::thread([this, version]() {
         // the turns running end first (their sessions named), the sessions saved, then the new binary run in place of this one
         const std::uint64_t id = this->progressBegin("Updating claude-cluster to " + version);
+        this->progressStep(id, "trying the new binary first (it must start on its own)");
+        const std::filesystem::path exe = cluster::self_exe();
+        std::string problem;
+        if (cluster::binary_version(exe) != version) problem = "the binary on disk is not " + version + " (an install in progress?)";
+        else problem = cluster::upgrade_selftest(exe);
+        if (!problem.empty()) { // nothing was stopped: this version goes on, the update offered again
+            this->progressEnd(id, false, "update to " + version + " cancelled, still on " + CLUSTER_VERSION + ": " + problem, false);
+            this->notice_("", "update to " + version + " cancelled (" + problem + "): claude-cluster " + CLUSTER_VERSION + " goes on", true);
+            this->_upgradeStarted = false;
+            ++this->_version;
+            return;
+        }
         for (;;) {
             std::string names;
             for (const cluster::Snapshot& s: this->list(true))

@@ -136,6 +136,7 @@ _cold void upgrade_request(const bool restore);             // after the quit: t
 _cold _nodiscard bool upgrade_requested(void);
 _cold void upgrade_exec(void);                              // the exec of it (main, after the quit); back only when it failed
 _cold _nodiscard int version_compare(const std::string& a, const std::string& b);    // "1.4.18" vs "1.4.17": > 0
+_cold _nodiscard std::string upgrade_selftest(const std::filesystem::path& binary);   // the binary started alone (own folders, no global session): empty when it runs, else why not
 _cold _nodiscard std::string binary_version(const std::filesystem::path& binary);   // its --version ("1.4.18"); empty: not one
 _nodiscard inline bool quit_requested(void) {return quit_signal;}; // a signal asked to quit: the interface closes as with its quit key
 

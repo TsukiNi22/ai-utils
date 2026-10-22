@@ -38,7 +38,8 @@
 #   --no-context         leave the context aside (default install / remove / status handle it)
 #   --no-rtk             context: don't install rtk
 #   --no-hooks           context: don't touch ~/.claude/settings.json
-#   --purge              with remove: also delete the managed clone (curl/wget mode)
+#   --purge              with remove: also delete what is kept besides the installed files - the build trees / logs of the tools
+#                        (tmp, cache) and the managed clone (curl/wget mode); without it a tool's remove deletes its binary only
 #   --verbose            tools: stream the raw build output instead of the progress display
 #   --quiet              tools: only the final line of each tool (and the failures)
 #   -h, --help           show this help
@@ -798,12 +799,16 @@ case "$COMMAND" in
             if tool_installed "$tool" || { $FORCE && [[ -e "$PREFIX/bin/$tool" ]]; }; then
                 rm -f "$PREFIX/bin/$tool"
                 remove_completion "$tool"
-                rm -rf "${TOOLS_BUILD:?}/$tool" "$TOOLS_BUILD/$tool.log"
                 echo "  removed $tool ($PREFIX/bin/$tool)"
             elif [[ -e "$PREFIX/bin/$tool" ]]; then
                 echo "  skip $tool: $PREFIX/bin/$tool is another program (use --force to remove it)"
             else
                 echo "  $tool: not installed"
+            fi
+            # the build tree and its log (the cache of the next install): only with --purge
+            if $PURGE && { [[ -e "$TOOLS_BUILD/$tool" ]] || [[ -e "$TOOLS_BUILD/$tool.log" ]]; }; then
+                rm -rf "${TOOLS_BUILD:?}/$tool" "$TOOLS_BUILD/$tool.log"
+                echo "  purged the build cache of $tool ($TOOLS_BUILD/$tool)"
             fi
         done
         ;;

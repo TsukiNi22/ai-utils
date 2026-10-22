@@ -27,7 +27,9 @@ File Description:
 #include "cluster/Auth.hpp"
 #include "cluster/Mcp.hpp"
 #include <toml++/toml.hpp>
+#include <filesystem>
 #include <algorithm>
+#include <unistd.h>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -157,7 +159,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.promptColorTask;}},
             {"ui", "panels", "Panels of a new session", SettingKind::List, {}, "skills, tokens, context, cost, git, diff, tools, files", false,
                 [](const cluster::Config& cf) {return join_(cf.panels);}},
-            {"ui", "restore", "Previous sessions at start", SettingKind::Choice, {"ask", "always", "never"}, "ask (like Firefox), always restore, never (to the trash)", true,
+            {"ui", "restore", "Previous sessions at start", SettingKind::Choice, {"always", "ask", "never"}, "always restore (default), ask at every start (like Firefox), never (to the trash)", true,
                 [](const cluster::Config& cf) {return cf.restore;}},
             {"ui", "vim", "Vim mode of the prompt", SettingKind::Bool, {}, "Esc: Normal mode (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o: Insert", false,
                 [](const cluster::Config& cf) {return cf.vim ? std::string("true") : std::string("false");}},
@@ -229,6 +231,15 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.effort;}},
             {"agent", "allow_bypass", "bypassPermissions possible", SettingKind::Bool, {}, "claude launched with --allow-dangerously-skip-permissions (needed to switch to bypass)", true,
                 [](const cluster::Config& cf) {return cf.allowBypass ? std::string("true") : std::string("false");}},
+            {"agent", "orchestration", "Orchestration mode", SettingKind::Choice, {"compact", "hybrid", "ultra"},
+                "how readily the global session splits work into sub-sessions (told to it in its system prompt, taken at its next start): compact - the fewest tokens, "
+                "medium tasks go in ONE session (one per project), it asks you before splitting; hybrid - several sub-sessions when it pays, sub-globals rarely; ultra - "
+                "a sub-session (and sub-globals) for each different task", false,
+                [](const cluster::Config& cf) {return cf.orchestration;},
+                [](const std::string& value) {
+                    return value == "compact" ? std::string("one session per project, asks before splitting") : value == "ultra" ? std::string("a sub-session or sub-global per task")
+                        : std::string("several sub-sessions when it pays, sub-globals rarely");
+                }},
             {"agent", "work_method", "Work method", SettingKind::Choice, {"free", "list-review", "one-task", "plan-first", "custom"},
                 "how the work is organised: injected, short, in the system prompt of the sub-sessions and of the global session, which splits the requests accordingly; "
                 "taken by each session at its next start", false,
@@ -940,12 +951,89 @@ _cold cluster::Json cluster::accounts_status_get(void)
     return accounts_json_.is_object() ? accounts_json_ : cluster::Json::object(); // nothing yet: no state
 }
 
+/* the suggestions of a text value */
+_cold std::vector<std::string> cluster::setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed)
+{
+    if (setting.kind != SettingKind::Text && setting.kind != SettingKind::List) return {};
+    // a list: the item being typed is the one completed, the others kept
+    std::string head;
+    std::string word = typed;
+    if (setting.kind == SettingKind::List) {
+        const std::size_t comma = typed.rfind(',');
+        if (comma != std::string::npos) {
+            head = typed.substr(0, comma + 1) + (typed.size() > comma + 1 && typed[comma + 1] == ' ' ? " " : "");
+            word = cluster::trim(typed.substr(comma + 1));
+        }
+    }
+    const std::string key = setting.key;
+    const std::string lowered = [&key]() {std::string s = key; std::transform(s.begin(), s.end(), s.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));}); return s;}();
+    const std::function<bool(const char*)> ends = [&lowered](const char* tail) {return lowered.size() >= std::string(tail).size() && lowered.compare(lowered.size() - std::string(tail).size(), std::string::npos, tail) == 0;};
+    std::vector<std::string> pool;
+    bool names = true; // ranked by the matching; a path or a program: the entries of the folder / PATH starting with the word
+    if (ends("cwd") || ends("dir") || ends("folder") || ends("path") || ends("file") || ends("editor") || setting.section == "commands" || ends("command") || ends("terminal")) {
+        const bool program = setting.section == "commands" || ends("command") || ends("editor") || ends("terminal");
+        const bool pathy = word.find('/') != std::string::npos || word.starts_with("~") || word.starts_with(".");
+        if (!program || pathy) { // a path: the folder typed, its entries
+            std::string dirPart = word.substr(0, word.rfind('/') == std::string::npos ? 0 : word.rfind('/') + 1);
+            const std::string base = word.substr(dirPart.size());
+            std::error_code error;
+            const std::filesystem::path folder = dirPart.empty() ? std::filesystem::path(".") : cluster::expand_home(dirPart);
+            for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(folder, std::filesystem::directory_options::skip_permission_denied, error)) {
+                const std::string name = entry.path().filename().string();
+                if (!base.starts_with(".") && name.starts_with(".")) continue;
+                if (name.compare(0, base.size(), base) != 0) continue;
+                const bool directory = entry.is_directory(error);
+                if (!directory && (ends("cwd") || ends("dir") || ends("folder"))) continue; // a folder wanted
+                pool.push_back(dirPart + name + (directory ? "/" : ""));
+                if (pool.size() >= 200) break;
+            }
+            std::sort(pool.begin(), pool.end());
+            names = false;
+        } else { // a program: the executables of the PATH
+            const char* path = std::getenv("PATH");
+            std::set<std::string> seen;
+            for (const std::string& dir: cluster::split(path != nullptr ? path : "", ':')) {
+                std::error_code error;
+                for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(dir, std::filesystem::directory_options::skip_permission_denied, error))
+                    if (seen.size() < 6000 && entry.is_regular_file(error) && ::access(entry.path().c_str(), X_OK) == 0) seen.insert(entry.path().filename().string());
+            }
+            pool.assign(seen.begin(), seen.end());
+        }
+    } else if (lowered.find("model") != std::string::npos) {
+        pool = {"opus", "sonnet", "haiku", "fable", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"};
+    } else if (lowered.find("provider") != std::string::npos || lowered.find("backend") != std::string::npos) {
+        pool = {"claude", "ollama", "openai", "opencode", "gemini"};
+        for (const auto &[name, provider]: config.providers)
+            if (std::find(pool.begin(), pool.end(), name) == pool.end()) pool.push_back(name);
+    } else if (ends("effort") || ends("efforts")) {
+        pool = {"low", "medium", "high", "xhigh", "max"};
+    } else if (ends("shell") || ends("frontend")) {
+        pool = {"tty", "gui", "web"};
+    }
+    if (pool.empty()) return {};
+    std::vector<std::pair<float, std::string>> ranked;
+    for (const std::string& item: pool) {
+        if (word.empty()) {
+            ranked.emplace_back(0.0f, item);
+        } else if (!names) {
+            ranked.emplace_back(0.0f, item);
+        } else if (const std::optional<float> score = cluster::match_score(word, item)) {
+            ranked.emplace_back(*score, item);
+        }
+    }
+    std::stable_sort(ranked.begin(), ranked.end(), [](const std::pair<float, std::string>& a, const std::pair<float, std::string>& b) {return a.first < b.first;});
+    std::vector<std::string> out;
+    for (std::size_t i = 0; i < ranked.size() && i < 8; ++i)
+        if (head + ranked[i].second != typed) out.push_back(head + ranked[i].second);
+    return out;
+}
+
 /* the protected settings */
 _cold bool cluster::setting_protected(const std::string& section, const std::string& key)
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
-        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "agent.work_method", "agent.work_method_text", "agent.work_method_detect", "agent.work_method_every", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
+        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "agent.work_method", "agent.orchestration", "agent.work_method_text", "agent.work_method_detect", "agent.work_method_every", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"
         || (section == "sessions" && key == "budget_usd") || keys.contains(section + "." + key);

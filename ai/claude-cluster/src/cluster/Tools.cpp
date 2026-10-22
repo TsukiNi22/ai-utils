@@ -16,9 +16,12 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Tools.hpp"
 #include <sys/utsname.h>
+#include <sys/socket.h>
 #include <sys/epoll.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <algorithm>
+#include <sys/un.h>
 #include <unistd.h>
 #include <csignal>
 #include <fcntl.h>
@@ -471,6 +474,67 @@ _cold int cluster::version_compare(const std::string& a, const std::string& b)
         if (u != v) return u < v ? -1 : 1;
     }
     return 0;
+}
+
+_cold std::string cluster::upgrade_selftest(const std::filesystem::path& binary)
+{
+    // the new binary run as a core of its own (own config, data and socket, no global session) and asked its status: an update to a binary
+    // that does not start must never replace the running one
+    std::error_code error;
+    const std::filesystem::path dir = cluster::data_dir() / ("upgrade-test-" + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir / "cfg", error);
+    std::filesystem::create_directories(dir / "data", error);
+    std::ofstream(dir / "cfg" / "config.toml") << "[global]\nenabled = false\n[ui]\nnotify = false\nmachine_days = 0\n[user]\nname = \"t\"\nemail = \"t@t.t\"\n[usage]\naccount = false\n";
+    const std::string socket = (dir / "sock").string();
+    std::string problem;
+    const pid_t child = ::fork();
+    if (child < 0) return "fork failed (" + std::string(std::strerror(errno)) + ")";
+    if (child == 0) {
+        ::setsid();
+        const int null = ::open("/dev/null", O_RDWR);
+        if (null >= 0) {
+            ::dup2(null, 0);
+            ::dup2(null, 1);
+            ::dup2(null, 2);
+        }
+        ::setenv("CLAUDE_CLUSTER_CONFIG_DIR", (dir / "cfg").c_str(), 1);
+        ::setenv("CLAUDE_CLUSTER_DATA_DIR", (dir / "data").c_str(), 1);
+        ::setenv("CLAUDE_CLUSTER_SOCKET", socket.c_str(), 1);
+        ::unsetenv("CLAUDE_CLUSTER_UPGRADED_FROM");
+        ::execl(binary.c_str(), binary.c_str(), "serve", static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+    bool answered = false;
+    for (int i = 0; i < 100 && !answered; ++i) { // 10 s
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        int status = 0;
+        if (::waitpid(child, &status, WNOHANG) == child) {
+            problem = WIFSIGNALED(status) ? "it crashed at the start (signal " + std::to_string(WTERMSIG(status)) + ")" : "it stopped at the start (exit " + std::to_string(WEXITSTATUS(status)) + ")";
+            std::filesystem::remove_all(dir, error);
+            return problem;
+        }
+        const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd < 0) continue;
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        std::strncpy(address.sun_path, socket.c_str(), sizeof(address.sun_path) - 1);
+        answered = ::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+        ::close(fd);
+    }
+    if (!answered) problem = "it did not answer within 10 s";
+    ::kill(-child, SIGTERM);
+    for (int i = 0; i < 30; ++i) { // 3 s to stop, then killed
+        int status = 0;
+        if (::waitpid(child, &status, WNOHANG) == child) {
+            std::filesystem::remove_all(dir, error);
+            return problem;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ::kill(-child, SIGKILL);
+    (void)::waitpid(child, nullptr, 0);
+    std::filesystem::remove_all(dir, error);
+    return problem;
 }
 
 _cold std::string cluster::binary_version(const std::filesystem::path& binary)

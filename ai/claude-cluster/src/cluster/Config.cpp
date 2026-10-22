@@ -15,8 +15,8 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Templates.hpp"
 #include "cluster/Config.hpp"
-#include "cluster/Match.hpp"
 #include "cluster/Origin.hpp"
+#include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
 #include <toml++/toml.hpp>
 #include <algorithm>
@@ -182,6 +182,8 @@ _cold void cluster::Config::load(void)
     this->mode = table["agent"]["permission_mode"].value_or(this->mode);
     this->effort = table["agent"]["effort"].value_or(this->effort);
     this->allowBypass = table["agent"]["allow_bypass"].value_or(this->allowBypass);
+    this->orchestration = table["agent"]["orchestration"].value_or(this->orchestration);
+    if (this->orchestration != "compact" && this->orchestration != "ultra") this->orchestration = "hybrid";
     this->workMethod = table["agent"]["work_method"].value_or(this->workMethod);
     this->workMethodText = table["agent"]["work_method_text"].value_or(this->workMethodText);
     this->workMethodDetect = table["agent"]["work_method_detect"].value_or(this->workMethodDetect);

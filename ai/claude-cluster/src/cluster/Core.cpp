@@ -426,14 +426,17 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!this->_options.layout.empty()) app.manager->setUi("layout", this->_options.layout);
     if (!this->_options.style.empty()) app.manager->setUi("style", this->_options.style);
     const std::string restore = this->_options.restore.empty() ? app.config.restore : this->_options.restore;
+    bool askedLater = false;
     if (app.manager->restorable()) {
         if (restore == "always") app.manager->restorePrevious(true);
         else if (restore == "never") app.manager->restorePrevious(false);
-        else if (linger) app.manager->askRestoreLater(); // the core of the interfaces: its first interface asks
-        else if (serve) app.manager->restorePrevious(true); // nobody to ask
+        else if (linger) { // the core of the interfaces: its first interface asks
+            app.manager->askRestoreLater();
+            askedLater = true;
+        } else if (serve) app.manager->restorePrevious(true); // nobody to ask
         else app.askRestore = true;
     }
-    if (!app.askRestore && !(linger && app.manager->restorable())) app.manager->startGlobal(); // asked: started by the answer (resumed or new)
+    if (!app.askRestore && !askedLater) app.manager->startGlobal(); // asked: started by the answer (resumed or new); the tick starts it if it is missing anyway
     app.askMachine = serve ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
     app.web = std::make_unique<cluster::Web>(*app.manager, app.voice.get(), this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);

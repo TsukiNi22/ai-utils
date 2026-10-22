@@ -167,6 +167,7 @@ SETUP_JOBS=2 ./setup.sh install tools     # parallel jobs of the builds (default
 ./setup.sh update                         # git pull of the repository (+ rebuild of the installed tools)
 ./setup.sh remove                         # remove every skill, tool and the context of this repo
 ./setup.sh remove cpp-class               # remove only one (`remove context` restores the replaced files)
+./setup.sh remove                         # a tool: its binary (and completion) only; --purge also deletes the build trees / logs (tmp, cache) of the tools
 ./setup.sh remove --purge                 # (curl/wget mode) also delete the managed clone
 ./setup.sh hook                           # xstyle pre-commit hook in the git repository of the current directory
 ./setup.sh hook --fail-on minor --shared  # options (git/pre-commit/scripts/install_hook.sh --help), hook status | remove
