@@ -1,6 +1,6 @@
 ---
 name: doc
-description: Router for documentation tasks of the user - README and Markdown docs, GitHub wiki, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), explanation pages (simple + technical), protocol / wire format docs, HTML style, reports, code comments - loads readme-style, wiki-style, html-doc, explain-doc, protocol-doc, html-style, report, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
+description: Router for documentation tasks of the user - README and Markdown docs, GitHub wiki, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), explanation pages (simple + technical), protocol / wire format docs, HTML style, reports, code comments - loads readme-style, wiki-style, html-doc, explain-doc, protocol-doc, html-style, report, docs-update, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
 disable-model-invocation: true
 ---
 
@@ -29,7 +29,8 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 | comments / documentation inside the code (any language), file headers | `comments` (+ `cpp-comments` for C++, `python-comments` for Python) |
 | a result / report / study delivered as PDF | `report` |
 | doc of a libutils based project | also `libutils` (exact APIs) |
-| full documentation pass | `readme-style` + `wiki-style` (if a wiki exists) + `html-doc` + `git-conventions` (CHANGELOG) |
+| update **all** the docs after changes / a new version (README, CHANGELOG, HTML site, gh-pages, wiki, packages / manifests, install scripts, help texts) | `docs-update` (it loads the others by surface: `readme-style`, `wiki-style`, `html-doc`, `git-conventions`) |
+| full documentation pass | `docs-update` |
 
 ## Always
 - An audit / summary of the docs is delivered through `report` (format asked once, English, `audit/` at the repository root).

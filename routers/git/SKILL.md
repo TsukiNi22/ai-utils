@@ -1,6 +1,6 @@
 ---
 name: git
-description: Router for git / GitHub tasks of the user - commit messages, branches, pull requests, tags, releases, CHANGELOG, repository setup, CI/CD workflows - loads git-conventions, ci-cd, pre-commit (and the doc skills when a README/CHANGELOG is involved). Invoke manually with /git.
+description: Router for git / GitHub tasks of the user - commit messages, branches, pull requests, tags, releases, CHANGELOG, repository setup, CI/CD workflows - loads git-conventions, git-commit, ci-cd, pre-commit (and the doc skills when a README/CHANGELOG is involved). Invoke manually with /git.
 disable-model-invocation: true
 ---
 
@@ -20,7 +20,8 @@ release, PR...).
 ## Skills
 | Situation | Skills |
 |---|---|
-| commit message, commit, amend, branch name, tag, version bump | `git-conventions` |
+| **commit the current changes / diff locally** ("fais le commit", "commit tout"): grouped logical commits, title-only messages, no co-author, never pushed | `git-commit` (+ `git-conventions`) |
+| commit message only, amend, branch name, tag, version bump | `git-conventions` |
 | release (tag + GitHub release + CHANGELOG) | `git-conventions` (+ `readme-style` if the README changes) |
 | pull request (team project only) | `git-conventions` |
 | CHANGELOG only | `git-conventions` |
@@ -30,6 +31,7 @@ release, PR...).
 
 ## Always
 - Never commit / push / tag / release / open a PR without an explicit request in the current message: write the
-  message and suggest the command otherwise.
+  message and suggest the command otherwise. Asking to commit the current changes (`git-commit`) is that request for
+  the local commits only; the push stays a suggestion.
 - No AI attribution (Co-Authored-By, "Generated with") except where the user allowed it (the ai-utils repository).
 - Start the answer with one line listing the loaded skills.
