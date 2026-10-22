@@ -35,7 +35,7 @@
     },
     {
       "name": "ai-skills",
-      "description": "AI context: token-minimal texts and outputs, --rtk modes of programs, questions asked through the built-in QCM / Q&A popup (skills: interactive-questions, rtk)",
+      "description": "AI context: token-minimal texts and outputs, --rtk modes of programs, questions asked through the built-in QCM / Q&A popup and clarification of unclear requests before acting (skills: clarify, interactive-questions, rtk)",
       "source": "./",
       "strict": false,
       "skills": [

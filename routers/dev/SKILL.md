@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, python, git, doc, style, audit and legal routers: cpp-project, cpp-class, python-project, python-class, python-style, python-comments, ci-cd, pre-commit, rtk, interactive-questions, coverage, benchmark, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, wiki-style, html-doc, html-style, explain-doc, report, license, audit-deps) before doing the task.
+description: Global development router - invoked manually with /dev, it inspects the request, the project and the languages involved, then loads the matching skills of the user (using the tables of the cpp, python, git, doc, style, audit and legal routers: cpp-project, cpp-class, python-project, python-class, python-style, python-comments, ci-cd, pre-commit, rtk, interactive-questions, clarify, coverage, benchmark, cpp-style, coding-style, cpp-comments, comments, cmake-style, cpp-tests, tests, audit-bugs, audit-quality, libutils, libutils-exception, libutils-install, libutils-setup, git-conventions, readme-style, wiki-style, html-doc, html-style, explain-doc, report, license, audit-deps) before doing the task.
 disable-model-invocation: true
 ---
 
@@ -43,6 +43,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | pre-commit hook (xstyle) | `pre-commit` | `git` |
 | compact a text / output for an AI, save tokens, add an `--rtk` mode to a program | `rtk` | - |
 | choices / ideas / questions to ask the user ("propose en qcm", "demande-moi", several approaches) | `interactive-questions` | - |
+| request unclear / ambiguous / incomplete, "clarifie", "vérifie que tu as compris", ask before acting | `clarify` (uses `interactive-questions`) | - |
 | set up a whole new project (architecture + tests + license + git + CI/CD + README) | the steps of `setup-project` (its table, skills loaded in that order) | `setup-project` |
 | several / all audits of the project at once | follow the `audit` router (checklist of audits + format) | `audit` |
 | bugs / UB / crashes / sanitizers audit | `audit-bugs` | `cpp` |

@@ -68,6 +68,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`pre-commit`](git/pre-commit/SKILL.md) | xstyle pre-commit hook of a repository: asks every option (fail on major / warn on minor by default, staged lines, safe fixes, missing xstyle = warning only, local or shared `.githooks`), keeps an existing hook, installs the missing tools on request, demo repository to try it (`scripts/demo_repo.sh`); also `./setup.sh hook` from the repository. |
 | [`git-commit`](git/git-commit/SKILL.md) | Commits the diff that exists right now, locally: reads the changes, groups them in logical commits (CHANGELOG last), stages by path, one title-only message each (`type(scope): message`, no body, no co-author, per `git-conventions`), never pushes; the ai-utils repository keeps its own trailer. |
 | [`interactive-questions`](ai/interactive-questions/SKILL.md) | Asks through the built-in QCM / Q&A popup (AskUserQuestion) instead of a list in the text: questions, proposals, ideas, choices, rounds of ideas; French labels, 1-4 questions × 2-4 options, the recommended one first, multi choice, previews to compare, the answers (and their notes) followed exactly. Works in claude-cluster too (its popups, the voice, *Global answers*). |
+| [`clarify`](ai/clarify/SKILL.md) | Summoned before a request: lists everything unclear (scope, ambiguous words, missing details, several approaches, contradictions, risky actions), asks it through `interactive-questions` in as many rounds as needed (structuring questions first), then acts on the answers; no popup when nothing is ambiguous. |
 | [`rtk`](ai/rtk/SKILL.md) | Token-minimal text for an AI: compacts a text / output / log (legend once, one record per line, shared values written once, one summary line; `scripts/compact.py` first pass) and designs / implements an `--rtk` mode on a program or script, like `xstyle --rtk`. |
 | [`benchmark`](audit/benchmark/SKILL.md) | Profiling of the current program (perf stat / record, hyperfine, callgrind, heaptrack, flame graph; missing tools installed only after a yes): hot functions, why they are slow, quick wins vs complex changes with their gain, PDF report, optional before / after. |
 | [`coverage`](tests/coverage/SKILL.md) | Test coverage of a `cpp-tests` project (clang / llvm-cov in a copy): per file, functions never called, ranges never run; then tests written module by module until it stops growing, and always the question of a report on what is still missing. |
@@ -201,7 +202,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
 | `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report, docs-update |
 | `git-skills` | git-conventions, git-commit, ci-cd, pre-commit |
-| `ai-skills` | rtk |
+| `ai-skills` | interactive-questions, clarify, rtk |
 | `style-skills` | coding-style, comments |
 | `python-skills` | python-project, python-class, python-style, python-comments |
 | `test-skills` | tests, cpp-tests, coverage |
@@ -242,7 +243,7 @@ git/       git-conventions, git-commit, ci-cd, pre-commit
 audit/     audit-bugs, audit-quality, audit-deps, benchmark
 legal/     license
 system/    computer-clean
-ai/        rtk, claude-cluster (tool)
+ai/        interactive-questions, clarify, rtk, claude-cluster (tool)
 context/   global context of Claude Code (CLAUDE.md, RTK.md, hooks, sudo-askpass), installed by setup.sh
 ```
 
