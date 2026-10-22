@@ -240,6 +240,14 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                     return value == "compact" ? std::string("one session per project, asks before splitting") : value == "ultra" ? std::string("a sub-session or sub-global per task")
                         : std::string("several sub-sessions when it pays, sub-globals rarely");
                 }},
+            {"service", "keep_awake", "Keep the computer awake", SettingKind::Choice, {"off", "working", "always"},
+                "the computer does not go to sleep by itself (idle suspend; a locked screen never stops claude-cluster, only a suspend does): off - never; working - while a "
+                "session works on a turn; always - while claude-cluster runs. The lid and the suspend menu still work (systemd-inhibit, idle only)", false,
+                [](const cluster::Config& cf) {return cf.keepAwake;},
+                [](const std::string& value) {
+                    return value == "off" ? std::string("the computer sleeps as usual") : value == "always" ? std::string("no idle sleep while claude-cluster runs")
+                        : std::string("no idle sleep while a session works");
+                }},
             {"agent", "work_method", "Work method", SettingKind::Choice, {"free", "list-review", "one-task", "plan-first", "custom"},
                 "how the work is organised: injected, short, in the system prompt of the sub-sessions and of the global session, which splits the requests accordingly; "
                 "taken by each session at its next start", false,

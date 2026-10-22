@@ -184,6 +184,8 @@ _cold void cluster::Config::load(void)
     this->allowBypass = table["agent"]["allow_bypass"].value_or(this->allowBypass);
     this->orchestration = table["agent"]["orchestration"].value_or(this->orchestration);
     if (this->orchestration != "compact" && this->orchestration != "ultra") this->orchestration = "hybrid";
+    this->keepAwake = table["service"]["keep_awake"].value_or(this->keepAwake);
+    if (this->keepAwake != "off" && this->keepAwake != "always") this->keepAwake = "working";
     this->workMethod = table["agent"]["work_method"].value_or(this->workMethod);
     this->workMethodText = table["agent"]["work_method_text"].value_or(this->workMethodText);
     this->workMethodDetect = table["agent"]["work_method_detect"].value_or(this->workMethodDetect);

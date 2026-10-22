@@ -1134,6 +1134,12 @@ _cold void cluster::Manager::tick(void)
     if (++seconds % 300 == 1) this->purge();
     if (seconds % 3 == 0) this->upgradeCheck_();
     if (seconds % 5 == 0) cluster::accounts_status_set(this->accountsJson());
+    if (seconds % 5 == 2 && this->_config.keepAwake != "off") { // the computer kept from sleeping by itself (the idle suspend only)
+        bool working = this->_config.keepAwake == "always";
+        for (const cluster::Snapshot& s: this->list(true))
+            working = working || s.state == cluster::State::Working || s.queued > 0;
+        cluster::keep_awake(working);
+    }
     {
         // the prompts queued while a turn runs: given to claude after a moment (its next step)
         std::vector<std::shared_ptr<cluster::Session>> sessions;

@@ -837,6 +837,7 @@ class TtyUi {
             return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.border) | ftxui::bgcolor(t.surface)
                 | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 88) | ftxui::center;
         }
+        int _upgradeFocus = 0;                      // the choice of the update popup under the cursor: 0 Update, 1 Ignore, 2 Quit (arrows, Tab, Enter)
         std::uint64_t _progressHidden = 0;          // the popup of a long operation hidden (Esc)
 
         ftxui::Element failureBox_(const std::vector<cluster::Failure>& failed)
@@ -5460,16 +5461,21 @@ class TtyUi {
             };
             if (this->upgradeShown_()) {
                 const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
+                // a choice: under the cursor, filled in its colour with arrows around; the others a quiet button with their key (a click = the key)
+                const auto choice = [&](const int index, const std::string& label, const std::string& letter, const ftxui::Color& color, const ftxui::Event& key) {
+                    const bool focused = this->_upgradeFocus == index;
+                    return press(focused ? ftxui::text("❯" + label + "[" + letter + "] ❮") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(color)
+                        : ftxui::text(" " + label + "[" + letter + "]  ") | ftxui::color(color) | ftxui::bgcolor(this->_theme.surface), key);
+                };
                 return box(ftxui::vbox({ftxui::text(" A newer claude-cluster is installed") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text(""),
                     ftxui::text(std::string(" ") + CLUSTER_VERSION + "  →  " + offer.version) | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text(""),
                     ftxui::paragraph(" Update: the turns running end first, the sessions are saved, the core and every terminal / window switch to the new "
                         "version by themselves, the sessions resumed - nothing to start again by hand.") | ftxui::color(this->_theme.text),
                     ftxui::text(""),
-                    ftxui::hbox({press(ftxui::text(" [u] / Enter  Update ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
-                            ftxui::Event::Character('u')), ftxui::text("   "),
-                        press(ftxui::text(" [i]  Ignore this version ") | ftxui::color(this->_theme.text), ftxui::Event::Character('i')), ftxui::text("   "),
-                        press(ftxui::text(" [q]  Quit claude-cluster ") | ftxui::color(this->_theme.error), ftxui::Event::Character('q'))}),
-                    ftxui::text(" Esc: later (the palette or a new start ask again)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 92);
+                    ftxui::hbox({choice(0, " Update ", "u", this->_theme.accent, ftxui::Event::Character('u')), ftxui::text("  "),
+                        choice(1, " Ignore this version ", "i", this->_theme.text, ftxui::Event::Character('i')), ftxui::text("  "),
+                        choice(2, " Quit claude-cluster ", "q", this->_theme.error, ftxui::Event::Character('q'))}),
+                    ftxui::text(" ←/→ / Tab: choose · Enter: do it · Esc: later (the palette or a new start ask again)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 92);
             }
             if (const cluster::Link link = this->_manager.link(); link.lost && link.upgrading) {
                 // the core being updated: this terminal follows it (the new binary run in place of this one)
@@ -6308,7 +6314,11 @@ class TtyUi {
         {
             if (event != ftxui::Event::Custom && !event.is_mouse() && this->upgradeShown_()) {
                 // a newer claude-cluster installed: u / Enter update, i ignore it, q quit everything, Esc later
-                if (event == ftxui::Event::Character('u') || event == ftxui::Event::Return) this->upgrade_("update");
+                static const std::array<const char*, 3> choices = {"update", "ignore", "quit"};
+                if (event == ftxui::Event::ArrowRight || event == ftxui::Event::Tab) this->_upgradeFocus = (this->_upgradeFocus + 1) % 3;
+                else if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::TabReverse) this->_upgradeFocus = (this->_upgradeFocus + 2) % 3;
+                else if (event == ftxui::Event::Return) this->upgrade_(choices[static_cast<std::size_t>(this->_upgradeFocus)]);
+                else if (event == ftxui::Event::Character('u')) this->upgrade_("update");
                 else if (event == ftxui::Event::Character('i')) this->upgrade_("ignore");
                 else if (event == ftxui::Event::Character('q')) this->upgrade_("quit");
                 else if (event == ftxui::Event::Escape) this->_upgradeLater = this->_manager.upgradeOffer().version;

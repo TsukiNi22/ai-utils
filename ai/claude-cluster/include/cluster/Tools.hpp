@@ -102,6 +102,7 @@ _nodiscard std::string tail_utf8(const std::string& text, const std::size_t max)
 _nodiscard std::string head_utf8(const std::string& text, const std::size_t max); // its first max bytes (whole characters, "[...]" after)
 _nodiscard std::string model_label(const std::string& backend, const std::string& modelUsed);   // provider/model loaded, '(default)' when none was chosen
 _nodiscard std::string effort_label(const std::string& effort, const std::string& configured, const std::string& backend, const std::string& modelUsed);   // think <level>, '(default)' when it is the default one
+void keep_awake(bool want);                                           // want: a systemd idle inhibitor kept alive (renewed before it ends); not: it ends by itself
 _nodiscard std::string claude_default_model(void);                    // the model Claude Code starts on (its settings.json, an alias resolved by the models used before)
 _nodiscard std::string claude_default_effort(const std::string& model);   // its thinking level for a model (settings.json modelSettings), empty: unknown
 _nodiscard std::string human_tokens(const std::int64_t tokens);   // 12.3k, 1.2M

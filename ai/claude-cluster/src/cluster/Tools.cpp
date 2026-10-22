@@ -422,6 +422,19 @@ _cold static std::string claude_default_model_read_(void)
     return found.empty() ? model : found;
 }
 
+_cold void cluster::keep_awake(const bool want)
+{
+    // an inhibitor of 120 s renewed every 100 s while wanted: nothing to stop (it ends alone, even when this process dies)
+    static std::mutex lock;
+    static std::int64_t last = 0;
+    const std::lock_guard<std::mutex> guard(lock);
+    if (!want || cluster::now() - last < 100) return;
+    last = cluster::now();
+    std::thread([]() {
+        (void)std::system("systemd-inhibit --what=idle --who=claude-cluster --why='sessions working' --mode=block sleep 120 >/dev/null 2>&1");
+    }).detach();
+}
+
 _cold std::string cluster::claude_default_model(void)
 {
     // drawn at every frame by every interface: read at most once a minute (the ledger is scanned), from any thread
