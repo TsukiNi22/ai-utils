@@ -1054,9 +1054,10 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
         std::copy_if(this->_previous.begin(), this->_previous.end(), std::back_inserter(previous), [](const cluster::SessionSpec& s) {return !s.global;});
         std::erase_if(this->_previous, [](const cluster::SessionSpec& s) {return !s.global;});
     }
-    const std::uint64_t shown = restore && previous.size() > 1 ? this->progressBegin("Restoring the previous run (" + std::to_string(previous.size()) + " sessions)") : 0;
+    const std::uint64_t shown = restore && !previous.empty() ? this->progressBegin("Restoring the previous run (" + std::to_string(previous.size()) + " session" + (previous.size() == 1 ? "" : "s") + ")") : 0;
+    std::size_t done = 0;
     for (cluster::SessionSpec& spec: previous) {
-        if (shown != 0) this->progressStep(shown, "resuming " + spec.name + " (" + cluster::short_path(spec.cwd) + ")");
+        if (shown != 0) this->progressStep(shown, "resuming " + std::to_string(++done) + " / " + std::to_string(previous.size()) + ": " + spec.name + " (" + cluster::short_path(spec.cwd) + ")");
         if (!restore) {
             spec.deleted = cluster::now();
             std::lock_guard<std::mutex> lock(this->_mutex);

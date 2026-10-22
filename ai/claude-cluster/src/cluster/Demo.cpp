@@ -182,15 +182,20 @@ _cold void cluster::demo_prepare(const bool web)
 
 _cold void cluster::demo_seed(cluster::Manager& manager)
 {
-    // in a thread of its own: the sessions start one after the other (the interface shows them arriving), then the labels, the tasks, the schedules
+    // in a thread of its own, behind one progress popup: the sessions, the labels, then every agent starts at once, then the tasks and the schedules
     std::thread([&manager]() {
         const std::function<void(int)> wait = [](const int ms) {std::this_thread::sleep_for(std::chrono::milliseconds(ms));};
         try {
             const std::int64_t now = cluster::now();
             const std::filesystem::path projects = base_() / "projects";
-            wait(2500);
+            cluster::Busy busy(manager, "Loading the demo");
+            cluster::busy_step("the global session");
+            wait(1800);
             std::map<std::string, std::string> ids;
+            std::vector<std::pair<std::string, std::string>> prompts;   // what each agent is asked, all sent once everything is there
+            std::size_t index = 0;
             for (const Script& script: scripts_()) {
+                cluster::busy_step("session " + std::to_string(++index) + " / " + std::to_string(scripts_().size()) + ": " + script.name + " (" + script.project + ")");
                 cluster::SpawnRequest request;
                 request.cwd = (projects / script.project).string();
                 request.name = script.name;
@@ -213,17 +218,24 @@ _cold void cluster::demo_seed(cluster::Manager& manager)
                 const std::string id = manager.spawn(request);
                 ids[script.name] = id;
                 manager.label(id, std::string(script.category), script.tags);
-                if (script.prompt[0] != '\0') manager.send(id, script.prompt);
-                wait(1200);
+                if (script.prompt[0] != '\0') prompts.emplace_back(id, script.prompt);
+                cluster::busy_log("✓ " + std::string(script.name) + " · " + script.category);
+                wait(250);
             }
+            cluster::busy_step("the categories and the tags");
             // the forest of the categories / tags: ops under backend, the tags under the category they belong to
             for (const auto& [node, parent]: std::vector<std::pair<std::string, std::string>>{{"ops", "backend"}, {"checkout", "frontend"}, {"payments", "backend"}, {"release", "mobile"}}) {
                 try {
                     manager.taxonomyEdit("set_parent", node, parent, false);
                 } catch (const std::exception&) {}
             }
+            cluster::busy_step("the agents start thinking");
+            for (const std::pair<std::string, std::string>& prompt: prompts)
+                manager.send(prompt.first, prompt.second);
             manager.send(GLOBAL_ID, kGlobalPrompt);
+            wait(1800);
             // the tasks: one waits for a busy session, one for another task; the schedules: soon, and every day
+            cluster::busy_step("the tasks and the schedules");
             const std::string payments = ids["payments-bug-4211"];
             const std::string docs = ids["docs-quickstart"];
             const std::string first = manager.addTask("Write the regression test for the double charge once the fix is in", payments, {}, "demo");
@@ -234,6 +246,7 @@ _cold void cluster::demo_seed(cluster::Manager& manager)
             (void)manager.addScheduleJson({{"cron", "0 9 * * 1-5"}, {"action", "prompt"}, {"session", GLOBAL_ID},
                 {"text", "Weekday summary: what finished, what is blocked, what costs the most"}}, "demo", false);
             (void)manager.addScheduleJson({{"when", "17:30"}, {"action", "notify"}, {"text", "Review the release notes of orbit-mobile 3.2 before the store submission"}}, "demo", false);
+            busy.end(true, "the demo is loaded");
         } catch (const std::exception& e) {
             std::cerr << "claude-cluster demo: " << e.what() << std::endl;
         }
