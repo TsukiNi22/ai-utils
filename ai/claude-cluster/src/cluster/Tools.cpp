@@ -390,6 +390,8 @@ static bool claude_driver_(const std::string& provider)
 
 static cluster::Json claude_settings_(void)
 {
+    static std::mutex lock;
+    const std::lock_guard<std::mutex> guard(lock);
     static cluster::Json cached;
     static std::int64_t at = 0;
     if (cluster::now() - at > 20) {
@@ -399,7 +401,7 @@ static cluster::Json claude_settings_(void)
     return cached;
 }
 
-_cold std::string cluster::claude_default_model(void)
+_cold static std::string claude_default_model_read_(void)
 {
     // the "model" of ~/.claude/settings.json; an alias (sonnet, opus...) resolved to the id of the last turn run on it (the usage ledger), else the alias
     const cluster::Json settings = claude_settings_();
@@ -418,6 +420,20 @@ _cold std::string cluster::claude_default_model(void)
         for (const auto &[name, value]: settings["modelSettings"].items())
             if (name.find(model) != std::string::npos && name > found) found = name;
     return found.empty() ? model : found;
+}
+
+_cold std::string cluster::claude_default_model(void)
+{
+    // drawn at every frame by every interface: read at most once a minute (the ledger is scanned), from any thread
+    static std::mutex lock;
+    static std::string cached;
+    static std::int64_t at = 0;
+    const std::lock_guard<std::mutex> guard(lock);
+    if (at == 0 || cluster::now() - at > 60) {
+        cached = claude_default_model_read_();
+        at = cluster::now();
+    }
+    return cached;
 }
 
 _cold std::string cluster::claude_default_effort(const std::string& model)
