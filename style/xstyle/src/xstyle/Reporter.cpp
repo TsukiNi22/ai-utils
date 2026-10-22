@@ -153,6 +153,24 @@ _cold std::string xstyle::Reporter::issues_(const bool tty) const
     return out.str();
 }
 
+_cold std::string xstyle::Reporter::mandatory_(const bool tty) const
+{
+    // Mandatory rules (R34): always displayed, with the green link to their documentation, never counted
+    std::ostringstream out;
+
+    for (const xstyle::Issue& issue: this->_mandatory) {
+        out << this->location_(issue, tty) << " " << this->paint_(std::string(xstyle::severity_name(issue.severity)), utils::iomanip::Color::BrightCyan, tty, true) << " "
+            << this->paint_(issue.code, utils::iomanip::Color::Cyan, tty) << " " << this->paint_("[force-fix]", utils::iomanip::Color::Yellow, tty) << " " << issue.message << "\n";
+        if (!issue.link.empty()) {
+            const std::string link = tty && this->_options.link != xstyle::LinkMode::None ? utils::iomanip::color(utils::iomanip::Color::Green) + utils::iomanip::hyperlink(issue.link, issue.link) + utils::iomanip::reset() : issue.link;
+            out << this->paint_(pad_("link", 7, true) + " | ", utils::iomanip::Color::BrightBlack, tty) << link << "\n";
+        }
+        out << this->paint_(pad_("hint", 7, true) + " | ", utils::iomanip::Color::BrightBlack, tty)
+            << this->paint_(issue.suggestion, utils::iomanip::Color::BrightBlue, tty) << "\n";
+    }
+    return out.str();
+}
+
 _cold std::string xstyle::Reporter::fixes_(const bool tty) const
 {
     std::ostringstream out;
@@ -231,6 +249,9 @@ _cold std::string xstyle::Reporter::summary_(const bool tty) const
         out << this->severity_(severity, tty) << std::string(14 - name.size(), ' ') << columns(severities[severity]) << "\n";
     }
     out << this->paint_(pad_("total", 14) + columns(total), utils::iomanip::Color::Default, tty, true) << "\n";
+    for (const xstyle::Issue& issue: this->_mandatory)
+        out << this->paint_(pad_(std::string(xstyle::severity_name(issue.severity)), 14), utils::iomanip::Color::BrightCyan, tty) << pad_(std::to_string(1), 8, true)
+            << "  " << this->paint_(issue.code, utils::iomanip::Color::Cyan, tty) << " (not counted in the total, the exit status nor the hook)\n";
 
     // Counters by code
     if (!codes.empty()) {
@@ -276,6 +297,8 @@ _cold std::string xstyle::Reporter::markdown_(void) const
     for (const xstyle::Severity severity: {xstyle::Severity::Unforgivable, xstyle::Severity::Major, xstyle::Severity::Minor, xstyle::Severity::Negligible})
         out << "| " << xstyle::severity_name(severity) << " | " << severities[severity] << " |\n";
     out << "| **total** | **" << this->_issues.size() << "** |\n\n";
+    for (const xstyle::Issue& issue: this->_mandatory)
+        out << "Mandatory (not counted): `" << issue.code << "` " << markdown_escape_(issue.message) << " ([" << issue.link << "](" << issue.link << ")) - " << markdown_escape_(issue.suggestion) << "\n\n";
     if (this->_options.fix) out << "Fixed: " << this->_fixes.size() << " issue(s)" << (this->_options.dryRun ? " (dry run)" : "") << "\n\n";
 
     std::string file;
@@ -319,7 +342,13 @@ _cold std::string xstyle::Reporter::json_(void) const
             << "\", \"source\": \"" << json_escape_(issue.source) << "\", \"suggestion\": \"" << json_escape_(issue.suggestion) << "\", \"fixable\": " << (issue.mode == xstyle::FixMode::Auto ? "true" : "false")
             << ", \"fix\": \"" << (issue.mode == xstyle::FixMode::Manual ? "manual" : std::string(xstyle::fix_mode_name(issue.mode))) << "\"}";
     }
-    out << (this->_issues.empty() ? "]\n}\n" : "\n    ]\n}\n");
+    out << (this->_issues.empty() ? "]" : "\n    ]") << ",\n    \"mandatory\": [";
+    for (std::size_t i = 0; i < this->_mandatory.size(); ++i) {
+        const xstyle::Issue& issue = this->_mandatory[i];
+        out << (i == 0 ? "" : ", ") << "{\"code\": \"" << issue.code << "\", \"severity\": \"" << xstyle::severity_name(issue.severity) << "\", \"message\": \"" << json_escape_(issue.message)
+            << "\", \"link\": \"" << json_escape_(issue.link) << "\", \"hint\": \"" << json_escape_(issue.suggestion) << "\", \"fix\": \"force\"}";
+    }
+    out << "]\n}\n";
     return out.str();
 }
 
@@ -347,7 +376,7 @@ _cold std::string xstyle::Reporter::rtk_(void) const
 
     if (!this->_options.summaryOnly && !this->_issues.empty())
         out << "# >file then line:col CODE severity(U/M/m/n) fix(a=auto f=--force d=--dangerous-force q=asked -=manual) [message] [=> fix|hint]; "
-            << "message / hint shared by a rule: '* CODE' lines at the end\n";
+            << "message / hint shared by a rule: '* CODE' lines at the end; '! CODE' = mandatory rule (R34), displayed but never counted\n";
     for (const xstyle::Issue& issue: this->_issues) {
         ++bySeverity[static_cast<std::size_t>(issue.severity)];
         ++byMode[static_cast<std::size_t>(issue.mode)];
@@ -368,6 +397,8 @@ _cold std::string xstyle::Reporter::rtk_(void) const
             const std::string hint = texts.second.size() == 1 ? *texts.second.begin() : "";
             if (!message.empty() || !hint.empty()) out << "* " << code << (message.empty() ? "" : " " + message) << (hint.empty() ? "" : " => " + hint) << "\n";
         }
+    for (const xstyle::Issue& issue: this->_mandatory)
+        out << "! " << issue.code << " mandatory (not counted) " << issue.message << " => " << issue.link << " | " << issue.suggestion << "\n";
     if (!this->_fixes.empty()) {
         std::map<std::string, std::size_t> codes;
         for (const auto &[fixedFile, fix]: this->_fixes)
@@ -380,6 +411,7 @@ _cold std::string xstyle::Reporter::rtk_(void) const
     out << "= " << this->_issues.size() << " issues in " << this->_files << " files: U" << bySeverity[3] << " M" << bySeverity[2] << " m" << bySeverity[1]
         << " n" << bySeverity[0] << " | fix a" << byMode[1] << " f" << byMode[2] << " d" << byMode[3] << " q" << byMode[4] << " -" << byMode[0];
     if (byMode[1] > 0 && !this->_options.fix) out << " | xstyle --fix";
+    if (!this->_mandatory.empty()) out << " | mandatory " << this->_mandatory.size() << " (!)";
     return out.str() + "\n";
 }
 
@@ -393,6 +425,7 @@ _cold void xstyle::Reporter::print(std::ostream& out) const
 
     if (!this->_fixes.empty()) out << this->paint_(this->_options.dryRun ? "Would fix:" : "Fixed:", utils::iomanip::Color::Green, tty, true) << "\n" << this->fixes_(tty) << "\n";
     if (!this->_options.summaryOnly && !this->_issues.empty()) out << this->issues_(tty) << "\n";
+    if (!this->_options.summaryOnly && !this->_mandatory.empty()) out << this->mandatory_(tty) << "\n";
     out << this->summary_(tty);
 }
 
@@ -412,7 +445,9 @@ _cold void xstyle::Reporter::write(void) const
         case xstyle::Format::Json:     file << this->json_();     break;
         default:
             if (!this->_fixes.empty()) file << (this->_options.dryRun ? "Would fix:\n" : "Fixed:\n") << this->fixes_(false) << "\n";
-            file << this->issues_(false) << "\n" << this->summary_(false);
+            file << this->issues_(false) << "\n";
+            if (!this->_mandatory.empty()) file << this->mandatory_(false) << "\n";
+            file << this->summary_(false);
             break;
     }
 }

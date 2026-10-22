@@ -56,6 +56,7 @@ set(SRC
     src/xstyle/Tools.cpp
     src/xstyle/Header.cpp
     src/xstyle/Git.cpp
+    src/xstyle/R34.cpp
 
     # Core (sub-part: checks)
     src/xstyle/check/generic.cpp
@@ -66,6 +67,7 @@ set(SRC
     src/xstyle/check/cmake.cpp
     src/xstyle/check/comments.cpp
     src/xstyle/check/rust.cpp
+    src/xstyle/check/r34.cpp
 )
 add_executable(${TARGET} ${SRC})
 

@@ -23,6 +23,9 @@ File Description:
 _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
 {
     static const std::vector<xstyle::Rule> catalogue = {
+        // Mandatory (always displayed, never counted: not in the exit status, the hooks nor the totals)
+        {"R34",                xstyle::Severity::Mandatory,    xstyle::FixMode::Force,  "*",            "Rule 34: if it exists, there is porn of it. No exceptions"},
+
         // Generic (every language)
         {"G-CRLF",             xstyle::Severity::Major,        xstyle::FixMode::Auto,   "*",            "Windows line endings (CRLF), use LF"},
         {"G-TAB",              xstyle::Severity::Major,        xstyle::FixMode::Auto,   "*",            "Tab used for the indentation, use 4 spaces (except Makefile recipes)"},
@@ -125,6 +128,20 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
     return catalogue;
 }
 
+_cold const xstyle::RuleDoc* xstyle::find_doc(std::string_view code)
+{
+    static const std::vector<std::pair<std::string_view, xstyle::RuleDoc>> docs = {
+        {"R34", {"https://en.wikipedia.org/wiki/Rule_34",
+            "Shown once per run, for the whole project, until it is acknowledged. Acknowledge it with: the integer 34, or r34 (any case) in an identifier, a string or a comment of a checked file, "
+            "a file named R34.md in the working directory, the flag --r34 or XSTYLE_R34=1. It is never counted: the exit status, --fail-on, -s and the pre-commit hook ignore it; "
+            "-c / -i / -m select it like any other rule. --fix --force writes R34.md (a long explanation of the rule), which acknowledges it; an existing R34.md is never replaced."}},
+    };
+
+    for (const auto &[name, doc]: docs)
+        if (name == code) return &doc;
+    return nullptr;
+}
+
 _cold const xstyle::Rule* xstyle::find_rule(std::string_view code)
 {
     for (const xstyle::Rule& rule: xstyle::rules())
@@ -159,6 +176,7 @@ _cold bool xstyle::match_code(std::string_view code, std::string_view pattern)
 _cold std::string_view xstyle::severity_name(const xstyle::Severity severity)
 {
     switch (severity) {
+        case xstyle::Severity::Mandatory:    return "mandatory";
         case xstyle::Severity::Unforgivable: return "unforgivable";
         case xstyle::Severity::Major:        return "major";
         case xstyle::Severity::Minor:        return "minor";

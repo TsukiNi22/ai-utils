@@ -33,6 +33,7 @@ _cold _nodiscard const std::vector<xstyle::Rule>& rules(void);
 _cold _nodiscard const xstyle::Rule* find_rule(std::string_view code); // nullptr when unknown
 _cold _nodiscard bool rule_applies(const xstyle::Rule& rule, const xstyle::Language language);
 _cold _nodiscard bool match_code(std::string_view code, std::string_view pattern); // exact, prefix (CPP / CPP-*) or *
+_cold _nodiscard const xstyle::RuleDoc* find_doc(std::string_view code); // documentation (link, details) of the rules that have one, else nullptr
 
 /* names */
 _cold _nodiscard std::string_view severity_name(const xstyle::Severity severity);

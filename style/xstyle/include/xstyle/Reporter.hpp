@@ -38,6 +38,7 @@ class Reporter {
         std::size_t _files = 0;
         std::map<xstyle::Language, std::size_t> _languages; // language -> files
         std::vector<xstyle::Issue> _issues;
+        std::vector<xstyle::Issue> _mandatory; // mandatory rules (R34): displayed, never counted nor in the exit status
         std::vector<std::pair<std::string, xstyle::AppliedFix>> _fixes; // <file, fix>
 
         // ---------- Pre-Function -------- //
@@ -45,6 +46,7 @@ class Reporter {
         _cold _nodiscard std::string severity_(const xstyle::Severity severity, const bool tty) const;
         _cold _nodiscard std::string location_(const xstyle::Issue& issue, const bool tty) const;
         _cold _nodiscard std::string issues_(const bool tty) const;
+        _cold _nodiscard std::string mandatory_(const bool tty) const;
         _cold _nodiscard std::string fixes_(const bool tty) const;
         _cold _nodiscard std::string summary_(const bool tty) const;
         _cold _nodiscard std::string markdown_(void) const;
@@ -66,6 +68,7 @@ class Reporter {
         // ------------ Function ---------- //
         /* setup */
         _cold inline void addIssues(const std::vector<xstyle::Issue>& issues) {this->_issues.insert(this->_issues.end(), issues.begin(), issues.end());};
+        _cold inline void addMandatory(const xstyle::Issue& issue)            {this->_mandatory.push_back(issue);}; // displayed with the issues, not counted
 
         // ------------ Operator ---------- //
         Reporter& operator=(const Reporter& other) = delete;

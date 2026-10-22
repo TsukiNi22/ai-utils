@@ -56,6 +56,7 @@ _hot void shell(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
 _hot void rust(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
 _hot void cmake(const xstyle::SourceFile& file, xstyle::check::Issues& issues);
 _hot void comments(const xstyle::SourceFile& file, xstyle::check::Issues& issues); // cpp-comments structure
+_hot _nodiscard bool r34_proof(const xstyle::SourceFile& file); // the file acknowledges Rule 34: the integer 34, or r34 (any case) in the code, a string or a comment
 
 /* python typing (check/typing.cpp), on the masked code */
 _hot _nodiscard xstyle::check::TypeGuess python_expression_type(const std::string& expression);

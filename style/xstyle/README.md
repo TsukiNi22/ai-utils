@@ -3,7 +3,8 @@
 Checker and fixer of my coding style, C++ first (`cpp-style`, `cpp-comments`, `cpp-class` layout, libutils
 usage), then Python, shell, Rust and the generic rules of every language. Each issue is printed with its file, line
 and column (terminal hyperlink), the rule broken and the fix proposed; a summary counts the issues by severity
-(**unforgivable**, **major**, **minor**, **negligible**) and by rule. Everything that can be fixed safely is fixed
+(**unforgivable**, **major**, **minor**, **negligible**) and by rule, plus one **mandatory** reminder that is never counted
+([R34](#rule-r34-mandatory)). Everything that can be fixed safely is fixed
 with `--fix`, for every rule or only some codes, files or directories.
 
 ### Table of Contents
@@ -90,6 +91,7 @@ xstyle --staged --fix                  # only the staged lines (pre-commit hook)
 xstyle --fix --commit                  # fix, then commit the fixed files: chore(style): apply the xstyle fixes (...)
 xstyle --fix --commit-all --message "chore(core): ..."  # fix + commit every tracked change with the fixes
 xstyle --libutils-check                # is the libutils skill reference up to date? (exit 0 yes, 1 no)
+xstyle --r34                           # I have read the Terms and Conditions of Rule 34, I accept them: R34 is not displayed
 ```
 
 - **Paths**: files or directories given as bare arguments; with no path the current directory is scanned
@@ -136,8 +138,23 @@ xstyle --libutils-check                # is the libutils skill reference up to d
   own changes would end up in the commit, they are listed and left), `--commit-all` takes every tracked change too.
   Never with `--dry-run`.
 - **Exit status**: `0` clean, `1` issues left (from `--fail-on <severity>`, default every severity), `255` error.
+  The **mandatory** rule (R34) is never counted: not in the exit status, the totals, `--fail-on` nor the pre-commit hook.
 - **Environment**: `XSTYLE_CODES`, `XSTYLE_IGNORE`, `XSTYLE_SEVERITY`, `XSTYLE_EXCLUDE`, `XSTYLE_LIBUTILS`,
-  `XSTYLE_LINK`, `XSTYLE_REPORT` give the default of the flag of the same name.
+  `XSTYLE_LINK`, `XSTYLE_REPORT` give the default of the flag of the same name; `XSTYLE_R34=1` is `--r34`.
+
+### Rule R34 (mandatory)
+
+`R34` is the only rule of the severity **mandatory**: *Rule 34: if it exists, there is porn of it. No exceptions*. It is a
+reminder, not a style rule:
+ - it is displayed **once per run**, for the whole project, with a green link to the article of the rule
+   (https://en.wikipedia.org/wiki/Rule_34), and in the `--rtk` output as a `! R34 ...` line;
+ - it is **never counted**: not in the totals (its own `mandatory` row in the summary), the exit status, `--fail-on` nor
+   the hook; `-s` does not hide it, `-c` / `-i` / `-m` select it like any other rule;
+ - it is **acknowledged** (not displayed any more) by the integer **34**, or **r34** (any case) in an identifier, a string
+   or a comment of a checked file, by a file named **R34.md** in the directory where xstyle is run, by the flag
+   **`--r34`** or by `XSTYLE_R34=1`;
+ - `xstyle --fix --force` writes `R34.md` (a long explanation of the rule: statement, origin, spread, interpretation),
+   which acknowledges it; an existing `R34.md` is never replaced; `xstyle -x R34` explains it.
 
 Suppression, in a comment of the file:
 
@@ -180,10 +197,12 @@ Any other file is skipped when a directory is scanned; given explicitly, it gets
 
 ## Rules
 
-Severity: **unforgivable** > **major** > **minor** > **negligible**. Languages: `*` = every file checked.
+Severity: **unforgivable** > **major** > **minor** > **negligible**; **mandatory** is outside this scale (displayed, never counted).
+Languages: `*` = every file checked.
 
 | Code | Severity | Fix | Languages | Rule |
 |---|---|---|---|---|
+| `R34` | mandatory | force | * | Rule 34: if it exists, there is porn of it. No exceptions ([R34](#rule-r34-mandatory)) |
 | `G-CRLF` | major | auto | * | Windows line endings (CRLF), use LF |
 | `G-TAB` | major | auto | * | Tab used for the indentation, use 4 spaces (except Makefile recipes) |
 | `G-TRAILING` | minor | auto | * | Trailing whitespace |

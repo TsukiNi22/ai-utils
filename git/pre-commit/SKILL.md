@@ -22,6 +22,7 @@ style job of `ci-cd` (`templates/style.yml`). Both are complementary (local = fa
 | unforgivable / major issue | issues listed, **commit refused** (`--fail-on major`) |
 | minor issue only | issues listed + warning, commit accepted (`--warn-on minor`) |
 | negligible only / clean | silent, commit accepted |
+| mandatory rule (R34) | never counted: neither refuses nor warns; shown with the issues when xstyle prints them (`--r34` / `XSTYLE_R34=1` or `--extra "--r34"` hides it) |
 | xstyle crashes | warning, commit accepted (never blocks on a tool error) |
 Skip once: `git commit --no-verify` or `XSTYLE_HOOK=0 git commit ...`. Fix: `xstyle --fix --staged` then `git add -u`.
 Output: human (colors, source) in a terminal, `--rtk` automatically under Claude Code (`CLAUDECODE`) or `XSTYLE_RTK=1`.

@@ -35,6 +35,7 @@ enum class Severity: std::uint8_t {
     Minor,
     Major,
     Unforgivable,
+    Mandatory, // never counted (exit status, hooks, totals), only displayed: R34
 };
 
 enum class Language: std::uint8_t {
@@ -90,6 +91,11 @@ struct Rule {
     std::string_view description;
 };
 
+struct RuleDoc {
+    std::string_view link; // documentation of the rule, shown as a green link with the issue
+    std::string_view details; // longer explanation, shown by --explain
+};
+
 struct Fix {
     xstyle::FixKind kind = xstyle::FixKind::Replace;
     std::size_t line = 0; // first replaced line (0-based)
@@ -109,6 +115,7 @@ struct Issue {
     std::string message;
     std::string source; // line content (empty for whole file)
     std::string suggestion; // proposed fix, as text
+    std::string link; // documentation of the rule (hyperlink)
     std::optional<xstyle::Fix> fix; // automatic fix (only for fixable rules)
     xstyle::FixMode mode = xstyle::FixMode::Manual; // how this issue can be fixed
 };
@@ -162,6 +169,7 @@ struct Options {
     bool commitAll = false; // commit every tracked change + the fixes
     std::string commitMessage; // empty: chore(style): apply the xstyle fixes
     xstyle::Severity failOn = xstyle::Severity::Negligible; // exit 1 from this one
+    bool r34 = false; // --r34: Rule 34 read, understood and accepted (the mandatory R34 is not displayed)
     std::optional<std::filesystem::path> report; // report file
     std::optional<xstyle::Format> format; // report format (default: from the extension)
     bool summaryOnly = false;

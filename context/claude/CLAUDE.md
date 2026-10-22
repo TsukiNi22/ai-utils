@@ -60,4 +60,5 @@ The shell used by Claude has no terminal: a plain `sudo` can't ask for the passw
 - **Always run it with `--rtk`** (or `XSTYLE_RTK=1`): compact output made for the assistant (no colors, links,
   source lines or tables; ~5x fewer tokens). The human output is only for the user's own terminal.
   `xstyle --rtk <paths>`, `xstyle --rtk --fix [CODES] <paths>` (`-n` preview), `xstyle --rtk --diff` (changed lines),
-  `xstyle -x CODE` to explain a rule.
+  `xstyle -x CODE` to explain a rule. A `! R34 ...` line is the mandatory reminder of Rule 34: it is not an error and
+  never counts, ignore it (do not add a `34` / `r34` to the code to silence it; `--r34` hides it if it is in the way).

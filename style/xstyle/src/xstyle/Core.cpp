@@ -15,6 +15,7 @@ File Description:
 #define _Arguments
 #define _IOManip
 #include <utils/utils.hpp>
+#include "xstyle/check/Checks.hpp"
 #include "xstyle/SourceFile.hpp"
 #include "xstyle/Reporter.hpp"
 #include "xstyle/Checker.hpp"
@@ -23,6 +24,7 @@ File Description:
 #include "xstyle/Rules.hpp"
 #include "xstyle/Tools.hpp"
 #include "xstyle/Core.hpp"
+#include "xstyle/R34.hpp"
 #include "xstyle/Git.hpp"
 #include <unordered_map>
 #include <unordered_set>
@@ -93,6 +95,8 @@ _cold void xstyle::Core::setup_(void)
             if (!xstyle::parse_fix_mode(part)) return "'" + part + "' is not a fix level: auto | force | dangerous | ask | manual";
         return std::nullopt;
     }}}, "Only the issues of these fix levels, comma separated: auto, force, dangerous, ask, manual (--fix included)");
+    this->_parser.setFlag("r34", {"", "", "r34", ""}, {}, "I have read the Terms and Conditions of Rule 34, I understand them, I accept them without reading them again, "
+        "I waive my right to be reminded and I promise not to ask what it means (hides R34, env XSTYLE_R34=1)");
     this->_parser.setFlag("libutils", {"u", "", "libutils", "XSTYLE_LIBUTILS"}, {{"mode", true, [](const std::string& v) {return choice_hook_(v, {"auto", "on", "off"});}}},
         "libutils rules: auto (installed and used by the project, default) | on | off");
 
@@ -136,7 +140,7 @@ _cold void xstyle::Core::setup_(void)
 
     // Help in the order of the sections (the default one follows the hash order)
     this->_sections = {
-        {"SELECTION", {"recursive", "diff", "diffref", "staged", "code", "ignore", "severity", "mode", "fail", "exclude", "lang", "top", "libutils"}},
+        {"SELECTION", {"recursive", "diff", "diffref", "staged", "code", "ignore", "severity", "mode", "fail", "exclude", "lang", "top", "libutils", "r34"}},
         {"FIX", {"fix", "dry", "force", "dangerous", "header", "headerdesc", "commit", "commitall", "message"}},
         {"OUTPUT", {"rtk", "report", "format", "summary", "color", "link"}},
         {"INFORMATION", {"list", "explain", "version", "libcheck", "completion"}},
@@ -187,6 +191,7 @@ _cold void xstyle::Core::apply_(const std::string& id, const std::vector<std::st
     else if (id == "fail") this->_options.failOn = *xstyle::parse_severity(value);
     else if (id == "exclude") this->_options.excludes = xstyle::split(value, ',');
     else if (id == "top") this->_options.topOnly = true;
+    else if (id == "r34") this->_options.r34 = true;
     else if (id == "mode")
         for (const std::string& part: xstyle::split(value, ','))
             this->_options.modes.push_back(*xstyle::parse_fix_mode(part));
@@ -470,8 +475,8 @@ _cold void xstyle::Core::help_(const utils::arguments::ArgParser& parser) const
         << "    xstyle: ignore [CODE,...]              this line\n"
         << "    xstyle: ignore-next [CODE,...]         the next line\n"
         << "    xstyle: ignore-file [CODE,...]         the whole file\n";
-    std::cout << "\n" << bold << "SEVERITY" << reset << "  unforgivable > major > minor > negligible\n";
-    std::cout << bold << "EXIT" << reset << "      0 clean, 1 issues left (>= --fail-on), 255 error\n";
+    std::cout << "\n" << bold << "SEVERITY" << reset << "  unforgivable > major > minor > negligible (mandatory: R34, displayed and never counted)\n";
+    std::cout << bold << "EXIT" << reset << "      0 clean, 1 issues left (>= --fail-on, a mandatory rule never counts), 255 error\n";
 }
 
 _cold void xstyle::Core::listRules_(void) const
@@ -492,6 +497,7 @@ _cold void xstyle::Core::explain_(void) const
         std::cout << rule.code << " (" << xstyle::severity_name(rule.severity) << (rule.fix == xstyle::FixMode::Auto ? ", fixed by --fix" : rule.fix == xstyle::FixMode::Force ? ", fixed by --fix --force (can change the behavior)"
             : rule.fix == xstyle::FixMode::Ask ? ", fixed by --fix after a question (or --header)" : ", not fixable") << ", languages: " << rule.languages << ")\n"
             << "    " << rule.description << "\n";
+        if (const xstyle::RuleDoc* doc = xstyle::find_doc(rule.code)) std::cout << "    " << doc->details << "\n    " << doc->link << "\n";
     }
     if (!found) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "Unknown rule: " + this->_explain + " (see --list-rules)");
 }
@@ -508,6 +514,8 @@ _cold void xstyle::Core::init(const int argc, char* argv[])
     const char* rtk = std::getenv("XSTYLE_RTK");
     if (rtk && std::string(rtk) != "0" && std::string(rtk) != "") this->_options.rtk = true;
     if (this->_options.rtk) this->_options.color = false;
+    const char* r34 = std::getenv("XSTYLE_R34");
+    if (r34 && std::string(r34) != "0" && std::string(r34) != "") this->_options.r34 = true;
 }
 
 _cold void xstyle::Core::run(void)
@@ -568,6 +576,7 @@ _cold void xstyle::Core::run(void)
     const std::filesystem::path cwd = std::filesystem::current_path();
     std::vector<std::filesystem::path> fixed; // files written by the fixes
     std::map<std::filesystem::path, std::map<std::string, std::size_t>> fixedCodes; // file -> code -> fixes applied
+    bool r34Proof = false; // a checked file acknowledges the rule R34 (the integer 34, r34 in a name, a string or a comment)
     for (const auto &[path, language]: files) {
         std::error_code error;
         std::string display = std::filesystem::proximate(path, cwd, error).generic_string();
@@ -575,6 +584,7 @@ _cold void xstyle::Core::run(void)
         try {
             xstyle::SourceFile source(path, display, language);
             reporter.addFile(source);
+            r34Proof = r34Proof || xstyle::check::r34_proof(source);
             if (this->_options.fix) {
                 std::vector<xstyle::AppliedFix> applied = this->header_(checker, source);
                 const std::vector<xstyle::AppliedFix> loop = checker.fix(source);
@@ -590,6 +600,34 @@ _cold void xstyle::Core::run(void)
             reporter.addIssues(checker.check(source));
         } catch (const utils::exception::IException& e) {
             std::cerr << "xstyle: " << display << ": " << e.info() << std::endl;
+        }
+    }
+
+    // R34 (mandatory): once for the whole project until it is acknowledged, never counted
+    if (checker.shows("R34") && !this->_options.r34 && !r34Proof && !xstyle::r34_file_exists(cwd)
+        && (this->_options.modes.empty() || std::find(this->_options.modes.begin(), this->_options.modes.end(), xstyle::FixMode::Force) != this->_options.modes.end())) {
+        const xstyle::Rule* rule = xstyle::find_rule("R34");
+        if (this->_options.fix && this->_options.force && checker.wants("R34")) {
+            // --fix --force: R34.md, a long explanation of the rule, in the working directory (it acknowledges the rule)
+            if (!this->_options.dryRun) {
+                std::ofstream document(cwd / R34_FILE);
+                if (!document.is_open()) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, std::string("Can't write ") + R34_FILE);
+                document << xstyle::r34_document();
+                fixed.push_back(cwd / R34_FILE);
+                ++fixedCodes[cwd / R34_FILE]["R34"];
+            }
+            reporter.addFixes(R34_FILE, {xstyle::AppliedFix{"R34", 1, {}, {std::string("(new file ") + R34_FILE + ")"}}});
+        } else {
+            xstyle::Issue issue;
+            issue.file = ".";
+            issue.path = cwd;
+            issue.code = "R34";
+            issue.severity = rule->severity;
+            issue.message = std::string(rule->description);
+            issue.link = std::string(xstyle::find_doc("R34")->link);
+            issue.suggestion = std::string("xstyle --fix --force writes ") + R34_FILE + " (or the flag --r34, or the integer 34 / r34 in the code); xstyle -x R34 explains it";
+            issue.mode = rule->fix;
+            reporter.addMandatory(issue);
         }
     }
 
