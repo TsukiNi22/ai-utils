@@ -710,7 +710,7 @@ the tasks (`t1`) and the working sessions - and `/kill <id>` stops one (`/kill a
 
 The global session always exists: if it is missing (a restore waiting, a failed start) the core starts it again, and a live update
 first starts the new binary in isolation - if it does not run, the update is cancelled and nothing is stopped. The previous sessions
-come back at every start by default (`[ui] restore = "always"`). In the terminal, Shift+Enter (or Alt+Enter) is a new line;
+are asked at every start by default (`[ui] restore = "ask"`: r restore, n new, q quit). In the terminal, Shift+Enter (or Alt+Enter) is a new line;
 text values of the settings suggest models, providers, folders and programs (Tab takes the first, arrows choose).
 
 ### Statistics
@@ -1313,7 +1313,7 @@ palette (Ctrl+K): the settings found come after the actions (`setting:` alone: o
 search one*), Enter opens the settings page at it.
 
 `~/.config/claude-cluster/config.toml` (written commented on the first run, reloaded when saved): interface
-(`frontend`, `layout`, `style`, default `panels`, `restore = always | ask | never` (default always: the previous sessions come back without a question), `notify`), `[agent]` provider
+(`frontend`, `layout`, `style`, default `panels`, `restore = ask | always | never` (default ask: r restore / n new / q quit at every start when there are previous sessions), `notify`), `[agent]` provider
 and permission mode, `[commands]` of the drivers, `[global]`, `[sessions]` (`trash_days`, `max_parallel`: the parallel sessions, `task_queue`: the tasks waiting for a place, of the task
 queue, `budget_usd`, `prompt`: the system prompt of every sub-session, `~/.config/claude-cluster/sessions.md`, an
 empty file: none, edited from the settings page or the palette, taken at the next start of each session), `[voice]`, `[keys]`, own `[styles.<name>]` (built-in: `html-light`, `html-dark`, `nord`,

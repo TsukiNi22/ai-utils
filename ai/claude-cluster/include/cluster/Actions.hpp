@@ -43,6 +43,8 @@ struct ModelInfo {
     std::string driver;
     std::string model;      // the one asked (empty: the default of the provider), else the one answering
     std::string effort;     // empty / default: the one of the agent
+    std::string defaultModel;   // the model a new session starts on (the policy, else the provider's)
+    std::string defaultEffort;  // the thinking a new session starts on (the policy, else [agent] effort; empty: the agent's)
     std::vector<std::pair<std::string, std::string>> models;    // <model, description>
     std::vector<std::string> efforts;                           // empty: the driver has none
 };

@@ -100,6 +100,8 @@ class Busy {
 };
 _nodiscard std::string tail_utf8(const std::string& text, const std::size_t max); // its last max bytes (whole characters, "…" before)
 _nodiscard std::string head_utf8(const std::string& text, const std::size_t max); // its first max bytes (whole characters, "[...]" after)
+_nodiscard std::string model_label(const std::string& backend, const std::string& modelUsed);   // provider/model loaded, '(default)' when none was chosen
+_nodiscard std::string effort_label(const std::string& effort, const std::string& configured);   // think <level>, '(default)' when it is the default one
 _nodiscard std::string human_tokens(const std::int64_t tokens);   // 12.3k, 1.2M
 _nodiscard std::string human_cost(const double usd);              // $0.0123
 _nodiscard std::string human_age(const std::int64_t time);        // 3m, 2h, 5d

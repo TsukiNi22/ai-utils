@@ -1199,6 +1199,9 @@ class TtyUi {
         std::vector<cluster::SettingHit> _hits;
         int _findHit = 0;
         bool _editing = false;
+        std::vector<cluster::Action> _actionBase;       // the palette: every action, made once per opening
+        std::string _actionBaseFor;                     // the session it was made for
+        std::int64_t _actionBaseAt = 0;                 // when (ms)
         bool _suggestOpen = false;                      // the settings: the suggestions of the value typed, one chosen with the arrows
         int _suggest = 0;                               // the one chosen
         std::string _edit;
@@ -2372,7 +2375,13 @@ class TtyUi {
         void filter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
-            this->_actions = cluster::filter_actions(cluster::actions(this->_manager, this->_active), wanted, &this->_manager); // the closest first
+            // the list of every action (the models, the trash, the projects...) is long to make: made when the palette opens, then only filtered at each letter
+            if (wanted.empty() || this->_actionBase.empty() || this->_actionBaseFor != this->_active || now_ms_() - this->_actionBaseAt > 8000) {
+                this->_actionBase = cluster::actions(this->_manager, this->_active);
+                this->_actionBaseFor = this->_active;
+                this->_actionBaseAt = now_ms_();
+            }
+            this->_actions = cluster::filter_actions(this->_actionBase, wanted, &this->_manager); // the closest first
             std::erase_if(this->_actions, [](const cluster::Action& action) {return action.id == "layout:tabs";}); // no tabs in the terminal
             this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_actions.size()) - 1));
         }
@@ -3245,6 +3254,24 @@ class TtyUi {
             return true;
         }
 
+        _nodiscard ftxui::Element keysValue_(const cluster::Setting& setting, const std::string& value, const bool typed, const bool selected) const
+        {
+            // a value between brackets; in the Keys page the alternatives that are no key shown in red (the others as usual)
+            const Theme& t = this->_theme;
+            const ftxui::Decorator normal = selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text);
+            const std::vector<std::string> bad = cluster::setting_invalid_parts(setting, value);
+            if (bad.empty()) return ftxui::text((typed ? "[" : " ") + cluster::one_line(value, 60) + (typed ? "]" : " ")) | normal | ftxui::bold;
+            ftxui::Elements parts = {ftxui::text("[") | normal | ftxui::bold};
+            const std::vector<std::string> items = cluster::split(value, '|');
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                const bool invalid = std::find(bad.begin(), bad.end(), cluster::trim(items[i])) != bad.end();
+                if (i > 0) parts.push_back(ftxui::text("|") | normal | ftxui::bold);
+                parts.push_back(ftxui::text(items[i]) | (invalid ? ftxui::color(t.error) | ftxui::bgcolor(t.bg) | ftxui::bold | ftxui::underlined : normal | ftxui::bold));
+            }
+            parts.push_back(ftxui::text("]") | normal | ftxui::bold);
+            return ftxui::hbox(std::move(parts));
+        }
+
         _nodiscard ftxui::Element settings_(const ftxui::Dimensions& size)
         {
             const Theme& t = this->_theme;
@@ -3306,10 +3333,9 @@ class TtyUi {
                     this->tap_(ftxui::hbox({ftxui::text(setting.label) | (dangerNow ? ftxui::color(t.error) | ftxui::bold : ftxui::color(t.muted)),
                         risky ? ftxui::text(" ⚠") | ftxui::color(t.warn) | ftxui::bold : ftxui::text(""),
                         ftxui::text(" " + std::string(dots, '.') + " ") | ftxui::color(t.muted)}), 2, [pick]() {pick(false);}, clip),
-                    typing ? ftxui::hbox({ftxui::text("[") | ftxui::bold | ftxui::color(t.accent), this->fieldView_(this->_edit, 58) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 58),
+                    typing ? ftxui::hbox({ftxui::text("[") | ftxui::bold | ftxui::color(t.accent), this->fieldView_(this->_edit, 58) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, std::clamp(ftxui::string_width(this->_edit) + 2, 4, 58)), // the ] right after the text, one space more
                         ftxui::text("]") | ftxui::bold | ftxui::color(t.accent)})
-                    : this->tap_(ftxui::text((typed ? "[" : " ") + cluster::one_line(value, 60) + (typed ? "]" : " ")) | (selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text)) | ftxui::bold,
-                        2, [pick]() {pick(true);}, clip),
+                    : this->tap_(this->keysValue_(setting, value, typed, selected), 2, [pick]() {pick(true);}, clip),
                     need.problem.empty() ? ftxui::text("") : ftxui::text("  ✗ " + cluster::one_line(need.problem.substr(0, need.problem.find(':')), 34)) | ftxui::color(t.error) | ftxui::bold,
                     ftxui::filler(),
                 });
@@ -3321,6 +3347,13 @@ class TtyUi {
                         rows.push_back(ftxui::text("      ↳ " + cluster::one_line(suggestions[s], 80)) | (chosen ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : s == 0 && !this->_suggestOpen ? ftxui::color(t.accent) : ftxui::color(t.muted)));
                     }
                     if (!suggestions.empty()) rows.push_back(ftxui::text("      Tab take the first · ↑↓ choose · Enter take it") | ftxui::color(t.muted) | ftxui::dim);
+                    const std::vector<std::string> bad = cluster::setting_invalid_parts(setting, this->_edit);
+                    if (!bad.empty()) { // the keys that are none, named under the field
+                        std::string names;
+                        for (const std::string& b: bad)
+                            names += (names.empty() ? "" : ", ") + b;
+                        rows.push_back(ftxui::text("      ✗ not a key: " + names + "  (Ctrl / Alt / Shift + a letter, F1..F12, Tab, Enter, Escape, PageUp...)") | ftxui::color(t.error) | ftxui::bold);
+                    }
                 }
                 if (page.section == "services" && setting.key.starts_with("svc_"))
                     for (ftxui::Element& e: this->svcCard_(setting.key.substr(4), selected, index, clip))
@@ -4616,12 +4649,12 @@ class TtyUi {
                 for (const Hit& hit: row.hits)
                     if (std::get<0>(hit) == (pressed ? this->_pressFrom : this->_hitFrom) && (pressed || hovered)) lit = &hit;
                 if (row.code.button) {
-                    // the copy button: a plate (text colour as background), underlined under the mouse, inverted when pressed
+                    // the copy button: a soft pill (the accent on the surface), filled with the accent under the mouse, inverted when pressed, green once copied
                     const bool copied = this->_copiedBlock == std::to_string(row.code.block) && now_ms_() - this->_copiedAt < 1500;
                     ftxui::Decorator plate = copied ? ftxui::color(this->_theme.okInk) | ftxui::bgcolor(this->_theme.ok) | ftxui::bold
-                        : ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.text) | ftxui::bold;
-                    if (lit && pressed) plate = ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg) | ftxui::bold;
-                    else if (lit) plate = plate | ftxui::underlined;
+                        : ftxui::color(this->_theme.accent) | ftxui::bgcolor(this->_theme.surface);
+                    if (lit && pressed) plate = ftxui::color(this->_theme.accent) | ftxui::bgcolor(this->_theme.bg) | ftxui::bold;
+                    else if (lit && !copied) plate = ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) | ftxui::bold;
                     const std::size_t x0 = byte_at_(row.text, row.code.from);
                     const std::size_t x1 = byte_at_(row.text, row.code.to);
                     shown.push_back(ftxui::hbox({ftxui::text(row.text.substr(0, x0)) | row.style, ftxui::text(row.text.substr(x0, x1 - x0)) | plate,
@@ -4859,7 +4892,7 @@ class TtyUi {
                 return ftxui::hbox({ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text(state_mark_(s.state) + " " + cluster::state_name(s.state)) | ftxui::color(mark),
                     ftxui::filler(), ftxui::text(s.spec.backend.substr(0, s.spec.backend.find('/')) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim});
             }
-            const std::string model = s.modelUsed.empty() ? s.spec.backend : s.spec.backend.substr(0, s.spec.backend.find('/')) + "/" + s.modelUsed;
+            const std::string model = cluster::model_label(s.spec.backend, s.modelUsed);
             ftxui::Elements left = {
                 ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                 ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
@@ -4867,7 +4900,7 @@ class TtyUi {
                 // how it is billed: api (an API key, per token) | auth (a login, a subscription) | local; its thinking and mode; each one a click away
                 this->tap_(ftxui::text(std::string("  ") + (this->_manager.authKind(s.spec.backend) == "api" ? "api" : this->_manager.authKind(s.spec.backend) == "auth" ? "auth" : "local"))
                     | ftxui::bold | ftxui::color(this->_manager.authKind(s.spec.backend) == "api" ? this->_theme.warn : this->_theme.ok), 0, [this]() {this->pick_("backend:");}),
-                this->tap_(ftxui::text("  think " + (s.spec.effort.empty() ? std::string("default") : s.spec.effort)) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("effort:");}),
+                this->tap_(ftxui::text("  " + cluster::effort_label(s.spec.effort, this->_manager.config().effort)) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("effort:");}),
                 this->tap_(ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted), 0,
                     [this]() {this->pick_("mode:");}),
                 ftxui::filler(),

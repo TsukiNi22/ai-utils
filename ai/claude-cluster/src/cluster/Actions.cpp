@@ -104,11 +104,11 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         try {
             const cluster::ModelInfo info = cluster::model_info(manager, session);
             for (const auto &[model, description]: info.models)
-                list.push_back({"model:" + model, "Model: " + model + (info.model == model ? " (current)" : "") + " - " + description, "", "", false});
+                list.push_back({"model:" + model, "Model: " + model + (info.model == model ? " (current)" : "") + (info.defaultModel == model ? " (default)" : "") + " - " + description, "", "", false});
             list.push_back({"model", "Model: another one (any id of the provider)", "model", info.model, false});
-            if (!info.efforts.empty()) list.push_back({"effort:default", std::string("Effort (thinking): default of the agent") + (info.effort.empty() || info.effort == "default" ? " (current)" : ""), "", "", false});
+            if (!info.efforts.empty()) list.push_back({"effort:default", std::string("Effort (thinking): default of the agent") + (info.effort.empty() || info.effort == "default" ? " (current)" : "") + (info.defaultEffort.empty() ? " (default)" : ""), "", "", false});
             for (const std::string& level: info.efforts)
-                list.push_back({"effort:" + level, "Effort (thinking): " + level + (info.effort == level ? " (current)" : ""), "", "", false});
+                list.push_back({"effort:" + level, "Effort (thinking): " + level + (info.effort == level ? " (current)" : "") + (info.defaultEffort == level ? " (default)" : ""), "", "", false});
         } catch (const utils::exception::IException&) {} // an unknown provider: no choice
         for (const char* panel: {"skills", "tokens", "context", "cost", "usage", "git", "diff", "tools", "files", "tasks"})
             list.push_back({std::string("panel:") + panel, std::string("Panel ") + panel + (snap->spec.panels.contains(panel) ? ": hide" : ": show"), "", "", false});
@@ -476,7 +476,8 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         } else if (base == "info") {
             result.message = session_info_(manager, session);
             result.ui = "message"; // a popup in every interface
-        } else if (base == "upgrade") {
+        } else if (base == "upgrade") { // the update by hand: its progress popup (waiting for the turns, saving, starting the new version) in every interface
+            result.message = manager.upgradeAct("update");
         } else if (base == "pin_display" || base == "pin_entry" || base == "pin_last") {
             // pinned by the user at the bottom of the view: a display (its id), an entry (its index), the last answer
             cluster::Json what = cluster::Json::object();
@@ -1280,6 +1281,8 @@ _cold cluster::ModelInfo cluster::model_info(cluster::Manager& manager, const st
     info.driver = backend.provider.driver;
     info.model = !backend.model.empty() ? backend.model : snap->modelUsed;
     info.effort = snap->spec.effort;
+    info.defaultModel = !manager.config().policy.defaultModel.empty() ? manager.config().policy.defaultModel : backend.provider.model;
+    info.defaultEffort = !manager.config().policy.defaultEffort.empty() ? manager.config().policy.defaultEffort : manager.config().effort;
     info.models = cluster::model_choices(manager.config(), backend.provider);
     info.efforts = cluster::effort_levels(info.driver);
     return info;

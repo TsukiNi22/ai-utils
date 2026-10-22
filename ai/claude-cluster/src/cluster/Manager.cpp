@@ -319,11 +319,11 @@ _cold void cluster::Manager::clear(const std::string& id)
     spec.leaf.clear();
     spec.resumeAt.clear();
     this->archive_(id);
+    spec.pin = nullptr; // the pinned item belonged to the old transcript
+    spec.cost = 0.0;   // the figures of the list follow the conversation (the usage ledger keeps the spent ones): zero BEFORE the new session reads them
+    spec.tokens = 0;
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
     session->loadHistory(300);
-    spec.pin = nullptr; // the pinned item belonged to the old transcript
-    spec.cost = 0.0;   // the figures of the list follow the conversation (the usage ledger keeps the spent ones)
-    spec.tokens = 0;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_sessions[id] = session;
@@ -1170,6 +1170,25 @@ std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) con
     std::vector<cluster::Snapshot> snapshots;
     for (const std::shared_ptr<cluster::Session>& session: sessions) {
         snapshots.push_back(session->snapshot());
+    }
+    if (withGlobal && this->_config.globalEnabled && (snapshots.empty() || !snapshots.front().spec.global)) {
+        // the global session is always in the list: not there yet (loading, waiting for the answer to the previous-run question, started
+        // again after a crash), a placeholder says what it is doing - never an empty interface, never sessions without it
+        cluster::Snapshot placeholder;
+        placeholder.spec.id = GLOBAL_ID;
+        placeholder.spec.name = "global";
+        placeholder.spec.global = true;
+        placeholder.spec.backend = this->_config.globalBackend;
+        placeholder.spec.cwd = this->globalDir_().string();
+        placeholder.spec.panels = {"tokens", "context", "cost", "usage"};
+        const bool crashed = this->_globalRetrying.load() || this->_globalEnsured.load() > 0;
+        const bool asking = this->_restoreAsk.load() || this->restorable();
+        placeholder.state = crashed ? cluster::State::Error : cluster::State::Starting;
+        const std::string what = asking ? "waiting for your answer (restore the previous sessions: r / n / q)" : crashed ? "not running: started again…" : "loading…";
+        placeholder.entries.push_back({cluster::EntryKind::System, "global session: " + what, "", cluster::now()});
+        placeholder.warning = "global session " + what;
+        placeholder.warningAt = cluster::now();
+        snapshots.insert(snapshots.begin(), std::move(placeholder));
     }
     return snapshots;
 }

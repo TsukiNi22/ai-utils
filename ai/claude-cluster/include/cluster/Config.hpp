@@ -235,7 +235,7 @@ class Config {
         std::string guiMode = "gui";            // the window: gui (its own interface) | tty (the terminal interface in it)
         std::string style = "html-dark";
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "usage", "git"};
-        std::string restore = "always";
+        std::string restore = "ask";
         bool notify = true;                     // desktop notifications at all
         bool notifyGlobal = true;               // the global session answered
         bool notifyDone = true;                 // a sub-session finished its turn

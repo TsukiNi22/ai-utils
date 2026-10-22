@@ -7,7 +7,7 @@ layout = "list"            # list (list + active panel) | grid | tabs (window / 
 style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized-light | mono, or a [styles.<name>] below
 panels = ["skills", "tokens", "context", "cost", "usage", "git"] # default panels of a new session (+ "diff", "tools", "files")
                            # usage: the vendor of the session today / 7 days / lifetime (tokens, cost), limits left
-restore = "always"         # always | ask | never: sessions of the previous run at start (ask: like Firefox, asked at every start)
+restore = "ask"            # ask | always | never: sessions of the previous run at start (ask: like Firefox, r / n / q at every start)
 prompt_origin = true       # the prompts of a transcript coloured by where they come from (+ a label: mcp, task, scheduled); false: all as before
 prompt_color_user = ""     # "#rrggbb" of the prompts you type (empty: the accent of the style, as before)
 prompt_color_mcp = ""      # of the prompts of the global session and the cluster (session_send / session_spawn, [reply from ...], answers): empty = violet

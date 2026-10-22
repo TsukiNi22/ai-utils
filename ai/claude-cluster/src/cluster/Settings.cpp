@@ -159,7 +159,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.promptColorTask;}},
             {"ui", "panels", "Panels of a new session", SettingKind::List, {}, "skills, tokens, context, cost, git, diff, tools, files", false,
                 [](const cluster::Config& cf) {return join_(cf.panels);}},
-            {"ui", "restore", "Previous sessions at start", SettingKind::Choice, {"always", "ask", "never"}, "always restore (default), ask at every start (like Firefox), never (to the trash)", true,
+            {"ui", "restore", "Previous sessions at start", SettingKind::Choice, {"ask", "always", "never"}, "ask at every start (default, like Firefox: r restore, n new, q quit), always restore, never (to the trash)", true,
                 [](const cluster::Config& cf) {return cf.restore;}},
             {"ui", "vim", "Vim mode of the prompt", SettingKind::Bool, {}, "Esc: Normal mode (hjkl w b e 0 $ x dd dw cw yy p u v V...), i / a / o: Insert", false,
                 [](const cluster::Config& cf) {return cf.vim ? std::string("true") : std::string("false");}},
@@ -955,6 +955,40 @@ _cold cluster::Json cluster::accounts_status_get(void)
     return accounts_json_.is_object() ? accounts_json_ : cluster::Json::object(); // nothing yet: no state
 }
 
+/* the keys */
+_cold static const std::vector<std::string>& key_names_(void)
+{
+    static const std::vector<std::string> names = {"Enter", "Tab", "Escape", "Space", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown", "Up", "Down", "Left", "Right",
+        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"};
+    return names;
+}
+
+_cold static bool key_valid_(const std::string& key)
+{
+    // modifiers (Ctrl, Alt, Shift, each once) joined by +, then a key: one character, a letter / digit / sign, or a name of the list
+    const std::vector<std::string> parts = cluster::split(key, '+');
+    if (parts.empty()) return false;
+    std::set<std::string> used;
+    for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
+        if ((parts[i] != "Ctrl" && parts[i] != "Alt" && parts[i] != "Shift") || !used.insert(parts[i]).second) return false;
+    }
+    const std::string& last = parts.back();
+    if (last.empty() && parts.size() >= 2) return true; // "Ctrl++": the plus itself
+    if (last.size() == 1 && static_cast<unsigned char>(last[0]) > 32) return true;
+    return std::find(key_names_().begin(), key_names_().end(), last) != key_names_().end();
+}
+
+_cold std::vector<std::string> cluster::setting_invalid_parts(const cluster::Setting& setting, const std::string& value)
+{
+    std::vector<std::string> bad;
+    if (setting.section != "keys") return bad;
+    for (const std::string& part: cluster::split(value, '|')) {
+        const std::string key = cluster::trim(part);
+        if (!key.empty() && !key_valid_(key)) bad.push_back(key);
+    }
+    return bad;
+}
+
 /* the suggestions of a text value */
 _cold std::vector<std::string> cluster::setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed, const bool local)
 {
@@ -968,6 +1002,32 @@ _cold std::vector<std::string> cluster::setting_suggestions(const cluster::Confi
             head = typed.substr(0, comma + 1) + (typed.size() > comma + 1 && typed[comma + 1] == ' ' ? " " : "");
             word = cluster::trim(typed.substr(comma + 1));
         }
+    }
+    if (setting.section == "keys") { // the last alternative: its modifiers kept, then the modifiers left and the keys
+        const std::size_t bar = typed.rfind('|');
+        const std::string before = bar == std::string::npos ? std::string() : typed.substr(0, bar + 1);
+        const std::string alternative = cluster::trim(bar == std::string::npos ? typed : typed.substr(bar + 1));
+        const std::size_t plus = alternative.rfind('+');
+        const std::string modifiers = plus == std::string::npos ? std::string() : alternative.substr(0, plus + 1);
+        const std::string last = plus == std::string::npos ? alternative : alternative.substr(plus + 1);
+        std::vector<std::string> pool;
+        for (const char* modifier: {"Ctrl", "Alt", "Shift"})
+            if (modifiers.find(std::string(modifier) + "+") == std::string::npos) pool.push_back(modifier);
+        for (const std::string& name: key_names_())
+            pool.push_back(name);
+        std::vector<std::pair<float, std::string>> found;
+        for (const std::string& name: pool) {
+            if (last.empty()) found.emplace_back(0.0F, name);
+            else if (const std::optional<float> score = cluster::match_score(last, name)) found.emplace_back(*score, name);
+        }
+        std::stable_sort(found.begin(), found.end(), [](const std::pair<float, std::string>& a, const std::pair<float, std::string>& b) {return a.first < b.first;});
+        std::vector<std::string> out;
+        for (std::size_t i = 0; i < found.size() && out.size() < 8; ++i) {
+            const bool modifier = found[i].second == "Ctrl" || found[i].second == "Alt" || found[i].second == "Shift";
+            const std::string whole = before + (before.empty() || before.back() != '|' ? "" : "") + modifiers + found[i].second + (modifier ? "+" : "");
+            if (whole != typed) out.push_back(whole);
+        }
+        return out;
     }
     const std::string key = setting.key;
     const std::string lowered = [&key]() {std::string s = key; std::transform(s.begin(), s.end(), s.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));}); return s;}();
@@ -1007,9 +1067,9 @@ _cold std::vector<std::string> cluster::setting_suggestions(const cluster::Confi
     } else if (lowered.find("model") != std::string::npos) {
         pool = {"opus", "sonnet", "haiku", "fable", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"};
     } else if (lowered.find("provider") != std::string::npos || lowered.find("backend") != std::string::npos) {
-        pool = {"claude", "ollama", "openai", "opencode", "gemini"};
-        for (const auto &[name, provider]: config.providers)
-            if (std::find(pool.begin(), pool.end(), name) == pool.end()) pool.push_back(name);
+        pool = {"claude"}; // the drivers, then every provider known: the logins and the API ones (anthropic-api, openrouter, deepseek...), the own ones of config.toml too
+        for (const cluster::Provider& provider: cluster::Auth(config).providers())
+            if (provider.driver != "voice" && std::find(pool.begin(), pool.end(), provider.name) == pool.end()) pool.push_back(provider.name);
     } else if (ends("effort") || ends("efforts")) {
         pool = {"low", "medium", "high", "xhigh", "max"};
     } else if (ends("shell") || ends("frontend")) {

@@ -83,6 +83,8 @@ _cold _nodiscard std::vector<cluster::SettingsPage> settings_pages(const cluster
 _cold _nodiscard std::string setting_next(const cluster::Setting& setting, const std::string& value, const int step); // Bool / Choice / Int / Float
 // The values a text setting takes, for what is typed so far (models, providers, folders, files, programs; a list: the last item), the closest first;
 // each one is the whole new value
+// The alternatives of a key setting (separated by |) that are not a key (Ctrl+Shift+Q is, Ctrl+Foo is not); none for the other settings
+_cold _nodiscard std::vector<std::string> setting_invalid_parts(const cluster::Setting& setting, const std::string& value);
 // local: the folders / files / programs of this computer too (never for the web page: names only)
 _cold _nodiscard std::vector<std::string> setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed, const bool local = true);
 _cold _nodiscard std::string setting_check(const cluster::Setting& setting, const std::string& value); // error message, empty: valid

@@ -383,6 +383,23 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     return result;
 }
 
+_cold std::string cluster::model_label(const std::string& backend, const std::string& modelUsed)
+{
+    // "claude/opus-5-5" when a model is chosen (in the backend, claude/opus) or loaded; else the provider and (default) - the model of the provider
+    const std::size_t slash = backend.find('/');
+    const std::string provider = backend.substr(0, slash);
+    const bool chosen = slash != std::string::npos;
+    const std::string model = chosen ? backend.substr(slash + 1) : modelUsed;
+    if (model.empty()) return provider + " (default)";
+    return provider + "/" + (modelUsed.empty() ? model : modelUsed) + (chosen ? "" : " (default)");
+}
+
+_cold std::string cluster::effort_label(const std::string& effort, const std::string& configured)
+{
+    if (!effort.empty() && effort != "default") return "think " + effort;
+    return "think " + (configured.empty() ? std::string("default") : configured + " (default)");
+}
+
 std::string cluster::tail_utf8(const std::string& text, const std::size_t max)
 {
     // the end of a text (the live speech: what is being said), cut on a character
