@@ -237,6 +237,7 @@ class Config {
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "usage", "git"};
         std::string restore = "ask";
         bool notify = true;                     // desktop notifications at all
+        bool startMenu = true;                  // the menu at each start of a terminal: open / independent instance / restore / new / quit
         bool notifyGlobal = true;               // the global session answered
         bool notifyDone = true;                 // a sub-session finished its turn
         bool notifyPermission = true;           // a permission waits

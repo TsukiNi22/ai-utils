@@ -189,6 +189,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         {"notify", "Notifications", {
             {"ui", "notify", "Desktop notifications", SettingKind::Bool, {}, "all of them (off: none); their face, their buttons (Allow / Deny, the options of a question, Open), one per session", false,
                 [](const cluster::Config& cf) {return cf.notify ? std::string("true") : std::string("false");}},
+            {"ui", "start_menu", "Start menu", SettingKind::Bool, {}, "at each start of the terminal: open the claude-cluster that runs, an independent instance (its own sessions "
+                "and global session), restore the previous run, start new, or quit (off: the previous run is asked only when there is one)", false,
+                [](const cluster::Config& cf) {return cf.startMenu ? std::string("true") : std::string("false");}},
             {"ui", "notify_when", "When", SettingKind::Choice, {"unfocused", "always"}, "unfocused: only when claude-cluster is not in front (its terminal / window "
                 "not focused: its own popups are in front of you); always: also when it is", false,
                 [](const cluster::Config& cf) {return cf.notifyWhen;}},

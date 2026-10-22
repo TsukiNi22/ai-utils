@@ -16,6 +16,7 @@ File Description:
 #define _IOManip
 #include <utils/utils.hpp>
 #include "cluster/VoiceEngines.hpp"
+#include "cluster/StartMenu.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Service.hpp"
@@ -360,6 +361,7 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!this->_options.backend.empty()) app.config.backend = this->_options.backend;
     if (!this->_options.global) app.config.globalEnabled = false;
     (void)app.config.currentStyle();
+    if (std::getenv("CLAUDE_CLUSTER_INSTANCE") != nullptr) app.config.web.enabled = false; // an independent instance: no port taken from the main one
     cluster::install_icon(); // the menu, the dock and the notifications show it
 
     // Front-end: forced (fails when impossible) or auto (terminal first, then window)
@@ -384,6 +386,17 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!serve && frontend == "tty" && !foreground_())
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the terminal interface runs in the foreground only (not with &): "
             "claude-cluster alone; in the background: claude-cluster --gui & or claude-cluster serve &");
+
+    // the menu of the start (always, in a terminal that is really there): what to open or start; an isolated run (tests, the demo, a web terminal) has none
+    if (!serve && frontend == "tty" && app.config.startMenu && this->_options.restore.empty() && !cluster::demo_enabled() && std::getenv("CLAUDE_CLUSTER_SOCKET") == nullptr
+        && std::getenv("CLAUDE_CLUSTER_WEB_TTY") == nullptr && std::getenv("CLAUDE_CLUSTER_NO_MENU") == nullptr && !this->_options.values.contains("voice")) {
+        const cluster::StartChoice choice = cluster::start_menu(CLUSTER_VERSION);
+        if (choice.kind == cluster::StartChoice::Kind::Quit) return 0;
+        if (choice.kind == cluster::StartChoice::Kind::Restore) this->_options.restore = "always";
+        else if (choice.kind == cluster::StartChoice::Kind::New) this->_options.restore = "never";
+        else if (choice.kind == cluster::StartChoice::Kind::Independent) cluster::start_instance(choice.instance);
+        app.options = this->_options;
+    }
 
     // Core: one per user (control socket), previous sessions, global session. An interface attaches to the core running, or to
     // one started for it (a process of its own: several terminals / windows at once, all in sync; the core goes on until the

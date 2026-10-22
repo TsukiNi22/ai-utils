@@ -70,7 +70,7 @@ claude-cluster --gui                    # window (fails when Qt6 is not built in
 claude-cluster -g --tty-mode            # the window showing the terminal interface ([ui] gui_mode = tty keeps it)
 claude-cluster --tty --layout grid      # terminal, sessions in a grid (list | grid; `tabs` is for the window / web page, the terminal shows the list)
 claude-cluster --backend ollama/qwen3-coder   # backend of the new sessions for this run
-claude-cluster --restore | --fresh      # previous run: restore / start new (default: asked, Esc = restore)
+claude-cluster --restore | --fresh      # previous run: restore / start new, without the start menu (default: the menu)
 claude-cluster --rescan                 # ask at start to sync the map of this computer (even recent or refused)
 claude-cluster serve                    # no interface: driven by the commands below and the MCP server
 claude-cluster --demo [--web]           # the demo: fictional projects, sessions, tasks, schedules (nothing real, nothing spent; see Demo mode)
@@ -676,6 +676,22 @@ characters each), only when the detection is on, once per N sessions it started 
 `work_method_due`) or when you ask. A proposal (`work_method` `propose`) is a question on every interface (a popup:
 **Allow** / **Deny**, a notification); only Allow writes the setting, Deny is final for that proposal and is told to the
 global session. Never applied silently. State: `method.json` in the data folder (counter, the proposal waiting).
+
+### The start menu
+
+Every start of the terminal opens a menu first (`[ui] start_menu`, on by default; `--restore` / `--fresh` skip it, and so do an isolated
+run - `CLAUDE_CLUSTER_SOCKET` set -, the demo, the web terminal and a voice start). What it offers follows what is there:
+
+| Choice | When | Does |
+|---|---|---|
+| `o` Open the running claude-cluster | a core runs (its sessions and working ones counted) | attaches to it, nothing asked |
+| `r` Restore the previous run | none runs, a previous run has sessions | they come back, the global conversation goes on |
+| `n` Start new | none runs | nothing restored: the previous sessions go to the trash (an empty start when there were none) |
+| `1`, `2`... Open the independent instance "name" | an independent instance exists (running, or stopped with its sessions kept) | opens it |
+| `i` Start an independent instance | always | an instance of its own (`<data>/instances/indep-N`: its sessions, global session, control socket and `mcp.json`; the config stays the same; **no web access**), nothing shared with the main one |
+| `q` Quit | always | nothing is started |
+
+Arrows (or `Tab`) move the choice, `Enter` does it, the letter picks it, `Esc` quits.
 
 ### Demo mode
 

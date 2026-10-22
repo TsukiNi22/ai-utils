@@ -145,6 +145,7 @@ _cold void cluster::Config::load(void)
     this->panels = strings_(table["ui"]["panels"], this->panels);
     this->restore = table["ui"]["restore"].value_or(this->restore);
     this->notify = table["ui"]["notify"].value_or(this->notify);
+    this->startMenu = table["ui"]["start_menu"].value_or(this->startMenu);
     this->notifyGlobal = table["ui"]["notify_global"].value_or(this->notifyGlobal);
     this->notifyDone = table["ui"]["notify_done"].value_or(this->notifyDone);
     this->notifyPermission = table["ui"]["notify_permission"].value_or(this->notifyPermission);

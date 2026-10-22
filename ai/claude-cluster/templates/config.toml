@@ -13,6 +13,7 @@ prompt_color_user = ""     # "#rrggbb" of the prompts you type (empty: the accen
 prompt_color_mcp = ""      # of the prompts of the global session and the cluster (session_send / session_spawn, [reply from ...], answers): empty = violet
 prompt_color_task = ""     # of the prompts of the tasks and the schedules ([tasks], [scheduled wN]): empty = magenta
 notify = true              # desktop notifications at all (the ones of the global session too)
+start_menu = true          # at each start of the terminal: open the running claude-cluster / an independent instance / restore the previous run / start new / quit
 notify_global = true       # when the global session answers
 notify_done = true         # when a sub-session finishes its turn
 notify_permission = true   # when a permission waits
