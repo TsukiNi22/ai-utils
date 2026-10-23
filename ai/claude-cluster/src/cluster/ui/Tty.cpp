@@ -6834,6 +6834,10 @@ class TtyUi {
                         asking.back(); // ← on an option, or on an empty Other: the question before
                     } else if (event == ftxui::Event::ArrowRight && (ask->cursor != count || this->_askOther.cursor() >= this->_askOther.text().size())) {
                         if (!asking.forward()) this->status_("choose an option first (Enter)", true); // the next question, answered or not (the review flags the ones left)
+                    } else if (event == ftxui::Event::Return && multi && ask->cursor == count && !cluster::trim(this->_askOther.text()).empty()) {
+                        // on an Other typed: its answer validated (kept ticked, never unticked by the Enter), the next question
+                        if (!ask->picked.contains(count)) asking.toggle();
+                        this->askNext_();
                     } else if (event == ftxui::Event::Return) {
                         if (multi) asking.toggle(); // several choices: Enter ticks / unticks (Tab / → goes on)
                         else this->askNext_();      // one choice: the option under the cursor is the answer

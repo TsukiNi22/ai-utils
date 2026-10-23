@@ -92,7 +92,8 @@ _cold static void record_(cluster::Ask& a)
     const std::string question = q.value("question", std::string());
     if (value.empty()) {
         a.answers.erase(question);
-        a.given.erase(a.index);
+        if (a.other.empty()) a.given.erase(a.index);
+        else a.given[a.index] = {a.cursor, a.picked, a.other}; // nothing ticked: its Other text still found when coming back
         return;
     }
     a.answers[question] = value;
@@ -342,7 +343,10 @@ _cold void cluster::Asking::erase(void)
     std::string& other = this->_ask->other;
     while (!other.empty() && (static_cast<unsigned char>(other.back()) & 0xC0) == 0x80) other.pop_back();
     if (!other.empty()) other.pop_back();
-    if (this->_ask->questions[this->_ask->index].value("multiSelect", false)) record_(*this->_ask);
+    if (this->_ask->questions[this->_ask->index].value("multiSelect", false)) {
+        if (other.empty()) this->_ask->picked.erase(static_cast<int>(this->_ask->questions[this->_ask->index].value("options", cluster::Json::array()).size())); // empty: Other untick
+        record_(*this->_ask);
+    }
     ++this->_version;
 }
 
@@ -355,7 +359,8 @@ _cold void cluster::Asking::setOther(const std::string& raw)
             const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
             a.other = text;
             a.cursor = count;
-            if (q.value("multiSelect", false)) a.picked.insert(count);
+            if (q.value("multiSelect", false) && text.empty()) a.picked.erase(count); // its text emptied: Other no longer ticked
+            else if (q.value("multiSelect", false)) a.picked.insert(count);
         });
         this->post_({{"action", "other"}, {"text", text}});
         return;
@@ -369,7 +374,8 @@ _cold void cluster::Asking::setOther(const std::string& raw)
     this->_ask->cursor = count;
     this->_ask->touched = true;
     if (q.value("multiSelect", false)) {
-        this->_ask->picked.insert(count);
+        if (text.empty()) this->_ask->picked.erase(count); // its text emptied: Other no longer ticked
+        else this->_ask->picked.insert(count);
         record_(*this->_ask);
     }
     ++this->_version;
