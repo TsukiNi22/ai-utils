@@ -126,6 +126,8 @@ class Term {
     csi(seq) {
         const final = seq[seq.length - 1];
         let body = seq.slice(0, -1);
+        // another private marker (> < =: the key modes of xterm, CSI > 4 ; 1 m) or an intermediate byte: nothing drawn (never an underline / a colour)
+        if (/^[<=>]/.test(body) || /[\x20-\x2f]/.test(body)) return;
         const priv = body.startsWith("?");
         if (priv) body = body.slice(1);
         let params = body.length ? body.split(";").map((p) => (p === "" ? -1 : parseInt(p, 10))) : [];

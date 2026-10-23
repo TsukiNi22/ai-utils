@@ -231,6 +231,10 @@ _cold void cluster::Vt::csi_(const std::string& sequence)
     // the parameters (numbers; a private ?), the final byte
     const char final = sequence.back();
     std::string body = sequence.substr(0, sequence.size() - 1);
+    // another private marker (> < =: the key modes of xterm, CSI > 4 ; 1 m...) or an intermediate byte: nothing drawn here - never read as a colour /
+    // underline (it underlined the whole page)
+    if (!body.empty() && (body[0] == '>' || body[0] == '<' || body[0] == '=')) return;
+    if (std::any_of(body.begin(), body.end(), [](const char c) {return c >= 0x20 && c <= 0x2f;})) return;
     const bool priv = !body.empty() && body[0] == '?';
     if (priv) body.erase(0, 1);
     std::vector<int> params;
