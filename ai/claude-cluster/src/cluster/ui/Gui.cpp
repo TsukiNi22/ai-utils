@@ -118,6 +118,41 @@ File Description:
 #include <set>
 #include <map>
 
+_cold static QString pill_(const std::string& text, const std::string& fg, const std::string& bg, const bool mono = true, const bool bold = false,
+    const double points = 8.6, const bool outline = false)
+{
+    static std::map<std::string, QString> made;
+    const std::string key = text + "\x1f" + fg + "\x1f" + bg + (mono ? "m" : "") + (bold ? "b" : "") + (outline ? "o" : "") + std::to_string(points);
+    if (const auto it = made.find(key); it != made.end()) return it->second;
+    QFont font = mono ? QFontDatabase::systemFont(QFontDatabase::FixedFont) : QApplication::font();
+    font.setPointSizeF(points * 2);
+    font.setBold(bold);
+    const QFontMetricsF metrics(font);
+    const QString label = QString::fromStdString(text);
+    const double height = std::ceil(metrics.height() + 6);
+    const double width = std::ceil(metrics.horizontalAdvance(label) + 20);
+    QImage image(static_cast<int>(width), static_cast<int>(height), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(outline ? QPen(QColor(QString::fromStdString(fg)), 2) : Qt::NoPen);
+    painter.setBrush(outline ? QBrush(Qt::transparent) : QBrush(QColor(QString::fromStdString(bg))));
+    painter.drawRoundedRect(QRectF(1, 1, width - 2, height - 2), (height - 2) / 2, (height - 2) / 2);
+    painter.setPen(QColor(QString::fromStdString(fg)));
+    painter.setFont(font);
+    painter.drawText(QRectF(0, 0, width, height), Qt::AlignCenter, label);
+    painter.end();
+    QByteArray png;
+    QBuffer buffer(&png);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "PNG");
+    const QString html = "<img src=\"data:image/png;base64," + QString::fromLatin1(png.toBase64()) + "\" width=\"" + QString::number(static_cast<int>(width / 2))
+        + "\" height=\"" + QString::number(static_cast<int>(height / 2)) + "\" style=\"vertical-align:middle\">";
+    if (made.size() > 600) made.clear();
+    made[key] = html;
+    return html;
+}
+
 _cold static std::string chip_color_(const std::string& label)
 {
     // the color of a category / a tag: made from its text (the same label, the same color everywhere)
@@ -1356,11 +1391,12 @@ class Window: public QMainWindow {
                 QTimer* cycle = new QTimer(this);
                 std::shared_ptr<int> step = std::make_shared<int>(0);
                 QObject::connect(cycle, &QTimer::timeout, this, [this, dir, step]() {
-                    static const std::array<const char*, 5> views = {"list", "grid", "graph", "hub", "tree"};
+                    static const std::array<const char*, 6> views = {"list", "grid", "graph", "hub", "tree", "tasks"};
                     if (*step >= static_cast<int>(views.size())) return;
                     const std::string view = views[static_cast<std::size_t>(*step)];
                     ++*step;
-                    this->manager.setUi("layout", view);
+                    if (view == "tasks") this->active = TASKS_ID;
+                    this->manager.setUi("layout", view == "tasks" ? "list" : view);
                     this->refresh(true);
                     QTimer::singleShot(120, this, [this, dir, view]() {this->grab().save(QString::fromStdString(dir + "/" + view + "-early.png"));});
                     QTimer::singleShot(1500, this, [this, dir, view]() {this->grab().save(QString::fromStdString(dir + "/" + view + ".png"));});
@@ -1851,8 +1887,7 @@ class Window: public QMainWindow {
                 + "claude-cluster");
             if (this->brand) {
                 const cluster::Style& st = this->theme();
-                this->brand->setText("<span style=\"background:" + q_(mix_(st.surface, st.accent, 0.18)) + ";color:" + q_(st.accent) + ";font-family:monospace\">&nbsp;"
-                    + QString::fromUtf8(cluster::face_text(face.face)).toHtmlEscaped() + "&nbsp;</span>&nbsp; claude-cluster");
+                this->brand->setText(pill_(cluster::face_text(face.face), st.accent, mix_(st.surface, st.accent, 0.18), true, true, 9.5) + "&nbsp; claude-cluster");
             }
         }
 
@@ -2990,7 +3025,8 @@ class Window: public QMainWindow {
             this->hub = nullptr;
             this->hubNote = nullptr;
             this->folders = nullptr;
-            if (std::none_of(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;}) && !sessions.empty())
+            if (this->active != TASKS_ID && std::none_of(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;})
+                && !sessions.empty()) // the Tasks session kept (not a session: it is never in the list)
                 this->active = sessions.front().spec.id;
 
             QWidget* central = new QWidget(this);
@@ -3240,6 +3276,7 @@ class Window: public QMainWindow {
             bottom->addWidget(this->webLabel);
             root->addLayout(bottom);
             this->setCentralWidget(central);
+            this->showFace(); // its title at once (not at the next tick of the face: blank meanwhile)
             this->input->setFocus();
             this->lastVersion = 0;
             this->faceShown.clear(); // the new top bar gets its face
@@ -3332,9 +3369,9 @@ class Window: public QMainWindow {
                     }
                     before = &s;
                     QString chips;
-                    if (!s.spec.category.empty()) chips += "<br><span style=\"background:" + q_(chip_color_(s.spec.category)) + ";color:" + q_(st.bg) + ";font-size:8.5pt\">&nbsp;<b>" + esc_(s.spec.category) + "</b>&nbsp;</span>";
+                    if (!s.spec.category.empty()) chips += "<br>" + pill_(s.spec.category, st.bg, chip_color_(s.spec.category), false, true, 8.2);
                     for (const std::string& tag: s.spec.tags)
-                        chips += (chips.isEmpty() ? "<br>" : " ") + span_(chip_color_(tag), "<span style=\"font-size:8.5pt\">#" + esc_(tag) + "</span>");
+                        chips += (chips.isEmpty() ? "<br>" : "&nbsp;") + pill_("#" + tag, chip_color_(tag), st.bg, false, false, 8.2, true);
                     const std::string dot = s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting || !s.permissions.empty() ? st.warn
                         : s.state == cluster::State::Error ? st.error : st.muted;
                     const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
@@ -3343,7 +3380,7 @@ class Window: public QMainWindow {
                     row->setAttribute(Qt::WA_TransparentForMouseEvents);
                     row->setContentsMargins(10, 7, 10, 7);
                     row->setText("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>" + span_(dot, "●") + "&nbsp; <b>" + esc_(s.spec.name) + "</b>&nbsp; "
-                        + "<span style=\"background:" + q_(mix_(st.surface, dot, 0.22)) + ";color:" + q_(dot) + ";font-family:monospace;font-size:9pt\">&nbsp;" + face + "&nbsp;</span>"
+                        + pill_(face, dot, mix_(st.surface, dot, 0.22))
                         + (s.permissions.empty() ? QString() : "&nbsp;" + span_(st.warn, "<b>" + QString::number(s.permissions.size()) + "</b>"))
                         + "</td><td align=\"right\">" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::human_tokens(s.metrics.total.total()))
                         + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">"
@@ -5041,8 +5078,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     const std::string model = s.modelUsed.empty() ? s.spec.backend : s.spec.backend.substr(0, s.spec.backend.find('/')) + "/" + s.modelUsed;
     const std::string tone = s.state == cluster::State::Error ? st.error : s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting ? st.warn : st.muted;
     const std::function<QString(const std::string&, const std::string&)> chip = [&st](const std::string& color, const std::string& text) {
-        return "<span style=\"background:" + q_(mix_(st.surface, color, 0.2)) + ";color:" + q_(color) + ";font-family:monospace;font-size:9pt\">&nbsp;" + esc_(text)
-            + "&nbsp;</span>";
+        return pill_(text, color, mix_(st.surface, color, 0.2));
     };
     QString head = "<span style=\"font-size:11.5pt\"><b>" + esc_(s.spec.name) + "</b></span>&nbsp;&nbsp;" + chip(tone, cluster::state_name(s.state)) + "&nbsp; "
         + chip(st.accent, model) + "&nbsp; " + chip(manager.authKind(s.spec.backend) == "api" ? st.warn : st.ok, manager.authKind(s.spec.backend))
