@@ -105,10 +105,77 @@ _cold void cluster::Manager::showcaseUpgrade(void)
     ++this->_version;
 }
 
+/* the prompts held while an update switches */
+_cold static std::filesystem::path held_file_(void)
+{
+    return cluster::data_dir() / "held.json"; // [{session, text, images, origin}]: sent by the next version
+}
+
+_cold bool cluster::Manager::hold_(const std::string& id, const std::string& text, const std::vector<std::string>& images, const std::string& origin)
+{
+    // an update switching: this prompt kept on disk (never lost, never a new turn now), sent by the new version once it runs
+    if (!this->_holding) return false;
+    cluster::Json held = cluster::read_json(held_file_()).value_or(cluster::Json::array());
+    if (!held.is_array()) held = cluster::Json::array();
+    held.push_back({{"session", id}, {"text", text}, {"images", images}, {"origin", origin}});
+    cluster::write_json(held_file_(), held);
+    this->notice_(id, "prompt held: an update is switching, it is sent by the new version");
+    ++this->_version;
+    return true;
+}
+
+_cold void cluster::Manager::holdQueues_(void)
+{
+    // the prompts waiting in the queue of a turn (not given to the agent yet): held in their order, the turn ends without them
+    for (const cluster::Snapshot& s: this->list(true)) {
+        std::vector<cluster::Queued> taken;
+        while (const std::optional<cluster::Queued> queued = this->unqueue(s.spec.id))
+            taken.push_back(*queued);
+        for (auto it = taken.rbegin(); it != taken.rend(); ++it)
+            (void)this->hold_(s.spec.id, it->text, it->images, it->origin);
+    }
+}
+
+_cold std::size_t cluster::Manager::heldCount_(void) const
+{
+    const cluster::Json held = cluster::read_json(held_file_()).value_or(cluster::Json::array());
+    return held.is_array() ? held.size() : 0;
+}
+
+_cold void cluster::Manager::releaseHeld_(void)
+{
+    // the version before held these prompts while it switched: sent in their order (a session gone: told, not sent)
+    const cluster::Json held = cluster::read_json(held_file_()).value_or(cluster::Json::array());
+    std::error_code error;
+    std::filesystem::remove(held_file_(), error);
+    if (!held.is_array() || held.empty()) return;
+    std::size_t sent = 0;
+    for (const cluster::Json& item: held) {
+        const std::string session = item.value("session", std::string());
+        try {
+            this->send(session, item.value("text", std::string()), true, item.value("images", std::vector<std::string>()), item.value("origin", std::string()));
+            ++sent;
+        } catch (const utils::exception::IException& e) {
+            this->notice_(session, "a prompt held for the update not sent (" + std::string(e.info()) + "): " + cluster::one_line(item.value("text", std::string()), 120), true);
+        }
+    }
+    this->notice_("", std::to_string(sent) + " prompt(s) held during the update sent");
+}
+
 _cold std::string cluster::Manager::upgradeAct(const std::string& action)
 {
     // update (the default) | ignore (this version) | quit (everything stopped, to start again by hand)
     if (this->_replica) return this->call({{"cmd", "upgrade"}, {"action", action}}).value("done", std::string());
+    if ((action == "hold" || action == "release") && std::getenv("CLAUDE_CLUSTER_TEST") != nullptr) { // the tests: the hold of an update without a new binary
+        if (action == "hold") {
+            this->_holding = true;
+            this->holdQueues_();
+            return std::to_string(this->heldCount_()) + " held";
+        }
+        this->_holding = false;
+        this->releaseHeld_();
+        return "released";
+    }
     if (this->_upgradeShowcase) { // the Debug page's pretend update: the popup closes, a progress popup plays, nothing is installed or stopped
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
@@ -176,12 +243,18 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
             ++this->_version;
             return;
         }
+        // from now on nothing starts a turn: the prompts, the queued ones, the tasks, the schedules and the wake-ups are held (held.json) and
+        // sent by the new version; only the turns running are waited for (before: their queue started new ones, the update never came)
+        this->_holding = true;
+        this->holdQueues_();
         for (;;) {
             std::string names;
             for (const cluster::Snapshot& s: this->list(true))
-                if (s.state == cluster::State::Working || s.queued > 0) names += (names.empty() ? "" : ", ") + s.spec.name;
+                if (s.state == cluster::State::Working || s.state == cluster::State::Waiting)
+                    names += (names.empty() ? "" : ", ") + s.spec.name + (s.state == cluster::State::Waiting ? " (waits for your answer)" : "");
             if (names.empty()) break;
-            this->progressStep(id, "waiting for the turns running: " + names);
+            const std::size_t held = this->heldCount_();
+            this->progressStep(id, "waiting for the turns running: " + names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held, sent after the update" : std::string()));
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
         this->progressAdvance(id, "saving the sessions");

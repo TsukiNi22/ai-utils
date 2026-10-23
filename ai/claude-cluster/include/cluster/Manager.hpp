@@ -185,6 +185,8 @@ class Manager {
         std::int64_t _exeStamp = 0;
         std::atomic<bool> _upgradeStarted{false};
         std::atomic<bool> _upgrading{false};
+        std::atomic<bool> _holding{false};              // an update waiting for the turns: what would start a turn is held (held.json), sent by the new version
+        bool _heldReleased = false;                     // the prompts held by the version before: sent (once)
         bool _pluginsSeen = false;
         std::vector<std::string> _pluginRepos;     // the [plugins] last applied
         std::map<std::string, bool> _pluginSelect;
@@ -277,6 +279,10 @@ class Manager {
         _cold _nodiscard std::size_t spawnedBy_(const std::string& by) const;      // the sessions of its tasks waiting or open (the lock held)
         _cold void pluginsSync_(void);                      // [plugins] changed: listed / installed (a thread)
         _cold void upgradeCheck_(void);                     // the binary on disk newer: offered (Manager-Upgrade.cpp)
+        _cold bool hold_(const std::string& id, const std::string& text, const std::vector<std::string>& images, const std::string& origin); // held: true
+        _cold void holdQueues_(void);                       // the prompts queued in the sessions: held too (none starts a turn before the switch)
+        _cold void releaseHeld_(void);                      // the prompts held by the version before: sent now
+        _cold _nodiscard std::size_t heldCount_(void) const;
         _cold void taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text);
         _cold void groupUpdate_(const std::string& id);     // Manager-Groups.cpp: its card, the global session woken, its end
         _cold void groupsTick_(void);                       // the groups whose time is over

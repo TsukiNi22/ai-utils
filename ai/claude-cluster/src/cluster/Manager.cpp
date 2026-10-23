@@ -259,7 +259,7 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
             std::lock_guard<std::mutex> lock(this->_mutex);
             this->_oneShot.insert(spec.id);
         }
-        session->send(req.prompt, {}, req.origin);
+        if (!this->hold_(spec.id, req.prompt, {}, req.origin)) session->send(req.prompt, {}, req.origin);
     }
     this->notice_(spec.id, "new session " + spec.name + " (" + spec.backend + ") in " + cluster::short_path(spec.cwd));
     this->save();
@@ -287,6 +287,7 @@ _cold void cluster::Manager::send(const std::string& id, const std::string& text
         return;
     }
     const std::shared_ptr<cluster::Session> session = this->get_(id);
+    if (this->hold_(session->id(), text, images, origin)) return; // an update switching: sent by the new version, never a new turn now
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_origin[session->id()] = "host"; // a web device marks it after (Web: setOrigin)
@@ -387,7 +388,7 @@ _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::Ses
     }
     session->start();
     for (const cluster::Queued& queued: unfinished)
-        session->send(queued.text, queued.images, queued.origin);
+        if (!this->hold_(id, queued.text, queued.images, queued.origin)) session->send(queued.text, queued.images, queued.origin);
     this->save();
 }
 
@@ -518,6 +519,7 @@ _cold std::string cluster::Manager::resume(const std::string& id)
     const cluster::Snapshot snap = session->snapshot();
     const bool running = snap.state == cluster::State::Working || snap.state == cluster::State::Starting;
     if (running) this->interrupt(snap.spec.id);
+    if (this->hold_(snap.spec.id, "continue", {}, "")) return "held: continued by the new version (an update is switching)";
     session->send("continue", {});
     this->notice_(snap.spec.id, snap.spec.name + (running ? ": retried now" : ": continued"));
     return running ? "retried now" : "continued";
@@ -1132,9 +1134,15 @@ _cold void cluster::Manager::tick(void)
         else this->notice_("", "config error (previous values kept): " + this->_config.error(), true);
     }
     this->pluginsSync_();
-    this->schedule_();
-    this->groupsTick_();
-    this->fireSchedules_();
+    if (!this->_holding) { // an update switching: no task, group or schedule starts a turn (they go on with the new version)
+        this->schedule_();
+        this->groupsTick_();
+        this->fireSchedules_();
+    }
+    if (!this->_heldReleased && !this->_holding && !this->_restoreAsk && seconds >= 3) { // the prompts the version before held: sent once its sessions are back
+        this->_heldReleased = true;
+        this->releaseHeld_();
+    }
     if (++seconds % 300 == 1) this->purge();
     if (seconds % 3 == 0) this->upgradeCheck_();
     if (seconds % 5 == 0) cluster::accounts_status_set(this->accountsJson());
