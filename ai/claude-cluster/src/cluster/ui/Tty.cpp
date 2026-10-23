@@ -775,6 +775,7 @@ class TtyUi {
         bool _expanded = false;                     // Ctrl+O: thinking and tool results in full
         std::uint64_t _focusSeen = 0;               // last ui_focus applied
         bool _machineStartup = false;               // the map of this computer asked at start (no: never asked again)
+        bool _restoreAsked = false;                 // the previous run asked by this interface (once)
         int _machineKind = 0;                       // 1 no map yet, 2 an old one (its sync proposed)
         std::vector<cluster::ProfileQuestion> _questions;   // about the user, before a scan
         std::size_t _question = 0;
@@ -6296,6 +6297,10 @@ class TtyUi {
         _nodiscard ftxui::Element render_(void)
         {
             if (this->_manager.config().reload()) this->theme_();
+            if (!this->_restoreAsked && this->_mode == Mode::Normal && this->_manager.replica() && this->_manager.restorable()) {
+                this->_restoreAsked = true; // the core waits for this answer (asked after the first sync): never a global session loading forever
+                this->_mode = Mode::Restore;
+            }
             this->askCheck_();
             this->_clicks.clear();  // made again by this drawing
             this->_rowSessions.clear();
@@ -7116,6 +7121,7 @@ class TtyUi {
             }
             this->_machineStartup = this->_app.askMachine != 0 && !this->_webTty; // the terminal page never maps the computer
             this->_machineKind = this->_app.askMachine;
+            this->_restoreAsked = this->_app.askRestore;
             if (this->_app.askRestore) this->_mode = Mode::Restore;
             else if (this->_machineStartup) this->_mode = Mode::Machine;
             this->_editor.setProvider(cluster::completion_provider(this->_manager, [this]() {return this->_active;}));

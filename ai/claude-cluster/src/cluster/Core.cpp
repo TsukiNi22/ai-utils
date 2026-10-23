@@ -442,7 +442,6 @@ _cold int cluster::Core::ui_(const bool serve)
     } else {
     app.manager = std::make_unique<cluster::Manager>(app.config);
     app.control = std::make_unique<cluster::Control>(*app.manager);
-    app.control->start();
     app.manager->load();
     if (!this->_options.layout.empty()) app.manager->setUi("layout", this->_options.layout);
     if (!this->_options.style.empty()) app.manager->setUi("style", this->_options.style);
@@ -457,6 +456,8 @@ _cold int cluster::Core::ui_(const bool serve)
         } else if (serve) app.manager->restorePrevious(true); // nobody to ask
         else app.askRestore = true;
     }
+    // the socket opened once the question is set: an interface attached before saw no question, and the core waited for its answer forever
+    app.control->start();
     if (!app.askRestore && !askedLater) app.manager->startGlobal(); // asked: started by the answer (resumed or new); the tick starts it if it is missing anyway
     app.askMachine = serve || cluster::demo_enabled() ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk(); // 3: forced (--rescan)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
