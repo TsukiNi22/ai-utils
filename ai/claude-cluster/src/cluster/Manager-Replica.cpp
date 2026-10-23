@@ -137,7 +137,7 @@ _cold void cluster::Manager::attach(void)
                 // the core gone (the last interface closed it, a crash): started again (at the first try, then every 5, Retry now), its sessions resumed
                 if ((failures++ % 5 == 0 || replica->retryNow) && replica->running && !cluster::Control::alive() && !replica->starting.exchange(true))
                     std::thread([replica]() { // never waited here: the tries and Retry now go on meanwhile
-                        (void)cluster::start_core();
+                        (void)cluster::start_core({"--restore"}); // its sessions resumed as they were (never asked again: nobody quit)
                         replica->starting = false;
                     }).detach();
                 replica->retryNow = false;
@@ -238,12 +238,12 @@ _cold void cluster::Manager::clientSeen(const std::string& client)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (!this->_clients.contains(client)) cluster::debug("interfaces", "attached: " + client + (this->_background ? " (the core was in background: kept as usual again)" : ""));
-        if (this->_background && (!this->_clients.contains(client) || cluster::now() - this->_clients[client] > 20)) { // an interface back: kept as usual
+        if (this->_background && (!this->_clients.contains(client) || cluster::awake_s() - this->_clients[client] > 20)) { // an interface back: kept as usual
             this->_background = false;
             webBack = this->_webBeforeBackground;
             this->_webBeforeBackground = false;
         }
-        this->_clients[client] = cluster::now();
+        this->_clients[client] = cluster::awake_s(); // awake time: a suspend of the computer never makes its interfaces look gone
         this->_hadClients = true;
     }
     if (webBack && this->_web != nullptr) this->_web->setOn(true); // the web access closed by the background: open again (outside the lock)
@@ -301,9 +301,9 @@ _cold void cluster::Manager::requestBackground(void)
 
 _cold std::size_t cluster::Manager::clients(void) const
 {
-    // the interfaces seen in the last 20 s (a crashed one forgotten)
+    // the interfaces seen in the last 20 s awake (a crashed one forgotten; the time of a sleep not counted)
     std::lock_guard<std::mutex> lock(this->_mutex);
-    const std::int64_t now = cluster::now();
+    const std::int64_t now = cluster::awake_s();
     return static_cast<std::size_t>(std::count_if(this->_clients.begin(), this->_clients.end(), [now](const std::pair<const std::string, std::int64_t>& c) {return now - c.second <= 20;}));
 }
 

@@ -71,6 +71,8 @@ _nodiscard std::string content_hash(const std::string& bytes);   // FNV-1a 64, h
 /* format */
 _nodiscard inline std::int64_t now(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
 _nodiscard inline std::int64_t now_ms(void) {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
+// seconds this computer was awake (a monotonic clock: a sleep / suspend never counts, unlike now())
+_nodiscard inline std::int64_t awake_s(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();};
 // a program run, each line of its output (and its errors) given as it comes; its exit code (-1: not run)
 _cold int run_logged(const std::vector<std::string>& args, const std::function<void(const std::string&)>& line);
 // the operation running in this thread (a Busy): its step now (the one before done), a line of its log; none: nothing

@@ -3901,7 +3901,8 @@ class Window: public QMainWindow {
             (void)questions.check();
             const std::optional<cluster::Ask> ask = questions.current();
             if (!ask || this->asked.contains(ask->requestId)) return;
-            const bool show = this->manager.config().questionsToGlobal ? this->active == GLOBAL_ID || ask->session == GLOBAL_ID : this->active == ask->session;
+            const bool show = this->active != TASKS_ID && (this->manager.config().questionsToGlobal ? this->active == GLOBAL_ID || ask->session == GLOBAL_ID
+                : this->active == ask->session); // never over the Tasks session
             if (!show) return;
             this->asked.insert(ask->requestId);
             this->asking = true;

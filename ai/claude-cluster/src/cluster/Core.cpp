@@ -477,20 +477,20 @@ _cold int cluster::Core::ui_(const bool serve)
     if (serve) {
         // Headless instance: the commands and the MCP server drive it, until a quit signal
         std::cerr << "claude-cluster: serving on " << cluster::socket_path().string() << " (Ctrl+C to stop)" << std::endl;
-        const std::int64_t started = cluster::now();
+        const std::int64_t started = cluster::awake_s(); // awake seconds: a suspend of the computer is not a minute without interface
         std::int64_t idleSince = 0;
         while (!cluster::quit_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             // the core of the interfaces: gone with its last one (none came within a minute: gone too); kept in background by
             // its last interface: gone once every session is idle for 5 s (an interface back meanwhile: kept as usual)
-            if (linger && app.manager->clients() == 0 && (app.manager->hadClients() || cluster::now() - started > 60)) {
+            if (linger && app.manager->clients() == 0 && (app.manager->hadClients() || cluster::awake_s() - started > 60)) {
                 if (!app.manager->background()) {
                     cluster::debug("core", app.manager->hadClients() ? "stops: its last interface closed" : "stops: no interface came within a minute");
                     break;
                 }
                 if (app.manager->busy()) idleSince = 0;
-                else if (idleSince == 0) idleSince = cluster::now();
-                else if (cluster::now() - idleSince >= 5) {
+                else if (idleSince == 0) idleSince = cluster::awake_s();
+                else if (cluster::awake_s() - idleSince >= 5) {
                     cluster::debug("core", "stops: every session kept in background is idle");
                     (void)app.manager->notifyDesktop("claude-cluster", "the sessions kept in background finished: the core stopped");
                     break;

@@ -6193,7 +6193,8 @@ class TtyUi {
 
         _nodiscard bool askShown_(const cluster::Ask& ask) const
         {
-            // the question of a sub-session: on the global session ([sessions] questions_to_global), else on its own one
+            // the question of a sub-session: on the global session ([sessions] questions_to_global), else on its own one; never over the Tasks session
+            if (this->_active == TASKS_ID) return false;
             if (this->_manager.config().questionsToGlobal) return this->_active == GLOBAL_ID || ask.session == GLOBAL_ID;
             return this->_active == ask.session;
         }
