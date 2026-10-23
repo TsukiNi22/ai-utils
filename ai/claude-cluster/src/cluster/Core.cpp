@@ -470,6 +470,7 @@ _cold int cluster::Core::ui_(const bool serve)
     app.voice = std::make_unique<cluster::Voice>(*app.manager);
     app.web = std::make_unique<cluster::Web>(*app.manager, app.voice.get(), this->_options.values.contains("web") ? std::optional<bool>(true) : std::nullopt);
     app.manager->setWeb(app.web.get());
+    if (std::getenv("CLAUDE_CLUSTER_UPGRADED_FROM") != nullptr) app.manager->upgradeKept(app.web.get()); // a smooth update: what was on, on again
     app.manager->setVoice(app.voice.get());
     app.start();
     if (cluster::demo_enabled()) cluster::demo_seed(*app.manager); // the fictional sessions, one after the other

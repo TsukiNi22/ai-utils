@@ -23,6 +23,7 @@ File Description:
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Notes.hpp"
+#include "cluster/Web.hpp"
 #include <regex>
 #include <sys/stat.h>
 #include <filesystem>
@@ -205,11 +206,61 @@ _cold void cluster::Manager::releaseHeld_(void)
     this->notice_("", std::to_string(sent) + " prompt(s) held during the update sent");
 }
 
+/* what is on for this run, across the switch */
+_cold static std::filesystem::path keep_file_(void)
+{
+    return cluster::data_dir() / "upgrade-keep.json"; // {web, background, web_before_background, at}: read once by the new version
+}
+
+_cold void cluster::Manager::upgradeKeep_(void)
+{
+    // the switch keeps the config and the sessions; what was set for this run only (the web access opened or closed by hand, the core
+    // kept in background with no interface) is written here, the new version sets it again at its start
+    cluster::Json keep = {{"at", cluster::now()}, {"background", this->_background}};
+    if (this->_web != nullptr) keep["web"] = this->_web->status().on;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        keep["web_before_background"] = this->_webBeforeBackground;
+    }
+    cluster::write_json(keep_file_(), keep);
+}
+
+_cold void cluster::Manager::upgradeKept(cluster::Web* web)
+{
+    // just updated (the version before wrote it a moment ago): the web access as it was, the background as it was
+    const std::optional<cluster::Json> keep = cluster::read_json(keep_file_());
+    std::error_code error;
+    std::filesystem::remove(keep_file_(), error);
+    if (!keep || !keep->is_object() || cluster::now() - keep->value("at", std::int64_t{0}) > 600) return; // an old file: not this switch
+    std::vector<std::string> back;
+    if (web != nullptr && keep->value("web", cluster::Json()).is_boolean()) {
+        web->setOn(keep->value("web", false));
+        back.push_back(std::string("the web access ") + (keep->value("web", false) ? "open" : "closed"));
+    }
+    if (keep->value("background", false)) { // no interface came back: it still stops once every session is idle
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_background = true;
+        this->_backgroundSince = cluster::now();
+        this->_webBeforeBackground = keep->value("web_before_background", false);
+        back.push_back("kept in background");
+    }
+    if (!back.empty()) {
+        std::string text;
+        for (const std::string& part: back)
+            text += (text.empty() ? "" : ", ") + part;
+        this->notice_("", "as before the update: " + text);
+    }
+}
+
 _cold std::string cluster::Manager::upgradeAct(const std::string& action)
 {
     // update (the default) | ignore (this version) | quit (everything stopped, to start again by hand)
     if (this->_replica) return this->call({{"cmd", "upgrade"}, {"action", action}}).value("done", std::string());
-    if ((action == "hold" || action == "release") && std::getenv("CLAUDE_CLUSTER_TEST") != nullptr) { // the tests: the hold of an update without a new binary
+    if ((action == "hold" || action == "release" || action == "keep") && std::getenv("CLAUDE_CLUSTER_TEST") != nullptr) { // the tests: an update without a new binary
+        if (action == "keep") {
+            this->upgradeKeep_();
+            return "kept";
+        }
         if (action == "hold") {
             this->_holding = true;
             this->holdQueues_();
@@ -343,6 +394,7 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         if (onDisk != target) this->progressStep(id, "a newer version is on disk: switching to " + onDisk);
         this->progressAdvance(id, "saving the sessions");
         this->save();
+        this->upgradeKeep_(); // the web access opened by hand, the background: on again in the new version
         this->progressAdvance(id, "starting claude-cluster " + onDisk + " (the terminals and windows follow it)");
         this->_upgrading = true; // the interfaces see it: they follow the new core
         ++this->_version;

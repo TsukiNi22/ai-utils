@@ -293,6 +293,7 @@ class Manager {
         _cold bool hold_(const std::string& id, const std::string& text, const std::vector<std::string>& images, const std::string& origin); // held: true
         _cold void holdQueues_(void);                       // the prompts queued in the sessions: held too (none starts a turn before the switch)
         _cold void releaseHeld_(void);                      // the prompts held by the version before: sent now
+        _cold void upgradeKeep_(void);                      // what is on for this run written before the switch (upgrade-keep.json)
         _cold _nodiscard std::size_t heldCount_(void) const;
         _cold void taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text);
         _cold void groupUpdate_(const std::string& id);     // Manager-Groups.cpp: its card, the global session woken, its end
@@ -352,6 +353,7 @@ class Manager {
         _cold void showcaseUpgrade(void);                                   // the Debug page: a pretend newer version offered
         _cold _nodiscard cluster::UpgradeOffer upgradeOffer(void) const;    // a newer claude-cluster installed (the core's)
         _cold std::string upgradeAct(const std::string& action);            // update | ignore | quit
+        _cold void upgradeKept(cluster::Web* web);                          // just updated: what was on before the switch on again (the web access, background)
         _cold _nodiscard std::vector<std::string> usageVendors(void) const;         // the ones in the ledger
         _cold _nodiscard std::vector<std::pair<std::string, std::string>> usageLines(const cluster::Snapshot& snap) const; // panel "usage"
         _cold _nodiscard cluster::Json usageJson(const std::string& vendor) const;  // every vendor when empty
