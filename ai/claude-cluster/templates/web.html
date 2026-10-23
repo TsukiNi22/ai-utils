@@ -216,8 +216,10 @@ header .muted { color: var(--muted); font-size: 13px; }
 #promptHl mark { color: transparent; background: color-mix(in srgb, var(--accent) 28%, transparent); border-radius: 4px; }
 #promptHl mark.unknown { background: color-mix(in srgb, var(--error) 32%, transparent); text-decoration: underline wavy var(--error); }
 .badge { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; }
-#mic { min-width: 46px; }
-#attach { min-width: 42px; padding: 0 8px; }
+#mic { min-width: 46px; height: 44px; }
+#attach { min-width: 42px; height: 44px; padding: 0 8px; }
+/* the scroll bars of every box in the colours of the theme (never a white bar on a dark page) */
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 #chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 14px 0; } #chips:empty { display: none; }
 .achip { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; font-size: 12px; max-width: 230px; }
 .achip img { width: 34px; height: 34px; object-fit: cover; border-radius: 4px; flex: none; }
@@ -354,8 +356,9 @@ pre { position: relative; } pre.copyable { cursor: copy; } pre.copyable:hover::a
     #views { display: none; }
     #tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--surface); border-top: 1px solid var(--line);
         padding-bottom: env(safe-area-inset-bottom, 0px); }
-    #tabbar button { flex: 1; border: none; border-radius: 0; background: transparent; display: flex; flex-direction: column; align-items: center; gap: 1px;
-        font-size: 10.5px; padding: 7px 0; color: var(--muted); }
+    #tabbar { overflow-x: auto; scrollbar-width: none; }
+    #tabbar button { flex: 1 0 44px; min-width: 44px; border: none; border-radius: 0; background: transparent; display: flex; flex-direction: column; align-items: center;
+        gap: 1px; font-size: 10px; padding: 7px 0; color: var(--muted); white-space: nowrap; }
     #tabbar button span { font-size: 16px; font-family: var(--mono); } #tabbar button.on { color: var(--accent); }
     #app { padding-bottom: 58px; } #viewPane { padding: 10px 10px 70px; }
     .board .card.m, .board .card.l { grid-column: auto; grid-row: auto; }
@@ -460,10 +463,10 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
         <button id="picker" title="Sessions">☰</button>
         <span class="title"><span id="brandFace" class="face">^_^</span> claude-cluster</span>
         <nav id="views" class="segmented" aria-label="View">
-            <button data-view="chat" title="One session and its conversation">Chat</button>
-            <button data-view="grid" title="Every session as a card">Grid</button>
-            <button data-view="board" title="Your dashboard: tiles ordered and sized as you want">Board</button>
-            <button data-view="hub" title="The global session and the sessions around it">Hub</button>
+            <button data-view="chat" title="The list of the sessions and the conversation of one">List</button>
+            <button data-view="grid" title="Every session as a tile: ordered and sized as you want">Grid</button>
+            <button data-view="graph" title="The global session in the middle, its categories / sub-globals around, then their sessions, sub-categories and tags">Graph</button>
+            <button data-view="hub" title="The global session and every session around it">Hub</button>
             <button data-view="tree" title="The sessions by project folder">Tree</button>
         </nav>
         <span class="grow"></span>
@@ -569,8 +572,10 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
 <nav id="tabbar" aria-label="Sections">
     <button data-tab="sessions"><span>☰</span>Sessions</button>
     <button data-tab="chat"><span>›_</span>Chat</button>
-    <button data-tab="board"><span>▦</span>Board</button>
+    <button data-tab="grid"><span>▦</span>Grid</button>
+    <button data-tab="graph"><span>✳</span>Graph</button>
     <button data-tab="hub"><span>◎</span>Hub</button>
+    <button data-tab="tree"><span>⑂</span>Tree</button>
     <button data-tab="alerts"><span>🔔</span>Alerts</button>
     <button data-tab="settings"><span>⚙</span>Settings</button>
 </nav>
@@ -3240,7 +3245,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     hubApply();
 });
-let view = store.get("cc-view", "chat");
+let view = {board: "grid"}[store.get("cc-view", "chat")] || store.get("cc-view", "chat");   // the old Board is the Grid now
 let lastState = null;
 const shortName = (s) => (s.id === "g" ? "global" : s.name || s.id);
 const faceOf = (s) => (s.permissions && s.permissions.length ? "•_•" : s.state === "working" || s.state === "starting" ? ">_<" : s.state === "error" ? "o_o" : "-_-");
@@ -3320,16 +3325,14 @@ function renderView(state) {
     const pane = $("viewPane");
     // a field being typed in, the hub moved by a finger: not drawn again under the fingers
     if (pane.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
-    if (view === "hub" && hubBusy) return;
+    if ((view === "hub" || view === "graph") && hubBusy) return;
     keepScroll(pane);
     pane.textContent = "";
     const sessions = state.sessions || [];
     if (view === "grid") {
-        const grid = el("div", "cards");
-        for (const s of sessions) grid.append(card(s));
-        pane.append(grid);
-    } else if (view === "board") {
-        renderBoard(pane, sessions);
+        renderBoard(pane, sessions);   // the tiles: ordered and sized as you want
+    } else if (view === "graph") {
+        renderHubTree(pane, sessions, true);
     } else if (view === "hub") {
         renderHub(pane, sessions);
     } else if (view === "tree") {
@@ -3424,7 +3427,6 @@ function hubZoom(factor, cx, cy) {
 }
 function hubReset() { hubView.x = 0; hubView.y = 0; hubView.k = 1; hubApply(); }
 function renderHub(pane, sessions) {
-    if (store.get("cc-hub-mode", labelsExist() ? "tree" : "ring") === "tree") { renderHubTree(pane, sessions); return; }
     // the global session in the middle, the sessions around it; the line and the ring colored by their state
     const W = 900, H = 620, cx = W / 2, cy = H / 2;
     const global = sessions.find((s) => s.id === "g");
@@ -3514,7 +3516,7 @@ function renderHub(pane, sessions) {
     const tools = el("div", "hub-tools");
     for (const [label, title, run] of [["+", "zoom in (a, the wheel, two fingers)", () => hubZoom(1.25, cx, cy)], ["−", "zoom out (e)", () => hubZoom(1 / 1.25, cx, cy)],
         ["⌂", "the whole graph again (double click)", hubReset],
-        ["⑂", "the sessions as a tree of categories and tags", () => { hubReset(); hubSet("cc-hub-mode", "tree"); }]]) {
+        ["✳", "the graph: the categories and tags between the global session and the sessions", () => { hubReset(); setView("graph"); }]]) {
         const b = el("button", "", label);
         b.type = "button";
         b.title = title;
@@ -3661,7 +3663,8 @@ function hubBind(svg, drag) {
     svg.addEventListener("wheel", (e) => { e.preventDefault(); const p = point(e); hubZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, {passive: false});
     svg.addEventListener("dblclick", (e) => { if (e.target === svg) hubReset(); });
 }
-function renderHubTree(pane, sessions) {
+function renderHubTree(pane, sessions, graph) {
+    const radial = !graph || store.get("cc-graph-radial", "1") === "1";
     const state = lastState || {};
     const parents = taxParents();
     const showArchived = store.get("cc-hub-archived", "") === "1";
@@ -3703,7 +3706,10 @@ function renderHubTree(pane, sessions) {
             node.w = node.pw + (node.has && !node.top ? 24 : 0);
         }
         if (depth > 40 || (node.kind === "label" && !node.top && collapsed.has(node.name))) return;
-        for (const c of kids.get(node.name) || []) { const child = {kind: "label", name: c, children: []}; node.children.push(child); grow(child, depth + 1); }
+        for (const c of kids.get(node.name) || []) {
+            if (graph && !below(c)) continue; // the graph: an empty category / tag left out
+            const child = {kind: "label", name: c, children: []}; node.children.push(child); grow(child, depth + 1);
+        }
         for (const it of own.get(node.name) || []) { const leaf = {kind: "session", it, children: []}; node.children.push(leaf); grow(leaf, depth + 1); }
     };
     grow(root, 0);
@@ -3716,8 +3722,17 @@ function renderHubTree(pane, sessions) {
         node.y = (node.children[0].y + node.children[node.children.length - 1].y) / 2;
     };
     place(root);
-    const W = 100 + (deepest + 1) * COL + 160, H = Math.max(320, row * GAP + 80);
-    const X = (node) => 50 + node.depth * COL, Y = (node) => 40 + node.y;
+    // radial: the leaves spread on the circle, each node at the middle angle of its own, its ring by its depth (the global session in the middle)
+    const RING = Math.max(110, Math.min(190, row * 14));   // more leaves: wider rings
+    const span = Math.max(1, row);
+    const angle = (node) => (node.y / GAP + 0.5) / span * 2 * Math.PI - Math.PI / 2;
+    const size = deepest * RING * 2 + 240;
+    const W = radial ? size : 100 + (deepest + 1) * COL + 160, H = radial ? size : Math.max(320, row * GAP + 80);
+    const X = (node) => radial ? W / 2 + node.depth * RING * Math.cos(angle(node)) - (node.kind === "root" ? 22 : node.kind === "label" ? node.pw / 2 : 10)
+        : 50 + node.depth * COL;
+    const Y = (node) => radial ? H / 2 + node.depth * RING * Math.sin(angle(node)) : 40 + node.y;
+    const CX = (node) => radial ? W / 2 + node.depth * RING * Math.cos(angle(node)) : X(node) + node.w;     // where its links start / end
+    const CY = (node) => radial ? H / 2 + node.depth * RING * Math.sin(angle(node)) : Y(node);
     const svg = svgOf("svg", {viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "xMidYMid meet", role: "img", "aria-label": "The sessions under their categories and tags", tabindex: 0});
     const world = svgOf("g", {class: "world"});
     const edges = svgOf("g", {}), nodes = svgOf("g", {});
@@ -3733,9 +3748,11 @@ function renderHubTree(pane, sessions) {
     };
     const draw = (node) => {
         for (const child of node.children) {
-            const x1 = X(node) + node.w, y1 = Y(node), x2 = X(child), y2 = Y(child), xm = (x1 + x2) / 2;
+            const x1 = CX(node), y1 = CY(node), x2 = radial ? CX(child) : X(child), y2 = CY(child), xm = (x1 + x2) / 2;
             const stroke = child.kind === "label" ? chipColor(child.name) : child.it.archived ? "var(--border)" : color(child.it.s);
-            edges.append(svgOf("path", {d: `M${x1},${y1} C${xm},${y1} ${xm},${y2} ${x2},${y2}`, fill: "none", stroke, "stroke-width": 1.6, opacity: 0.7,
+            const d = radial ? `M${x1},${y1} Q${(x1 + x2) / 2 + (W / 2 - (x1 + x2) / 2) * 0.15},${(y1 + y2) / 2 + (H / 2 - (y1 + y2) / 2) * 0.15} ${x2},${y2}`
+                : `M${x1},${y1} C${xm},${y1} ${xm},${y2} ${x2},${y2}`;
+            edges.append(svgOf("path", {d, fill: "none", stroke, "stroke-width": 1.6, opacity: 0.7,
                 "stroke-dasharray": child.kind === "session" && (child.it.archived || child.it.s.state !== "working") ? "4 5" : ""}));
             draw(child);
         }
@@ -3803,7 +3820,8 @@ function renderHubTree(pane, sessions) {
         const words = (v || "").split(/[\s,]+/).filter(Boolean);
         if (words.length) await act({cmd: "taxonomy", action: "set_parent", node: words[0], parent: words[1] || ""});
     });
-    button("Ring", "the sessions around the global session", () => { hubReset(); hubSet("cc-hub-mode", "ring"); });
+    button(radial ? "Left to right" : "Radial", "the global session in the middle, or on the left", () => { hubReset(); hubSet("cc-graph-radial", radial ? "0" : "1"); });
+    button("Hub", "every session around the global session", () => { hubReset(); setView("hub"); });
     if (labelFilter && names.has(labelFilter)) {
         const node = labelFilter;
         const chip = el("span", "node-chip", node);
@@ -3915,7 +3933,10 @@ function applyStyle(style) {
     root.setProperty("--user", "color-mix(in srgb, " + style.accent + " 10%, " + style.surface + ")");
     root.setProperty("--code", "color-mix(in srgb, " + style.text + " 6%, " + style.bg + ")");
     root.setProperty("--pick", "color-mix(in srgb, " + style.accent + " 20%, " + style.surface + ")");
-    document.documentElement.style.colorScheme = style.dark ? "dark" : "light";
+    // dark or light: told by the style, else read from its background (the form fields and the scroll bars follow)
+    const hex = String(style.bg || "").replace("#", "");
+    const luma = hex.length >= 6 ? (0.299 * parseInt(hex.slice(0, 2), 16) + 0.587 * parseInt(hex.slice(2, 4), 16) + 0.114 * parseInt(hex.slice(4, 6), 16)) / 255 : 0;
+    document.documentElement.style.colorScheme = (style.dark !== undefined ? style.dark : luma < 0.5) ? "dark" : "light";
 }
 
 // ---- notifications: a center, and the browser ones while this page is not in front ----
@@ -4257,7 +4278,7 @@ function drawDevice(body) {
     theme.addEventListener("change", () => { store.set("cc-theme", theme.value); styleShown = ""; applyStyle(lastState && lastState.style); });
     field("Theme", "its colors: the style chosen in claude-cluster (the same as the terminal and the window), or this page's own", theme);
     const start = el("select");
-    for (const v of ["chat", "grid", "board", "hub", "tree"]) { const o = el("option", "", v); o.value = v; start.append(o); }
+    for (const [v, label] of [["chat", "list"], ["grid", "grid"], ["graph", "graph"], ["hub", "hub"], ["tree", "tree"]]) { const o = el("option", "", label); o.value = v; start.append(o); }
     start.value = view;
     start.addEventListener("change", () => setView(start.value));
     field("View", "chat, grid of cards, your board, the hub, the tree of the folders", start);

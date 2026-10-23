@@ -80,6 +80,7 @@ File Description:
 #include <QTextBlock>
 #include <functional>
 #include <QTabWidget>
+#include <QTreeWidget>
 #include <QClipboard>
 #include <QCompleter>
 #include <QFileInfo>
@@ -1562,7 +1563,8 @@ class Window: public QMainWindow {
         }
 
         QTextBrowser* tasksView = nullptr;      // the Tasks session (list / tabs)
-        HubView* hub = nullptr;                 // the hub layout: the graph
+        HubView* hub = nullptr;                 // the graph / hub layouts
+        QTreeWidget* folders = nullptr;         // the tree layout: the sessions by project folder
         QLabel* hubNote = nullptr;              // its notes at the bottom (no sub-session, the keys)
         QDialog* tasksWindow = nullptr;         // the Tasks session in a window of its own (grid)
         QTextBrowser* tasksBrowser = nullptr;
@@ -2088,9 +2090,8 @@ class Window: public QMainWindow {
                 });
                 menu.addSeparator();
             }
-            menu.addAction(this->hub->ring ? "Tree of the categories and tags" : "Ring around the global session", [this]() {
-                this->hub->ring = !this->hub->ring;
-                this->hub->whole();
+            menu.addAction(this->hub->ring ? "Graph: the categories and tags between" : "Hub: every session around the global session", [this]() {
+                this->manager.setUi("layout", this->hub->ring ? "graph" : "hub");
                 this->refresh(true);
             });
             if (!this->hub->focus.empty())
@@ -2692,7 +2693,7 @@ class Window: public QMainWindow {
             else if (action == "send_next") this->run({"send_next", "", "", "", false}, "");
             else if (action == "layout") {
                 const std::string layout = this->manager.ui("layout", this->manager.config().layout);
-                this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "tabs" : layout == "tabs" ? "hub" : "list");
+                this->manager.setUi("layout", layout == "list" ? "grid" : layout == "grid" ? "graph" : layout == "graph" ? "hub" : layout == "hub" ? "tree" : "list");
             } else if (action == "settings") this->settings();
             else if (action == "restore") this->openRestore();
             else if (action == "interrupt") {
@@ -2948,6 +2949,7 @@ class Window: public QMainWindow {
             this->tasksView = nullptr;
             this->hub = nullptr;
             this->hubNote = nullptr;
+            this->folders = nullptr;
             if (std::none_of(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;}) && !sessions.empty())
                 this->active = sessions.front().spec.id;
 
@@ -2972,7 +2974,7 @@ class Window: public QMainWindow {
             this->webLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
             this->webLabel->setVisible(false);
             QObject::connect(this->webLabel, &QLabel::linkActivated, this, [this](const QString& link) {this->webLink(link);});
-            for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"tabs", "Tabs"}, {"hub", "Hub"}}) {
+            for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"graph", "Graph"}, {"hub", "Hub"}, {"tree", "Tree"}}) {
                 QPushButton* seg = new QPushButton(q_(label), topbar);
                 seg->setObjectName("seg");
                 seg->setCheckable(true);
@@ -3016,9 +3018,11 @@ class Window: public QMainWindow {
                     grid->addWidget(view, static_cast<int>(i) / columns, static_cast<int>(i) % columns);
                 }
                 root->addLayout(grid, 1);
-            } else if (layout == "hub") {
-                // the graph; a node clicked: its session shown in the list layout
+            } else if (layout == "hub" || layout == "graph") {
+                // the graph (the categories / tags between global and the sessions) or the hub (every session around global); a node clicked: its session
+                // shown in the list layout
                 this->hub = new HubView(central);
+                this->hub->ring = layout == "hub";
                 this->hub->onOpen = [this](const std::string& id) {
                     this->active = id;
                     this->manager.setUi("layout", "list");
@@ -3036,6 +3040,20 @@ class Window: public QMainWindow {
                 this->hubNote->setWordWrap(true);
                 root->addWidget(this->hubNote);
                 QTimer::singleShot(0, this->hub, [hub = this->hub]() {hub->whole();});
+            } else if (layout == "tree") {
+                // the sessions by project folder; a session double clicked: shown in the list layout
+                this->folders = new QTreeWidget(central);
+                this->folders->setHeaderLabels({"Session", "State", "Labels", "What it does"});
+                this->folders->setRootIsDecorated(true);
+                this->folders->setUniformRowHeights(true);
+                QObject::connect(this->folders, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
+                    const std::string id = item->data(0, Qt::UserRole).toString().toStdString();
+                    if (id.empty()) return;
+                    this->active = id;
+                    this->manager.setUi("layout", "list");
+                    this->refresh(true);
+                });
+                root->addWidget(this->folders, 1);
             } else if (layout == "tabs") {
                 this->tabs = new QTabBar(central);
                 this->tabs->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -3189,6 +3207,33 @@ class Window: public QMainWindow {
             const std::vector<cluster::Snapshot> sessions = this->manager.shown();
             const cluster::Style& st = this->theme();
 
+            if (this->folders != nullptr) {
+                // the tree: a folder, its sessions (their state, labels and what they do), kept open as it was
+                std::map<std::string, std::vector<const cluster::Snapshot*>> byFolder;
+                for (const cluster::Snapshot& s: sessions)
+                    byFolder[cluster::short_path(s.spec.cwd)].push_back(&s);
+                std::set<QString> closed;
+                for (int i = 0; i < this->folders->topLevelItemCount(); ++i)
+                    if (!this->folders->topLevelItem(i)->isExpanded()) closed.insert(this->folders->topLevelItem(i)->text(0));
+                this->folders->clear();
+                for (const auto &[folder, list]: byFolder) {
+                    QTreeWidgetItem* top = new QTreeWidgetItem(this->folders, {q_(folder)});
+                    top->setForeground(0, QColor(q_(st.accent)));
+                    for (const cluster::Snapshot* s: list) {
+                        std::string labels = s->spec.category;
+                        for (const std::string& tag: s->spec.tags)
+                            labels += (labels.empty() ? "#" : " #") + tag;
+                        QTreeWidgetItem* row = new QTreeWidgetItem(top, {q_(s->spec.global ? "global" : s->spec.name), q_(!s->permissions.empty() ? "waiting for you"
+                            : cluster::state_name(s->state)), q_(labels), q_(cluster::one_line(s->spec.summary, 80))});
+                        row->setData(0, Qt::UserRole, q_(s->spec.id));
+                        row->setForeground(1, QColor(q_(!s->permissions.empty() ? st.warn : s->state == cluster::State::Working ? st.ok : s->state == cluster::State::Error
+                            ? st.error : st.muted)));
+                    }
+                    top->setExpanded(!closed.contains(q_(folder)));
+                }
+                this->folders->resizeColumnToContents(0);
+                this->folders->resizeColumnToContents(1);
+            }
             if (this->hub != nullptr) {
                 this->hub->filter = this->labelFilter;
                 this->hub->populate(sessions, st, this->active, this->manager.taxonomy(), this->hub->archived ? this->manager.trash() : std::vector<cluster::SessionSpec>());

@@ -49,7 +49,7 @@ struct GraphColors {
     ftxui::Color error;
 };
 
-enum class GraphKind {Global, Session};
+enum class GraphKind {Global, Session, Label};   // Label: a category / tag of the taxonomy
 enum class GraphTone {Idle, Working, Waiting, Error};   // the colours of the sessions (muted, ok, warn, error)
 
 // One node: what the core tells of a session (the model of the web hub: the parent links make the tree)
@@ -128,6 +128,7 @@ class GraphView {
     public:
         std::function<void(const std::string&)> onOpen;     // a session opened (Enter, a double click)
         std::function<void(const std::string&)> onMenu;     // a session right clicked
+        std::string title = "Graph";                        // the view it draws (Graph: the taxonomy between; Hub: every session around)
 
         // The nodes to draw (the view kept where it is; the layout made again when the tree changed)
         void setNodes(std::vector<GraphNode> nodes);

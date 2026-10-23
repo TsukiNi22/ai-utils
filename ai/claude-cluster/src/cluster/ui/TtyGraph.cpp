@@ -145,6 +145,7 @@ _cold int paint_(const cluster::GraphTone tone)
 _cold const char* glyph_(const cluster::GraphNode& node)
 {
     if (node.kind == cluster::GraphKind::Global) return "◉";
+    if (node.kind == cluster::GraphKind::Label) return "◇";
     return node.tone == cluster::GraphTone::Working ? "●" : node.tone == cluster::GraphTone::Waiting ? "◆" : node.tone == cluster::GraphTone::Error ? "✖" : "○";
 }
 
@@ -546,7 +547,7 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
         const GraphNode& node = this->_nodes[i];
         const bool selected = node.id == this->_selected;
         const bool here = node.id == active;
-        const int tint = node.kind == GraphKind::Global ? PaintAccent : paint_(node.tone);
+        const int tint = node.kind == GraphKind::Global || node.kind == GraphKind::Label ? PaintAccent : paint_(node.tone);
         const auto [cx, cy] = centers[i];
         const Plan plan = selected ? Plan{0, 0, 0} : this->_plan[i];
         if (plan.level >= 4) {    // far or crowded: a dot
@@ -673,7 +674,7 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
     const std::size_t sessions = static_cast<std::size_t>(std::count_if(this->_nodes.begin(), this->_nodes.end(), [](const GraphNode& n) {return n.kind == GraphKind::Session;}));
     char zoomText[16];
     std::snprintf(zoomText, sizeof(zoomText), "%.2f", this->_zoom);
-    const ftxui::Element title = ftxui::hbox({ftxui::text(" ◎ Graph ") | ftxui::bold | ftxui::color(colors.bg) | ftxui::bgcolor(colors.accent),
+    const ftxui::Element title = ftxui::hbox({ftxui::text(" ◎ " + this->title + " ") | ftxui::bold | ftxui::color(colors.bg) | ftxui::bgcolor(colors.accent),
         ftxui::text(" " + std::to_string(sessions) + " session" + (sessions == 1 ? "" : "s") + " · zoom " + zoomText + "× · view " + std::to_string(static_cast<int>(this->_x))
             + ", " + std::to_string(static_cast<int>(this->_y))) | ftxui::color(colors.muted), ftxui::filler(),
         ftxui::text(first_(keys, "graph_legend") + " legend · " + first_(keys, "graph_map") + " map · " + first_(keys, "graph_close") + " close ") | ftxui::color(colors.muted)});

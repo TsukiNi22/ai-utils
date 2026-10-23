@@ -144,8 +144,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"ui", "gui_mode", "Window mode", SettingKind::Choice, {"gui", "tty"}, "gui: the window and its own interface; tty: the window shows the terminal "
                 "interface (a real terminal inside it, every key of it; -g --tty-mode for one run)", false,
                 [](const cluster::Config& cf) {return cf.guiMode;}},
-            {"ui", "layout", "Layout", SettingKind::Choice, {"list", "grid", "tabs", "hub"}, "list + active panel, every session in a grid, tabs, or the hub "
-                "(tabs and the hub: the window and the web page only - the hub is a graph of the sessions around the global one; the terminal shows the list)", false,
+            {"ui", "layout", "Layout", SettingKind::Choice, {"list", "grid", "graph", "hub", "tree", "tabs"}, "the view at the start, the same five everywhere (F2 goes through them): "
+                "list (the sessions and the active one), grid (every session in a cell), graph (the global session in the middle, its categories / tags, then their "
+                "sessions), hub (every session around the global one), tree (the sessions by project folder); tabs: the window only", false,
                 [](const cluster::Config& cf) {return cf.layout;}},
             {"ui", "style", "Style", SettingKind::Choice, styles, "colors of the interface (own ones: [styles.<name>] in the file)", false,
                 [](const cluster::Config& cf) {return cf.style;}},

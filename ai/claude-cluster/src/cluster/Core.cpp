@@ -142,7 +142,7 @@ _cold void cluster::Core::setup_(void)
             names.push_back(mode);
         return choice_(v, names);
     };
-    const std::function<std::optional<std::string>(const std::string&)> layouts = [](const std::string& v) {return choice_(v, {"list", "grid", "tabs"});};
+    const std::function<std::optional<std::string>(const std::string&)> layouts = [](const std::string& v) {return choice_(v, {"list", "grid", "graph", "hub", "tree", "tabs"});};
     const std::function<std::optional<std::string>(const std::string&)> shells = [](const std::string& v) {return choice_(v, {"bash", "zsh", "fish"});};
 
     /* front-end */
@@ -154,7 +154,7 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("restore", {"", "", "restore", ""}, {}, "Restore the sessions of the previous run without asking");
     this->_parser.setFlag("fresh", {"", "", "fresh", ""}, {}, "Start clean: the previous sessions go to the trash");
     this->_parser.setFlag("noglobal", {"", "", "no-global", ""}, {}, "No global session for this run");
-    this->_parser.setFlag("layout", {"", "", "layout", ""}, {{"layout", true, layouts}}, "list | grid | tabs");
+    this->_parser.setFlag("layout", {"", "", "layout", ""}, {{"layout", true, layouts}}, "list | grid | graph | hub | tree (tabs: the window)");
     this->_parser.setFlag("style", {"", "", "style", ""}, {{"name", true, any}}, "Style of the interface (see the palette)");
     this->_parser.setFlag("voice", {"", "", "voice", ""}, {{"mode", true, [](const std::string& v) {return choice_(v, {"auto", "wake", "push"});}}},
         "Voice on for this run: auto (every sentence) | wake | push (the service opens claude-cluster with --voice auto)");

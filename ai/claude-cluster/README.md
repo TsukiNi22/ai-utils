@@ -719,9 +719,24 @@ background*, the core, the agents and the folder of the demo go with its termina
 `--web` opens its web access (port 8444, terminal mode 2223, no device approval) **read only**: the page lists and reads, `send`, `spawn`, the answers,
 the settings and every other change are refused. Without `--web` there is no web access at all.
 
+### The five views
+
+The terminal, the window, the web page and the app have the same views, in the same order (`F2` / the layout key goes through them; the
+window and the page have a button for each, the phone a tab):
+
+| View | Shows |
+|---|---|
+| **List** | the sessions, and the conversation of the one chosen |
+| **Grid** | every session in a cell (the page: tiles you order and size, S / M / L) |
+| **Graph** | the global session in the middle, its categories / sub-globals around it, then their sessions, sub-categories and tags (the taxonomy); an empty category is left out |
+| **Hub** | the global session and every session around it, linked by their state |
+| **Tree** | the sessions by project folder |
+
+`claude-cluster --layout graph` (or `hub`, `tree`) starts on that view; `[ui] layout` keeps the one of the window and the page.
+
 ### The graph view (terminal)
 
-`F2` goes list → grid → graph → list. `Alt+G` (key `graph`), the palette (*Graph*) or `/graph`-like palette entry opens the same graph as the *Hub* of the web page and the window:
+`F2` goes list → grid → graph → hub → tree → list. `Alt+G` (key `graph`), the palette (*Graph*) or `/graph`-like palette entry opens the same graph as the *Hub* of the web page and the window:
 the **global** session in the middle, the sessions around it, linked (solid link: working, dashed: idle). A node is a box with the state
 colour (green working, orange waiting for a permission, red error, grey idle - the colours of the web hub) and the name; the session shown
 in the other views is in bold. Nothing is changed from it (read only); the screen is redrawn on an input or a change of state, never

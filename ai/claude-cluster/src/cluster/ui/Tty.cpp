@@ -69,7 +69,8 @@ namespace {
 //----------------------------------------------------------------//
 /* TYPES */
 
-enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph, Rewind, Stash};
+enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph, Rewind, Stash,
+    Tree};
 
 struct FormField {                     // a field of the form of a display, filled in its popup
     std::string name;
@@ -635,6 +636,9 @@ class TtyUi {
         Theme _theme{};
         Mode _mode = Mode::Normal;
         cluster::GraphView _graph;                  // the graph view (Mode::Graph): the sessions around global
+        bool _graphHub = false;                     // Mode::Graph as the hub: every session around global (else the graph: the taxonomy between)
+        int _treeSel = 0;                           // Mode::Tree: the session under the cursor (the sessions by folder)
+        std::vector<std::string> _treeIds;          // its rows that are sessions, in their order
         std::string _active = GLOBAL_ID;
         cluster::Editor _editor;                    // the prompt
         std::vector<std::string> _historyItems;     // Mode::History, filtered
@@ -1558,7 +1562,7 @@ class TtyUi {
                     }
                     if (local->ui == "settings") this->openSettings_();
                     else if (local->ui == "plugins") this->openPlugins_();
-                    else if (local->ui == "graph") this->openGraph_();
+                    else if (local->ui == "graph") this->openGraph_(false);
                     else if (local->ui.starts_with("term:")) {
                         this->handOver_(local->ui.substr(5));
                         return;
@@ -2422,7 +2426,7 @@ class TtyUi {
             } else if (base == "plugins") {
                 this->openPlugins_();
             } else if (base == "graph") {
-                this->openGraph_();
+                this->openGraph_(false);
             } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
                 this->settingsAction_(base == "edit_global_prompt" ? "edit_prompt" : base);
                 if (!this->_note.empty() && this->_mode == Mode::Normal) this->status_(this->_note);
@@ -2618,7 +2622,7 @@ class TtyUi {
             } else if (action == "allow" || action == "deny" || action == "interrupt" || action == "mute") {
                 this->run_({action, "", "", "", false}, "");
             } else if (action == "graph") {
-                this->openGraph_();
+                this->openGraph_(false);
             } else if (action == "stats") {
                 this->run_({"stats", "", "", "", false}, "");
             } else if (action == "push_to_talk") {
@@ -2629,10 +2633,10 @@ class TtyUi {
                 this->status_("opened in the list: " + this->_active);
             } else if (action == "layout") {
                 const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
-                // list -> grid -> graph -> list (the graph is a view of its own, closed back on the list); a stored tabs / hub (window, web page): the list here
+                // list -> grid -> graph -> hub -> tree -> list (the last three are views of their own, closed back on the list); a stored tabs: the list here
                 if (layout == "grid") {
                     this->_manager.setUi("layout", "list");
-                    this->openGraph_();
+                    this->openGraph_(false);
                 } else {
                     this->_manager.setUi("layout", layout == "list" ? "grid" : "list");
                 }
@@ -2672,8 +2676,10 @@ class TtyUi {
                     }
         }
 
-        void openGraph_(void)
+        void openGraph_(const bool hub)
         {
+            this->_graphHub = hub;
+            this->_graph.title = hub ? "Hub" : "Graph";
             this->_graph.onOpen = [this](const std::string& id) { // a session opened: its view, the graph closed
                 if (!this->_manager.snapshot(id)) return;
                 this->_active = id;
@@ -2692,6 +2698,8 @@ class TtyUi {
             // the sessions around global: its state colours (permission waiting, working, error, idle), read only
             std::vector<cluster::GraphNode> nodes;
             bool global = false;
+            std::set<std::string> labels;
+            std::map<std::string, int> under;   // the sessions below a label
             for (const cluster::Snapshot& s: this->sessions_()) {
                 cluster::GraphNode node;
                 node.id = s.spec.id;
@@ -2704,8 +2712,29 @@ class TtyUi {
                 node.tokens = s.spec.tokens;
                 node.parent = node.kind == cluster::GraphKind::Global ? "" : GLOBAL_ID;
                 global = global || node.kind == cluster::GraphKind::Global;
+                if (!this->_graphHub && node.kind == cluster::GraphKind::Session) {
+                    // the graph: the session under its category (else its first tag), the levels of the taxonomy between it and the global session
+                    std::string up = GLOBAL_ID;
+                    for (const std::string& level: this->_manager.groupPath(s.spec)) {
+                        const std::string id = "label:" + level;
+                        if (labels.insert(id).second) {
+                            cluster::GraphNode label;
+                            label.id = id;
+                            label.name = level;
+                            label.kind = cluster::GraphKind::Label;
+                            label.detail = "category / tag";
+                            label.parent = up;
+                            nodes.push_back(label);
+                        }
+                        ++under[id];
+                        up = id;
+                    }
+                    node.parent = up;
+                }
                 nodes.push_back(node);
             }
+            for (cluster::GraphNode& node: nodes)
+                if (node.kind == cluster::GraphKind::Label) node.count = under[node.id];
             if (!global) { // none: the app itself in the middle
                 cluster::GraphNode root;
                 root.id = GLOBAL_ID;
@@ -2716,6 +2745,59 @@ class TtyUi {
             this->_graph.setNodes(nodes);
             const Theme& t = this->_theme;
             return this->_graph.render(size.dimx, size.dimy, {t.bg, t.surface, t.text, t.muted, t.accent, t.ok, t.warn, t.error}, this->_active, this->_manager.config().keys);
+        }
+
+        void openTree_(void)
+        {
+            this->_mode = Mode::Tree;
+            const std::vector<std::string> ids = this->_treeIds;
+            const auto at = std::find(ids.begin(), ids.end(), this->_active);
+            this->_treeSel = at == ids.end() ? 0 : static_cast<int>(at - ids.begin());
+        }
+
+        _nodiscard ftxui::Element tree_(const ftxui::Dimensions& size)
+        {
+            // the sessions by project folder: a folder, then its sessions (state, name, labels, what it does); a click opens one
+            std::map<std::string, std::vector<cluster::Snapshot>> folders;
+            for (const cluster::Snapshot& s: this->sessions_())
+                folders[cluster::short_path(s.spec.cwd)].push_back(s);
+            this->_treeIds.clear();
+            ftxui::Elements rows = {ftxui::hbox({ftxui::text(" ⑂ Tree ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
+                ftxui::text(" the sessions by project folder · " + std::to_string(folders.size()) + " folder" + (folders.size() == 1 ? "" : "s")) | ftxui::color(this->_theme.muted),
+                ftxui::filler(), ftxui::text("↑ ↓ choose · Enter open · F2 the list · Esc close ") | ftxui::color(this->_theme.muted)}), ftxui::text("")};
+            int focusRow = 0;
+            for (const auto &[folder, sessions]: folders) {
+                rows.push_back(ftxui::text(" ▾ " + folder) | ftxui::bold | ftxui::color(this->_theme.accent));
+                for (std::size_t i = 0; i < sessions.size(); ++i) {
+                    const cluster::Snapshot& s = sessions[i];
+                    const int index = static_cast<int>(this->_treeIds.size());
+                    this->_treeIds.push_back(s.spec.id);
+                    const bool on = index == this->_treeSel;
+                    if (on) focusRow = static_cast<int>(rows.size());
+                    const std::string branch = i + 1 == sessions.size() ? "   └─ " : "   ├─ ";
+                    const std::string labels = (s.spec.category.empty() ? std::string() : "  " + s.spec.category) + [&]() {
+                        std::string tags;
+                        for (const std::string& tag: s.spec.tags)
+                            tags += " #" + tag;
+                        return tags;
+                    }();
+                    const std::string id = s.spec.id;
+                    ftxui::Element row = ftxui::hbox({ftxui::text(branch) | ftxui::color(this->_theme.border), ftxui::text(!s.permissions.empty() ? "!" : s.state == cluster::State::Working ? "●" : s.state == cluster::State::Error ? "✖" : "○")
+                        | ftxui::color(!s.permissions.empty() ? this->_theme.warn : s.state == cluster::State::Working ? this->_theme.ok : s.state == cluster::State::Error ? this->_theme.error : this->_theme.muted),
+                        ftxui::text(" "),
+                        ftxui::text(s.spec.global ? "global" : s.spec.name) | ftxui::bold, ftxui::text(std::string("  ") + cluster::state_name(s.state)) | ftxui::color(this->_theme.muted),
+                        ftxui::text(labels) | ftxui::color(this->_theme.accent), ftxui::text(s.spec.summary.empty() ? "" : "  · " + cluster::one_line(s.spec.summary, 60)) | ftxui::color(this->_theme.muted) | ftxui::dim});
+                    rows.push_back(this->tap_(on ? row | ftxui::inverted : row, 0, [this, id]() {
+                        this->_active = id;
+                        this->_manager.setUi("layout", "list");
+                        this->_mode = Mode::Normal;
+                    }));
+                }
+            }
+            if (this->_treeIds.empty()) rows.push_back(ftxui::text("   no session yet") | ftxui::color(this->_theme.muted));
+            (void)size;
+            (void)focusRow;
+            return ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::flex;
         }
 
         void openPlugins_(void)
@@ -6203,7 +6285,8 @@ class TtyUi {
                     | ftxui::bgcolor(face.face == cluster::Face::Waiting ? this->_theme.warn : this->_theme.accent), 0,
                     [this]() {(void)this->shortcut_("settings");}),
                 cluster::demo_enabled() ? ftxui::text(" DEMO ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.warn) : ftxui::emptyElement(),
-                key(" " + (layout == "tabs" || layout == "hub" ? std::string("list") : layout), "layout"),
+                key(" " + (this->_mode == Mode::Graph ? std::string(this->_graphHub ? "hub" : "graph") : this->_mode == Mode::Tree ? std::string("tree")
+                    : layout == "grid" ? std::string("grid") : std::string("list")), "layout"),
                 ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
                 ftxui::filler(),
                 key(c.keys.at("palette") + " palette", "palette"), dot(), key(c.keys.at("settings") + " settings", "settings"), dot(),
@@ -6283,6 +6366,7 @@ class TtyUi {
             const std::optional<cluster::MachineProgress> scan = this->scanShown_();
             // Normal: the note of a sub-session whose question waits on the global session (modal_, empty else)
             ftxui::Element screen = this->_mode == Mode::Settings ? this->settings_(size) : this->_mode == Mode::Graph ? ftxui::vbox({top, this->graph_(ftxui::Dimensions{size.dimx, std::max(5, size.dimy - 1)}) | ftxui::flex})
+                | ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg) : this->_mode == Mode::Tree ? ftxui::vbox({top, this->tree_(ftxui::Dimensions{size.dimx, std::max(5, size.dimy - 1)}) | ftxui::flex})
                 | ftxui::color(this->_theme.text) | ftxui::bgcolor(this->_theme.bg) : ftxui::dbox({document, this->modal_()});
             // a long operation: its popup over the screen (its spinner turning); one running: redrawn (its popup at 0.4 s)
             if (this->_manager.progressActive()) this->_spinning = true;
@@ -6744,14 +6828,33 @@ class TtyUi {
                 case Mode::Plugins:
                     return this->plugEvent_(event);
                 case Mode::Graph:
-                    if (cluster::key_action(this->_manager.config(), key) == "layout") { // F2: the graph is the last of list -> grid -> graph, then the list again
-                        this->_manager.setUi("layout", "list");
-                        this->_mode = Mode::Normal;
+                    if (cluster::key_action(this->_manager.config(), key) == "layout") { // F2: graph -> hub -> tree
+                        if (this->_graphHub) this->openTree_();
+                        else this->openGraph_(true);
                         return true;
                     }
                     if (cluster::key_action(this->_manager.config(), key) == "graph" || this->_graph.key(event, key, this->_manager.config().keys) == cluster::GraphView::Result::Close)
                         this->_mode = Mode::Normal;
                     return true;
+                case Mode::Tree: {
+                    // the sessions by folder: ↑ ↓ choose, Enter opens it (the list), F2 the list again, Esc closes
+                    const int count = static_cast<int>(this->_treeIds.size());
+                    if (cluster::key_action(this->_manager.config(), key) == "layout" || event == ftxui::Event::Escape) {
+                        this->_manager.setUi("layout", "list");
+                        this->_mode = Mode::Normal;
+                    } else if (count > 0 && (event == ftxui::Event::ArrowDown || event == ftxui::Event::Character('j'))) {
+                        this->_treeSel = (this->_treeSel + 1) % count;
+                    } else if (count > 0 && (event == ftxui::Event::ArrowUp || event == ftxui::Event::Character('k'))) {
+                        this->_treeSel = (this->_treeSel + count - 1) % count;
+                    } else if (count > 0 && event == ftxui::Event::Return) {
+                        this->_active = this->_treeIds[static_cast<std::size_t>(std::clamp(this->_treeSel, 0, count - 1))];
+                        this->_manager.setUi("layout", "list");
+                        this->_mode = Mode::Normal;
+                    } else {
+                        (void)this->shortcut_(cluster::key_action(this->_manager.config(), key));
+                    }
+                    return true;
+                }
                 case Mode::Search:
                     if (event == ftxui::Event::Escape) {
                         this->_mode = Mode::Normal;
@@ -6936,6 +7039,11 @@ class TtyUi {
             this->theme_();
             this->vimSync_();
             if (this->_manager.ui("layout", this->_manager.config().layout) == "grid") this->_manager.setUi("layout", "list"); // every start on the list (F2: the grid, the graph)
+            if (const std::string start = this->_app.options.layout; start == "graph" || start == "hub" || start == "tree") { // asked on the command line: that view
+                this->_manager.setUi("layout", "list");
+                if (start == "tree") this->openTree_();
+                else this->openGraph_(start == "hub");
+            }
             this->_machineStartup = this->_app.askMachine != 0 && !this->_webTty; // the terminal page never maps the computer
             this->_machineKind = this->_app.askMachine;
             if (this->_app.askRestore) this->_mode = Mode::Restore;
