@@ -766,6 +766,7 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
         std::vector<std::string> notes;                  // a retry, a hook, the context compacted
         std::vector<std::string> did;                    // its calls in words (ran..., read..., edited...)
         std::vector<std::string> pictures;               // the pictures its calls read or made (a screenshot)
+        std::string about;                               // what it does, in one line: its thinking (or its words) summed up
     };
     // a call in words: what it did (the tool, its command / file / question)
     const std::function<std::string(const cluster::ToolRun&)> describe = [](const cluster::ToolRun& run) {
@@ -824,6 +825,33 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
         }
         at = from;
     }
+    // what each round does, in one line (like the steps of Claude Desktop): the first sentence of its thinking, else of its words;
+    // the thinking of this turn matched to the rounds that thought, from the end; the round running: its thinking streamed
+    const std::function<std::string(const std::string&)> sentence = [](const std::string& text) {
+        std::string line = cluster::one_line(cluster::trim(text), 400);
+        while (line.starts_with("*") || line.starts_with("#") || line.starts_with("-")) line = cluster::trim(line.substr(1));
+        const std::size_t stop = line.find_first_of(".!?:");
+        if (stop != std::string::npos && stop >= 12) line = line.substr(0, stop + (line[stop] == ':' ? 0 : 1));
+        return cluster::one_line(line, 110);
+    };
+    std::vector<std::string> thoughts;
+    std::vector<std::string> said;
+    for (const cluster::Entry& e: s.entries) {
+        if (e.time * 1000 < s.turnSince - 2000 || cluster::trim(e.text).empty()) continue;
+        if (e.kind == cluster::EntryKind::Thinking) thoughts.push_back(sentence(e.text));
+        else if (e.kind == cluster::EntryKind::Assistant) said.push_back(sentence(e.text));
+    }
+    if (!rounds.empty() && !s.thinking.empty()) rounds.back().about = sentence(s.thinking);
+    for (std::size_t i = rounds.size(); i-- > 0 && !thoughts.empty();) {
+        if (rounds[i].thinking <= 0 || !rounds[i].about.empty()) continue;
+        rounds[i].about = thoughts.back();
+        thoughts.pop_back();
+    }
+    for (std::size_t i = rounds.size(); i-- > 0 && !said.empty();) { // its words in the middle of the turn ("the texts are ready, now the layout")
+        if (rounds[i].writing <= 0 || !rounds[i].about.empty()) continue;
+        rounds[i].about = said.back();
+        said.pop_back();
+    }
     cluster::Json lines = cluster::Json::array();
     const std::size_t first = rounds.size() > 8 ? rounds.size() - 8 : 0;
     if (first > 0) lines.push_back({{"text", std::to_string(first) + " earlier round(s)"}, {"current", false}});
@@ -851,7 +879,7 @@ _cold cluster::Json cluster::turn_state(const cluster::Snapshot& s)
             did += (k ? " · " : "") + r.did[k];
         if (r.did.size() > 4) did += " · +" + std::to_string(r.did.size() - 4) + " more";
         lines.push_back({{"text", text + (i + 1 == rounds.size() && !step.empty() ? " …" : "")}, {"current", i + 1 == rounds.size() && !step.empty()},
-            {"did", cluster::one_line(did, 200)}, {"pictures", r.pictures}});
+            {"did", cluster::one_line(did, 200)}, {"pictures", r.pictures}, {"about", r.about}});
     }
     return {{"verb", verb}, {"step", step.empty() ? std::string() : word(step)}, {"detail", why}, {"step_ms", stepMs}, {"turn_ms", s.turnSince > 0 ? now - s.turnSince : 0},
         {"tokens", tokens}, {"tools", tools}, {"steps", steps}, {"rounds", lines}, {"hidden_thinking", (step == "thinking") && s.thinking.empty() && s.stepDetail.empty()}};

@@ -181,7 +181,10 @@ header .muted { color: var(--muted); font-size: 13px; }
 #sessionWhere { font-family: var(--mono, monospace); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .msg.turn .round { font-family: var(--mono, monospace); font-size: 12px; padding-left: 10px; border-left: 2px solid var(--line); margin: 2px 0; }
 .msg.turn .round.current { color: var(--accent); border-left-color: var(--accent); }
+.update-mark { font-size: 12px; padding: 2px 9px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent); }
+.update-mark.waiting { background: color-mix(in srgb, var(--warn) 22%, var(--surface)); color: var(--warn); font-weight: 600; }
 .msg.turn .round-did { opacity: .75; padding-left: 1.6em; white-space: normal; }
+.msg.turn .round-about { padding-left: 1.6em; white-space: normal; color: var(--text); }
 .msg.display pre.term { background: #1e1e1e; color: #e5e5e5; }
 .msg.display .diff-add { color: var(--ok); } .msg.display .diff-del { color: var(--error); } .msg.display .diff-hunk { color: var(--accent); }
 .msg.display .steps div { padding: 2px 0; } .msg.display .done { color: var(--ok); } .msg.display .current { color: var(--accent); font-weight: 600; }
@@ -503,6 +506,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
         </nav>
         <span class="grow"></span>
         <span class="muted" id="who"></span>
+        <span id="updateMark" class="update-mark hidden"></span>
         <button id="bell" title="Notifications" aria-label="Notifications">🔔<span id="bellCount" class="count hidden"></span></button>
         <button id="ttyButton" class="hidden" title="The terminal interface of claude-cluster in this browser (its own port)">⌨</button>
         <button id="docsButton" title="Documentation (Ctrl+K)" aria-label="Documentation">?</button>
@@ -893,6 +897,7 @@ async function run(id) {
             if (id !== loop) return;
             version = state.version;
             $("who").textContent = "from " + state.client;
+            renderUpdate(state.update);
             if (state.voice) voiceInfo = state.voice;
             render(state);
         } catch (error) {
@@ -2053,6 +2058,7 @@ function renderTurn(turn, ticking) {
             const line = document.createElement("div");
             line.className = "round" + (r.current ? " current" : "");
             line.textContent = r.text;
+            if (r.about) { const about = document.createElement("div"); about.className = "round-about"; about.textContent = "✻ " + r.about; line.append(about); } // what it does, in a line
             if (r.did) { const did = document.createElement("div"); did.className = "round-did"; did.textContent = "↳ " + r.did; line.append(did); }
             for (const picture of r.pictures || []) { const p = document.createElement("div"); p.className = "round-did"; p.textContent = "📷 " + picture + " (on the computer)"; line.append(p); }
             body.append(line);
@@ -4728,6 +4734,19 @@ $("agentWinSize").addEventListener("click", () => {
     try { store.set("cc-agent-big", big ? "1" : "0"); } catch (e) { /* no storage */ }
 });
 $("agentWinClose").addEventListener("click", () => { $("agentWin").classList.add("hidden"); agentOpen = null; clearInterval(agentTimer); });
+
+// ---- the update of claude-cluster: chosen on the computer (a terminal, a window); here its mark while it is not done, what it brings ----
+function renderUpdate(u) {
+    const mark = $("updateMark");
+    const waiting = u && (u.started || u.upgrading);
+    mark.classList.toggle("hidden", !u || (!u.version && !waiting));
+    if (!u || (!u.version && !waiting)) return;
+    mark.classList.toggle("waiting", !!waiting);
+    mark.textContent = waiting ? "⟳ update → " + (u.target || u.version) + (u.upgrading ? ": switching" : u.waiting ? ": waiting for " + u.waiting : ": saving")
+        : "⬆ " + u.version + " installed";
+    mark.title = (u.jump ? u.jump + " update" : "update") + (u.notes && u.notes.length ? ":\n" + u.notes.slice(0, 10).map((n) => "• " + n.replace(/^(\w+) /, (m, k) => (k === "fix" ? "fix " : k === "feat" ? "new " : k + " "))).join("\n") : "")
+        + "\n(chosen in a terminal or a window of the computer)";
+}
 
 // already connected (the cookie of this browser): straight to the sessions; a trusted device: in at once (no code)
 fetch("/api/state?v=-1", {credentials: "same-origin", cache: "no-store"})

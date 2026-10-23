@@ -90,7 +90,8 @@ _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& repli
 
 _cold static cluster::Json upgrade_json_(const cluster::UpgradeOffer& offer)
 {
-    return {{"version", offer.version}, {"started", offer.started}, {"upgrading", offer.upgrading}};
+    return {{"version", offer.version}, {"started", offer.started}, {"upgrading", offer.upgrading}, {"target", offer.target}, {"waiting", offer.waiting}, {"jump", offer.jump},
+        {"notes", offer.notes}};
 }
 
 _cold void cluster::Manager::attach(void)

@@ -1643,7 +1643,12 @@ self.addEventListener("notificationclick", (e) => {
             {"face", {{"name", cluster::face_name(face.face)}, {"text", cluster::face_text(face.face)}, {"badge", face.badge},
                 {"svg", cluster::face_svg(face.face, face.badge, face.urgent)}}},
             {"attach", {{"enabled", config.attach.enabled}, {"root", cluster::attach_root(config).string()}, {"max_mb", config.attach.maxMb}, {"max_files", config.attach.maxFiles}, {"link", config.attach.link && (peer.starts_with("127.") || peer == "::1")}}},
-            {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"tty_port", this->_ttyFd != -1 ? this->_ttyPort : 0}, {"style", style}, {"prompt_colors", promptColors}, {"version_app", CLUSTER_VERSION}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
+            {"client", peer}, {"device", cookie_(request, "cc_dev")}, {"tty_port", this->_ttyFd != -1 ? this->_ttyPort : 0}, {"style", style}, {"prompt_colors", promptColors}, {"version_app", CLUSTER_VERSION},
+            {"update", [this]() { // a newer claude-cluster installed, an update waiting (chosen in a terminal or a window of the computer)
+                const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
+                return cluster::Json{{"version", offer.version}, {"started", offer.started}, {"upgrading", offer.upgrading}, {"target", offer.target}, {"waiting", offer.waiting},
+                    {"jump", offer.jump}, {"notes", offer.notes}};
+            }()}, {"voice", {{"available", this->_speech != nullptr}, {"confirm", voice.confirmSeconds},
                 {"end_silence", voice.endSilence > 0.0 ? voice.endSilence : 1.0}, {"listen", voice.listenModel}, {"say", voice.sayEngine}}}});
     } else if (request.method == "GET" && request.path == "/api/file") {
         // a file of a file display of this session (never another path): sent to download

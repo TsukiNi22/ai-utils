@@ -571,6 +571,8 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         const std::string state = event.value("state", std::string());
         if (state != this->_data.bridgeState && (state == "disconnected" || state == "failed" || state == "error"))
             this->entry_(cluster::EntryKind::Error, "Remote Control: " + state);
+        else if (state != this->_data.bridgeState && (state == "connected" || state == "ready")) // after its "connecting…": told it works
+            this->entry_(cluster::EntryKind::System, "Remote Control: " + state + (this->_data.remoteUrl.empty() ? std::string(" (claude.ai / app)") : " - " + this->_data.remoteUrl));
         this->_data.bridgeState = state;
     } else if (type == "system" && subtype == "compact_boundary") {
         this->entry_(cluster::EntryKind::System, "context compacted");

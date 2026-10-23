@@ -4933,7 +4933,9 @@ class TtyUi {
                     for (const cluster::Json& round: turn["rounds"]) {
                         lines.push_back({"  │ " + cluster::one_line(round.value("text", std::string()), room - 6), round.value("current", false)
                             ? ftxui::color(this->_theme.accent) : ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
-                        // what it did, in a sentence; a picture read or made: a click opens it
+                        // what it does (its thinking in a line, like Claude Desktop), what it did; a picture read or made: a click opens it
+                        if (const std::string about = round.value("about", std::string()); !about.empty())
+                            lines.push_back({"  │    ✻ " + cluster::one_line(about, room - 9), ftxui::color(this->_theme.text), "\n"});
                         if (const std::string did = round.value("did", std::string()); !did.empty())
                             lines.push_back({"  │    ↳ " + cluster::one_line(did, room - 9), ftxui::color(this->_theme.muted) | ftxui::dim, "\n"});
                         for (const cluster::Json& picture: round.value("pictures", cluster::Json::array())) {
@@ -5840,8 +5842,25 @@ class TtyUi {
                     return press(focused ? ftxui::text("❯" + label + "[" + letter + "] ❮") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(color)
                         : ftxui::text(" " + label + "[" + letter + "]  ") | ftxui::color(color) | ftxui::bgcolor(this->_theme.surface), key);
                 };
-                return box(ftxui::vbox({ftxui::text(" A newer claude-cluster is installed") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text(""),
-                    ftxui::text(std::string(" ") + CLUSTER_VERSION + "  →  " + offer.version) | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text(""),
+                // what it brings: the size of the step, its notes (fix / feat, the newest first)
+                ftxui::Elements notes;
+                for (std::size_t i = 0; i < offer.notes.size() && i < 8; ++i) {
+                    const std::string& note = offer.notes[i];
+                    const std::size_t space = note.find(' ');
+                    const std::string kind = note.substr(0, space);
+                    notes.push_back(ftxui::hbox({ftxui::text(" " + std::string(kind == "fix" ? "fix " : kind == "feat" ? "new " : kind.substr(0, 4) + std::string(4 - std::min<std::size_t>(4, kind.size()), ' ')))
+                        | ftxui::bold | ftxui::color(kind == "fix" ? this->_theme.warn : this->_theme.ok), ftxui::text(" " + cluster::one_line(space == std::string::npos ? note : note.substr(space + 1), 84))
+                        | ftxui::color(this->_theme.text)}));
+                }
+                if (offer.notes.size() > 8) notes.push_back(ftxui::text("  … " + std::to_string(offer.notes.size() - 8) + " more") | ftxui::color(this->_theme.muted));
+                if (notes.empty()) notes.push_back(ftxui::text(" (no notes in that binary)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                return box(ftxui::vbox({ftxui::text(offer.started ? " A newer claude-cluster came while the update waits" : " A newer claude-cluster is installed") | ftxui::bold
+                        | ftxui::color(this->_theme.text), ftxui::text(""),
+                    ftxui::hbox({ftxui::text(std::string(" ") + CLUSTER_VERSION + "  →  " + offer.version) | ftxui::bold | ftxui::color(this->_theme.accent),
+                        ftxui::text(offer.jump.empty() ? std::string() : "   " + offer.jump + (offer.jump == "patch" ? " (fixes and small additions)" : offer.jump == "minor" ? " (new features)" : " (big changes)"))
+                        | ftxui::color(this->_theme.muted),
+                        ftxui::text(offer.started ? "   the update waiting went to " + offer.target : std::string()) | ftxui::color(this->_theme.warn)}),
+                    ftxui::text(""), ftxui::vbox(std::move(notes)), ftxui::text(""),
                     ftxui::paragraph(" Update: the turns running end first, the sessions are saved, the core and every terminal / window switch to the new "
                         "version by themselves, the sessions resumed - nothing to start again by hand.") | ftxui::color(this->_theme.text),
                     ftxui::text(""),
@@ -6584,6 +6603,7 @@ class TtyUi {
                     | ftxui::bgcolor(face.face == cluster::Face::Waiting ? this->_theme.warn : this->_theme.accent), 0,
                     [this]() {(void)this->shortcut_("settings");}),
                 cluster::demo_enabled() ? ftxui::text(" DEMO ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.warn) : ftxui::emptyElement(),
+                this->updateMark_(),
                 key(" " + (this->_mode == Mode::Graph ? std::string(this->_graphHub ? "hub" : "graph") : this->_mode == Mode::Tree ? std::string("tree")
                     : layout == "grid" ? std::string("grid") : std::string("list")), "layout"),
                 ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
@@ -6679,10 +6699,23 @@ class TtyUi {
             return ftxui::dbox({screen, this->scanBox_(*scan)});
         }
 
+        _nodiscard ftxui::Element updateMark_(void)
+        {
+            // the update on the top bar while it is not done: waiting (what for), or offered and put off (a click: its popup again)
+            const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
+            if (offer.started || offer.upgrading)
+                return ftxui::text(" ⟳ update → " + (offer.target.empty() ? offer.version : offer.target) + (offer.upgrading ? ": switching" : offer.waiting.empty()
+                    ? std::string(": saving") : ": waiting for " + cluster::one_line(offer.waiting, 60)) + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.warn);
+            if (offer.version.empty()) return ftxui::emptyElement();
+            return this->tap_(ftxui::text(" ⬆ " + offer.version + " installed ") | ftxui::color(this->_theme.accent), 0, [this]() {this->_upgradeLater.clear();});
+        }
+
         _nodiscard bool upgradeShown_(void) const
         {
             const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
-            return !offer.version.empty() && !offer.started && offer.version != this->_upgradeLater && this->_mode == Mode::Normal && !this->_manager.link().lost;
+            // offered; an update waiting already: shown again only for a newer version than the one it goes to
+            return !offer.version.empty() && (!offer.started || offer.version != offer.target) && offer.version != this->_upgradeLater && this->_mode == Mode::Normal
+                && !this->_manager.link().lost && !offer.upgrading;
         }
 
         void upgrade_(const std::string& action)

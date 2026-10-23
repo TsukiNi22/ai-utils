@@ -22,6 +22,8 @@ File Description:
 #include "cluster/Services.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Notes.hpp"
+#include <regex>
 #include <sys/stat.h>
 #include <filesystem>
 #include <csignal>
@@ -35,6 +37,42 @@ File Description:
 _cold static std::filesystem::path upgrade_file_(void)
 {
     return cluster::data_dir() / "upgrade.json"; // {"ignored": "<version>"}
+}
+
+_cold static std::string jump_(const std::string& from, const std::string& to)
+{
+    // the size of the step: its major, minor or patch number changed
+    const std::vector<std::string> a = cluster::split(from, '.');
+    const std::vector<std::string> b = cluster::split(to, '.');
+    if (a.empty() || b.empty() || a[0] != b[0]) return "major";
+    if (a.size() < 2 || b.size() < 2 || a[1] != b[1]) return "minor";
+    return "patch";
+}
+
+_cold static std::vector<std::string> notes_of_(const std::filesystem::path& exe)
+{
+    // what the binary on disk brings over this one: its own notes (--notes), read before it is run for real
+    const cluster::Captured got = cluster::capture({exe.string(), "--notes", CLUSTER_VERSION}, "", 10);
+    std::vector<std::string> notes;
+    if (got.code != 0) return notes;
+    for (const std::string& line: cluster::split(got.out, '\n'))
+        if (!cluster::trim(line).empty() && notes.size() < 40) notes.push_back(cluster::clean_utf8(cluster::trim(line)));
+    return notes;
+}
+
+_cold std::vector<std::string> cluster::release_notes(const std::string& since)
+{
+    // the subjects of the commits embedded at build time: "type(claude-cluster): 1.4.103 - what it does"
+    static const std::regex line(R"(^(\w+)\(claude-cluster\): (\d+\.\d+\.\d+) - (.*)$)");
+    std::vector<std::string> notes;
+    for (const std::string& subject: cluster::split(CLUSTER_NOTES, '\n')) {
+        std::smatch m;
+        if (!std::regex_match(subject, m, line)) continue;
+        if (!since.empty() && cluster::version_compare(m[2].str(), since) <= 0) continue;
+        if (cluster::version_compare(m[2].str(), CLUSTER_VERSION) > 0) continue; // a commit after this build: not in it
+        notes.push_back(m[1].str() + " " + m[2].str() + " " + cluster::one_line(m[3].str(), 400));
+    }
+    return notes;
 }
 
 //----------------------------------------------------------------//
@@ -72,12 +110,16 @@ _cold void cluster::Manager::upgradeCheck_(void)
         ignored = this->_upgradeIgnored;
     }
     if (cluster::version_compare(version, CLUSTER_VERSION) <= 0 || version == ignored) return; // the same, older, or ignored: nothing
+    std::vector<std::string> notes = notes_of_(exe);
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_upgradeVersion = version;
+        this->_upgradeVersion = version; // an update waiting meanwhile: offered again for this one (Update moves it here)
+        this->_upgradeNotes = std::move(notes);
+        this->_upgradeJump = jump_(CLUSTER_VERSION, version);
     }
     ++this->_version;
-    this->notice_("", "claude-cluster " + version + " is installed (this one: " + CLUSTER_VERSION + "): Update / Ignore / Quit");
+    this->notice_("", "claude-cluster " + version + " is installed (this one: " + CLUSTER_VERSION + (this->_upgradeStarted ? ", an update already waits" : "")
+        + "): Update / Ignore / Quit");
 }
 
 _cold cluster::UpgradeOffer cluster::Manager::upgradeOffer(void) const
@@ -85,10 +127,11 @@ _cold cluster::UpgradeOffer cluster::Manager::upgradeOffer(void) const
     if (this->_replica) {
         const cluster::Json j = this->replicaState("upgrade");
         if (!j.is_object()) return {};
-        return {j.value("version", std::string()), j.value("started", false), j.value("upgrading", false)};
+        return {j.value("version", std::string()), j.value("started", false), j.value("upgrading", false), j.value("target", std::string()), j.value("waiting", std::string()),
+            j.value("jump", std::string()), j.value("notes", std::vector<std::string>())};
     }
     std::lock_guard<std::mutex> lock(this->_mutex);
-    return {this->_upgradeVersion, this->_upgradeStarted.load(), this->_upgrading.load()};
+    return {this->_upgradeVersion, this->_upgradeStarted.load(), this->_upgrading.load(), this->_upgradeTarget, this->_upgradeWaiting, this->_upgradeJump, this->_upgradeNotes};
 }
 
 _cold void cluster::Manager::showcaseUpgrade(void)
@@ -226,7 +269,20 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         return "claude-cluster stops: start it again for " + version;
     }
     if (action != "update") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "upgrade: update | ignore | quit");
-    if (this->_upgradeStarted.exchange(true)) return "already updating to " + version;
+    if (this->_upgradeStarted.exchange(true)) { // one waits already: never a second one, it goes to this version (checked again before the switch)
+        std::string before;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            before = this->_upgradeTarget;
+            this->_upgradeTarget = version;
+        }
+        ++this->_version;
+        return before == version ? "already updating to " + version : "the update waiting now goes to " + version + " (instead of " + before + ")";
+    }
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_upgradeTarget = version;
+    }
     ++this->_version;
     std::thread([this, version]() {
         // the turns running end first (their sessions named), the sessions saved, then the new binary run in place of this one
@@ -257,14 +313,37 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
                 if (s.state == cluster::State::Working || s.state == cluster::State::Waiting || agents)
                     names += (names.empty() ? "" : ", ") + s.spec.name + (s.state == cluster::State::Waiting ? " (waits for your answer)" : agents && s.state != cluster::State::Working ? " (its agents)" : "");
             }
-            if (names.empty()) break;
             const std::size_t held = this->heldCount_();
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                this->_upgradeWaiting = names.empty() ? std::string() : names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held" : std::string());
+            }
+            if (names.empty()) break;
             this->progressStep(id, "waiting for the turns running: " + names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held, sent after the update" : std::string()));
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
+        // the binary switched to: the one on disk now (a newer one installed meanwhile), tested again; a problem: nothing switched, what was held sent
+        std::string target;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            target = this->_upgradeTarget;
+        }
+        const std::string onDisk = cluster::binary_version(exe);
+        std::string late = onDisk.empty() || cluster::version_compare(onDisk, CLUSTER_VERSION) <= 0 ? "the binary on disk is no longer a newer version" : std::string();
+        if (late.empty() && onDisk != version) late = cluster::upgrade_selftest(exe);
+        if (!late.empty()) {
+            this->_holding = false;
+            this->releaseHeld_();
+            this->progressEnd(id, false, "update cancelled, still on " + std::string(CLUSTER_VERSION) + ": " + late, false);
+            this->notice_("", "update cancelled (" + late + "): claude-cluster " + CLUSTER_VERSION + " goes on, the held prompts sent", true);
+            this->_upgradeStarted = false;
+            ++this->_version;
+            return;
+        }
+        if (onDisk != target) this->progressStep(id, "a newer version is on disk: switching to " + onDisk);
         this->progressAdvance(id, "saving the sessions");
         this->save();
-        this->progressAdvance(id, "starting claude-cluster " + version + " (the terminals and windows follow it)");
+        this->progressAdvance(id, "starting claude-cluster " + onDisk + " (the terminals and windows follow it)");
         this->_upgrading = true; // the interfaces see it: they follow the new core
         ++this->_version;
         std::this_thread::sleep_for(std::chrono::milliseconds(2500));

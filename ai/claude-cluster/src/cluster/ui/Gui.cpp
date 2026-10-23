@@ -1993,7 +1993,12 @@ class Window: public QMainWindow {
         {
             QTimer::singleShot(0, this, [this]() {this->webAsk();}); // a device asking to connect: its dialog
             const cluster::AppFace face = this->manager.appFace(this->app.voice->listening());
-            const std::string key = std::string(cluster::face_name(face.face)) + std::to_string(face.badge) + (face.urgent ? "!" : "");
+            // the update not done yet: on the top bar and the title (waiting: what for; offered: installed)
+            const cluster::UpgradeOffer offer = this->manager.upgradeOffer();
+            const std::string update = offer.started || offer.upgrading ? "⟳ update → " + (offer.target.empty() ? offer.version : offer.target)
+                + (offer.upgrading ? ": switching" : offer.waiting.empty() ? std::string(": saving") : ": waiting for " + cluster::one_line(offer.waiting, 60))
+                : offer.version.empty() ? std::string() : "⬆ " + offer.version + " installed";
+            const std::string key = std::string(cluster::face_name(face.face)) + std::to_string(face.badge) + (face.urgent ? "!" : "") + update;
             cluster::dock_badge(face.badge, face.urgent);
             if (key == this->faceShown) return;
             this->faceShown = key;
@@ -2001,10 +2006,12 @@ class Window: public QMainWindow {
             pixmap.loadFromData(QByteArray::fromStdString(cluster::face_svg(face.face, face.badge, face.urgent)), "SVG");
             this->setWindowIcon(QIcon(pixmap));
             this->setWindowTitle(QString("(") + QString::fromUtf8(cluster::face_text(face.face)) + ") " + (face.badge > 0 ? QString::number(face.badge) + " · " : QString())
-                + "claude-cluster");
+                + "claude-cluster" + (update.empty() ? QString() : " · " + q_(update)));
             if (this->brand) {
                 const cluster::Style& st = this->theme();
-                this->brand->setText(pill_(cluster::face_text(face.face), st.accent, mix_(st.surface, st.accent, 0.18), true, true, 9.5) + "&nbsp; claude-cluster");
+                this->brand->setText(pill_(cluster::face_text(face.face), st.accent, mix_(st.surface, st.accent, 0.18), true, true, 9.5) + "&nbsp; claude-cluster"
+                    + (update.empty() ? QString() : "&nbsp; " + pill_(update, offer.started || offer.upgrading ? st.warn : st.accent,
+                        mix_(st.surface, offer.started || offer.upgrading ? st.warn : st.accent, 0.18), true, true, 9.0)));
             }
         }
 
@@ -4159,10 +4166,25 @@ class Window: public QMainWindow {
         {
             // a newer claude-cluster installed: Update (default) / Ignore this version / Quit
             const cluster::UpgradeOffer offer = this->manager.upgradeOffer();
-            if (offer.version.empty() || offer.started || offer.version == this->upgradeAsked || QApplication::activeModalWidget() != nullptr) return;
+            // an update waiting already: offered again only for a newer version than the one it goes to (Update moves it there)
+            if (offer.version.empty() || offer.upgrading || (offer.started && offer.version == offer.target) || offer.version == this->upgradeAsked
+                || QApplication::activeModalWidget() != nullptr)
+                return;
             this->upgradeAsked = offer.version;
-            QMessageBox box(QMessageBox::Information, "claude-cluster", q_("<b>A newer claude-cluster is installed</b><br>" + std::string(CLUSTER_VERSION) + " → "
-                + offer.version + "<br><br>Update: the turns running end first, the sessions are saved, the core and every terminal / window switch to "
+            std::string notes;
+            for (std::size_t i = 0; i < offer.notes.size() && i < 10; ++i) {
+                const std::size_t space = offer.notes[i].find(' ');
+                const std::string kind = offer.notes[i].substr(0, space);
+                notes += "<br>• <b>" + std::string(kind == "fix" ? "fix" : kind == "feat" ? "new" : kind) + "</b> " + esc_(cluster::one_line(space == std::string::npos
+                    ? offer.notes[i] : offer.notes[i].substr(space + 1), 160)).toStdString();
+            }
+            if (offer.notes.size() > 10) notes += "<br>… " + std::to_string(offer.notes.size() - 10) + " more";
+            const std::string jump = offer.jump.empty() ? std::string() : " &nbsp;<i>" + offer.jump + (offer.jump == "patch" ? " (fixes and small additions)" : offer.jump == "minor"
+                ? " (new features)" : " (big changes)") + "</i>";
+            QMessageBox box(QMessageBox::Information, "claude-cluster", q_(std::string(offer.started ? "<b>A newer claude-cluster came while the update waits</b>" : "<b>A newer claude-cluster is installed</b>")
+                + "<br>" + std::string(CLUSTER_VERSION) + " → " + offer.version + jump + (offer.started ? "<br>the update waiting goes to " + offer.target + ": Update moves it to " + offer.version : std::string())
+                + (notes.empty() ? std::string() : "<br><br><b>What it brings</b>" + notes)
+                + "<br><br>Update: the turns running end first, the sessions are saved, the core and every terminal / window switch to "
                 "the new version by themselves, the sessions resumed."), QMessageBox::NoButton, this);
             QPushButton* update = box.addButton("Update", QMessageBox::AcceptRole);
             QPushButton* ignore = box.addButton("Ignore this version", QMessageBox::RejectRole);
@@ -5683,6 +5705,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             if (expanded) {
                 for (const cluster::Json& round: turn["rounds"]) { // a line per request to the model, what it did, its pictures (a link opens one)
                     html += "<br>" + span_(round.value("current", false) ? st.accent : st.muted, esc_("  │ " + round.value("text", std::string())));
+                    if (const std::string about = round.value("about", std::string()); !about.empty()) html += "<br>" + span_(st.text, esc_("  │    ✻ " + about)); // what it does
                     if (const std::string did = round.value("did", std::string()); !did.empty()) html += "<br>" + span_(st.muted, esc_("  │    ↳ " + did));
                     for (const cluster::Json& picture: round.value("pictures", cluster::Json::array()))
                         html += "<br>" + span_(st.muted, "  │    ") + "<a href=\"cluster-picture:" + QString::fromUtf8(QUrl::toPercentEncoding(q_(picture.get<std::string>())))

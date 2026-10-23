@@ -57,10 +57,17 @@ class Orchestrator;                // Orchestrator.hpp: the heavy jobs of the se
 /* STRUCT */
 
 struct UpgradeOffer {               // a newer claude-cluster installed over the running one
-    std::string version;            // empty: none (or ignored)
+    std::string version;            // empty: none (or ignored); the newest installed (one may come while an update waits)
     bool started = false;           // Update chosen: the turns running end first
     bool upgrading = false;         // the core about to run the new binary (the interfaces follow it)
+    std::string target;             // started: the version it switches to (a newer one offered meanwhile: Update moves it there)
+    std::string waiting;            // started: what it waits for (the turns running, a permission)
+    std::string jump;               // patch | minor | major (from the running version)
+    std::vector<std::string> notes; // what it brings: "fix 1.4.103 the smooth update...", the newest first
 };
+
+// The release notes embedded in this binary (the commits of claude-cluster): "kind version text" of the versions after `since`, the newest first
+_cold _nodiscard std::vector<std::string> release_notes(const std::string& since);
 
 struct ShellJob {                   // a !command running or done (the background shells: /shells, /kill)
     std::string id;                 // b1, b2...
@@ -181,6 +188,10 @@ class Manager {
         std::atomic<int> _coreAskN{0};
         bool _upgradeShowcase = false;             // the Debug page's pretend update: its popup, nothing installed / stopped
         std::string _upgradeVersion;               // a newer binary installed (offered), its version ignored, the binary seen
+        std::string _upgradeTarget;                // the version an update started switches to
+        std::string _upgradeWaiting;               // what it waits for (shown while it waits)
+        std::string _upgradeJump;                  // patch | minor | major
+        std::vector<std::string> _upgradeNotes;    // what the offered version brings (read from its binary)
         std::string _upgradeIgnored;
         std::int64_t _exeStamp = 0;
         std::atomic<bool> _upgradeStarted{false};

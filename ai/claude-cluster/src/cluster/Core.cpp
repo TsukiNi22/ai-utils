@@ -199,6 +199,7 @@ _cold void cluster::Core::setup_(void)
 
     /* misc */
     this->_parser.setFlag("version", {"V", "", "version", ""}, {}, "Print the version");
+    this->_parser.setFlag("notes", {"", "", "notes", ""}, {{"version", true, any}}, "Print what this version brings since <version> (its release notes)");
     this->_parser.setFlag("completion", {"", "", "completion", ""}, {{"shell", true, shells}}, "Print the completion script (bash | zsh | fish)");
     this->_parser.setDefaultUsage();
     this->_parser.setHelpHook([this](const utils::arguments::ArgParser&) {this->help_();});
@@ -267,6 +268,12 @@ _cold void cluster::Core::run(void)
 {
     if (this->_version) {
         std::cout << "claude-cluster " << CLUSTER_VERSION << std::endl;
+        return;
+    }
+    if (this->_options.values.contains("notes")) { // what this binary brings since a version (read by an older core for its update popup)
+        for (const std::string& note: cluster::release_notes(this->_options.values.at("notes")))
+            std::cout << note << "\n";
+        std::cout << std::flush;
         return;
     }
     if (!this->_completion.empty()) {
