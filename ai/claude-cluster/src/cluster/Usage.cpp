@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Tools.hpp"
+#include "cluster/Demo.hpp"
 #include "cluster/Usage.hpp"
 #include <algorithm>
 #include <unistd.h>
@@ -189,6 +190,7 @@ _cold std::string cluster::day_of(const std::int64_t time)
 /* the account */
 _cold std::optional<cluster::Json> cluster::account_usage(void)
 {
+    if (cluster::demo_enabled()) return std::nullopt; // the demo touches no real login, no real account
     const char* test = std::getenv("CLAUDE_CLUSTER_ACCOUNT_URL");
     const std::string url = test != nullptr ? test : "";
     // the token of Claude Code (~/.claude/.credentials.json, the user's own file): given to its endpoint only, by a

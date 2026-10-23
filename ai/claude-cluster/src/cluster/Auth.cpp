@@ -15,6 +15,7 @@ File Description:
 #define _Encapsulation
 #include <utils/utils.hpp>
 #include "cluster/Tools.hpp"
+#include "cluster/Demo.hpp"
 #include "cluster/Auth.hpp"
 #include <sys/stat.h>
 #include <termios.h>
@@ -122,6 +123,8 @@ _cold cluster::Backend cluster::Auth::resolve(const std::string& backend) const
 /* status */
 _cold std::pair<bool, std::string> cluster::Auth::status(const cluster::Provider& provider) const
 {
+    // the demo: no key read, no local server asked - only the fake agent of the default provider
+    if (cluster::demo_enabled()) return {provider.name == "anthropic", provider.name == "anthropic" ? "the demo agent (nothing real, nothing spent)" : "not in the demo"};
     const std::string command = this->_config.command(provider.driver);
 
     if (provider.driver != "voice" && !cluster::has_command(command)) return {false, "`" + command + "` is not installed"};

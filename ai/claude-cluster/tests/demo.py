@@ -68,6 +68,14 @@ def https(method, path, body="", cookie=""):
     return int(head.split(b" ")[1]), parsed, cookies
 
 
+DECOYS = os.path.join(CACHE, "decoys")
+LOG = os.path.join(CACHE, "decoy.log")
+os.makedirs(DECOYS)
+for agent in ("claude", "codex", "qwen", "opencode", "ollama"):
+    with open(os.path.join(DECOYS, agent), "w") as file:
+        file.write(f"#!/bin/sh\necho {agent} \"$@\" >> {LOG}\nexit 1\n")
+    os.chmod(os.path.join(DECOYS, agent), 0o755)
+ENV["PATH"] = DECOYS + ":" + ENV["PATH"]
 core = subprocess.Popen([BIN, "--demo", "--web", "serve"], env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
     time.sleep(14)
@@ -88,6 +96,9 @@ try:
     code, body, _ = https("POST", "/api/cmd", json.dumps({"cmd": "spawn", "cwd": "~/x"}), cookie)
     check("spawn refused (read only)", body.get("ok") is False and "read only" in body.get("error", ""), str(body))
     code, body, _ = https("POST", "/api/cmd", json.dumps({"cmd": "interrupt", "session": "s1"}), cookie)
+    others = [line for line in subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True).stdout.splitlines() if "demo-agent" in line]
+    check("the agents of the demo are the fake one", len(others) >= 8, str(len(others)))
+    check("no real agent was ever started (decoys never called)", not os.path.exists(LOG), open(LOG).read() if os.path.exists(LOG) else "")
     check("interrupt refused (read only)", body.get("ok") is False and "read only" in body.get("error", ""), str(body))
 finally:
     core.terminate()

@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Origin.hpp"
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Demo.hpp"
 #include <toml++/toml.hpp>
 #include <algorithm>
 #include <optional>
@@ -488,6 +489,8 @@ _cold const cluster::Style& cluster::Config::currentStyle(void) const
 
 _cold std::string cluster::Config::command(const std::string& driver) const
 {
+    // the demo: claude is the fake agent (its config), every other agent (codex, qwen, opencode...) a command that fails at once - never a real model, never a token
+    if (cluster::demo_enabled() && driver != "claude") return "false";
     auto it = this->commands.find(driver);
     return it != this->commands.end() ? it->second : driver;
 }

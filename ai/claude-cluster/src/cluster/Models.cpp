@@ -14,6 +14,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Models.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Demo.hpp"
 #include <algorithm>
 #include <chrono>
 #include <mutex>
@@ -40,7 +41,7 @@ _cold static Choices list_models_(const cluster::Config& config, const cluster::
         add("claude-sonnet-5-5", "Sonnet 5.5");
         add("claude-haiku-5-5", "Haiku 5.5");
         add("claude-fable-5-1", "Fable 5.1");
-    } else if (provider.name.starts_with("ollama") && cluster::has_command("ollama")) {
+    } else if (provider.name.starts_with("ollama") && !cluster::demo_enabled() && cluster::has_command("ollama")) {
         const std::vector<std::string> lines = cluster::split(cluster::capture({"ollama", "list"}, "", 3).out, '\n');
         for (std::size_t i = 1; i < lines.size(); ++i) {
             const std::vector<std::string> fields = cluster::split(lines[i], ' ');
