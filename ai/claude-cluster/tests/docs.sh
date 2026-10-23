@@ -3,7 +3,7 @@
 # one ETag per build and 304, framed by the same origin only, no path out of the table), searched by /docs/search (c2dmp-hsm: a typo found, both
 # languages), the PDF of the audit, the command `claude-cluster docs` and the MCP tool `docs`. Isolated core (own config / data / socket / port).
 # Needs a build with the docs (python3 3.11+). Usage: tests/docs.sh [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster)
-set -euo pipefail
+set -uo pipefail   # no -e: a failed check is reported, the others still run
 
 BIN="${1:-/tmp/cc-build/claude-cluster}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,7 +40,8 @@ grep -qi '^X-Frame-Options: DENY' "${WORK}/head2"; check "the other pages stay D
 [[ "$(command curl -s -o /dev/null -w '%{http_code}' --path-as-is "${URL}/docs/../api/state")" != 200 ]]; check "no path out of the table" "$?"
 [[ "$(command curl -s -o /dev/null -w '%{http_code}' "${URL}/docs/nothing.html")" == 404 ]]; check "an unknown page: 404" "$?"
 [[ "$(command curl -s -o /dev/null -w '%{content_type}' "${URL}/docs/site.css")" == text/css* ]]; check "the style is served as css" "$?"
-command curl -s "${URL}/docs/downloads/claude-cluster-audit-report.pdf" | head -c 4 | grep -q '%PDF'; check "the audit report PDF is served" "$?"
+command curl -s -o "${WORK}/audit.pdf" "${URL}/docs/downloads/claude-cluster-audit-report.pdf"
+head -c 4 "${WORK}/audit.pdf" | grep -q '%PDF'; check "the audit report PDF is served" "$?"
 
 en="$(command curl -s "${URL}/docs/search?q=forq&lang=en")"
 grep -qi 'fork' <<< "${en}"; check "search: a typo (forq) finds fork" "$?"
@@ -71,6 +72,15 @@ mcp() {
 answer="$(mcp)"
 grep -q 'heavy_run' <<< "${answer}"; check "MCP tool docs: search" "$?"
 grep -q 'settings.html' <<< "${answer}"; check "MCP tool docs: the page of a screen" "$?"
+
+# docs serve: the documentation alone, read only, no core
+"${BIN}" docs serve 18795 > "${WORK}/docs-serve.log" 2>&1 < /dev/null &
+ALONE=$!
+sleep 1
+[[ "$(command curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18795/docs/")" == 200 ]]; check "docs serve: the documentation alone" "$?"
+[[ "$(command curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:18795/docs/")" == 405 ]]; check "docs serve: read only (POST refused)" "$?"
+[[ "$(command curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18795/api/state")" == 404 ]]; check "docs serve: nothing but the documentation" "$?"
+kill "${ALONE}" 2> /dev/null || true
 
 kill "${SERVE}" 2> /dev/null || true
 exit "${fail}"

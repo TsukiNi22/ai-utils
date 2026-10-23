@@ -25,11 +25,11 @@ Chaque interface est une vue d'un seul **cœur** (`claude-cluster serve --linger
 
 Ouvrez l'accès web (réglages *Web*, la palette *Web access: open*, `claude-cluster web on` ou `--web`) et un navigateur du même réseau pilote claude-cluster : sessions, transcriptions, prompts, Stop, permissions et questions, nouvelles sessions, réglages.
 
-- **Vues** : *Chat*, *Grid*, *Board* (votre tableau de bord de tuiles), *Hub* (un graphe des sessions, un arbre de la [taxonomie](page:taxonomy)) et *Tree* (sessions par dossier).
+- **Vues** (les mêmes cinq dans le terminal, la fenêtre, la page et l'app ; chaque démarrage sur la liste) : *List*, *Grid* (une tuile par session, Tasks en dernier), *Graph* (global, puis les catégories / sous-globales de la [taxonomie](page:taxonomy), puis les sessions), *Hub* (toutes les sessions autour de global) et *Tree* (sessions par dossier).
 - **Entrer** : https avec un certificat de votre propre autorité (approuvée une fois par appareil depuis la page de connexion, plus d'avertissement ensuite), un **code à 6 chiffres** qui change à chaque ouverture, puis **votre accord** sur l'ordinateur (*Allow*, *Allow and trust*, *Deny*). Les appareils de confiance reviennent seuls.
 - **Mode terminal** : le bouton ⌨ lance un vrai `claude-cluster --tty` pour cet appareil dans le navigateur.
 - **Hors du réseau local** : `[web] remote = tailscale` (recommandé) ou `router`. Voir [Sécurité](page:security).
-- **Docs** : cette documentation est servie par le cœur sur `/docs` et s'ouvre dans un panneau avec `Ctrl+K` puis *Docs*.
+- **Docs** : cette documentation est servie par le cœur sur `/docs` et s'ouvre dans un panneau avec `Ctrl+K` puis *Docs*. Sans l'accès web, `claude-cluster docs serve [port] [lan]` la sert seule, en lecture seule (port 8790, cet ordinateur seulement sauf avec `lan`).
 
 Par défaut seules les adresses privées des sous-réseaux de votre ordinateur sont servies, et depuis la page on ne peut ni ouvrir un shell ni changer les réglages web sans l'avoir autorisé (voir [Sécurité](page:security)).
 

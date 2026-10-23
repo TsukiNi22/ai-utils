@@ -192,6 +192,17 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
         return !name.empty() && name.size() <= 32 && std::all_of(name.begin(), name.end(), [](const unsigned char c) {return std::isalnum(c) != 0 || c == '-' || c == '_' || c == '.';})
             && name != "." && name != "..";
     };
+    const std::function<std::string(const std::string&)> why = [&valid](const std::string& name) {
+        // what is wrong with a name being typed (empty: nothing), checked again at every key (a deleted character included)
+        if (name.empty() || valid(name)) return std::string();
+        std::string bad;
+        for (const unsigned char c: name)
+            if (std::isalnum(c) == 0 && c != '-' && c != '_' && c != '.' && bad.find(static_cast<char>(c)) == std::string::npos) bad += static_cast<char>(c);
+        std::string shown;
+        for (const char c: bad)
+            shown += (shown.empty() ? "" : ", ") + (c == ' ' ? std::string("space") : "'" + std::string(1, c) + "'");
+        return (shown.empty() ? std::string() : shown + " not allowed: ") + "letters, digits, - _ . only";
+    };
     const std::function<int(void)> room = []() {return std::max(2, (ftxui::Terminal::Size().dimy - 10) / 2);};   // the entries (two lines each) that fit
 
     ftxui::Component component = ftxui::Renderer([&]() {
@@ -272,18 +283,18 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
                 problem.clear();
             } else if (event == ftxui::Event::Backspace) {
                 if (!typed.empty()) typed.pop_back();
-                problem.clear();
+                problem = why(typed);
             } else if (event == ftxui::Event::Return) {
                 const std::string name = typed.empty() ? suggestion : typed;
                 if (!valid(name)) {
-                    problem = "not a name: letters, digits, - _ . only";
+                    problem = why(name);
                 } else {
                     picked = {cluster::StartChoice::Kind::Independent, name};
                     screen.Exit();
                 }
             } else if (event.is_character() && typed.size() < 32) {
                 typed += event.character();
-                problem = valid(typed) ? "" : "letters, digits, - _ . only";
+                problem = why(typed);
             }
             return true;
         }

@@ -12,6 +12,7 @@ import argparse
 import json
 import re
 import subprocess
+import tempfile
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
@@ -68,7 +69,7 @@ def main() -> int:
     for name, p in parsed.items():
         if p.langs["en"] != p.langs["fr"]:
             errors.append("%s: %d EN blocks but %d FR blocks" % (name, p.langs["en"], p.langs["fr"]))
-        found = PLACEHOLDER.search(" ".join(p.text))
+        found = PLACEHOLDER.search(" ".join(p.text)) if name != "changelog.html" else None   # the changelog: the words of the commits
         if found:
             errors.append("%s: placeholder text %r" % (name, found.group(0)))
         for link in p.links:
@@ -91,10 +92,18 @@ def main() -> int:
             if page + ".html" not in parsed or (frag and frag not in parsed[page + ".html"].ids):
                 errors.append("docs-map.json: %s -> %s does not exist" % (screen, target))
     if not args.no_style and CHECK_STYLE.exists():
-        for path in pages:
-            run = subprocess.run([sys.executable, str(CHECK_STYLE), str(path)], capture_output=True, text=True)
-            if run.returncode != 0:
-                errors.append("%s: check_style: %s" % (path.name, run.stdout.strip().splitlines()[-1] if run.stdout.strip() else run.stderr.strip()))
+        shared = site / "site.css"
+        with tempfile.TemporaryDirectory() as folder:
+            for path in pages:
+                # the style of the site (site.css) inlined in a copy: check_style reads the page alone
+                page = path.read_text()
+                if shared.exists():
+                    page = page.replace('<link rel="stylesheet" href="site.css">', "<style>" + shared.read_text() + "</style>", 1)
+                copy = Path(folder) / path.name
+                copy.write_text(page)
+                run = subprocess.run([sys.executable, str(CHECK_STYLE), str(copy)], capture_output=True, text=True)
+                if run.returncode != 0:
+                    errors.append("%s: check_style: %s" % (path.name, run.stdout.strip().splitlines()[-1] if run.stdout.strip() else run.stderr.strip()))
     for e in sorted(set(errors), key=errors.index):
         print("ERROR " + e)
     print("%d pages checked, %d error(s)" % (len(pages), len(errors)))

@@ -79,6 +79,8 @@ struct WebStatus {
 _cold _nodiscard std::string web_line(const cluster::WebStatus& status);
 // the web access of the core, here or from an interface attached to it (the control, its state kept 1 s): none: no web access
 _cold _nodiscard std::optional<cluster::WebStatus> web_status(cluster::Manager& manager);
+// claude-cluster docs serve: the documentation alone on a port, read only (GET of /docs, no core, no session); lan: the peers of the LAN too
+_cold _nodiscard int docs_serve(const int port, const bool lan);
 // on | off | pin | kick [ids] | approve <id> <answer> | untrust [ids] | ban [ids] | unban [ids] (ids: none, all)
 _cold void web_act(cluster::Manager& manager, const std::string& action, const std::vector<std::string>& ids = {}, const std::string& id = "",
     const std::string& answer = "");

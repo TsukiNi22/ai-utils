@@ -527,6 +527,58 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
 }
 
 /* constructor */
+_cold int cluster::docs_serve(const int port, const bool lan)
+{
+    // the documentation alone on a port: nothing but GET / HEAD of /docs (read only: no core, no session, no setting behind it); this computer only,
+    // or the LAN too (every interface, a peer outside the LAN refused); one thread per request, 32 at most
+    if (!cluster::docs_built()) {
+        std::cerr << "the documentation is not in this build (python3 3.11+ is needed to build claude-cluster with it)" << std::endl;
+        return 1;
+    }
+    const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0); // xstyle: ignore LU-SOCKET (HTTP: one thread per request, the peer address)
+    const int on = 1;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(lan ? INADDR_ANY : INADDR_LOOPBACK);
+    addr.sin_port = htons(static_cast<std::uint16_t>(port));
+    if (fd == -1 || ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) == -1 || ::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == -1
+        || ::listen(fd, 16) == -1) {
+        std::cerr << "docs serve: port " << port << ": " << std::strerror(errno) << std::endl;
+        if (fd != -1) ::close(fd);
+        return 1;
+    }
+    std::cout << "documentation (read only): http://" << (lan ? lan_address_() : std::string("127.0.0.1")) << ":" << port << "/docs/"
+        << (lan ? "  (this computer and its LAN)" : "  (this computer; 'lan': its LAN too)") << "\nCtrl+C to stop" << std::endl;
+    static std::atomic<int> busy{0};
+    while (true) {
+        sockaddr_in peer{};
+        socklen_t size = sizeof(peer);
+        const int client = ::accept4(fd, reinterpret_cast<sockaddr*>(&peer), &size, SOCK_CLOEXEC);
+        if (client == -1) continue;
+        std::array<char, INET_ADDRSTRLEN> text{};
+        ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
+        if (busy >= 32 || !same_lan_(text.data())) {
+            ::close(client);
+            continue;
+        }
+        ++busy;
+        std::thread([client]() {
+            const timeval wait{10, 0};
+            (void)::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof(wait));
+            Conn conn{client};
+            Request request;
+            if (read_request_(conn, request)) {
+                if (request.method != "GET" && request.method != "HEAD") respond_(conn, 405, "text/plain", "read only\n", "Allow: GET, HEAD\r\n");
+                else if (request.path == "/") respond_(conn, 301, "text/plain", "docs\n", "Location: /docs/\r\n");
+                else if (request.path == "/docs" || request.path.starts_with("/docs/")) docs_(conn, request);
+                else respond_(conn, 404, "text/plain", "only the documentation here: /docs/\n");
+            }
+            ::close(client);
+            --busy;
+        }).detach();
+    }
+}
+
 _cold cluster::Web::Web(cluster::Manager& manager, cluster::Voice* voice, const std::optional<bool> force)
     : _manager(manager), _voice(voice), _speech(voice != nullptr ? std::make_unique<cluster::WebVoice>(manager, *voice) : nullptr), _force(force)
 {

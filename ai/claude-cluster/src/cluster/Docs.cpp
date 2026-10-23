@@ -118,7 +118,7 @@ _cold cluster::Json cluster::docs_search(const std::string& query, const std::st
             if (const std::optional<float> s = cluster::match_words(query, hit.body); s && (!best || *s + 6.0F < *best)) best = *s + 6.0F;
         if (best) found.push_back({*best, &hit});
     }
-    std::stable_sort(found.begin(), found.end(), [](const auto& a, const auto& b) {return a.first < b.first;});
+    std::stable_sort(found.begin(), found.end(), [](const std::pair<float, const Hit*>& a, const std::pair<float, const Hit*>& b) {return a.first < b.first;});
     cluster::Json results = cluster::Json::array();
     for (std::size_t i = 0; i < found.size() && i < limit; ++i)
         results.push_back({{"k", found[i].second->kind}, {"t", found[i].second->title}, {"d", found[i].second->detail}, {"u", found[i].second->url}});

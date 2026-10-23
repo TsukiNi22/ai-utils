@@ -90,6 +90,17 @@ try:
     second.send(b"n")
     second.pump(0.5)
     check("n: the name is asked", "Name:" in second.text(), second.text()[-500:])
+    for letter in b"a bc":
+        second.send(bytes([letter]))
+        second.pump(0.1)
+    check("a space in the name: told", "space not allowed" in second.text(), second.text()[-500:])
+    second.send(b"\x7f")
+    second.pump(0.3)
+    check("a character deleted, the name still wrong: still told", "space not allowed" in second.text(), second.text()[-500:])
+    for _ in range(3):
+        second.send(b"\x7f")
+        second.pump(0.1)
+    check("the name fixed: the error gone", "not allowed" not in second.text(), second.text()[-500:])
     for letter in b"work":
         second.send(bytes([letter]))
         second.pump(0.1)

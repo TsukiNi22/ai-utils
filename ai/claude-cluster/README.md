@@ -1289,7 +1289,8 @@ a phone reads it from the web page, the app opens it in the phone browser), with
 found). In the interfaces: `Ctrl+K` in the web page (a panel), the palette *Docs: ...* (a page per screen: settings, question, graph, orchestrator...) in the
 terminal and the window, a **?** in the settings, the question popup, the graph and the Tasks session; the terminal settings page: `?`. `claude-cluster docs
 [open|search|url] [words|page]` from a shell (the pages are written once in `<data>/docs/<version>-<commit>/` for the browser: no web access to open), and
-the MCP tool `docs` (search / page / open) for the global session. Sources: `docs/site/` (Markdown EN + FR with TOML front matter, `build.py`, the generators of
+the MCP tool `docs` (search / page / open) for the global session. `claude-cluster docs serve [port] [lan]` serves the documentation alone, read only (GET of
+`/docs` only, no core, no session; port 8790 by default, this computer only, `lan`: its LAN too), to read it in any browser or share it on the LAN. Sources: `docs/site/` (Markdown EN + FR with TOML front matter, `build.py`, the generators of
 the tools / settings / keys / changelog, the checkers `tools/check.py` and `tools/test_search.js`); built by CMake with python3 3.11+ (`DocsData.cpp`,
 optional: without python3 the program says where the docs would open). The copy of GitHub Pages is the `claude-cluster/` folder of the `gh-pages` branch
 (`docs/site/publish-pages.sh`, workflow `claude-cluster-docs.yml`). Test: `tests/docs.sh`.

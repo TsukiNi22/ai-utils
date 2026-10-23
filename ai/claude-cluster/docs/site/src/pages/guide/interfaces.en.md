@@ -25,11 +25,11 @@ Every interface is a view of one **core** (`claude-cluster serve --linger`, star
 
 Open the web access (settings *Web*, the palette *Web access: open*, `claude-cluster web on` or `--web`) and a browser on the same network drives claude-cluster: sessions, transcripts, prompts, Stop, permissions and questions, new sessions, settings.
 
-- **Views**: *Chat*, *Grid*, *Board* (your own dashboard of tiles), *Hub* (a graph of the sessions, a tree of the [taxonomy](page:taxonomy)) and *Tree* (sessions by folder).
+- **Views** (the same five in the terminal, the window, the page and the app; every start on the list): *List*, *Grid* (a tile per session, the Tasks as the last one), *Graph* (global, then the categories / sub-globals of the [taxonomy](page:taxonomy), then the sessions), *Hub* (every session around global) and *Tree* (sessions by folder).
 - **Getting in**: https with a certificate of your own authority (trusted once per device from the login page, no browser warning afterwards), a **6-digit code** that changes at each opening, then **your approval** on the computer (*Allow*, *Allow and trust*, *Deny*). Trusted devices come back by themselves.
 - **Terminal mode**: the ⌨ button runs a real `claude-cluster --tty` for that device in the browser.
 - **Beyond the LAN**: `[web] remote = tailscale` (recommended) or `router`. See [Security](page:security).
-- **Docs**: this documentation is served by the core at `/docs` and opens in a panel with `Ctrl+K` then *Docs*.
+- **Docs**: this documentation is served by the core at `/docs` and opens in a panel with `Ctrl+K` then *Docs*. Without the web access, `claude-cluster docs serve [port] [lan]` serves it alone, read only (port 8790, this computer only unless `lan`).
 
 By default only private addresses of the subnets of your computer are served, and from the page you cannot open a shell or change the web settings unless you allowed it (see [Security](page:security)).
 

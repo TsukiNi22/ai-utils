@@ -18,6 +18,7 @@ File Description:
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/StartMenu.hpp"
 #include "cluster/Docs.hpp"
+#include "cluster/Web.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Service.hpp"
@@ -929,12 +930,27 @@ _cold int cluster::Core::engines_(void)
 
 _cold int cluster::Core::docs_(void)
 {
-    // claude-cluster docs [open [page|screen]] | search <words> | url [page|screen]: the documentation embedded in this binary
+    // claude-cluster docs [open [page|screen]] | search <words> | url [page|screen] | serve [port] [lan]: the documentation embedded in this binary
     if (!cluster::docs_built()) {
         std::cerr << "the documentation is not in this build (python3 3.11+ is needed to build claude-cluster with it)" << std::endl;
         return 1;
     }
     const std::string sub = this->_words.size() > 1 ? this->_words[1] : "open";
+    if (sub == "serve") { // a read only server of the documentation alone (no core): 8790 by default, this computer only unless 'lan'
+        int port = 8790;
+        bool lan = false;
+        for (std::size_t i = 2; i < this->_words.size(); ++i) {
+            if (this->_words[i] == "lan") lan = true;
+            else if (const std::string& word = this->_words[i]; !word.empty() && word.size() <= 5 && std::all_of(word.begin(), word.end(), ::isdigit)
+                && std::stoi(word) > 0 && std::stoi(word) < 65536)
+                port = std::stoi(word);
+            else {
+                std::cerr << "claude-cluster docs serve [port] [lan]" << std::endl;
+                return 1;
+            }
+        }
+        return cluster::docs_serve(port, lan);
+    }
     const bool known = sub == "open" || sub == "search" || sub == "url";
     std::string rest;
     for (std::size_t i = known ? 2 : 1; i < this->_words.size(); ++i)
