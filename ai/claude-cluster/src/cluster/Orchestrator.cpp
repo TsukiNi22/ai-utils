@@ -72,8 +72,7 @@ _cold int pair_(const std::vector<std::string>& list, const std::string& session
 _cold std::uint64_t start_of_(const int pid)
 {
     // the start time of a process (field 22 of its stat): the same process later, not a pid used again
-    std::ifstream in("/proc/" + std::to_string(pid) + "/stat");
-    std::string line((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string line = cluster::read_small("/proc/" + std::to_string(pid) + "/stat");
     const std::size_t close = line.rfind(')');
     if (close == std::string::npos) return 0;
     std::vector<std::string> fields = cluster::split(line.substr(close + 2), ' ');
@@ -395,8 +394,7 @@ _cold void cluster::Orchestrator::processes_(const cluster::OrchConf& c)
     for (const fs::directory_entry& entry: fs::directory_iterator("/proc", error)) {
         const std::string name = entry.path().filename().string();
         if (name.empty() || name.find_first_not_of("0123456789") != std::string::npos) continue;
-        std::ifstream in(entry.path() / "stat");
-        const std::string line((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const std::string line = cluster::read_small((entry.path() / "stat").string());
         const std::size_t open = line.find('(');
         const std::size_t close = line.rfind(')');
         if (open == std::string::npos || close == std::string::npos || close + 2 >= line.size()) continue;
@@ -443,8 +441,7 @@ _cold void cluster::Orchestrator::processes_(const cluster::OrchConf& c)
         if (session.empty()) continue;
         this->_seen.insert(pid);
         if (this->_seen.size() > 2000) this->_seen.clear();
-        std::ifstream cmdline("/proc/" + std::to_string(pid) + "/cmdline");
-        std::string command((std::istreambuf_iterator<char>(cmdline)), std::istreambuf_iterator<char>());
+        std::string command = cluster::read_small("/proc/" + std::to_string(pid) + "/cmdline");
         std::replace(command.begin(), command.end(), '\0', ' ');
         command = cluster::one_line(command.empty() ? p.comm : command, 120);
         const int seconds = static_cast<int>(p.cpu / ticks);

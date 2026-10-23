@@ -73,10 +73,12 @@ _cold Act action_(const ftxui::Event& event)
 
 _cold std::string clipboard_(const bool multiline)
 {
-    // the text of the clipboard (a field of one line: its line breaks are spaces)
-    cluster::Captured read = cluster::capture({"wl-paste", "--no-newline"}, "", 5);
-    if (read.code != 0) read = cluster::capture({"xclip", "-o", "-selection", "clipboard"}, "", 5);
+    // the text of the clipboard (a field of one line: its line breaks are spaces); only a text type is asked (an image in it: nothing, never
+    // its bytes - megabytes of binary in a field froze the interface and broke the JSON of the core), valid UTF-8, 8000 bytes at most
+    cluster::Captured read = cluster::capture({"wl-paste", "--no-newline", "--type", "text"}, "", 5);
+    if (read.code != 0) read = cluster::capture({"xclip", "-o", "-selection", "clipboard", "-t", "UTF8_STRING"}, "", 5);
     if (read.code != 0) return "";
+    read.out = cluster::head_utf8(cluster::clean_utf8(read.out), 8000);
     std::string text;
     for (std::size_t i = 0; i < read.out.size(); ++i) {
         if (read.out[i] == '\r') {

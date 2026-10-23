@@ -301,8 +301,9 @@ _cold void cluster::Asking::toggle(void)
     ++this->_version;
 }
 
-_cold void cluster::Asking::type(const std::string& text)
+_cold void cluster::Asking::type(const std::string& raw)
 {
+    const std::string text = cluster::head_utf8(cluster::clean_utf8(raw), 8000); // a binary paste: never broken UTF-8 in the JSON, nor megabytes
     if (this->_manager.replica()) {
         this->flush_();
         cluster::Json request = {{"action", "type"}, {"text", text}};
@@ -345,8 +346,9 @@ _cold void cluster::Asking::erase(void)
     ++this->_version;
 }
 
-_cold void cluster::Asking::setOther(const std::string& text)
+_cold void cluster::Asking::setOther(const std::string& raw)
 {
+    const std::string text = cluster::head_utf8(cluster::clean_utf8(raw), 8000); // a binary paste: never broken UTF-8 in the JSON, nor megabytes
     if (this->_manager.replica()) {
         this->local_([&text](cluster::Ask& a) {
             const cluster::Json& q = a.questions[a.index];

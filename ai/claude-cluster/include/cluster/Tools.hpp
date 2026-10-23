@@ -100,6 +100,8 @@ class Busy {
 };
 _nodiscard std::string tail_utf8(const std::string& text, const std::size_t max); // its last max bytes (whole characters, "…" before)
 _nodiscard std::string head_utf8(const std::string& text, const std::size_t max); // its first max bytes (whole characters, "[...]" after)
+_nodiscard std::string clean_utf8(const std::string& text);    // valid UTF-8 only (a broken byte: U+FFFD), C0 / C1 control characters out (\n \t kept)
+_nodiscard std::string read_small(const std::string& path);    // a small file (/proc/<pid>/stat...), empty on any error (a process gone meanwhile)
 _nodiscard std::string model_label(const std::string& backend, const std::string& modelUsed);   // provider/model loaded, '(default)' when none was chosen
 _nodiscard std::string effort_label(const std::string& effort, const std::string& configured, const std::string& backend, const std::string& modelUsed);   // think <level>, '(default)' when it is the default one
 void keep_awake(bool want);                                           // want: a systemd idle inhibitor kept alive (renewed before it ends); not: it ends by itself

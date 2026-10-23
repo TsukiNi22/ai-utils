@@ -945,3 +945,40 @@ _cold std::string cluster::open_terminal_command(const std::filesystem::path& fo
         }
     return "";
 }
+
+_cold std::string cluster::clean_utf8(const std::string& text)
+{
+    // a paste of binary data (an image pasted as text), a byte cut out of its character: never invalid UTF-8 (a JSON dump of it throws)
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t i = 0; i < text.size();) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        const std::size_t size = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 0;
+        bool whole = size > 0 && i + size <= text.size();
+        for (std::size_t k = 1; whole && k < size; ++k)
+            whole = (static_cast<unsigned char>(text[i + k]) & 0xC0) == 0x80;
+        if (!whole) {
+            out += "\xEF\xBF\xBD";
+            ++i;
+            continue;
+        }
+        const bool c1 = size == 2 && c == 0xC2 && static_cast<unsigned char>(text[i + 1]) < 0xA0; // U+0080..U+009F: terminal controls (U+009B = CSI)
+        if ((size == 1 && (c < 0x20 || c == 0x7F) && c != '\n' && c != '\t') || c1) {
+            i += size;
+            continue;
+        }
+        out.append(text, i, size);
+        i += size;
+    }
+    return out;
+}
+
+_cold std::string cluster::read_small(const std::string& path)
+{
+    try {
+        std::ifstream in(path);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    } catch (const std::exception&) {
+        return std::string(); // ESRCH: the process ended between the open and the read
+    }
+}

@@ -714,8 +714,7 @@ _cold void cluster::Orchestrator::serve(const int fd, const cluster::Json& reque
             if (kind == "started") {
                 job->pid = message.value("pid", 0);
                 // its start time: the same process when the core looks again
-                std::ifstream stat("/proc/" + std::to_string(job->pid) + "/stat");
-                std::string text((std::istreambuf_iterator<char>(stat)), std::istreambuf_iterator<char>());
+                const std::string text = cluster::read_small("/proc/" + std::to_string(job->pid) + "/stat");
                 const std::size_t close = text.rfind(')');
                 const std::vector<std::string> fields = close == std::string::npos ? std::vector<std::string>() : cluster::split(text.substr(close + 2), ' ');
                 job->pidStart = fields.size() > 19 ? std::strtoull(fields[19].c_str(), nullptr, 10) : 0;

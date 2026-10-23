@@ -1482,8 +1482,8 @@ class TtyUi {
                     return;
                 }
             }
-            const cluster::Captured text = cluster::capture({"wl-paste", "--no-newline"}, "", 5);
-            if (text.code == 0) this->_editor.paste(text.out);
+            const cluster::Captured text = cluster::capture({"wl-paste", "--no-newline", "--type", "text"}, "", 5);
+            if (text.code == 0) this->_editor.paste(cluster::clean_utf8(text.out));
             else this->status_("clipboard unreadable (wl-paste)", true);
         }
 
@@ -6510,14 +6510,36 @@ class TtyUi {
                     *this->_pasting += event.input() == "\r" ? std::string("\n") : event.input();
                     return true;
                 }
-                std::string text = std::move(*this->_pasting);
+                std::string text = cluster::clean_utf8(std::move(*this->_pasting)); // binary (an image pasted as text): never broken UTF-8
                 this->_pasting.reset();
                 if (this->_mode == Mode::Normal) {
                     this->vimSync_();
                     this->_editor.paste(text);
-                } else {
-                    for (const char c: text) // the other inputs (palette, search, settings): one line
-                        if (c != '\n') (void)this->event_(ftxui::Event::Character(c));
+                    return true;
+                }
+                // the other inputs: one line, 2000 bytes at most, given at once (one request to the core, not one per character)
+                if (text.size() > 2000) {
+                    text = cluster::head_utf8(text, 2000);
+                    this->status_("pasted text cut to 2000 characters", false);
+                }
+                std::replace(text.begin(), text.end(), '\n', ' ');
+                std::replace(text.begin(), text.end(), '\t', ' ');
+                if (this->_mode == Mode::Question) {
+                    cluster::Asking& asking = this->_manager.asking();
+                    const std::optional<cluster::Ask> ask = asking.current();
+                    if (!ask || ask->index >= ask->questions.size()) return true;
+                    const int count = static_cast<int>(ask->questions[ask->index].value("options", cluster::Json::array()).size());
+                    if (ask->cursor != count) asking.choose(count); // a paste is a typed answer: Other
+                    this->_askOther.insert(text);
+                    asking.setOther(this->_askOther.text());
+                    return true;
+                }
+                std::size_t i = 0;
+                while (i < text.size()) { // whole characters, never a byte of one
+                    const unsigned char c = static_cast<unsigned char>(text[i]);
+                    const std::size_t size = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : 4;
+                    (void)this->event_(ftxui::Event::Character(text.substr(i, size)));
+                    i += size;
                 }
                 return true;
             }
@@ -7138,7 +7160,17 @@ class TtyUi {
             });
             ftxui::Component root = ftxui::Renderer([this]() {return this->render_();});
             // Ctrl+Z: its action (undo) or nothing, never the interface stopped in the background
-            root = ftxui::CatchEvent(root, [this](ftxui::Event event) {return this->event_(event) || event.input() == "\x1a";});
+            root = ftxui::CatchEvent(root, [this](ftxui::Event event) {
+                // an action that fails (the core refused it, a session not loaded yet, a value it cannot take): told, never a crash
+                try {
+                    return this->event_(event) || event.input() == "\x1a";
+                } catch (const utils::exception::IException& e) {
+                    this->status_(cluster::one_line(e.info(), 160), true);
+                } catch (const std::exception& e) {
+                    this->status_(cluster::one_line(e.what(), 160), true);
+                }
+                return true;
+            });
             cluster::debug("render", "terminal " + std::to_string(this->_screen.dimx()) + "x" + std::to_string(this->_screen.dimy()) + " (" + cluster::platform_summary() + ")");
             this->_screen.Loop(root);
             this->_worker.stop(); // the running job ends before the screen goes
