@@ -340,6 +340,17 @@ _cold std::vector<std::string> lines_(const std::string& text)
 // at its place): no flicker, no cursor running over the screen. A frame identical to the one before is not written at
 // all: the refresh timers redraw it every second (or every 40 ms while animated), and the hide / show of the cursor
 // around each of them restarted its blink
+// a turn running with nothing answered yet (sending): no text, thinking, tool or display after its prompt
+static bool unanswered_(const cluster::Snapshot& snap)
+{
+    if (snap.state != cluster::State::Working) return false;
+    for (auto it = snap.entries.rbegin(); it != snap.entries.rend(); ++it) {
+        if (it->kind == cluster::EntryKind::User) return true;
+        if (it->kind != cluster::EntryKind::System && it->kind != cluster::EntryKind::Error) return false;
+    }
+    return false;
+}
+
 class FrameOut: public std::streambuf {
     private:
         static constexpr std::size_t FRAME_MIN = 64; // under this size: a control sequence, always written
@@ -1047,7 +1058,7 @@ class TtyUi {
             });
         }
 
-        void takeBackRunning_(void)
+        void takeBackRunning_(const bool sent = false)
         {
             // the turn runs: it is interrupted and its prompt comes back in the editor, the conversation goes on from before it
             // (rewind); a session that cannot rewind (not Claude Code, not in its transcript yet): interrupted, its text back
@@ -1058,13 +1069,17 @@ class TtyUi {
                 if (user != snap->entries.rend()) last = user->text;
             }
             this->status_("taking the prompt back…");
-            this->_worker.push([this, session, last]() {
+            this->_worker.push([this, session, last, sent]() {
                 std::optional<cluster::Queued> prompt;
                 std::string error;
-                try {
-                    prompt = this->_manager.rewind(session, 1);
-                } catch (const utils::exception::IException& e) {
-                    error = e.info();
+                for (int attempt = 0; !prompt && attempt < (sent ? 2 : 1); ++attempt) {
+                    // just sent: claude writes it in its transcript a moment after (asked again once)
+                    if (attempt > 0) std::this_thread::sleep_for(std::chrono::milliseconds(800));
+                    try {
+                        prompt = this->_manager.rewind(session, 1);
+                    } catch (const utils::exception::IException& e) {
+                        error = e.info();
+                    }
                 }
                 if (!prompt) this->_manager.interrupt(session);
                 this->_screen.Post([this, prompt, error, last, session]() {
@@ -1085,10 +1100,16 @@ class TtyUi {
         bool queuedBack_(void)
         {
             // ↑ on the first row of the prompt: the last prompt waiting in the queue (not given to the agent yet) back in it, the one
-            // being written stashed first (never lost: a full stash keeps everything as it was)
+            // being written stashed first (never lost: a full stash keeps everything as it was); none queued and the prompt sent
+            // not answered yet (sending, like Claude Code): its turn stopped, the prompt back (as Esc does)
             if (this->_historyAt != -1) return false;
             const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
-            if (!snap || snap->queued <= snap->queueGiven) return false;
+            if (!snap) return false;
+            if (snap->queued <= snap->queueGiven) {
+                if (!unanswered_(*snap)) return false;
+                this->takeBackRunning_(true);
+                return true;
+            }
             bool stashed = false;
             if (!cluster::trim(this->_editor.text()).empty()) {
                 if (this->_manager.stashPush(this->_editor.draft(), this->_active) != cluster::StashAdd::Added) {
@@ -1125,7 +1146,7 @@ class TtyUi {
                 this->_editor.setImages(queued->images);
                 this->status_("prompt taken back (Enter: queue it again)");
             } else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) {
-                this->takeBackRunning_();
+                this->takeBackRunning_(unanswered_(*snap));
             } else if (!empty) {
                 if (now - this->_lastEscapeAt < 600) {
                     this->_lastEscapeAt = 0;

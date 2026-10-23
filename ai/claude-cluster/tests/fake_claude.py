@@ -10,7 +10,9 @@ for line in sys.stdin:
     except ValueError: continue
     content = msg.get("message", {}).get("content", "")
     log.write("PROMPT " + json.dumps(content) + "\n"); log.flush()
-    if "slow" in json.dumps(content):  # a long turn: a first message at once (the session is working), the end later
+    if "mute" in json.dumps(content):  # nothing answered for a while (sending): the session works, no message yet
+        time.sleep(float(os.environ.get("FAKE_CLAUDE_DELAY", "0")))
+    elif "slow" in json.dumps(content):  # a long turn: a first message at once (the session is working), the end later
         print(json.dumps({"type": "assistant", "message": {"role": "assistant", "model": "claude-sonnet-5-5", "content": [{"type": "text", "text": "thinking"}], "usage": {"input_tokens": 1, "output_tokens": 1}}}), flush=True)
         time.sleep(float(os.environ.get("FAKE_CLAUDE_DELAY", "0")))
     print(json.dumps({"type": "assistant", "message": {"role": "assistant", "model": "claude-sonnet-5-5", "content": [{"type": "text", "text": os.environ.get("FAKE_CLAUDE_REPLY", "ok")}], "usage": {"input_tokens": 1, "output_tokens": 1}}}), flush=True)

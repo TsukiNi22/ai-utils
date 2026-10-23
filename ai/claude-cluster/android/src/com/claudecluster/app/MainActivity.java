@@ -136,6 +136,7 @@ public class MainActivity extends Activity {
         // out of front: the watch service follows the sessions of this phone (its notifications)
         super.onPause();
         front = false;
+        android.webkit.CookieManager.getInstance().flush(); // on disk: the watch service started again by Android (its process gone) reads them
         if (!prefs.getString("url", "").isEmpty() && web != null && Alerts.enabled(prefs)) {
             try {
                 startForegroundService(new Intent(this, WatchService.class).putExtra("fresh", true));
@@ -298,6 +299,20 @@ public class MainActivity extends Activity {
                 } else {
                     showSetup("Not reached: " + error.getDescription() + " (the same network, or [web] remote? claude-cluster web on?)");
                 }
+            }
+        });
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                // the microphone of the page: asked to Android once
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    request.grant(request.getResources());
+                } else {
+                    waitingMic = request;
+                    requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, 1);
+                }
+            }
+
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 // the attachments of the page: the picker of Android (files, photos: access to the files picked only), + the camera
@@ -319,26 +334,15 @@ public class MainActivity extends Activity {
                 launchChooser(wantsCamera && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED);
                 return true;
             }
-
-            }
-        });
-        web.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(PermissionRequest request) {
-                // the microphone of the page: asked to Android once
-                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                    request.grant(request.getResources());
-                } else {
-                    waitingMic = request;
-                    requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, 1);
-                }
-            }
         });
         web.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(inset(web));
         web.loadUrl(url + "/");
         final Intent first = getIntent();
         web.postDelayed(() -> openSession(first), 2500); // opened by a notification: its session once the page is there
+        checkUpdate(url);
+    }
+
     // the picker of Android (the files / photos chosen), with the camera apps (a photo, a video) among its choices; the camera alone when the page asks for it
     private void launchChooser(boolean camera) {
         if (chooser == null) return;
@@ -375,10 +379,6 @@ public class MainActivity extends Activity {
         photo = null;
     }
 
-        checkUpdate(url);
-    }
-        if (code == 3) launchChooser(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
-
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         if (code == 1 && waitingMic != null) {
@@ -386,6 +386,7 @@ public class MainActivity extends Activity {
             else waitingMic.deny();
             waitingMic = null;
         }
+        if (code == 3) launchChooser(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED); // the camera allowed or not: the picker
     }
 
     // ---- the computer trusted once: its authority pinned ----

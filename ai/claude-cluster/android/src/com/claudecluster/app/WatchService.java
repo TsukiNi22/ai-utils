@@ -12,6 +12,8 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.os.Build;
 import android.os.IBinder;
 import android.webkit.CookieManager;
@@ -29,6 +31,8 @@ public class WatchService extends Service {
     private volatile boolean running = false;
     private Thread loop;
     private volatile boolean fresh = false;
+    private final Object nap = new Object();             // the waits between two tries: cut short when the network comes back
+    private ConnectivityManager.NetworkCallback network; // the network back (out of sleep, another Wi-Fi): the computer asked again at once
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -50,6 +54,21 @@ public class WatchService extends Service {
             loop = new Thread(this::watch);
             loop.start();
         }
+        if (network == null) {
+            network = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network n) {
+                    synchronized (nap) {
+                        nap.notifyAll();
+                    }
+                }
+            };
+            try {
+                getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(network);
+            } catch (Exception e) {
+                network = null; // not allowed: the tries at their own pace
+            }
+        }
         return START_STICKY;
     }
 
@@ -57,6 +76,14 @@ public class WatchService extends Service {
     public void onDestroy() {
         running = false;
         if (loop != null) loop.interrupt();
+        if (network != null) {
+            try {
+                getSystemService(ConnectivityManager.class).unregisterNetworkCallback(network);
+            } catch (Exception e) {
+                // already gone
+            }
+            network = null;
+        }
         super.onDestroy();
     }
 
@@ -64,6 +91,7 @@ public class WatchService extends Service {
         SharedPreferences prefs = getSharedPreferences("claude-cluster", MODE_PRIVATE);
         long since = fresh ? -1 : prefs.getLong("push_seq", -1); // -1: from now
         boolean legacy = false;
+        long legacySince = 0;
         Map<String, String[]> before = null;
         long version = 0;
         int failures = 0;
@@ -72,6 +100,7 @@ public class WatchService extends Service {
                 String url = prefs.getString("active", prefs.getString("url", ""));
                 String cookie = CookieManager.getInstance().getCookie(url);
                 if (url.isEmpty() || cookie == null || !Alerts.enabled(prefs)) break;
+                if (legacy && System.currentTimeMillis() - legacySince > 300000) legacy = false; // /api/notify asked again (the computer updated)
                 if (legacy) {
                     before = watchState(prefs, url, cookie, before, version);
                     version = stateVersion;
@@ -85,26 +114,38 @@ public class WatchService extends Service {
                 long recent = System.currentTimeMillis() / 1000 - 3600;
                 for (int i = 0; events != null && i < events.length(); i++) {
                     JSONObject event = events.getJSONObject(i);
-                    if (event.optLong("time") >= recent && kinds.contains(event.optString("kind"))) Alerts.post(this, event);
+                    if (running && event.optLong("time") >= recent && kinds.contains(event.optString("kind"))) Alerts.post(this, event); // the app in front meanwhile: its page shows it
                 }
                 since = answer.optLong("seq", 0);
-                prefs.edit().putLong("push_seq", since).apply();
-                if (!answer.optBoolean("enabled", true)) Thread.sleep(30000); // the computer sends none now ([ui] notify_app): asked again later
+                if (running) prefs.edit().putLong("push_seq", since).apply();
+                if (!answer.optBoolean("enabled", true)) rest(30000); // the computer sends none now ([ui] notify_app): asked again later
             } catch (SecurityException e) {
                 break; // out of the computer (kicked): the app connects again when opened
             } catch (FileNotFoundException e) {
-                legacy = true; // an older computer: no /api/notify
+                legacy = true; // an older computer: no /api/notify (or one restarting: asked again in 5 minutes)
+                legacySince = System.currentTimeMillis();
             } catch (InterruptedException e) {
                 break;
             } catch (Exception e) {
                 try {
-                    Thread.sleep(Math.min(60000, 5000L * ++failures)); // the computer not reached: asked again, less and less often
+                    rest(Math.min(60000, 5000L * ++failures)); // the computer not reached: asked again, less and less often (the network back: at once)
                 } catch (InterruptedException stop) {
                     break;
                 }
             }
         }
-        stopSelf();
+        // ended by itself (out of the computer, notifications off): the service stopped; a loop of a service already stopped (the app was
+        // in front a moment) never stops the one started after it
+        if (running) {
+            running = false;
+            stopSelf();
+        }
+    }
+
+    private void rest(long ms) throws InterruptedException {
+        synchronized (nap) {
+            nap.wait(ms);
+        }
     }
 
     private long stateVersion = 0;

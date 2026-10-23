@@ -110,6 +110,7 @@ File Description:
 #include <cstdlib>
 #include <QImage>
 #include <chrono>
+#include <thread>
 #include <QFrame>
 #include <QLabel>
 #include <QTimer>
@@ -331,6 +332,17 @@ _cold QString span_(const std::string& color, const QString& text, const bool bo
 
 //----------------------------------------------------------------//
 /* CLASS */
+
+// a turn running with nothing answered yet (sending): no text, thinking, tool or display after its prompt
+static bool unanswered_(const cluster::Snapshot& snap)
+{
+    if (snap.state != cluster::State::Working) return false;
+    for (auto it = snap.entries.rbegin(); it != snap.entries.rend(); ++it) {
+        if (it->kind == cluster::EntryKind::User) return true;
+        if (it->kind != cluster::EntryKind::System && it->kind != cluster::EntryKind::Error) return false;
+    }
+    return false;
+}
 
 class Window;
 
@@ -3111,6 +3123,29 @@ class Window: public QMainWindow {
             }
         }
 
+        bool takeBackUp(void)
+        {
+            // ↑ on the first line of the prompt (not in the history): the queued prompt back to edit (out of the queue), else the
+            // prompt sent but not answered yet (sending, like Claude Code): its turn stopped, the prompt back; the one written stashed
+            if (this->historyAt != -1) return false;
+            const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
+            if (!snap) return false;
+            if (snap->queued > snap->queueGiven) {
+                if (const std::optional<cluster::Queued> queued = this->manager.unqueue(this->active)) {
+                    if (!cluster::trim(this->input->text().toStdString()).empty()) this->manager.stashPush(this->input->draft());
+                    this->input->reset();
+                    for (const std::string& image: queued->images)
+                        this->input->addImage(image, false);
+                    this->input->setText(q_(queued->text));
+                    this->message("queued prompt back to edit (Enter: queue it again)", false);
+                    return true;
+                }
+            }
+            if (!unanswered_(*snap)) return false;
+            this->rewind(true);
+            return true;
+        }
+
         void find(const bool older)
         {
             // Ctrl+F: the text in the transcript of the active session (Enter: older, Shift+Enter: newer)
@@ -3123,18 +3158,22 @@ class Window: public QMainWindow {
             }
         }
 
-        void rewind(void)
+        void rewind(const bool sent = false)
         {
-            // the last turn leaves the conversation (claude started again: in the worker), its prompt comes back
+            // the last turn leaves the conversation (claude started again: in the worker), its prompt comes back; sent: a prompt not
+            // answered yet (its turn stopped by it), claude writes it in its transcript a moment after (asked again once)
             const std::string session = this->active;
             this->message("taking the last prompt back…", false);
-            this->worker.push([this, session]() {
+            this->worker.push([this, session, sent]() {
                 std::optional<cluster::Queued> prompt;
                 std::string error;
-                try {
-                    prompt = this->manager.rewind(session);
-                } catch (const utils::exception::IException& e) {
-                    error = e.info();
+                for (int attempt = 0; !prompt && attempt < (sent ? 2 : 1); ++attempt) {
+                    if (attempt > 0) std::this_thread::sleep_for(std::chrono::milliseconds(800));
+                    try {
+                        prompt = this->manager.rewind(session);
+                    } catch (const utils::exception::IException& e) {
+                        error = e.info();
+                    }
                 }
                 QMetaObject::invokeMethod(this, [this, prompt, error]() {
                     if (!prompt) {
@@ -4680,7 +4719,9 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
     if (!open && (event->key() == Qt::Key_Up || event->key() == Qt::Key_Down) && !(event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier))) {
         // on the first / last line of the prompt: the history (never looped)
         QTextCursor probe = this->textCursor();
-        if (!probe.movePosition(event->key() == Qt::Key_Up ? QTextCursor::Up : QTextCursor::Down) && this->window->historyStep(event->key() == Qt::Key_Up ? 1 : -1)) return;
+        const bool edge = !probe.movePosition(event->key() == Qt::Key_Up ? QTextCursor::Up : QTextCursor::Down);
+        if (edge && event->key() == Qt::Key_Up && this->window->takeBackUp()) return; // a prompt queued or not answered yet: back first
+        if (edge && this->window->historyStep(event->key() == Qt::Key_Up ? 1 : -1)) return;
     }
     if (event->key() == Qt::Key_Backtab) {
         this->window->shortcut("mode_cycle");
