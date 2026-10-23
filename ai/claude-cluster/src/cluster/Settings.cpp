@@ -352,7 +352,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"sessions", "global_answers", "Global session answers questions", SettingKind::Bool, {}, "the global session is told the questions "
                 "of the sub-sessions and may choose their answer (MCP session_allow answers) when it knows what you want; you can answer first", false,
                 [](const cluster::Config& cf) {return cf.globalAnswers ? std::string("true") : std::string("false");}},
-            {"sessions", "bypass_to_global", "Bypass: global decides", SettingKind::Bool, {}, "a sub-session in bypassPermissions still asks for "
+            {"sessions", "bypass_to_global", "Bypass / auto: global decides", SettingKind::Bool, {}, "a sub-session that never asks you (bypassPermissions, auto, dontAsk) still asks for "
                 "some commands (the safety check of Claude Code: a removal it cannot resolve...): the global session decides them (it asks you when "
                 "unsure); off: you answer them. In the other modes such a command is asked to you (auto mode: after the check stopped it)", false,
                 [](const cluster::Config& cf) {return cf.bypassToGlobal ? std::string("true") : std::string("false");}},

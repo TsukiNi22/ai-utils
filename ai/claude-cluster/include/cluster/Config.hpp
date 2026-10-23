@@ -312,7 +312,7 @@ class Config {
         double budget = 0.0;
         bool questionsToGlobal = true;          // the questions of the sub-sessions shown on the global session (their own one: greyed)
         bool globalAnswers = false;             // the global session may choose the answer of a question of a sub-session
-        bool bypassToGlobal = true;             // the permissions a sub-session in bypassPermissions still asks: decided by the global session
+        bool bypassToGlobal = true;             // what a sub-session that never asks (bypassPermissions, auto, dontAsk) still asks: decided by the global session
         bool globalFork = false;                // the global session may fork a sub-session (MCP session_fork)
         bool archiveOneShot = true;             // a session the global session started for one task (session_spawn one_shot) is closed to the trash once its answer is relayed
         bool globalEdit = false;                // the global session may rewrite the conversation of a sub-session (MCP session_edit)

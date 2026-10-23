@@ -1076,6 +1076,34 @@ class TtyUi {
             });
         }
 
+        bool queuedBack_(void)
+        {
+            // ↑ on the first row of the prompt: the last prompt waiting in the queue (not given to the agent yet) back in it, the one
+            // being written stashed first (never lost: a full stash keeps everything as it was)
+            if (this->_historyAt != -1) return false;
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
+            if (!snap || snap->queued <= snap->queueGiven) return false;
+            bool stashed = false;
+            if (!cluster::trim(this->_editor.text()).empty()) {
+                if (this->_manager.stashPush(this->_editor.draft(), this->_active) != cluster::StashAdd::Added) {
+                    this->status_("a prompt waits in the queue, but the stash is full: the one written stays (" + this->_manager.config().keys.at("stashes") + ": the stash)", true);
+                    return true;
+                }
+                stashed = true;
+            }
+            const std::optional<cluster::Queued> queued = this->_manager.unqueue(this->_active);
+            if (!queued) {
+                if (stashed) { // taken by the agent meanwhile: the prompt written put back
+                    if (const std::optional<cluster::Draft> back = this->_manager.stashPop()) this->_editor.load(*back);
+                }
+                return false;
+            }
+            this->_editor.setText(queued->text);
+            this->_editor.setImages(queued->images);
+            this->status_(std::string("prompt taken back from the queue (Enter: queue it again)") + (stashed ? " · the one written is stashed (" + this->_manager.config().keys.at("unstash") + ")" : ""));
+            return true;
+        }
+
         void takeBack_(void)
         {
             // Esc. A queued prompt: back in the editor. A turn running: interrupted, its prompt back in the editor. Nothing running and
@@ -7068,6 +7096,7 @@ class TtyUi {
             else if (arrow && arrow->dy != 0 && !arrow->ctrl) {
                 // Up / Down: a visual row of the prompt (as wrapped on the screen); on its first / last row, the history
                 if (this->visualStep_(arrow->dy, arrow->shift)) return true;
+                if (arrow->dy < 0 && !arrow->shift && this->_editor.onFirstLine() && this->queuedBack_()) return true; // a prompt waiting: back first
                 if (arrow->dy < 0 && !arrow->shift && this->_editor.onFirstLine()) (void)this->historyStep_(1);
                 else if (arrow->dy > 0 && !arrow->shift && this->_editor.onLastLine()) (void)this->historyStep_(-1);
                 else if (arrow->dy < 0) this->_editor.lineUp(arrow->shift);

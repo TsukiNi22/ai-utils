@@ -810,15 +810,18 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 (void)this->notify(n, safety ? "error" : "permission");
             }
             if (event.session != GLOBAL_ID && this->_config.bypassToGlobal) {
-                // a sub-session in bypassPermissions: the global session decides (the user can still answer it)
+                // a sub-session in a mode that never asks the user (bypassPermissions, auto, dontAsk): what it still asks - the safety check of
+                // Claude Code too - decided by the global session (the user can still answer it)
                 const std::optional<cluster::Snapshot> snap = this->snapshot(event.session);
-                if (snap && snap->spec.mode == "bypassPermissions" && !snap->permissions.empty() && this->snapshot(GLOBAL_ID)) {
+                const std::string mode = snap ? snap->spec.mode : std::string();
+                if (snap && (mode == "bypassPermissions" || mode == "auto" || mode == "dontAsk") && !snap->permissions.empty() && this->snapshot(GLOBAL_ID)) {
                     const cluster::Permission& p = snap->permissions.back();
                     try {
-                        this->send(GLOBAL_ID, "[permission request from " + name + " (" + event.session + ")] " + p.tool + ": " + cluster::one_line(p.description, 400)
-                            + (p.reason.empty() ? "" : "\nwhy it asks: " + cluster::one_line(p.reason, 400))
-                            + "\nIts mode is bypassPermissions: you decide with session_allow {session: \"" + event.session + "\", request_id: \"" + p.requestId
-                            + "\", behavior: allow | deny}. Ask the user first (AskUserQuestion) when it may destroy data or you are unsure.", false, {}, "mcp");
+                        this->send(GLOBAL_ID, "[" + std::string(p.safety ? "stopped by the safety check of Claude Code" : "permission request") + " from " + name + " (" + event.session + ")] "
+                            + p.tool + ": " + cluster::one_line(p.description, 400) + (p.reason.empty() ? "" : "\nwhy it asks: " + cluster::one_line(p.reason, 400))
+                            + "\nIts mode is " + mode + " (it never asks the user): you decide with session_allow {session: \"" + event.session + "\", request_id: \"" + p.requestId
+                            + "\", behavior: allow | deny}" + (p.safety ? " (allow: it runs anyway)" : "")
+                            + ". Ask the user first (AskUserQuestion) when it may destroy data or you are unsure.", false, {}, "mcp");
                     } catch (const utils::exception::IException&) {}
                 }
             }
