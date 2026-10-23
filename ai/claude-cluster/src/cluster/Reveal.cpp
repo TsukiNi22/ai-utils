@@ -16,6 +16,9 @@ File Description:
 #include "cluster/Reveal.hpp"
 #include <algorithm>
 #include <chrono>
+#include <ctime>
+
+static constexpr std::int64_t KNOWN_AFTER = 30;   // s: an answer older than that is history, never typed
 
 /* step */
 _cold std::size_t cluster::Reveal::advance_(State& state, const std::string& text, const int speed)
@@ -57,8 +60,13 @@ _cold cluster::Frame cluster::Reveal::step(const cluster::Snapshot& s, const boo
     }
     State& state = this->_states[id];
     // the first answer not typed yet; the entries after it wait for its end
+    const std::int64_t wall = static_cast<std::int64_t>(std::time(nullptr));
     for (std::size_t i = seen->second; i < s.entries.size(); ++i) {
         if (s.entries[i].kind != cluster::EntryKind::Assistant) continue;
+        if (s.entries[i].time <= 0 || wall - s.entries[i].time > KNOWN_AFTER) { // already known (a restored transcript, a sync catching up): at once
+            seen->second = i + 1;
+            continue;
+        }
         frame.visible = i + 1;
         frame.typed = i;
         frame.typedBytes = this->advance_(state, s.entries[i].text, speed);
