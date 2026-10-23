@@ -1100,7 +1100,7 @@ class HubView: public QGraphicsView {
                 if (depth > 40 || (kind == 1 && !nodes[index].top && this->collapsed.contains(name))) return index;
                 std::vector<std::size_t> children;
                 for (const std::string& child: kids[name])
-                    children.push_back(grow(1, child, nullptr, depth + 1));
+                    if (below(child) > 0) children.push_back(grow(1, child, nullptr, depth + 1));
                 for (const Item* leaf: own[name])
                     children.push_back(grow(2, leaf->spec->name, leaf, depth + 1));
                 nodes[index].children = children;
@@ -1240,7 +1240,13 @@ class HubView: public QGraphicsView {
             });
             if (this->ring || !labels) this->populateRing_(sessions, st, active);
             else this->populateTree_(sessions, st, taxonomy, archivedSpecs);
+            if (this->fitPending) { // its first drawing: the whole graph in the view
+                this->fitPending = false;
+                QTimer::singleShot(0, this, [this]() {this->whole();});
+            }
         }
+
+        bool fitPending = true;
 };
 
 class Window: public QMainWindow {
@@ -1335,6 +1341,7 @@ class Window: public QMainWindow {
             this->setWindowTitle("claude-cluster");
             this->resize(1400, 860);
             this->bindKeys();
+            if (this->app.options.layout.empty()) this->manager.setUi("layout", "list"); // every start on the list (as the terminal and the page)
             this->rebuild();
             QTimer* timer = new QTimer(this);
             QObject::connect(timer, &QTimer::timeout, [this]() {this->tick();});
@@ -1343,6 +1350,23 @@ class Window: public QMainWindow {
             QObject::connect(face, &QTimer::timeout, [this]() {this->showFace();});
             face->start(500);
             this->showFace();
+            // a check of the look (tests): every view in turn, a picture of the window just after the change and once it settled
+            if (const char* shots = std::getenv("CLAUDE_CLUSTER_GUI_SHOT"); shots != nullptr && *shots != '\0') {
+                const std::string dir = shots;
+                QTimer* cycle = new QTimer(this);
+                std::shared_ptr<int> step = std::make_shared<int>(0);
+                QObject::connect(cycle, &QTimer::timeout, this, [this, dir, step]() {
+                    static const std::array<const char*, 5> views = {"list", "grid", "graph", "hub", "tree"};
+                    if (*step >= static_cast<int>(views.size())) return;
+                    const std::string view = views[static_cast<std::size_t>(*step)];
+                    ++*step;
+                    this->manager.setUi("layout", view);
+                    this->refresh(true);
+                    QTimer::singleShot(120, this, [this, dir, view]() {this->grab().save(QString::fromStdString(dir + "/" + view + "-early.png"));});
+                    QTimer::singleShot(1500, this, [this, dir, view]() {this->grab().save(QString::fromStdString(dir + "/" + view + ".png"));});
+                });
+                cycle->start(2500);
+            }
         }
 
         void webAsk(void)
@@ -1573,6 +1597,7 @@ class Window: public QMainWindow {
         QTextBrowser* makeTasksView(QWidget* parent)
         {
             QTextBrowser* browser = new QTextBrowser(parent);
+            browser->setObjectName("tasksPanel");
             browser->setOpenLinks(false);
             browser->setFrameShape(QFrame::NoFrame);
             browser->setVisible(false);
@@ -1863,9 +1888,9 @@ class Window: public QMainWindow {
                 "QMainWindow,QDialog{background:" + s.bg + ";}"
                 "QWidget#topbar{background:" + s.surface + ";border-bottom:1px solid " + s.border + ";}"
                 "QLabel#brand{font-weight:600;font-size:11pt;padding:0 6px;}"
-                "QPushButton#seg{border:1px solid " + s.border + ";border-radius:0;padding:5px 14px;background:transparent;margin:0;}"
-                "QPushButton#seg:first{border-top-left-radius:8px;border-bottom-left-radius:8px;}"
-                "QPushButton#seg:last{border-top-right-radius:8px;border-bottom-right-radius:8px;}"
+                "QFrame#segs{border:1px solid " + s.border + ";border-radius:10px;background:" + s.bg + ";}"
+                "QPushButton#seg{border:1px solid transparent;border-radius:7px;padding:4px 14px;background:transparent;margin:0;}"
+                "QPushButton#seg:hover{background:" + hover + ";}"
                 "QPushButton#seg:checked{background:" + tint + ";color:" + s.accent + ";font-weight:600;border-color:" + s.accent + ";}"
                 "QFrame#session{background:transparent;border:none;}"
                 "QLabel#head{border:none;border-bottom:1px solid " + s.border + ";border-top-left-radius:12px;border-top-right-radius:12px;}"
@@ -1878,6 +1903,12 @@ class Window: public QMainWindow {
                 "QFrame#pinBox{border:1px solid " + s.accent + ";border-radius:8px;background:" + s.surface + ";}"
                 "QFrame#pinBox QTextBrowser{background:" + s.surface + ";}"
                 "QTextBrowser{border:none;border-radius:0;background:" + s.bg + ";selection-background-color:" + s.accent + ";selection-color:" + s.bg + ";padding:6px 10px;}"
+                "QTextBrowser#tasksPanel{border:1px solid " + s.border + ";border-radius:12px;background:" + s.bg + ";padding:12px 16px;}"
+                "QTreeWidget{border:1px solid " + s.border + ";border-radius:12px;background:" + s.bg + ";padding:6px;outline:0;}"
+                "QTreeWidget::item{padding:4px 2px;border-radius:6px;}"
+                "QTreeWidget::item:hover{background:" + hover + ";}"
+                "QTreeWidget::item:selected{background:" + tint + ";color:" + s.text + ";}"
+                "QHeaderView::section{background:" + s.surface + ";color:" + s.muted + ";border:none;border-bottom:1px solid " + s.border + ";padding:6px 8px;}"
                 "QPushButton{border:1px solid " + s.border + ";border-radius:8px;padding:6px 12px;background:" + s.surface + ";}"
                 "QPushButton:hover{border-color:" + s.accent + ";background:" + hover + ";}"
                 "QPushButton:pressed{background:" + tint + ";}"
@@ -2174,7 +2205,7 @@ class Window: public QMainWindow {
             auto it = std::find_if(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;});
             const int index = it == sessions.end() ? 0 : static_cast<int>(it - sessions.begin());
             const std::string layout = this->manager.ui("layout", this->manager.config().layout);
-            const int columns = layout == "grid" && count > 1 ? static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))) : 1;
+            const int columns = layout == "grid" && count >= 1 ? static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))) : 1;
             int next = index;
             if (dx != 0 || columns == 1) next = (index + (dx != 0 ? dx : dy) + count) % count;
             else if (index + dy * columns >= 0 && index + dy * columns < count) next = index + dy * columns;
@@ -2263,6 +2294,11 @@ class Window: public QMainWindow {
             QTabWidget* sections = new QTabWidget(&dialog);
             const cluster::Config& config = this->manager.config();
             std::vector<std::pair<cluster::Setting, std::function<std::string()>>> fields; // <setting, value of its widget>
+            std::map<std::string, std::string> opened;     // section.key -> its value as the page showed it at its opening (or at its last save)
+            const std::function<bool(const cluster::Setting&, const std::string&)> changed = [&opened](const cluster::Setting& setting, const std::string& value) {
+                const auto it = opened.find(setting.section + "." + setting.key);
+                return it != opened.end() && it->second != value;
+            };
             const std::vector<cluster::SettingsPage> pages = cluster::settings_pages(config);
             std::vector<std::vector<std::pair<QLabel*, QWidget*>>> placed(pages.size()); // per page, per setting: its label, its widget
             std::vector<QScrollArea*> scrolls;
@@ -2579,20 +2615,20 @@ class Window: public QMainWindow {
             layout->addWidget(find);
             layout->addWidget(hits);
             QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
-            QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [this, &fields, &dialog]() {
+            QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [this, &fields, &dialog, changed]() {
                 std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> now;
                 for (const auto &[setting, read]: fields)
-                    if (const std::string value = read(); value != setting.value(this->manager.config())) now[{setting.section, setting.key}] = {setting, value};
+                    if (const std::string value = read(); changed(setting, value)) now[{setting.section, setting.key}] = {setting, value};
                 if (this->confirmDangers(now, &dialog)) dialog.accept(); // back: the page stays open
             });
             QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
             // Ctrl+S: saved, the page stays (the values written become the current ones); F10: save and close
             QShortcut* saveKey = new QShortcut(QKeySequence("Ctrl+S"), &dialog);
-            QObject::connect(saveKey, &QShortcut::activated, [this, &fields, &dialog]() {
+            QObject::connect(saveKey, &QShortcut::activated, [this, &fields, &dialog, &opened, changed]() {
                 std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> now;
                 for (const auto &[setting, read]: fields) {
                     const std::string value = read();
-                    if (value != setting.value(this->manager.config())) now[{setting.section, setting.key}] = {setting, value};
+                    if (changed(setting, value)) now[{setting.section, setting.key}] = {setting, value};
                 }
                 if (!this->confirmDangers(now, &dialog)) return; // back: nothing saved
                 if (now.empty()) return;
@@ -2605,6 +2641,8 @@ class Window: public QMainWindow {
                 for (const char* key: {"layout", "style", "vim", "group_by_category"})
                     if (now.contains({"ui", key})) this->manager.setUi(key, now.at({"ui", key}).second);
                 (void)this->manager.config().reload();
+                for (const auto &[key, change]: now)
+                    opened[key.first + "." + key.second] = change.second;
                 dialog.setWindowTitle(q_("claude-cluster setup - " + std::to_string(now.size()) + " setting(s) saved"));
             });
             QShortcut* closeKey = new QShortcut(QKeySequence(Qt::Key_F10), &dialog);
@@ -2630,12 +2668,14 @@ class Window: public QMainWindow {
                         if (pages[p].settings[i].section + "." + pages[p].settings[i].key == focus)
                             QTimer::singleShot(0, &dialog, [showAt, p, i]() {showAt(p, i);});
             if (search) QTimer::singleShot(0, find, [find]() {find->setFocus();});
+            for (const auto &[setting, read]: fields)
+                opened[setting.section + "." + setting.key] = read();
             const bool accepted = dialog.exec() == QDialog::Accepted;
 
             std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> changes;
             for (const auto &[setting, read]: fields) {
                 const std::string value = read();
-                if (value != setting.value(config)) changes[{setting.section, setting.key}] = {setting, value};
+                if (changed(setting, value)) changes[{setting.section, setting.key}] = {setting, value};
             }
             if (changes.empty()) return;
             if (!accepted && !this->confirmDangers(changes, this)) { // closed: its dangerous ones asked now
@@ -2968,14 +3008,21 @@ class Window: public QMainWindow {
             this->brand->setObjectName("brand");
             this->brand->setTextFormat(Qt::RichText);
             top->addWidget(this->brand);
+            this->faceShown.clear(); // the title of this new bar drawn at once
             top->addSpacing(14);
             this->webLabel = new QLabel(topbar); // the web access: its address, its code, connected, mean ping (a click: the code copied)
             this->webLabel->setTextFormat(Qt::RichText);
             this->webLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
             this->webLabel->setVisible(false);
             QObject::connect(this->webLabel, &QLabel::linkActivated, this, [this](const QString& link) {this->webLink(link);});
+            QFrame* segs = new QFrame(topbar);
+            segs->setObjectName("segs");
+            QHBoxLayout* segRow = new QHBoxLayout(segs);
+            segRow->setContentsMargins(3, 3, 3, 3);
+            segRow->setSpacing(2);
+            top->addWidget(segs);
             for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"graph", "Graph"}, {"hub", "Hub"}, {"tree", "Tree"}}) {
-                QPushButton* seg = new QPushButton(q_(label), topbar);
+                QPushButton* seg = new QPushButton(q_(label), segs);
                 seg->setObjectName("seg");
                 seg->setCheckable(true);
                 seg->setChecked(layout == name);
@@ -2985,7 +3032,7 @@ class Window: public QMainWindow {
                     this->manager.setUi("layout", chosen);
                     this->refresh(true);
                 });
-                top->addWidget(seg);
+                segRow->addWidget(seg);
             }
             top->addStretch(1);
             for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Tasks", "tasks"}, {"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}}) {
@@ -3009,7 +3056,7 @@ class Window: public QMainWindow {
             inner->setSpacing(8);
             root->addWidget(body, 1);
             root = inner;
-            if (layout == "grid" && sessions.size() > 1) {
+            if (layout == "grid" && !sessions.empty()) {
                 QGridLayout* grid = new QGridLayout();
                 const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(sessions.size()))));
                 for (std::size_t i = 0; i < sessions.size(); ++i) {

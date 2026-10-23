@@ -3245,7 +3245,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     hubApply();
 });
-let view = {board: "grid"}[store.get("cc-view", "chat")] || store.get("cc-view", "chat");   // the old Board is the Grid now
+let view = "chat";   // every start on the list (as the terminal and the window); the other views by their buttons / tabs
 let lastState = null;
 const shortName = (s) => (s.id === "g" ? "global" : s.name || s.id);
 const faceOf = (s) => (s.permissions && s.permissions.length ? "•_•" : s.state === "working" || s.state === "starting" ? ">_<" : s.state === "error" ? "o_o" : "-_-");
@@ -4281,7 +4281,7 @@ function drawDevice(body) {
     for (const [v, label] of [["chat", "list"], ["grid", "grid"], ["graph", "graph"], ["hub", "hub"], ["tree", "tree"]]) { const o = el("option", "", label); o.value = v; start.append(o); }
     start.value = view;
     start.addEventListener("change", () => setView(start.value));
-    field("View", "chat, grid of cards, your board, the hub, the tree of the folders", start);
+    field("View", "the view shown now (every start opens the list): list, grid, graph, hub, tree", start);
     const voice = $("settings");
     voice.classList.remove("hidden");
     voice.style.position = "static"; voice.style.boxShadow = "none"; voice.style.width = "auto"; voice.style.border = "none"; voice.style.padding = "10px 0";
