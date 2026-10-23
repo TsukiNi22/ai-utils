@@ -85,6 +85,10 @@ _cold _nodiscard std::string setting_next(const cluster::Setting& setting, const
 // each one is the whole new value
 // The alternatives of a key setting (separated by |) that are not a key (Ctrl+Shift+Q is, Ctrl+Foo is not); none for the other settings
 _cold _nodiscard std::vector<std::string> setting_invalid_parts(const cluster::Setting& setting, const std::string& value);
+// The alternatives of the keys of an action also given to another action of the same view (the graph has its own keys), each with those
+// actions; keys: every action and its keys as shown (the changes not saved yet included). Ctrl+Shift+T and Shift+Ctrl+T, q and Q: the same key
+_cold _nodiscard std::vector<std::pair<std::string, std::vector<std::string>>> setting_key_clashes(const std::map<std::string, std::string>& keys,
+    const std::string& action);
 // local: the folders / files / programs of this computer too (never for the web page: names only)
 _cold _nodiscard std::vector<std::string> setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed, const bool local = true);
 _cold _nodiscard std::string setting_check(const cluster::Setting& setting, const std::string& value); // error message, empty: valid

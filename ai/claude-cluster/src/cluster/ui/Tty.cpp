@@ -2937,9 +2937,11 @@ class TtyUi {
 
         void openSettings_(void)
         {
+            // reopened on the page and the line they were left on (closed, saved or not)
             this->_pages = cluster::settings_pages(this->_manager.config());
-            this->_page = 0;
-            this->_item = 0;
+            this->_page = this->_page >= 0 && this->_page < static_cast<int>(this->_pages.size()) ? this->_page : 0;
+            const int lines = static_cast<int>(this->_pages[static_cast<std::size_t>(this->_page)].settings.size());
+            this->_item = this->_item >= 0 && this->_item < lines ? this->_item : 0;
             this->_finding = false;
             this->_editing = false;
             this->_note.clear();
@@ -3351,19 +3353,40 @@ class TtyUi {
             return true;
         }
 
+        _nodiscard std::map<std::string, std::string> keysNow_(void) const
+        {
+            // every action and its keys as the settings show them (the changes not saved yet, the field being typed)
+            std::map<std::string, std::string> keys = this->_manager.config().keys;
+            for (const auto &[where, change]: this->_changes)
+                if (where.first == "keys") keys[where.second] = change.second;
+            if (this->_editing && this->_page >= 0 && this->_page < static_cast<int>(this->_pages.size())) {
+                const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
+                if (this->_item >= 0 && this->_item < static_cast<int>(page.settings.size()) && page.settings[static_cast<std::size_t>(this->_item)].section == "keys")
+                    keys[page.settings[static_cast<std::size_t>(this->_item)].key] = this->_edit;
+            }
+            return keys;
+        }
+
         _nodiscard ftxui::Element keysValue_(const cluster::Setting& setting, const std::string& value, const bool typed, const bool selected) const
         {
-            // a value between brackets; in the Keys page the alternatives that are no key shown in red (the others as usual)
+            // a value between brackets; in the Keys page the alternatives that are no key shown in red, the ones another action has too in the
+            // warning colour (the others as usual)
             const Theme& t = this->_theme;
             const ftxui::Decorator normal = selected ? ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : ftxui::color(t.text);
             const std::vector<std::string> bad = cluster::setting_invalid_parts(setting, value);
-            if (bad.empty()) return ftxui::text((typed ? "[" : " ") + cluster::one_line(value, 60) + (typed ? "]" : " ")) | normal | ftxui::bold;
+            std::vector<std::string> twice;
+            if (setting.section == "keys")
+                for (const auto &[key, others]: cluster::setting_key_clashes(this->keysNow_(), setting.key))
+                    twice.push_back(key);
+            if (bad.empty() && twice.empty()) return ftxui::text((typed ? "[" : " ") + cluster::one_line(value, 60) + (typed ? "]" : " ")) | normal | ftxui::bold;
             ftxui::Elements parts = {ftxui::text("[") | normal | ftxui::bold};
             const std::vector<std::string> items = cluster::split(value, '|');
             for (std::size_t i = 0; i < items.size(); ++i) {
                 const bool invalid = std::find(bad.begin(), bad.end(), cluster::trim(items[i])) != bad.end();
+                const bool used = std::find(twice.begin(), twice.end(), cluster::trim(items[i])) != twice.end();
                 if (i > 0) parts.push_back(ftxui::text("|") | normal | ftxui::bold);
-                parts.push_back(ftxui::text(items[i]) | (invalid ? ftxui::color(t.error) | ftxui::bgcolor(t.bg) | ftxui::bold | ftxui::underlined : normal | ftxui::bold));
+                parts.push_back(ftxui::text(items[i]) | (invalid ? ftxui::color(t.error) | ftxui::bgcolor(t.bg) | ftxui::bold | ftxui::underlined
+                    : used ? ftxui::color(t.warn) | ftxui::bgcolor(t.bg) | ftxui::bold : normal | ftxui::bold));
             }
             parts.push_back(ftxui::text("]") | normal | ftxui::bold);
             return ftxui::hbox(std::move(parts));
@@ -3571,10 +3594,16 @@ class TtyUi {
             };
             ftxui::Elements tabs;
             std::vector<int> tabWidths;
+            const std::map<std::string, std::string> keysNow = this->keysNow_();
+            const bool keysTwice = std::any_of(keysNow.begin(), keysNow.end(), [&keysNow](const std::pair<const std::string, std::string>& k) {
+                return !cluster::setting_key_clashes(keysNow, k.first).empty();
+            });
             for (std::size_t i = 0; i < this->_pages.size(); ++i) {
                 const bool active = static_cast<int>(i) == this->_page;
-                ftxui::Element tab = ftxui::text("  " + this->_pages[i].title + "  ");
-                tabWidths.push_back(ftxui::string_width(this->_pages[i].title) + 4);
+                const bool marked = keysTwice && this->_pages[i].section == "keys"; // a key used twice in it: a ! on its tab
+                ftxui::Element tab = marked ? ftxui::hbox({ftxui::text("  " + this->_pages[i].title + " "), ftxui::text("!") | ftxui::bold | (active ? ftxui::color(t.bg) : ftxui::color(t.warn)),
+                    ftxui::text(" ")}) : ftxui::text("  " + this->_pages[i].title + "  ");
+                tabWidths.push_back(ftxui::string_width(this->_pages[i].title) + (marked ? 5 : 4));
                 const int index = static_cast<int>(i);
                 tabs.push_back(this->tap_(active ? tab | ftxui::bold | ftxui::color(t.bg) | ftxui::bgcolor(t.accent) : tab | ftxui::color(t.text), 2, [this, index]() {
                     if (this->_editing) (void)this->event_(ftxui::Event::Return);
@@ -3607,6 +3636,8 @@ class TtyUi {
                 const bool typed = setting.kind != cluster::SettingKind::Bool && setting.kind != cluster::SettingKind::Choice; // between brackets; a switch and a choice have their own marks
                 const bool risky = static_cast<bool>(setting.danger);
                 const bool dangerNow = risky && !cluster::setting_danger(setting, this->settingValue_(setting)).empty();
+                const std::vector<std::pair<std::string, std::vector<std::string>>> clashes = setting.section == "keys"
+                    ? cluster::setting_key_clashes(keysNow, setting.key) : std::vector<std::pair<std::string, std::vector<std::string>>>();
                 const std::string label = setting.label + (risky ? " ⚠ " : " ");
                 const std::size_t width = setting.label.size() + (risky ? 3 : 1);
                 const std::size_t dots = width < 34 ? 34 - width : 1;
@@ -3623,7 +3654,8 @@ class TtyUi {
                     this->tap_(ftxui::text(changed ? " * " : "   ") | ftxui::color(t.warn) | ftxui::bold, 2, [pick]() {pick(false);}, clip),
                     this->tap_(ftxui::hbox({ftxui::text(setting.label) | (dangerNow ? ftxui::color(t.error) | ftxui::bold : ftxui::color(t.muted)),
                         risky ? ftxui::text(" ⚠") | ftxui::color(t.warn) | ftxui::bold : ftxui::text(""),
-                        ftxui::text(" " + std::string(dots, '.') + " ") | ftxui::color(t.muted)}), 2, [pick]() {pick(false);}, clip),
+                        clashes.empty() ? ftxui::text("") : ftxui::text(" !") | ftxui::color(t.warn) | ftxui::bold,
+                        ftxui::text(" " + std::string(clashes.empty() || dots < 3 ? dots : dots - 2, '.') + " ") | ftxui::color(t.muted)}), 2, [pick]() {pick(false);}, clip),
                     typing ? ftxui::hbox({ftxui::text("[") | ftxui::bold | ftxui::color(t.accent), this->fieldView_(this->_edit, 58) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, std::clamp(ftxui::string_width(this->_edit) + 2, 4, 58)), // the ] right after the text, one space more
                         ftxui::text("]") | ftxui::bold | ftxui::color(t.accent)})
                     : this->tap_(this->keysValue_(setting, value, typed, selected), 2, [pick]() {pick(true);}, clip),
@@ -3631,6 +3663,16 @@ class TtyUi {
                     ftxui::filler(),
                 });
                 rows.push_back(selected ? line | ftxui::focus : line);
+                if (selected && !clashes.empty()) { // a key another action has too: which one, under it
+                    std::string told;
+                    for (const auto &[key, others]: clashes) {
+                        std::string names;
+                        for (const std::string& o: others)
+                            names += (names.empty() ? "" : ", ") + o;
+                        told += (told.empty() ? "" : " · ") + key + " is also " + names;
+                    }
+                    rows.push_back(ftxui::text("      ! " + cluster::one_line(told, 100) + "  (only one of them works)") | ftxui::color(t.warn) | ftxui::bold);
+                }
                 if (typing) { // the suggestions of what is typed, under the field (Tab takes the first, ↑↓ choose, Enter takes the chosen one)
                     const std::vector<std::string> suggestions = cluster::setting_suggestions(this->_manager.config(), setting, this->_edit);
                     for (std::size_t s = 0; s < suggestions.size(); ++s) {

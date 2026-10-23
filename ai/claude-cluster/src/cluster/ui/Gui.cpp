@@ -1733,6 +1733,7 @@ class Window: public QMainWindow {
         QScrollArea* gridArea = nullptr;        // the grid layout: its cells (scrolled when they do not fit)
         int gridColumns = 1;
         int listWidth = 0;                      // the width the rows of the list were elided to
+        int settingsTab = 0;                    // the tab the settings were left on (reopened there)
         QLabel* hubNote = nullptr;              // its notes at the bottom (no sub-session, the keys)
         std::string tasksShownHtml;
 
@@ -2659,13 +2660,31 @@ class Window: public QMainWindow {
                     label->setTextFormat(Qt::RichText);
                     label->setToolTip(tip);
                     const cluster::Style st = this->theme();
-                    const std::function<void()> mark = [label, setting, read, st]() { // ⚠: it can be dangerous; red: its value is
+                    // ⚠: it can be dangerous; red: its value is; !: one of its keys another action has too (the keys as typed in the page)
+                    const std::function<void()> mark = [label, widget, setting, read, st, &fields, &config]() {
                         const bool now = !cluster::setting_danger(setting, read()).empty();
+                        std::string twice;
+                        if (setting.section == "keys") {
+                            std::map<std::string, std::string> keys = config.keys;
+                            for (const auto &[other, value]: fields)
+                                if (other.section == "keys") keys[other.key] = value();
+                            keys[setting.key] = read();
+                            for (const auto &[key, others]: cluster::setting_key_clashes(keys, setting.key)) {
+                                std::string names;
+                                for (const std::string& o: others)
+                                    names += (names.empty() ? "" : ", ") + o;
+                                twice += (twice.empty() ? "" : " · ") + key + " is also " + names;
+                            }
+                            widget->setStyleSheet(twice.empty() ? QString() : "QLineEdit{color:" + q_(st.warn) + ";border:1px solid " + q_(st.warn) + ";}");
+                            widget->setToolTip(twice.empty() ? q_(setting.description) : q_("! " + twice + " (only one of them works)"));
+                        }
                         label->setText((now ? "<span style=\"color:" + q_(st.error) + ";font-weight:600\">" + esc_(setting.label) + "</span>" : esc_(setting.label))
-                            + (setting.restart ? " *" : "") + (setting.danger ? " <span style=\"color:#e5b400\" title=\"can be dangerous\">⚠</span>" : ""));
+                            + (setting.restart ? " *" : "") + (setting.danger ? " <span style=\"color:#e5b400\" title=\"can be dangerous\">⚠</span>" : "")
+                            + (twice.empty() ? QString() : " <span style=\"color:" + q_(st.warn) + ";font-weight:800\">!</span>"));
+                        label->setToolTip(twice.empty() ? q_(setting.description) : q_("! " + twice));
                     };
                     mark();
-                    if (setting.danger) marks.push_back(mark);
+                    if (setting.danger || setting.section == "keys") marks.push_back(mark);
                     form->addRow(label, widget);
                     if (info != nullptr) form->addRow(info);
                     {
@@ -2724,6 +2743,19 @@ class Window: public QMainWindow {
                 scroll->setFrameShape(QFrame::NoFrame);
                 sections->addTab(scroll, q_(page.title));
             }
+            for (std::size_t p = 0; p < pages.size(); ++p)
+                if (pages[p].section == "keys") // its tab marked ! (warning colour) while a key is used twice
+                    marks.push_back([this, sections, p, title = pages[p].title, &fields, &config]() {
+                        std::map<std::string, std::string> keys = config.keys;
+                        for (const auto &[other, value]: fields)
+                            if (other.section == "keys") keys[other.key] = value();
+                        const bool twice = std::any_of(keys.begin(), keys.end(), [&keys](const std::pair<const std::string, std::string>& k) {
+                            return !cluster::setting_key_clashes(keys, k.first).empty();
+                        });
+                        const int index = static_cast<int>(p);
+                        sections->setTabText(index, q_(title + (twice ? "  !" : "")));
+                        sections->tabBar()->setTabTextColor(index, twice ? QColor(q_(this->theme().warn)) : QColor());
+                    });
             QTimer* marking = new QTimer(&dialog);
             QObject::connect(marking, &QTimer::timeout, &dialog, [&marks]() {
                 for (const std::function<void()>& mark: marks)
@@ -2871,9 +2903,13 @@ class Window: public QMainWindow {
                         if (pages[p].settings[i].section + "." + pages[p].settings[i].key == focus)
                             QTimer::singleShot(0, &dialog, [showAt, p, i]() {showAt(p, i);});
             if (search) QTimer::singleShot(0, find, [find]() {find->setFocus();});
+            if (focus.empty() && !std::getenv("CLAUDE_CLUSTER_SCREENSHOT_TAB") && this->settingsTab >= 0 && this->settingsTab < sections->count()) sections->setCurrentIndex(this->settingsTab); // where it was left
             for (const auto &[setting, read]: fields)
                 opened[setting.section + "." + setting.key] = read();
+            for (const std::function<void()>& mark: marks)
+                mark();
             const bool accepted = dialog.exec() == QDialog::Accepted;
+            this->settingsTab = sections->currentIndex(); // closed, saved or not: reopened on this tab
 
             std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> changes;
             for (const auto &[setting, read]: fields) {
@@ -5725,11 +5761,14 @@ _cold int cluster::run_gui(cluster::App& app)
             window.input->setText(typed); // debug: text typed in the prompt (completion list shown)
             window.input->refreshCompletion();
         });
-        QTimer::singleShot(3000, &window, [&window, path]() {
+        QTimer* done = new QTimer(&window);
+        QObject::connect(done, &QTimer::timeout, &window, [&window, path]() {
+            if (QApplication::activeModalWidget() != nullptr) return; // a dialog being shot (the settings): after it
             window.refresh(true);
             window.grab().save(path);
             QApplication::quit();
         });
+        QTimer::singleShot(3000, done, [done]() {done->start(300);});
     }
     return QApplication::exec();
 }

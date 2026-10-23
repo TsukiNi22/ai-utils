@@ -314,6 +314,9 @@ header .muted { color: var(--muted); font-size: 13px; }
 .danger-mark { color: #e5b400; font-weight: 700; }
 .setting .need { grid-column: 1 / -1; color: var(--error); font-weight: 600; font-size: 13px; } .setting .need button { margin-left: 8px; font-size: 12px; padding: 3px 8px; }
 .danger-now { color: var(--error); font-weight: 600; }
+.twice-mark { color: var(--warn); font-weight: 800; }
+.setting input.twice { color: var(--warn); border-color: var(--warn); }
+.twice-note { color: var(--warn); font-weight: 600; font-size: 13px; }
 /* every clickable thing answers the mouse: hover, press, keyboard focus */
 button:hover:not(:disabled) { border-color: var(--accent); filter: brightness(1.12); }
 button:active:not(:disabled) { transform: translateY(1px); filter: brightness(.95); }
@@ -4212,12 +4215,45 @@ async function readServices() {
     servicesReading = false;
 }
 setInterval(readServices, 250);
+// the keys of an action also given to another action of the same view (the graph has its own), as the page shows them (its changes too);
+// Ctrl+Shift+T and Shift+Ctrl+T, q and Q: one key (the same rule as the computer)
+function keyCanon(key) {
+    let mods = "", last = key;
+    if (key === "+") return "+";
+    if (key.length >= 2 && key.endsWith("++")) { mods = key.slice(0, -2); last = "+"; }
+    else if (key.lastIndexOf("+") > 0) { mods = key.slice(0, key.lastIndexOf("+")); last = key.slice(key.lastIndexOf("+") + 1); }
+    const held = new Set(mods.split("+").map((m) => m.trim().toLowerCase()).filter(Boolean));
+    last = last.trim().toLowerCase();
+    if (last === "return") last = "enter";
+    if (last === "esc") last = "escape";
+    return (held.has("ctrl") ? "ctrl+" : "") + (held.has("alt") ? "alt+" : "") + (held.has("shift") ? "shift+" : "") + last;
+}
+function keyClashes() {
+    const keys = new Map();
+    for (const s of settingsData.filter((x) => x.section === "keys")) keys.set(s.key, settingsChanged.has("keys." + s.key) ? settingsChanged.get("keys." + s.key) : s.value);
+    const out = new Map(); // action -> [[key, [other actions]]]
+    for (const [action, value] of keys) {
+        const graph = action.startsWith("graph_");
+        const found = [];
+        for (const part of String(value || "").split("|").map((p) => p.trim()).filter(Boolean)) {
+            const canon = keyCanon(part);
+            const others = [...keys].filter(([o, v]) => o !== action && o.startsWith("graph_") === graph
+                && String(v || "").split("|").some((x) => x.trim() && keyCanon(x.trim()) === canon)).map(([o]) => o);
+            if (others.length) found.push([part, others]);
+        }
+        if (found.length) out.set(action, found);
+    }
+    return out;
+}
 function drawDrawer() {
     const pages = ["This device"].concat([...new Set(settingsData.map((s) => s.page))]);
     const tabs = $("drawerTabs");
     tabs.textContent = "";
+    const clashes = keyClashes();
+    const keysPage = (settingsData.find((s) => s.section === "keys") || {}).page;
     for (const p of pages) {
         const b = el("button", p === settingsTab ? "on" : "", p);
+        if (p === keysPage && clashes.size) { const mark = el("span", "twice-mark", " !"); mark.title = "a key is used twice"; b.append(mark); }
         b.type = "button";
         b.addEventListener("click", () => { settingsTab = p; store.set("cc-settings-tab", p); drawDrawer(); });
         tabs.append(b);
@@ -4262,6 +4298,8 @@ function drawDrawer() {
         const risky = s.danger && Object.keys(s.danger).length;
         if (risky) { const mark = el("span", "danger-mark", " ⚠"); mark.title = "can be dangerous"; label.append(mark); }
         if (risky && s.danger[settingsChanged.has(key) ? settingsChanged.get(key) : s.value]) label.classList.add("danger-now");
+        const twice = s.section === "keys" ? clashes.get(s.key) : null; // !: one of its keys another action has too
+        if (twice) { const mark = el("span", "twice-mark", " !"); mark.title = "used twice"; label.append(mark); }
         let input;
         const value = settingsChanged.has(key) ? settingsChanged.get(key) : s.value;
         if (s.kind === "bool") {
@@ -4297,7 +4335,9 @@ function drawDrawer() {
         }
         input.id = id;
         if (s.web_editable === false) { input.disabled = true; row.classList.add("readonly"); } // the computer did not allow this section from the page
+        if (twice) input.classList.add("twice");
         row.append(label, input, el("div", "help" + (s.at_next_start ? " next" : ""), s.help + (s.at_next_start ? " · applied at the next start" : "")));
+        if (twice) row.append(el("div", "twice-note", "! " + twice.map(([k, o]) => k + " is also " + o.join(", ")).join(" · ") + " (only one of them works)"));
         if (s.problem) { // what its value needs and is missing, its install
             const need = el("div", "need", "✗ " + s.problem);
             if (s.package) {

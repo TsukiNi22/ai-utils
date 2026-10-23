@@ -1016,6 +1016,54 @@ _cold std::vector<std::string> cluster::setting_invalid_parts(const cluster::Set
     return bad;
 }
 
+_cold static std::string key_canon_(const std::string& key)
+{
+    // a key in one spelling: its modifiers in the order Ctrl, Alt, Shift, its key in lower case (Return / Enter, Esc / Escape: one key)
+    std::string modifiers;
+    std::string last;
+    if (key == "+") return "+";
+    if (key.size() >= 2 && key.back() == '+' && key[key.size() - 2] == '+') {
+        modifiers = key.substr(0, key.size() - 2);
+        last = "+";
+    } else {
+        const std::size_t plus = key.rfind('+');
+        modifiers = plus == std::string::npos ? std::string() : key.substr(0, plus);
+        last = plus == std::string::npos ? key : key.substr(plus + 1);
+    }
+    std::set<std::string> held;
+    for (const std::string& m: cluster::split(modifiers, '+'))
+        if (!cluster::trim(m).empty()) held.insert(cluster::lower(cluster::trim(m)));
+    last = cluster::lower(cluster::trim(last));
+    if (last == "return") last = "enter";
+    if (last == "esc") last = "escape";
+    return (held.contains("ctrl") ? "ctrl+" : "") + std::string(held.contains("alt") ? "alt+" : "") + (held.contains("shift") ? "shift+" : "") + last;
+}
+
+_cold std::vector<std::pair<std::string, std::vector<std::string>>> cluster::setting_key_clashes(const std::map<std::string, std::string>& keys,
+    const std::string& action)
+{
+    std::vector<std::pair<std::string, std::vector<std::string>>> clashes;
+    const auto mine = keys.find(action);
+    if (mine == keys.end()) return clashes;
+    const std::function<bool(const std::string&)> graph = [](const std::string& name) {return name.starts_with("graph_");}; // the keys of the graph view: its own
+    for (const std::string& part: cluster::split(mine->second, '|')) {
+        const std::string key = cluster::trim(part);
+        if (key.empty()) continue;
+        const std::string canon = key_canon_(key);
+        std::vector<std::string> others;
+        for (const auto &[other, value]: keys) {
+            if (other == action || graph(other) != graph(action)) continue;
+            for (const std::string& theirs: cluster::split(value, '|'))
+                if (!cluster::trim(theirs).empty() && key_canon_(cluster::trim(theirs)) == canon) {
+                    others.push_back(other);
+                    break;
+                }
+        }
+        if (!others.empty()) clashes.emplace_back(key, others);
+    }
+    return clashes;
+}
+
 /* the suggestions of a text value */
 _cold std::vector<std::string> cluster::setting_suggestions(const cluster::Config& config, const cluster::Setting& setting, const std::string& typed, const bool local)
 {
