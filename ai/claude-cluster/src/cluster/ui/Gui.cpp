@@ -1639,6 +1639,10 @@ class Window: public QMainWindow {
             browser->setVisible(false);
             // without the mouse: its links by the keys (↑↓ / j k / Tab: the next one, Enter: its actions)
             browser->setTextInteractionFlags(Qt::LinksAccessibleByKeyboard | Qt::LinksAccessibleByMouse | Qt::TextSelectableByMouse);
+            Outline* outline = new Outline(browser);
+            outline->setObjectName("tasksOutline");
+            outline->color = QColor(q_(this->theme().accent));
+            outline->raise();
             browser->setTabChangesFocus(false);
             browser->installEventFilter(this);
             QObject::connect(browser, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
@@ -1656,6 +1660,12 @@ class Window: public QMainWindow {
 
         bool eventFilter(QObject* watched, QEvent* event) override
         {
+            // a Tasks panel resized: its outline with it
+            if (event->type() == QEvent::Resize && watched->objectName() == "tasksPanel")
+                if (QWidget* outline = static_cast<QWidget*>(watched)->findChild<QWidget*>("tasksOutline", Qt::FindDirectChildrenOnly)) {
+                    outline->setGeometry(static_cast<QWidget*>(watched)->rect());
+                    outline->raise();
+                }
             // the Tasks view: ↑↓ / j k move between its links like Tab / Shift+Tab
             if (watched == this->tasksView && event->type() == QEvent::KeyPress) {
                 const QKeyEvent* key = static_cast<QKeyEvent*>(event);
@@ -1938,7 +1948,7 @@ class Window: public QMainWindow {
                 "QFrame#pinBox{border:1px solid " + s.accent + ";border-radius:8px;background:" + s.surface + ";}"
                 "QFrame#pinBox QTextBrowser{background:" + s.surface + ";}"
                 "QTextBrowser{border:none;border-radius:0;background:" + s.bg + ";selection-background-color:" + s.accent + ";selection-color:" + s.bg + ";padding:6px 10px;}"
-                "QTextBrowser#tasksPanel{border:1px solid " + s.border + ";border-radius:12px;background:" + s.bg + ";padding:12px 16px;}"
+                "QTextBrowser#tasksPanel{border:none;border-radius:12px;background:" + s.bg + ";padding:12px 16px;}"
                 "QTreeWidget{border:1px solid " + s.border + ";border-radius:12px;background:" + s.bg + ";padding:6px;outline:0;}"
                 "QTreeWidget::item{padding:4px 2px;border-radius:6px;}"
                 "QTreeWidget::item:hover{background:" + hover + ";}"
