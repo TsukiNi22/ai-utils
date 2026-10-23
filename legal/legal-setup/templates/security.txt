@@ -1,0 +1,7 @@
+# Served at https://{{DOMAIN}}/.well-known/security.txt (RFC 9116); the same contact in SECURITY.md of the repository
+Contact: mailto:{{SECURITY_EMAIL}}
+Expires: {{YYYY-MM-DDT00:00:00Z one year ahead at most}}
+Preferred-Languages: {{en, fr}}
+Canonical: https://{{DOMAIN}}/.well-known/security.txt
+Policy: https://{{DOMAIN}}/{{security-policy}}
+Encryption: {{https://DOMAIN/pgp-key.txt or remove}}

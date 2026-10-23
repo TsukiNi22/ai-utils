@@ -21,8 +21,8 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`/git`](routers/git/SKILL.md) | `git-conventions`, `git-commit`, `ci-cd`, `pre-commit` |
 | [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `html-style`, `explain-doc`, `protocol-doc`, `report`, `docs-update`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
 | [`/style`](routers/style/SKILL.md) | `cpp-style`, `python-style`, `python-comments`, `coding-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
-| [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps` (and the future legal skills) |
-| [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-quality`, `audit-deps`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/` |
+| [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps`, `legal-check`, `legal-setup` |
+| [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-quality`, `audit-deps`, `legal-check`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/` |
 
 ## Graph explorer
 
@@ -59,6 +59,8 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`audit-quality`](audit/audit-quality/SKILL.md) | Cleanliness / conventions audit of a project (`scripts/collect.py` metrics + review against the style skills) delivered as a PDF report. |
 | [`report`](docs/report/SKILL.md) | Reports in my style as Markdown and/or PDF (format asked: both recommended), English by default (Markdown -> WeasyPrint, A4, Noto, navy title rule, tables and callouts) with `scripts/md2pdf.py`. |
 | [`license`](legal/license/SKILL.md) | Finds the license matching the needs (comparison matrix), negotiates the close ones, fetches the official text, replaces the current LICENSE only after confirmation, checks dependencies compatibility. |
+| [`legal-check`](legal/legal-check/SKILL.md) | Deep legal compliance check, global (any project handling data) or web (a site / web app, on top): GDPR (bases, consent, notices, rights incl. erasure, records, DPAs, DPIA, retention, security, breaches, transfers), cookies (ePrivacy / CNIL), legal notice (LCEN), terms, consumer law, accessibility (RGAA, EAA), language (loi Toubon), licenses and credits of every dependency / font / asset, mandatory mentions, DSA, AI Act, CRA, NIS2, Data Act, UK / Swiss / US laws; each finding with its article, the evidence in the project and the fix; dates checked on the primary texts; a report. |
+| [`legal-setup`](legal/legal-setup/SKILL.md) | Makes it compliant: writes the documents from the real data flows (privacy policy, mentions légales, cookie policy, CGU / CGV, accessibility statement, records of processing, retention, rights and breach procedures, credits, security.txt) after asking every fact it cannot know (never invented), and implements the code (consent banner blocking trackers until consent, refuse = accept, export and real erasure, purge jobs, form notices, unsubscribe, AI disclosure, accessibility fixes, footer links). |
 | [`audit-deps`](audit/audit-deps/SKILL.md) | Dependencies (direct + transitive): licenses to credit, copyleft / non-commercial / paid / unknown ones, THIRD_PARTY_NOTICES generation, and known vulnerabilities / compromised versions (OSV, dnf, GitHub advisories), as a PDF report. |
 | [`python-style`](python/python-style/SKILL.md) | My Python style, measured on my scripts (libutils `cmake/scripts`, MAGIC): header, `##### sections #####`, checked imports with a `# Used for` each, `__main__` guards, `const.py` with frozen dataclasses, exit codes, errors on stderr, type hints; checked by the `PY-*` rules of `xstyle`. |
 | [`python-class`](python/python-class/SKILL.md) | Python equivalent of `cpp-class`: scaffolds class / abstract / tool / module / exception / const / test files (`scripts/new_file.py`) with the header, sections, checked imports, typed signatures and **empty bodies only**, the parent import and the `__all__` of a package. |
@@ -70,6 +72,10 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`interactive-questions`](ai/interactive-questions/SKILL.md) | Asks through the built-in QCM / Q&A popup (AskUserQuestion) instead of a list in the text: questions, proposals, ideas, choices, rounds of ideas; French labels, 1-4 questions × 2-4 options, the recommended one first, multi choice, previews to compare, the answers (and their notes) followed exactly. Works in claude-cluster too (its popups, the voice, *Global answers*). |
 | [`clarify`](ai/clarify/SKILL.md) | Summoned before a request: lists everything unclear (scope, ambiguous words, missing details, several approaches, contradictions, risky actions), asks it through `interactive-questions` in as many rounds as needed (structuring questions first), then acts on the answers; no popup when nothing is ambiguous. |
 | [`ideation`](ai/ideation/SKILL.md) | Ideas, recommendations, an honest opinion or variants of ideas, asked through `interactive-questions`: grounded in the real project, 8-16 ideas by theme (effort / gain each) or the best few ranked, per idea keep / change / drop, variants compared with previews; rounds of which to keep and when (now, backlog, POC first), then a recap and the kept ones stored as tasks. |
+| [`i18n`](ux/i18n/SKILL.md) | Any project in several languages: the languages asked (a few, Europe, the most spoken, as many as possible, RTL), every user string in standard catalogs (Qt `.ts`, gettext `.po`, Fluent, Android / iOS, ICU JSON) with named placeholders, plurals, locale formats, RTL and fonts, the language setting + system locale + fallbacks, AI-drafted translations marked for review, missing / unused keys checked in the CI. |
+| [`i18n-web`](ux/i18n-web/SKILL.md) | The web part of `i18n`: the framework's library, `/fr/` URLs and translated slugs, hreflang + x-default, sitemaps, `lang` / `dir`, a switcher with the languages written in themselves (no flags), Accept-Language suggested never forced, SEO meta, emails in the user's language, legal pages per language. |
+| [`theming`](ux/theming/SKILL.md) | Light / dark / system (and high contrast, sepia, palettes, an accent) for any project: the modes asked, semantic colour tokens, WCAG contrast checked in each mode, the system scheme followed live (Qt, GTK portal, Windows, macOS, Android, iOS, terminals), persisted and switched without restart, icons / charts / highlighting adapted. |
+| [`theming-web`](ux/theming-web/SKILL.md) | The web part of `theming`: CSS variables per mode, `prefers-color-scheme` + a system / light / dark switch on `data-theme`, no flash (inline head script), `color-scheme` / `theme-color`, `light-dark()`, `prefers-contrast` / `forced-colors` / reduced motion, images and charts per mode, Tailwind / component libraries, an accessible sun / moon toggle. |
 | [`rtk`](ai/rtk/SKILL.md) | Token-minimal text for an AI: compacts a text / output / log (legend once, one record per line, shared values written once, one summary line; `scripts/compact.py` first pass) and designs / implements an `--rtk` mode on a program or script, like `xstyle --rtk`. |
 | [`benchmark`](audit/benchmark/SKILL.md) | Profiling of the current program (perf stat / record, hyperfine, callgrind, heaptrack, flame graph; missing tools installed only after a yes): hot functions, why they are slow, quick wins vs complex changes with their gain, PDF report, optional before / after. |
 | [`coverage`](tests/coverage/SKILL.md) | Test coverage of a `cpp-tests` project (clang / llvm-cov in a copy): per file, functions never called, ranges never run; then tests written module by module until it stops growing, and always the question of a report on what is still missing. |
@@ -208,7 +214,8 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 | `python-skills` | python-project, python-class, python-style, python-comments |
 | `test-skills` | tests, cpp-tests, coverage |
 | `audit-skills` | audit-bugs, audit-quality, audit-deps, benchmark |
-| `legal-skills` | license |
+| `legal-skills` | license, legal-check, legal-setup |
+| `ux-skills` | i18n, i18n-web, theming, theming-web |
 | `system-skills` | computer-clean |
 | `dev`, `cpp`, `python`, `setup-project`, `doc`, `git`, `style`, `legal`, `audit` | the routers (`/dev`, `/cpp`...) |
 
@@ -242,7 +249,8 @@ style/     coding-style, comments, xstyle (tool)
 docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report, docs-update
 git/       git-conventions, git-commit, ci-cd, pre-commit
 audit/     audit-bugs, audit-quality, audit-deps, benchmark
-legal/     license
+legal/     license, legal-check, legal-setup
+ux/        i18n, i18n-web, theming, theming-web
 system/    computer-clean
 ai/        interactive-questions, clarify, ideation, rtk, claude-cluster (tool)
 context/   global context of Claude Code (CLAUDE.md, RTK.md, hooks, sudo-askpass), installed by setup.sh

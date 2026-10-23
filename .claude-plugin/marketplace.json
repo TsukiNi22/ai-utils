@@ -89,7 +89,7 @@
     },
     {
       "name": "legal-skills",
-      "description": "License of a project (skills: license)",
+      "description": "Legal side of a project: its license, and the compliance check and setup - GDPR / RGPD, cookies, legal notice, terms, consumer law, accessibility (RGAA, EAA), language, licenses and credits, mandatory mentions, DSA, AI Act, CRA, NIS2, Data Act - global or web (skills: legal-check, legal-setup, license)",
       "source": "./",
       "strict": false,
       "skills": [
@@ -103,6 +103,15 @@
       "strict": false,
       "skills": [
         "./system/"
+      ]
+    },
+    {
+      "name": "ux-skills",
+      "description": "Interface of a project or a website: several languages (i18n, the web part) and visual modes light / dark / system / high contrast (theming, the web part) (skills: i18n, i18n-web, theming, theming-web)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./ux/"
       ]
     },
     {

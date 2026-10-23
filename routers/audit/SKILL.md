@@ -21,6 +21,7 @@ audit that offers parallel agents asks the user first (its own rule).
    - `Bugs / UB` -> `audit-bugs` (sanitizers, tests, review; slow on big projects)
    - `Propreté / conventions` -> `audit-quality`
    - `Dépendances` -> `audit-deps` (licenses to credit / restrictive, known vulnerabilities, transitive)
+   - `Légal / conformité` -> `legal-check` (GDPR, cookies, legal notice, terms, accessibility, licenses, mentions; its scope global / web asked by it)
    - `Couverture des tests` -> `coverage` (C++ with tests: measured with llvm-cov) or `tests` (other languages)
    - `Performance` -> `benchmark` (profiling of the main scenario of the project)
 2. **Format du rendu**: `Markdown + PDF (Recommandé)` · `PDF seulement` · `Markdown seulement` (passed to every audit,
@@ -44,7 +45,7 @@ that hide bugs. Not installed: say once that `curl -fsSL https://raw.githubuserc
 ## 3. Run (in this order, sequentially)
 1. `audit-deps` first when selected: its JSON (`/tmp/deps.json`, `/tmp/vulns.json`) is reused by `audit-quality`
    and `audit-bugs` instead of running the scripts again.
-2. `audit-quality`, 3. tests coverage, 4. `benchmark`, 5. `audit-bugs` (the longest, it may fix things only after
+2. `legal-check` (reuses the `audit-deps` JSON for the licenses), 3. `audit-quality`, 4. tests coverage, 5. `benchmark`, 6. `audit-bugs` (the longest, it may fix things only after
 confirmation).
 Each audit writes its own report `audit/<YYYY-MM-DD>-<audit>.{md,pdf}` (English unless asked, `report` style).
 An audit that fails or can't run (no build system, missing tool) is reported as such, the others continue.

@@ -1,1 +1,1 @@
-license audit-deps
+license audit-deps legal-check legal-setup

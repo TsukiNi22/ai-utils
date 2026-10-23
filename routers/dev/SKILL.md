@@ -53,6 +53,10 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | a deliverable as PDF (report, study, benchmark) | `report` | `doc` |
 | license (choose, add, replace, compatibility) | `license` | `legal` |
 | dependencies: licenses to credit / restrictive / paid, vulnerabilities | `audit-deps` | `legal` |
+| legal compliance check: GDPR / RGPD, cookies, mentions légales, CGU, RGAA, privacy, erasure, AI Act, licenses and mentions | `legal-check` | `legal` |
+| make it compliant: privacy policy, legal notice, cookie banner, terms, accessibility statement, data deletion / export | `legal-setup` | `legal` |
+| several languages / translate a project (`i18n`) or a website (`i18n-web` + `i18n`) | `i18n`, `i18n-web` | - |
+| dark / light / system modes, themes, high contrast: a project (`theming`) or a website (`theming-web` + `theming`) | `theming`, `theming-web` | - |
 | style only (format / review like the user) | `cpp-style`, `cpp-comments`, `coding-style` (other languages), `cmake-style`, `comments` by file type | `style` |
 | Python code | `python-style` + `python-comments` | `python` |
 | new Python class / module / tool / exception / test file | `python-class` | `python` |
