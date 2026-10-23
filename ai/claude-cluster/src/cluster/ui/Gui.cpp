@@ -3104,12 +3104,14 @@ class Window: public QMainWindow {
             root = inner;
             if (layout == "grid" && !sessions.empty()) {
                 QGridLayout* grid = new QGridLayout();
-                const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(sessions.size()))));
+                const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(sessions.size() + 1))));   // the sessions, then the Tasks as a cell
                 for (std::size_t i = 0; i < sessions.size(); ++i) {
                     SessionView* view = new SessionView(this, sessions[i].spec.id, true);
                     this->views[sessions[i].spec.id] = view;
                     grid->addWidget(view, static_cast<int>(i) / columns, static_cast<int>(i) % columns);
                 }
+                this->tasksView = this->makeTasksView(central);
+                grid->addWidget(this->tasksView, static_cast<int>(sessions.size()) / columns, static_cast<int>(sessions.size()) % columns);
                 root->addLayout(grid, 1);
             } else if (layout == "hub" || layout == "graph") {
                 // the graph (the categories / tags between global and the sessions) or the hub (every session around global); a node clicked: its session
@@ -3432,10 +3434,11 @@ class Window: public QMainWindow {
             this->showProgress();
             this->showFailure();
             // the Tasks session shown: its view in place of the session
-            const bool tasksShown = this->active == TASKS_ID && this->tasksView != nullptr;
+            const bool gridCell = this->manager.ui("layout", this->manager.config().layout) == "grid";   // the grid: the Tasks always a cell of it
+            const bool tasksShown = (this->active == TASKS_ID || gridCell) && this->tasksView != nullptr;
             if (this->views.contains("") && this->tasksView != nullptr) this->views[""]->setVisible(!tasksShown);
             if (this->tasksView != nullptr) {
-                if (tasksShown && !this->tasksView->isVisible()) QTimer::singleShot(0, this->tasksView, [view = this->tasksView]() {view->setFocus();}); // its keys at once
+                if (tasksShown && !gridCell && !this->tasksView->isVisible()) QTimer::singleShot(0, this->tasksView, [view = this->tasksView]() {view->setFocus();}); // its keys at once
                 this->tasksView->setVisible(tasksShown);
                 if (tasksShown) this->fillTasks(this->tasksView);
             }
