@@ -14,7 +14,13 @@ import tempfile
 
 CACHE = tempfile.mkdtemp(prefix="cc-demo-")
 BIN = sys.argv[1] if len(sys.argv) > 1 else "/tmp/cc-build/claude-cluster"
-SOCK = CACHE + "/claude-cluster-demo/sock"
+import glob
+
+
+def sock_():
+    found = glob.glob(CACHE + "/claude-cluster-demo/*/sock")
+    return found[0] if found else CACHE + "/none"
+
 PORT = 8444
 ENV = dict(os.environ, XDG_CACHE_HOME=CACHE)
 for name in ("CLAUDE_CLUSTER_CONFIG_DIR", "CLAUDE_CLUSTER_DATA_DIR", "CLAUDE_CLUSTER_SOCKET", "CLAUDE_CLUSTER_DEMO"):
@@ -28,7 +34,7 @@ def check(name, ok, detail=""):
 def ask(request):
     sock = socket.socket(socket.AF_UNIX)
     sock.settimeout(20)
-    sock.connect(SOCK)
+    sock.connect(sock_())
     sock.sendall((json.dumps(request) + "\n").encode())
     data = b""
     while not data.endswith(b"\n"):
@@ -99,6 +105,8 @@ try:
     others = [line for line in subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True).stdout.splitlines() if "demo-agent" in line]
     check("the agents of the demo are the fake one", len(others) >= 8, str(len(others)))
     check("no real agent was ever started (decoys never called)", not os.path.exists(LOG), open(LOG).read() if os.path.exists(LOG) else "")
+    answer = ask({"cmd": "settings_set", "section": "ui", "key": "layout", "value": "grid"})
+    check("the settings are read only in the demo (even from the computer)", not answer.get("ok") and "demo" in answer.get("error", ""), str(answer))
     check("interrupt refused (read only)", body.get("ok") is False and "read only" in body.get("error", ""), str(body))
 finally:
     core.terminate()

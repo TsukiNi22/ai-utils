@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Demo.hpp"
 #include "cluster/Orchestrator.hpp"
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/Vocabulary.hpp"
@@ -897,6 +898,7 @@ _cold std::vector<cluster::SettingHit> cluster::settings_search(const std::vecto
 _cold void cluster::settings_write(const cluster::Config& config,
     const std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>>& changes)
 {
+    if (cluster::demo_enabled()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the demo: the settings are shown, not changed");
     // Line edit of config.toml: the value of "key = value" in its [section] is replaced (comment kept), a missing key
     // is added at the end of its section, a missing section at the end of the file
     std::vector<std::string> lines;

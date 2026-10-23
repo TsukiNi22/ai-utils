@@ -702,14 +702,19 @@ Arrows (or `Tab`) move the choice, `Enter` does it, the letter picks it, `Esc` q
 
 ### Demo mode
 
-`claude-cluster --demo` opens an instance of its own - its config, data and control socket live in `~/.cache/claude-cluster-demo` (made again at each
-start, never your real sessions) - filled with a fictional company: five projects (`acme-shop`, `acme-api`, `orbit-mobile`, `nova-docs`, `lumen-ml`,
+`claude-cluster --demo` opens an instance of its own - its config, data and control socket live in `~/.cache/claude-cluster-demo/<pid>` (one
+folder per launch: two demos never share anything; it is removed when the demo stops, never your real sessions) - filled with a fictional company: five projects (`acme-shop`, `acme-api`, `orbit-mobile`, `nova-docs`, `lumen-ml`,
 `infra-ops`), eight sessions under categories and tags (`frontend`, `backend`, `mobile`, `docs`, `ml`, `ops`, `#checkout`, `#payments`, `#urgent`...),
 the global session orchestrating (listing, splitting, spawning), todo lists, a task queue with dependencies, four schedules (a prompt soon, one every
 weekday, a notification), thirty days of usage and the limits of an account. The agents are a fake one (`claude-cluster demo-agent`): the sessions think,
 read, edit and run tools for real-looking steps and never end (*Working*), one waits for a permission (answer it: the build "uploads"), one fails after a
 minute (the failure popup), two are idle with a conversation already had. Nothing is read or changed on the computer and nothing is spent; a prompt typed
 in a demo session gets a short fixed reply. The top bar says **DEMO**.
+
+**Nothing real, nothing kept.** Every agent of the demo is its fake one: any other agent (codex, qwen, opencode) is a command that fails at once, no API
+key or account is read, no local model server is asked - not a token is spent. A prompt typed in a demo session is shown and gets a short fixed reply;
+the history of the prompts works but stays inside the demo. The settings can be opened and read, not changed. Quitting stops everything - no *keep in
+background*, the core, the agents and the folder of the demo go with its terminal.
 
 `--web` opens its web access (port 8444, terminal mode 2223, no device approval) **read only**: the page lists and reads, `send`, `spawn`, the answers,
 the settings and every other change are refused. Without `--web` there is no web access at all.

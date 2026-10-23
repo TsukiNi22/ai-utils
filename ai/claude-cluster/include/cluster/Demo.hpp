@@ -45,6 +45,8 @@ class Manager;
 _cold _nodiscard bool demo_enabled(void);
 // Before anything is read: the folder of the demo made again (config, data, projects, the fake agent), the environment pointing at it; web: its web access allowed (read only)
 _cold void demo_prepare(const bool web);
+// Its core stopped: the folder of the demo removed (nothing kept)
+_cold void demo_cleanup(const bool core);
 // In the core: the fictional sessions, categories, tags, tasks and schedules, put in a thread of its own (the sessions start one after the other)
 _cold void demo_seed(cluster::Manager& manager);
 // claude-cluster demo-agent: the fake agent (stream-json on stdin / stdout, like claude) the demo sessions run; its exit code

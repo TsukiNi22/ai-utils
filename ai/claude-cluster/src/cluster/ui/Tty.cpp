@@ -6344,6 +6344,10 @@ class TtyUi {
             if (!event.is_mouse() && event.input() != "\x1b[I" && event.input() != "\x1b[O") // xstyle: ignore LU-ANSI (focus in / out)
                 if (const std::vector<cluster::Failure> failed = this->_manager.failures();
                     !failed.empty() && !(this->_manager.progress() && this->_manager.progress()->id != this->_progressHidden)) { // shown: after the progress one
+                    if (cluster::key_action(this->_manager.config(), key_name_(event)) == "quit") { // the quit key never stuck behind it
+                        this->quit_();
+                        return true;
+                    }
                     if (event == ftxui::Event::Return || event == ftxui::Event::Escape || event == ftxui::Event::Character('o') || event == ftxui::Event::Character(' '))
                         this->_manager.failureAnswer(failed.front().id, false);
                     else if ((event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R')) && failed.front().retry)

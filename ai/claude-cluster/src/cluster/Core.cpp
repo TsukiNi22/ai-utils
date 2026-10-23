@@ -495,6 +495,7 @@ _cold int cluster::Core::ui_(const bool serve)
         }
         if (cluster::quit_requested()) cluster::debug("core", "stops: a quit signal (Ctrl+C, kill, Stop all / Restart)");
         app.stop();
+        if (cluster::demo_enabled()) std::atexit([]() {cluster::demo_cleanup(true);}); // the demo: its folder gone with its core
         return 0;
     }
     try {
@@ -524,6 +525,8 @@ _cold int cluster::Core::ui_(const bool serve)
         }
     }
     app.stop();
+    // the demo: its core gone, its folder too (at the very end of the process: the last writes of the core done)
+    if (cluster::demo_enabled() && (serve || !attached)) std::atexit([]() {cluster::demo_cleanup(true);});
     return code;
 }
 

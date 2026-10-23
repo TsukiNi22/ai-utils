@@ -13,6 +13,7 @@ File Description:
 #define _Exception
 #define _Attribute
 #include <utils/utils.hpp>
+#include "cluster/Demo.hpp"
 #include "cluster/Settings.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Manager.hpp"
@@ -274,6 +275,7 @@ _cold bool cluster::Manager::busy(void) const
 
 _cold void cluster::Manager::setBackground(const bool on)
 {
+    if (on && cluster::demo_enabled()) return; // the demo never stays behind its terminal: it stops with it
     // the web access closed meanwhile (nobody to approve a device, nothing to show); open again when an interface comes back
     if (on && !this->_background && this->_web != nullptr) {
         const bool open = this->_web->status().on;

@@ -62,8 +62,10 @@ header .muted { color: var(--muted); font-size: 13px; }
 .session.active { background: var(--surface); border-color: var(--line); }
 .session .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .session .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
-.chip { font-size: 11px; border-radius: 9px; padding: 0 7px; border: 1px solid var(--chip); color: var(--chip); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.session .chips { margin-top: 3px; }
+.card > .chips { padding: 6px 12px 0; }
+.chip { font-size: 11px; line-height: 16px; border-radius: 9px; padding: 1px 7px; border: 1px solid var(--chip); color: var(--chip); white-space: nowrap; flex: none; }
 .chip.category { background: var(--chip); color: var(--bg); font-weight: 600; }
 .group-head { font-size: 12px; font-weight: 600; margin: 6px 4px 0; color: var(--chip, var(--muted)); }
 #groupToggle { align-self: flex-end; font-size: 11px; padding: 0 8px; }
@@ -171,7 +173,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 #sessionDesc { font-size: 12px; color: var(--muted); font-style: italic; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #sessionLabels { font-size: 12px; color: var(--accent); cursor: pointer; white-space: nowrap; } #sessionLabels.empty { opacity: .55; color: var(--muted); font-style: italic; }
 #sessionDesc.empty { opacity: .55; } #sessionDesc:hover { color: var(--accent); }
-.card-desc { font-size: 12px; color: var(--muted); font-style: italic; margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-desc { font-size: 12px; color: var(--muted); font-style: italic; margin: 0; padding: 4px 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sessionWhere { font-family: var(--mono, monospace); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .msg.turn .round { font-family: var(--mono, monospace); font-size: 12px; padding-left: 10px; border-left: 2px solid var(--line); margin: 2px 0; }
 .msg.turn .round.current { color: var(--accent); border-left-color: var(--accent); }

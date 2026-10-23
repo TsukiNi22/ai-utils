@@ -18,6 +18,7 @@ File Description:
 \**************************************************************/
 
 #include "cluster/Manager.hpp"
+#include "cluster/Control.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Demo.hpp"
 #include <filesystem>
@@ -32,6 +33,8 @@ File Description:
 #include <chrono>
 #include <vector>
 #include <poll.h>
+#include <csignal>
+#include <cctype>
 #include <deque>
 #include <map>
 #include <set>
@@ -91,11 +94,17 @@ namespace {
         return {"README.md"};
     }
 
-    std::filesystem::path base_(void)
+    std::filesystem::path root_(void)
     {
         const char* cache = std::getenv("XDG_CACHE_HOME");
-        const std::filesystem::path root = cache != nullptr && *cache != '\0' ? std::filesystem::path(cache) : cluster::expand_home("~/.cache");
-        return root / "claude-cluster-demo";
+        return (cache != nullptr && *cache != '\0' ? std::filesystem::path(cache) : cluster::expand_home("~/.cache")) / "claude-cluster-demo";
+    }
+
+    // the folder of this demo: one per launch (its terminal, its core and its agents share it through the environment)
+    std::filesystem::path base_(void)
+    {
+        const char* own = std::getenv("CLAUDE_CLUSTER_DEMO_DIR");
+        return own != nullptr && *own != '\0' ? std::filesystem::path(own) : root_() / std::to_string(::getpid());
     }
 
     std::uint32_t next_(std::uint32_t& state)
@@ -153,9 +162,16 @@ _cold bool cluster::demo_web_allows(const std::string& cmd)
 
 _cold void cluster::demo_prepare(const bool web)
 {
-    // the demo folder made again: nothing of a previous demo, nothing of the real data
-    const std::filesystem::path dir = base_();
+    // a folder of its own: nothing of another demo (one may run beside it: never linked), nothing of the real data; the folders of the demos
+    // that are gone (their terminal dead) removed
     std::error_code error;
+    for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(root_(), error)) {
+        const std::string name = entry.path().filename().string();
+        if (!name.empty() && std::all_of(name.begin(), name.end(), [](const unsigned char c) {return std::isdigit(c) != 0;}) && ::kill(std::stoi(name), 0) != 0)
+            std::filesystem::remove_all(entry.path(), error);
+    }
+    error.clear();
+    const std::filesystem::path dir = root_() / std::to_string(::getpid());
     std::filesystem::remove_all(dir, error);
     for (const char* sub: {"cfg", "data", "projects"})
         std::filesystem::create_directories(dir / sub, error);
@@ -171,13 +187,24 @@ _cold void cluster::demo_prepare(const bool web)
     std::ofstream(agent) << "#!/bin/sh\nexec \"" << cluster::self_exe().string() << "\" demo-agent\n";
     ::chmod(agent.c_str(), 0755);
     std::ofstream(dir / "cfg" / "config.toml") << "# the demo: written again at each start\n[global]\nenabled = true\n[ui]\nnotify = false\nmachine_days = 0\nrestore = \"never\"\nlayout = \"list\"\n"
-        "[user]\nname = \"Demo\"\nemail = \"demo@example.com\"\n[usage]\naccount = false\n[commands]\nclaude = \"" << agent.string() << "\"\n"
+        "quit_background = \"never\"\n[user]\nname = \"Demo\"\nemail = \"demo@example.com\"\n[usage]\naccount = false\n[commands]\nclaude = \"" << agent.string() << "\"\n"
         "[agent]\norchestration = \"ultra\"\n[service]\nkeep_awake = \"off\"\n[web]\nenabled = " << (web ? "true" : "false") << "\nport = 8444\ntty_port = 2223\napprove = false\n";
     ledger_(dir / "data");
     ::setenv("CLAUDE_CLUSTER_CONFIG_DIR", (dir / "cfg").c_str(), 1);
     ::setenv("CLAUDE_CLUSTER_DATA_DIR", (dir / "data").c_str(), 1);
     ::setenv("CLAUDE_CLUSTER_SOCKET", (dir / "sock").c_str(), 1);
     ::setenv("CLAUDE_CLUSTER_DEMO", "1", 1);
+    ::setenv("CLAUDE_CLUSTER_DEMO_DIR", dir.c_str(), 1);
+}
+
+_cold void cluster::demo_cleanup(const bool core)
+{
+    // its core stopped: nothing of the demo is kept (no persistence); its terminal waits for the core to be gone first
+    if (!cluster::demo_enabled()) return;
+    for (int i = 0; !core && i < 40 && cluster::Control::alive(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::error_code error;
+    std::filesystem::remove_all(base_(), error);
 }
 
 _cold void cluster::demo_seed(cluster::Manager& manager)
@@ -274,7 +301,7 @@ namespace {
                         return out;
                     }
                     pollfd waiting{0, POLLIN, 0};
-                    if (::poll(&waiting, 1, ms) <= 0) return std::nullopt;
+                    if (::poll(&waiting, 1, std::min(ms, 500)) <= 0) return std::nullopt;
                     char chunk[4096];
                     const ssize_t got = ::read(0, chunk, sizeof(chunk));
                     if (got <= 0) {
@@ -295,6 +322,7 @@ namespace {
         int step = 0;
         std::string project;
         std::string session = "demo";
+        pid_t parent = ::getppid();       // its core: gone, the agent leaves too
     };
 
     void out_(const cluster::Json& message)
@@ -314,7 +342,7 @@ namespace {
         for (;;) {
             const int left = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::steady_clock::now()).count());
             const std::optional<std::string> line = agent.input.line(std::max(0, left));
-            if (agent.input.eof()) ::_exit(0);
+            if (agent.input.eof() || ::getppid() != agent.parent) ::_exit(0); // its core gone: the demo is over
             if (!line) return;
             const cluster::Json message = cluster::Json::parse(*line, nullptr, false);
             if (!message.is_object()) continue;
