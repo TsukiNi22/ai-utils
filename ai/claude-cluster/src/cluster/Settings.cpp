@@ -330,9 +330,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"sessions", "max_parallel", "Parallel sessions", SettingKind::Int, {}, "sub-sessions working at the same time: past it, the tasks (task_add, the "
                 "groups of the global session) wait in the task queue and are sent as soon as a place is free", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.maxParallel);}},
-            {"sessions", "queue_given", "Queued prompts", SettingKind::Choice, {"step", "end"}, "a prompt typed while the turn runs (Claude Code sessions):\n"
-                "• step: given to claude after 1.5 s (Esc edits it before), taken at its next step - between two tool calls - like the queue of Claude Code\n"
-                "• end: held here until the end of the turn (editable until then), then sent", false,
+            {"sessions", "queue_given", "Queued prompts", SettingKind::Choice, {"end", "step"}, "a prompt typed while the turn runs (Claude Code sessions):\n"
+                "• end (default): held here until the end of the turn - editable, cancelled (Esc, ↑) or sent now (F8: the turn interrupted) until then\n"
+                "• step: given to claude after 1.5 s (Esc edits it before), taken at its next step - between two tool calls - like the queue of Claude Code; given, it can no longer be taken back", false,
                 [](const cluster::Config& cf) {return cf.queueGiven;}},
             {"sessions", "history_limit", "Prompt history (prompts)", SettingKind::Int, {}, "the prompts kept for ↑ / Ctrl+R (history.jsonl): the oldest "
                 "dropped beyond it; 0: all", false, [](const cluster::Config& cf) {return std::to_string(cf.historyLimit);}},

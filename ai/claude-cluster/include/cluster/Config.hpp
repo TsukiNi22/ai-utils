@@ -308,7 +308,7 @@ class Config {
         bool pinGlobal = true;                  // the global session may pin an item on any session (MCP session_pin)
         bool taxonomyEdit = true;               // the global session may edit the taxonomy of the categories / tags (MCP taxonomy)
         int transcriptLimitMb = 25;             // each session transcript (logs/<id>.jsonl): its newest entries within this size (0: no limit)
-        std::string queueGiven = "step";        // a prompt queued while the turn runs: step (given to claude after 1.5 s, taken at its next step) | end (after the turn)
+        std::string queueGiven = "end";         // a prompt queued while the turn runs: end (kept here, editable, F8 sends it now; after the turn) | step (given to claude, taken at its next step)
         double budget = 0.0;
         bool questionsToGlobal = true;          // the questions of the sub-sessions shown on the global session (their own one: greyed)
         bool globalAnswers = false;             // the global session may choose the answer of a question of a sub-session

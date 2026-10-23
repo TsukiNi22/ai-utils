@@ -502,6 +502,7 @@ class Manager {
         _cold void showcaseState(const std::string& id, const cluster::State state);
         _cold void interrupt(const std::string& id);
         _cold void sendNext(const std::string& id);   // its next queued prompt now (the running turn interrupted)
+        _cold void stopAgent(const std::string& id, const std::string& task);   // one sub-agent of the session stopped (the session goes on)
         // a long operation: its popup in every interface (begin, what it does now, a line of its log, its end)
         _cold std::uint64_t progressBegin(const std::string& title, const std::string& session = "");
         _cold void progressStep(const std::uint64_t id, const std::string& now);

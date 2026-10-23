@@ -759,6 +759,27 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (from_web && !manager.config().web.shell) // the page (its terminal too): only when the computer allows it
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page)");
             data = manager.shell(session(), arg_(request, "command"));
+        } else if (cmd == "agents") {
+            // the sub-agents of a session (with their activity), or of every session (without it)
+            const std::string id = arg_(request, "session");
+            data = cluster::Json::array();
+            for (const cluster::Snapshot& s: manager.list(true)) {
+                if (!id.empty() && s.spec.id != manager.resolve(id)) continue;
+                for (const cluster::SubAgent& a: s.agents) {
+                    cluster::Json item = a;
+                    item["session"] = s.spec.id;
+                    item["session_name"] = s.spec.global ? std::string("global") : s.spec.name;
+                    if (id.empty()) item.erase("entries");
+                    if (!id.empty() && !a.outputFile.empty()) { // a shell: the end of its output
+                        const std::string out = cluster::read_small(a.outputFile);
+                        item["output"] = cluster::clean_utf8(out.size() > 6000 ? out.substr(out.size() - 6000) : out);
+                    }
+                    data.push_back(item);
+                }
+            }
+        } else if (cmd == "agent_stop") {
+            manager.stopAgent(arg_(request, "session"), arg_(request, "task"));
+            data = {{"stopping", true}};
         } else if (cmd == "send_next") {
             manager.sendNext(session());
         } else if (cmd == "resume") {

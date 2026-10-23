@@ -380,6 +380,31 @@ struct Todo {
     std::string activeForm;
 };
 
+// What a session runs in the background itself: an agent (its Agent tool: a sub-agent of claude, not a sub-session of claude-cluster) or
+// a shell (a command run in the background: a script, a server, a watcher)
+struct SubAgent {
+    std::string kind = "agent";     // agent | shell
+    std::string taskId;             // the task of claude (its stop_task), empty: not told yet (an older claude)
+    std::string toolUseId;          // the Agent call that made it (its messages carry it as parent_tool_use_id)
+    std::string description;
+    std::string type;               // its kind (general-purpose, Explore, a custom one...)
+    std::string prompt;             // what it was asked (cut)
+    std::string model;              // the model of its messages (empty: not seen yet)
+    std::string effort;             // the thinking of its session (an agent inherits it)
+    std::string status = "running"; // running | done | failed | stopped
+    std::string summary;            // what it says it does / did
+    std::string lastTool;
+    std::string error;
+    std::string outputFile;         // a shell: the file of its output (its last lines shown)
+    bool background = false;        // run in the background (its session goes on meanwhile)
+    bool stopping = false;          // a stop asked, not confirmed yet
+    std::int64_t started = 0;       // ms
+    std::int64_t ended = 0;         // ms, 0: running
+    std::int64_t tokens = 0;
+    int toolUses = 0;
+    std::vector<cluster::Entry> entries;    // its activity: what it says, its tools and their results (the last ones)
+};
+
 // Copy of a session for the front-ends (taken under the lock of the session)
 struct Snapshot {
     cluster::SessionSpec spec;
@@ -415,6 +440,7 @@ struct Snapshot {
     std::string warning;                // a problem of its interfaces (two prompts at once...), shown a minute on it
     std::int64_t warningAt = 0;
     std::vector<cluster::Todo> todos;   // its todo list now (its last TodoWrite)
+    std::vector<cluster::SubAgent> agents;  // the agents it made (its Agent tool), the last 40
 };
 
 //----------------------------------------------------------------//

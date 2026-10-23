@@ -58,6 +58,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
         {"stats", "Statistics: cost and tokens per day / model / provider, sessions ranking, cache, uptime, heatmap, tools, limits (F10)", "", "", false},
         {"jobs", "Background jobs: what runs (!commands, heavy jobs, tasks, working sessions) with the id to stop it (a popup, /kill <id>)", "", "", false},
+        {"agents", "Agents of this session: the ones it made itself (its Agent tool) - their time, model, effort, activity; stop one (F7)", "", "", true},
         {"shells", "Background shells: the !commands running (a popup), stop one with /kill", "", "", false},
         {"shells_kill", "Background shells: stop them all", "", "", false},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
@@ -661,6 +662,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"info", "everything about the session in focus: agent, model, thinking, api / login, cost, limits (a popup)"},
         {"stats", "the statistics: usage, activity (the Stats session, F10)"},
         {"jobs", "everything running in the background (!commands, heavy jobs, tasks, working sessions) in a popup; /kill <id> stops one"},
+        {"agents", "the agents this session made itself (its Agent tool): their time, model, effort, activity, stop one (a popup, F7)"},
         {"shells", "the !commands running in the background (and the last ended ones): a popup; /kill <id|all> stops them"},
         {"kill", "<id|all>: stop a background shell (and everything it started)"},
         {"status", "the same as /info"},
@@ -1166,6 +1168,8 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
             result.ui = "message";
         } else if (name == "plugins") {
             result.ui = "plugins";
+        } else if (name == "agents") {
+            result.ui = "agents";
         } else if (name == "rewind") {
             result.ui = "rewind";
         } else if (name == "close" || name == "exit") {

@@ -543,6 +543,15 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
     const std::string subtype = event.value("subtype", std::string());
     cluster::Metrics& metrics = this->_data.metrics;
 
+    if (type == "system" && subtype.starts_with("task_")) {
+        this->agentTask_(subtype, event); // a sub-agent of this session: started, going on, ended
+        return;
+    }
+    if ((type == "assistant" || type == "user") && event.contains("message") && event.value("parent_tool_use_id", cluster::Json()).is_string()) {
+        this->agentMessage_(event);
+        return;
+    }
+    if (type == "stream_event" && event.value("parent_tool_use_id", cluster::Json()).is_string()) return; // the words of a sub-agent: not the answer of the session
     if (type == "system" && subtype == "init") {
         this->_data.spec.claudeId = event.value("session_id", this->_data.spec.claudeId);
         this->_data.spec.fork = false; // forked once: the copy goes on under its own id
@@ -698,6 +707,12 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                     run.done = true;
                     run.error = error;
                 }
+            for (cluster::SubAgent& agent: this->_data.agents) // its Agent call answered: the agent done (one in the background goes on)
+                if (agent.toolUseId == id && agent.status == "running" && (!agent.background || error)) {
+                    agent.status = error ? "failed" : "done";
+                    agent.ended = cluster::now_ms();
+                    agent.stopping = false;
+                }
             if (std::none_of(this->_data.tools.begin(), this->_data.tools.end(), [](const cluster::ToolRun& t) {return !t.done;}) && this->_data.step == "tools")
                 this->step_("model");
             std::string text;
@@ -753,6 +768,12 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         this->emit_(cluster::Event::Kind::Permission, permission.tool + ": " + cluster::one_line(permission.description, 120));
     } else if (type == "control_response" && event.contains("response")) {
         const cluster::Json& response = event["response"];
+        if (response.value("request_id", std::string()).starts_with("stop-agent-") && response.value("subtype", std::string()) == "error") {
+            for (cluster::SubAgent& agent: this->_data.agents)
+                agent.stopping = false;
+            this->_data.warning = "the agent was not stopped: " + cluster::one_line(response.value("error", std::string("refused by claude")), 160);
+            this->_data.warningAt = cluster::now();
+        }
         if (response.value("request_id", std::string()).starts_with("init-")) {
             // its commands and skills (the user's, its plugins'), with their description: completed from the start
             const cluster::Json answer = response.value("response", cluster::Json::object());
@@ -978,10 +999,169 @@ _cold void cluster::Session::picture_(const std::string& id, const cluster::Json
     }
 }
 
+/* sub-agents */
+_cold static std::string agent_status_(const std::string& status)
+{
+    // the words of claude for a task: running, done, failed or stopped
+    if (status == "completed" || status == "done" || status == "success") return "done";
+    if (status == "failed" || status == "error") return "failed";
+    if (status == "killed" || status == "stopped" || status == "cancelled" || status == "canceled" || status == "interrupted") return "stopped";
+    return "running";
+}
+
+_cold cluster::SubAgent& cluster::Session::agent_(const std::string& toolUseId, const std::string& taskId)
+{
+    // found by its task or its call; a new one: the oldest ended one dropped past 40
+    std::vector<cluster::SubAgent>& agents = this->_data.agents;
+    for (cluster::SubAgent& agent: agents)
+        if ((!taskId.empty() && agent.taskId == taskId) || (!toolUseId.empty() && agent.toolUseId == toolUseId)) {
+            if (agent.taskId.empty()) agent.taskId = taskId;
+            if (agent.toolUseId.empty()) agent.toolUseId = toolUseId;
+            return agent;
+        }
+    if (agents.size() >= 40) {
+        const auto ended = std::find_if(agents.begin(), agents.end(), [](const cluster::SubAgent& a) {return a.status != "running";});
+        agents.erase(ended != agents.end() ? ended : agents.begin());
+    }
+    cluster::SubAgent agent;
+    agent.taskId = taskId;
+    agent.toolUseId = toolUseId;
+    agent.effort = this->_data.spec.effort;
+    agent.started = cluster::now_ms();
+    agents.push_back(std::move(agent));
+    return agents.back();
+}
+
+_cold void cluster::Session::agentTask_(const std::string& subtype, const cluster::Json& event)
+{
+    // the tasks of claude: its agents and its shells run in the background (a script, a server: their output file)
+    const std::string task = event.value("task_id", cluster::Json()).is_string() ? event["task_id"].get<std::string>() : std::string();
+    const std::string call = event.value("tool_use_id", cluster::Json()).is_string() ? event["tool_use_id"].get<std::string>() : std::string();
+    if (task.empty()) return;
+    const auto known = std::find_if(this->_data.agents.begin(), this->_data.agents.end(), [&](const cluster::SubAgent& a) {
+        return a.taskId == task || (!call.empty() && a.toolUseId == call);
+    });
+    const std::string kind = event.value("task_type", std::string());
+    const bool agentLike = event.value("subagent_type", cluster::Json()).is_string() || kind.find("agent") != std::string::npos;
+    const bool shellLike = kind.find("bash") != std::string::npos || kind.find("shell") != std::string::npos;
+    if (known == this->_data.agents.end() && !(subtype == "task_started" && (agentLike || shellLike))) return;
+    cluster::SubAgent& agent = this->agent_(call, task);
+    if (subtype == "task_started" && shellLike && !agentLike) {
+        agent.kind = "shell";
+        agent.type = "shell";
+        agent.background = true;
+    }
+    if (event.value("output_file", cluster::Json()).is_string() && !event["output_file"].get<std::string>().empty()) agent.outputFile = event["output_file"].get<std::string>();
+    const cluster::Json usage = event.value("usage", cluster::Json::object());
+    if (event.value("description", cluster::Json()).is_string() && !event["description"].get<std::string>().empty())
+        agent.description = event["description"].get<std::string>();
+    if (event.value("subagent_type", cluster::Json()).is_string()) agent.type = event["subagent_type"].get<std::string>();
+    if (usage.is_object() && usage.value("total_tokens", cluster::Json()).is_number()) agent.tokens = usage["total_tokens"].get<std::int64_t>();
+    if (usage.is_object() && usage.value("tool_uses", cluster::Json()).is_number()) agent.toolUses = usage["tool_uses"].get<int>();
+    if (event.value("summary", cluster::Json()).is_string() && !event["summary"].get<std::string>().empty())
+        agent.summary = clip_(event["summary"].get<std::string>(), 600);
+    if (subtype == "task_started") {
+        if (event.value("is_backgrounded", cluster::Json()).is_boolean()) agent.background = event["is_backgrounded"].get<bool>();
+        if (agent.prompt.empty() && event.value("prompt", cluster::Json()).is_string()) agent.prompt = clip_(event["prompt"].get<std::string>(), 2000);
+    } else if (subtype == "task_progress") {
+        if (event.value("last_tool_name", cluster::Json()).is_string()) agent.lastTool = event["last_tool_name"].get<std::string>();
+    } else if (subtype == "task_updated") {
+        const cluster::Json patch = event.value("patch", cluster::Json::object());
+        if (patch.value("status", cluster::Json()).is_string()) agent.status = agent_status_(patch["status"].get<std::string>());
+        if (patch.value("description", cluster::Json()).is_string()) agent.description = patch["description"].get<std::string>();
+        if (patch.value("error", cluster::Json()).is_string()) agent.error = clip_(patch["error"].get<std::string>(), 600);
+        if (patch.value("is_backgrounded", cluster::Json()).is_boolean()) agent.background = patch["is_backgrounded"].get<bool>();
+    } else if (subtype == "task_notification") {
+        agent.status = agent_status_(event.value("status", std::string("completed")));
+        if (event.value("reason", cluster::Json()).is_string() && agent.status != "done") agent.error = clip_(event["reason"].get<std::string>(), 600);
+        // its callback: the session idle (no turn to take it), woken with the notification, like Claude Code does; a turn running
+        // gets it from claude itself
+        const bool idle = this->_data.state != cluster::State::Working && this->_data.state != cluster::State::Waiting && this->_data.state != cluster::State::Starting;
+        if (idle && this->persistent() && this->_in != -1 && agent.status != "running") {
+            cluster::Queued wake{"<task-notification>\n<task-id>" + task + "</task-id>\n<status>" + event.value("status", std::string("completed")) + "</status>\n<summary>"
+                + (agent.kind == "shell" ? "Background command \"" : "Agent \"") + agent.description + "\" " + agent.status
+                + (agent.summary.empty() ? std::string() : ": " + agent.summary) + "</summary>"
+                + (agent.outputFile.empty() ? std::string() : "\n<output-file>" + agent.outputFile + "</output-file>") + "\n</task-notification>", {}, {}};
+            wake.at = cluster::now_ms();
+            wake.origin = "task";
+            this->dispatch_(wake);
+        }
+    }
+    if (agent.status != "running") {
+        if (agent.ended == 0) agent.ended = cluster::now_ms();
+        agent.stopping = false;
+    }
+}
+
+_cold void cluster::Session::agentMessage_(const cluster::Json& event)
+{
+    // a message of a sub-agent: its model, its words, its tools and their results in its own activity (the last 120)
+    cluster::SubAgent& agent = this->agent_(event["parent_tool_use_id"].get<std::string>(), "");
+    const cluster::Json& message = event["message"];
+    const std::int64_t at = cluster::now();
+    const auto add = [&agent, at](const cluster::EntryKind kind, const std::string& text, const std::string& tool) {
+        agent.entries.push_back({kind, text, tool, at, ""});
+        if (agent.entries.size() > 120) agent.entries.erase(agent.entries.begin());
+    };
+    if (message.value("model", cluster::Json()).is_string() && !message["model"].get<std::string>().empty()) agent.model = message["model"].get<std::string>();
+    const cluster::Json content = message.value("content", cluster::Json());
+    if (content.is_string()) {
+        if (agent.entries.empty()) add(cluster::EntryKind::User, clip_(content.get<std::string>(), 1500), "");
+        return;
+    }
+    if (!content.is_array()) return;
+    for (const cluster::Json& block: content) {
+        const std::string kind = block.value("type", std::string());
+        if (kind == "text" && event.value("type", std::string()) == "assistant") {
+            add(cluster::EntryKind::Assistant, clip_(block.value("text", std::string()), 1500), "");
+        } else if (kind == "text" && agent.entries.empty()) {
+            add(cluster::EntryKind::User, clip_(block.value("text", std::string()), 1500), "");
+        } else if (kind == "tool_use") {
+            const std::string name = block.value("name", std::string());
+            add(cluster::EntryKind::Tool, tool_summary_(name, block.value("input", cluster::Json::object())), name);
+            agent.lastTool = name;
+            ++agent.toolUses;
+        } else if (kind == "tool_result") {
+            std::string text;
+            if (block.value("content", cluster::Json()).is_string()) text = block["content"].get<std::string>();
+            else if (block.value("content", cluster::Json()).is_array())
+                for (const cluster::Json& part: block["content"])
+                    text += part.value("text", std::string());
+            add(block.value("is_error", false) ? cluster::EntryKind::Error : cluster::EntryKind::ToolResult, clip_(text, 400), "");
+        }
+    }
+}
+
+_cold void cluster::Session::stopAgent(const std::string& task)
+{
+    // its stop_task: the agent ends, the session goes on (its turn too)
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    const auto found = std::find_if(this->_data.agents.begin(), this->_data.agents.end(), [&task](const cluster::SubAgent& a) {
+        return (!a.taskId.empty() && a.taskId == task) || a.toolUseId == task;
+    });
+    if (found == this->_data.agents.end())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no agent '" + task + "' in " + this->_data.spec.name);
+    if (found->status != "running") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "this agent already ended");
+    if (found->taskId.empty())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "claude did not tell its task yet (an older claude): stop the turn of the session instead");
+    if (this->_in == -1) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, this->_data.spec.name + " is not running");
+    this->write_({{"type", "control_request"}, {"request_id", "stop-agent-" + std::to_string(cluster::now_ms())}, {"request", {{"subtype", "stop_task"}, {"task_id", found->taskId}}}});
+    found->stopping = true;
+    this->touch_();
+}
+
 _cold void cluster::Session::tool_(const std::string& id, const std::string& name, const cluster::Json& input)
 {
     const std::string summary = tool_summary_(name, input);
     this->_data.tools.push_back({id, name, summary, false, false, cluster::now(), ""});
+    if (name == "Agent" || name == "Task") { // a sub-agent made: listed at once (claude tells its task just after)
+        cluster::SubAgent& agent = this->agent_(id, "");
+        agent.description = input.value("description", std::string());
+        agent.type = input.value("subagent_type", std::string("general-purpose"));
+        agent.prompt = clip_(input.value("prompt", std::string()), 2000);
+        if (input.contains("model") && input["model"].is_string()) agent.model = input["model"].get<std::string>();
+        agent.background = input.value("run_in_background", false);
+    }
     if (name == "Read" && input.contains("file_path") && input["file_path"].is_string() && is_picture_(input["file_path"].get<std::string>()))
         this->_data.tools.back().image = input["file_path"].get<std::string>(); // a picture read: shown from the rounds of the turn
     if (this->_data.tools.size() > 200) this->_data.tools.erase(this->_data.tools.begin());

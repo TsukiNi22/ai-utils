@@ -156,7 +156,7 @@ _cold bool cluster::demo_enabled(void)
 _cold bool cluster::demo_web_allows(const std::string& cmd)
 {
     static const std::set<std::string> reads = {"list", "read", "status", "notices", "usage", "task_list", "transcript", "display_get", "settings_get", "settings_search",
-        "settings_suggest", "orch_state", "job_status", "schedule_list", "todos", "services", "projects", "ask_preview", "stats", "shells", "trash", "hello"};
+        "settings_suggest", "orch_state", "job_status", "schedule_list", "todos", "services", "projects", "ask_preview", "stats", "shells", "trash", "hello", "agents"};
     return reads.contains(cmd);
 }
 
@@ -323,6 +323,7 @@ namespace {
         std::string project;
         std::string session = "demo";
         pid_t parent = ::getppid();       // its core: gone, the agent leaves too
+        std::set<std::string> stopped;      // its sub-agents stopped (stop_task)
     };
 
     void out_(const cluster::Json& message)
@@ -347,7 +348,13 @@ namespace {
             const cluster::Json message = cluster::Json::parse(*line, nullptr, false);
             if (!message.is_object()) continue;
             const std::string type = message.value("type", std::string());
-            if (type == "control_request") {
+            if (type == "control_request" && message.contains("request") && message["request"].value("subtype", std::string()) == "stop_task") {
+                // one of its sub-agents stopped: told ended, its session goes on
+                const std::string task = message["request"].value("task_id", std::string());
+                answer_control_(message);
+                agent.stopped.insert(task);
+                out_({{"type", "system"}, {"subtype", "task_notification"}, {"task_id", task}, {"status", "killed"}, {"summary", "stopped by the user"}});
+            } else if (type == "control_request") {
                 answer_control_(message);
             } else if (type == "control_response") {
                 agent.answered = true;
@@ -391,6 +398,56 @@ namespace {
         const std::string id = tool_id_(agent);
         assistant_({{{"type", "tool_use"}, {"id", id}, {"name", "TodoWrite"}, {"input", {{"todos", todos}}}}});
         out_({{"type", "user"}, {"message", {{"role", "user"}, {"content", {{{"type", "tool_result"}, {"tool_use_id", id}, {"content", "Todos updated"}}}}}}});
+    }
+
+    // its sub-agents (its Agent tool): an explorer done, a test writer in the background and a reviewer running
+    void agents_start_(const std::string& mood)
+    {
+        struct Made {
+            const char* task;
+            const char* call;
+            const char* description;
+            const char* type;
+            const char* model;
+            bool background;
+        };
+        static const std::vector<Made> made = {{"demo-task-1", "demo-agent-1", "Explore how the code is wired", "Explore", "claude-haiku-5-5", false},
+            {"demo-task-2", "demo-agent-2", "Write the failing test first", "general-purpose", "claude-sonnet-5-5", true},
+            {"demo-task-3", "demo-agent-3", "Review the change", "code-reviewer", "claude-opus-5-5", false}};
+        cluster::Json calls = cluster::Json::array();
+        for (const Made& m: made)
+            calls.push_back({{"type", "tool_use"}, {"id", m.call}, {"name", "Agent"}, {"input", {{"description", m.description}, {"subagent_type", m.type},
+                {"prompt", std::string(m.description) + " (" + mood + ")"}, {"run_in_background", m.background}}}});
+        assistant_(calls);
+        for (const Made& m: made) {
+            out_({{"type", "system"}, {"subtype", "task_started"}, {"task_id", m.task}, {"tool_use_id", m.call}, {"description", m.description}, {"subagent_type", m.type},
+                {"task_type", "local_agent"}, {"is_backgrounded", m.background}});
+            out_({{"type", "assistant"}, {"parent_tool_use_id", m.call}, {"message", {{"role", "assistant"}, {"model", m.model},
+                {"content", {{{"type", "text"}, {"text", std::string("Starting: ") + m.description + " - " + mood + "."}}}}}}});
+        }
+        out_({{"type", "system"}, {"subtype", "task_notification"}, {"task_id", "demo-task-1"}, {"tool_use_id", "demo-agent-1"}, {"status", "completed"},
+            {"summary", "the entry point is src/checkout/index.ts: three callers, no global state"}, {"usage", {{"total_tokens", 18400}, {"tool_uses", 6}}}});
+        out_({{"type", "user"}, {"message", {{"role", "user"}, {"content", {{{"type", "tool_result"}, {"tool_use_id", "demo-agent-1"}, {"content", "the entry point is src/checkout/index.ts"}}}}}}});
+        out_({{"type", "user"}, {"message", {{"role", "user"}, {"content", {{{"type", "tool_result"}, {"tool_use_id", "demo-agent-2"}, {"content", "Async agent launched"}}}}}}});
+    }
+
+    // a step of the running ones: a tool, its result, their progress
+    void agents_step_(Agent& agent, const int n)
+    {
+        static const std::vector<std::pair<std::string, std::string>> running = {{"demo-task-2", "demo-agent-2"}, {"demo-task-3", "demo-agent-3"}};
+        for (std::size_t i = 0; i < running.size(); ++i) {
+            const auto &[task, call] = running[i];
+            if (agent.stopped.contains(task)) continue;
+            const std::string id = "demo-sub-" + std::to_string(n) + "-" + std::to_string(i);
+            const cluster::Json use = i == 0 ? cluster::Json{{"name", "Bash"}, {"input", {{"command", "npm test -- cart"}}}}
+                : cluster::Json{{"name", "Read"}, {"input", {{"file_path", "src/checkout/payment.ts"}}}};
+            out_({{"type", "assistant"}, {"parent_tool_use_id", call}, {"message", {{"role", "assistant"}, {"model", i == 0 ? "claude-sonnet-5-5" : "claude-opus-5-5"},
+                {"content", {{{"type", "tool_use"}, {"id", id}, {"name", use["name"]}, {"input", use["input"]}}}}}}});
+            out_({{"type", "user"}, {"parent_tool_use_id", call}, {"message", {{"role", "user"}, {"content", {{{"type", "tool_result"}, {"tool_use_id", id},
+                {"content", i == 0 ? "Tests: 12 passed, 1 failed" : "(140 lines)"}}}}}}});
+            out_({{"type", "system"}, {"subtype", "task_progress"}, {"task_id", task}, {"tool_use_id", call}, {"usage", {{"total_tokens", 4000 + n * 1700 + static_cast<int>(i) * 900},
+                {"tool_uses", n + 1}}}, {"last_tool_name", use["name"]}, {"summary", i == 0 ? "the failing test is written: making it pass" : "reading the payment step"}});
+        }
     }
 
     // one step of a long piece of work: a thought, a tool and its result
@@ -458,8 +515,10 @@ namespace {
         }
         if (script != nullptr && script->mode == Mode::Busy) { // thinking and working: it never ends
             todo_(agent, mood, 1);
+            agents_start_(mood);
             for (int n = 0;; ++n) {
                 work_step_(agent, mood, n);
+                if (n % 2 == 1) agents_step_(agent, n);
                 if (n % 6 == 5) todo_(agent, mood, 1 + (n / 6) % 4);
                 if (!agent.prompts.empty()) {
                     assistant_({{{"type", "text"}, {"text", "(demo) taken at the next step: " + agent.prompts.front()}}});

@@ -249,9 +249,14 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         this->holdQueues_();
         for (;;) {
             std::string names;
-            for (const cluster::Snapshot& s: this->list(true))
-                if (s.state == cluster::State::Working || s.state == cluster::State::Waiting)
-                    names += (names.empty() ? "" : ", ") + s.spec.name + (s.state == cluster::State::Waiting ? " (waits for your answer)" : "");
+            const std::int64_t now = cluster::now_ms();
+            for (const cluster::Snapshot& s: this->list(true)) {
+                const bool agents = std::any_of(s.agents.begin(), s.agents.end(), [now](const cluster::SubAgent& a) {
+                    return a.status == "running" && now - a.started < 3600 * 1000; // its agents in the background too (an hour at most)
+                });
+                if (s.state == cluster::State::Working || s.state == cluster::State::Waiting || agents)
+                    names += (names.empty() ? "" : ", ") + s.spec.name + (s.state == cluster::State::Waiting ? " (waits for your answer)" : agents && s.state != cluster::State::Working ? " (its agents)" : "");
+            }
             if (names.empty()) break;
             const std::size_t held = this->heldCount_();
             this->progressStep(id, "waiting for the turns running: " + names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held, sent after the update" : std::string()));

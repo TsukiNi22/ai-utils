@@ -235,6 +235,15 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         {"branch", cluster::git_branch(cluster::expand_home(snap.spec.cwd))}};
     if (!snap.lastError.empty()) json["error"] = snap.lastError;
     if (!snap.remoteUrl.empty()) json["remote"] = snap.remoteUrl;
+    // its sub-agents: how many, how many running, since when (the oldest running one)
+    std::int64_t running = 0;
+    std::int64_t since = 0;
+    for (const cluster::SubAgent& a: snap.agents)
+        if (a.status == "running") {
+            ++running;
+            since = since == 0 ? a.started : std::min(since, a.started);
+        }
+    json["agents"] = {{"total", snap.agents.size()}, {"running", running}, {"since", since}};
     if (!full) return json;
     json["skills_loaded"] = snap.skillsLoaded;
     json["files_modified"] = snap.files;

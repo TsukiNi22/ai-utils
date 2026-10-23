@@ -298,6 +298,30 @@ header .muted { color: var(--muted); font-size: 13px; }
     display: flex; flex-direction: column; box-shadow: -10px 0 40px rgba(0,0,0,.22); }
 .panel-head, .panel-foot { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .panel-foot { border-top: 1px solid var(--line); border-bottom: none; }
+/* the agents and shells of a session: its panel, the window of one */
+.agents-note { padding: 8px 14px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.agent-row { padding: 10px 14px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.agent-row .top { display: flex; gap: 8px; align-items: center; }
+.agent-row .top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-row .meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.agent-row .say { font-size: 13px; color: var(--muted); }
+.agent-row .acts { display: flex; gap: 6px; }
+.agent-st { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: color-mix(in srgb, var(--muted) 18%, var(--surface)); }
+.agent-st.running { background: color-mix(in srgb, var(--ok) 20%, var(--surface)); color: var(--ok); }
+.agent-st.failed { background: color-mix(in srgb, var(--error) 18%, var(--surface)); color: var(--error); }
+.agent-st.stopped { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); }
+#agentWin { position: fixed; z-index: 55; right: 16px; bottom: 16px; width: min(480px, calc(100vw - 32px)); height: min(440px, 62vh); display: flex; flex-direction: column;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+#agentWin.big { right: 4vw; bottom: 5vh; width: 92vw; height: 88vh; }
+#agentWin.hidden { display: none; }
+#agentWin .head { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+#agentWin .head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#agentWin .meta { font-size: 12px; font-family: var(--mono); padding: 6px 12px; border-bottom: 1px solid var(--line); }
+#agentWin .body { flex: 1; overflow: auto; padding: 10px 14px; font-size: 14px; }
+.agent-entry { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-entry.tool, .agent-entry.result { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.agent-entry.error { color: var(--error); font-family: var(--mono); font-size: 12px; }
+.agent-entry.user { border-left: 3px solid var(--accent); padding-left: 8px; color: var(--muted); }
 .grow { flex: 1; }
 .tabs { display: flex; gap: 4px; overflow-x: auto; padding: 8px 10px; border-bottom: 1px solid var(--line); scrollbar-width: thin; scrollbar-color: var(--line) transparent; flex: none; }
 #drawerBody, #alertsList, #viewPane { scrollbar-color: var(--line) transparent; }
@@ -525,6 +549,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
             <span class="desc" id="sessionLabels" title="Its category and tags (click: edit; the category first, then the tags, e.g. bugfix #api #urgent)"></span>
             <span class="desc" id="sessionDesc" title="Its short description (click: edit; empty: written again)"></span>
             <span class="grow"></span>
+            <button id="agentsButton" class="hidden" title="The agents this session made (its Agent tool): their time, model, effort; open one, stop one">⧉ agents</button>
             <button id="fork" title="A copy of this session: its conversation so far, each one goes on apart">Fork</button>
             <button id="interrupt" title="Stop the turn and the reading">Stop</button>
             <button id="resume" class="hidden" title="Retry now / continue where it stopped">Continue</button>
@@ -577,6 +602,17 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
     <div class="panel-head"><b>Docs</b><span class="grow"></span><a id="docsTab" href="/docs/" target="_blank" rel="noopener">Open in a tab</a><button id="docsPhone" class="hidden" title="Open the documentation in the browser of the phone">Phone browser</button><button id="docsClose" aria-label="Close">✕</button></div>
     <iframe id="docsFrame" title="Documentation" referrerpolicy="no-referrer"></iframe>
 </aside>
+<aside id="agents" class="panel hidden" aria-label="Agents of the session">
+    <div class="panel-head"><b id="agentsTitle">Agents</b><span class="grow"></span><button id="agentsClose" aria-label="Close">✕</button></div>
+    <div class="muted agents-note">What this session runs itself: its agents (its Agent tool, not the sessions of claude-cluster) and its shells in the background. Stop one: the session goes on.</div>
+    <div id="agentsList"></div>
+</aside>
+<section id="agentWin" class="hidden" role="dialog" aria-label="An agent">
+    <div class="head"><b id="agentWinTitle"></b><span class="grow"></span>
+        <button id="agentWinSize" title="A small window / a big popup">⤢</button><button id="agentWinClose" aria-label="Close">✕</button></div>
+    <div class="muted meta" id="agentWinMeta"></div>
+    <div class="body" id="agentWinBody"></div>
+</section>
 <aside id="alerts" class="panel hidden" aria-label="Notifications">
     <div class="panel-head"><b>Notifications</b><span class="grow"></span><button id="alertsClose" aria-label="Close">✕</button></div>
     <div class="alerts-actions"><button id="browserNotify">Notify me in this browser</button></div>
@@ -1065,6 +1101,7 @@ function render(state) {
     $("sessionWhere").textContent = [shortPath(w.folder), w.branch ? "⎇ " + w.branch : "", w.host, w.pid ? "pid " + w.pid : ""].filter(Boolean).join(" · ");
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
+    renderAgentsButton(s);
     renderTranscript(s.messages || [], s.error);
     renderPin(s);
     renderFace(s.face);
@@ -4054,6 +4091,7 @@ $("browserNotify").addEventListener("click", async () => {
 });
 function closePanels() {
     $("alerts").classList.add("hidden");
+    $("agents").classList.add("hidden");
     $("drawer").classList.add("hidden");
     $("docs").classList.add("hidden");
 }
@@ -4566,6 +4604,130 @@ if (location.hash.length > 1) { // opened by a notification: its session
     setTimeout(() => openSession(session), 800);
 }
 if (!window.isSecureContext) $("mic").title = "The microphone needs https (settings page > Web > HTTPS)";
+
+// ---- the agents of a session: the ones it made itself (its Agent tool, sub-agents of claude, not sessions of claude-cluster) ----
+let agentsOf = "";          // the session whose agents the panel lists
+let agentsData = [];
+let agentOpen = null;       // {session, task}: the agent shown in its window
+let agentTimer = 0;
+function fmtTokens(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n || 0); }
+function agentUptime(a, nowMs) {
+    // its time: from its start to its end (running: to now)
+    if (!a.started) return "-";
+    const s = Math.max(0, Math.round(((a.ended || nowMs || Date.now()) - a.started) / 1000));
+    return s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s" : Math.floor(s / 3600) + " h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") + " min";
+}
+function agentStatus(a) { return a.stopping ? "stopping…" : a.status === "done" ? "done" : a.status; }
+function renderAgentsButton(s) {
+    const list = s.agent_list || [];
+    const running = list.filter((a) => a.status === "running").length;
+    const shells = list.filter((a) => a.kind === "shell").length;
+    const agents = list.length - shells;
+    $("agentsButton").classList.toggle("hidden", !list.length);
+    $("agentsButton").textContent = "⧉ " + [agents ? agents + " agent" + (agents > 1 ? "s" : "") : "", shells ? shells + " shell" + (shells > 1 ? "s" : "") : ""].filter(Boolean).join(" · ")
+        + (running ? " · " + running + " running" : "");
+    if (agentsOf === s.id) { agentsData = list; if (!$("agents").classList.contains("hidden")) renderAgents(); }
+}
+function renderAgents() {
+    const box = $("agentsList");
+    box.textContent = "";
+    $("agentsTitle").textContent = "Agents of " + ((lastState && lastState.session && lastState.session.id === "g") ? "the global session" : (lastState && lastState.session && lastState.session.name) || agentsOf);
+    if (!agentsData.length) { box.append(el("div", "muted agents-note", "No agent made by this session yet.")); return; }
+    for (const a of [...agentsData].reverse()) {
+        const row = el("div", "agent-row");
+        const top = el("div", "top");
+        top.append(el("b", "", a.description || a.type || "agent"), el("span", "agent-st " + (a.stopping ? "stopped" : a.status), agentStatus(a)));
+        const session = (lastState && lastState.session) || {};
+        const effort = a.effort ? "think " + a.effort : session.effort_label || "think default";
+        const shell = a.kind === "shell";
+        const meta = el("div", "meta", [shell ? "$ shell in the background" : a.type, shell ? "" : a.model || "model: not seen yet", shell ? "" : effort + " (its session)", "", a.tokens ? fmtTokens(a.tokens) + " tokens" : "",
+            a.toolUses ? a.toolUses + " tool" + (a.toolUses > 1 ? "s" : "") : "", a.lastTool ? "last " + a.lastTool : "", a.background ? "background" : ""].filter((x, i) => x || i === 3).join(" · "));
+        meta.dataset.agent = a.taskId || a.toolUseId;
+        row.append(top, meta);
+        if (a.summary || a.error) row.append(el("div", "say", a.error || a.summary));
+        const acts = el("div", "acts");
+        const open = el("button", "", "Open");
+        open.addEventListener("click", () => openAgent(agentsOf, a.taskId || a.toolUseId));
+        acts.append(open);
+        if (a.status === "running" && !a.stopping) {
+            const stop = el("button", "danger", "Stop");
+            stop.title = a.taskId ? "this agent ends (stop_task), its session goes on" : "claude did not tell its task yet: stop the turn of the session instead";
+            stop.disabled = !a.taskId;
+            stop.addEventListener("click", async () => {
+                if (!confirm("Stop the agent '" + (a.description || a.type) + "'? Its session goes on.")) return;
+                stop.disabled = true;
+                try { await cmd({cmd: "agent_stop", session: agentsOf, task: a.taskId}); toast("stopping the agent…"); refresh(); }
+                catch (e) { stop.disabled = false; toast(e.message); }
+            });
+            acts.append(stop);
+        }
+        row.append(acts);
+        box.append(row);
+    }
+    agentTick();
+}
+function agentTick() {
+    // the time of each agent, live (once a second while it is shown)
+    for (const m of document.querySelectorAll("#agentsList .meta")) {
+        const a = agentsData.find((x) => (x.taskId || x.toolUseId) === m.dataset.agent);
+        if (!a) continue;
+        const parts = m.textContent.split(" · ");
+        parts[3] = "⏱ " + agentUptime(a, Date.now());
+        m.textContent = parts.filter(Boolean).join(" · ");
+    }
+    for (const s of document.querySelectorAll(".s-agents")) {
+        const since = Number(s.dataset.since || 0);
+        if (since) s.textContent = s.textContent.replace(/· .*$/, "· " + agentUptime({started: since}, Date.now()));
+    }
+}
+setInterval(agentTick, 1000);
+$("agentsButton").addEventListener("click", () => {
+    const s = lastState && lastState.session;
+    if (!s) return;
+    closePanels();
+    agentsOf = s.id;
+    agentsData = s.agent_list || [];
+    renderAgents();
+    $("agents").classList.remove("hidden");
+});
+$("agentsClose").addEventListener("click", () => $("agents").classList.add("hidden"));
+const ENTRY_KINDS = ["user", "assistant", "thinking", "tool", "result", "system", "error", "display"];
+async function openAgent(session, task) {
+    agentOpen = {session, task};
+    $("agentWin").classList.remove("hidden");
+    try { $("agentWin").classList.toggle("big", store.get("cc-agent-big", "0") === "1"); } catch (e) { /* no storage */ }
+    await agentWinRefresh(true);
+    clearInterval(agentTimer);
+    agentTimer = setInterval(() => agentWinRefresh(false), 2000);
+}
+async function agentWinRefresh(first) {
+    if (!agentOpen) return;
+    let list = [];
+    try { list = await cmd({cmd: "agents", session: agentOpen.session}); } catch (e) { $("agentWinMeta").textContent = e.message; return; }
+    const a = (list || []).find((x) => x.taskId === agentOpen.task || x.toolUseId === agentOpen.task);
+    if (!a) { $("agentWinMeta").textContent = "gone (not kept any more)"; return; }
+    $("agentWinTitle").textContent = a.description || a.type || "agent";
+    $("agentWinMeta").textContent = [agentStatus(a), a.kind === "shell" ? "$ shell" : a.type, a.model, "⏱ " + agentUptime(a, Date.now()), a.tokens ? fmtTokens(a.tokens) + " tokens" : ""].filter(Boolean).join(" · ");
+    const body = $("agentWinBody");
+    const atEnd = body.scrollTop + body.clientHeight >= body.scrollHeight - 30;
+    body.textContent = "";
+    if (a.prompt) body.append(el("div", "agent-entry user", a.prompt));
+    for (const e of a.entries || []) {
+        const kind = typeof e.kind === "number" ? ENTRY_KINDS[e.kind] || "system" : e.kind;
+        if (kind === "user" && a.prompt) continue;
+        body.append(el("div", "agent-entry " + kind, kind === "tool" ? "▸ " + (e.tool || "") + " " + e.text : e.text));
+    }
+    if (a.output) body.append(el("pre", "agent-entry result", a.output)); // a shell: the end of its output
+    if (a.summary) body.append(el("div", "agent-entry result", "⤷ " + a.summary));
+    if (first || atEnd) body.scrollTop = body.scrollHeight;
+    if (a.status !== "running") clearInterval(agentTimer);
+}
+$("agentWinSize").addEventListener("click", () => {
+    const big = !$("agentWin").classList.contains("big");
+    $("agentWin").classList.toggle("big", big);
+    try { store.set("cc-agent-big", big ? "1" : "0"); } catch (e) { /* no storage */ }
+});
+$("agentWinClose").addEventListener("click", () => { $("agentWin").classList.add("hidden"); agentOpen = null; clearInterval(agentTimer); });
 
 // already connected (the cookie of this browser): straight to the sessions; a trusted device: in at once (no code)
 fetch("/api/state?v=-1", {credentials: "same-origin", cache: "no-store"})

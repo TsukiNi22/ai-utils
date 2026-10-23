@@ -71,7 +71,7 @@ namespace {
 /* TYPES */
 
 enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph, Rewind, Stash,
-    Tree};
+    Tree, Agents};
 
 struct FormField {                     // a field of the form of a display, filled in its popup
     std::string name;
@@ -776,6 +776,12 @@ class TtyUi {
         std::uint64_t _focusSeen = 0;               // last ui_focus applied
         bool _machineStartup = false;               // the map of this computer asked at start (no: never asked again)
         bool _restoreAsked = false;                 // the previous run asked by this interface (once)
+        std::string _agentsSession;                 // Mode::Agents: the session whose agents are listed
+        int _agentsCursor = 0;                      // the agent chosen (the newest first)
+        std::string _agentShown;                    // the agent whose activity is shown (its task / call id), empty: the list
+        std::string _agentStopAsk;                  // its stop asked (y / n)
+        int _agentScroll = 0;                       // entries scrolled back from the end of its activity
+        bool _agentBig = false;                     // the popup over the whole screen (b), else a small window
         int _machineKind = 0;                       // 1 no map yet, 2 an old one (its sync proposed)
         std::vector<cluster::ProfileQuestion> _questions;   // about the user, before a scan
         std::size_t _question = 0;
@@ -1592,6 +1598,7 @@ class TtyUi {
                     }
                     if (local->ui == "settings") this->openSettings_();
                     else if (local->ui == "plugins") this->openPlugins_();
+                    else if (local->ui == "agents") this->openAgents_();
                     else if (local->ui == "graph") this->openGraph_(false);
                     else if (local->ui.starts_with("term:")) {
                         this->handOver_(local->ui.substr(5));
@@ -2455,6 +2462,8 @@ class TtyUi {
                 this->openSettings_();
             } else if (base == "plugins") {
                 this->openPlugins_();
+            } else if (base == "agents") {
+                this->openAgents_();
             } else if (base == "graph") {
                 this->openGraph_(false);
             } else if (base == "machine_sync" || base == "edit_global_prompt" || base == "edit_sessions_prompt" || base == "edit_vocabulary" || base == "edit_words") {
@@ -2563,6 +2572,8 @@ class TtyUi {
                             + "), " + this->_manager.config().keys.at("stashes") + ": the list, " + this->_manager.config().keys.at("unstash") + ": the last one back");
                     }
                 }
+            } else if (action == "agents") {
+                this->openAgents_();
             } else if (action == "stashes") {
                 this->_stash.open(this->_active, this->_manager.config().stashMax);
                 this->_mode = Mode::Stash;
@@ -3970,9 +3981,10 @@ class TtyUi {
             return true;
         }
 
-        _nodiscard ftxui::Element tasksView_(const int width, const int height)
+        _nodiscard ftxui::Element tasksView_(const int width, const int height, const bool cell = false)
         {
-            // the todo lists of the sessions, the task queue, the schedules, the archive; a click on one: its actions
+            // the todo lists of the sessions, the task queue, the schedules, the archive; a click on one: its actions (a cell of the grid:
+            // shown only, nothing chosen nor acted in it - Enter opens it in the list, like the other cells)
             const Theme& t = this->_theme;
             const std::int64_t now = cluster::now();
             const std::function<std::string(std::int64_t)> span = [](std::int64_t s) {
@@ -3993,7 +4005,8 @@ class TtyUi {
             this->_taskSel = std::clamp(this->_taskSel, 0, std::max(0, static_cast<int>(this->_taskItems.size()) - 1));
             this->_taskItems.clear();
             const std::function<ftxui::Element(const int, ftxui::Element, const std::function<void(void)>&)> item =
-                [this, &t](const int part, ftxui::Element element, const std::function<void(void)>& act) {
+                [this, &t, cell](const int part, ftxui::Element element, const std::function<void(void)>& act) {
+                    if (cell) return ftxui::hbox({ftxui::text(" "), std::move(element) | ftxui::flex});
                     const int index = static_cast<int>(this->_taskItems.size());
                     this->_taskItems.emplace_back(part, act);
                     ftxui::Element shown = this->tap_(std::move(element), 0, [this, index, act]() {
@@ -5257,11 +5270,209 @@ class TtyUi {
             return (branch.empty() ? "" : " · ⎇ " + branch) + " · " + this->_host + (s.pid > 0 ? " · pid " + std::to_string(s.pid) : "");
         }
 
+        /* the agents of a session: the ones it made itself (its Agent tool, sub-agents of claude) */
+        _nodiscard static int running_agents_(const cluster::Snapshot& s)
+        {
+            return static_cast<int>(std::count_if(s.agents.begin(), s.agents.end(), [](const cluster::SubAgent& a) {return a.status == "running";}));
+        }
+
+        _nodiscard static std::string agents_mark_(const cluster::Snapshot& s)
+        {
+            const int running = running_agents_(s);
+            const std::size_t shells = static_cast<std::size_t>(std::count_if(s.agents.begin(), s.agents.end(), [](const cluster::SubAgent& a) {return a.kind == "shell";}));
+            const std::size_t agents = s.agents.size() - shells;
+            std::string mark = agents > 0 ? std::to_string(agents) + (agents > 1 ? " agents" : " agent") : std::string();
+            if (shells > 0) mark += (mark.empty() ? "" : " · ") + std::to_string(shells) + (shells > 1 ? " shells" : " shell");
+            return mark + (running > 0 ? " · " + std::to_string(running) + " running" : std::string());
+        }
+
+        _nodiscard static std::string agent_time_(const cluster::SubAgent& a)
+        {
+            // its time: from its start to its end (running: to now)
+            if (a.started <= 0) return "-";
+            const std::int64_t s = std::max<std::int64_t>(0, ((a.ended > 0 ? a.ended : cluster::now_ms()) - a.started) / 1000);
+            if (s < 60) return std::to_string(s) + " s";
+            if (s < 3600) return std::to_string(s / 60) + " min " + std::to_string(s % 60) + " s";
+            return std::to_string(s / 3600) + " h " + std::to_string(s % 3600 / 60) + " min";
+        }
+
+        _nodiscard std::vector<cluster::SubAgent> agentsOf_(void) const
+        {
+            // the agents of the listed session, the newest first
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_agentsSession);
+            if (!snap) return {};
+            return std::vector<cluster::SubAgent>(snap->agents.rbegin(), snap->agents.rend());
+        }
+
+        void openAgents_(void)
+        {
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active == TASKS_ID ? GLOBAL_ID : this->_active);
+            if (!snap || snap->agents.empty()) {
+                this->status_("no agent made by this session yet (its Agent tool: they are listed here, F7)");
+                return;
+            }
+            this->_agentsSession = snap->spec.id;
+            this->_agentsCursor = 0;
+            this->_agentShown.clear();
+            this->_agentStopAsk.clear();
+            this->_agentScroll = 0;
+            this->_mode = Mode::Agents;
+        }
+
+        _nodiscard ftxui::Element agentsView_(void)
+        {
+            const std::vector<cluster::SubAgent> agents = this->agentsOf_();
+            const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_agentsSession);
+            const std::string owner = !snap ? this->_agentsSession : snap->spec.global ? std::string("the global session") : snap->spec.name;
+            const std::string effort = snap ? cluster::effort_label(snap->spec.effort, this->_manager.config().effort, snap->spec.backend, snap->modelUsed) : std::string();
+            const ftxui::Dimensions screen = ftxui::Terminal::Size();
+            const int room = this->_agentBig ? std::max(8, screen.dimy - 10) : 18;
+            this->_spinning = std::any_of(agents.begin(), agents.end(), [](const cluster::SubAgent& a) {return a.status == "running";}); // its time goes on
+            const std::function<ftxui::Color(const cluster::SubAgent&)> tint = [this](const cluster::SubAgent& a) {
+                return a.stopping || a.status == "stopped" ? this->_theme.warn : a.status == "failed" ? this->_theme.error : a.status == "running" ? this->_theme.ok : this->_theme.muted;
+            };
+            const std::function<std::string(const cluster::SubAgent&)> word = [](const cluster::SubAgent& a) {
+                return a.stopping ? std::string("stopping…") : a.status == "running" ? std::string("● running") : a.status == "done" ? std::string("✓ done")
+                    : a.status == "failed" ? std::string("✗ failed") : std::string("■ stopped");
+            };
+            const std::function<std::string(const cluster::SubAgent&)> meta = [&effort](const cluster::SubAgent& a) {
+                std::string line = a.kind == "shell" ? "$ shell in the background · ⏱ " + agent_time_(a) : (a.type.empty() ? std::string("agent") : a.type) + " · "
+                    + (a.model.empty() ? std::string("model not seen yet") : a.model) + " · " + (a.effort.empty() ? effort : "think " + a.effort) + " (its session) · ⏱ " + agent_time_(a);
+                if (a.tokens > 0) line += " · " + cluster::human_tokens(a.tokens) + " tokens";
+                if (a.toolUses > 0) line += " · " + std::to_string(a.toolUses) + (a.toolUses > 1 ? " tools" : " tool");
+                if (!a.lastTool.empty()) line += " · last " + a.lastTool;
+                if (a.background) line += " · background";
+                return line;
+            };
+            ftxui::Elements rows;
+            if (this->_agentShown.empty()) {
+                // the list: each agent, its state and its time; Enter its activity, s stops it
+                rows.push_back(ftxui::hbox({ftxui::text(" Agents of " + owner) | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::filler(),
+                    ftxui::text(std::to_string(agents.size()) + " ") | ftxui::color(this->_theme.muted)}));
+                rows.push_back(ftxui::text(" what it runs itself: its agents (its Agent tool, not the sessions of claude-cluster) and its shells in the background; a stop ends one, its session goes on")
+                    | ftxui::color(this->_theme.muted) | ftxui::dim);
+                rows.push_back(ftxui::separatorLight() | ftxui::color(this->_theme.border));
+                this->_agentsCursor = std::clamp(this->_agentsCursor, 0, std::max(0, static_cast<int>(agents.size()) - 1));
+                const int per = 3;
+                const int first = std::max(0, std::min(this->_agentsCursor - room / per / 2, static_cast<int>(agents.size()) - room / per));
+                for (int i = first; i < static_cast<int>(agents.size()) && i < first + std::max(1, room / per); ++i) {
+                    const cluster::SubAgent& a = agents[static_cast<std::size_t>(i)];
+                    const bool on = i == this->_agentsCursor;
+                    ftxui::Element top = ftxui::hbox({ftxui::text(on ? " ❯ " : "   ") | ftxui::color(this->_theme.accent),
+                        ftxui::text(cluster::one_line(a.description.empty() ? a.type : a.description, 70)) | ftxui::bold | ftxui::color(this->_theme.text), ftxui::filler(),
+                        ftxui::text(word(a) + " ") | ftxui::color(tint(a))});
+                    ftxui::Element line = ftxui::text("     " + meta(a)) | ftxui::color(this->_theme.muted);
+                    const std::string said = !a.error.empty() ? a.error : a.summary;
+                    ftxui::Element say = said.empty() ? ftxui::text("") : ftxui::text("     " + cluster::one_line(said, 150)) | ftxui::color(this->_theme.muted) | ftxui::dim;
+                    ftxui::Element row = ftxui::vbox({top, line, say});
+                    if (on) row = row | ftxui::bgcolor(this->_theme.surface) | ftxui::inverted;
+                    rows.push_back(this->tap_(std::move(row), 1, [this, i]() {
+                        if (this->_agentsCursor == i) (void)this->event_(ftxui::Event::Return);
+                        this->_agentsCursor = i;
+                    }));
+                }
+            } else {
+                // its activity: its words, its tools and their results, the newest at the bottom (↑↓ scroll)
+                const auto found = std::find_if(agents.begin(), agents.end(), [this](const cluster::SubAgent& a) {return a.taskId == this->_agentShown || a.toolUseId == this->_agentShown;});
+                if (found == agents.end()) {
+                    rows.push_back(ftxui::text(" this agent is not kept any more (Esc: the list)") | ftxui::color(this->_theme.muted));
+                } else {
+                    const cluster::SubAgent& a = *found;
+                    rows.push_back(ftxui::hbox({ftxui::text(" " + cluster::one_line(a.description.empty() ? a.type : a.description, 80)) | ftxui::bold | ftxui::color(this->_theme.accent),
+                        ftxui::filler(), ftxui::text(word(a) + " ") | ftxui::color(tint(a))}));
+                    rows.push_back(ftxui::text(" " + meta(a)) | ftxui::color(this->_theme.muted));
+                    rows.push_back(ftxui::separatorLight() | ftxui::color(this->_theme.border));
+                    ftxui::Elements lines;
+                    if (!a.prompt.empty()) lines.push_back(ftxui::hbox({ftxui::text(" asked › ") | ftxui::color(this->_theme.accent), ftxui::paragraph(a.prompt) | ftxui::color(this->_theme.muted)}));
+                    for (const cluster::Entry& e: a.entries) {
+                        if (e.kind == cluster::EntryKind::User && !a.prompt.empty()) continue;
+                        if (e.kind == cluster::EntryKind::Tool) lines.push_back(ftxui::text(" ▸ " + e.tool + " " + cluster::one_line(e.text, 140)) | ftxui::color(this->_theme.muted));
+                        else if (e.kind == cluster::EntryKind::ToolResult) lines.push_back(ftxui::text("   " + cluster::one_line(e.text, 140)) | ftxui::color(this->_theme.muted) | ftxui::dim);
+                        else if (e.kind == cluster::EntryKind::Error) lines.push_back(ftxui::text("   " + cluster::one_line(e.text, 140)) | ftxui::color(this->_theme.error));
+                        else lines.push_back(ftxui::hbox({ftxui::text(" "), ftxui::paragraph(e.text) | ftxui::color(this->_theme.text)}));
+                    }
+                    if (!a.outputFile.empty()) { // a shell: the end of its output
+                        std::string out = cluster::read_small(a.outputFile);
+                        if (out.size() > 6000) out = out.substr(out.size() - 6000);
+                        for (const std::string& line: cluster::split(cluster::clean_utf8(out), '\n'))
+                            lines.push_back(ftxui::text(" " + cluster::one_line(line, 160)) | ftxui::color(this->_theme.text));
+                    }
+                    if (!a.summary.empty()) lines.push_back(ftxui::text(" ⤷ " + cluster::one_line(a.summary, 150)) | ftxui::color(this->_theme.accent));
+                    if (lines.empty()) lines.push_back(ftxui::text(" nothing said or done yet") | ftxui::color(this->_theme.muted));
+                    this->_agentScroll = std::clamp(this->_agentScroll, 0, std::max(0, static_cast<int>(lines.size()) - 1));
+                    const int end = static_cast<int>(lines.size()) - this->_agentScroll;
+                    const int begin = std::max(0, end - room);
+                    if (begin > 0) rows.push_back(ftxui::text(" … " + std::to_string(begin) + " before (↑)") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    for (int i = begin; i < end; ++i)
+                        rows.push_back(lines[static_cast<std::size_t>(i)]);
+                }
+            }
+            if (!this->_agentStopAsk.empty())
+                rows.push_back(ftxui::text(" Stop this agent? its session goes on   [y] stop · [n] no ") | ftxui::bold | ftxui::color(this->_theme.warn));
+            rows.push_back(ftxui::separatorLight() | ftxui::color(this->_theme.border));
+            rows.push_back(ftxui::text(this->_agentShown.empty() ? " ↑↓ choose · Enter: its activity · s: stop it · b: " + std::string(this->_agentBig ? "small window" : "whole screen") + " · Esc: close"
+                : " ↑↓ / PgUp PgDn: scroll · s: stop it · b: " + std::string(this->_agentBig ? "small window" : "whole screen") + " · Esc: the list") | ftxui::color(this->_theme.muted) | ftxui::dim);
+            return ftxui::vbox(std::move(rows));
+        }
+
+        bool agentsKey_(const ftxui::Event& event)
+        {
+            const std::vector<cluster::SubAgent> agents = this->agentsOf_();
+            if (!this->_agentStopAsk.empty()) { // y: stopped (stop_task), the session goes on
+                if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
+                    try {
+                        this->_manager.stopAgent(this->_agentsSession, this->_agentStopAsk);
+                        this->status_("stopping the agent (its session goes on)");
+                    } catch (const utils::exception::IException& e) {
+                        this->status_(std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info()), true);
+                    }
+                    this->_agentStopAsk.clear();
+                } else if (event == ftxui::Event::Character('n') || event == ftxui::Event::Character('N') || event == ftxui::Event::Escape) {
+                    this->_agentStopAsk.clear();
+                }
+                return true;
+            }
+            const std::function<const cluster::SubAgent*(void)> chosen = [&]() -> const cluster::SubAgent* {
+                if (!this->_agentShown.empty()) {
+                    const auto found = std::find_if(agents.begin(), agents.end(), [this](const cluster::SubAgent& a) {return a.taskId == this->_agentShown || a.toolUseId == this->_agentShown;});
+                    return found == agents.end() ? nullptr : &*found;
+                }
+                return this->_agentsCursor < static_cast<int>(agents.size()) ? &agents[static_cast<std::size_t>(this->_agentsCursor)] : nullptr;
+            };
+            if (event == ftxui::Event::Escape) {
+                if (!this->_agentShown.empty()) this->_agentShown.clear();
+                else this->_mode = Mode::Normal;
+            } else if (event == ftxui::Event::Character('b') || event == ftxui::Event::Character('B')) {
+                this->_agentBig = !this->_agentBig;
+            } else if (event == ftxui::Event::Character('s') || event == ftxui::Event::Character('S') || event == ftxui::Event::Delete) {
+                const cluster::SubAgent* a = chosen();
+                if (a == nullptr || a->status != "running") this->status_("this agent already ended");
+                else if (a->taskId.empty()) this->status_("claude did not tell its task yet: stop the turn of the session instead (" + this->_manager.config().keys.at("interrupt") + ")", true);
+                else this->_agentStopAsk = a->taskId;
+            } else if (this->_agentShown.empty()) {
+                if (event == ftxui::Event::ArrowUp) this->_agentsCursor = std::max(0, this->_agentsCursor - 1);
+                else if (event == ftxui::Event::ArrowDown) this->_agentsCursor = std::min(static_cast<int>(agents.size()) - 1, this->_agentsCursor + 1);
+                else if (event == ftxui::Event::Return)
+                    if (const cluster::SubAgent* a = chosen()) {
+                        this->_agentShown = a->taskId.empty() ? a->toolUseId : a->taskId;
+                        this->_agentScroll = 0;
+                    }
+            } else {
+                if (event == ftxui::Event::ArrowUp) ++this->_agentScroll;
+                else if (event == ftxui::Event::ArrowDown) this->_agentScroll = std::max(0, this->_agentScroll - 1);
+                else if (event == ftxui::Event::PageUp) this->_agentScroll += 10;
+                else if (event == ftxui::Event::PageDown) this->_agentScroll = std::max(0, this->_agentScroll - 10);
+                else if (event == ftxui::Event::End) this->_agentScroll = 0;
+            }
+            return true;
+        }
+
         _nodiscard ftxui::Element header_(const cluster::Snapshot& s, const bool compact)
         {
             if (compact) {
                 const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error : this->_theme.muted;
                 return ftxui::hbox({ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text(state_mark_(s.state) + " " + cluster::state_name(s.state)) | ftxui::color(mark),
+                    running_agents_(s) > 0 ? ftxui::text(" ⧉" + std::to_string(running_agents_(s))) | ftxui::color(this->_theme.accent) : ftxui::emptyElement(),
                     ftxui::filler(), ftxui::text(s.spec.backend.substr(0, s.spec.backend.find('/')) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim});
             }
             const std::string model = cluster::model_label(s.spec.backend, s.modelUsed);
@@ -5275,6 +5486,8 @@ class TtyUi {
                 this->tap_(ftxui::text("  " + cluster::effort_label(s.spec.effort, this->_manager.config().effort, s.spec.backend, s.modelUsed)) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("effort:");}),
                 this->tap_(ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted), 0,
                     [this]() {this->pick_("mode:");}),
+                s.agents.empty() ? ftxui::emptyElement() : this->tap_(ftxui::text("  ⧉ " + agents_mark_(s)) | ftxui::color(this->_theme.accent), 0,
+                    [this]() {this->openAgents_();}),
                 ftxui::filler(),
                 // where it runs: its folder (a click opens it), the computer, its branch, its process
                 this->tap_(ftxui::text(cluster::short_path(s.spec.cwd)) | ftxui::color(this->_theme.muted), 0, [this, cwd = s.spec.cwd]() {
@@ -5526,7 +5739,7 @@ class TtyUi {
                 for (std::size_t i = static_cast<std::size_t>(this->_gridFirst * columns); i < static_cast<std::size_t>(count) && i < static_cast<std::size_t>((this->_gridFirst + visible) * columns); ++i) {
                     if (i % static_cast<std::size_t>(columns) == 0) grid.emplace_back();
                     if (i == list.size()) { // the Tasks session: a cell like the sessions
-                        grid.back().push_back(this->click_(this->tasksView_(cellWidth, cellHeight) | ftxui::borderStyled(tasksShown ? ftxui::HEAVY : ftxui::ROUNDED)
+                        grid.back().push_back(this->click_(this->tasksView_(cellWidth, cellHeight, true) | ftxui::borderStyled(tasksShown ? ftxui::HEAVY : ftxui::ROUNDED)
                             | ftxui::color(tasksShown ? this->_theme.accent : this->_theme.border) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, outerWidth)
                             | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, outerHeight), 0, [this]() {
                                 if (this->_active == TASKS_ID) return false;
@@ -5675,6 +5888,10 @@ class TtyUi {
                 if (items.empty()) items.push_back(ftxui::text(" nothing matches") | ftxui::color(this->_theme.muted));
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), this->fieldView_(this->_filter, 72)}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items))}), 80);
+            }
+            if (this->_mode == Mode::Agents) {
+                const ftxui::Dimensions screen = ftxui::Terminal::Size();
+                return box(this->agentsView_(), this->_agentBig ? std::max(60, screen.dimx - 6) : std::min(112, std::max(60, screen.dimx - 6)));
             }
             if (this->_mode == Mode::Rewind || this->_mode == Mode::Stash) {
                 const cluster::PopupColors colors{this->_theme.text, this->_theme.muted, this->_theme.accent, this->_theme.bg, this->_theme.warn, this->_theme.error};
@@ -7008,6 +7225,8 @@ class TtyUi {
                     return this->rewindKey_(event);
                 case Mode::Stash:
                     return this->stashKey_(event);
+                case Mode::Agents:
+                    return this->agentsKey_(event);
                 case Mode::Normal:
                     break;
             }
@@ -7058,6 +7277,13 @@ class TtyUi {
             if (event == ftxui::Event::Escape && !this->_app.voice->pending().empty()) {
                 this->_app.voice->cancelLast();
                 this->status_("voice prompt dropped (Ctrl+C: all of them)");
+                return true;
+            }
+            if (this->_active == TASKS_ID && this->_manager.ui("layout", this->_manager.config().layout) == "grid" && !this->sessions_().empty()) {
+                // a cell of the grid like the others: focused only, ←↑↓→ between the cells, Enter (Shift+Enter, Alt+O, o) opens it in the list
+                if ((event == ftxui::Event::Return || event == ftxui::Event::Character('o')) && this->shortcut_("grid_open")) return true;
+                if (const std::optional<Arrow> nav = arrow_(event); nav && this->gridArrow_(*nav)) return true;
+                (void)this->shortcut_(cluster::key_action(this->_manager.config(), key));
                 return true;
             }
             if (this->_active == TASKS_ID) { // the Tasks session: no prompt; its items by the keys, its shortcuts still (next / previous, Ctrl+B...)

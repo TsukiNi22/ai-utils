@@ -121,6 +121,9 @@ class Session {
         _cold void codex_(const cluster::Json& event);
         _cold void entry_(const cluster::EntryKind kind, const std::string& text, const std::string& tool = "", const std::string& origin = "");
         _cold void tool_(const std::string& id, const std::string& name, const cluster::Json& input);
+        _cold cluster::SubAgent& agent_(const std::string& toolUseId, const std::string& taskId);  // the sub-agent of this call / task (made when new)
+        _cold void agentTask_(const std::string& subtype, const cluster::Json& event);       // task_started / progress / updated / notification
+        _cold void agentMessage_(const cluster::Json& event);                                 // what a sub-agent says and does
         _cold void picture_(const std::string& id, const cluster::Json& block, const bool error); // a picture in a tool result (or made by its command): kept on the call
         _cold void turnDone_(const std::string& text, const bool error);
         _cold void dispatch_(const cluster::Queued& prompt);  // claude: written now (lock held)
@@ -143,6 +146,7 @@ class Session {
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);
         _cold void sendNext(void);                                         // the next queued prompt now: the turn interrupted, it sent
+        _cold void stopAgent(const std::string& task);                     // one of its sub-agents stopped (its task id or its Agent call id)
         _cold void giveQueued(const int delayMs);                          // a claude turn running: the prompts queued for delayMs given to it (its next step); < 0: never
         _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)
         _cold void stop(void);

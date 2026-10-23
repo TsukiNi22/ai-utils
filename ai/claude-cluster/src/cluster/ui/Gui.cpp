@@ -104,6 +104,9 @@ File Description:
 #include <QWidget>
 #include <QTabBar>
 #include <QDialog>
+#include <QScreen>
+#include <QHeaderView>
+#include <QTableWidget>
 #include <cstdlib>
 #include <QImage>
 #include <chrono>
@@ -5101,6 +5104,192 @@ QString SessionView::displayHtml(const cluster::Json& d, const std::string& key,
     return html + "</div>";
 }
 
+/* the agents and shells of a session: the ones it runs itself (its Agent tool, its commands in the background) */
+_cold static std::string agent_time_(const cluster::SubAgent& a)
+{
+    if (a.started <= 0) return "-";
+    const std::int64_t s = std::max<std::int64_t>(0, ((a.ended > 0 ? a.ended : cluster::now_ms()) - a.started) / 1000);
+    if (s < 60) return std::to_string(s) + " s";
+    if (s < 3600) return std::to_string(s / 60) + " min " + std::to_string(s % 60) + " s";
+    return std::to_string(s / 3600) + " h " + std::to_string(s % 3600 / 60) + " min";
+}
+
+_cold static std::string agent_state_(const cluster::SubAgent& a)
+{
+    return a.stopping ? "stopping…" : a.status == "running" ? "● running" : a.status == "done" ? "✓ done" : a.status == "failed" ? "✗ failed" : "■ stopped";
+}
+
+_cold static void agent_stop_(Window* window, QWidget* parent, const std::string& session, const cluster::SubAgent& a)
+{
+    // its stop_task: the agent / the shell ends, its session goes on
+    if (a.status != "running") return window->message("it already ended", false);
+    if (a.taskId.empty()) return window->message("claude did not tell its task yet: stop the turn of the session instead", true);
+    if (QMessageBox::question(parent, "Stop it?", q_("Stop " + std::string(a.kind == "shell" ? "the shell" : "the agent") + " '" + a.description + "'? Its session goes on."))
+        != QMessageBox::Yes)
+        return;
+    try {
+        window->manager.stopAgent(session, a.taskId);
+        window->message("stopping it (its session goes on)", false);
+    } catch (const utils::exception::IException& e) {
+        window->message(e.info(), true);
+    }
+}
+
+_cold static void agent_window_(Window* window, const std::string& session, const std::string& task)
+{
+    // one agent / shell: its activity (its words, its tools, their results) or the end of its output, live; small / big
+    QDialog* dialog = new QDialog(window);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->resize(560, 460);
+    QVBoxLayout* layout = new QVBoxLayout(dialog);
+    QLabel* meta = new QLabel(dialog);
+    meta->setWordWrap(true);
+    QTextBrowser* body = new QTextBrowser(dialog);
+    body->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    QHBoxLayout* buttons = new QHBoxLayout();
+    QPushButton* size = new QPushButton("Big", dialog);
+    QPushButton* stop = new QPushButton("Stop", dialog);
+    QPushButton* close = new QPushButton("Close", dialog);
+    buttons->addWidget(size);
+    buttons->addStretch();
+    buttons->addWidget(stop);
+    buttons->addWidget(close);
+    layout->addWidget(meta);
+    layout->addWidget(body, 1);
+    layout->addLayout(buttons);
+    const std::function<std::optional<cluster::SubAgent>(void)> find = [window, session, task]() -> std::optional<cluster::SubAgent> {
+        const std::optional<cluster::Snapshot> snap = window->manager.snapshot(session);
+        if (!snap) return std::nullopt;
+        for (const cluster::SubAgent& a: snap->agents)
+            if (a.taskId == task || a.toolUseId == task) return a;
+        return std::nullopt;
+    };
+    std::shared_ptr<std::string> last = std::make_shared<std::string>();
+    const std::function<void(void)> refresh = [=]() {
+        const std::optional<cluster::SubAgent> a = find();
+        if (!a) {
+            meta->setText("not kept any more");
+            return;
+        }
+        dialog->setWindowTitle(q_((a->kind == "shell" ? "Shell: " : "Agent: ") + a->description));
+        meta->setText(q_(agent_state_(*a) + " · " + (a->kind == "shell" ? std::string("$ shell in the background") : a->type + " · " + (a->model.empty() ? std::string("model not seen yet") : a->model))
+            + " · ⏱ " + agent_time_(*a) + (a->tokens > 0 ? " · " + cluster::human_tokens(a->tokens) + " tokens" : std::string())));
+        stop->setEnabled(a->status == "running" && !a->stopping && !a->taskId.empty());
+        std::string text;
+        if (!a->prompt.empty()) text += "asked › " + a->prompt + "\n\n";
+        for (const cluster::Entry& e: a->entries) {
+            if (e.kind == cluster::EntryKind::User && !a->prompt.empty()) continue;
+            text += e.kind == cluster::EntryKind::Tool ? "▸ " + e.tool + " " + e.text + "\n" : e.kind == cluster::EntryKind::ToolResult || e.kind == cluster::EntryKind::Error ? "  " + e.text + "\n" : e.text + "\n\n";
+        }
+        if (!a->outputFile.empty()) {
+            std::string out = cluster::read_small(a->outputFile);
+            if (out.size() > 8000) out = out.substr(out.size() - 8000);
+            text += cluster::clean_utf8(out);
+        }
+        if (!a->summary.empty()) text += "\n⤷ " + a->summary;
+        if (text == *last) return;
+        *last = text;
+        const bool end = body->verticalScrollBar()->value() >= body->verticalScrollBar()->maximum() - 20;
+        body->setPlainText(q_(text));
+        if (end) body->verticalScrollBar()->setValue(body->verticalScrollBar()->maximum());
+    };
+    QObject::connect(size, &QPushButton::clicked, dialog, [dialog, size]() {
+        const bool big = size->text() == "Big";
+        const QRect screen = dialog->screen() ? dialog->screen()->availableGeometry() : QRect(0, 0, 1280, 800);
+        dialog->resize(big ? QSize(screen.width() * 9 / 10, screen.height() * 9 / 10) : QSize(560, 460));
+        if (big) dialog->move(screen.center() - dialog->rect().center());
+        size->setText(big ? "Small" : "Big");
+    });
+    QObject::connect(stop, &QPushButton::clicked, dialog, [=]() {
+        if (const std::optional<cluster::SubAgent> a = find()) agent_stop_(window, dialog, session, *a);
+    });
+    QObject::connect(close, &QPushButton::clicked, dialog, &QDialog::close);
+    QTimer* timer = new QTimer(dialog);
+    QObject::connect(timer, &QTimer::timeout, dialog, refresh);
+    timer->start(1000);
+    refresh();
+    body->verticalScrollBar()->setValue(body->verticalScrollBar()->maximum());
+    dialog->show();
+}
+
+_cold static void agents_dialog_(Window* window, const std::string& session)
+{
+    // the list: each agent and shell of the session, its state, model, effort, time, tokens, tools; Open, Stop (live)
+    QDialog* dialog = new QDialog(window);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->resize(980, 420);
+    QVBoxLayout* layout = new QVBoxLayout(dialog);
+    QLabel* note = new QLabel("What this session runs itself: its agents (its Agent tool, not the sessions of claude-cluster) and its shells in the background. "
+        "Stop one: the session goes on.", dialog);
+    note->setWordWrap(true);
+    QTableWidget* table = new QTableWidget(0, 9, dialog);
+    table->setHorizontalHeaderLabels({"state", "what", "kind", "model", "thinking", "time", "tokens", "tools", "last tool"});
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    table->verticalHeader()->hide();
+    QHBoxLayout* buttons = new QHBoxLayout();
+    QPushButton* open = new QPushButton("Open", dialog);
+    QPushButton* stop = new QPushButton("Stop", dialog);
+    QPushButton* close = new QPushButton("Close", dialog);
+    buttons->addWidget(open);
+    buttons->addWidget(stop);
+    buttons->addStretch();
+    buttons->addWidget(close);
+    layout->addWidget(note);
+    layout->addWidget(table, 1);
+    layout->addLayout(buttons);
+    std::shared_ptr<std::vector<cluster::SubAgent>> shown = std::make_shared<std::vector<cluster::SubAgent>>();
+    const std::function<void(void)> refresh = [=]() {
+        const std::optional<cluster::Snapshot> snap = window->manager.snapshot(session);
+        if (!snap) return;
+        dialog->setWindowTitle(q_("Agents and shells of " + (snap->spec.global ? std::string("the global session") : snap->spec.name)));
+        const std::string effort = cluster::effort_label(snap->spec.effort, window->manager.config().effort, snap->spec.backend, snap->modelUsed);
+        *shown = std::vector<cluster::SubAgent>(snap->agents.rbegin(), snap->agents.rend());
+        const int keep = table->currentRow();
+        table->setRowCount(static_cast<int>(shown->size()));
+        for (int row = 0; row < static_cast<int>(shown->size()); ++row) {
+            const cluster::SubAgent& a = (*shown)[static_cast<std::size_t>(row)];
+            const bool shell = a.kind == "shell";
+            const std::vector<std::string> cells = {agent_state_(a), a.description.empty() ? a.type : a.description, shell ? std::string("$ shell") : a.type + (a.background ? " · background" : ""),
+                shell ? std::string("-") : a.model.empty() ? std::string("not seen yet") : a.model, shell ? std::string("-") : (a.effort.empty() ? effort : "think " + a.effort) + " (its session)",
+                agent_time_(a), a.tokens > 0 ? cluster::human_tokens(a.tokens) : std::string("-"), std::to_string(a.toolUses), a.lastTool};
+            for (int col = 0; col < static_cast<int>(cells.size()); ++col) {
+                QTableWidgetItem* item = table->item(row, col);
+                if (item == nullptr) {
+                    item = new QTableWidgetItem();
+                    table->setItem(row, col, item);
+                }
+                item->setText(q_(cells[static_cast<std::size_t>(col)]));
+                if (col == 1) item->setToolTip(q_(!a.error.empty() ? a.error : a.summary));
+            }
+        }
+        if (keep >= 0 && keep < table->rowCount()) table->selectRow(keep);
+        else if (table->rowCount() > 0 && keep < 0) table->selectRow(0);
+    };
+    const std::function<std::optional<cluster::SubAgent>(void)> chosen = [=]() -> std::optional<cluster::SubAgent> {
+        const int row = table->currentRow();
+        if (row < 0 || row >= static_cast<int>(shown->size())) return std::nullopt;
+        return (*shown)[static_cast<std::size_t>(row)];
+    };
+    QObject::connect(open, &QPushButton::clicked, dialog, [=]() {
+        if (const std::optional<cluster::SubAgent> a = chosen()) agent_window_(window, session, a->taskId.empty() ? a->toolUseId : a->taskId);
+    });
+    QObject::connect(table, &QTableWidget::cellDoubleClicked, dialog, [=]() {
+        if (const std::optional<cluster::SubAgent> a = chosen()) agent_window_(window, session, a->taskId.empty() ? a->toolUseId : a->taskId);
+    });
+    QObject::connect(stop, &QPushButton::clicked, dialog, [=]() {
+        if (const std::optional<cluster::SubAgent> a = chosen()) agent_stop_(window, dialog, session, *a);
+    });
+    QObject::connect(close, &QPushButton::clicked, dialog, &QDialog::close);
+    QTimer* timer = new QTimer(dialog);
+    QObject::connect(timer, &QTimer::timeout, dialog, refresh);
+    timer->start(1000);
+    refresh();
+    dialog->show();
+}
+
 SessionView::SessionView(Window* window, const std::string& sessionId, const bool compact)
     : QFrame(window), id(sessionId)
 {
@@ -5115,6 +5304,10 @@ SessionView::SessionView(Window* window, const std::string& sessionId, const boo
         const std::optional<cluster::Snapshot> snap = window->manager.snapshot(this->id);
         if (!snap) return;
         const std::filesystem::path folder = cluster::expand_home(snap->spec.cwd);
+        if (link == "cluster-agents:") {
+            agents_dialog_(window, this->id);
+            return;
+        }
         if (link == "cluster-resume:") {
             try {
                 window->message(window->manager.resume(this->id), false);
@@ -5358,6 +5551,14 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             + (s.warning.empty() || cluster::now() - s.warningAt >= 60 ? QString() : "<br>" + span_(st.warn, "⚠ " + esc_(cluster::one_line(s.warning, 160))))
             + (cluster::resumable(s).empty() ? QString() : "&nbsp; <a href=\"cluster-resume:\" style=\"color:" + q_(st.warn) + ";text-decoration:none;font-weight:600\">"
                 + (cluster::resumable(s) == "retry" ? QString("retry now") : QString("continue")) + "</a>"));
+    if (!s.agents.empty()) { // what it runs itself: its agents and its shells (a click: their list)
+        const long running = std::count_if(s.agents.begin(), s.agents.end(), [](const cluster::SubAgent& a) {return a.status == "running";});
+        const long shells = std::count_if(s.agents.begin(), s.agents.end(), [](const cluster::SubAgent& a) {return a.kind == "shell";});
+        const long agents = static_cast<long>(s.agents.size()) - shells;
+        std::string mark = agents > 0 ? std::to_string(agents) + (agents > 1 ? " agents" : " agent") : std::string();
+        if (shells > 0) mark += (mark.empty() ? "" : " · ") + std::to_string(shells) + (shells > 1 ? " shells" : " shell");
+        head += "&nbsp; <a href=\"cluster-agents:\" style=\"text-decoration:none\">" + chip(st.accent, "⧉ " + mark + (running > 0 ? " · " + std::to_string(running) + " running" : "")) + "</a>";
+    }
     if (!s.lastError.empty()) head += "<br>" + span_(st.error, esc_(cluster::one_line(s.lastError, 200)));
     if (!s.remoteUrl.empty() || !s.bridgeState.empty())
         head += "<br>" + span_(st.accent, "Remote Control " + esc_(s.bridgeState.empty() ? std::string("on") : s.bridgeState) + (s.remoteUrl.empty() ? QString()

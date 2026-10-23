@@ -607,6 +607,16 @@ _cold std::string cluster::Manager::shareShell(const std::string& id, const std:
 }
 
 /* the next queued prompt of a session: now */
+_cold void cluster::Manager::stopAgent(const std::string& id, const std::string& task)
+{
+    if (this->_replica) {
+        (void)this->call({{"cmd", "agent_stop"}, {"session", id}, {"task", task}});
+        return;
+    }
+    this->get_(this->resolve(id))->stopAgent(task);
+    ++this->_version;
+}
+
 _cold void cluster::Manager::sendNext(const std::string& id)
 {
     if (this->_replica) {
