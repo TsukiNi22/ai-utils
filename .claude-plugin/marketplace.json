@@ -107,7 +107,7 @@
     },
     {
       "name": "ux-skills",
-      "description": "Interface of a project or a website: several languages (i18n, the web part) and visual modes light / dark / system / high contrast (theming, the web part) (skills: i18n, i18n-web, theming, theming-web)",
+      "description": "Interface of a project or a website: several languages (multilingual-project, multilingual-website) and visual modes light / dark / system / high contrast (color-modes-project, color-modes-website) (skills: multilingual-project, multilingual-website, color-modes-project, color-modes-website)",
       "source": "./",
       "strict": false,
       "skills": [

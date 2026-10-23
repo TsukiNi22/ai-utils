@@ -1,11 +1,11 @@
 ---
-name: theming-web
-description: Light / dark (and other) modes for a website or web app - on top of the common rules of theming (modes asked through the interactive questions, semantic tokens, WCAG contrast in each mode) - CSS custom properties on :root redefined per mode, prefers-color-scheme as the default with a three-state switch (system / light / dark) stored on data-theme, no flash of the wrong theme (a tiny inline script in the head before the first paint), the choice in localStorage with try / catch, color-scheme and meta theme-color per mode, light-dark(), form controls / scrollbars / iframes / embeds / emails adapted, images with picture + media, SVG with currentColor, prefers-contrast, forced-colors and prefers-reduced-motion respected, Tailwind / CSS-in-JS / component libraries configured, an accessible sun / moon toggle, screenshots and contrast checks of both modes. Use whenever a site / web app needs a dark mode, a theme switch, "mode sombre", high contrast, or palettes; the user's own pages use the tokens of html-style.
+name: color-modes-website
+description: Light / dark (and other) modes for a website or web app - on top of the common rules of color-modes-project (modes asked through the interactive questions, semantic tokens, WCAG contrast in each mode) - CSS custom properties on :root redefined per mode, prefers-color-scheme as the default with a three-state switch (system / light / dark) stored on data-theme, no flash of the wrong theme (a tiny inline script in the head before the first paint), the choice in localStorage with try / catch, color-scheme and meta theme-color per mode, light-dark(), form controls / scrollbars / iframes / embeds / emails adapted, images with picture + media, SVG with currentColor, prefers-contrast, forced-colors and prefers-reduced-motion respected, Tailwind / CSS-in-JS / component libraries configured, an accessible sun / moon toggle, screenshots and contrast checks of both modes. Use whenever a site / web app needs a dark mode, a theme switch, "mode sombre", high contrast, or palettes; the user's own pages use the tokens of html-style.
 ---
 
 # theming-web - visual modes for a website / web app
 
-Load **`theming` first** (its questions, tokens and contrast rules apply as they are); this skill adds the web.
+Load **`color-modes-project` first** (its questions, tokens and contrast rules apply as they are); this skill adds the web.
 The user's own pages: the colour tokens and the sun / moon switch of `html-style` are the reference.
 
 ## 1. CSS
@@ -48,4 +48,4 @@ The user's own pages: the colour tokens and the sun / moon switch of `html-style
 - Screenshots of the main pages in each mode (headless browser, `?theme=` or emulated `prefers-color-scheme`), the
   first paint without flash (slow 3G throttling), the contrast of every token pair (a script; the user's pages:
   `html-style/scripts/check_style.py`), forced colours (Windows high contrast emulation), keyboard on the switch.
-- Recap as in `theming` + the files touched and how to add a mode.
+- Recap as in `color-modes-project` + the files touched and how to add a mode.

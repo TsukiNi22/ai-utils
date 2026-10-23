@@ -1,11 +1,11 @@
 ---
-name: i18n
-description: Make any project multilingual (internationalisation + localisation) - desktop / terminal / mobile apps, CLIs, libraries, services, C++ (Qt Linguist, gettext), Python (gettext / Babel), Rust (Fluent), Android / iOS, Electron - the languages asked first through the interactive questions (a few, the main European ones, the most spoken in the world, as many as possible, RTL included or not), every user-visible string moved to standard catalogs with named placeholders, plurals and gender, dates / numbers / currencies / sorting from the locale, the language chosen from a setting then the system locale with a fallback chain, text expansion and right-to-left layouts handled, fonts covering the scripts, the translations drafted and marked for review, missing / unused keys checked in the tests and the CI, the docs and legal texts in the languages. Use whenever the user wants a project translated, several languages, i18n / l10n, "porter en plusieurs langues", "traduire l'app", a language setting; for a website or web app use i18n-web (it builds on this one).
+name: multilingual-project
+description: Make any project multilingual, not only websites (internationalisation + localisation) - desktop / terminal / mobile apps, CLIs, libraries, services, C++ (Qt Linguist, gettext), Python (gettext / Babel), Rust (Fluent), Android / iOS, Electron - the languages asked first through the interactive questions (a few, the main European ones, the most spoken in the world, as many as possible, RTL included or not), every user-visible string moved to standard catalogs with named placeholders, plurals and gender, dates / numbers / currencies / sorting from the locale, the language chosen from a setting then the system locale with a fallback chain, text expansion and right-to-left layouts handled, fonts covering the scripts, the translations drafted and marked for review, missing / unused keys checked in the tests and the CI, the docs and legal texts in the languages. Use whenever the user wants a project translated, several languages, i18n / l10n, "porter en plusieurs langues", "traduire l'app", a language setting; for a website or web app use multilingual-website (it builds on this one).
 ---
 
 # i18n - a project in several languages
 
-**Request given with the skill:** the text after `/i18n` if any. A website / web app: load `i18n-web` too (its web
+**Request given with the skill:** the text after `/multilingual-project` if any. A website / web app: load `multilingual-website` too (its web
 part: URLs, hreflang, SEO...); this skill gives the common rules.
 
 ## 1. Ask (skill `interactive-questions`, one or two rounds)

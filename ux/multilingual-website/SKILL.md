@@ -1,13 +1,13 @@
 ---
-name: i18n-web
-description: Make a website or web app multilingual - on top of the common rules of i18n (languages asked through the interactive questions, catalogs, placeholders, plurals, Intl formats, RTL, review flags) - the web part - the framework's i18n library (i18next / react-i18next, next-intl, vue-i18n, Angular i18n, SvelteKit, Astro, Django / Flask-Babel, Rails, Laravel, plain JS with Intl and JSON catalogs), URLs per language (/fr/ prefix, subdomains or domains), translated slugs, hreflang + x-default, sitemaps, html lang and dir, the language switcher (names in their own language, no flags, accessible), the first choice from Accept-Language without forced redirects, the choice remembered, SEO and social meta per language, emails and notifications in the user's language, server rendering and caching (Vary), lazy-loaded catalogs, and the legal pages in each language. Use whenever a site / web app must exist in several languages, "site multilingue", "traduire le site", hreflang, a language switcher.
+name: multilingual-website
+description: Make a website or web app multilingual - on top of the common rules of multilingual-project (languages asked through the interactive questions, catalogs, placeholders, plurals, Intl formats, RTL, review flags) - the web part - the framework's i18n library (i18next / react-i18next, next-intl, vue-i18n, Angular i18n, SvelteKit, Astro, Django / Flask-Babel, Rails, Laravel, plain JS with Intl and JSON catalogs), URLs per language (/fr/ prefix, subdomains or domains), translated slugs, hreflang + x-default, sitemaps, html lang and dir, the language switcher (names in their own language, no flags, accessible), the first choice from Accept-Language without forced redirects, the choice remembered, SEO and social meta per language, emails and notifications in the user's language, server rendering and caching (Vary), lazy-loaded catalogs, and the legal pages in each language. Use whenever a site / web app must exist in several languages, "site multilingue", "traduire le site", hreflang, a language switcher.
 ---
 
 # i18n-web - a website / web app in several languages
 
-Load **`i18n` first** (its questions and common rules apply as they are); this skill adds the web.
+Load **`multilingual-project` first** (its questions and common rules apply as they are); this skill adds the web.
 
-## 1. Ask (with the questions of `i18n`, same round when possible)
+## 1. Ask (with the questions of `multilingual-project`, same round when possible)
 - **URL strategy**: a path prefix per language `/fr/...` (recommended: one domain, easy SEO), subdomains
   `fr.example.com`, or domains per country `example.fr` (when the offer differs per country); the default language
   at the root or prefixed too; **translated slugs** or not.
@@ -47,5 +47,5 @@ Load **`i18n` first** (its questions and common rules apply as they are); this s
 ## 3. Check
 - Every route reachable in every language, no key or blank shown (fallback chain), hreflang validated (reciprocal,
   `x-default`), `lang` / `dir` right, RTL screens checked, the switcher keeps the page, Lighthouse SEO + an
-  accessibility pass on two languages, the CI check of `i18n` (missing / unused keys, placeholders).
-- Recap as in `i18n` + the URL map per language.
+  accessibility pass on two languages, the CI check of `multilingual-project` (missing / unused keys, placeholders).
+- Recap as in `multilingual-project` + the URL map per language.

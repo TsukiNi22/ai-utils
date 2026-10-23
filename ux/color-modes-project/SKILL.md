@@ -1,11 +1,11 @@
 ---
-name: theming
-description: Add visual modes to any project - light / dark / follow the system, and on request high contrast, sepia, a custom accent or several palettes - asked first through the interactive questions (which modes, the default, where the switch lives, a brand palette), built on semantic colour tokens (background, surface, text, muted, accent, border, ok / warn / error, focus...) instead of hard-coded colours, following the system scheme live (Qt 6.5+ colorScheme, GTK / portal, Windows, macOS, Android DayNight, iOS, Electron nativeTheme, terminals: the background detected or chosen), the choice persisted and switched without restart, every pair of colours checked against WCAG contrast in each mode (4.5:1 text, 3:1 UI), icons / images / charts / syntax highlighting / focus rings adapted, screenshots of each mode in the tests. Use whenever the user wants a dark mode, a light / dark switch, themes, "mode sombre / clair", high contrast, palettes; for a website or web app use theming-web (it builds on this one).
+name: color-modes-project
+description: Add visual modes to any project, not only websites (desktop, terminal, mobile, CLI) - light / dark / follow the system, and on request high contrast, sepia, a custom accent or several palettes - asked first through the interactive questions (which modes, the default, where the switch lives, a brand palette), built on semantic colour tokens (background, surface, text, muted, accent, border, ok / warn / error, focus...) instead of hard-coded colours, following the system scheme live (Qt 6.5+ colorScheme, GTK / portal, Windows, macOS, Android DayNight, iOS, Electron nativeTheme, terminals: the background detected or chosen), the choice persisted and switched without restart, every pair of colours checked against WCAG contrast in each mode (4.5:1 text, 3:1 UI), icons / images / charts / syntax highlighting / focus rings adapted, screenshots of each mode in the tests. Use whenever the user wants a dark mode, a light / dark switch, themes, "mode sombre / clair", high contrast, palettes; for a website or web app use color-modes-website (it builds on this one).
 ---
 
 # theming - light / dark and other visual modes
 
-**Request given with the skill:** the text after `/theming` if any. A website / web app: load `theming-web` too.
+**Request given with the skill:** the text after `/color-modes-project` if any. A website / web app: load `color-modes-website` too.
 
 ## 1. Ask (skill `interactive-questions`, one round)
 - **Modes** (multi choice + Other): light, dark, **follow the system** (recommended as default), high contrast,
