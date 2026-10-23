@@ -28,6 +28,7 @@ answer it.
   exclude each other.
 - `preview` (single choice only) to compare concrete things side by side: ASCII mockups of a UI, code, a config, a
   diagram, an icon / logo drawn in text.
+- A whole ideation (new ideas on a subject, recommendations, an opinion, variants of ideas): the `ideation` skill.
 - Many ideas: several rounds (4 questions × 4 options max per call), grouped by theme ("Claude Code", "Confort",
   "Contrôles"...), then a short recap of what was kept (and stored as tasks / backlog when asked).
 - A question whose answer needs explaining first: explain in a few lines, then ask. "Explique plus" / "clarifie" as an
