@@ -175,6 +175,8 @@ namespace {
 //----------------------------------------------------------------//
 /* TOOLS */
 
+const QSize GRID_CELL(320, 190);    // a cell of the grid: its smallest size (the rows that do not fit scroll, the window never made larger)
+
 // xstyle: ignore-next CPP-SINGLE-STATEMENT (helper of this file only)
 _cold QString q_(const std::string& text)
 {
@@ -728,6 +730,9 @@ class HubView: public QGraphicsView {
         QGraphicsScene _scene;
         QPoint _pressed;
         std::string _pressedId;
+        std::string _selected;                  // the node chosen with the keys (Tab / Shift+Tab): outlined, Enter opens it
+        QGraphicsRectItem* _mark = nullptr;
+        QColor _markColor;
 
         struct LabelSpot {
             double x = 0;
@@ -738,6 +743,75 @@ class HubView: public QGraphicsView {
             bool pinned = false;        // the one shown: its label first, always drawn
             QString id;                 // carried by its text (a click on it is a click on the node)
         };
+
+        std::vector<std::pair<std::string, QRectF>> nodes_(void) const
+        {
+            // the nodes drawn (a session, a category / tag) and the box of their items; the tree: left to right then top to bottom, the ring: around
+            std::map<std::string, QRectF> boxes;
+            for (QGraphicsItem* item: this->_scene.items()) {
+                const std::string id = item->data(0).toString().toStdString();
+                if (id.empty() || id.starts_with("fold:") || item == this->_mark) continue;
+                QRectF& box = boxes[id];
+                box = box.isNull() ? item->sceneBoundingRect() : box.united(item->sceneBoundingRect());
+            }
+            std::vector<std::pair<std::string, QRectF>> all(boxes.begin(), boxes.end());
+            const std::function<std::pair<double, double>(const QRectF&)> rank = [this](const QRectF& box) {
+                if (!this->ring) return std::pair<double, double>(std::round(box.center().x() / 40), box.center().y());
+                return std::pair<double, double>(QLineF(QPointF(0, 0), box.center()).length() < 40 ? -10 : std::atan2(box.center().y(), box.center().x()), 0);
+            };
+            std::sort(all.begin(), all.end(), [&rank](const std::pair<std::string, QRectF>& a, const std::pair<std::string, QRectF>& b) {return rank(a.second) < rank(b.second);});
+            return all;
+        }
+
+        void markSelected_(void)
+        {
+            // the node chosen: a dashed box around it (drawn again with the scene)
+            if (this->_mark) {
+                this->_scene.removeItem(this->_mark);
+                delete this->_mark;
+                this->_mark = nullptr;
+            }
+            if (this->_selected.empty()) return;
+            for (const auto &[id, box]: this->nodes_())
+                if (id == this->_selected) {
+                    this->_mark = this->_scene.addRect(box.adjusted(-6, -6, 6, 6), QPen(this->_markColor, 2, Qt::DashLine), Qt::NoBrush);
+                    this->_mark->setZValue(10);
+                    return;
+                }
+        }
+
+        void step_(const int delta)
+        {
+            // Tab / Shift+Tab: the next / previous node chosen, brought into view
+            const std::vector<std::pair<std::string, QRectF>> all = this->nodes_();
+            if (all.empty()) return;
+            const int count = static_cast<int>(all.size());
+            const auto it = std::find_if(all.begin(), all.end(), [this](const std::pair<std::string, QRectF>& node) {return node.first == this->_selected;});
+            const int index = it == all.end() ? (delta > 0 ? 0 : count - 1) : (static_cast<int>(it - all.begin()) + delta + count) % count;
+            this->_selected = all[static_cast<std::size_t>(index)].first;
+            this->markSelected_();
+            this->ensureVisible(all[static_cast<std::size_t>(index)].second, 60, 60);
+        }
+
+        bool pressed_(const std::string& action, const QKeyEvent* event) const
+        {
+            // the key of an action of the graph (its alternatives separated by |, as in the terminal); Shift only counts when the key names it
+            const auto found = this->keys.find(action);
+            if (found == this->keys.end()) return false;
+            const int key = event->key() == Qt::Key_Backtab ? Qt::Key_Tab : event->key() == Qt::Key_Enter ? Qt::Key_Return : event->key();
+            const Qt::KeyboardModifiers held = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+            for (const std::string& alternative: cluster::split(found->second, '|')) {
+                const QKeySequence sequence(q_(alternative));
+                if (sequence.isEmpty()) continue;
+                const int wanted = sequence[0].key() == Qt::Key_Enter ? Qt::Key_Return : sequence[0].key();
+                const Qt::KeyboardModifiers modifiers = sequence[0].keyboardModifiers();
+                const bool shiftMatters = (modifiers & Qt::ShiftModifier) || wanted == Qt::Key_Tab;
+                if (wanted == key && (held & ~Qt::ShiftModifier) == (modifiers & ~Qt::ShiftModifier)
+                    && (!shiftMatters || (held & Qt::ShiftModifier) == (modifiers & Qt::ShiftModifier)))
+                    return true;
+            }
+            return false;
+        }
 
         void zoomBy(const double factor)
         {
@@ -758,14 +832,30 @@ class HubView: public QGraphicsView {
         {
             const int step = 40;
             this->setTransformationAnchor(QGraphicsView::AnchorViewCenter);
-            if (event->key() == Qt::Key_Left) this->horizontalScrollBar()->setValue(this->horizontalScrollBar()->value() - step);
-            else if (event->key() == Qt::Key_Right) this->horizontalScrollBar()->setValue(this->horizontalScrollBar()->value() + step);
-            else if (event->key() == Qt::Key_Up) this->verticalScrollBar()->setValue(this->verticalScrollBar()->value() - step);
-            else if (event->key() == Qt::Key_Down) this->verticalScrollBar()->setValue(this->verticalScrollBar()->value() + step);
-            else if (event->key() == Qt::Key_A || event->key() == Qt::Key_Plus || event->key() == Qt::Key_Equal) this->zoomBy(1.2);
-            else if (event->key() == Qt::Key_E || event->key() == Qt::Key_Minus) this->zoomBy(1 / 1.2);
-            else if (event->key() == Qt::Key_0) this->whole();
-            else {
+            if (this->pressed_("graph_left", event)) this->horizontalScrollBar()->setValue(this->horizontalScrollBar()->value() - step);
+            else if (this->pressed_("graph_right", event)) this->horizontalScrollBar()->setValue(this->horizontalScrollBar()->value() + step);
+            else if (this->pressed_("graph_up", event)) this->verticalScrollBar()->setValue(this->verticalScrollBar()->value() - step);
+            else if (this->pressed_("graph_down", event)) this->verticalScrollBar()->setValue(this->verticalScrollBar()->value() + step);
+            else if (this->pressed_("graph_zoom_in", event)) this->zoomBy(1.2);
+            else if (this->pressed_("graph_zoom_out", event)) this->zoomBy(1 / 1.2);
+            else if (this->pressed_("graph_fit", event)) this->whole();
+            else if (this->pressed_("graph_prev", event)) this->step_(-1);
+            else if (this->pressed_("graph_next", event)) this->step_(1);
+            else if (this->pressed_("graph_open", event) && !this->_selected.empty()) {
+                const std::string node = this->_selected;
+                if (node.starts_with("label:")) {
+                    if (this->onNode) this->onNode(node.substr(6));
+                } else if (this->onOpen) {
+                    this->onOpen(node);
+                }
+            } else if (this->pressed_("graph_focus", event) && this->_selected.starts_with("label:")) {
+                // the tree rooted at the node chosen (again: the whole tree)
+                const std::string node = this->_selected.substr(6);
+                this->focus = this->focus == node ? std::string() : node;
+                if (this->onRedraw) this->onRedraw();
+            } else if (this->pressed_("graph_close", event)) {
+                if (this->onClose) this->onClose();
+            } else {
                 QGraphicsView::keyPressEvent(event);
                 return;
             }
@@ -825,6 +915,14 @@ class HubView: public QGraphicsView {
 
         bool event(QEvent* event) override
         {
+            // Tab / Shift+Tab: the nodes of the graph (not the next widget)
+            if (event->type() == QEvent::KeyPress) {
+                QKeyEvent* key = static_cast<QKeyEvent*>(event);
+                if (key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab) {
+                    this->keyPressEvent(key);
+                    return true;
+                }
+            }
             // two fingers: zoomed around the middle of the view
             if (event->type() == QEvent::Gesture)
                 if (QPinchGesture* pinch = static_cast<QPinchGesture*>(static_cast<QGestureEvent*>(event)->gesture(Qt::PinchGesture))) {
@@ -840,6 +938,8 @@ class HubView: public QGraphicsView {
         std::function<void(const std::string&)> onNode;                     // a node of the taxonomy clicked: the list filtered to it (again: cleared)
         std::function<void(const std::string&, const QPoint&)> onMenu;      // a right click: the node under it (empty: the graph)
         std::function<void(void)> onRedraw;                                 // a node folded / unfolded: drawn again
+        std::function<void(void)> onClose;                                  // Escape: back to the list
+        std::map<std::string, std::string> keys;                            // the keys of the settings (graph_*)
         bool ring = false;                      // the sessions around global, not the tree of the taxonomy
         bool archived = false;                  // the archived sessions greyed in the tree
         bool byTags = false;                    // a session under each of its labels, not under its primary one only
@@ -859,7 +959,7 @@ class HubView: public QGraphicsView {
             this->setFocusPolicy(Qt::StrongFocus);
             this->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
             this->grabGesture(Qt::PinchGesture);
-            this->setToolTip("drag · wheel · arrows · a / e zoom · two fingers · double click: whole");
+            this->setToolTip("drag · wheel · z q s d / arrows · e / a zoom · Tab: a node, Enter: open it · two fingers · double click: whole");
         }
 
         void whole(void)
@@ -871,6 +971,7 @@ class HubView: public QGraphicsView {
         void populateRing_(const std::vector<cluster::Snapshot>& sessions, const cluster::Style& st, const std::string& active)
         {
             // drawn again (the view kept where it is): the lines, the nodes around, the middle one
+            this->_mark = nullptr; // removed with the scene
             this->_scene.clear();
             this->_scene.setBackgroundBrush(QColor(QString::fromStdString(st.bg)));
             const cluster::Snapshot* global = nullptr;
@@ -1038,6 +1139,7 @@ class HubView: public QGraphicsView {
         {
             // global at the root, then the categories / tags (the taxonomy, colored like their chips, with the number of sessions below), then the sessions as
             // leaves; left to right, a column per depth as wide as its widest node (no text over another); a folded node shows its count only
+            this->_mark = nullptr; // removed with the scene
             this->_scene.clear();
             this->_scene.setBackgroundBrush(QColor(QString::fromStdString(st.bg)));
             struct Item {
@@ -1275,6 +1377,8 @@ class HubView: public QGraphicsView {
             });
             if (this->ring || !labels) this->populateRing_(sessions, st, active);
             else this->populateTree_(sessions, st, taxonomy, archivedSpecs);
+            this->_markColor = QColor(QString::fromStdString(st.accent));
+            this->markSelected_();
             if (this->fitPending) { // its first drawing: the whole graph in the view
                 this->fitPending = false;
                 QTimer::singleShot(0, this, [this]() {this->whole();});
@@ -1391,9 +1495,9 @@ class Window: public QMainWindow {
                 QTimer* cycle = new QTimer(this);
                 std::shared_ptr<int> step = std::make_shared<int>(0);
                 QObject::connect(cycle, &QTimer::timeout, this, [this, dir, step]() {
-                    static const std::array<const char*, 6> views = {"list", "grid", "graph", "hub", "tree", "tasks"};
-                    if (*step >= static_cast<int>(views.size())) return;
-                    const std::string view = views[static_cast<std::size_t>(*step)];
+                    static const std::array<const char*, 6> shots = {"list", "grid", "graph", "hub", "tree", "tasks"};
+                    if (*step >= static_cast<int>(shots.size())) return;
+                    const std::string view = shots[static_cast<std::size_t>(*step)];
                     ++*step;
                     if (view == "tasks") this->active = TASKS_ID;
                     this->manager.setUi("layout", view == "tasks" ? "list" : view);
@@ -1616,7 +1720,7 @@ class Window: public QMainWindow {
             this->progressLabel->setText(html);
             this->progressBox->setFixedWidth(std::min(640, this->width() - 40));
             this->progressBox->adjustSize();
-            this->progressBox->move((this->width() - this->progressBox->width()) / 2, 70);
+            this->progressBox->move((this->width() - this->progressBox->width()) / 2, std::max(60, (this->height() - this->progressBox->height()) / 2)); // in the middle of the window
             this->progressBox->show();
             this->progressBox->raise();
             this->animating = this->animating || !p->done;
@@ -1625,9 +1729,10 @@ class Window: public QMainWindow {
         QTextBrowser* tasksView = nullptr;      // the Tasks session (list / tabs)
         HubView* hub = nullptr;                 // the graph / hub layouts
         QTreeWidget* folders = nullptr;         // the tree layout: the sessions by project folder
+        QScrollArea* gridArea = nullptr;        // the grid layout: its cells (scrolled when they do not fit)
+        int gridColumns = 1;
+        int listWidth = 0;                      // the width the rows of the list were elided to
         QLabel* hubNote = nullptr;              // its notes at the bottom (no sub-session, the keys)
-        QDialog* tasksWindow = nullptr;         // the Tasks session in a window of its own (grid)
-        QTextBrowser* tasksBrowser = nullptr;
         std::string tasksShownHtml;
 
         QTextBrowser* makeTasksView(QWidget* parent)
@@ -1660,6 +1765,18 @@ class Window: public QMainWindow {
 
         bool eventFilter(QObject* watched, QEvent* event) override
         {
+            // the grid: a click on a cell makes it the one of the prompt (the prompt keeps the keys; the Tasks keeps them for its links)
+            if (event->type() == QEvent::MouseButtonPress && watched->property("ccCell").isValid()) {
+                const std::string id = watched->property("ccCell").toString().toStdString();
+                if (id != this->active)
+                    QTimer::singleShot(0, this, [this, id]() {
+                        this->active = id;
+                        this->refresh(true);
+                        if (id != TASKS_ID) this->input->setFocus();
+                    });
+            }
+            if (this->list && watched == this->list->viewport() && event->type() == QEvent::Resize && this->list->viewport()->width() != this->listWidth)
+                QTimer::singleShot(0, this, [this]() {this->refresh(true);});
             // a Tasks panel resized: its outline with it
             if (event->type() == QEvent::Resize && watched->objectName() == "tasksPanel")
                 if (QWidget* outline = static_cast<QWidget*>(watched)->findChild<QWidget*>("tasksOutline", Qt::FindDirectChildrenOnly)) {
@@ -1682,24 +1799,9 @@ class Window: public QMainWindow {
 
         void showTasks(void)
         {
-            // the Tasks session: shown in place of a session (list, tabs), a window of its own in the grid
-            if (this->manager.ui("layout", this->manager.config().layout) != "grid") {
-                this->active = TASKS_ID;
-                this->refresh(true);
-                return;
-            }
-            if (this->tasksWindow == nullptr) {
-                this->tasksWindow = new QDialog(this);
-                this->tasksWindow->setWindowTitle("Tasks");
-                this->tasksWindow->resize(820, 640);
-                QVBoxLayout* layout = new QVBoxLayout(this->tasksWindow);
-                this->tasksBrowser = this->makeTasksView(this->tasksWindow);
-                this->tasksBrowser->setVisible(true);
-                layout->addWidget(this->tasksBrowser);
-            }
-            this->fillTasks(this->tasksBrowser);
-            this->tasksWindow->show();
-            this->tasksWindow->raise();
+            // the Tasks session: shown in place of a session (list, tabs), its cell chosen (grid)
+            this->active = TASKS_ID;
+            this->refresh(true);
         }
 
         void fillTasks(QTextBrowser* browser)
@@ -1997,6 +2099,7 @@ class Window: public QMainWindow {
                 if (action == "prefix") continue; // only the chords below
                 if (action == "undo" || action == "redo" || action == "select_all" || action == "cut" || action == "paste") continue; // the prompt (Qt)
                 if (action == "mode_cycle") continue; // Shift+Tab: in the prompt (else it moves the focus)
+                if (action.starts_with("graph_")) continue; // the graph / hub view reads them (shortcuts of the window: letters lost by every view)
                 for (const std::string& alternative: cluster::split(key, '|')) {
                     QShortcut* shortcut = new QShortcut(QKeySequence(q_(alternative)), this);
                     const std::string name = action;
@@ -2243,19 +2346,62 @@ class Window: public QMainWindow {
 
         void moveDir(const int dx, const int dy)
         {
-            // grid: rows and columns; list, tabs: previous / next
+            // grid: rows and columns (as the terminal); list, tabs: previous / next
             const std::vector<cluster::Snapshot> sessions = this->manager.shown();
             const int count = static_cast<int>(sessions.size());
             if (count == 0) return;
-            auto it = std::find_if(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;});
-            const int index = it == sessions.end() ? 0 : static_cast<int>(it - sessions.begin());
-            const std::string layout = this->manager.ui("layout", this->manager.config().layout);
-            const int columns = layout == "grid" && count >= 1 ? static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count)))) : 1;
-            int next = index;
-            if (dx != 0 || columns == 1) next = (index + (dx != 0 ? dx : dy) + count) % count;
-            else if (index + dy * columns >= 0 && index + dy * columns < count) next = index + dy * columns;
-            this->active = sessions[static_cast<std::size_t>(next)].spec.id;
+            const bool grid = this->manager.ui("layout", this->manager.config().layout) == "grid";
+            const int columns = grid ? this->gridColumns : 1;
+            if (!grid || columns == 1) {
+                this->move(dx != 0 ? dx : dy);
+                return;
+            }
+            // the sessions, then the Tasks as the last cell; left / right turn inside the row (the last one has fewer cells), up / down inside the
+            // column, from the top to the bottom and back; under a shorter last row, its last cell
+            const int cellCount = count + 1;
+            const auto it = std::find_if(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;});
+            const int index = this->active == TASKS_ID ? count : it == sessions.end() ? 0 : static_cast<int>(it - sessions.begin());
+            const int rows = (cellCount + columns - 1) / columns;
+            int row = index / columns;
+            int column = index % columns;
+            if (dx != 0) {
+                const int cells = std::min(columns, cellCount - row * columns);
+                column = (column + dx + cells) % cells;
+            } else {
+                row = (row + dy + rows) % rows;
+                column = std::min(column, cellCount - row * columns - 1);
+            }
+            const int chosen = row * columns + column;
+            this->active = chosen == count ? std::string(TASKS_ID) : sessions[static_cast<std::size_t>(chosen)].spec.id;
             this->refresh(true);
+            QWidget* shown = this->active == TASKS_ID ? static_cast<QWidget*>(this->tasksView) : this->views.contains(this->active) ? this->views[this->active] : nullptr;
+            if (this->gridArea && shown) this->gridArea->ensureWidgetVisible(shown, 0, 0);
+        }
+
+        bool gridKey(const QKeyEvent* event)
+        {
+            // the grid, the prompt empty: the arrows move between the cells, Shift+Enter opens the cell in the list (a prompt being written: they
+            // edit it as ever)
+            if (this->manager.ui("layout", this->manager.config().layout) != "grid") return false;
+            const Qt::KeyboardModifiers held = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+            if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && held == Qt::ShiftModifier) return this->gridOpen();
+            if (held != Qt::NoModifier) return false;
+            if (event->key() == Qt::Key_Left) this->moveDir(-1, 0);
+            else if (event->key() == Qt::Key_Right) this->moveDir(1, 0);
+            else if (event->key() == Qt::Key_Up) this->moveDir(0, -1);
+            else if (event->key() == Qt::Key_Down) this->moveDir(0, 1);
+            else return false;
+            return true;
+        }
+
+        bool gridOpen(void)
+        {
+            // the cell chosen in the grid: opened in the list
+            if (this->manager.ui("layout", this->manager.config().layout) != "grid") return false;
+            this->manager.setUi("layout", "list");
+            this->refresh(true);
+            this->message("opened in the list", false);
+            return true;
         }
 
         void palette(const QString& initial = QString())
@@ -2748,9 +2894,8 @@ class Window: public QMainWindow {
 
         void move(const int delta)
         {
-            // next / previous: the Tasks session first (not in the grid: its own window), then the sessions
-            std::vector<std::string> ids;
-            if (this->manager.ui("layout", this->manager.config().layout) != "grid") ids.push_back(TASKS_ID);
+            // next / previous: the Tasks session first, then the sessions
+            std::vector<std::string> ids = {TASKS_ID};
             for (const cluster::Snapshot& s: this->manager.shown())
                 ids.push_back(s.spec.id);
             if (ids.empty()) return;
@@ -2765,6 +2910,11 @@ class Window: public QMainWindow {
         {
             if (action == "palette") this->palette();
             else if (action == "next_session") this->move(1);
+            else if (action == "session_left") this->moveDir(-1, 0);
+            else if (action == "session_right") this->moveDir(1, 0);
+            else if (action == "session_up") this->moveDir(0, -1);
+            else if (action == "session_down") this->moveDir(0, 1);
+            else if (action == "grid_open") (void)this->gridOpen();
             else if (action == "prev_session") this->move(-1);
             else if (action == "global") {
                 this->active = GLOBAL_ID;
@@ -3035,6 +3185,7 @@ class Window: public QMainWindow {
             this->hub = nullptr;
             this->hubNote = nullptr;
             this->folders = nullptr;
+            this->gridArea = nullptr;
             if (this->active != TASKS_ID && std::none_of(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;})
                 && !sessions.empty()) // the Tasks session kept (not a session: it is never in the list)
                 this->active = sessions.front().spec.id;
@@ -3103,16 +3254,42 @@ class Window: public QMainWindow {
             root->addWidget(body, 1);
             root = inner;
             if (layout == "grid" && !sessions.empty()) {
-                QGridLayout* grid = new QGridLayout();
-                const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(sessions.size() + 1))));   // the sessions, then the Tasks as a cell
+                // the sessions, then the Tasks as a cell; as many columns as fit (a cell never narrower than GRID_CELL), the rows that do not fit scroll
+                this->gridArea = new QScrollArea(central);
+                this->gridArea->setFrameShape(QFrame::NoFrame);
+                this->gridArea->setWidgetResizable(true);
+                this->gridArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                QWidget* cells = new QWidget(this->gridArea);
+                cells->setObjectName("gridCells");
+                QGridLayout* grid = new QGridLayout(cells);
+                grid->setContentsMargins(0, 0, 0, 0);
+                const int fit = std::max(1, (this->width() - 40) / GRID_CELL.width());
+                this->gridColumns = std::min(fit, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(sessions.size() + 1)))));
+                const int columns = this->gridColumns;
+                const std::function<void(QWidget*, const std::string&)> cell = [this](QWidget* widget, const std::string& id) {
+                    widget->setMinimumSize(GRID_CELL);
+                    widget->setProperty("ccCell", q_(id));
+                    widget->installEventFilter(this);
+                };
                 for (std::size_t i = 0; i < sessions.size(); ++i) {
                     SessionView* view = new SessionView(this, sessions[i].spec.id, true);
                     this->views[sessions[i].spec.id] = view;
+                    cell(view, sessions[i].spec.id);
+                    for (QWidget* part: {static_cast<QWidget*>(view->header), view->log->viewport()}) {
+                        part->setProperty("ccCell", q_(sessions[i].spec.id));
+                        part->installEventFilter(this);
+                    }
                     grid->addWidget(view, static_cast<int>(i) / columns, static_cast<int>(i) % columns);
                 }
-                this->tasksView = this->makeTasksView(central);
+                this->tasksView = this->makeTasksView(cells);
+                cell(this->tasksView, TASKS_ID);
+                this->tasksView->viewport()->setProperty("ccCell", q_(TASKS_ID));
+                this->tasksView->viewport()->installEventFilter(this);
                 grid->addWidget(this->tasksView, static_cast<int>(sessions.size()) / columns, static_cast<int>(sessions.size()) % columns);
-                root->addLayout(grid, 1);
+                for (int r = 0; r < grid->rowCount(); ++r)
+                    grid->setRowStretch(r, 1);
+                this->gridArea->setWidget(cells);
+                root->addWidget(this->gridArea, 1);
             } else if (layout == "hub" || layout == "graph") {
                 // the graph (the categories / tags between global and the sessions) or the hub (every session around global); a node clicked: its session
                 // shown in the list layout
@@ -3129,6 +3306,11 @@ class Window: public QMainWindow {
                 };
                 this->hub->onMenu = [this](const std::string& node, const QPoint& at) {this->hubMenu(node, at);};
                 this->hub->onRedraw = [this]() {this->refresh(true);};
+                this->hub->onClose = [this]() {
+                    this->manager.setUi("layout", "list");
+                    this->refresh(true);
+                };
+                this->hub->keys = this->manager.config().keys;
                 root->addWidget(this->hub, 1);
                 this->hubNote = new QLabel(central);
                 this->hubNote->setAlignment(Qt::AlignCenter);
@@ -3141,7 +3323,7 @@ class Window: public QMainWindow {
                 this->folders->setHeaderLabels({"Session", "State", "Labels", "What it does"});
                 this->folders->setRootIsDecorated(true);
                 this->folders->setUniformRowHeights(true);
-                QObject::connect(this->folders, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
+                QObject::connect(this->folders, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem* item, int) {   // double click / Enter
                     const std::string id = item->data(0, Qt::UserRole).toString().toStdString();
                     if (id.empty()) return;
                     this->active = id;
@@ -3183,6 +3365,7 @@ class Window: public QMainWindow {
                     if (row >= 0 && static_cast<std::size_t>(row) < all.size()) this->sessionMenu(all[static_cast<std::size_t>(row)].spec.id, this->list->viewport()->mapToGlobal(pos));
                 });
                 this->list->setMinimumWidth(220);
+                this->list->viewport()->installEventFilter(this); // resized: its rows elided again
                 this->list->setWordWrap(true);
                 this->list->setTextElideMode(Qt::ElideMiddle);
                 this->list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -3290,6 +3473,8 @@ class Window: public QMainWindow {
             this->setCentralWidget(central);
             this->showFace(); // its title at once (not at the next tick of the face: blank meanwhile)
             this->input->setFocus();
+            if (this->hub) this->hub->setFocus(); // its keys at once (a click on the prompt to write)
+            else if (this->folders) this->folders->setFocus();
             this->lastVersion = 0;
             this->faceShown.clear(); // the new top bar gets its face
         }
@@ -3311,21 +3496,25 @@ class Window: public QMainWindow {
                 std::set<QString> closed;
                 for (int i = 0; i < this->folders->topLevelItemCount(); ++i)
                     if (!this->folders->topLevelItem(i)->isExpanded()) closed.insert(this->folders->topLevelItem(i)->text(0));
+                const QTreeWidgetItem* was = this->folders->currentItem();
+                const QString chosen = was == nullptr ? QString() : was->data(0, Qt::UserRole).toString().isEmpty() ? "folder:" + was->text(0) : was->data(0, Qt::UserRole).toString();
                 this->folders->clear();
-                for (const auto &[folder, list]: byFolder) {
+                for (const auto &[folder, members]: byFolder) {
                     QTreeWidgetItem* top = new QTreeWidgetItem(this->folders, {q_(folder)});
                     top->setForeground(0, QColor(q_(st.accent)));
-                    for (const cluster::Snapshot* s: list) {
+                    for (const cluster::Snapshot* s: members) {
                         std::string labels = s->spec.category;
                         for (const std::string& tag: s->spec.tags)
                             labels += (labels.empty() ? "#" : " #") + tag;
                         QTreeWidgetItem* row = new QTreeWidgetItem(top, {q_(s->spec.global ? "global" : s->spec.name), q_(!s->permissions.empty() ? "waiting for you"
                             : cluster::state_name(s->state)), q_(labels), q_(cluster::one_line(s->spec.summary, 80))});
                         row->setData(0, Qt::UserRole, q_(s->spec.id));
+                        if (chosen == q_(s->spec.id)) this->folders->setCurrentItem(row);
                         row->setForeground(1, QColor(q_(!s->permissions.empty() ? st.warn : s->state == cluster::State::Working ? st.ok : s->state == cluster::State::Error
                             ? st.error : st.muted)));
                     }
                     top->setExpanded(!closed.contains(q_(folder)));
+                    if (chosen == "folder:" + q_(folder)) this->folders->setCurrentItem(top);
                 }
                 this->folders->resizeColumnToContents(0);
                 this->folders->resizeColumnToContents(1);
@@ -3337,7 +3526,7 @@ class Window: public QMainWindow {
                 QString note;
                 if (sessions.size() <= (global ? 1U : 0U)) note += "No sub-session yet: ask the global session, or create one (Ctrl+T). ";
                 if (!global) note += "No global session (settings › Global session). ";
-                this->hubNote->setText(esc_(note.toStdString()) + span_(st.muted, "drag · wheel · arrows · a / e zoom · two fingers · double click: whole"));
+                this->hubNote->setText(esc_(note.toStdString()) + span_(st.muted, "drag · wheel · z q s d / arrows · e / a zoom · 0 whole · Tab: a node · Enter: open · F: its tree · Esc: the list"));
             }
             if (this->list) {
                 const QSignalBlocker block(this->list);
@@ -3364,6 +3553,14 @@ class Window: public QMainWindow {
                 const bool grouped = this->manager.ui("group_by_category", this->manager.config().groupByCategory ? "true" : "false") == "true";
                 const cluster::Taxonomy taxonomy = this->manager.taxonomy();
                 const cluster::Snapshot* before = nullptr;
+                this->listWidth = this->list->viewport()->width();
+                const int room = std::max(120, this->listWidth - 26);
+                QFont small = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+                small.setPointSizeF(8.5);
+                QFont bold = this->list->font();
+                bold.setBold(true);
+                const QFontMetrics smallMetrics(small);
+                const QFontMetrics boldMetrics(bold);
                 for (const cluster::Snapshot& s: sessions) {
                     // grouped: the category over the first session of each group; its chips (category, tags) under its description
                     if (!this->labelFilter.empty() && !s.spec.global && !taxonomy.under(s.spec, this->labelFilter, true)) continue;   // a node chosen in the hub
@@ -3383,7 +3580,7 @@ class Window: public QMainWindow {
                     QString chips;
                     if (!s.spec.category.empty()) chips += "<br>" + pill_(s.spec.category, st.bg, chip_color_(s.spec.category), false, true, 8.2);
                     for (const std::string& tag: s.spec.tags)
-                        chips += (chips.isEmpty() ? "<br>" : "&nbsp;") + pill_("#" + tag, chip_color_(tag), st.bg, false, false, 8.2, true);
+                        chips += (chips.isEmpty() ? "<br>" : " ") + pill_("#" + tag, chip_color_(tag), st.bg, false, false, 8.2, true);
                     const std::string dot = s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting || !s.permissions.empty() ? st.warn
                         : s.state == cluster::State::Error ? st.error : st.muted;
                     const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
@@ -3391,18 +3588,21 @@ class Window: public QMainWindow {
                     row->setTextFormat(Qt::RichText);
                     row->setAttribute(Qt::WA_TransparentForMouseEvents);
                     row->setContentsMargins(10, 7, 10, 7);
-                    row->setText("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>" + span_(dot, "●") + "&nbsp; <b>" + esc_(s.spec.name) + "</b>&nbsp; "
+                    row->setWordWrap(true);
+                    const QString name = boldMetrics.elidedText(q_(s.spec.name), Qt::ElideRight, std::max(40, room - 72));
+                    const QString what = smallMetrics.elidedText(q_(s.spec.summary.empty() ? s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd)
+                        : cluster::one_line(s.spec.summary, 400)), Qt::ElideRight, room);
+                    row->setText("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>" + span_(dot, "●") + "&nbsp; <b>" + name.toHtmlEscaped() + "</b>&nbsp; "
                         + pill_(face, dot, mix_(st.surface, dot, 0.22))
                         + (s.permissions.empty() ? QString() : "&nbsp;" + span_(st.warn, "<b>" + QString::number(s.permissions.size()) + "</b>"))
                         + "</td><td align=\"right\">" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::human_tokens(s.metrics.total.total()))
-                        + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt\">"
-                        + esc_(s.spec.summary.empty() ? s.spec.backend.substr(0, s.spec.backend.find('/')) + " · " + cluster::short_path(s.spec.cwd) : cluster::one_line(s.spec.summary, 44))
+                        + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt;white-space:pre\">" + what.toHtmlEscaped()
                         + "</span>") + chips);
                     if (!header.isEmpty()) row->setText(header + row->text());
                     QListWidgetItem* item = new QListWidgetItem(this->list);
                     item->setToolTip(q_((s.spec.summary.empty() ? std::string() : s.spec.summary + "\n") + cluster::short_path(s.spec.cwd)
                         + (s.spec.category.empty() && s.spec.tags.empty() ? std::string() : "\n" + cluster::label_text(s.spec))));
-                    item->setSizeHint(QSize(0, row->sizeHint().height() + 4));
+                    item->setSizeHint(QSize(0, row->heightForWidth(this->listWidth) + 4));
                     this->list->setItemWidget(item, row);
                     if (s.spec.id == this->active) this->list->setCurrentRow(this->list->count() - 1);
                 }
@@ -3442,7 +3642,6 @@ class Window: public QMainWindow {
                 this->tasksView->setVisible(tasksShown);
                 if (tasksShown) this->fillTasks(this->tasksView);
             }
-            if (this->tasksWindow != nullptr && this->tasksWindow->isVisible()) this->fillTasks(this->tasksBrowser);
             this->modeTarget();
             // the Tasks session: no prompt
             if (this->input != nullptr) {
@@ -4389,6 +4588,7 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
     }
     const bool open = this->popup && this->popup->isVisible();
     const bool enter = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
+    if (!open && this->text().isEmpty() && this->window->gridKey(event)) return;
     if (enter && (event->modifiers() & (Qt::ShiftModifier | Qt::AltModifier))) {
         this->insertPlainText("\n"); // Alt+Enter / Shift+Enter: new line
         return;

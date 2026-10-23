@@ -674,7 +674,7 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
     const std::size_t sessions = static_cast<std::size_t>(std::count_if(this->_nodes.begin(), this->_nodes.end(), [](const GraphNode& n) {return n.kind == GraphKind::Session;}));
     char zoomText[16];
     std::snprintf(zoomText, sizeof(zoomText), "%.2f", this->_zoom);
-    const ftxui::Element title = ftxui::hbox({ftxui::text(" ◎ " + this->title + " ") | ftxui::bold | ftxui::color(colors.bg) | ftxui::bgcolor(colors.accent),
+    const ftxui::Element head = ftxui::hbox({ftxui::text(" ◎ " + this->title + " ") | ftxui::bold | ftxui::color(colors.bg) | ftxui::bgcolor(colors.accent),
         ftxui::text(" " + std::to_string(sessions) + " session" + (sessions == 1 ? "" : "s") + " · zoom " + zoomText + "× · view " + std::to_string(static_cast<int>(this->_x))
             + ", " + std::to_string(static_cast<int>(this->_y))) | ftxui::color(colors.muted), ftxui::filler(),
         ftxui::text(first_(keys, "graph_legend") + " legend · " + first_(keys, "graph_map") + " map · " + first_(keys, "graph_close") + " close ") | ftxui::color(colors.muted)});
@@ -687,7 +687,7 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
     const std::string hint = " " + first_(keys, "graph_up") + " " + first_(keys, "graph_left") + " " + first_(keys, "graph_down") + " " + first_(keys, "graph_right") + " pan · "
         + first_(keys, "graph_zoom_in") + " / " + first_(keys, "graph_zoom_out") + " zoom · " + first_(keys, "graph_fit") + " fit · " + first_(keys, "graph_focus") + " focus · "
         + first_(keys, "graph_next") + " next · " + first_(keys, "graph_open") + " open · mouse: drag, wheel, click, double click, right click";
-    ftxui::Elements all = {title};
+    ftxui::Elements all = {head};
     all.push_back(ftxui::vbox(canvas) | ftxui::reflect(this->_box));
     if (this->_legend)
         all.push_back(ftxui::hbox({ftxui::text(" ● working") | ftxui::color(colors.ok), ftxui::text("  ◆ waiting for you") | ftxui::color(colors.warn), ftxui::text("  ✖ error") | ftxui::color(colors.error),
