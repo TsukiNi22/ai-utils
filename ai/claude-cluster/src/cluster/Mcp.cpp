@@ -80,7 +80,8 @@ _cold cluster::Json cluster::mcp_tools(void)
              {"attachments", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "paths of local files to attach to the prompt (images as pictures, the others as @path): "
                  "inside the project folder of the session or the home of the user only, no hidden folder; the number is limited by a setting"}}}},
             {"session", "text"}),
-        tool_("session_wait", "Wait until a session is done (up to timeout seconds, 110 max) and get only its last answer (not its context): when you need "
+        tool_("session_wait", "Wait until a session is done (up to timeout seconds, 110 max) and get only its last answer (not its context); its outcome tells how its "
+            "last turn ended - finished, cancelled (interrupted before it finished), error, closed: only finished is done, never take the others as finished: when you need "
             "the answer now to go on. A permission waiting is told.", {{"session", session}, {"timeout", {{"type", "integer"}, {"description", "seconds (default 100)"}}}},
             {"session"}),
         tool_("session_allow", "Answer a pending permission of a session; a question of its agent (AskUserQuestion, its options in "

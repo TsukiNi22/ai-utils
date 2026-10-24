@@ -1294,7 +1294,7 @@ async function renderTasks() {
             + (count("cancelled") ? " · " + count("cancelled") + " cancelled" : ""));
         if (!shown.length) view.append(el("div", "muted", "empty: a prompt below queues one"));
         for (const t of shown.slice(0, 12)) {
-            const mark = {running: "▶", queued: t.forced ? "»" : "◌", done: "✓", failed: "✗", cancelled: "⊘"}[t.status] || "·";
+            const mark = {running: "▶", queued: t.forced ? "»" : "◌", done: "✓", failed: "✗", cancelled: "⊘", stopped: "⏸"}[t.status] || "·";
             const row = el("div", "task-row " + t.status);
             const age = t.status === "queued" ? "waits " + ago(now - t.created) : t.status === "running" ? ago(now - t.started) : ago(now - t.ended) + " ago";
             row.append(el("span", "mark", mark), el("span", "id", t.id), el("span", "text", t.prompt),
@@ -1740,8 +1740,8 @@ const more = {
     steps(div, d) {
         const box = document.createElement("div");
         box.className = "steps";
-        const icons = {done: "✔", current: "●", error: "✗", todo: "○"};
-        const classes = {done: "done", current: "current", error: "fail", todo: "todo"};
+        const icons = {done: "✔", current: "●", error: "✗", cancelled: "⊘", stopped: "⏸", todo: "○"};
+        const classes = {done: "done", current: "current", error: "fail", cancelled: "fail", stopped: "fail", todo: "todo"};
         for (const s of d.steps || []) {
             const line = document.createElement("div");
             line.className = classes[s.state] || "todo";

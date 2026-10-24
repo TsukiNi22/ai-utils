@@ -1340,7 +1340,7 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
             const std::string told = "a reason (optional: told to " + who(t.by) + ")";
             if (t.status == "queued") out.push_back({"task_act:" + id + ":force", "Start " + id + " now (past the limit of parallel sessions)", "", "", false});
             if (t.status == "queued" || t.status == "running") out.push_back({"task_act:" + id + ":cancel", "Cancel " + id, told, "", false});
-            if (t.status == "failed" || t.status == "cancelled") out.push_back({"task_act:" + id + ":retry", "Run " + id + " again", "", "", false});
+            if (t.status == "failed" || t.status == "cancelled" || t.status == "stopped") out.push_back({"task_act:" + id + ":retry", "Run " + id + " again", "", "", false});
             if (!t.session.empty()) out.push_back({"focus:" + t.session, "Open its session (" + (manager.snapshot(t.session) ? manager.snapshot(t.session)->spec.name : t.session) + ")", "", "", false});
             out.push_back({"task_act:" + id + (t.archived ? ":unarchive" : ":archive"), t.archived ? "Back in the list" : "Archive " + id, "", "", false});
             out.push_back({"task_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});

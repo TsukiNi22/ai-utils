@@ -725,7 +725,13 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             std::string answer;
             for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && answer.empty(); ++it)
                 if (it->kind == cluster::EntryKind::Assistant) answer = it->text;
-            data = {{"id", id}, {"state", cluster::state_name(snap->state)}, {"done", !busy()}, {"answer", cluster::head_utf8(answer, 6000)}};
+            // how its last turn ended: finished, cancelled (interrupted before its answer), error, closed - only finished is done for good
+            const std::string outcome = busy() ? std::string("running") : snap->state == cluster::State::Stopped ? std::string("closed")
+                : snap->state == cluster::State::Error || !snap->lastError.empty() ? std::string("error") : snap->stopped ? std::string("cancelled") : std::string("finished");
+            data = {{"id", id}, {"state", cluster::state_name(snap->state)}, {"done", !busy()}, {"outcome", outcome}, {"finished", outcome == "finished"},
+                {"answer", cluster::head_utf8(answer, 6000)}};
+            if (outcome == "cancelled") data["note"] = "its last turn was interrupted before it finished: not done (send it again or ask what is left)";
+            else if (outcome == "error") data["note"] = "its last turn ended with an error: not done (" + cluster::one_line(snap->lastError, 200) + ")";
             if (busy()) data["note"] = "still working: wait again, or send with reply and go on (its answer will come back)";
             if (!snap->permissions.empty()) data["permission"] = snap->permissions.front().tool + ": " + cluster::one_line(snap->permissions.front().description, 200);
         } else if (cmd == "close") {

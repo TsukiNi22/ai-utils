@@ -293,6 +293,8 @@ class Manager {
         _cold bool hold_(const std::string& id, const std::string& text, const std::vector<std::string>& images, const std::string& origin); // held: true
         _cold void holdQueues_(void);                       // the prompts queued in the sessions: held too (none starts a turn before the switch)
         _cold void releaseHeld_(void);                      // the prompts held by the version before: sent now
+        _cold void holdAsk_(const cluster::Snapshot& s);    // a session waiting for the user: its request held (asked again after), its turn stopped
+        _cold void holdAsks_(std::set<std::string>& asked); // every session waiting for the user (the ones not in asked yet): holdAsk_
         _cold void upgradeKeep_(void);                      // what is on for this run written before the switch (upgrade-keep.json)
         _cold _nodiscard std::size_t heldCount_(void) const;
         _cold void taskDone_(const std::string& session, const bool error, const bool interrupted, const std::string& text);

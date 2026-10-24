@@ -4136,7 +4136,8 @@ class TtyUi {
             for (std::size_t i = 0; i < shown.size() && i < 10; ++i) {
                 const cluster::Task& task = shown[i];
                 const ftxui::Color tint = task.status == "running" ? t.ok : task.status == "queued" ? t.accent : task.status == "done" ? t.muted : task.status == "failed" ? t.error : t.warn;
-                const std::string mark = task.status == "running" ? "▶" : task.status == "queued" ? (task.forced ? "»" : "◌") : task.status == "done" ? "✓" : task.status == "failed" ? "✗" : "⊘";
+                const std::string mark = task.status == "running" ? "▶" : task.status == "queued" ? (task.forced ? "»" : "◌") : task.status == "done" ? "✓" : task.status == "failed" ? "✗"
+                    : task.status == "stopped" ? "⏸" : "⊘";
                 const std::string where = !task.session.empty() ? (this->_manager.snapshot(task.session) ? this->_manager.snapshot(task.session)->spec.name : task.session)
                     : task.target.empty() ? "any free session" : task.target;
                 const std::string age = task.status == "queued" ? "waits " + span(now - task.created) : task.status == "running" ? span(now - task.started) : span(now - task.ended) + " ago";
@@ -4573,7 +4574,8 @@ class TtyUi {
                 } else if (type == "steps") {
                     for (const cluster::Json& step: d["steps"]) {
                         const std::string state = step.value("state", std::string("todo"));
-                        add(step.value("text", std::string()), state == "done" ? "  ✔ " : state == "current" ? "  ● " : state == "error" ? "  ✗ " : "  ○ ", "    ",
+                        add(step.value("text", std::string()), state == "done" ? "  ✔ " : state == "current" ? "  ● " : state == "error" ? "  ✗ " : state == "cancelled" ? "  ⊘ "
+                            : state == "stopped" ? "  ⏸ " : "  ○ ", "    ",
                             state == "done" ? ftxui::color(th.ok) : state == "current" ? ftxui::color(th.accent) | ftxui::bold : state == "error" ? ftxui::color(th.error)
                             : ftxui::color(th.muted));
                     }
@@ -6011,7 +6013,7 @@ class TtyUi {
                     ftxui::hbox({choice(0, " Update ", "u", this->_theme.accent, ftxui::Event::Character('u')), ftxui::text("  "),
                         choice(1, " Ignore this version ", "i", this->_theme.text, ftxui::Event::Character('i')), ftxui::text("  "),
                         choice(2, " Quit claude-cluster ", "q", this->_theme.error, ftxui::Event::Character('q'))}),
-                    ftxui::text(" ←/→ / Tab: choose · Enter: do it · Esc: later (the palette or a new start ask again)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 92);
+                    ftxui::paragraph(" ←/→ / Tab: choose · Enter: do it · Esc: later (the palette or a new start ask again)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 92);
             }
             if (const cluster::Link link = this->_manager.link(); link.lost && link.upgrading) {
                 // the core being updated: this terminal follows it (the new binary run in place of this one)
@@ -6019,7 +6021,7 @@ class TtyUi {
                 static const std::array<const char*, 10> turn = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
                 return box(ftxui::vbox({ftxui::text(std::string(" ") + turn[static_cast<std::size_t>(cluster::now_ms() / 100 % 10)] + " Updating claude-cluster…")
                     | ftxui::bold | ftxui::color(this->_theme.accent), ftxui::text(""),
-                    ftxui::text(" the core runs the new version; this terminal switches to it as soon as it is up") | ftxui::color(this->_theme.text)}), 84);
+                    ftxui::paragraph(" the core runs the new version; this terminal switches to it as soon as it is up") | ftxui::color(this->_theme.text)}), 84);
             }
             if (const cluster::Link link = this->_manager.link(); link.lost) {
                 // the core lost: over everything, until it is back (Retry now / Quit)
@@ -6030,7 +6032,7 @@ class TtyUi {
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(std::string(" ") + spin[static_cast<std::size_t>(now / 100 % 10)] + " Reconnecting to claude-cluster…")
                         | ftxui::bold | ftxui::color(this->_theme.warn)}), ftxui::text(""),
                     ftxui::text(" its core is not reached since " + cluster::took((now - link.since))) | ftxui::color(this->_theme.text),
-                    ftxui::text(" try " + std::to_string(link.tries) + " · the next one in " + std::to_string((next + 999) / 1000) + " s (the core started again "
+                    ftxui::paragraph(" try " + std::to_string(link.tries) + " · the next one in " + std::to_string((next + 999) / 1000) + " s (the core started again "
                         "when it is gone: the sessions resumed)") | ftxui::color(this->_theme.muted),
                     ftxui::text(""),
                     ftxui::hbox({press(this->_lostChoice == 0 ? ftxui::text(" [r]  Retry now ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent)
@@ -6198,10 +6200,10 @@ class TtyUi {
                     bottom.push_back(ftxui::text(hints.empty() ? " a repository (owner/repo, https / git URL), a folder, a .zip · Tab: complete the path · Enter: add · Esc"
                         : " " + hints) | ftxui::color(this->_theme.muted));
                 } else {
-                    bottom.push_back(ftxui::text(" ↑↓ · Enter / →: its files · i install · r remove · Space toggle · e on / off · a add a source (or drop a file / folder) · "
+                    bottom.push_back(ftxui::paragraph(" ↑↓ · Enter / →: its files · i install · r remove · Space toggle · e on / off · a add a source (or drop a file / folder) · "
                         "d drop the source · u update · Esc close") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 }
-                bottom.push_back(ftxui::text(" ● on  ◐ off  ○ not installed · applied by the core, for the sessions started after it") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                bottom.push_back(ftxui::paragraph(" ● on  ◐ off  ○ not installed · applied by the core, for the sessions started after it") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox({ftxui::text(" Plugins and skills") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::separatorLight() | ftxui::color(this->_theme.border),
                     ftxui::hbox({ftxui::vbox(std::move(list)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 44), ftxui::separatorLight() | ftxui::color(this->_theme.border), right})
                         | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height - 4),
@@ -6254,7 +6256,7 @@ class TtyUi {
                         : ftxui::color(this->_theme.ok)), 1, [this]() {this->formSubmit_();}), ftxui::text("   "),
                     this->tap_(ftxui::text(" Cancel ") | (this->_formFocus == count + 1 ? ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.error)
                         : ftxui::color(this->_theme.error)), 1, [this]() {this->_mode = Mode::Normal;})}));
-                rows.push_back(ftxui::text(" ↑↓ / Tab: field · ←→: choice · Space: yes / no · Enter: next, Submit · Ctrl+S: submit · Esc: cancel") | ftxui::color(this->_theme.muted)
+                rows.push_back(ftxui::paragraph(" ↑↓ / Tab: field · ←→: choice · Space: yes / no · Enter: next, Submit · Ctrl+S: submit · Esc: cancel") | ftxui::color(this->_theme.muted)
                     | ftxui::dim);
                 return box(ftxui::vbox(std::move(rows)), width);
             }
@@ -6490,7 +6492,7 @@ class TtyUi {
                             this->_mode = Mode::Normal;
                         }));
                 if (this->_manager.config().voice.enabled)
-                    lines.push_back(ftxui::text(" voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    lines.push_back(ftxui::paragraph(" voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), boxWidth);
             }
             if (this->_mode == Mode::Normal && asked && asked->session == this->_active && !this->askShown_(*asked)) {
@@ -6515,7 +6517,7 @@ class TtyUi {
                         ftxui::text("   asked    " + cluster::human_age(d.since / 1000) + " ago (its code was right)") | ftxui::color(this->_theme.muted), ftxui::text(""),
                         buttons("device", {{"[a] Allow", ftxui::Event::Character('a'), this->_theme.accent}, {"[t] Allow and trust", ftxui::Event::Character('t'), this->_theme.ok},
                             {"[d] Deny", ftxui::Event::Character('d'), this->_theme.error}, {"Esc later", ftxui::Event::Escape, this->_theme.muted}}),
-                        ftxui::text(" trusted: no code, no approval next time (palette: Web devices, to remove it)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 90);
+                        ftxui::paragraph(" trusted: no code, no approval next time (palette: Web devices, to remove it)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 90);
                 }
             }
             if (this->_mode == Mode::WebDevices) {
@@ -6564,7 +6566,7 @@ class TtyUi {
                         press(ftxui::text(" [a/t/d] a waiting one ") | ftxui::color(this->_theme.muted), ftxui::Event::Character('a')), ftxui::text(" "),
                         press(ftxui::text(" Esc ") | ftxui::color(this->_theme.muted), ftxui::Event::Escape)}));
                 }
-                lines.push_back(ftxui::text(" ↑↓ · Space / a click: tick · none ticked: the one under the cursor · ping: the round trip of its page") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                lines.push_back(ftxui::paragraph(" ↑↓ · Space / a click: tick · none ticked: the one under the cursor · ping: the round trip of its page") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox(std::move(lines)), 100);
             }
             if (this->_mode == Mode::QuitAsk) {
@@ -6574,9 +6576,9 @@ class TtyUi {
                         lines.push_back(ftxui::text("   " + s.spec.name + "  " + (s.state == cluster::State::Working ? "working" : "idle")
                             + (s.queued > 0 ? " · " + std::to_string(s.queued) + " prompt(s) queued" : std::string())) | ftxui::color(this->_theme.muted));
                 lines.push_back(ftxui::text(""));
-                lines.push_back(press(ftxui::text(" [b] / Enter  keep them running in background: the core goes on without interface, its web access closed, and stops")
+                lines.push_back(press(ftxui::paragraph(" [b] / Enter  keep them running in background: the core goes on without interface, its web access closed, and stops")
                     | ftxui::color(this->_theme.accent), ftxui::Event::Character('b')));
-                lines.push_back(ftxui::text("              by itself once every session is idle (claude-cluster opened again meanwhile shows them)") | ftxui::color(this->_theme.muted));
+                lines.push_back(ftxui::paragraph("              by itself once every session is idle (claude-cluster opened again meanwhile shows them)") | ftxui::color(this->_theme.muted));
                 lines.push_back(press(ftxui::text(" [s] / " + this->_manager.config().keys.at("quit") + "  stop everything: the turns interrupted, the sessions kept for the next start")
                     | ftxui::color(this->_theme.warn), ftxui::Event::Character('s')));
                 lines.push_back(press(ftxui::text(" [Esc]  back") | ftxui::color(this->_theme.muted), ftxui::Event::Escape));

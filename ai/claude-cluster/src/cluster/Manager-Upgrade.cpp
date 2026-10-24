@@ -168,6 +168,39 @@ _cold bool cluster::Manager::hold_(const std::string& id, const std::string& tex
     return true;
 }
 
+_cold void cluster::Manager::holdAsks_(std::set<std::string>& asked)
+{
+    for (const cluster::Snapshot& s: this->list(true))
+        if (s.state == cluster::State::Waiting && !s.permissions.empty() && !asked.contains(s.spec.id)) {
+            asked.insert(s.spec.id);
+            this->holdAsk_(s);
+        }
+}
+
+_cold void cluster::Manager::holdAsk_(const cluster::Snapshot& s)
+{
+    // what it waited for the user on, told to it by the new version (it asks it again: its popup back); its turn stopped meanwhile
+    std::string what;
+    for (const cluster::Permission& p: s.permissions) {
+        std::string one = p.tool;
+        if (p.tool == "AskUserQuestion" && p.input.contains("questions") && p.input["questions"].is_array()) {
+            for (const cluster::Json& q: p.input["questions"])
+                if (q.is_object()) one += "\n  - " + q.value("question", std::string());
+        } else {
+            one += " " + cluster::one_line(p.description.empty() ? p.input.dump(-1, ' ', false, cluster::JSON_LENIENT) : p.description, 300);
+        }
+        what += (what.empty() ? "" : "\n") + one;
+    }
+    const std::string text = "[claude-cluster] claude-cluster was updated while you waited for the user on:\n" + what
+        + "\nThat request was cancelled by the restart, nothing was answered: ask it again now, the same way (the same question or the same "
+          "tool call), if it is still needed.";
+    (void)this->hold_(s.spec.id, text, {}, "update");
+    this->notice_(s.spec.id, "its question / permission held for the update: asked again by the new version");
+    try {
+        this->interrupt(s.spec.id);
+    } catch (const utils::exception::IException&) {} // already over
+}
+
 _cold void cluster::Manager::holdQueues_(void)
 {
     // the prompts waiting in the queue of a turn (not given to the agent yet): held in their order, the turn ends without them
@@ -264,6 +297,8 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         if (action == "hold") {
             this->_holding = true;
             this->holdQueues_();
+            std::set<std::string> asked;
+            this->holdAsks_(asked);
             return std::to_string(this->heldCount_()) + " held";
         }
         this->_holding = false;
@@ -354,10 +389,15 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         // sent by the new version; only the turns running are waited for (before: their queue started new ones, the update never came)
         this->_holding = true;
         this->holdQueues_();
+        std::set<std::string> asked; // the sessions whose question / permission is held
         for (;;) {
             std::string names;
             const std::int64_t now = cluster::now_ms();
+            // a session waiting for the user only (a question, a permission): its request held - the new version tells it, it asks again
+            // (the popup back) - and its turn stopped; it no longer holds the update back
+            this->holdAsks_(asked);
             for (const cluster::Snapshot& s: this->list(true)) {
+                if (asked.contains(s.spec.id) && s.state != cluster::State::Working) continue; // its request held: stopped, not waited for
                 const bool agents = std::any_of(s.agents.begin(), s.agents.end(), [now](const cluster::SubAgent& a) {
                     return a.status == "running" && now - a.started < 3600 * 1000; // its agents in the background too (an hour at most)
                 });

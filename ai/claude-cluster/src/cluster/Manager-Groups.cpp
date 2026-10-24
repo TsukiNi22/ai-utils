@@ -253,10 +253,13 @@ _cold void cluster::Manager::groupUpdate_(const std::string& id)
         std::size_t over = 0;
         for (const cluster::Task* t: tasks) {
             done += t->status == "done" ? 1 : 0;
-            over += t->status == "done" || t->status == "failed" || t->status == "cancelled" ? 1 : 0;
-            const std::string state = t->status == "done" ? "done" : t->status == "running" ? "current" : t->status == "failed" ? "error" : "todo";
+            over += t->status == "done" || t->status == "failed" || t->status == "cancelled" || t->status == "stopped" ? 1 : 0;
+            // each end as it is: done, an error, cancelled, stopped before it finished (never shown as done nor as still to do)
+            const std::string state = t->status == "done" ? "done" : t->status == "running" ? "current" : t->status == "failed" ? "error"
+                : t->status == "cancelled" ? "cancelled" : t->status == "stopped" ? "stopped" : "todo";
             std::string text = t->label + " - " + cluster::one_line(t->prompt.substr(t->prompt.find(") ") == std::string::npos ? 0 : t->prompt.find(") ") + 2), 60);
             if (t->status == "done" || t->status == "failed") text += " (" + took_(t->started, t->ended) + (t->retries > 0 ? ", tried again" : "") + ")";
+            else if (t->status == "stopped") text += " (stopped before it finished)";
             else if (t->status == "queued") text += t->after.empty() ? " (waiting for a free place)" : " (after its dependencies)";
             else if (t->status == "cancelled") text += " (cancelled)";
             steps.push_back({{"text", text}, {"state", state}});

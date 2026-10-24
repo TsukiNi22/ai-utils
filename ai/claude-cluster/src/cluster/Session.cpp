@@ -871,6 +871,9 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         if (error) this->entry_(cluster::EntryKind::Error, text.empty() ? subtype : text);
         this->_data.partial.clear();
         if (this->persistent()) {
+            // an interrupted turn answers nothing it asked any more (claude dropped its question / permission): never Waiting on it
+            if (interrupted && std::erase_if(this->_data.permissions, [](const cluster::Permission& p) {return !p.safety;}) > 0)
+                this->entry_(cluster::EntryKind::System, "permission request cancelled by the interrupt");
             // a stop of the safety check shown to the user is no request claude waits for: the turn is over
             const bool asked = std::any_of(this->_data.permissions.begin(), this->_data.permissions.end(), [](const cluster::Permission& p) {return !p.safety;});
             this->_data.state = asked ? cluster::State::Waiting : cluster::State::Idle;

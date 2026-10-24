@@ -311,8 +311,9 @@ _cold void cluster::Manager::taskDone_(const std::string& session, const bool er
                 task.notBefore = task.retryDelay > 0 ? cluster::now() + static_cast<std::int64_t>(task.retryDelay) * 60 : 0;
                 continue;
             }
-            task.status = error || interrupted ? "failed" : "done";
-            if (task.status == "failed" && task.reason.empty() && interrupted) task.reason = "interrupted";
+            // its end said as it is: done (it finished), failed (an error), stopped (its turn interrupted before it finished: not done)
+            task.status = error ? "failed" : interrupted ? "stopped" : "done";
+            if (task.status == "stopped" && task.reason.empty()) task.reason = "its turn was interrupted before it finished";
             ended.push_back(task);
         }
     }
@@ -400,7 +401,7 @@ _cold void cluster::Manager::schedule_(void)
             bool ready = true;
             for (const std::string& dep: task.after) {
                 auto it = std::find_if(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == dep;});
-                if (it == this->_tasks.end() || it->status == "failed" || it->status == "cancelled") {
+                if (it == this->_tasks.end() || it->status == "failed" || it->status == "cancelled" || it->status == "stopped") { // never as if it finished
                     fail(task, it == this->_tasks.end() ? "its dependency " + dep + " does not exist any more"
                         : "its dependency " + dep + " " + it->status + (it->reason.empty() ? "" : ": " + it->reason));
                     ready = false;
@@ -621,7 +622,7 @@ _cold std::string cluster::Manager::taskAct(const std::string& id, const std::st
             if (it->status != "queued") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, id + " is " + it->status + ": not waiting");
             it->forced = true;
         } else if (action == "retry") {
-            if (it->status != "failed" && it->status != "cancelled") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, id + " is " + it->status + ": only a failed / cancelled one");
+            if (it->status != "failed" && it->status != "cancelled" && it->status != "stopped") throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, id + " is " + it->status + ": only a failed / cancelled one");
             it->status = "queued"; // again, from the start (its session goes on where it is)
             it->reason.clear();
             it->ended = 0;

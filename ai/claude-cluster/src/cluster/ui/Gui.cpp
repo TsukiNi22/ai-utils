@@ -1887,7 +1887,8 @@ class Window: public QMainWindow {
             for (std::size_t i = 0; i < tasks.size() && i < 12; ++i) {
                 const cluster::Task& t = tasks[i];
                 const std::string tint = t.status == "running" ? st.ok : t.status == "queued" ? st.accent : t.status == "failed" ? st.error : t.status == "cancelled" ? st.warn : st.muted;
-                const std::string mark = t.status == "running" ? "▶" : t.status == "queued" ? (t.forced ? "»" : "◌") : t.status == "done" ? "✓" : t.status == "failed" ? "✗" : "⊘";
+                const std::string mark = t.status == "running" ? "▶" : t.status == "queued" ? (t.forced ? "»" : "◌") : t.status == "done" ? "✓" : t.status == "failed" ? "✗"
+                    : t.status == "stopped" ? "⏸" : "⊘";
                 const std::string where = !t.session.empty() ? (this->manager.snapshot(t.session) ? this->manager.snapshot(t.session)->spec.name : t.session) : t.target.empty() ? "any" : t.target;
                 const std::string age = t.status == "queued" ? "waits " + span(now - t.created) : t.status == "running" ? span(now - t.started) : span(now - t.ended) + " ago";
                 html += "<tr><td width=18>" + span_(tint, q_(mark)) + "</td><td width=\"55%\">" + link("task:" + t.id) + span_(st.muted, q_(t.id)) + " " + esc_(cluster::one_line(t.prompt, 90)) + "</a>"
@@ -5088,8 +5089,9 @@ QString SessionView::displayHtml(const cluster::Json& d, const std::string& key,
     } else if (type == "steps") {
         for (const cluster::Json& step: d["steps"]) {
             const std::string state = step.value("state", std::string("todo"));
-            const std::string color = state == "done" ? st.ok : state == "current" ? st.accent : state == "error" ? st.error : st.muted;
-            const QString text = esc_((state == "done" ? "✔ " : state == "current" ? "● " : state == "error" ? "✗ " : "○ ") + step.value("text", std::string()));
+            const std::string color = state == "done" ? st.ok : state == "current" ? st.accent : state == "error" ? st.error : state == "cancelled" || state == "stopped" ? st.warn : st.muted;
+            const QString text = esc_((state == "done" ? "✔ " : state == "current" ? "● " : state == "error" ? "✗ " : state == "cancelled" ? "⊘ " : state == "stopped" ? "⏸ " : "○ ")
+                + step.value("text", std::string()));
             html += span_(color, state == "current" ? "<b>" + text + "</b>" : text) + "<br>";
         }
     } else if (type == "kanban") {
