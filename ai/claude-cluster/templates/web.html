@@ -7,13 +7,14 @@
 <title>claude-cluster</title>
 <style>
 :root {
-    --bg: #f6f6f4; --surface: #ffffff; --line: #deddd8; --text: #1d1d1b; --muted: #6d6c66; --accent: #c4632f;
-    --ok: #2f8a4b; --warn: #b7791f; --error: #c0392b; --user: #eef1f6; --code: #f0efea; --pick: #f3e6dc;
+    /* the styles html-light / html-dark of claude-cluster: the page before its state (the code page) already in its colours */
+    --bg: #f7f7f5; --surface: #ffffff; --line: #dfe1e5; --text: #1d1f23; --muted: #5d636e; --accent: #2f5bd3;
+    --ok: #1f7a4a; --warn: #a8540a; --error: #b42318; --user: #eaeffb; --code: #efefec; --pick: #d5def6;
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg: #171715; --surface: #21201d; --line: #34332e; --text: #ecebe6; --muted: #9b9a92; --accent: #e08a55;
-        --ok: #5cc27a; --warn: #e2b04a; --error: #ef6b5b; --user: #2a2c33; --code: #2b2a26; --pick: #3a2c22;
+        --bg: #15171b; --surface: #1d2025; --line: #30343b; --text: #e6e7ea; --muted: #9aa0ab; --accent: #7d9cf0;
+        --ok: #6fcf97; --warn: #f0a868; --error: #f47174; --user: #272c38; --code: #222428; --pick: #2c3548;
     }
 }
 * { box-sizing: border-box; }
@@ -3990,6 +3991,7 @@ function applyStyle(style) {
         return;
     }
     for (const n of names) if (style[n]) root.setProperty("--" + n, style[n]);
+    store.set("cc-style-last", JSON.stringify(style)); // the next opening (its code page) in these colours at once
     root.setProperty("--line", style.border || "");
     root.setProperty("--user", "color-mix(in srgb, " + style.accent + " 10%, " + style.surface + ")");
     root.setProperty("--code", "color-mix(in srgb, " + style.text + " 6%, " + style.bg + ")");
@@ -4747,6 +4749,9 @@ function renderUpdate(u) {
     mark.title = (u.jump ? u.jump + " update" : "update") + (u.notes && u.notes.length ? ":\n" + u.notes.slice(0, 10).map((n) => "• " + n.replace(/^(\w+) /, (m, k) => (k === "fix" ? "fix " : k === "feat" ? "new " : k + " "))).join("\n") : "")
         + "\n(chosen in a terminal or a window of the computer)";
 }
+
+// the style last seen here, before anything (the code page in the colours of claude-cluster)
+try { applyStyle(JSON.parse(store.get("cc-style-last", "null"))); } catch (e) { /* none yet: the defaults */ }
 
 // already connected (the cookie of this browser): straight to the sessions; a trusted device: in at once (no code)
 fetch("/api/state?v=-1", {credentials: "same-origin", cache: "no-store"})

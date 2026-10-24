@@ -30,8 +30,12 @@ namespace fs = std::filesystem;
 
 _cold std::string read_(const fs::path& path)
 {
-    std::ifstream in(path);
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    try {
+        std::ifstream in(path);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    } catch (const std::exception&) {
+        return std::string(); // a file of /proc or /sys that fails at its read (ENODEV, EIO, ESRCH): unknown
+    }
 }
 
 // "MemTotal:  16057180 kB" -> kB of the key, -1 when missing

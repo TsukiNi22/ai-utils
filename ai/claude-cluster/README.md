@@ -61,7 +61,7 @@ of the running instance, tasks, providers, backends (`claude/opus`, the local Ol
 `ollama-openai/<model>`, the opencode models), profiles, styles, permission modes, layouts, folders
 (`claude-cluster __complete <kind>` gives them as `value<TAB>description`).
 
-By hand: `cmake -S ai/claude-cluster -B build -DCMAKE_BUILD_TYPE=Optimized && cmake --build build --parallel && cmake --install build --prefix ~/.local`.
+By hand: `cmake -S ai/claude-cluster -B build -DCMAKE_BUILD_TYPE=Optimized && cmake --build build --parallel && cmake --install build --prefix ~/.local`. The memory of the build is bounded whatever the `-j`: at most `BUILD_JOBS` compilations at once (a clang of these sources takes up to ~0.8 GB), from `-DBUILD_MEMORY_MB=4096` by default (at most half the memory of the computer); `-DBUILD_JOBS=N` forces it.
 
 ## Usage
 

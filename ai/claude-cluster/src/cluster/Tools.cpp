@@ -312,10 +312,9 @@ _cold void cluster::stop_group(const int pid, const bool force)
     (void)::kill(pid, force ? SIGKILL : SIGTERM);
 }
 
-_cold cluster::Captured cluster::capture(const std::vector<std::string>& args, const std::string& cwd, const int timeout, std::atomic<int>* pidOut)
+_cold static cluster::Captured capture_(const std::vector<std::string>& args, const std::string& cwd, const int timeout, std::atomic<int>* pidOut)
 {
     cluster::Captured result;
-    if (args.empty()) return result;
     ++captures_running_;
     struct Running {
         pid_t pid = 0;
@@ -381,6 +380,19 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     const utils::encapsulation::Status status = process.wait();
     result.code = status.exited ? status.code : -1;
     return result;
+}
+
+_cold cluster::Captured cluster::capture(const std::vector<std::string>& args, const std::string& cwd, const int timeout, std::atomic<int>* pidOut)
+{
+    // run from detached threads everywhere: a fork refused, a child reaped elsewhere (wait) or gone (kill) is a failed command,
+    // never an exception out of the thread (the core ended by it)
+    if (args.empty()) return {};
+    try {
+        return capture_(args, cwd, timeout, pidOut);
+    } catch (const std::exception& e) {
+        cluster::debug("platform", "capture of " + args[0] + " failed: " + e.what());
+        return {}; // code -1
+    }
 }
 
 static bool claude_driver_(const std::string& provider)

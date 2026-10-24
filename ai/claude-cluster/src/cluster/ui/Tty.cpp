@@ -772,6 +772,15 @@ class TtyUi {
         int _webCursor = 0;
         std::string _webConfirm;                    // a dangerous action of the devices waiting for its y (ban, kick_all)
         std::int64_t _lastEscapeAt = 0;             // takeBack_: ms of the Esc that asked for a second one
+        int _lostChoice = 0;                        // the Reconnecting popup: 0 Retry now, 1 Quit
+        struct Button {
+            std::string label;
+            ftxui::Event key;
+            ftxui::Color color;
+        };
+        std::string _rowId;                         // the row of buttons of the popup shown (drawn last): ←/→ / Tab choose, Enter does it
+        std::vector<ftxui::Event> _rowKeys;
+        std::map<std::string, int> _rowAt;          // the button chosen, by popup
         cluster::RewindChooser _rewind;             // Mode::Rewind: the chooser of the point of the conversation to go back to (Esc)
         cluster::StashPopup _stash;                 // Mode::Stash: the list of the stashed prompts (Ctrl+L)
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
@@ -5281,6 +5290,14 @@ class TtyUi {
             return ftxui::vbox(std::move(shown)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 36) | ftxui::reflect(this->_panelBox);
         }
 
+        _nodiscard static std::string short_mode_(const std::string& mode)
+        {
+            // the permission mode in a narrow header
+            if (mode == "bypassPermissions") return "bypass";
+            if (mode == "acceptEdits") return "edits";
+            return mode;
+        }
+
         _nodiscard std::string whereOf_(const cluster::Snapshot& s)
         {
             // " · <branch> · <computer> · pid <n>" (its branch read again every 5 s)
@@ -5490,7 +5507,7 @@ class TtyUi {
             return true;
         }
 
-        _nodiscard ftxui::Element header_(const cluster::Snapshot& s, const bool compact)
+        _nodiscard ftxui::Element header_(const cluster::Snapshot& s, const bool compact, const int width)
         {
             if (compact) {
                 const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error : this->_theme.muted;
@@ -5498,26 +5515,44 @@ class TtyUi {
                     running_agents_(s) > 0 ? ftxui::text(" ⧉" + std::to_string(running_agents_(s))) | ftxui::color(this->_theme.accent) : ftxui::emptyElement(),
                     ftxui::filler(), ftxui::text(s.spec.backend.substr(0, s.spec.backend.find('/')) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim});
             }
-            const std::string model = cluster::model_label(s.spec.backend, s.modelUsed);
+            // every field whole: a line too narrow drops, in this order, the (default) marks, the long mode name, the path (its folder
+            // name only), the computer and the process, the provider, then the folder - never a word cut in the middle
+            const std::string auth = this->_manager.authKind(s.spec.backend) == "api" ? "api" : this->_manager.authKind(s.spec.backend) == "auth" ? "auth" : "local";
+            const std::string fullModel = cluster::model_label(s.spec.backend, s.modelUsed);
+            const std::string fullEffort = cluster::effort_label(s.spec.effort, this->_manager.config().effort, s.spec.backend, s.modelUsed);
+            const std::string agents = s.agents.empty() ? std::string() : "  ⧉ " + agents_mark_(s);
+            std::string model, effort, mode, path, where;
+            for (int level = 0; level <= 5; ++level) {
+                const auto plain = [](std::string text) {return text.ends_with(" (default)") ? text.substr(0, text.size() - 10) : text;};
+                model = level >= 1 ? plain(fullModel) : fullModel;
+                if (level >= 4 && model.find('/') != std::string::npos) model = model.substr(model.find('/') + 1);
+                effort = level >= 1 ? plain(fullEffort) : fullEffort;
+                mode = "mode " + (level >= 2 ? short_mode_(s.spec.mode) : s.spec.mode);
+                path = level >= 5 ? std::string() : level >= 3 ? std::filesystem::path(cluster::expand_home(s.spec.cwd)).filename().string() : cluster::short_path(s.spec.cwd);
+                where = this->whereOf_(s);
+                if (level >= 3 && where.find(" · " + this->_host) != std::string::npos) where = where.substr(0, where.find(" · " + this->_host)); // the branch only
+                const int used = ftxui::string_width(" " + s.spec.name + " " + " " + std::string(cluster::state_name(s.state)) + " " + model + "  " + auth + "  " + effort + "  "
+                    + mode + agents + "  " + path + where + " ");
+                if (used <= width) break;
+            }
             ftxui::Elements left = {
                 ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
                 ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
                 this->tap_(ftxui::text(model) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("model:");}),
                 // how it is billed: api (an API key, per token) | auth (a login, a subscription) | local; its thinking and mode; each one a click away
-                this->tap_(ftxui::text(std::string("  ") + (this->_manager.authKind(s.spec.backend) == "api" ? "api" : this->_manager.authKind(s.spec.backend) == "auth" ? "auth" : "local"))
-                    | ftxui::bold | ftxui::color(this->_manager.authKind(s.spec.backend) == "api" ? this->_theme.warn : this->_theme.ok), 0, [this]() {this->pick_("backend:");}),
-                this->tap_(ftxui::text("  " + cluster::effort_label(s.spec.effort, this->_manager.config().effort, s.spec.backend, s.modelUsed)) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("effort:");}),
-                this->tap_(ftxui::text("  mode " + s.spec.mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted), 0,
+                this->tap_(ftxui::text("  " + auth) | ftxui::bold | ftxui::color(auth == "api" ? this->_theme.warn : this->_theme.ok), 0, [this]() {this->pick_("backend:");}),
+                this->tap_(ftxui::text("  " + effort) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("effort:");}),
+                this->tap_(ftxui::text("  " + mode) | ftxui::color(s.spec.mode == "bypassPermissions" || s.spec.mode == "dontAsk" ? this->_theme.warn : this->_theme.muted), 0,
                     [this]() {this->pick_("mode:");}),
-                s.agents.empty() ? ftxui::emptyElement() : this->tap_(ftxui::text("  ⧉ " + agents_mark_(s)) | ftxui::color(this->_theme.accent), 0,
-                    [this]() {this->openAgents_();}),
+                agents.empty() ? ftxui::emptyElement() : this->tap_(ftxui::text(agents) | ftxui::color(this->_theme.accent), 0, [this]() {this->openAgents_();}),
                 ftxui::filler(),
+                ftxui::text("  "), // the folder never glued to what is before it
                 // where it runs: its folder (a click opens it), the computer, its branch, its process
-                this->tap_(ftxui::text(cluster::short_path(s.spec.cwd)) | ftxui::color(this->_theme.muted), 0, [this, cwd = s.spec.cwd]() {
+                this->tap_(ftxui::text(path) | ftxui::color(this->_theme.muted), 0, [this, cwd = s.spec.cwd]() {
                     cluster::open_folder(cluster::expand_home(cwd));
                     this->status_("opened " + cluster::short_path(cwd));
                 }),
-                ftxui::text(this->whereOf_(s) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
+                ftxui::text(where + " ") | ftxui::color(this->_theme.muted) | ftxui::dim,
             };
             ftxui::Element head = ftxui::hbox(std::move(left));
             if (!s.warning.empty() && cluster::now() - s.warningAt < 60) // a problem of its interfaces (two prompts at once...)
@@ -5589,7 +5624,7 @@ class TtyUi {
                 transcriptView = ftxui::dbox({transcriptView, popup});
             }
             const ftxui::Element view = ftxui::vbox({
-                this->header_(s, compact),
+                this->header_(s, compact, width),
                 ftxui::separatorLight() | ftxui::color(this->_theme.border),
                 ftxui::hbox({transcriptView | ftxui::flex, panelWidth ? ftxui::separatorLight() | ftxui::color(this->_theme.border) : ftxui::emptyElement(), panels}) | ftxui::flex,
                 std::move(pinned.first),
@@ -5855,6 +5890,22 @@ class TtyUi {
             const std::function<ftxui::Element(ftxui::Element, const ftxui::Event&)> press = [&](ftxui::Element element, const ftxui::Event& key) {
                 return this->tap_(std::move(element), 1, [this, key]() {(void)this->event_(key);});
             };
+            // the buttons of a choice: the one chosen filled in its colour (←/→ / Tab move it, Enter does it), each its key or a click too
+            this->_rowId.clear();
+            this->_rowKeys.clear();
+            const std::function<ftxui::Element(const std::string&, const std::vector<Button>&)> buttons = [&](const std::string& id, const std::vector<Button>& items) {
+                this->_rowId = id;
+                const int at = this->_rowAt[id] % static_cast<int>(items.size());
+                ftxui::Elements row;
+                for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+                    const Button& b = items[static_cast<std::size_t>(i)];
+                    this->_rowKeys.push_back(b.key);
+                    if (i > 0) row.push_back(ftxui::text("  "));
+                    row.push_back(press(i == at ? ftxui::text(" " + b.label + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(b.color)
+                        : ftxui::text(" " + b.label + " ") | ftxui::color(b.color), b.key));
+                }
+                return ftxui::hbox(std::move(row));
+            };
             if (this->upgradeShown_()) {
                 const cluster::UpgradeOffer offer = this->_manager.upgradeOffer();
                 // a choice: under the cursor, filled in its colour with arrows around; the others a quiet button with their key (a click = the key)
@@ -5910,9 +5961,11 @@ class TtyUi {
                     ftxui::text(" try " + std::to_string(link.tries) + " · the next one in " + std::to_string((next + 999) / 1000) + " s (the core started again "
                         "when it is gone: the sessions resumed)") | ftxui::color(this->_theme.muted),
                     ftxui::text(""),
-                    ftxui::hbox({press(ftxui::text(" [r] / Enter  Retry now ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
-                            ftxui::Event::Character('r')), ftxui::text("   "),
-                        press(ftxui::text(" [q]  Quit ") | ftxui::color(this->_theme.error), ftxui::Event::Character('q'))})}), 84);
+                    ftxui::hbox({press(this->_lostChoice == 0 ? ftxui::text(" [r]  Retry now ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent)
+                            : ftxui::text(" [r]  Retry now ") | ftxui::color(this->_theme.accent), ftxui::Event::Character('r')), ftxui::text("   "),
+                        press(this->_lostChoice == 1 ? ftxui::text(" [q]  Quit ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.error)
+                            : ftxui::text(" [q]  Quit ") | ftxui::color(this->_theme.error), ftxui::Event::Character('q'))}),
+                    ftxui::text(" ←/→ / Tab: choose · Enter: do it") | ftxui::color(this->_theme.muted) | ftxui::dim}), 84);
             }
             if (this->_mode == Mode::Palette) {
                 ftxui::Elements items;
@@ -6149,8 +6202,8 @@ class TtyUi {
                     : " (not asked again: settings > Global session)";
                 return box(ftxui::vbox({ftxui::text(title) | ftxui::bold, ftxui::text(""),
                     ftxui::paragraph(cluster::machine_scope()) | ftxui::color(this->_theme.text), ftxui::text(""),
-                    ftxui::hbox({press(ftxui::text(" [y] yes"), ftxui::Event::Character('y')), ftxui::text("   "), press(ftxui::text("[n] / Esc no" + no), ftxui::Event::Character('n'))})
-                        | ftxui::color(this->_theme.accent),
+                    buttons("machine", {{"[y] yes", ftxui::Event::Character('y'), this->_theme.accent}, {"[n] / Esc no" + no, ftxui::Event::Character('n'), this->_theme.muted}}),
+                    ftxui::text(" ←/→ / Tab: choose · Enter: do it") | ftxui::color(this->_theme.muted) | ftxui::dim,
                     this->_machineStartup ? ftxui::text(" [q] / Ctrl+C / " + this->_manager.config().keys.at("quit") + "  quit (asked again at the next start)")
                         | ftxui::color(this->_theme.muted) : ftxui::emptyElement()}), 90);
             }
@@ -6388,10 +6441,8 @@ class TtyUi {
                         ftxui::text("   name     " + d.name) | ftxui::color(this->_theme.text), ftxui::text("   address  " + d.address) | ftxui::color(this->_theme.text),
                         ftxui::paragraph("   browser  " + cluster::one_line(d.agent, 160)) | ftxui::color(this->_theme.muted),
                         ftxui::text("   asked    " + cluster::human_age(d.since / 1000) + " ago (its code was right)") | ftxui::color(this->_theme.muted), ftxui::text(""),
-                        ftxui::hbox({press(ftxui::text(" [a] Allow ") | ftxui::color(this->_theme.accent), ftxui::Event::Character('a')), ftxui::text("  "),
-                            press(ftxui::text(" [t] Allow and trust ") | ftxui::color(this->_theme.ok), ftxui::Event::Character('t')), ftxui::text("  "),
-                            press(ftxui::text(" [d] Deny ") | ftxui::color(this->_theme.error), ftxui::Event::Character('d')), ftxui::text("  "),
-                            press(ftxui::text(" Esc later ") | ftxui::color(this->_theme.muted), ftxui::Event::Escape)}),
+                        buttons("device", {{"[a] Allow", ftxui::Event::Character('a'), this->_theme.accent}, {"[t] Allow and trust", ftxui::Event::Character('t'), this->_theme.ok},
+                            {"[d] Deny", ftxui::Event::Character('d'), this->_theme.error}, {"Esc later", ftxui::Event::Escape, this->_theme.muted}}),
                         ftxui::text(" trusted: no code, no approval next time (palette: Web devices, to remove it)") | ftxui::color(this->_theme.muted) | ftxui::dim}), 90);
                 }
             }
@@ -6431,8 +6482,7 @@ class TtyUi {
                     // a dangerous action: its y first
                     lines.push_back(ftxui::hbox({ftxui::text(this->_webConfirm == "ban" ? " Ban the device(s)? Refused from now, their code too, until unbanned  "
                         : " Kick every device? A new code too  ") | ftxui::bold | ftxui::color(this->_theme.error),
-                        press(ftxui::text(" [y] yes ") | ftxui::color(this->_theme.error), ftxui::Event::Character('y')), ftxui::text(" "),
-                        press(ftxui::text(" [n] / Esc no ") | ftxui::color(this->_theme.muted), ftxui::Event::Character('n'))}));
+                        buttons("web-confirm", {{"[n] / Esc no", ftxui::Event::Character('n'), this->_theme.muted}, {"[y] yes", ftxui::Event::Character('y'), this->_theme.error}})}));
                 } else {
                     lines.push_back(ftxui::hbox({press(ftxui::text(" [k] kick the ticked ") | ftxui::color(this->_theme.accent), ftxui::Event::Character('k')), ftxui::text(" "),
                         press(ftxui::text(" [K] kick all ") | ftxui::color(this->_theme.error), ftxui::Event::Character('K')), ftxui::text(" "),
@@ -6763,10 +6813,33 @@ class TtyUi {
                 else if (event == ftxui::Event::Escape) this->_upgradeLater = this->_manager.upgradeOffer().version;
                 return true;
             }
+            if (event != ftxui::Event::Custom && !event.is_mouse() && !this->_rowKeys.empty() && !this->_manager.link().lost) {
+                // a popup of a choice drawn: its buttons with ←/→ / Tab, Enter the one chosen (its own key otherwise, as before)
+                const int count = static_cast<int>(this->_rowKeys.size());
+                int& at = this->_rowAt[this->_rowId];
+                if (event == ftxui::Event::ArrowRight || event == ftxui::Event::Tab) {
+                    at = (at % count + 1) % count;
+                    return true;
+                }
+                if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::TabReverse) {
+                    at = (at % count + count - 1) % count;
+                    return true;
+                }
+                if (event == ftxui::Event::Return) {
+                    const ftxui::Event key = this->_rowKeys[static_cast<std::size_t>(at % count)];
+                    at = 0;
+                    this->_rowKeys.clear();
+                    return this->event_(key);
+                }
+            }
             if (event != ftxui::Event::Custom && !event.is_mouse() && this->_manager.link().lost) {
-                // the core lost: its popup only (r / Enter: retry now, q / the quit key: quit)
-                if (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R') || event == ftxui::Event::Return) this->_manager.retryNow();
-                else if (event == ftxui::Event::Character('q') || event == ftxui::Event::Character('Q') || event.input() == std::string(1, '\x11')) this->_screen.Exit();
+                // the core lost: its popup only (←/→ / Tab: choose, Enter: the one chosen; r: retry now, q / the quit key: quit)
+                if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Tab || event == ftxui::Event::TabReverse)
+                    this->_lostChoice = 1 - this->_lostChoice;
+                else if (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R') || (event == ftxui::Event::Return && this->_lostChoice == 0))
+                    this->_manager.retryNow();
+                else if (event == ftxui::Event::Character('q') || event == ftxui::Event::Character('Q') || event.input() == std::string(1, '\x11') || event == ftxui::Event::Return)
+                    this->_screen.Exit();
                 return true;
             }
             if (event == ftxui::Event::Custom) {

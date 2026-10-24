@@ -83,8 +83,7 @@ _cold static void slow_forget_(void)
 
 _cold static std::string read_proc_(const std::string& path)
 {
-    std::ifstream in(path, std::ios::binary);
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return cluster::read_small(path); // never throws: an interface gone between the list and the read (ESRCH) is an empty file
 }
 
 _cold static cluster::Json core_info_(cluster::Manager& manager)

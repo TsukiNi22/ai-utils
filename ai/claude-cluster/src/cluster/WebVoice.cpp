@@ -85,8 +85,9 @@ _cold void cluster::WebVoice::stop_(void)
 {
     if (!this->_process) return;
     this->_in.reset();             // its stdin closed: it ends by itself
-    this->_process->kill();
-    (void)this->_process->wait();
+    try {
+        this->_process->kill();    // killed and reaped (a wait after it throws: the process is gone)
+    } catch (const utils::exception::IException&) {}
     this->_process.reset();
     this->_out.reset();
 }

@@ -94,6 +94,19 @@ _cold static cluster::Json upgrade_json_(const cluster::UpgradeOffer& offer)
         {"notes", offer.notes}};
 }
 
+_cold static bool other_build_installed_(void)
+{
+    // the core answers, of another build, and runs the binary this interface was started from (installed again: the update)
+    try {
+        const cluster::Json hello = cluster::Control::request({{"cmd", "hello"}});
+        const cluster::Json data = hello.value("data", cluster::Json::object());
+        return hello.value("ok", false) && data.value("build", cluster::build_id()) != cluster::build_id()
+            && data.value("binary", std::string()) == cluster::self_exe().string();
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 _cold void cluster::Manager::attach(void)
 {
     // this process: an interface of the core running (its state kept in sync by a thread of its own, its actions sent to it);
@@ -114,15 +127,18 @@ _cold void cluster::Manager::attach(void)
                 replica->lostSince = 0;
                 replica->tries = 0;
             } catch (const std::exception& e) {
+                const auto* detail = dynamic_cast<const utils::exception::IException*>(&e);
                 {
                     std::lock_guard<std::mutex> lock(replica->mutex);
-                    replica->error = std::string("the core of claude-cluster not reached (") + e.what() + "): reconnecting";
+                    replica->error = std::string("the core of claude-cluster not reached (") + (detail != nullptr ? detail->info() : e.what()) + "): reconnecting";
                 }
                 const std::int64_t now = cluster::now_ms();
                 if (replica->lostSince == 0) replica->lostSince = now;
                 ++replica->tries;
-                // the core being updated: never started from here; the new one up: this interface runs the new binary too
-                const bool following = replica->follow > 0 && now - replica->follow < 120000;
+                // the core being updated: never started from here; the new one up: this interface runs the new binary too. A core of
+                // another build that runs the binary installed for this one (the update ended after the wait of this interface, or a
+                // core started again by the new binary): followed too, never asked again and again
+                const bool following = (replica->follow > 0 && now - replica->follow < 120000) || other_build_installed_();
                 if (following && cluster::Control::alive()) {
                     cluster::upgrade_request(false);
                     cluster::quit_signal = true;

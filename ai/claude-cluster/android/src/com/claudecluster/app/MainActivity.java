@@ -185,9 +185,15 @@ public class MainActivity extends Activity {
         address.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         address.setText(prefs.getString("url", "https://"));
         address.setTextColor(Color.parseColor("#e6e7ea"));
+        address.setHintTextColor(Color.parseColor("#9aa0ab"));
         address.setHint("https://192.168.1.12:8787");
+        // the colours of claude-cluster (html-dark), never the accent of the phone (orange on some)
+        address.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#7d9cf0")));
+        if (Build.VERSION.SDK_INT >= 29) address.setTextCursorDrawable(null);
         Button connect = new Button(this);
         connect.setText("Connect");
+        connect.setTextColor(Color.parseColor("#15171b"));
+        connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#7d9cf0")));
         TextView message = new TextView(this);
         message.setText(error);
         message.setTextColor(Color.parseColor("#f47174"));
@@ -219,7 +225,7 @@ public class MainActivity extends Activity {
     private void themeBars() {
         if (edge == null) return;
         boolean dark = night();
-        edge.setBackgroundColor(Color.parseColor(dark ? "#171715" : "#f6f6f4"));
+        edge.setBackgroundColor(Color.parseColor(dark ? "#15171b" : "#f7f7f5"));
         if (Build.VERSION.SDK_INT >= 30) {
             WindowInsetsController bars = getWindow().getInsetsController();
             int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;

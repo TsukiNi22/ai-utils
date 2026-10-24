@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.4.108 LANGUAGES CXX)
+project(${TARGET} VERSION 1.4.109 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -29,6 +29,28 @@ endif()
 find_program(CCACHE_PROGRAM ccache) # Used for cache during compilation
 if (CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+endif()
+
+# Memory of the build: at most BUILD_JOBS compilations at once (a clang of these sources: up to ~0.8 GB), from BUILD_MEMORY_MB
+# (default 4 GB, at most half the memory of the computer); any -j goes through the gate (a make -j alone starts them all)
+set(BUILD_MEMORY_MB 4096 CACHE STRING "Memory the compilations may take at once (MB)")
+set(BUILD_JOBS "" CACHE STRING "Compilations at once (empty: from BUILD_MEMORY_MB)")
+cmake_host_system_information(RESULT TOTAL_MEMORY_MB QUERY TOTAL_PHYSICAL_MEMORY)
+math(EXPR HALF_MEMORY_MB "${TOTAL_MEMORY_MB} / 2")
+set(GATE_MEMORY_MB ${BUILD_MEMORY_MB})
+if (GATE_MEMORY_MB GREATER HALF_MEMORY_MB)
+    set(GATE_MEMORY_MB ${HALF_MEMORY_MB})
+endif()
+math(EXPR GATE_JOBS "${GATE_MEMORY_MB} / 800")
+if (BUILD_JOBS)
+    set(GATE_JOBS ${BUILD_JOBS})
+elseif (GATE_JOBS LESS 1)
+    set(GATE_JOBS 1)
+endif()
+find_program(FLOCK_PROGRAM flock)
+if (FLOCK_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CMAKE_CURRENT_SOURCE_DIR}/cmake/jobs-gate.sh ${GATE_JOBS} ${CMAKE_BINARY_DIR}/jobs-gate ${CCACHE_PROGRAM})
+    message(STATUS "claude-cluster: ${GATE_JOBS} compilations at once at most (BUILD_MEMORY_MB=${BUILD_MEMORY_MB}, BUILD_JOBS to force)")
 endif()
 
 # FTXUI (terminal front-end): not packaged on Fedora, fetched at a fixed version
