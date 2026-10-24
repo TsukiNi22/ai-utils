@@ -23,6 +23,14 @@ File Description:
 #include <map>
 
 /* tools */
+// the question shown (its index past the last one: the review page, or a malformed ask): an empty object, never a null read
+_cold static const cluster::Json& question_at_(const cluster::Json& questions, const int index)
+{
+    static const cluster::Json none = cluster::Json::object();
+    if (!questions.is_array() || index < 0 || static_cast<std::size_t>(index) >= questions.size() || !questions[static_cast<std::size_t>(index)].is_object()) return none;
+    return questions[static_cast<std::size_t>(index)];
+}
+
 _cold static int number_(const std::string& key)
 {
     // "deux", "option 3", "le premier", "2": its number (1..9), 0: not one
@@ -57,7 +65,7 @@ _cold static void restore_(cluster::Ask& a)
         a.other = kept->second.other;
         return;
     }
-    const cluster::Json& q = a.questions[a.index];
+    const cluster::Json& q = question_at_(a.questions, a.index);
     const std::string previous = a.answers.value(q.value("question", std::string()), std::string());
     if (previous.empty()) return;
     // answered by another way (the voice, the page): from its text
@@ -81,7 +89,7 @@ _cold static void restore_(cluster::Ask& a)
 _cold static void record_(cluster::Ask& a)
 {
     // a multi choice: the answer is the ticked options (and the Other text), recorded at each tick; none ticked: no answer
-    const cluster::Json& q = a.questions[a.index];
+    const cluster::Json& q = question_at_(a.questions, a.index);
     const cluster::Json options = q.value("options", cluster::Json::array());
     const int count = static_cast<int>(options.size());
     std::string value;
@@ -241,7 +249,7 @@ _cold void cluster::Asking::move(const int delta)
     if (this->_manager.replica()) {
         this->local_([delta](cluster::Ask& a) {
             a.touched = true;
-            const int count = static_cast<int>(a.questions[a.index].value("options", cluster::Json::array()).size());
+            const int count = static_cast<int>(question_at_(a.questions, a.index).value("options", cluster::Json::array()).size());
             a.cursor = std::clamp(a.cursor + delta, 0, count);
         });
         this->post_({{"action", "move"}, {"delta", delta}});
@@ -250,7 +258,7 @@ _cold void cluster::Asking::move(const int delta)
 
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
-    const int count = static_cast<int>(this->_ask->questions[this->_ask->index].value("options", cluster::Json::array()).size());
+    const int count = static_cast<int>(question_at_(this->_ask->questions, this->_ask->index).value("options", cluster::Json::array()).size());
     this->_ask->cursor = std::clamp(this->_ask->cursor + delta, 0, count);
     this->_ask->touched = true; // only the cursor: no answer recorded
     ++this->_version;
@@ -260,7 +268,7 @@ _cold void cluster::Asking::choose(const int option)
 {
     if (this->_manager.replica()) {
         this->local_([option](cluster::Ask& a) {
-            const cluster::Json& q = a.questions[a.index];
+            const cluster::Json& q = question_at_(a.questions, a.index);
             const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
             if (option < 0 || option > count) return;
             a.cursor = option;
@@ -272,7 +280,7 @@ _cold void cluster::Asking::choose(const int option)
 
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
-    const cluster::Json& q = this->_ask->questions[this->_ask->index];
+    const cluster::Json& q = question_at_(this->_ask->questions, this->_ask->index);
     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
     if (option < 0 || option > count) return;
     this->_ask->cursor = option;
@@ -295,7 +303,7 @@ _cold void cluster::Asking::toggle(void)
     }
 
     std::lock_guard<std::mutex> lock(this->_mutex);
-    if (!this->_ask || !this->_ask->questions[this->_ask->index].value("multiSelect", false)) return;
+    if (!this->_ask || !question_at_(this->_ask->questions, this->_ask->index).value("multiSelect", false)) return;
     if (!this->_ask->picked.erase(this->_ask->cursor)) this->_ask->picked.insert(this->_ask->cursor);
     this->_ask->touched = true;
     record_(*this->_ask);
@@ -319,8 +327,8 @@ _cold void cluster::Asking::type(const std::string& raw)
     if (!this->_ask) return;
     this->_ask->other += text;
     this->_ask->touched = true;
-    if (this->_ask->questions[this->_ask->index].value("multiSelect", false)) {
-        this->_ask->picked.insert(static_cast<int>(this->_ask->questions[this->_ask->index].value("options", cluster::Json::array()).size()));
+    if (question_at_(this->_ask->questions, this->_ask->index).value("multiSelect", false)) {
+        this->_ask->picked.insert(static_cast<int>(question_at_(this->_ask->questions, this->_ask->index).value("options", cluster::Json::array()).size()));
         record_(*this->_ask);
     }
     ++this->_version;
@@ -343,8 +351,8 @@ _cold void cluster::Asking::erase(void)
     std::string& other = this->_ask->other;
     while (!other.empty() && (static_cast<unsigned char>(other.back()) & 0xC0) == 0x80) other.pop_back();
     if (!other.empty()) other.pop_back();
-    if (this->_ask->questions[this->_ask->index].value("multiSelect", false)) {
-        if (other.empty()) this->_ask->picked.erase(static_cast<int>(this->_ask->questions[this->_ask->index].value("options", cluster::Json::array()).size())); // empty: Other untick
+    if (question_at_(this->_ask->questions, this->_ask->index).value("multiSelect", false)) {
+        if (other.empty()) this->_ask->picked.erase(static_cast<int>(question_at_(this->_ask->questions, this->_ask->index).value("options", cluster::Json::array()).size())); // empty: Other untick
         record_(*this->_ask);
     }
     ++this->_version;
@@ -355,7 +363,7 @@ _cold void cluster::Asking::setOther(const std::string& raw)
     const std::string text = cluster::head_utf8(cluster::clean_utf8(raw), 8000); // a binary paste: never broken UTF-8 in the JSON, nor megabytes
     if (this->_manager.replica()) {
         this->local_([&text](cluster::Ask& a) {
-            const cluster::Json& q = a.questions[a.index];
+            const cluster::Json& q = question_at_(a.questions, a.index);
             const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
             a.other = text;
             a.cursor = count;
@@ -368,7 +376,7 @@ _cold void cluster::Asking::setOther(const std::string& raw)
 
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
-    const cluster::Json& q = this->_ask->questions[this->_ask->index];
+    const cluster::Json& q = question_at_(this->_ask->questions, this->_ask->index);
     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
     this->_ask->other = text;
     this->_ask->cursor = count;
@@ -413,7 +421,7 @@ _cold std::string cluster::Asking::next_(void)
         }
         return "";
     }
-    const cluster::Json& q = a.questions[a.index];
+    const cluster::Json& q = question_at_(a.questions, a.index);
     const cluster::Json options = q.value("options", cluster::Json::array());
     const int count = static_cast<int>(options.size());
     std::string value;
@@ -484,7 +492,7 @@ _cold bool cluster::Asking::forward(void)
         ++this->_version;
         return true;
     }
-    const cluster::Json& q = a.questions[a.index];
+    const cluster::Json& q = question_at_(a.questions, a.index);
     if (q.value("multiSelect", false)) return this->next_().empty();
     if (!a.answers.contains(q.value("question", std::string()))) return false; // nothing validated: Enter on an option
     a.review = true;
@@ -645,7 +653,7 @@ _cold std::string cluster::Asking::spoken(const std::string& sentence)
         return "question declined";
     }
     if (is_(key, words.send) || is_(key, words.next)) {
-        const cluster::Json& shown = ask->questions[ask->index];
+        const cluster::Json& shown = question_at_(ask->questions, ask->index);
         if (!ask->review && !shown.value("multiSelect", false) && !ask->touched && !ask->answers.contains(shown.value("question", std::string())))
             return "choose an option first (a number, or its name)"; // the cursor alone is not an answer
         const std::string why = this->next();
@@ -665,7 +673,7 @@ _cold std::string cluster::Asking::spoken(const std::string& sentence)
         this->setOther(answer);
         return "other: " + answer;
     }
-    const cluster::Json options = ask->questions[ask->index].value("options", cluster::Json::array());
+    const cluster::Json options = question_at_(ask->questions, ask->index).value("options", cluster::Json::array());
     if (const int n = number_(key); n > 0 && n <= static_cast<int>(options.size()) + 1) {
         this->choose(n - 1);
         return "option " + std::to_string(n);

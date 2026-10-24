@@ -572,8 +572,12 @@ _cold cluster::Json cluster::Orchestrator::state(void) const
         else if (job.state == "queued") ++waiting;
         else if (job.state == "stopped") ++stopped;
         if (active) {
+            // its count read before it is written (a new entry is null: value() on it throws - every sync failed while a job was active)
             cluster::Json& entry = sessions[job.session.empty() ? "user" : job.session];
-            entry[job.state == "queued" ? "waiting" : "running"] = entry.value(job.state == "queued" ? "waiting" : "running", 0) + 1;
+            if (!entry.is_object()) entry = cluster::Json::object();
+            const char* key = job.state == "queued" ? "waiting" : "running";
+            const int count = entry.value(key, 0);
+            entry[key] = count + 1;
         }
         if (active || ++shown <= 20) jobs.push_back(this->jobJson_(job, c, false));
     }

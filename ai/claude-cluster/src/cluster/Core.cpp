@@ -31,6 +31,7 @@ File Description:
 #include <unordered_map>
 #include <unordered_set>
 #include <iostream>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <csignal>
 #include <fstream>
@@ -263,6 +264,56 @@ _cold void cluster::Core::init(const int argc, char* argv[])
     if (rtk && std::string(rtk) != "0" && std::string(rtk) != "") this->_options.rtk = true;
 }
 
+/* the core watched */
+static volatile sig_atomic_t watched_ = 0; // the core of this watcher: its signals passed on to it
+
+_cold static bool supervise_(std::string& restore, int& code)
+{
+    // serve runs under a small watcher: the core ended by a crash (a signal of a fault, an abort) is started again with its sessions
+    // restored; a normal end (its quit, its last interface gone, a stop: SIGTERM / SIGINT / SIGKILL) ends the watcher too; an update runs
+    // the new binary in place (the same pid): still watched. Another core answering already, or 5 crashes in 10 minutes: no more restarts.
+    // true: this process was the watcher (code: its exit); false: this process is the core
+    if (std::getenv("CLAUDE_CLUSTER_SUPERVISED") != nullptr || std::getenv("CLAUDE_CLUSTER_NO_SUPERVISOR") != nullptr || cluster::demo_enabled()) return false;
+    std::vector<std::int64_t> crashes;
+    for (;;) {
+        const pid_t child = ::fork(); // xstyle: ignore LU-SYSCALL (the watcher: a process of its own around the core)
+        if (child < 0) return false; // no watcher: the core runs here
+        if (child == 0) {
+            ::setenv("CLAUDE_CLUSTER_SUPERVISED", "1", 1); // the core (and the binaries it runs in place): never watched twice
+            if (!crashes.empty()) restore = "always";
+            return false;
+        }
+        watched_ = child;
+        for (const int signal: {SIGTERM, SIGINT, SIGHUP, SIGQUIT})
+            (void)std::signal(signal, [](const int s) {
+                if (watched_ > 0) (void)::kill(watched_, s);
+            });
+        int status = 0;
+        while (::waitpid(child, &status, 0) == -1 && errno == EINTR) {}
+        watched_ = 0;
+        const int signal = WIFSIGNALED(status) ? WTERMSIG(status) : 0;
+        const bool crashed = signal == SIGSEGV || signal == SIGABRT || signal == SIGBUS || signal == SIGFPE || signal == SIGILL;
+        if (!crashed) {
+            code = WIFEXITED(status) ? WEXITSTATUS(status) : 0;
+            return true;
+        }
+        const std::int64_t now = cluster::now();
+        std::erase_if(crashes, [now](const std::int64_t at) {return now - at > 600;});
+        crashes.push_back(now);
+        if (crashes.size() > 5) {
+            std::cerr << "claude-cluster: the core crashed " << crashes.size() << " times in 10 minutes (signal " << signal << "): not started again" << std::endl;
+            code = 1;
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (cluster::Control::alive()) { // an interface started another one meanwhile: it is the core now
+            code = 0;
+            return true;
+        }
+        std::cerr << "claude-cluster: the core (pid " << child << ") crashed (signal " << signal << "): started again, its sessions restored" << std::endl;
+    }
+}
+
 /* run */
 _cold void cluster::Core::run(void)
 {
@@ -288,7 +339,14 @@ _cold void cluster::Core::run(void)
     if (cmd == "mcp") this->_exit = cluster::mcp_serve();
     else if (cmd == "demo-agent") this->_exit = cluster::demo_agent();
     else if (cmd == "__complete") this->complete_(this->_words.size() > 1 ? this->_words[1] : "");
-    else if (cmd == "serve") this->_exit = this->ui_(true);
+    else if (cmd == "serve") {
+        int code = 0;
+        if (supervise_(this->_options.restore, code)) { // the watcher: done when its core ended for good
+            this->_exit = code;
+            return;
+        }
+        this->_exit = this->ui_(true);
+    }
     else if (cmd == "auth") this->_exit = this->auth_();
     else if (cmd == "engines") this->_exit = this->engines_();
     else if (cmd == "docs") this->_exit = this->docs_();
