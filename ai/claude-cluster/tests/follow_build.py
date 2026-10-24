@@ -121,16 +121,12 @@ try:
     check("→: Quit chosen", "Quit" in shown, shown[-500:])
     term.send(b"\r", 1)
     ended = False
-    for _ in range(20):  # its screen closed: its main thread ended (the process itself may take a moment more)
+    for _ in range(30):  # the whole process gone at once (no thread left behind it: it lingered ~20 s once)
         if not term.alive():
             ended = True
             break
-        with open(f"/proc/{term.pid}/stat", encoding="utf-8") as stat:
-            if stat.read().split()[2] == "Z":
-                ended = True
-                break
-        term.pump(0.5)
-    check("Enter: Quit (the interface ended)", ended)
+        time.sleep(0.1)
+    check("Enter: Quit (the interface ended, within 3 s)", ended)
 finally:
     if term:
         term.kill()
