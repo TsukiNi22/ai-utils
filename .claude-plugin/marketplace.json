@@ -35,7 +35,7 @@
     },
     {
       "name": "ai-skills",
-      "description": "AI context: token-minimal texts and outputs, --rtk modes of programs, questions asked through the built-in QCM / Q&A popup, clarification of unclear requests before acting, ideation (ideas, recommendations, opinions, variants) through that popup the export of the work in progress into a handover file for another session / machine / model and the onboarding of a project (its files, git history and every earlier session on this computer read into one checked context) (skills: clarify, export, ideation, interactive-questions, onboard, rtk)",
+      "description": "AI context: token-minimal outputs, --rtk modes of programs, questions through the built-in QCM / Q&A popup, clarification of unclear requests, ideation (ideas, opinions, variants) through that popup, a handover file for another session / machine / model, the onboarding of a project (files, git history, earlier sessions) (skills: clarify, export, ideation, interactive-questions, onboard, rtk)",
       "source": "./",
       "strict": false,
       "skills": [
