@@ -1,6 +1,6 @@
 ---
 name: cpp-project
-description: Set up a new C++20 project in Tsukini's way with the setup.sh of the cpp_project_template repository (TsukiNi22/cpp_project_template) - name / core class renaming, kind of project (binary, static .a or shared .so library, header-only; RPM/DEB packages of every variant, Windows MinGW-w64 build and packages), libutils v4 or not, exception codes, GTest tests, the CI/CD workflows of the template (dispatch, unit tests, build, packages, GitHub release from the CHANGELOG, docs) and the optional gh-pages branch (signed packages repository + docs), install script, README/CHANGELOG/docs written by the template - using the other skills (cmake-style, cpp-class, libutils-exception, readme-style, git-conventions, ci-cd, html-doc). Use whenever the user wants to create, bootstrap, initialize or scaffold a new C++ project or repository.
+description: Set up a new C++20 project in Tsukini's way with the setup.sh of the cpp_project_template repository (TsukiNi22/cpp_project_template) - name / core class renaming, kind of project (binary, static .a or shared .so library, header-only; RPM/DEB/Arch packages of every variant, Windows MinGW-w64 build and packages), libutils v4 or not, exception codes, GTest tests, the CI/CD workflows of the template (dispatch, unit tests, build, packages, GitHub release from the CHANGELOG, docs) and the optional gh-pages branch (signed packages repository + docs), install script, README/CHANGELOG/docs written by the template, xstyle pre-commit hook - using the other skills (cmake-style, cpp-class, libutils-exception, readme-style, git-conventions, ci-cd, html-doc). Use whenever the user wants to create, bootstrap, initialize or scaffold a new C++ project or repository.
 ---
 
 # New C++ project
@@ -9,10 +9,10 @@ The base is always **`cpp_project_template`** and **its own `setup.sh`** (local 
 `~/personal_delivery/cpp/cpp_project_template`, otherwise `https://github.com/TsukiNi22/cpp_project_template.git`): it
 renames, adapts the copy to the kind, writes the README, the CHANGELOG, the docs and the gh-pages branch. This skill
 drives it without git actions, then completes what it does not do (libutils freshness, no-libutils, `.gitignore`, the
-custom CI/CD, the checks). Skill synced with the template at `d65a146` (2026-10-17: Windows build, one CMake for
+custom CI/CD, the checks). Skill synced with the template at `7fa7c9f` (2026-10-24: Arch Linux packages, xstyle pre-commit hook, setup workflow fixes; before: Windows build, one CMake for
 every kind, `SRC` / `SRC_SHARED`, workflows dispatch / unit-tests / build / build-packages / release / docs, gh-pages,
 `install.sh`, CHANGELOG written by `setup.sh`, libutils `>= 4.1.0`): when its `HEAD` is newer
-(`git -C <clone> log --oneline d65a146..HEAD`, and `origin/main` after a `git fetch`), read its README (*Quick Setup*,
+(`git -C <clone> log --oneline 7fa7c9f..HEAD`, and `origin/main` after a `git fetch`), read its README (*Quick Setup*,
 *Generated project*, *Workflows/Release*) and its `setup.sh --help` before relying on the steps below.
 The other skills, each loaded when its step comes: `cmake-style` (CMake), `cpp-class` (classes, header question, main),
 `libutils-exception` (codes), `readme-style`, `git-conventions` (CHANGELOG, commits, branches), `ci-cd`, `html-doc`.
@@ -33,7 +33,7 @@ nor `testing` / `Test` (GoogleTest): the script refuses them, ask another name.
    ask after: static `.a` (default) or shared `.so` (`<NAME>_SHARED_LIB=ON`). A binary that also ships its library and
    headers: `<NAME>_PACKAGE_LIB=ON` + `<NAME>_PACKAGE_DEV=ON` (step 3).
 2. **Publication** (GitHub repository only): `Sans gh-pages (Recommandé)` (the packages stay artifacts of the runs) ·
-   `Branche gh-pages` (signed RPM/DEB repository + the docs on `https://<owner>.github.io/<repo>/`, needs the GPG
+   `Branche gh-pages` (signed RPM/DEB/Arch repository + the docs on `https://<owner>.github.io/<repo>/`, needs the GPG
    secrets and GitHub Pages).
 3. **CI/CD** (GitHub only, see section 5): `Workflows du template (Recommandé)` · `Personnalisée (ci-cd)` · `Aucune`.
 4. **libutils**: `Oui (Recommandé)` · `Non`.
@@ -68,7 +68,7 @@ repository. What `setup.sh` does (template README, *Quick Setup*):
 ## 3. Adapt (rules of `cmake-style`)
 The generated `CMakeLists.txt` is final for the three kinds: options at the top (`<NAME>_KIND`, `<NAME>_PACKAGE_BIN`,
 `<NAME>_PACKAGE_LIB`, `<NAME>_PACKAGE_DEV`, `<NAME>_SHARED_LIB`, `<NAME>_STABLE_RELEASE`, `BUILD_TESTS`), libutils,
-exception header, `release` / `install_release` / `package_release` targets, CPack (RPM/DEB, `-op` / `-db` / `-as`
+exception header, `release` / `install_release` / `package_release` targets, CPack (RPM/DEB + Arch `.pkg.tar.zst`, `-op` / `-db` / `-as`
 variants, `-dev`, global package, `mingw64-` packages for Windows). Never replace it by the `cmake-style` templates.
 - **Sources**: `SRC` = the executable only (`main.cpp`), `SRC_SHARED` = the executable and the library (`<Core>-init.cpp`,
   `<Core>.cpp`, every new module). A new `.cpp` goes in one of them (`cpp-class`, `cmake_add.py`);
@@ -103,7 +103,7 @@ The template's workflows are kept as generated when the project is a GitHub repo
 | `dispatch.yml` | every push on `main` / tag `v*` (not `*.md` / `*.txt` / `docs/` only): decides what runs from the ref / message |
 | `unit-tests.yml` | always first: Linux (`unit-tests` image) and Windows (`mingw64-unit-tests`, under `wine`) |
 | `build.yml` | build check only (Linux `ci`, Windows `mingw64-ci`) when no packages are built |
-| `build-packages.yml` | RPM/DEB (+ `mingw64-*`), checked against `PACKAGE_*`; gh-pages: signed and published (5 last `-pre` kept) |
+| `build-packages.yml` | RPM/DEB/Arch (+ `mingw64-*`), checked against `PACKAGE_*`; gh-pages: signed and published (5 last `-pre` kept) |
 | `release.yml` | the GitHub release of a tag from its `CHANGELOG.md` section (`## vX.Y.Z - date` / `## [vX.Y.Z-pre] - date`) |
 | `docs.yml` (gh-pages) | `docs/` copied on `gh-pages` at each push changing it |
 - Triggers (`git-conventions`): `[build]` in a commit or a tag `vX.Y.Z-<suffix>` = pre-release packages (`-pre`), a tag
@@ -134,7 +134,11 @@ assets of the project): add them under the block in a `## <Name>` group like the
 - README and CHANGELOG are written by `setup.sh`: complete them (`readme-style`: what the project does, its usage),
   keep the CHANGELOG format (`git-conventions`, the release workflow reads it). `docs/index.html` is a "coming soon"
   placeholder: the real page with `html-doc` when chosen; `docs/graph.html` refreshes itself from the repository.
-- Repository only on request: `git init -b main` (done by `setup.sh` with gh-pages), `gh repo create <owner>/<name>
+- **Pre-commit hook**: `setup.sh` copies `.githooks/pre-commit` (xstyle; lighter settings: `SCOPE=staged`, `FAIL_ON=major`,
+  `WARN_ON=minor`), runs `git init -b main` when needed and sets `core.hooksPath .githooks` (a new clone: `git config
+  core.hooksPath .githooks`). Skip once: `git commit --no-verify` / `XSTYLE_HOOK=0`; without xstyle it only warns. The
+  `pre-commit` skill changes its options. Mention it to the user: the first commit of the project goes through it.
+- Repository only on request: `git init -b main` (already done by `setup.sh`: hook), `gh repo create <owner>/<name>
   --public --source . --remote origin`, first commit `chore: setup c++20 project from cpp_project_template`
   (`git-conventions`, no AI attribution); team project -> `dev` branch + protection of `main` (`git-conventions`).
 

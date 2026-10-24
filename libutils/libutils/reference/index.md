@@ -1,6 +1,6 @@
 # libutils API index
 
-Generated from libutils `v4.1.0` (commit `eec28ab`, 2026-10-15) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.3.1` (commit `7913070`, 2026-10-22) by `scripts/gen_api.py`, do not edit by hand.
 
 Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Details of a section: `api/<section>.md`.
 
@@ -167,9 +167,17 @@ Include path = `"<header>"` (ex: `#include "utils/system/IdHandler.hpp"`). Detai
 
 | Header | Namespace | Public types / functions | Description |
 |---|---|---|---|
+| `utils/system/HybridMemory.hpp` | `utils::system` | `HybridMemory`, `make_gpu`, `make_raw_gpu`, `make_shared_gpu`, `make_unique_gpu` | Memory loaded on the gpu when available, else in the ram |
+| `utils/system/HybridMemoryDefine.hpp` | `utils::system` | `MemoryMode` | Modes of the HybridMemory (gpu / ram) |
 | `utils/system/IdHandler.hpp` | `utils::system` | `IdHandler` | Handle id allocation |
 | `utils/system/LoadBalancer.hpp` | `utils::system` | `LoadBalancer` | LoadBalancer and sub class definition |
 | `utils/system/Scheduler.hpp` | `utils::system` | `Scheduler` | Scheduler definition |
+| `utils/system/gpu/AGpu.hpp` | `utils::system` | `AGpu` | Shared part of the gpu handlers (driver loading, device info) |
+| `utils/system/gpu/CudaGpu.hpp` | `utils::system` | `CudaGpu` | Cuda gpu handler of the HybridMemory |
+| `utils/system/gpu/Gpu.hpp` | `-` | - | Every gpu handler of the HybridMemory |
+| `utils/system/gpu/IGpu.hpp` | `utils::system` | `IGpu` | Interface of a gpu handler used by the HybridMemory |
+| `utils/system/gpu/OpenCLGpu.hpp` | `utils::system` | `OpenCLGpu` | OpenCL gpu handler of the HybridMemory |
+| `utils/system/gpu/VulkanGpu.hpp` | `utils::system` | `VulkanGpu` | Vulkan gpu handler of the HybridMemory |
 
 ## type
 

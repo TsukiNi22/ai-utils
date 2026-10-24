@@ -1,6 +1,6 @@
 # libutils `network`
 
-Generated from libutils `v4.1.0` (commit `eec28ab`, 2026-10-15) by `scripts/gen_api.py`, do not edit by hand.
+Generated from libutils `v4.3.1` (commit `7913070`, 2026-10-22) by `scripts/gen_api.py`, do not edit by hand.
 
 ## `utils/network/Client.hpp`
 
