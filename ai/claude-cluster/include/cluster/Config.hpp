@@ -108,6 +108,7 @@ struct WebConf {
     std::vector<std::string> settings;  // the sections of the settings a device of the page may change ("all"; empty: none, read only there)
     int ttyPort = 2222;             // the terminal page (the terminal interface in a browser: its own port; 0: off)
     int ttyRemotePort = 0;          // router: the port opened outside for it (0: the same)
+    bool discovery = true;          // the app searching this network answered (UDP 8789, this LAN only, nothing secret): it finds this computer
 };
 
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on

@@ -24,6 +24,7 @@ claude-cluster lance `claude` (ou `qwen`, `opencode`, `codex`) par les noms de `
 
 - L'accès est-il ouvert ? En bas à droite de l'interface : `● web https://<adresse>:8787 · code ...` ; `claude-cluster web` donne l'état et pourquoi l'extérieur n'est pas joint.
 - Le pare-feu peut bloquer le port (`[web] port`, 8787) : `firewall-cmd --add-port=8787/tcp`.
+- L'app ne trouve pas l'ordinateur (*Search this network* vide) : l'accès web doit être ouvert, `[web] discovery` activé, le téléphone sur le même Wi-Fi, et l'UDP 8789 autorisé (`firewall-cmd --add-port=8789/udp`) ; un Wi-Fi invité bloque souvent les diffusions : tapez l'adresse.
 - Le navigateur doit avoir une adresse privée d'un sous-réseau de l'ordinateur ; un nom public pointé vers le réseau local est refusé par conception.
 - *Votre connexion n'est pas privée* : le certificat appartient à l'autorité de cet ordinateur. Approuvez-la une fois par appareil depuis la page de connexion (*trust this computer once*), ou sur cet ordinateur avec `claude-cluster web trust-ca`.
 - Le code est refusé : 5 codes faux bloquent l'adresse 15 minutes et changent le code ; le nouveau code est sur l'ordinateur.

@@ -128,7 +128,10 @@ public class WatchService extends Service {
                 break;
             } catch (Exception e) {
                 try {
-                    rest(Math.min(60000, 5000L * ++failures)); // the computer not reached: asked again, less and less often (the network back: at once)
+                    // not reached 3 times: the computer trusted searched on this network (its address changed: followed there)
+                    String url = prefs.getString("active", prefs.getString("url", ""));
+                    if (++failures % 3 == 0 && url.equals(prefs.getString("url", "")) && Net.relocate(prefs, url, 2500) != null) continue;
+                    rest(Math.min(60000, 5000L * failures)); // the computer not reached: asked again, less and less often (the network back: at once)
                 } catch (InterruptedException stop) {
                     break;
                 }

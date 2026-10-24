@@ -163,6 +163,7 @@ enabled = false            # opened at each start; the code (6 digits) and the a
 port = 8787                # several devices at once; private addresses of the same subnet only (never the internet)
 https = true               # TLS, certificate of its own (~/.config/claude-cluster/web): encrypted, the microphone of the page allowed
 approve = true             # a new device: its code, then your yes here (allow, allow and trust, deny); the trusted ones: neither
+discovery = true           # the app finds this computer on this network by itself (UDP 8789 answered, this LAN only, never the code)
 
 [attachments]              # files, images and photos attached to a prompt (paperclip, drop, paste; the app: the camera) (F9 > Attachments)
 enabled = true

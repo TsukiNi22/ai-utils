@@ -1043,6 +1043,12 @@ the agents, a new session, a session closed.
   (the same popup in the page inside the app; nothing in a browser). The same page in an app: the computer trusted once (its authority pinned after its fingerprint is
   shown: no warning), its notifications, its microphone; a newer app on the computer is offered (never an older one),
   and an app too old for this claude-cluster says so.
+  **It finds the computer by itself** on the LAN (`[web] discovery`, on by default): its setup page lists the
+  claude-cluster of this network whose web access is open (*Search this network*, at once when it shows: one tap
+  connects; the computer trusted already marked), and when the address it knows no longer answers (the computer got
+  another address), the app and its notifications find the computer trusted again at its new address before trying
+  the one from outside - a broadcast on UDP 8789 answered by the core with its name, its port and the fingerprint of
+  its authority (the app checks it is the one it pinned), never its code.
 - **Completion** like in the terminal: `@file`, `/command`, the argument of `/cd` `/new` `/mode` `/model` `/effort`
   `/restore`, and the folder of a new session (from the home folder); ↑↓, Tab / Enter, Esc.
 - **Voice** (⚙ of the page): the microphone of the browser, *tap to talk* or *hands-free* (each sentence cut by its
@@ -1107,7 +1113,8 @@ the agents, a new session, a session closed.
   in the public Certificate Transparency logs - the name of the computer in its tailnet is public, nothing else
   (reaching it still needs the tailnet). *Services › Web access* tells the certificate served and its fingerprint.
 - A firewall may have to let the port in (`[web] port`, 8787: `firewall-cmd --add-port=8787/tcp`; the Fedora
-  Workstation zone already lets 1025-65535 in).
+  Workstation zone already lets 1025-65535 in), and UDP 8789 for the app to find the computer
+  (`firewall-cmd --add-port=8789/udp`).
 
 ### Terminal mode
 
@@ -1199,7 +1206,9 @@ What protects the three ways of using claude-cluster, and what stays your respon
   login page is reachable by anyone on the Internet - the code **and** your approval are needed, 5 wrong codes block
   the address 15 min and rotate the code. The code, the conversation and the cookies are encrypted end to end; the
   key of the certificate never leaves this computer. `/ca.crt`, `/app.apk` and `/api/version` are served to anyone
-  (nothing secret in them).
+  (nothing secret in them). The answer to the app searching the network (UDP 8789, `[web] discovery`) goes to the
+  devices of this network only, once per address every 0.5 s: the name of the computer, its port, https, the
+  fingerprint of its authority and its version - the code and the approval are still asked.
 - **What an approved device can do**: everything you can from the keyboard, except a shell (`!command`, `:r !`)
   unless *Shell from the page* is on, and except the settings of claude-cluster: read only from the page unless
   `[web] settings` names the sections it may change (`all`, or `ui, notify, services...`; `services`: the actions of

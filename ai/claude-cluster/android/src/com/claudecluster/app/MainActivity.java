@@ -50,10 +50,8 @@ import android.widget.TextView;
 import java.io.ByteArrayInputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.util.Locale;
 
 
 public class MainActivity extends Activity {
@@ -100,25 +98,22 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 near = false;
             }
+            // not reached: the computer trusted found again on this network (its address changed), else the address from outside
+            final String moved = near ? null : Net.relocate(prefs, lan, 2500);
             final boolean reached = near;
             ui.post(() -> {
-                if (!reached) carry(lan, remote);
-                open(reached ? lan : remote);
+                if (moved != null) open(moved);
+                else {
+                    if (!reached) carry(lan, remote);
+                    open(reached ? lan : remote);
+                }
             });
         }).start();
     }
 
     // its device cookies (its id, its trust) given to the other address: the same phone there
     private void carry(String from, String to) {
-        android.webkit.CookieManager cookies = android.webkit.CookieManager.getInstance();
-        String all = cookies.getCookie(from);
-        if (all == null) return;
-        for (String part : all.split(";")) {
-            String pair = part.trim();
-            if (pair.startsWith("cc_dev=") || pair.startsWith("cc_trust="))
-                cookies.setCookie(to, pair + "; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Strict");
-        }
-        cookies.flush();
+        Net.carry(from, to);
     }
 
     @Override
@@ -177,8 +172,8 @@ public class MainActivity extends Activity {
         title.setTextSize(26);
         title.setTextColor(Color.parseColor("#e6e7ea"));
         TextView help = new TextView(this);
-        help.setText("The address shown at the top of claude-cluster on the computer (web https://…:8787). Its code is asked next, and the "
-            + "computer approves this phone.");
+        help.setText("The computers of this network with their web access open are listed below (Search this network); else the address shown "
+            + "at the top of claude-cluster on the computer (web https://…:8787). Its code is asked next, and the computer approves this phone.");
         help.setTextColor(Color.parseColor("#9aa0ab"));
         help.setPadding(0, 24, 0, 24);
         EditText address = new EditText(this);
@@ -198,20 +193,72 @@ public class MainActivity extends Activity {
         message.setText(error);
         message.setTextColor(Color.parseColor("#f47174"));
         message.setPadding(0, 24, 0, 0);
-        connect.setOnClickListener(v -> {
-            String url = address.getText().toString().trim();
-            while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
-            if (!url.startsWith("http")) url = "https://" + url;
-            if (!url.equals(prefs.getString("url", ""))) prefs.edit().remove("ca").apply(); // another computer: trusted again
-            prefs.edit().putString("url", url).apply();
-            open(url);
-        });
+        connect.setOnClickListener(v -> connectTo(address.getText().toString()));
+        // the computers of this network (their answer to a broadcast): one tap connects
+        Button search = new Button(this);
+        search.setText("Search this network");
+        search.setTextColor(Color.parseColor("#e6e7ea"));
+        search.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#2a2e36")));
+        TextView searching = new TextView(this);
+        searching.setTextColor(Color.parseColor("#9aa0ab"));
+        searching.setPadding(0, 24, 0, 8);
+        LinearLayout found = new LinearLayout(this);
+        found.setOrientation(LinearLayout.VERTICAL);
+        search.setOnClickListener(v -> searchNetwork(search, searching, found));
         box.addView(title);
         box.addView(help);
         box.addView(address);
         box.addView(connect);
+        box.addView(search);
+        box.addView(searching);
+        box.addView(found);
         box.addView(message);
         setContentView(inset(box));
+        searchNetwork(search, searching, found); // at once: the computer is often there
+    }
+
+    private void connectTo(String typed) {
+        String url = typed.trim();
+        while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
+        if (!url.startsWith("http")) url = "https://" + url;
+        if (!url.equals(prefs.getString("url", ""))) prefs.edit().remove("ca").apply(); // another computer: trusted again
+        prefs.edit().putString("url", url).apply();
+        open(url);
+    }
+
+    private void searchNetwork(Button search, TextView searching, LinearLayout found) {
+        search.setEnabled(false);
+        searching.setText("Searching this network…");
+        found.removeAllViews();
+        new Thread(() -> {
+            final java.util.List<Net.Found> computers = Net.discover(2500);
+            final X509Certificate ca = pinned();
+            final String mine = ca == null ? "" : Net.fingerprint(ca);
+            ui.post(() -> {
+                search.setEnabled(true);
+                searching.setText(computers.isEmpty() ? "None found on this network (its web access open? [web] discovery on? the same Wi-Fi?): type its address"
+                    : computers.size() + (computers.size() == 1 ? " computer" : " computers") + " on this network:");
+                for (Net.Found one : computers) {
+                    final String old = prefs.getString("url", "");
+                    final boolean trusted = !mine.isEmpty() && mine.equals(one.authority);
+                    Button pick = new Button(this);
+                    pick.setAllCaps(false);
+                    pick.setText(one.name + "  ·  " + one.url.replaceFirst("^https?://", "") + (trusted ? "  ·  trusted" : "") + (one.version.isEmpty() ? "" : "\n" + one.version));
+                    pick.setTextColor(Color.parseColor("#e6e7ea"));
+                    pick.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.parseColor(trusted ? "#2f4a7a" : "#2a2e36")));
+                    pick.setOnClickListener(v -> {
+                        if (trusted) { // the same computer at a new address: its trust and its cookies kept
+                            carry(old, one.url);
+                            prefs.edit().putString("url", one.url).apply();
+                            open(one.url);
+                        } else {
+                            connectTo(one.url);
+                        }
+                    });
+                    found.addView(pick);
+                }
+            });
+        }).start();
     }
 
     // ---- edge to edge: the page kept out of the status bar, the notch, the navigation bar and the keyboard, the bars of the page's theme ----
@@ -296,15 +343,28 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
                 if (!request.isForMainFrame()) return;
-                // the LAN not reached: the address from outside when there is one
+                // the LAN not reached: the computer trusted found again on this network (its address changed), else the address from
+                // outside when there is one
                 final String lan = prefs.getString("url", "");
                 final String remote = prefs.getString("remote", "");
-                if (url.equals(lan) && !remote.isEmpty() && !remote.equals(lan)) {
-                    carry(lan, remote);
-                    open(remote);
-                } else {
-                    showSetup("Not reached: " + error.getDescription() + " (the same network, or [web] remote? claude-cluster web on?)");
+                final String why = String.valueOf(error.getDescription());
+                if (!url.equals(lan)) {
+                    showSetup("Not reached: " + why + " (the same network, or [web] remote? claude-cluster web on?)");
+                    return;
                 }
+                new Thread(() -> {
+                    final String moved = Net.relocate(prefs, lan, 2500);
+                    ui.post(() -> {
+                        if (moved != null) {
+                            open(moved);
+                        } else if (!remote.isEmpty() && !remote.equals(lan)) {
+                            carry(lan, remote);
+                            open(remote);
+                        } else {
+                            showSetup("Not reached: " + why + " (the same network, or [web] remote? claude-cluster web on?)");
+                        }
+                    });
+                }).start();
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -439,7 +499,7 @@ public class MainActivity extends Activity {
                 }
                 new AlertDialog.Builder(this)
                     .setTitle("Trust this computer?")
-                    .setMessage(found.getSubjectX500Principal().getName() + "\n\nSHA-256 " + fingerprint(found)
+                    .setMessage(found.getSubjectX500Principal().getName() + "\n\nSHA-256 " + Net.fingerprint(found)
                         + "\n\nThe same as on the computer (its palette: Web access: address and code). Trusted: no warning, encrypted.")
                     .setPositiveButton("Trust", (d, w) -> {
                         try {
@@ -470,17 +530,6 @@ public class MainActivity extends Activity {
             })
             .setNegativeButton("Another address", (d, w) -> showSetup(""))
             .show();
-    }
-
-    private static String fingerprint(X509Certificate cert) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(cert.getEncoded());
-            StringBuilder out = new StringBuilder();
-            for (int i = 0; i < digest.length; i++) out.append(i > 0 ? ":" : "").append(String.format(Locale.ROOT, "%02X", digest[i]));
-            return out.toString();
-        } catch (Exception e) {
-            return "?";
-        }
     }
 
     private byte[] fetch(String address, X509Certificate ca) throws Exception {

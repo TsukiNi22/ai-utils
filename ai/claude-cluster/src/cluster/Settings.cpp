@@ -465,6 +465,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.web.ttyPort);}},
             {"web", "tty_remote_port", "Terminal page port outside", SettingKind::Int, {}, "router: the port opened outside for the terminal page (0: the same)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.ttyRemotePort);}},
+            {"web", "discovery", "Found by the app", SettingKind::Bool, {}, "the app searching this network finds this computer by itself (its setup page: "
+                "Search this network; its address changed: found again).\n"
+                "• while the web access is open: an answer on UDP 8789 to the devices of this network only\n"
+                "• told: its name, its port, the fingerprint of its authority - never its code (still asked, then your yes)\n"
+                "• off: the address typed in the app", false,
+                [](const cluster::Config& cf) {return cf.web.discovery ? std::string("true") : std::string("false");}},
             {"web", "remote", "Beyond the LAN", SettingKind::Choice, {"off", "tailscale", "router"}, "the page reached away from home (the app goes there by itself when the LAN is not reached), encrypted end to end.\n"
                 "tailscale (recommended: nothing open to the Internet)\n"
                 "  1. install Tailscale here and on the phone, log in both with the same account\n"
@@ -1177,7 +1183,7 @@ _cold std::vector<std::string> cluster::setting_suggestions(const cluster::Confi
 _cold bool cluster::setting_protected(const std::string& section, const std::string& key)
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
-    static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
+    static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "web.discovery", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "agent.work_method", "agent.orchestration", "agent.work_method_text", "agent.work_method_detect", "agent.work_method_every", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
         "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"

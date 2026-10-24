@@ -643,6 +643,51 @@ _cold int cluster::Web::listen_(const int port, std::string& error)
     return fd;
 }
 
+_cold static int discovery_port_(void)
+{
+    const char* other = std::getenv("CLAUDE_CLUSTER_DISCOVERY_PORT");
+    return other != nullptr && std::atoi(other) > 0 ? std::atoi(other) : DISCOVERY_PORT;
+}
+
+_cold static int find_socket_(void)
+{
+    // the app searching this network: its broadcast received on every interface (UDP); not opened (taken): its address typed in the app
+    // (one core only: another one on it already, this one not found - never two sharing its datagrams)
+    const int fd = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0); // xstyle: ignore LU-SOCKET (UDP: a datagram, its sender answered)
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);  // the peers outside the LAN never answered (same_lan_)
+    addr.sin_port = htons(static_cast<std::uint16_t>(discovery_port_()));
+    if (fd == -1) return -1;
+    if (::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == -1) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+_cold static std::string authority_(void)
+{
+    // the fingerprint of the authority of this computer (what the app pinned): SHA-256 of its certificate, AA:BB:... as the app shows it
+    std::string out;
+    #ifdef CLUSTER_TLS
+        FILE* file = std::fopen((cluster::config_dir() / "web" / "ca.pem").c_str(), "r");
+        if (file == nullptr) return out;
+        X509* ca = ::PEM_read_X509(file, nullptr, nullptr, nullptr);
+        (void)std::fclose(file);
+        if (ca == nullptr) return out;
+        std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+        unsigned int size = 0;
+        if (::X509_digest(ca, ::EVP_sha256(), digest.data(), &size) == 1)
+            for (unsigned int i = 0; i < size; ++i) {
+                static const char* hex = "0123456789ABCDEF";
+                out += std::string(i ? ":" : "") + hex[digest[i] >> 4] + hex[digest[i] & 15];
+            }
+        ::X509_free(ca);
+    #endif
+    return out;
+}
+
 _cold void cluster::Web::open_(const int port)
 {
     std::string error;
@@ -679,6 +724,9 @@ _cold void cluster::Web::open_(const int port)
     this->remote_(); // its names first: in the certificate
     if (this->_httpsWanted) cluster::busy_step("its certificate (https)");
     const std::string tls = this->_httpsWanted ? this->tls_() : "";
+    this->_authority = this->_tls != nullptr ? authority_() : "";
+    this->_findFd = find_socket_();
+    cluster::debug("web", this->_findFd >= 0 ? "found by the app: UDP " + std::to_string(discovery_port_()) : "UDP " + std::to_string(discovery_port_()) + " taken: not found by the app");
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
     if (!this->_certWhy.empty()) // tailscale without its real certificate: the authority of this computer meanwhile (a warning until it is trusted)
         (void)this->_manager.fail("Get the real certificate of the tailnet (no browser warning)", "tailscale cert", this->_certWhy, [m = &this->_manager]() {
@@ -828,6 +876,9 @@ _cold void cluster::Web::close_(void)
     this->_ttys.closeAll(); // the terminals of the page: gone with the port
     if (this->_ttyFd != -1) ::close(this->_ttyFd);
     this->_ttyFd = -1;
+    if (this->_findFd != -1) ::close(this->_findFd);
+    this->_findFd = -1;
+    this->_foundAt.clear();
     std::lock_guard<std::mutex> lock(this->_mutex);
     ::close(this->_fd);
     this->_fd = -1;
@@ -844,6 +895,7 @@ _cold void cluster::Web::serve_(void)
     utils::encapsulation::Poll poll;
     poll.link(this->_fd, EPOLLIN);
     if (this->_ttyFd != -1) poll.link(this->_ttyFd, EPOLLIN);
+    if (this->_findFd != -1) poll.link(this->_findFd, EPOLLIN);
     std::int64_t expired = 0;
     while (this->_running) {
         const std::vector<epoll_event> ready = poll.wait(300);
@@ -852,6 +904,10 @@ _cold void cluster::Web::serve_(void)
             this->_ttys.expire();
         }
         if (ready.empty()) continue;
+        if (this->_findFd != -1 && ready.front().data.fd == this->_findFd) {
+            this->found_();
+            continue;
+        }
         const bool tty = this->_ttyFd != -1 && ready.front().data.fd == this->_ttyFd;
         sockaddr_in peer{};
         socklen_t size = sizeof(peer);
@@ -868,6 +924,27 @@ _cold void cluster::Web::serve_(void)
         ++this->_busy;
         std::thread(&cluster::Web::client_, this, client, std::string(text.data()), tty).detach();
     }
+}
+
+_cold void cluster::Web::found_(void)
+{
+    // the app searching this network (its broadcast): this computer told to it - its name, its port, the authority it trusts; this LAN
+    // only, one answer per address every 0.5 s, nothing secret (its code and your yes are still asked at its connection)
+    std::array<char, 64> packet{};
+    sockaddr_in peer{};
+    socklen_t size = sizeof(peer);
+    const ssize_t got = ::recvfrom(this->_findFd, packet.data(), packet.size(), 0, reinterpret_cast<sockaddr*>(&peer), &size);
+    if (got <= 0 || !this->_manager.config().web.discovery) return;
+    std::array<char, INET_ADDRSTRLEN> text{};
+    ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
+    if (!std::string(packet.data(), static_cast<std::size_t>(got)).starts_with(DISCOVERY_ASK) || !same_lan_(text.data())) return;
+    if (this->_foundAt.size() > 256) this->_foundAt.clear();
+    std::int64_t& last = this->_foundAt[text.data()];
+    if (cluster::now_ms() - last < 500) return;
+    last = cluster::now_ms();
+    const std::string answer = cluster::Json{{"app", "claude-cluster"}, {"name", cluster::host_name()}, {"port", this->_port}, {"https", this->_tls != nullptr},
+        {"authority", this->_authority}, {"version", CLUSTER_VERSION}}.dump();
+    (void)::sendto(this->_findFd, answer.data(), answer.size(), MSG_NOSIGNAL, reinterpret_cast<const sockaddr*>(&peer), size);
 }
 
 #ifdef CLUSTER_TLS

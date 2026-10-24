@@ -24,6 +24,7 @@ claude-cluster launches `claude` (or `qwen`, `opencode`, `codex`) by the names i
 
 - Is the access open? The bottom right of the interface shows `● web https://<address>:8787 · code ...`; `claude-cluster web` tells the state and why the outside is not reached.
 - The firewall may block the port (`[web] port`, 8787): `firewall-cmd --add-port=8787/tcp`.
+- The app does not find the computer (*Search this network* empty): the web access must be open, `[web] discovery` on, the phone on the same Wi-Fi, and UDP 8789 let in (`firewall-cmd --add-port=8789/udp`); a guest Wi-Fi often blocks broadcasts: type the address.
 - The browser must have a private address of a subnet of the computer; a public name pointed at the LAN is refused by design.
 - *Your connection is not private*: the certificate belongs to the authority of this computer. Trust it once per device from the login page (*trust this computer once*), or on this computer with `claude-cluster web trust-ca`.
 - The code is rejected: 5 wrong codes block the address for 15 minutes and rotate the code; the new code is on the computer.

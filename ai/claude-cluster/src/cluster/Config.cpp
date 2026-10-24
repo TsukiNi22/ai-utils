@@ -288,6 +288,7 @@ _cold void cluster::Config::load(void)
     this->web.settings = strings_(table["web"]["settings"], this->web.settings);
     this->web.ttyPort = table["web"]["tty_port"].value_or(this->web.ttyPort);
     this->web.ttyRemotePort = table["web"]["tty_remote_port"].value_or(this->web.ttyRemotePort);
+    this->web.discovery = table["web"]["discovery"].value_or(this->web.discovery);
 
     /* attachments */
     this->attach.enabled = table["attachments"]["enabled"].value_or(this->attach.enabled);

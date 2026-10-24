@@ -35,6 +35,12 @@ File Description:
     #include <mutex>                // std::mutex
     #include <map>                  // std::map
 
+    //----------------------------------------------------------------//
+    /* DEFINE */
+
+    #define DISCOVERY_PORT 8789 // UDP: the app searching this network (CLAUDE_CLUSTER_DISCOVERY_PORT: another one, the tests)
+    #define DISCOVERY_ASK "claude-cluster?" // what it sends (broadcast); answered: a JSON of this computer
+
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
 /* STRUCT */
@@ -105,6 +111,9 @@ class Web {
         int _port = 0;
         int _ttyFd = -1;                // the terminal page: its own port ([web] tty_port)
         int _ttyPort = 0;
+        int _findFd = -1;               // the app searching this network: UDP DISCOVERY_PORT, answered ([web] discovery)
+        std::map<std::string, std::int64_t> _foundAt;  // the last answer to each address (ms): one every 0.5 s
+        std::string _authority;         // SHA-256 of the authority of this computer (ca.pem): the app knows it is the one it trusts
         cluster::WebTty _ttys;          // the terminals of the page
         int _mappedTty = 0;             // the port of the router opened for it
         std::atomic<bool> _running{false};
@@ -149,6 +158,7 @@ class Web {
         _cold void open_(const int port);
         _cold void close_(void);
         _cold void serve_(void);
+        _cold void found_(void);        // the app searching this network: this computer told to it
         _cold void client_(const int fd, const std::string& peer, const bool tty);
         _cold void request_(void* connection, const std::string& peer, const bool toHttps, const bool tty);
         _cold void attach_(void* connection, const void* parsed, const cluster::Json& body, const std::string& peer);   // /api/attach...
