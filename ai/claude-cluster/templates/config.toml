@@ -4,6 +4,8 @@
 [ui]
 frontend = "auto"          # auto | tty | gui (the --tty / --gui flags win)
 layout = "list"            # list (list + active panel) | grid | tabs (window / web page; the terminal shows the list)
+mode = "classic"           # classic (every view, every setting) | simple (what needs you, a card per session, the useful settings; --simple)
+language = "en"            # the words of the simple mode: en | fr
 style = "html-dark"        # html-light | html-dark | nord | gruvbox | solarized-light | mono, or a [styles.<name>] below
 panels = ["skills", "tokens", "context", "cost", "usage", "git"] # default panels of a new session (+ "diff", "tools", "files")
                            # usage: the vendor of the session today / 7 days / lifetime (tokens, cost), limits left
@@ -13,6 +15,7 @@ prompt_color_user = ""     # "#rrggbb" of the prompts you type (empty: the accen
 prompt_color_mcp = ""      # of the prompts of the global session and the cluster (session_send / session_spawn, [reply from ...], answers): empty = violet
 prompt_color_task = ""     # of the prompts of the tasks and the schedules ([tasks], [scheduled wN]): empty = magenta
 notify = true              # desktop notifications at all (the ones of the global session too)
+restart_core = true        # a crashed core started again by its watcher, its sessions restored (false: no watcher)
 start_menu = true          # at each start of the terminal: open the running claude-cluster / an independent instance / restore the previous run / start new / quit
 notify_global = true       # when the global session answers
 notify_done = true         # when a sub-session finishes its turn
@@ -235,6 +238,10 @@ psi_io_hold = 50
 psi_io_reduce = 80
 resume_after = 20          # seconds under the thresholds before a stopped job resumes (hysteresis)
 kill_on_oom = false        # never kill by default; true: the newest job killed under oom_mem_mb
+memory_guard = true        # under guard_free_mb available: the biggest of what claude-cluster runs is killed (never the core) before
+                           # the system kills anything itself; its session is told what and why, a notice and a notification too
+guard_free_mb = 0          # the memory kept free (0: 5 % of the RAM, at least 500 MB)
+guard_min_mb = 100         # a command smaller than this is never the one killed
 aging_seconds = 30         # a waiting job gains one point every so many seconds (nothing starves; a priority step is 10 points)
 focus_boost = 15           # points of the session you look at
 sub_add = false            # a sub-session may queue heavy jobs through the MCP (heavy_run, jobs_add): off by default (no permission prompt on that path); its Bash tool, cluster-run included, works as usual

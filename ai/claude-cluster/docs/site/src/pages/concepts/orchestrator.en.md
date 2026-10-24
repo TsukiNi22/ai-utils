@@ -40,6 +40,10 @@ A job starts only when the orchestrator is enabled, there is no pressure hold, a
 - **Pressure** (load, `MemAvailable`, swap, `/proc/pressure`): at *hold* nothing new starts; at *reduce* running jobs are reniced and the lowest-priority newest one is stopped (SIGSTOP) until the load falls, then resumed with hysteresis. Never killed unless `kill_on_oom = true`.
 - **Auto-detect**: a process group outside the queue that burned `detect_cpu_seconds` of CPU is listed and its session is told once to use `cluster-run`.
 
+## Memory guard {#memory-guard}
+
+`[orchestrator] memory_guard` (on) watches, every 5 s and without any model, everything the sessions run - agents, their shells and background commands, sub-agents, heavy jobs, the global session too, never the core. Under `guard_free_mb` of memory available (0: 5 % of the RAM, at least 500 MB) it kills the biggest of them, its whole process tree, before the system's out-of-memory killer does: a command or job first (never one under `guard_min_mb`), an agent only when nothing else is big enough, the global session last. The session is told what was killed, how much it used and that it may run it again with less memory; a notice and a notification say it too. Settings > About / Processes shows the memory of each session, the free / total memory, the guard and its last kills.
+
 ## Hardware {#hardware}
 
 `hardware_scan` records the CPU, cores, RAM, swap, disk, GPUs and power in `hardware.json`, at start and on demand. The sample for pressure is read every second from `/proc`.

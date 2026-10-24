@@ -15,6 +15,8 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Attachments.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Simple.hpp"
+#include "cluster/RunProfile.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
 #include "cluster/Display.hpp"
@@ -333,16 +335,6 @@ _cold QString span_(const std::string& color, const QString& text, const bool bo
 //----------------------------------------------------------------//
 /* CLASS */
 
-// a turn running with nothing answered yet (sending): no text, thinking, tool or display after its prompt
-static bool unanswered_(const cluster::Snapshot& snap)
-{
-    if (snap.state != cluster::State::Working) return false;
-    for (auto it = snap.entries.rbegin(); it != snap.entries.rend(); ++it) {
-        if (it->kind == cluster::EntryKind::User) return true;
-        if (it->kind != cluster::EntryKind::System && it->kind != cluster::EntryKind::Error) return false;
-    }
-    return false;
-}
 
 // a session whose turn is over but whose shells / tasks / agents still run in the background: purple (~_~), idle only once they all ended
 static std::string busy_color_(const cluster::Style& st)
@@ -486,6 +478,7 @@ class SessionView: public QFrame {
         std::string pinKey;
         bool pinFolded = false;
         QLabel* panels = nullptr;
+        bool plain = false;                     // the simple mode: no header line, no panels (its name above it)
         QWidget* permBar = nullptr;
         QLabel* permLabel = nullptr;
         std::string lastKey;
@@ -1018,15 +1011,17 @@ class HubView: public QGraphicsView {
                 faceItem->setPos(x - faceItem->boundingRect().width() / 2, y - faceItem->boundingRect().height() / 2);
                 faceItem->setData(0, QString::fromStdString(s.spec.id));
                 spots.push_back({x, y, r, QString::fromStdString(cluster::one_line(s.spec.global ? std::string("global") : s.spec.name, 22)),
-                    QString::fromStdString(s.state == cluster::State::Working ? cluster::turn_state(s).value("verb", std::string("working")) : cluster::state_name(s.state)),
+                    QString::fromStdString(s.state == cluster::State::Working ? cluster::turn_state(s).value("verb", std::string("working")) : cluster::background_busy(s)
+                        ? std::string("~_~ background") : cluster::state_name(s.state)),
                     s.spec.id == active || s.spec.global, QString::fromStdString(s.spec.id)});
             };
             for (std::size_t i = 0; i < others.size(); ++i) {
                 const double a = (static_cast<double>(i) / static_cast<double>(std::max<std::size_t>(1, others.size()))) * 2.0 * M_PI - M_PI / 2.0;
                 const double x = std::cos(a) * radius;
                 const double y = std::sin(a) * radius * 0.78;
-                QPen pen(color(*others[i]), others[i]->state == cluster::State::Working ? 2.5 : 1.5);
-                if (others[i]->state != cluster::State::Working) pen.setStyle(Qt::DashLine);
+                const bool solid = others[i]->state == cluster::State::Working || cluster::background_busy(*others[i]); // its background runs: solid too
+                QPen pen(color(*others[i]), solid ? 2.5 : 1.5);
+                if (!solid) pen.setStyle(Qt::DashLine);
                 this->_scene.addLine(0, 0, x, y, pen);
                 for (const double t: {0.55, 0.7, 0.85})
                     spokes.emplace_back(x * t - 3, y * t - 3, 6, 6);
@@ -1305,7 +1300,7 @@ class HubView: public QGraphicsView {
                     const double x1 = X(n) + n.w, y1 = Y(n), x2 = X(child), y2 = Y(child), xm = (x1 + x2) / 2;
                     const bool live = child.kind == 2 && child.item->snap != nullptr;
                     QPen pen(child.kind == 1 ? QColor(QString::fromStdString(chip_color_(child.name))) : live ? color(*child.item->snap) : QColor(QString::fromStdString(st.border)), 1.6);
-                    if (child.kind == 2 && (!live || child.item->snap->state != cluster::State::Working)) pen.setStyle(Qt::DashLine);
+                    if (child.kind == 2 && (!live || (child.item->snap->state != cluster::State::Working && !cluster::background_busy(*child.item->snap)))) pen.setStyle(Qt::DashLine);
                     QPainterPath path(QPointF(x1, y1));
                     path.cubicTo(xm, y1, xm, y2, x2, y2);
                     this->_scene.addPath(path, pen)->setZValue(0);
@@ -1410,6 +1405,25 @@ class HubView: public QGraphicsView {
         bool fitPending = true;
 };
 
+// A card of the simple mode: clicked anywhere (its buttons apart), its action
+class SimpleTile: public QFrame {
+    public:
+        std::function<void()> onClick;
+
+        explicit SimpleTile(QWidget* parent): QFrame(parent)
+        {
+            this->setCursor(Qt::PointingHandCursor);
+            this->setAttribute(Qt::WA_Hover, true);
+        }
+
+    protected:
+        void mouseReleaseEvent(QMouseEvent* event) override
+        {
+            if (event->button() == Qt::LeftButton && this->rect().contains(event->position().toPoint()) && this->onClick) this->onClick();
+            QFrame::mouseReleaseEvent(event);
+        }
+};
+
 class Window: public QMainWindow {
     public:
         cluster::App& app;
@@ -1437,6 +1451,14 @@ class Window: public QMainWindow {
         std::vector<cluster::Draft> historyList;
         std::string historySession;             // the session of that list
         std::string labelFilter;                // a node of the taxonomy chosen in the hub: the list shows what is below it (empty: all)
+        // the simple mode (--simple / --ipad-kid, [ui] mode = simple): its home, the session opened on its right
+        QScrollArea* simpleHome = nullptr;
+        QWidget* simpleSide = nullptr;
+        QLabel* simpleSideName = nullptr;
+        std::string simpleKey;                  // what the home shows: drawn again only when it changes
+        std::string simpleFilter;               // a chip clicked: the cards of that state only
+        std::string simplePage = "general";     // the page of its settings (reopened there)
+        bool simplePanel = false;               // a session opened on the right
         std::map<int, QString> historyEdits;    // the texts changed while browsing (forgotten when a prompt is sent)
 
         bool historyStep(const int delta)
@@ -1517,6 +1539,33 @@ class Window: public QMainWindow {
                 QTimer* cycle = new QTimer(this);
                 std::shared_ptr<int> step = std::make_shared<int>(0);
                 QObject::connect(cycle, &QTimer::timeout, this, [this, dir, step]() {
+                    if (cluster::simple_on(this->manager)) { // the simple mode: its home, a session opened, its windows (each shot, then closed)
+                        static const std::array<const char*, 5> simple = {"simple-home", "simple-panel", "simple-settings", "simple-stats", "simple-newtask"};
+                        if (*step >= static_cast<int>(simple.size())) return;
+                        const std::string view = simple[static_cast<std::size_t>(*step)];
+                        ++*step;
+                        if (view == "simple-panel") {
+                            const std::vector<cluster::Snapshot> all = this->manager.shown();
+                            const auto other = std::find_if(all.begin(), all.end(), [](const cluster::Snapshot& s) {return !s.spec.global;});
+                            if (other != all.end()) this->simpleOpen(other->spec.id);
+                        } else if (view != "simple-home") {
+                            this->simpleClose();
+                            QTimer::singleShot(1200, this, [dir, view]() {
+                                if (QWidget* modal = QApplication::activeModalWidget(); modal != nullptr) {
+                                    modal->grab().save(QString::fromStdString(dir + "/" + view + ".png"));
+                                    modal->close();
+                                }
+                            });
+                            QTimer::singleShot(0, this, [this, view]() {
+                                if (view == "simple-settings") this->simpleSettings();
+                                else if (view == "simple-stats") this->simpleStats();
+                                else this->simpleNewTask();
+                            });
+                            return;
+                        }
+                        QTimer::singleShot(1500, this, [this, dir, view]() {this->grab().save(QString::fromStdString(dir + "/" + view + ".png"));});
+                        return;
+                    }
                     static const std::array<const char*, 6> shots = {"list", "grid", "graph", "hub", "tree", "tasks"};
                     if (*step >= static_cast<int>(shots.size())) return;
                     const std::string view = shots[static_cast<std::size_t>(*step)];
@@ -1779,11 +1828,101 @@ class Window: public QMainWindow {
                 if (link.startsWith("focus:")) {
                     this->active = link.mid(6).toStdString();
                     this->refresh(true);
+                } else if (link.startsWith("job:")) { // a heavy job: its details and its output live, like an agent
+                    this->jobDialog(link.mid(4).toStdString());
                 } else {
                     this->palette(link);
                 }
             });
             return browser;
+        }
+
+        void jobDialog(const std::string& id)
+        {
+            // a heavy job of the orchestrator: its state, command, session, folder, pid, memory, threads, priority, its time live, the end of
+            // its output (read again every second); its actions as buttons (stop / resume, kill, priority, its session, every action)
+            QDialog dialog(this);
+            dialog.setWindowTitle(q_("Job " + id));
+            dialog.resize(820, 560);
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+            QTextBrowser* text = new QTextBrowser(&dialog);
+            layout->addWidget(text, 1);
+            QHBoxLayout* row = new QHBoxLayout();
+            layout->addLayout(row);
+            auto data = std::make_shared<cluster::Json>(cluster::Json::object());
+            const std::function<void(const std::string&)> act = [this, id](const std::string& what) {this->run({"job_act:" + id + ":" + what, "", "", "", false}, "");};
+            std::map<std::string, QPushButton*> buttons;
+            for (const auto &[key, label]: std::vector<std::pair<std::string, std::string>>{{"stop", "Stop"}, {"resume", "Resume"}, {"prio_up", "Priority +1"}, {"prio_down", "Priority -1"},
+                {"kill", "Kill"}, {"session", "Its session"}, {"all", "Every action…"}}) {
+                QPushButton* b = new QPushButton(q_(label), &dialog);
+                b->setCursor(Qt::PointingHandCursor);
+                const std::string what = key;
+                QObject::connect(b, &QPushButton::clicked, [this, act, what, data, id, &dialog]() {
+                    if (what == "session") {
+                        this->active = data->value("session", std::string());
+                        dialog.accept();
+                        this->refresh(true);
+                    } else if (what == "all") {
+                        dialog.accept();
+                        QTimer::singleShot(0, this, [this, id]() {this->palette(q_("job:" + id));});
+                    } else {
+                        act(what);
+                    }
+                });
+                buttons[key] = b;
+                row->addWidget(b);
+            }
+            row->addStretch(1);
+            QPushButton* close = new QPushButton("Close", &dialog);
+            QObject::connect(close, &QPushButton::clicked, &dialog, &QDialog::reject);
+            row->addWidget(close);
+            const std::function<void()> draw = [this, text, data, buttons, id]() {
+                try {
+                    *data = this->manager.jobsCommand("job_status", {{"id", id}, {"full", true}});
+                } catch (const utils::exception::IException& e) {
+                    (*data)["gone"] = std::string(e.info());
+                }
+                const cluster::Style& st = this->theme();
+                const cluster::Json& j = *data;
+                const std::string state = j.value("state", std::string());
+                const std::int64_t now = cluster::now();
+                const std::int64_t started = j.value("started", std::int64_t{0});
+                const std::int64_t ended = j.value("ended", std::int64_t{0});
+                const std::int64_t took = started > 0 ? std::max<std::int64_t>(0, (ended > 0 ? ended : now) - started) : 0;
+                const std::string time = started > 0 ? (took < 60 ? std::to_string(took) + " s" : took < 3600 ? std::to_string(took / 60) + " min " + std::to_string(took % 60) + " s"
+                    : std::to_string(took / 3600) + " h " + std::to_string(took % 3600 / 60) + " min") : std::string();
+                const std::string tint = state == "running" ? st.ok : state == "queued" ? st.accent : state == "stopped" ? st.warn : state == "done" ? st.muted : st.error;
+                QString html = "<b>" + esc_(id) + "</b> &nbsp;" + span_(st.accent, esc_(j.value("class", std::string()))) + " &nbsp;" + span_(tint, esc_(state))
+                    + (time.empty() ? QString() : " &nbsp;" + span_(st.muted, q_("⏱ " + time))) + "<br><br><table>";
+                const std::function<void(const std::string&, const std::string&)> line = [&html, &st](const std::string& key, const std::string& value) {
+                    html += "<tr><td>" + span_(st.muted, esc_(key)) + "&nbsp;&nbsp;</td><td>" + esc_(value) + "</td></tr>";
+                };
+                line("command", j.value("command", std::string()));
+                line("session", j.value("session", std::string()).empty() ? std::string("you") : j.value("session", std::string()));
+                line("folder", cluster::short_path(j.value("cwd", std::string())));
+                line("process", (j.value("pid", 0) > 0 ? "pid " + std::to_string(j.value("pid", 0)) + " · " : std::string()) + (j.value("rss_mb", 0) > 0 ? std::to_string(j.value("rss_mb", 0))
+                    + " MB in use · " : std::string()) + "~" + std::to_string(j.value("ram_mb", 0)) + " MB planned" + (j.value("threads", 0) > 0 ? " · " + std::to_string(j.value("threads", 0))
+                    + " thread(s)" : std::string()) + " · priority " + std::to_string(j.value("prio", 0)) + " · " + j.value("origin", std::string()));
+                line("now", j.contains("gone") ? j.value("gone", std::string()) : j.value("message", std::string()));
+                html += "</table><br><b>output</b>" + span_(st.muted, esc_(j.value("log", std::string()).empty() ? std::string() : " (" + cluster::short_path(j.value("log", std::string())) + ")"))
+                    + "<pre>" + esc_(cluster::tail_of(j.value("tail", std::string("(nothing yet)")), 3000)) + "</pre>";
+                const int scrolled = text->verticalScrollBar()->value();
+                const bool bottom = scrolled >= text->verticalScrollBar()->maximum() - 4;
+                text->setHtml(html);
+                text->verticalScrollBar()->setValue(bottom ? text->verticalScrollBar()->maximum() : scrolled);
+                const bool live = state == "queued" || state == "running" || state == "stopped";
+                buttons.at("stop")->setVisible(state == "running");
+                buttons.at("resume")->setVisible(state == "stopped");
+                buttons.at("prio_up")->setVisible(live);
+                buttons.at("prio_down")->setVisible(live);
+                buttons.at("kill")->setVisible(live);
+                buttons.at("session")->setVisible(!j.value("session", std::string()).empty());
+            };
+            draw();
+            QTimer timer(&dialog);
+            QObject::connect(&timer, &QTimer::timeout, &dialog, draw);
+            timer.start(1000);
+            dialog.exec();
         }
 
         bool eventFilter(QObject* watched, QEvent* event) override
@@ -1798,6 +1937,8 @@ class Window: public QMainWindow {
                         if (id != TASKS_ID) this->input->setFocus();
                     });
             }
+            if (this->simpleHome != nullptr && watched == this->simpleHome->viewport() && event->type() == QEvent::Resize) // its columns of cards: as many as fit
+                QTimer::singleShot(0, this, [this]() {if (this->simpleHome != nullptr) this->refreshSimple();});
             if (this->list && watched == this->list->viewport() && event->type() == QEvent::Resize && this->list->viewport()->width() != this->listWidth)
                 QTimer::singleShot(0, this, [this]() {this->refresh(true);});
             // a Tasks panel resized: its outline with it
@@ -3130,7 +3271,6 @@ class Window: public QMainWindow {
             }
         }
 
-        std::int64_t upArmed = 0; // the first ↑ on a prompt being sent (ms)
 
         bool takeBackUp(void)
         {
@@ -3150,17 +3290,7 @@ class Window: public QMainWindow {
                     return true;
                 }
             }
-            if (!unanswered_(*snap)) return false;
-            // a prompt already given to the agent: a second ↑ within 0.8 s takes it back (never one by mistake)
-            const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-            if (now - this->upArmed >= 800) {
-                this->upArmed = now;
-                this->message("↑ again: take back the prompt being sent (its turn stopped)", false);
-                return true;
-            }
-            this->upArmed = 0;
-            this->rewind(true);
-            return true;
+            return false; // a prompt already given to the agent: Esc Esc only, ↑ is the history
         }
 
         void find(const bool older)
@@ -3281,12 +3411,580 @@ class Window: public QMainWindow {
             });
         }
 
+        /* the simple mode */
+        void simpleOpen(const std::string& id)
+        {
+            // a card clicked: its session on the right, the prompt to it
+            this->active = id;
+            this->simplePanel = true;
+            if (this->simpleSide != nullptr) this->simpleSide->setVisible(true);
+            this->simpleHint();
+            this->refresh(true);
+        }
+
+        void simpleClose(void)
+        {
+            this->active = GLOBAL_ID;
+            this->simplePanel = false;
+            if (this->simpleSide != nullptr) this->simpleSide->setVisible(false);
+            this->simpleHint();
+            this->refresh(true);
+        }
+
+        void simpleHint(void)
+        {
+            const std::string lang = cluster::simple_lang(this->manager);
+            if (this->input != nullptr) this->input->setPlaceholderText(q_(cluster::simple_word(this->active == GLOBAL_ID ? "prompt_hint" : "tell_it", lang) + "   ("
+                + cluster::simple_word("prompt_modes", lang) + ")"));
+            if (this->simpleSideName != nullptr) {
+                const std::optional<cluster::Snapshot> snap = this->manager.snapshot(this->active);
+                this->simpleSideName->setText(snap ? q_(snap->spec.global ? cluster::simple_word("assistant", lang) : snap->spec.name) : QString());
+            }
+        }
+
+        void refreshSimple(void)
+        {
+            // the home: hello, the counts (a click filters), what needs you, a card per session, a new task; drawn again when it changed
+            const cluster::Json s = cluster::simple_json(this->manager);
+            const std::string lang = s.value("lang", std::string("en"));
+            const std::optional<cluster::Ask> question = this->manager.asking().current();
+            const int columns = std::max(1, (this->simpleHome->viewport()->width() - 24) / 270);
+            const std::string key = s.dump() + "|" + this->simpleFilter + "|" + (question ? question->requestId : "") + "|" + std::to_string(columns) + "|" + this->theme().name;
+            this->simpleHint();
+            if (key == this->simpleKey) return;
+            this->simpleKey = key;
+            const cluster::Style& st = this->theme();
+            const QString soft = "background:" + q_(st.surface) + ";border:1px solid " + q_(st.border) + ";border-radius:16px;";
+            QWidget* page = new QWidget();
+            QVBoxLayout* col = new QVBoxLayout(page);
+            col->setContentsMargins(12, 12, 12, 12);
+            col->setSpacing(12);
+            // hello
+            QLabel* hello = new QLabel(page);
+            hello->setTextFormat(Qt::RichText);
+            hello->setText("<span style=\"font-size:17pt;font-weight:700\">" + esc_(s.value("greeting", std::string())) + "</span><br>" + span_(st.muted, esc_(s.value("subtitle", std::string()))));
+            col->addWidget(hello);
+            // the counts
+            QHBoxLayout* chips = new QHBoxLayout();
+            chips->setSpacing(8);
+            const cluster::Json counts = s.value("counts", cluster::Json::object());
+            for (const auto &[kind, word]: std::vector<std::pair<std::string, std::string>>{{"working", "chip_working"}, {"needs", "chip_needs"}, {"done", "chip_done"}}) {
+                const int n = counts.value(kind, 0);
+                QPushButton* chip = new QPushButton(q_(n == 1 ? cluster::simple_word(word + "_one", lang) : cluster::simple_fill(cluster::simple_word(word, lang), {{"n", std::to_string(n)}})), page);
+                const std::string color = kind == "working" ? st.ok : kind == "needs" ? st.warn : st.muted;
+                chip->setCursor(Qt::PointingHandCursor);
+                chip->setStyleSheet("QPushButton{border-radius:14px;padding:6px 14px;font-weight:600;color:" + q_(n ? color : st.muted) + ";border:2px solid "
+                    + q_(this->simpleFilter == kind ? color : n ? st.surface : st.border) + ";background:" + q_(n ? st.surface : st.bg) + ";}");
+                const std::string chosen = kind;
+                QObject::connect(chip, &QPushButton::clicked, [this, chosen]() {
+                    this->simpleFilter = this->simpleFilter == chosen ? std::string() : chosen;
+                    this->refreshSimple();
+                });
+                chips->addWidget(chip);
+            }
+            chips->addStretch(1);
+            col->addLayout(chips);
+            // what needs you: a permission (Allow / Always / Not now), the question of a helper (Answer: its popup)
+            const cluster::Json asks = s.value("asks", cluster::Json::array());
+            QLabel* needsHead = new QLabel(q_("<b>" + cluster::simple_word("needs_you", lang) + "</b>"), page);
+            col->addWidget(needsHead);
+            if (asks.empty() && !question) {
+                QLabel* none = new QLabel(q_(cluster::simple_word("nothing_waits", lang)), page);
+                none->setStyleSheet("border:1px dashed " + q_(st.border) + ";border-radius:14px;padding:12px;color:" + q_(st.muted) + ";");
+                col->addWidget(none);
+            }
+            const std::function<void(const std::string&, const std::string&, const std::vector<std::pair<std::string, std::function<void()>>>&)> askCard =
+                [&](const std::string& what, const std::string& detail, const std::vector<std::pair<std::string, std::function<void()>>>& buttons) {
+                    QFrame* card = new QFrame(page);
+                    card->setStyleSheet("QFrame{" + soft + "border-left:4px solid " + q_(st.warn) + ";}");
+                    QHBoxLayout* row = new QHBoxLayout(card);
+                    QLabel* text = new QLabel(card);
+                    text->setTextFormat(Qt::RichText);
+                    text->setWordWrap(true);
+                    text->setStyleSheet("border:0;");
+                    text->setText("<b>" + esc_(what) + "</b>" + (detail.empty() ? QString() : "<br>" + span_(st.muted, "<code>" + esc_(detail) + "</code>")));
+                    row->addWidget(text, 1);
+                    for (std::size_t i = 0; i < buttons.size(); ++i) {
+                        QPushButton* b = new QPushButton(q_(buttons[i].first), card);
+                        if (i == 0) b->setObjectName("primary");
+                        b->setCursor(Qt::PointingHandCursor);
+                        QObject::connect(b, &QPushButton::clicked, buttons[i].second);
+                        row->addWidget(b);
+                    }
+                    col->addWidget(card);
+                };
+            for (const cluster::Json& a: asks) {
+                const std::string session = a.value("session", std::string());
+                const std::string request = a.value("request_id", std::string());
+                const std::string name = a.value("name", std::string());
+                std::vector<std::pair<std::string, std::function<void()>>> buttons;
+                for (const auto &[behavior, word]: std::vector<std::pair<std::string, std::string>>{{"allow", "allow"}, {"always", "always"}, {"deny", "not_now"}})
+                    buttons.push_back({cluster::simple_word(word, lang), [this, session, request, behavior, name, lang]() {
+                        try {
+                            this->manager.answer(session, request, behavior);
+                            this->message(cluster::simple_fill(cluster::simple_word(behavior == "deny" ? "refused" : "allowed", lang), {{"name", name}}), false);
+                        } catch (const utils::exception::IException& e) {
+                            this->message(e.info(), true);
+                        }
+                    }});
+                askCard(a.value("what", std::string()), a.value("detail", std::string()), buttons);
+            }
+            if (question) {
+                const std::string first = question->questions.is_array() && !question->questions.empty() && question->questions[0].is_object()
+                    ? question->questions[0].value("question", std::string()) : "";
+                const std::string session = question->session;
+                askCard(cluster::simple_fill(cluster::simple_word("ask_question", lang), {{"name", question->name}}), first,
+                    {{cluster::simple_word("answer", lang), [this, session]() {this->simpleOpen(session);}}});
+            }
+            // the work
+            const cluster::Json all = s.value("cards", cluster::Json::array());
+            cluster::Json cards = cluster::Json::array();
+            for (const cluster::Json& c: all)
+                if (this->simpleFilter.empty() || c.value("state", std::string()) == this->simpleFilter) cards.push_back(c);
+            col->addWidget(new QLabel(q_("<b>" + cluster::simple_word("your_work", lang) + "</b> ") + span_(st.muted, QString::number(cards.size())), page));
+            QGridLayout* grid = new QGridLayout();
+            grid->setSpacing(12);
+            static const std::map<std::string, std::string> states = {{"working", "st_working"}, {"needs", "st_needs"}, {"stuck", "st_stuck"}, {"done", "st_done"},
+                {"ready", "st_ready"}, {"starting", "st_starting"}};
+            int at = 0;
+            for (const cluster::Json& c: cards) {
+                const std::string state = c.value("state", std::string());
+                const std::string color = state == "working" ? st.ok : state == "needs" ? st.warn : state == "stuck" ? st.error : state == "starting" ? st.accent : st.muted;
+                SimpleTile* tile = new SimpleTile(page);
+                tile->setObjectName("stile");
+                tile->setStyleSheet("#stile{" + soft + "} #stile:hover{border-color:" + q_(st.accent) + ";} QLabel{border:0;background:transparent;}");
+                tile->setMinimumHeight(120);
+                QVBoxLayout* in = new QVBoxLayout(tile);
+                QHBoxLayout* head = new QHBoxLayout();
+                head->addWidget(new QLabel("<b>" + esc_(c.value("name", std::string())) + "</b>", tile), 1);
+                const auto word = states.find(state);
+                QLabel* pill = new QLabel(q_(cluster::simple_word(word != states.end() ? word->second : state, lang)), tile);
+                pill->setStyleSheet("color:" + q_(color) + ";font-weight:600;");
+                head->addWidget(pill);
+                in->addLayout(head);
+                QLabel* doing = new QLabel(q_(c.value("doing", std::string())), tile);
+                doing->setWordWrap(true);
+                doing->setStyleSheet("color:" + q_(st.muted) + ";");
+                in->addWidget(doing, 1);
+                const int done = c.value("done", 0);
+                const int total = c.value("total", 0);
+                if (total > 0) {
+                    QProgressBar* bar = new QProgressBar(tile);
+                    bar->setRange(0, total);
+                    bar->setValue(done);
+                    bar->setTextVisible(false);
+                    bar->setFixedHeight(6);
+                    in->addWidget(bar);
+                }
+                if (const int agents = c.value("agents", 0); agents > 0)
+                    in->addWidget(new QLabel(span_(st.accent, "⧉ " + esc_(cluster::simple_fill(cluster::simple_word(agents == 1 ? "agent_one" : "agents_run", lang),
+                        {{"n", std::to_string(agents)}, {"t", ""}}))), tile));
+                QHBoxLayout* foot = new QHBoxLayout();
+                const std::string tag = c.value("tag", std::string());
+                foot->addWidget(new QLabel(tag.empty() ? QString() : span_(st.accent, "● ") + esc_(tag), tile), 1);
+                const std::string id = c.value("id", std::string());
+                const std::string name = c.value("name", std::string());
+                if (state == "stuck") {
+                    QPushButton* retry = new QPushButton(q_(cluster::simple_word("retry", lang) + " ›"), tile);
+                    retry->setCursor(Qt::PointingHandCursor);
+                    QObject::connect(retry, &QPushButton::clicked, [this, id, name, lang]() {
+                        try {
+                            (void)this->manager.resume(id);
+                            this->message(cluster::simple_fill(cluster::simple_word("retried", lang), {{"name", name}}), false);
+                        } catch (const utils::exception::IException& e) {
+                            this->message(e.info(), true);
+                        }
+                    });
+                    foot->addWidget(retry);
+                } else {
+                    foot->addWidget(new QLabel(span_(st.muted, esc_(total > 0 ? cluster::simple_fill(cluster::simple_word("steps", lang), {{"a", std::to_string(done)},
+                        {"b", std::to_string(total)}}) : state == "done" ? c.value("ago", std::string()) : std::string())), tile));
+                }
+                in->addLayout(foot);
+                tile->onClick = [this, id]() {this->simpleOpen(id);};
+                grid->addWidget(tile, at / columns, at % columns);
+                ++at;
+            }
+            SimpleTile* add = new SimpleTile(page);
+            add->setObjectName("snew");
+            add->setStyleSheet("#snew{border:2px dashed " + q_(st.border) + ";border-radius:16px;} #snew:hover{border-color:" + q_(st.accent) + ";} QLabel{border:0;}");
+            add->setMinimumHeight(120);
+            QVBoxLayout* addIn = new QVBoxLayout(add);
+            QLabel* addText = new QLabel(q_(cluster::simple_word("new_task", lang)), add);
+            addText->setAlignment(Qt::AlignCenter);
+            addText->setStyleSheet("font-weight:600;color:" + q_(st.muted) + ";");
+            addIn->addWidget(addText);
+            add->onClick = [this]() {this->simpleNewTask();};
+            grid->addWidget(add, at / columns, at % columns);
+            for (int c = 0; c < columns; ++c)
+                grid->setColumnStretch(c, 1);
+            col->addLayout(grid);
+            col->addStretch(1);
+            const int scrolled = this->simpleHome->verticalScrollBar()->value();
+            this->simpleHome->setWidget(page); // the old page deleted by the scroll area
+            this->simpleHome->verticalScrollBar()->setValue(scrolled);
+        }
+
+        // a row of choices (one checked), its value given to change
+        QWidget* simpleSeg(QWidget* parent, const std::vector<std::pair<std::string, std::string>>& options, const std::string& value,
+            const std::function<void(const std::string&)>& change)
+        {
+            QWidget* box = new QWidget(parent);
+            QHBoxLayout* row = new QHBoxLayout(box);
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(2);
+            QButtonGroup* group = new QButtonGroup(box);
+            const cluster::Style& st = this->theme();
+            box->setStyleSheet("QPushButton{border-radius:10px;padding:5px 12px;} QPushButton:checked{background:" + q_(st.accent) + ";color:" + q_(st.bg)
+                + ";font-weight:600;border-color:" + q_(st.accent) + ";}");
+            for (const auto &[v, label]: options) {
+                QPushButton* b = new QPushButton(q_(label), box);
+                b->setCheckable(true);
+                b->setChecked(v == value);
+                b->setCursor(Qt::PointingHandCursor);
+                group->addButton(b);
+                const std::string chosen = v;
+                QObject::connect(b, &QPushButton::clicked, [change, chosen]() {change(chosen);});
+                row->addWidget(b);
+            }
+            row->addStretch(1);
+            return box;
+        }
+
+        void simpleSettings(void)
+        {
+            // the useful settings in 6 pages (reopened on the last one); Save writes them, the full settings one click away
+            const std::string lang = cluster::simple_lang(this->manager);
+            const cluster::Config& config = this->manager.config();
+            const std::vector<cluster::SettingsPage> pages = cluster::settings_pages(config);
+            const std::function<const cluster::Setting*(const std::string&, const std::string&)> find = [&pages](const std::string& section, const std::string& key) -> const cluster::Setting* {
+                for (const cluster::SettingsPage& page: pages)
+                    for (const cluster::Setting& setting: page.settings)
+                        if (setting.section == section && setting.key == key) return &setting;
+                return nullptr;
+            };
+            auto changes = std::make_shared<std::map<std::pair<std::string, std::string>, std::string>>();
+            const std::function<std::string(const std::string&, const std::string&)> value = [&, changes](const std::string& section, const std::string& key) {
+                const auto changed = changes->find({section, key});
+                if (changed != changes->end()) return changed->second;
+                const cluster::Setting* s = find(section, key);
+                return s != nullptr && s->value ? s->value(config) : std::string();
+            };
+            QDialog dialog(this);
+            dialog.setWindowTitle(q_(cluster::simple_word("settings", lang)));
+            dialog.resize(760, 540);
+            QVBoxLayout* rootLayout = new QVBoxLayout(&dialog);
+            QHBoxLayout* split = new QHBoxLayout();
+            QListWidget* nav = new QListWidget(&dialog);
+            nav->setFixedWidth(190);
+            static const std::vector<std::pair<std::string, std::string>> names = {{"general", "set_general"}, {"account", "set_account"}, {"assistant", "set_assistant"},
+                {"phone", "set_phone"}, {"keys", "set_keys"}, {"about", "set_about"}};
+            for (const auto &[id, word]: names)
+                nav->addItem(q_(cluster::simple_word(word, lang)));
+            QScrollArea* area = new QScrollArea(&dialog);
+            area->setWidgetResizable(true);
+            area->setFrameShape(QFrame::NoFrame);
+            split->addWidget(nav);
+            split->addWidget(area, 1);
+            rootLayout->addLayout(split, 1);
+            QHBoxLayout* foot = new QHBoxLayout();
+            foot->addWidget(new QLabel(span_(this->theme().muted, esc_(cluster::simple_word("reopens", lang))), &dialog), 1);
+            QPushButton* close = new QPushButton(q_(cluster::simple_word("close", lang)), &dialog);
+            QPushButton* save = new QPushButton(q_(cluster::simple_word("save", lang)), &dialog);
+            save->setObjectName("primary");
+            foot->addWidget(close);
+            foot->addWidget(save);
+            rootLayout->addLayout(foot);
+            QObject::connect(close, &QPushButton::clicked, &dialog, &QDialog::reject);
+            QObject::connect(save, &QPushButton::clicked, &dialog, &QDialog::accept);
+            std::function<void()> draw;
+            const std::function<QWidget*(QWidget*, const std::string&, const std::string&, QWidget*)> row = [this](QWidget* parent, const std::string& title, const std::string& help, QWidget* control) {
+                QFrame* box = new QFrame(parent);
+                box->setStyleSheet("QFrame{border:1px solid " + q_(this->theme().border) + ";border-radius:12px;} QLabel{border:0;}");
+                QHBoxLayout* line = new QHBoxLayout(box);
+                QLabel* words = new QLabel("<b>" + esc_(title) + "</b>" + (help.empty() ? QString() : "<br>" + span_(this->theme().muted, esc_(help))), box);
+                words->setWordWrap(true);
+                line->addWidget(words, 1);
+                if (control != nullptr) line->addWidget(control);
+                return box;
+            };
+            const std::function<void(const std::string&, const std::string&, const std::string&)> set = [changes](const std::string& section, const std::string& key, const std::string& v) {
+                (*changes)[{section, key}] = v;
+            };
+            draw = [&]() {
+                QWidget* body = new QWidget();
+                QVBoxLayout* rows = new QVBoxLayout(body);
+                rows->setSpacing(10);
+                const std::string& page = this->simplePage;
+                const std::function<QCheckBox*(const std::string&, const std::string&)> check = [&](const std::string& section, const std::string& key) {
+                    QCheckBox* box = new QCheckBox(body);
+                    box->setChecked(value(section, key) == "true");
+                    QObject::connect(box, &QCheckBox::toggled, [set, section, key](bool on) {set(section, key, on ? "true" : "false");});
+                    return box;
+                };
+                if (page == "general") {
+                    rows->addWidget(row(body, cluster::simple_word("set_language", lang), cluster::simple_word("set_language_d", lang),
+                        this->simpleSeg(body, {{"en", "English"}, {"fr", "Français"}}, value("ui", "language").empty() ? lang : value("ui", "language"),
+                        [set](const std::string& v) {set("ui", "language", v);})));
+                    QComboBox* style = new QComboBox(body);
+                    if (const cluster::Setting* s = find("ui", "style"); s != nullptr)
+                        for (const std::string& c: s->choices)
+                            style->addItem(q_(c));
+                    style->setCurrentText(q_(value("ui", "style")));
+                    QObject::connect(style, &QComboBox::currentTextChanged, [set](const QString& v) {set("ui", "style", v.toStdString());});
+                    rows->addWidget(row(body, cluster::simple_word("set_look", lang), cluster::simple_word("set_look_d", lang), style));
+                    rows->addWidget(row(body, cluster::simple_word("set_notify", lang), cluster::simple_word("set_notify_d", lang), check("ui", "notify")));
+                    rows->addWidget(row(body, cluster::simple_word("set_interface", lang), cluster::simple_word("set_interface_d", lang),
+                        this->simpleSeg(body, {{"simple", cluster::simple_word("simple", lang)}, {"classic", cluster::simple_word("classic", lang)}}, "simple",
+                        [set](const std::string& v) {set("ui", "mode", v);})));
+                } else if (page == "account") {
+                    QLineEdit* provider = new QLineEdit(q_(value("agent", "provider")), body);
+                    provider->setPlaceholderText("claude");
+                    QObject::connect(provider, &QLineEdit::textChanged, [set](const QString& v) {set("agent", "provider", v.trimmed().toStdString());});
+                    rows->addWidget(row(body, cluster::simple_word("set_provider", lang), cluster::simple_word("set_provider_d", lang), provider));
+                    for (const cluster::SettingsPage& p: pages)
+                        for (const cluster::Setting& s: p.settings)
+                            if (s.key.starts_with("account_") && !s.key.starts_with("account_rm_")) rows->addWidget(row(body, cluster::trim(s.label), s.value ? s.value(config) : "", nullptr));
+                } else if (page == "assistant") {
+                    const std::string orch = value("agent", "orchestration").empty() ? std::string("hybrid") : value("agent", "orchestration");
+                    QLabel* why = new QLabel(q_(cluster::simple_word("orch_" + orch, lang)), body);
+                    why->setWordWrap(true);
+                    rows->addWidget(row(body, cluster::simple_word("set_orch", lang), cluster::simple_word("set_orch_d", lang), this->simpleSeg(body,
+                        {{"compact", "Compact"}, {"hybrid", "Hybrid"}, {"ultra", "Ultra"}}, orch, [set, why, lang](const std::string& v) {
+                            set("agent", "orchestration", v);
+                            why->setText(q_(cluster::simple_word("orch_" + v, lang)));
+                        })));
+                    rows->addWidget(why);
+                    rows->addWidget(row(body, cluster::simple_word("set_smart", lang), cluster::simple_word("set_smart_d", lang), this->simpleSeg(body,
+                        {{"low", cluster::simple_word("smart_fast", lang)}, {"", cluster::simple_word("smart_balanced", lang)}, {"high", cluster::simple_word("smart_best", lang)}},
+                        value("agent", "effort"), [set](const std::string& v) {set("agent", "effort", v);})));
+                    rows->addWidget(row(body, cluster::simple_word("set_ask", lang), cluster::simple_word("set_ask_d", lang), this->simpleSeg(body,
+                        {{"default", cluster::simple_word("ask_every", lang)}, {"acceptEdits", cluster::simple_word("ask_edits", lang)},
+                        {"bypassPermissions", cluster::simple_word("ask_never", lang) + " ⚠"}}, value("agent", "permission_mode").empty() ? std::string("default")
+                        : value("agent", "permission_mode"), [set](const std::string& v) {set("agent", "permission_mode", v);})));
+                    rows->addWidget(row(body, cluster::simple_word("set_parallel", lang), cluster::simple_word("set_parallel_d", lang), this->simpleSeg(body,
+                        {{"2", "2"}, {"4", "4"}, {"8", "8"}}, value("sessions", "max_parallel"), [set](const std::string& v) {set("sessions", "max_parallel", v);})));
+                } else if (page == "phone") {
+                    const std::optional<cluster::WebStatus> web = cluster::web_status(this->manager);
+                    rows->addWidget(row(body, cluster::simple_word("set_web", lang), cluster::simple_word("set_web_d", lang) + (web && web->on ? " · " + web->url + " · code "
+                        + web->pin : std::string()), nullptr));
+                    rows->addWidget(row(body, cluster::simple_word("set_web_start", lang), cluster::simple_word("set_web_start_d", lang), check("web", "enabled")));
+                } else if (page == "keys") {
+                    QLabel* help = new QLabel(q_(cluster::simple_word("set_keys_d", lang)), body);
+                    help->setWordWrap(true);
+                    rows->addWidget(help);
+                    std::map<std::string, std::string> keys = config.keys;
+                    for (const auto &[k, v]: *changes)
+                        if (k.first == "keys") keys[k.second] = v;
+                    for (const cluster::SettingsPage& p: pages)
+                        for (const cluster::Setting& s: p.settings) {
+                            if (s.section != "keys") continue;
+                            QLineEdit* field = new QLineEdit(q_(value("keys", s.key)), body);
+                            field->setFixedWidth(220);
+                            std::string twice;
+                            for (const auto &[k, others]: cluster::setting_key_clashes(keys, s.key)) {
+                                std::string names;
+                                for (const std::string& o: others)
+                                    names += (names.empty() ? "" : ", ") + o;
+                                twice += (twice.empty() ? "" : " · ") + cluster::simple_fill(cluster::simple_word("keys_twice", lang), {{"key", k}, {"other", names}});
+                            }
+                            if (!twice.empty()) field->setStyleSheet("border:1px solid " + q_(this->theme().warn) + ";");
+                            const std::string id = s.key;
+                            QObject::connect(field, &QLineEdit::editingFinished, [set, id, field, &draw]() {
+                                set("keys", id, field->text().trimmed().toStdString());
+                                QTimer::singleShot(0, [&draw]() {draw();});
+                            });
+                            std::string words = cluster::trim(s.label);
+                            std::replace(words.begin(), words.end(), '_', ' ');
+                            rows->addWidget(row(body, words + (twice.empty() ? "" : " !"), twice, field));
+                        }
+                } else {
+                    rows->addWidget(row(body, cluster::simple_word("about_version", lang), "claude-cluster " + std::string(CLUSTER_VERSION), nullptr));
+                    QPushButton* docs = new QPushButton(q_(cluster::simple_word("open", lang)), body);
+                    QObject::connect(docs, &QPushButton::clicked, [this, &dialog]() {
+                        dialog.reject();
+                        this->openDocs("");
+                    });
+                    rows->addWidget(row(body, cluster::simple_word("about_docs", lang), cluster::simple_word("about_docs_d", lang), docs));
+                    QPushButton* full = new QPushButton(q_(cluster::simple_word("full_settings", lang)), body);
+                    QObject::connect(full, &QPushButton::clicked, [this, &dialog]() {
+                        dialog.reject();
+                        QTimer::singleShot(0, this, [this]() {this->settings();});
+                    });
+                    rows->addWidget(row(body, cluster::simple_word("full_settings", lang), "", full));
+                }
+                rows->addStretch(1);
+                area->setWidget(body);
+            };
+            for (std::size_t i = 0; i < names.size(); ++i)
+                if (names[i].first == this->simplePage) nav->setCurrentRow(static_cast<int>(i));
+            QObject::connect(nav, &QListWidget::currentRowChanged, [&](int at) {
+                if (at < 0 || static_cast<std::size_t>(at) >= names.size()) return;
+                this->simplePage = names[static_cast<std::size_t>(at)].first;
+                draw();
+            });
+            draw();
+            if (dialog.exec() != QDialog::Accepted) return;
+            for (const auto &[where, v]: *changes) {
+                const auto &[section, key] = where;
+                const cluster::Setting* s = find(section, key);
+                if (s != nullptr && s->value && s->value(config) == v) continue;
+                if (s != nullptr) {
+                    const std::string warning = cluster::setting_danger(*s, v);
+                    if (!warning.empty() && QMessageBox::question(this, q_(s->label), q_(warning)) != QMessageBox::Yes) continue;
+                }
+                try {
+                    (void)cluster::settings_set(this->manager.config(), section, key, v);
+                    if (section == "ui" && (key == "mode" || key == "language" || key == "style")) this->manager.setUi(key, v);
+                } catch (const utils::exception::IException& e) {
+                    this->message(e.info(), true);
+                    return;
+                }
+            }
+            (void)this->manager.config().reload();
+            this->message(cluster::simple_word("saved", lang), false);
+            this->signature.clear(); // the language, the mode, the look: drawn again
+            this->refresh(true);
+        }
+
+        void simpleStats(void)
+        {
+            // what is left (the 5 hours, the week), today and the 7 days, who used the most; the full stats one click away
+            const std::string lang = cluster::simple_lang(this->manager);
+            const cluster::Style& st = this->theme();
+            this->manager.usageRefresh();
+            const cluster::Json usage = this->manager.usageJson("");
+            const cluster::Json vendors = usage.is_array() ? usage : usage.is_object() ? cluster::Json::array({usage}) : cluster::Json::array();
+            const std::function<std::string(std::int64_t)> fmt = [](std::int64_t n) {
+                return n >= 1000000 ? std::to_string(n / 100000 / 10.0).substr(0, std::to_string(n / 100000 / 10.0).find('.') + 2) + "M" : n >= 1000 ? std::to_string(n / 1000) + "k" : std::to_string(n);
+            };
+            QString html;
+            for (const cluster::Json& v: vendors) {
+                const std::string vendor = v.value("vendor", std::string());
+                for (const auto &[field, word]: std::vector<std::pair<std::string, std::string>>{{"seven_day", "st_week"}, {"five_hour", "st_5h"}}) {
+                    if (!v.contains(field) || !v[field].is_object()) continue;
+                    const int left = std::max(0, 100 - static_cast<int>(v[field].value("used_percent", 0.0)));
+                    html += span_(st.muted, esc_(cluster::simple_word(word, lang) + " · " + vendor)) + "<br><span style=\"font-size:16pt;font-weight:700\">" + QString::number(left) + "%</span><br><br>";
+                }
+                const cluster::Json today = v.value("today", cluster::Json::object());
+                const cluster::Json week = v.value("last_7_days", cluster::Json::object());
+                html += span_(st.muted, esc_(cluster::simple_word("st_today", lang) + " · " + vendor)) + "<br><span style=\"font-size:16pt;font-weight:700\">"
+                    + q_(fmt(today.value("tokens", std::int64_t{0}))) + "</span> " + span_(st.muted, QString::number(today.value("turns", 0)) + " turns") + "<br><br>";
+                html += span_(st.muted, esc_(cluster::simple_word("st_7days", lang) + " · " + vendor)) + "<br><span style=\"font-size:16pt;font-weight:700\">"
+                    + q_(fmt(week.value("tokens", std::int64_t{0}))) + "</span><br><br>";
+            }
+            std::vector<cluster::Snapshot> sessions = this->manager.shown();
+            std::erase_if(sessions, [](const cluster::Snapshot& s) {return s.spec.tokens <= 0;});
+            std::sort(sessions.begin(), sessions.end(), [](const cluster::Snapshot& a, const cluster::Snapshot& b) {return a.spec.tokens > b.spec.tokens;});
+            if (!sessions.empty()) html += "<b>" + esc_(cluster::simple_word("st_top", lang)) + "</b><br>";
+            for (std::size_t i = 0; i < sessions.size() && i < 6; ++i)
+                html += esc_(sessions[i].spec.global ? cluster::simple_word("assistant", lang) : sessions[i].spec.name) + " &nbsp; " + span_(st.accent,
+                    QString(static_cast<int>(std::max<std::int64_t>(1, 24 * sessions[i].spec.tokens / sessions.front().spec.tokens)), QChar(0x2588))) + " "
+                    + span_(st.muted, esc_(cluster::simple_fill(cluster::simple_word("st_tokens", lang), {{"n", fmt(sessions[i].spec.tokens)}}))) + "<br>";
+            QDialog dialog(this);
+            dialog.setWindowTitle(q_(cluster::simple_word("stats", lang)));
+            dialog.resize(520, 480);
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+            QTextBrowser* text = new QTextBrowser(&dialog);
+            text->setHtml(html);
+            layout->addWidget(text, 1);
+            QHBoxLayout* foot = new QHBoxLayout();
+            QPushButton* full = new QPushButton(q_(cluster::simple_word("st_full", lang)), &dialog);
+            QPushButton* close = new QPushButton(q_(cluster::simple_word("close", lang)), &dialog);
+            foot->addWidget(full);
+            foot->addStretch(1);
+            foot->addWidget(close);
+            layout->addLayout(foot);
+            QObject::connect(close, &QPushButton::clicked, &dialog, &QDialog::reject);
+            QObject::connect(full, &QPushButton::clicked, [this, &dialog]() {
+                dialog.reject();
+                this->run({"stats", "", "", "", false}, "");
+            });
+            dialog.exec();
+        }
+
+        void simpleNewTask(void)
+        {
+            // what to do, in which project (the projects of this computer suggested), how smart: a new helper on it
+            const std::string lang = cluster::simple_lang(this->manager);
+            QDialog dialog(this);
+            dialog.setWindowTitle(q_(cluster::simple_word("nt_title", lang)));
+            dialog.resize(520, 420);
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+            layout->addWidget(new QLabel("<b>" + esc_(cluster::simple_word("nt_what", lang)) + "</b>", &dialog));
+            QPlainTextEdit* what = new QPlainTextEdit(&dialog);
+            what->setPlaceholderText(q_(cluster::simple_word("nt_hint", lang)));
+            layout->addWidget(what, 1);
+            layout->addWidget(new QLabel(span_(this->theme().muted, esc_(cluster::simple_word("nt_skills", lang))), &dialog));
+            layout->addWidget(new QLabel("<b>" + esc_(cluster::simple_word("nt_where", lang)) + "</b>", &dialog));
+            QLineEdit* where = new QLineEdit(&dialog);
+            where->setPlaceholderText("~/projects/app");
+            QStringList paths;
+            for (const cluster::Project& p: cluster::projects(""))
+                paths << q_(cluster::short_path(p.path));
+            QCompleter* completer = new QCompleter(paths, where);
+            completer->setFilterMode(Qt::MatchContains);
+            completer->setCaseSensitivity(Qt::CaseInsensitive);
+            where->setCompleter(completer);
+            layout->addWidget(where);
+            layout->addWidget(new QLabel("<b>" + esc_(cluster::simple_word("set_smart", lang)) + "</b>", &dialog));
+            std::string effort;
+            layout->addWidget(this->simpleSeg(&dialog, {{"low", cluster::simple_word("smart_fast", lang)}, {"", cluster::simple_word("smart_balanced", lang)},
+                {"high", cluster::simple_word("smart_best", lang)}}, "", [&effort](const std::string& v) {effort = v;}));
+            QHBoxLayout* foot = new QHBoxLayout();
+            foot->addStretch(1);
+            QPushButton* cancel = new QPushButton(q_(cluster::simple_word("cancel", lang)), &dialog);
+            QPushButton* create = new QPushButton(q_(cluster::simple_word("nt_create", lang)), &dialog);
+            create->setObjectName("primary");
+            foot->addWidget(cancel);
+            foot->addWidget(create);
+            layout->addLayout(foot);
+            QObject::connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+            QObject::connect(create, &QPushButton::clicked, [&]() {
+                if (what->toPlainText().trimmed().isEmpty()) what->setFocus();
+                else if (where->text().trimmed().isEmpty()) where->setFocus();
+                else dialog.accept();
+            });
+            what->setFocus();
+            if (dialog.exec() != QDialog::Accepted) return;
+            const std::string text = cluster::trim(what->toPlainText().toStdString());
+            std::string cwd = cluster::trim(where->text().toStdString());
+            if (cwd.starts_with("~/")) cwd = (QDir::homePath().toStdString() + cwd.substr(1));
+            std::string name;
+            for (const std::string& word: cluster::split(text, ' ')) {
+                if (word.empty()) continue;
+                name += (name.empty() ? "" : "-") + cluster::lower(word);
+                if (std::count(name.begin(), name.end(), '-') >= 2) break;
+            }
+            std::erase_if(name, [](char c) {return !std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_' && c != '.';});
+            name = name.substr(0, 32);
+            if (name.empty()) name = "task";
+            this->worker.push([this, text, cwd, name, effort, lang]() {
+                std::string error;
+                try {
+                    cluster::SpawnRequest request;
+                    request.cwd = cwd;
+                    request.name = name;
+                    request.prompt = text;
+                    request.effort = effort;
+                    (void)this->manager.spawn(request);
+                } catch (const utils::exception::IException& e) {
+                    error = e.info();
+                }
+                QMetaObject::invokeMethod(this, [this, error, name, lang]() {
+                    this->message(error.empty() ? cluster::simple_fill(cluster::simple_word("created", lang), {{"name", name}}) : error, !error.empty());
+                    this->refresh(true);
+                }, Qt::QueuedConnection);
+            });
+        }
+
         void rebuild(void)
         {
             // Central widget for the current layout and set of sessions
             const std::vector<cluster::Snapshot> sessions = this->manager.shown();
-            const std::string layout = this->manager.ui("layout", this->manager.config().layout);
-            std::string sig = layout;
+            const bool simple = cluster::simple_on(this->manager);
+            const std::string layout = simple ? std::string("simple") : this->manager.ui("layout", this->manager.config().layout);
+            std::string sig = layout + "|" + cluster::simple_lang(this->manager);
             for (const cluster::Snapshot& s: sessions)
                 sig += "|" + s.spec.id;
             if (sig == this->signature) return;
@@ -3300,6 +3998,10 @@ class Window: public QMainWindow {
             this->hubNote = nullptr;
             this->folders = nullptr;
             this->gridArea = nullptr;
+            this->simpleHome = nullptr;
+            this->simpleSide = nullptr;
+            this->simpleSideName = nullptr;
+            this->simpleKey.clear();
             if (this->active != TASKS_ID && std::none_of(sessions.begin(), sessions.end(), [&](const cluster::Snapshot& s) {return s.spec.id == this->active;})
                 && !sessions.empty()) // the Tasks session kept (not a session: it is never in the list)
                 this->active = sessions.front().spec.id;
@@ -3328,11 +4030,13 @@ class Window: public QMainWindow {
             QObject::connect(this->webLabel, &QLabel::linkActivated, this, [this](const QString& link) {this->webLink(link);});
             QFrame* segs = new QFrame(topbar);
             segs->setObjectName("segs");
+            segs->setVisible(!simple); // the simple mode: no layouts
             QHBoxLayout* segRow = new QHBoxLayout(segs);
             segRow->setContentsMargins(3, 3, 3, 3);
             segRow->setSpacing(2);
             top->addWidget(segs);
-            for (const auto &[name, label]: std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"}, {"graph", "Graph"}, {"hub", "Hub"}, {"tree", "Tree"}}) {
+            for (const auto &[name, label]: simple ? std::vector<std::pair<std::string, std::string>>{} : std::vector<std::pair<std::string, std::string>>{{"list", "List"}, {"grid", "Grid"},
+                {"graph", "Graph"}, {"hub", "Hub"}, {"tree", "Tree"}}) {
                 QPushButton* seg = new QPushButton(q_(label), segs);
                 seg->setObjectName("seg");
                 seg->setCheckable(true);
@@ -3346,7 +4050,12 @@ class Window: public QMainWindow {
                 segRow->addWidget(seg);
             }
             top->addStretch(1);
-            for (const auto &[label, action]: std::vector<std::pair<std::string, std::string>>{{"Tasks", "tasks"}, {"Palette", "palette"}, {"Devices", "devices"}, {"Settings", "settings"}, {"Docs", "docs"}}) {
+            const std::string lang = cluster::simple_lang(this->manager);
+            // the simple mode: its stats, the docs, its settings only
+            const std::vector<std::pair<std::string, std::string>> topActions = simple ? std::vector<std::pair<std::string, std::string>>{{cluster::simple_word("stats", lang), "s_stats"},
+                {"?", "docs"}, {cluster::simple_word("settings", lang), "s_settings"}} : std::vector<std::pair<std::string, std::string>>{{"Tasks", "tasks"}, {"Palette", "palette"},
+                {"Devices", "devices"}, {"Settings", "settings"}, {"Docs", "docs"}};
+            for (const auto &[label, action]: topActions) {
                 if (action == "devices" && !cluster::web_status(this->manager)) continue;
                 if (action == "docs" && !cluster::docs_built()) continue;
                 QPushButton* button = new QPushButton(q_(label), topbar);
@@ -3354,6 +4063,8 @@ class Window: public QMainWindow {
                 const std::string name = action;
                 QObject::connect(button, &QPushButton::clicked, [this, name]() {
                     if (name == "tasks") this->showTasks();
+                    else if (name == "s_stats") this->simpleStats();
+                    else if (name == "s_settings") this->simpleSettings();
                     else if (name == "devices") this->webDevices();
                     else if (name == "settings") this->settings();
                     else if (name == "docs") this->openDocs("");
@@ -3369,7 +4080,49 @@ class Window: public QMainWindow {
             inner->setSpacing(8);
             root->addWidget(body, 1);
             root = inner;
-            if (layout == "grid" && !sessions.empty()) {
+            if (simple) {
+                // the home (its cards) on the left, the session opened on the right (‹ back to the home)
+                QSplitter* splitter = new QSplitter(central);
+                this->simpleHome = new QScrollArea(splitter);
+                this->simpleHome->setFrameShape(QFrame::NoFrame);
+                this->simpleHome->setWidgetResizable(true);
+                this->simpleHome->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                this->simpleHome->viewport()->installEventFilter(this); // resized: its columns of cards again
+                this->simpleSide = new QWidget(splitter);
+                QVBoxLayout* sideLayout = new QVBoxLayout(this->simpleSide);
+                sideLayout->setContentsMargins(0, 0, 0, 0);
+                QHBoxLayout* sideHead = new QHBoxLayout();
+                QPushButton* back = new QPushButton("‹", this->simpleSide);
+                back->setToolTip(q_(cluster::simple_word("back", lang)) + " (Esc)");
+                back->setCursor(Qt::PointingHandCursor);
+                QObject::connect(back, &QPushButton::clicked, [this]() {this->simpleClose();});
+                this->simpleSideName = new QLabel(this->simpleSide);
+                this->simpleSideName->setStyleSheet("font-weight:600;font-size:12pt;");
+                QPushButton* stop = new QPushButton(q_(cluster::simple_word("stop", lang)), this->simpleSide);
+                stop->setCursor(Qt::PointingHandCursor);
+                QObject::connect(stop, &QPushButton::clicked, [this, lang]() {
+                    if (QMessageBox::question(this, q_(cluster::simple_word("stop_ask", lang)), q_(cluster::simple_word("stop_why", lang))) != QMessageBox::Yes) return;
+                    try {
+                        this->manager.interrupt(this->active);
+                    } catch (const utils::exception::IException& e) {
+                        this->message(e.info(), true);
+                    }
+                });
+                sideHead->addWidget(back);
+                sideHead->addWidget(this->simpleSideName, 1);
+                sideHead->addWidget(stop);
+                sideLayout->addLayout(sideHead);
+                SessionView* view = new SessionView(this, "", false);
+                view->plain = true;
+                this->views[""] = view;
+                sideLayout->addWidget(view, 1);
+                this->simpleSide->setVisible(this->simplePanel);
+                splitter->setStretchFactor(0, 1);
+                splitter->setStretchFactor(1, 1);
+                root->addWidget(splitter, 1);
+                QShortcut* home = new QShortcut(QKeySequence(Qt::Key_Escape), this->simpleSide, nullptr, nullptr, Qt::WidgetWithChildrenShortcut);
+                QObject::connect(home, &QShortcut::activated, [this]() {this->simpleClose();});
+            } else if (layout == "grid" && !sessions.empty()) {
                 // the sessions, then the Tasks as a cell; as many columns as fit (a cell never narrower than GRID_CELL), the rows that do not fit scroll
                 this->gridArea = new QScrollArea(central);
                 this->gridArea->setFrameShape(QFrame::NoFrame);
@@ -3513,7 +4266,8 @@ class Window: public QMainWindow {
             QHBoxLayout* bar = new QHBoxLayout();
             this->input = new PromptEdit(this, central);
             QObject::connect(this->input, &QPlainTextEdit::textChanged, this, [this]() {if (this->target) this->modeTarget();}); // its mode (! / :) shown
-            this->input->setPlaceholderText("Prompt (Enter to send, Shift / Alt+Enter new line) · @ file · / command · ! shell · : command · Ctrl+K palette · F1 keys");
+            this->input->setPlaceholderText(simple ? q_(cluster::simple_word(this->active == GLOBAL_ID ? "prompt_hint" : "tell_it", lang) + "   (" + cluster::simple_word("prompt_modes", lang) + ")")
+                : QString("Prompt (Enter to send, Shift / Alt+Enter new line) · @ file · / command · ! shell · : command · Ctrl+K palette · F1 keys"));
             this->input->chipsBar = new QWidget(central);
             new QHBoxLayout(this->input->chipsBar);
             this->input->chipsBar->layout()->setContentsMargins(0, 0, 0, 0);
@@ -3541,7 +4295,7 @@ class Window: public QMainWindow {
             this->input->popup->setFocusPolicy(Qt::NoFocus);
             this->input->popup->setVisible(false);
             this->target = new QLabel(central);
-            QPushButton* sendButton = new QPushButton("Send", central);
+            QPushButton* sendButton = new QPushButton(simple ? q_(cluster::simple_word("send", lang)) : QString("Send"), central);
             sendButton->setObjectName("primary");
             sendButton->setCursor(Qt::PointingHandCursor);
             QObject::connect(sendButton, &QPushButton::clicked, [this]() {this->send();});
@@ -3603,6 +4357,7 @@ class Window: public QMainWindow {
             this->lastVersion = version;
             const std::vector<cluster::Snapshot> sessions = this->manager.shown();
             const cluster::Style& st = this->theme();
+            if (this->simpleHome != nullptr) this->refreshSimple();
 
             if (this->folders != nullptr) {
                 // the tree: a folder, its sessions (their state, labels and what they do), kept open as it was
@@ -3623,11 +4378,11 @@ class Window: public QMainWindow {
                         for (const std::string& tag: s->spec.tags)
                             labels += (labels.empty() ? "#" : " #") + tag;
                         QTreeWidgetItem* row = new QTreeWidgetItem(top, {q_(s->spec.global ? "global" : s->spec.name), q_(!s->permissions.empty() ? "waiting for you"
-                            : cluster::state_name(s->state)), q_(labels), q_(cluster::one_line(s->spec.summary, 80))});
+                            : cluster::background_busy(*s) ? "~_~ background" : cluster::state_name(s->state)), q_(labels), q_(cluster::one_line(s->spec.summary, 80))});
                         row->setData(0, Qt::UserRole, q_(s->spec.id));
                         if (chosen == q_(s->spec.id)) this->folders->setCurrentItem(row);
                         row->setForeground(1, QColor(q_(!s->permissions.empty() ? st.warn : s->state == cluster::State::Working ? st.ok : s->state == cluster::State::Error
-                            ? st.error : st.muted)));
+                            ? st.error : cluster::background_busy(*s) ? busy_color_(st) : st.muted)));
                     }
                     top->setExpanded(!closed.contains(q_(folder)));
                     if (chosen == "folder:" + q_(folder)) this->folders->setCurrentItem(top);
@@ -5618,11 +6373,13 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         this->branchAt = cluster::now();
     }
     const std::string model = s.modelUsed.empty() ? s.spec.backend : s.spec.backend.substr(0, s.spec.backend.find('/')) + "/" + s.modelUsed;
-    const std::string tone = s.state == cluster::State::Error ? st.error : s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting ? st.warn : st.muted;
+    const bool busy = cluster::background_busy(s); // its turn over, its background still running: purple, said
+    const std::string tone = s.state == cluster::State::Error ? st.error : s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting ? st.warn
+        : busy ? busy_color_(st) : st.muted;
     const std::function<QString(const std::string&, const std::string&)> chip = [&st](const std::string& color, const std::string& text) {
         return pill_(text, color, mix_(st.surface, color, 0.2));
     };
-    QString head = "<span style=\"font-size:11.5pt\"><b>" + esc_(s.spec.name) + "</b></span>&nbsp;&nbsp;" + chip(tone, cluster::state_name(s.state)) + "&nbsp; "
+    QString head = "<span style=\"font-size:11.5pt\"><b>" + esc_(s.spec.name) + "</b></span>&nbsp;&nbsp;" + chip(tone, busy ? std::string("~_~ background") : std::string(cluster::state_name(s.state))) + "&nbsp; "
         + chip(st.accent, model) + "&nbsp; " + chip(manager.authKind(s.spec.backend) == "api" ? st.warn : st.ok, manager.authKind(s.spec.backend))
         + "&nbsp; " + chip(st.muted, cluster::effort_label(s.spec.effort, manager.config().effort, s.spec.backend, s.modelUsed)) + "&nbsp; " + chip(st.muted, "mode " + s.spec.mode)
         + (compact ? QString() : "&nbsp;&nbsp;<a href=\"cluster-folder:\" style=\"color:" + q_(st.muted) + ";text-decoration:none;font-family:monospace;font-size:9pt\">"
@@ -5946,7 +6703,8 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             p += "<div>" + esc_(cluster::one_line(cluster::short_path(file), 38)) + "</div>";
     }
     this->panels->setText(p);
-    this->panels->setVisible(!p.isEmpty());
+    this->panels->setVisible(!p.isEmpty() && !this->plain);
+    if (this->plain) this->header->setVisible(false);
 }
 
 } // namespace

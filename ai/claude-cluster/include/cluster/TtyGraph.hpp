@@ -47,10 +47,11 @@ struct GraphColors {
     ftxui::Color ok;
     ftxui::Color warn;
     ftxui::Color error;
+    ftxui::Color busy = ftxui::Color::Default;  // a session waiting on its background (its shells, tasks, agents): purple
 };
 
 enum class GraphKind {Global, Session, Label};   // Label: a category / tag of the taxonomy
-enum class GraphTone {Idle, Working, Waiting, Error};   // the colours of the sessions (muted, ok, warn, error)
+enum class GraphTone {Idle, Working, Waiting, Error, Busy};   // the colours of the sessions (muted, ok, warn, error, busy: its background runs)
 
 // One node: what the core tells of a session (the model of the web hub: the parent links make the tree)
 struct GraphNode {

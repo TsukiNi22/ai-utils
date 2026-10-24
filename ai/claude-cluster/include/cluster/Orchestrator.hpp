@@ -134,6 +134,9 @@ class Orchestrator {
         std::vector<std::function<void(void)>> _outbox;
         std::string _active;            // the session shown (read each second, outside the lock)
         std::vector<std::pair<std::string, int>> _agents;   // the agent process of every session (the same)
+        std::vector<cluster::Json> _guardKills;     // the memory guard: what it killed (the last 20)
+        std::int64_t _lastGuard = 0;                // its last kill (ms): one every 3 s, the memory freed meanwhile
+        std::int64_t _guardIdleTold = 0;            // memory short, nothing of claude-cluster big: told once a minute
 
         // ---------- Pre-Function -------- //
         _cold void loop_(void);
@@ -142,8 +145,10 @@ class Orchestrator {
         _cold void schedule_(void);                 // the next jobs started (the lock held)
         _cold void pressure_(const cluster::OrchConf& c);   // the level and what it asks of the running jobs (the lock held)
         _cold void processes_(const cluster::OrchConf& c);  // the table of /proc: rss of the jobs, heavy commands outside the queue
+        _cold void guard_(const cluster::OrchConf& c);      // the memory guard: under the memory kept free, the biggest killed and told (the lock held)
         _cold _nodiscard int level_(const cluster::OrchConf& c, const double scale) const;
         _cold _nodiscard int slots_(const cluster::OrchConf& c) const;      // the heavy jobs that may run now (auto, or max_jobs)
+        _cold _nodiscard long guardFloor_(const cluster::OrchConf& c) const;  // the memory kept free (MB)
         _cold _nodiscard int classLimit_(const cluster::OrchConf& c, const std::string& cls) const;
         _cold _nodiscard int ram_(const cluster::OrchConf& c, const cluster::Job& job) const;
         _cold _nodiscard int grantThreads_(const cluster::OrchConf& c, const std::string& cls, const int active) const;

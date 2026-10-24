@@ -58,6 +58,8 @@ struct SimpleCard {
     int total = 0;
     std::string tag;                // its category (else its first tag)
     std::int64_t since = 0;         // its last change (unix seconds): "12 min ago" of a finished one
+    int agents = 0;                 // its sub-agents running, since (ms) the oldest of them started
+    std::int64_t agentsSince = 0;
     bool global = false;
 };
 

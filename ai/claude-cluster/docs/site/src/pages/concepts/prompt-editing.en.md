@@ -11,11 +11,15 @@ keywords = "prompt editing esc rewind take back stash history vim line editor ke
 One rule, chosen by what is going on (`[keys] take_back`):
 
 - A **queued** prompt goes back to the editor, removed from the queue.
-- A turn **running** (or waiting on a permission): it is interrupted and only that prompt is taken back: it leaves the conversation (claude goes on from the message before it) and its text returns to the editor to be edited and sent again (`prompt taken back`).
+- A turn **running** (or waiting on a permission): `Esc` `Esc` (the first `Esc` says so) interrupts it and only that prompt is taken back - never `↑`, which takes back only a queued prompt: it leaves the conversation (claude goes on from the message before it) and its text returns to the editor to be edited and sent again (`prompt taken back`).
 - **Nothing running, empty prompt**: the **rewind chooser** lists the prompts of the conversation, newest first, each with its time, first line and the size of its answer; `↑` / `↓` choose, Enter goes back to just before it (the prompt returns to the editor, later messages leave the conversation the agent resumes from), the `Cancel` row or Esc changes nothing. A line shows what will be dropped. `/rewind` opens it too. Never while a turn runs.
 - **Nothing running, a prompt being written**: `Esc` `Esc` clears it.
 
 What a rewind removed is kept in `rewind/<session>-<time>.json` of the data folder (claude's own transcript is never touched, so the old conversation can be resumed at its old leaf); with `[ui] stash_rewound = true` the dropped prompts also go to the stash.
+
+## Commands and skills of the same name {#same-name}
+
+The completion of `/` lists every command and skill with its source (`local`, `built-in`, a plugin, an imported link). When two have the same name - claude-cluster's `/context` and the agent's, your skill `export` and claude-cluster's `/export` - both are listed, and the one you choose keeps a hidden id after its name: invisible tag characters that the cursor and Backspace treat as one block with the last letter. The core then runs claude-cluster's command or sends the agent's command / the skill to the agent; the id is removed before anything reaches the agent or the transcript. A `/name` typed by hand stays claude-cluster's command.
 
 ## The stash {#stash}
 

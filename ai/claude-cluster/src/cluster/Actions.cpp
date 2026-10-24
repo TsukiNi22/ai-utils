@@ -685,7 +685,7 @@ _cold std::vector<cluster::SlashEntry> cluster::slash_entries(cluster::Manager& 
 {
     std::vector<cluster::SlashEntry> entries;
     for (const auto &[name, description]: cluster::slash_commands())
-        entries.push_back({name, "local", description, true});
+        entries.push_back({name, "local", description, true, "c"});
     const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
     if (!snap) return entries;
     const std::map<std::string, std::string> imported = cluster::plugin_skill_sources();
@@ -696,18 +696,28 @@ _cold std::vector<cluster::SlashEntry> cluster::slash_entries(cluster::Manager& 
     for (const std::string& skill: snap->skillsAvailable) {
         const std::size_t colon = skill.find(':');
         const std::string text = help(skill).empty() ? "skill" : help(skill);
-        if (colon != std::string::npos) entries.push_back({skill, skill.substr(0, colon), text, false});         // a plugin: "<plugin>:<skill>" (Claude Code)
-        else if (imported.contains(skill)) entries.push_back({imported.at(skill) + ":" + skill, imported.at(skill), text, false}); // an imported link
-        else entries.push_back({skill, "local", text, false});
+        if (colon != std::string::npos) entries.push_back({skill, skill.substr(0, colon), text, false, "p"});         // a plugin: "<plugin>:<skill>" (Claude Code)
+        else if (imported.contains(skill)) entries.push_back({imported.at(skill) + ":" + skill, imported.at(skill), text, false, "l"}); // an imported link
+        else entries.push_back({skill, "local", text, false, "s"});
     }
     for (const std::string& command: snap->slashCommands) {
         if (skills.contains(command)) continue;
         const std::size_t colon = command.find(':');
         const std::string text = help(command).empty() ? "command of the agent" : help(command);
-        if (colon != std::string::npos) entries.push_back({command, command.substr(0, colon), text, false});
-        else if (imported.contains(command)) entries.push_back({imported.at(command) + ":" + command, imported.at(command), text, false});
-        else entries.push_back({command, "built-in", text, false});
+        if (colon != std::string::npos) entries.push_back({command, command.substr(0, colon), text, false, "p"});
+        else if (imported.contains(command)) entries.push_back({imported.at(command) + ":" + command, imported.at(command), text, false, "l"});
+        else entries.push_back({command, "built-in", text, false, "a"});
     }
+    // the same name more than once (a command of claude-cluster and the agent's own, a skill of the same name...): each one its id
+    std::map<std::string, int> names;
+    std::map<std::string, int> kinds;
+    for (cluster::SlashEntry& entry: entries) {
+        ++names[entry.name];
+        const int n = ++kinds[entry.name + "\n" + entry.id];
+        if (n > 1) entry.id += std::to_string(n);
+    }
+    for (cluster::SlashEntry& entry: entries)
+        entry.shared = names[entry.name] > 1;
     return entries;
 }
 
@@ -749,7 +759,7 @@ _cold std::vector<cluster::PromptMark> cluster::prompt_marks(const std::string& 
         if (text[at] == '@') marks.push_back({at, end, cluster::MarkKind::File});
         else if (text.compare(at, 2, "::") == 0) marks.push_back({at, end, cluster::MarkKind::Session});
         else if (text[at] == '/' && end - at > 1) {
-            const std::string word = text.substr(at + 1, end - at - 1);
+            const std::string word = cluster::slash_untag(text.substr(at + 1, end - at - 1)); // its hidden id (several of that name) left out
             if (known.contains(word)) marks.push_back({at, end, cluster::MarkKind::Slash});
             else if (at == first && word.find('/') == std::string::npos) marks.push_back({at, end, cluster::MarkKind::Unknown});
         }
@@ -875,11 +885,15 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                 break;
             case cluster::CompletionKind::Command:
             case cluster::CompletionKind::Skill:
+                // several of the same name: each one listed, its id written after the name (hidden: the core knows which one)
                 for (const cluster::SlashEntry& entry: cluster::slash_entries(manager, session())) {
                     if (entry.command && kind != cluster::CompletionKind::Command) continue;
-                    const std::size_t before = items.size();
-                    add(entry.name, entry.description);
-                    if (items.size() > before) items.back().source = entry.source;
+                    const std::optional<float> score = cluster::match_score(wanted, entry.name);
+                    if (!score) continue;
+                    const std::string value = entry.shared ? entry.name + cluster::slash_tag(entry.id) : entry.name;
+                    if (std::any_of(items.begin(), items.end(), [&](const cluster::Candidate& c) {return c.value == value;})) continue;
+                    items.push_back({value, entry.name, entry.description, false, entry.source});
+                    scores.push_back(*score);
                 }
                 break;
             default: break;
@@ -1208,9 +1222,13 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
     return result;
 }
 
-_cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& manager, const std::string& session, const std::string& line)
+_cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& manager, const std::string& session, const std::string& tagged)
 {
-    // a local command run here: its popup while it takes time, its failure (OK / Retry); else sent as the prompt
+    // a local command run here: its popup while it takes time, its failure (OK / Retry); else sent as the prompt. The /word picked in
+    // the completion among several of the same name (its hidden id): the agent's own one or a skill never run here
+    std::string pick;
+    const std::string line = cluster::slash_untag(tagged, &pick);
+    if (!pick.empty() && !pick.starts_with("c")) return std::nullopt;
     if (manager.replica() || !(line.starts_with("/") || line.starts_with("!") || (line.starts_with(":") && !line.starts_with("::")))) return run_slash_(manager, session, line);
     cluster::Busy busy(manager, cluster::one_line(line, 70), session);
     const std::optional<cluster::ActionResult> result = run_slash_(manager, session, line);

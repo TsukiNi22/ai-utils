@@ -61,6 +61,8 @@ _nodiscard std::vector<std::string> split(const std::string& text, const char se
 _nodiscard std::string trim(const std::string& text);
 _nodiscard std::string lower(std::string text);
 _nodiscard std::string one_line(const std::string& text, const std::size_t max);
+_nodiscard std::string slash_tag(const std::string& id);    // an id written in invisible tag characters (U+E0020-E007E, U+E007F at its end)
+_nodiscard std::string slash_untag(const std::string& text, std::string* first = nullptr); // without them; first: the id after the first /word
 _nodiscard std::string language_of(const std::string& text);      // "fr" | "en" | "es" | "it" | "de" | "pt" | "nl"
 _nodiscard std::string summary_of(const std::string& text, const std::size_t max);
 _nodiscard std::string clean_label(const std::string& text);                    // a category / a tag: lower case, one word (- and _ kept), 24 characters at most

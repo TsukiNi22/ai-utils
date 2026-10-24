@@ -192,7 +192,9 @@ _cold static cluster::Json processes_info_(cluster::Manager& manager, const clus
     std::vector<std::string> parts = cluster::split(CLUSTER_VERSION, '.');
     if (parts.size() == 3) parts[2] = std::to_string(std::max(0, std::atoi(parts[2].c_str()) - 3));
     const std::string since = parts.size() == 3 ? parts[0] + "." + parts[1] + "." + parts[2] : std::string(CLUSTER_VERSION);
+    const cluster::Json jobs = manager.jobsState();
     return {{"version", CLUSTER_VERSION}, {"build", cluster::build_id()}, {"pid", ::getpid()}, {"since", manager.startedAt()}, {"total_kb", total},
+        {"guard", jobs.is_object() ? jobs.value("guard", cluster::Json::object()) : cluster::Json::object()},
         {"core_kb", core.value("rss_kb", std::int64_t{0})}, {"interfaces", interfaces}, {"sessions", sessions}, {"tokens", tokens},
         {"notes", cluster::release_notes(since)}};
 }
@@ -528,6 +530,18 @@ _cold std::vector<cluster::ServiceLine> cluster::service_lines(const std::string
             + ", up " + duration_(up) + ", build " + s.value("build", std::string()) + ")", s.value("version", std::string()) == CLUSTER_VERSION ? "text" : "warn"});
         out.push_back({"memory " + std::to_string(s.value("total_kb", std::int64_t{0}) / 1024) + " MB in all: the core " + std::to_string(s.value("core_kb", std::int64_t{0}) / 1024)
             + " MB", "text"});
+        // the computer: what is left, the memory guard (what it keeps free, what it killed)
+        const cluster::Json guard = s.value("guard", cluster::Json::object());
+        if (guard.value("total_mb", 0L) > 0) {
+            const long free = guard.value("free_mb", 0L);
+            const long floor = guard.value("floor_mb", 0L);
+            out.push_back({"the computer: " + std::to_string(free) + " MB free of " + std::to_string(guard.value("total_mb", 0L)) + " MB · memory guard "
+                + (guard.value("on", false) ? "on: keeps " + std::to_string(floor) + " MB free (kills the biggest command of a session under it, never the core)"
+                : std::string("off (Orchestrator > Memory guard)")), guard.value("on", false) && free < floor ? "error" : free < 2 * floor ? "warn" : "text"});
+        }
+        for (const cluster::Json& k: guard.value("kills", cluster::Json::array()))
+            out.push_back({"  killed by the guard: " + k.value("command", std::string()) + " of " + k.value("name", std::string()) + " (" + std::to_string(k.value("mb", 0L))
+                + " MB, " + std::to_string(k.value("free_mb", 0L)) + " MB were free) " + duration_(cluster::now() - k.value("at", cluster::now())) + " ago", "warn"});
         for (const cluster::Json& i: s.value("interfaces", cluster::Json::array()))
             out.push_back({"  " + i.value("kind", std::string()) + " " + std::to_string(i.value("pid", 0)) + ": " + std::to_string(i.value("rss_kb", std::int64_t{0}) / 1024) + " MB", "muted"});
         for (const cluster::Json& session: s.value("sessions", cluster::Json::array())) {

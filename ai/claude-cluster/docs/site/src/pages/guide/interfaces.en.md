@@ -37,6 +37,10 @@ By default only private addresses of the subnets of your computer are served, an
 
 Any phone browser works. On Android the page offers an **app** (`/app.apk`): the same page in a thin shell that trusts your computer once, shows the notifications of the desktop, and can use the microphone. See [Notifications and the phone app](page:notifications-apk). iPhone: the browser page, with the certificate steps shown on the login page.
 
+## Simple mode {#simple}
+
+`claude-cluster --simple` (or `--ipad-kid`) opens a calmer interface in every front end, in English or French (`[ui] language`); `[ui] mode = "simple"` keeps it. The home shows what needs you first (questions and permissions answered there), then one card per helper (session) with what it does in plain words, its state and its time; a card opens its conversation with the same prompt as usual (`/`, `::`, `@`). A *New task* tile asks the assistant, which decides how to split the work. Its settings have six pages: *General* (language, look, notifications, back to the classic interface), *Account & provider*, *Assistant* (how it splits the work, how smart, what to ask first, helpers at once), *Phone* (the web access and its QR code), *Shortcuts*, *About* (version, docs, all settings). `F10` opens the statistics.
+
 ## Headless {#headless}
 
 `claude-cluster serve` runs the core without any interface. Everything is then driven by the headless commands (`list`, `send`, `spawn`, `allow`, `task`, `schedule`, `web`... with `--rtk` for a compact output made for an AI, `--json` raw) and by the MCP server. See the [protocol](page:protocol).

@@ -117,6 +117,45 @@ std::string cluster::lower(std::string text)
     return text;
 }
 
+std::string cluster::slash_tag(const std::string& id)
+{
+    // the id of the /entry picked among several of the same name, kept in the prompt for the core only: tag characters (one grapheme
+    // with the letter before them: never shown, the cursor and a deletion take them with it), each one an ASCII character of the id
+    std::string tag;
+    const std::function<void(const unsigned)> put = [&tag](const unsigned code) {
+        tag += static_cast<char>(0xF0 | (code >> 18));
+        tag += static_cast<char>(0x80 | ((code >> 12) & 0x3F));
+        tag += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+        tag += static_cast<char>(0x80 | (code & 0x3F));
+    };
+    for (const char c: id)
+        if (c > 0x20 && c < 0x7F) put(0xE0000U + static_cast<unsigned>(c));
+    put(0xE007FU);
+    return tag;
+}
+
+std::string cluster::slash_untag(const std::string& text, std::string* first)
+{
+    // every tag character dropped (U+E0000-E007F: F3 A0 80|81 xx); first: the id that follows the /word at the start of the prompt
+    std::string out;
+    std::string id;
+    bool head = true;    // still in the first word
+    const bool opening = cluster::trim(text).starts_with("/");
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c == 0xF3 && i + 3 < text.size() && static_cast<unsigned char>(text[i + 1]) == 0xA0 && (static_cast<unsigned char>(text[i + 2]) & 0xFE) == 0x80) {
+            const unsigned code = ((static_cast<unsigned char>(text[i + 2]) & 0x3FU) << 6) | (static_cast<unsigned char>(text[i + 3]) & 0x3FU);
+            if (opening && head && code > 0x20 && code < 0x7F) id += static_cast<char>(code);
+            i += 3;
+            continue;
+        }
+        if (c == ' ' || c == '\n') head = out.find_first_not_of(" \n") == std::string::npos;
+        out += text[i];
+    }
+    if (first) *first = opening ? id : std::string();
+    return out;
+}
+
 std::string cluster::one_line(const std::string& text, const std::size_t max)
 {
     std::string line;

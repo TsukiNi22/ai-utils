@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# ↑↑ in the prompt on a prompt sent but not answered yet (sending, like Claude Code): its turn stopped and the prompt back in the
-# prompt to edit (nothing queued); one ↑ only tells it (never taken back by mistake); the text being written stashed first.
+# A prompt sent but not answered yet (sending): ↑↑ never takes it back (↑ is the history); Esc Esc does - its turn stopped and the
+# prompt back in the prompt to edit (nothing queued); one Esc only tells it (never taken back by mistake).
 # Usage: tests/queue_back.py [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster); needs python3-pyte
-"""Up arrow: a prompt not answered yet taken back."""
+"""Esc Esc (never ↑↑): a prompt not answered yet taken back."""
 import fcntl
 import json
 import os
@@ -106,19 +106,22 @@ try:
     term.send(b"\r", 2)
     state = next((s for s in ask({"cmd": "list"}).get("data", []) if s.get("name") == "worker"), {})
     check("sent: its turn runs, nothing answered", state.get("state") == "working", json.dumps({k: state.get(k) for k in ("queued", "state")}))
-    typed("DRAFT-TEXT")
-    term.send(b"\x1b[A", 0.4)  # Up once: told, nothing taken (a prompt already sent: two presses, never one by mistake)
+    term.send(b"\x1b[A", 0.6)  # ↑ ↑: never a prompt already given to the agent (only Esc Esc takes it back)
+    term.send(b"\x1b[A", 1.5)
+    state = next((s for s in ask({"cmd": "list"}).get("data", []) if s.get("name") == "worker"), {})
+    check("↑↑: the turn still runs (not taken back)", state.get("state") == "working", json.dumps({k: state.get(k) for k in ("queued", "state")}))
+    term.send(b"\x1b[B\x1b[B", 0.5)  # back to the empty prompt (the history left)
+    term.send(b"\x15", 0.3)          # Ctrl+U: emptied
+    term.send(b"\x1b", 0.6)          # Esc once: told, nothing taken (two presses, never one by mistake)
     once = term.text()
-    check("one ↑: told, nothing taken back yet", "↑ again" in once and "DRAFT-TEXT" in once[-700:], once[-500:])
-    term.send(b"\x1b[A", 3.5)  # Up again
+    check("one Esc: told, nothing taken back yet", "Esc again" in once, once[-500:])
+    term.send(b"\x1b", 3.5)          # Esc again
     shown = term.text()
-    check("Up: the prompt sent back in the prompt", "SENT-NOT-ANSWERED" in shown[-700:], shown[-700:])
+    check("Esc Esc: the prompt sent back in the prompt", "SENT-NOT-ANSWERED" in shown[-700:], shown[-700:])
     check("told so", "taken back" in shown, shown[-400:])
-    with open(f"{T}/fake.log", encoding="utf-8") as fake:  # the fake sleeps without reading: the interrupt asked is what is checked
+    with open(f"{T}/fake.log", encoding="utf-8") as fake:  # the interrupt asked is what is checked
         log = fake.read()
     check("its turn stopped (the interrupt sent to claude)", log.count("PROMPT") >= 2, log[-300:])
-    with open(f"{T}/data/stash.json", encoding="utf-8") as stash:
-        check("the text written is in the stash", "DRAFT-TEXT" in stash.read())
     check("the interface runs", term.alive())
 finally:
     if term:

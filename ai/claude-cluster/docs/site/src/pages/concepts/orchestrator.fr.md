@@ -40,6 +40,10 @@ Un travail ne démarre que si l'orchestrateur est actif, qu'il n'y a pas de bloc
 - **Pression** (charge, `MemAvailable`, swap, `/proc/pressure`) : au niveau *hold* rien de nouveau ne démarre ; au niveau *reduce* les travaux en cours sont ralentis (renice) et le plus récent de plus basse priorité est arrêté (SIGSTOP) jusqu'à la baisse de charge, puis repris avec hystérésis. Jamais tués sauf `kill_on_oom = true`.
 - **Détection automatique** : un groupe de processus hors file qui a consommé `detect_cpu_seconds` de CPU est listé et sa session est prévenue une fois d'utiliser `cluster-run`.
 
+## Garde mémoire {#memory-guard}
+
+`[orchestrator] memory_guard` (activé) surveille toutes les 5 s, sans aucun modèle, tout ce que les sessions font tourner - agents, leurs shells et commandes en arrière-plan, sous-agents, travaux lourds, la session globale aussi, jamais le cœur. Sous `guard_free_mb` de mémoire disponible (0 : 5 % de la RAM, au moins 500 Mo) il tue le plus gros d'entre eux, tout son arbre de processus, avant que le tueur de mémoire du système ne le fasse : d'abord une commande ou un travail (jamais sous `guard_min_mb`), un agent seulement quand rien d'autre n'est assez gros, la session globale en dernier. La session apprend ce qui a été tué, combien il utilisait et qu'elle peut le relancer avec moins de mémoire ; une notice et une notification le disent aussi. Réglages > About / Processes montre la mémoire de chaque session, la mémoire libre / totale, la garde et ses derniers arrêts.
+
 ## Matériel {#hardware}
 
 `hardware_scan` enregistre CPU, cœurs, RAM, swap, disque, GPU et alimentation dans `hardware.json`, au démarrage et à la demande. L'échantillon de pression est lu chaque seconde dans `/proc`.

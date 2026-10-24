@@ -40,7 +40,7 @@ An app older than the one the computer serves is blocked by a popup until update
 
 ## Reconnecting {#core}
 
-A popup *Reconnecting* means the core was lost (killed, crashed, restarting): it retries 1, 2, 4... 10 s apart, starts the core again when it is gone and resumes the sessions. **Retry now** (`r` / Enter) or **Quit** (`q`). If another version runs the core (installed again while it ran) a new interface asks whether to replace it.
+A popup *Reconnecting* means the core was lost (killed, crashed, restarting): it retries 1, 2, 4... 10 s apart, starts the core again when it is gone and resumes the sessions. **Retry now** (`r` / Enter) or **Quit** (`q`). If another version runs the core (installed again while it ran) a new interface asks whether to replace it. A crashed core is normally started again by its watcher (`[ui] restart_core`, on) before you see anything; turned off, an interface starts it when it notices.
 
 ## Where the logs are {#logs}
 

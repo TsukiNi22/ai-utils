@@ -169,7 +169,10 @@ class Manager {
         int _next = 1;
         int _nextTask = 1;
         std::atomic<std::uint64_t> _version{1};
-        mutable std::mutex _progressMutex;         // the long operation shown (its popup)
+        mutable std::mutex _versionMutex;          // version(): its sessions as last seen, the number given for them (only grows)
+        mutable std::uint64_t _versionSeen = 0;
+        mutable std::uint64_t _versionGiven = 0;
+        mutable std::mutex _progressMutex;        // the long operation shown (its popup)
         std::vector<cluster::Progress> _progresses; // the long operations (the oldest first), their results kept 1.5 s
         std::uint64_t _progressNext = 1;
         std::deque<std::pair<cluster::Failure, std::function<void(void)>>> _failures; // failed, their retry (under _progressMutex)

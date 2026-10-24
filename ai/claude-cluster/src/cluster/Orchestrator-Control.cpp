@@ -590,7 +590,9 @@ _cold cluster::Json cluster::Orchestrator::state(void) const
     }
     return {{"enabled", c.enabled}, {"profile", c.profile}, {"slots", this->slots_(c)}, {"running", running}, {"waiting", waiting}, {"stopped", stopped},
         {"level", this->_level}, {"pressure", this->_levelWhy}, {"host", cluster::host_json(this->_host)}, {"hardware", cluster::hardware_json(this->_hardware)},
-        {"classes", classes}, {"sessions", sessions}, {"jobs", jobs}, {"detected", this->_detected}, {"version", this->_version.load()}};
+        {"classes", classes}, {"sessions", sessions}, {"jobs", jobs}, {"detected", this->_detected}, {"version", this->_version.load()},
+        {"guard", {{"on", c.memoryGuard}, {"floor_mb", this->guardFloor_(c)}, {"free_mb", this->_host.memAvailMb}, {"total_mb", this->_host.memTotalMb},
+            {"min_mb", c.guardMinMb}, {"kills", this->_guardKills}}}};
 }
 
 /* a session gone */

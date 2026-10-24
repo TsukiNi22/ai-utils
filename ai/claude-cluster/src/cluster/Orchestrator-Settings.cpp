@@ -99,6 +99,11 @@ _cold cluster::SettingsPage cluster::orchestrator_settings_page(void)
             [name](const cluster::Config& cf) {return std::to_string(name == "cpu" ? cf.orch.psiCpuReduce : name == "mem" ? cf.orch.psiMemReduce : cf.orch.psiIoReduce);}});
     }
     s.push_back(count_("resume_after", "Resume after (seconds)", "calm for so long before the stopped jobs resume (hysteresis)", &cluster::OrchConf::resumeAfter));
+    s.push_back(flag_("memory_guard", "Memory guard", "every second, under the memory kept free, the biggest of what claude-cluster runs is killed - a command of a session "
+        "(its shells, background tasks, agents), a heavy job, at worst an agent grown abnormal; never the core - before the system kills anything itself; its session "
+        "is told what and why (run it again with less memory), with a notice and a notification", &cluster::OrchConf::memoryGuard));
+    s.push_back(count_("guard_free_mb", "Memory kept free (MB)", "the memory guard acts below it (0: 5 % of the RAM, at least 500 MB)", &cluster::OrchConf::guardFreeMb));
+    s.push_back(count_("guard_min_mb", "Smallest command killed (MB)", "a command using less is never the one the memory guard kills", &cluster::OrchConf::guardMinMb));
     s.push_back(flag_("kill_on_oom", "Kill on out-of-memory", "under the out-of-memory threshold the newest job is killed (never by default: the jobs are only slowed)", &cluster::OrchConf::killOnOom));
     s.push_back(flag_("sub_add", "Sub-sessions may add jobs (MCP)", "heavy_run, jobs_add for the sub-sessions: off by default, nothing asks the permission of their mode on this path (their shell cluster-run is not concerned)", &cluster::OrchConf::subAdd));
     s.push_back(flag_("sub_kill_own", "Sub-sessions may kill their jobs", "job_kill on their own jobs", &cluster::OrchConf::subKillOwn));

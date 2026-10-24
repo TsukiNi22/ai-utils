@@ -40,7 +40,7 @@ Une application plus ancienne que celle que sert l'ordinateur est bloquée par u
 
 ## Reconnexion {#core}
 
-Une fenêtre *Reconnecting* signifie que le cœur est perdu (tué, planté, en redémarrage) : elle réessaie à 1, 2, 4... 10 s d'écart, relance le cœur s'il a disparu et reprend les sessions. **Retry now** (`r` / Entrée) ou **Quit** (`q`). Si une autre version fait tourner le cœur (réinstallée pendant qu'il tournait), une nouvelle interface demande s'il faut le remplacer.
+Une fenêtre *Reconnecting* signifie que le cœur est perdu (tué, planté, en redémarrage) : elle réessaie à 1, 2, 4... 10 s d'écart, relance le cœur s'il a disparu et reprend les sessions. **Retry now** (`r` / Entrée) ou **Quit** (`q`). Si une autre version fait tourner le cœur (réinstallée pendant qu'il tournait), une nouvelle interface demande s'il faut le remplacer. Un cœur planté est normalement relancé par son surveillant (`[ui] restart_core`, activé) avant que vous ne voyiez quoi que ce soit ; désactivé, une interface le relance quand elle s'en aperçoit.
 
 ## Où sont les journaux {#logs}
 

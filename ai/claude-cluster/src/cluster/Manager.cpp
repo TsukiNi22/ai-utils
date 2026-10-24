@@ -280,8 +280,9 @@ std::string cluster::Manager::origin(const std::string& id) const
     return it == this->_origin.end() ? std::string("host") : it->second;
 }
 
-_cold void cluster::Manager::send(const std::string& id, const std::string& text, const bool force, const std::vector<std::string>& images, const std::string& origin)
+_cold void cluster::Manager::send(const std::string& id, const std::string& tagged, const bool force, const std::vector<std::string>& images, const std::string& origin)
 {
+    const std::string text = cluster::slash_untag(tagged); // the hidden ids of the /entries picked: for the interfaces only, never the agent
     if (this->_replica) {
         (void)this->call({{"cmd", "send"}, {"session", id}, {"text", text}, {"force", force}, {"images", images}, {"prompt_origin", origin}, {"raw", true}});
         return;
@@ -395,25 +396,25 @@ _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::Ses
 _cold void cluster::Manager::close(const std::string& id)
 {
     if (id == GLOBAL_ID) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the global session can't be closed (quit claude-cluster)");
+    // out of the lists at once, its agent stopped after (3 s at most, more when its background still holds its output): never a
+    // closed session still shown by the interfaces meanwhile
     const std::shared_ptr<cluster::Session> session = this->get_(id);
-    session->stop();
-    {
-        std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_followed.erase(id);
-        this->_oneShot.erase(id);
-    }
-    this->dropFor_(id, false, session->spec().name); // its tasks and schedules: cancelled (closed)
-    if (this->_orch) this->_orch->sessionGone(id, false); // its heavy jobs: removed (queued) or killed (running)
     cluster::SessionSpec spec = session->spec();
     spec.deleted = cluster::now();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_followed.erase(id);
+        this->_oneShot.erase(id);
         this->_sessions.erase(id);
         std::erase(this->_order, id);
         this->_trash.push_back(spec);
         for (cluster::Task& task: this->_tasks)
             if (task.session == id && task.status == "running") task.status = "failed";
     }
+    ++this->_version;
+    session->stop();
+    this->dropFor_(id, false, spec.name); // its tasks and schedules: cancelled (closed)
+    if (this->_orch) this->_orch->sessionGone(id, false); // its heavy jobs: removed (queued) or killed (running)
     this->notice_(id, spec.name + " closed (restorable " + std::to_string(this->_config.trashDays) + " days)");
     this->save();
 }
@@ -1747,11 +1748,22 @@ std::string cluster::Manager::resolve(const std::string& idOrName) const
 std::uint64_t cluster::Manager::version(void) const
 {
     if (this->_replica) return this->replicaVersion_() + this->_version;
-    std::uint64_t version = this->_version;
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    for (const auto &[id, session]: this->_sessions)
-        version += session->version();
-    return version;
+    // not their sum: a session replaced (a new conversation, a restart: its version from 1 again) or closed made it go down, back to
+    // a number an interface had already seen (its list never drawn again: a closed session still shown). What they are now (each
+    // one, its object, its version) folded; another fold: the next number, never given before (from the time: after a restart too)
+    std::uint64_t fold = 14695981039346656037ULL ^ this->_version;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        for (const auto &[id, session]: this->_sessions)
+            fold = (fold ^ (reinterpret_cast<std::uintptr_t>(session.get()) + session->version() * 2654435761ULL)) * 1099511628211ULL;
+    }
+    std::lock_guard<std::mutex> lock(this->_versionMutex);
+    if (this->_versionGiven == 0) this->_versionGiven = static_cast<std::uint64_t>(cluster::now_ms());
+    if (fold != this->_versionSeen) {
+        this->_versionSeen = fold;
+        ++this->_versionGiven;
+    }
+    return this->_versionGiven;
 }
 
 std::string cluster::Manager::ui(const std::string& key, const std::string& fallback) const

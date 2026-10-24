@@ -37,6 +37,10 @@ Par défaut seules les adresses privées des sous-réseaux de votre ordinateur s
 
 Tout navigateur de téléphone convient. Sur Android la page propose une **application** (`/app.apk`) : la même page dans une coque légère qui fait confiance à votre ordinateur une fois, affiche les notifications du bureau et peut utiliser le micro. Voir [Notifications et application téléphone](page:notifications-apk). iPhone : la page du navigateur, avec les étapes du certificat sur la page de connexion.
 
+## Mode simple {#simple}
+
+`claude-cluster --simple` (ou `--ipad-kid`) ouvre une interface plus calme dans chaque interface, en anglais ou en français (`[ui] language`) ; `[ui] mode = "simple"` la garde. L'accueil montre d'abord ce qui vous attend (questions et permissions, à répondre sur place), puis une carte par aide (session) avec ce qu'elle fait en mots simples, son état et son temps ; une carte ouvre sa conversation avec le prompt habituel (`/`, `::`, `@`). Une tuile *Nouvelle tâche* s'adresse à l'assistant, qui décide comment répartir le travail. Ses réglages ont six pages : *Général* (langue, apparence, notifications, retour à l'interface classique), *Compte & fournisseur*, *Assistant* (comment il répartit le travail, quelle intelligence, quoi demander avant, aides en même temps), *Téléphone* (l'accès web et son QR code), *Raccourcis*, *À propos* (version, documentation, tous les réglages). `F10` ouvre les statistiques.
+
 ## Sans interface {#headless}
 
 `claude-cluster serve` lance le cœur sans interface. Tout est alors piloté par les commandes headless (`list`, `send`, `spawn`, `allow`, `task`, `schedule`, `web`... avec `--rtk` pour une sortie compacte faite pour une IA, `--json` brut) et par le serveur MCP. Voir le [protocole](page:protocol).

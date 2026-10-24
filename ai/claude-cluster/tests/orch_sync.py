@@ -71,6 +71,10 @@ try:
     sync = ask({"cmd": "sync", "client": "t:1", "v": 0, "known": {}, "build": build})
     check("the sync of the interfaces answers while it is active", sync.get("ok") is True, json.dumps(sync)[:300])
 finally:
-    core.kill()
+    core.terminate() # the watcher stops its core (a SIGKILL would leave the core running)
+    try:
+        core.wait(10)
+    except subprocess.TimeoutExpired:
+        core.kill()
     os.system(f"pkill -f {T} > /dev/null 2>&1")
 sys.exit(1 if failed else 0)

@@ -88,6 +88,10 @@ try:
     check("session_wait: its outcome cancelled, not finished", waited.get("outcome") == "cancelled" and waited.get("finished") is False,
           json.dumps({k: waited.get(k) for k in ("outcome", "finished", "done")}))
 finally:
-    core.kill()
+    core.terminate() # the watcher stops its core (a SIGKILL would leave the core running)
+    try:
+        core.wait(10)
+    except subprocess.TimeoutExpired:
+        core.kill()
     os.system(f"pkill -f {T} > /dev/null 2>&1")
 sys.exit(1 if failed else 0)

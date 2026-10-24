@@ -21,6 +21,7 @@ File Description:
 #include "cluster/StashPopup.hpp"
 #include "cluster/PromptNav.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Simple.hpp"
 #include "cluster/Services.hpp"
 #include "cluster/Showcase.hpp"
 #include "cluster/TtyGraph.hpp"
@@ -71,7 +72,17 @@ namespace {
 /* TYPES */
 
 enum class Mode {Normal, Palette, Prompt, Message, Restore, Settings, History, Search, Machine, Profile, Question, WebApprove, WebDevices, QuitAsk, Form, Plugins, Graph, Rewind, Stash,
-    Tree, Agents};
+    Tree, Agents, Simple, Job};
+
+// A row of the settings of the simple mode: a choice (←→), a switch (Space), a line to read, or one opening the full settings (Enter)
+struct SimpleRow {
+    std::string title;
+    std::string help;
+    std::string section;
+    std::string key;
+    std::vector<std::pair<std::string, std::string>> options;  // <value, label>; a switch: false / true
+    std::string kind;                                           // choice | switch | info | full | docs
+};
 
 struct FormField {                     // a field of the form of a display, filled in its popup
     std::string name;
@@ -818,6 +829,22 @@ class TtyUi {
         bool _machineStartup = false;               // the map of this computer asked at start (no: never asked again)
         bool _restoreAsked = false;                 // the previous run asked by this interface (once)
         std::string _agentsSession;                 // Mode::Agents: the session whose agents are listed
+        // the simple mode (--simple / --ipad-kid, [ui] mode = simple)
+        int _simpleSel = 0;                         // the item chosen on the home: the asks, the cards, the new task
+        int _simpleCols = 1;                        // the columns of its cards (↑↓ jump a row of them)
+        int _simpleAsks = 0;                        // how many items are asks (above the cards)
+        bool _simplePanel = false;                  // a session opened on the right
+        std::string _simpleFilter;                  // a chip clicked: the cards of that state only
+        std::vector<std::function<void(void)>> _simpleItems;    // what each item of the home does (Enter, a click)
+        std::vector<std::pair<std::string, std::string>> _simpleAskIds; // <session, request>: the asks of the home, in order
+        std::string _simpleWin;                     // Mode::Simple: settings | stats
+        std::string _jobOpen;                       // Mode::Job: the heavy job shown (its details, its output live)
+        cluster::Json _jobData;                     // its status (job_status), read again every second
+        std::int64_t _jobRead = 0;
+        std::string _simplePage = "general";        // the page of its settings (reopened there)
+        int _simpleRow = 0;                         // the row of that page
+        std::map<std::pair<std::string, std::string>, std::string> _simpleChanges;  // <section, key>: its value, saved by Enter
+        bool _simpleConfirm = false;                // a dangerous value: Enter once more saves it
         int _agentsCursor = 0;                      // the agent chosen (the newest first)
         std::string _agentShown;                    // the agent whose activity is shown (its task / call id), empty: the list
         std::string _agentStopAsk;                  // its stop asked (y / n)
@@ -1144,16 +1171,11 @@ class TtyUi {
         bool queuedBack_(void)
         {
             // ↑ on the first row of the prompt: the last prompt waiting in the queue (not given to the agent yet) back in it, the one
-            // being written stashed first (never lost: a full stash keeps everything as it was); none queued and the prompt sent
-            // not answered yet (sending, like Claude Code): its turn stopped, the prompt back (as Esc does)
+            // being written stashed first (never lost: a full stash keeps everything as it was); none queued: the history (a prompt
+            // already given to the agent is taken back by Esc Esc only)
             if (this->_historyAt != -1) return false;
             const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(this->_active);
-            if (!snap) return false;
-            if (snap->queued <= snap->queueGiven) {
-                if (!unanswered_(*snap)) return false;
-                if (this->armed_("up", "↑ again: take back the prompt being sent (its turn stopped)")) this->takeBackRunning_(true);
-                return true;
-            }
+            if (!snap || snap->queued <= snap->queueGiven) return false;
             bool stashed = false;
             if (!cluster::trim(this->_editor.text()).empty()) {
                 if (this->_manager.stashPush(this->_editor.draft(), this->_active) != cluster::StashAdd::Added) {
@@ -1843,7 +1865,10 @@ class TtyUi {
                 } else {
                     piece(ls, le, false);
                 }
-                if (text.empty() && this->_mode == Mode::Normal)
+                if (text.empty() && this->_mode == Mode::Normal && cluster::simple_on(this->_manager))
+                    parts.push_back(ftxui::text(" " + this->sw_(this->_simplePanel ? "tell_it" : "prompt_hint") + "   (" + this->sw_("prompt_modes") + ")")
+                        | ftxui::color(this->_theme.muted) | ftxui::dim);
+                else if (text.empty() && this->_mode == Mode::Normal)
                     parts.push_back(ftxui::text(" @ file · / command · ! shell · : command · " + this->_manager.config().keys.at("history") + " history · Esc back · " + this->_manager.config().keys.at("stashes") + " stash · " + this->_manager.config().keys.at("help") + " keys")
                         | ftxui::color(this->_theme.muted) | ftxui::dim);
                 parts.push_back(ftxui::filler());
@@ -2601,9 +2626,541 @@ class TtyUi {
             this->status_(top ? "start of the transcript" : "end of the transcript");
         }
 
+        /* the simple mode */
+        _nodiscard std::string sw_(const std::string& key, const std::map<std::string, std::string>& values = {}) const
+        {
+            return cluster::simple_fill(cluster::simple_word(key, cluster::simple_lang(this->_manager)), values);
+        }
+
+        void simpleOpen_(const std::string& id)
+        {
+            this->_active = id;
+            this->_simplePanel = id != GLOBAL_ID;
+        }
+
+        void simpleAnswer_(const std::string& behavior)
+        {
+            // an ask of the home answered (the one chosen, else the first)
+            if (this->_simpleAskIds.empty()) return;
+            const std::size_t at = this->_simpleSel >= 0 && this->_simpleSel < static_cast<int>(this->_simpleAskIds.size()) ? static_cast<std::size_t>(this->_simpleSel) : 0;
+            const auto [session, request] = this->_simpleAskIds[at];
+            try {
+                this->_manager.answer(session, request, behavior);
+                const std::optional<cluster::Snapshot> snap = this->_manager.snapshot(session);
+                this->status_(this->sw_(behavior == "deny" ? "refused" : "allowed", {{"name", snap ? (snap->spec.global ? this->sw_("assistant") : snap->spec.name) : session}}));
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
+            }
+        }
+
+        _nodiscard ftxui::Element simpleBody_(const int width, const int height, const std::vector<cluster::Snapshot>& list)
+        {
+            // the home: hello, the counts (a click filters), what needs you, a card per session, a new task; a session opened: on its right
+            const cluster::Json s = cluster::simple_json(this->_manager);
+            const std::optional<cluster::Ask> question = this->_manager.asking().current();
+            const int homeWidth = this->_simplePanel ? std::clamp(width / 2, 34, 70) : width;
+            this->_simpleItems.clear();
+            this->_simpleAskIds.clear();
+            ftxui::Elements col;
+            col.push_back(ftxui::text(" " + s.value("greeting", std::string())) | ftxui::bold);
+            col.push_back(ftxui::text(" " + s.value("subtitle", std::string())) | ftxui::color(this->_theme.muted));
+            col.push_back(ftxui::text(""));
+            ftxui::Elements chips = {ftxui::text(" ")};
+            const cluster::Json counts = s.value("counts", cluster::Json::object());
+            for (const auto &[kind, word]: std::vector<std::pair<std::string, std::string>>{{"working", "chip_working"}, {"needs", "chip_needs"}, {"done", "chip_done"}}) {
+                const int n = counts.value(kind, 0);
+                const ftxui::Color color = kind == "working" ? this->_theme.ok : kind == "needs" ? this->_theme.warn : this->_theme.muted;
+                const std::string label = " ● " + (n == 1 ? this->sw_(word + "_one") : this->sw_(word, {{"n", std::to_string(n)}})) + " ";
+                ftxui::Element chip = ftxui::text(label) | ftxui::bold;
+                chip = this->_simpleFilter == kind ? chip | ftxui::color(this->_theme.bg) | ftxui::bgcolor(color) : chip | ftxui::color(n ? color : this->_theme.muted);
+                const std::string chosen = kind;
+                chips.push_back(this->tap_(chip, 0, [this, chosen]() {this->_simpleFilter = this->_simpleFilter == chosen ? std::string() : chosen;}));
+                chips.push_back(ftxui::text(" "));
+            }
+            col.push_back(ftxui::hbox(std::move(chips)));
+            col.push_back(ftxui::text(""));
+            // what needs you
+            col.push_back(ftxui::text(" " + this->sw_("needs_you")) | ftxui::bold);
+            const cluster::Json asks = s.value("asks", cluster::Json::array());
+            int index = 0;
+            const std::function<ftxui::Element(ftxui::Element, bool)> frame = [this](ftxui::Element content, const bool chosen) {
+                return content | ftxui::borderStyled(chosen ? ftxui::HEAVY : ftxui::ROUNDED) | ftxui::color(chosen ? this->_theme.accent : this->_theme.border);
+            };
+            for (const cluster::Json& a: asks) {
+                const std::string session = a.value("session", std::string());
+                const std::string request = a.value("request_id", std::string());
+                this->_simpleAskIds.push_back({session, request});
+                const bool chosen = index == this->_simpleSel;
+                ftxui::Elements buttons;
+                for (const auto &[behavior, word]: std::vector<std::pair<std::string, std::string>>{{"allow", "allow"}, {"always", "always"}, {"deny", "not_now"}}) {
+                    const std::string b = behavior;
+                    const int at = index;
+                    buttons.push_back(this->tap_(ftxui::text(" " + this->sw_(word) + " ") | ftxui::bold | (b == "allow" ? ftxui::color(this->_theme.okInk) | ftxui::bgcolor(this->_theme.ok)
+                        : ftxui::color(this->_theme.text)), 0, [this, b, at]() {
+                            this->_simpleSel = at;
+                            this->simpleAnswer_(b);
+                        }));
+                    buttons.push_back(ftxui::text(" "));
+                }
+                ftxui::Element card = ftxui::hbox({ftxui::vbox({ftxui::text(a.value("what", std::string())) | ftxui::bold | ftxui::color(this->_theme.text),
+                    ftxui::paragraph(a.value("detail", std::string())) | ftxui::color(this->_theme.muted)}) | ftxui::flex, ftxui::hbox(std::move(buttons))});
+                col.push_back(frame(card, chosen) | ftxui::color(this->_theme.warn));
+                this->_simpleItems.push_back([this, session]() {this->simpleOpen_(session);});
+                ++index;
+            }
+            if (question) {
+                const std::string first = question->questions.is_array() && !question->questions.empty() && question->questions[0].is_object()
+                    ? question->questions[0].value("question", std::string()) : "";
+                const std::string session = question->session;
+                const bool chosen = index == this->_simpleSel;
+                col.push_back(frame(ftxui::hbox({ftxui::vbox({ftxui::text(this->sw_("ask_question", {{"name", question->name}})) | ftxui::bold | ftxui::color(this->_theme.text),
+                    ftxui::paragraph(first) | ftxui::color(this->_theme.muted)}) | ftxui::flex, this->tap_(ftxui::text(" " + this->sw_("answer") + " ") | ftxui::bold
+                    | ftxui::color(this->_theme.okInk) | ftxui::bgcolor(this->_theme.ok), 0, [this, session]() {this->simpleOpen_(session);})}), chosen));
+                this->_simpleItems.push_back([this, session]() {this->simpleOpen_(session);});
+                ++index;
+            }
+            if (asks.empty() && !question) col.push_back(ftxui::text("  " + this->sw_("nothing_waits")) | ftxui::color(this->_theme.muted) | ftxui::dim);
+            this->_simpleAsks = index;
+            col.push_back(ftxui::text(""));
+            // the work: a card per session, then a new task
+            std::vector<cluster::Json> cards;
+            for (const cluster::Json& c: s.value("cards", cluster::Json::array()))
+                if (this->_simpleFilter.empty() || c.value("state", std::string()) == this->_simpleFilter) cards.push_back(c);
+            col.push_back(ftxui::hbox({ftxui::text(" " + this->sw_("your_work") + " ") | ftxui::bold, ftxui::text(std::to_string(cards.size())) | ftxui::color(this->_theme.muted)}));
+            const int columns = std::max(1, (homeWidth - 2) / 32);
+            this->_simpleCols = columns;
+            const int cardWidth = (homeWidth - 2) / columns;
+            static const std::map<std::string, std::string> states = {{"working", "st_working"}, {"needs", "st_needs"}, {"stuck", "st_stuck"}, {"done", "st_done"},
+                {"ready", "st_ready"}, {"starting", "st_starting"}};
+            std::vector<ftxui::Elements> grid;
+            const std::size_t total = cards.size() + 1;
+            for (std::size_t i = 0; i < total; ++i) {
+                if (i % static_cast<std::size_t>(columns) == 0) grid.emplace_back();
+                const bool chosen = index == this->_simpleSel;
+                if (i == cards.size()) { // the new task
+                    ftxui::Element add = ftxui::text(this->sw_("new_task")) | ftxui::bold | ftxui::color(this->_theme.muted) | ftxui::center
+                        | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 5) | ftxui::borderStyled(chosen ? ftxui::HEAVY : ftxui::DASHED)
+                        | ftxui::color(chosen ? this->_theme.accent : this->_theme.border);
+                    grid.back().push_back(this->tap_(add | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cardWidth), 0, [this]() {(void)this->shortcut_("new_session");}));
+                    this->_simpleItems.push_back([this]() {(void)this->shortcut_("new_session");});
+                    ++index;
+                    continue;
+                }
+                const cluster::Json& c = cards[i];
+                const std::string state = c.value("state", std::string());
+                const ftxui::Color color = state == "working" ? this->_theme.ok : state == "needs" ? this->_theme.warn : state == "stuck" ? this->_theme.error
+                    : state == "starting" ? this->_theme.accent : this->_theme.muted;
+                const auto word = states.find(state);
+                const int done = c.value("done", 0);
+                const int all = c.value("total", 0);
+                const std::string tag = c.value("tag", std::string());
+                const std::string foot = all > 0 ? this->sw_("steps", {{"a", std::to_string(done)}, {"b", std::to_string(all)}}) : state == "done" ? c.value("ago", std::string()) : "";
+                ftxui::Elements in = {
+                    ftxui::hbox({ftxui::text(cluster::one_line(c.value("name", std::string()), static_cast<std::size_t>(std::max(6, cardWidth - 16)))) | ftxui::bold | ftxui::color(this->_theme.text),
+                        ftxui::filler(), ftxui::text(this->sw_(word != states.end() ? word->second : state)) | ftxui::bold | ftxui::color(color)}),
+                    ftxui::paragraph(cluster::one_line(c.value("doing", std::string()), 90)) | ftxui::color(this->_theme.muted) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 2),
+                    all > 0 ? ftxui::gauge(static_cast<float>(done) / static_cast<float>(all)) | ftxui::color(this->_theme.ok) : ftxui::text(""),
+                    ftxui::hbox({ftxui::text(tag.empty() ? std::string() : "● " + tag) | ftxui::color(this->chip_color_(tag)), ftxui::filler(),
+                        ftxui::text(foot) | ftxui::color(this->_theme.muted)}),
+                };
+                const std::string id = c.value("id", std::string());
+                ftxui::Element card = frame(ftxui::vbox(std::move(in)), chosen) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cardWidth);
+                grid.back().push_back(this->tap_(card, 0, [this, id]() {this->simpleOpen_(id);}));
+                this->_simpleItems.push_back([this, id]() {this->simpleOpen_(id);});
+                ++index;
+            }
+            while (grid.back().size() < static_cast<std::size_t>(columns)) grid.back().push_back(ftxui::filler());
+            col.push_back(ftxui::gridbox(grid));
+            this->_simpleSel = std::clamp(this->_simpleSel, 0, std::max(0, index - 1));
+            ftxui::Element home = ftxui::vbox(std::move(col)) | ftxui::yframe | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, homeWidth);
+            if (!this->_simplePanel) return home | ftxui::flex;
+            const auto opened = std::find_if(list.begin(), list.end(), [&](const cluster::Snapshot& x) {return x.spec.id == this->_active;});
+            if (opened == list.end()) {
+                this->_simplePanel = false;
+                return home | ftxui::flex;
+            }
+            ftxui::Element head = ftxui::hbox({this->tap_(ftxui::text(" ‹ ") | ftxui::bold | ftxui::color(this->_theme.accent), 0, [this]() {
+                    this->_simplePanel = false;
+                    this->_active = GLOBAL_ID;
+                }), ftxui::text(opened->spec.global ? this->sw_("assistant") : opened->spec.name) | ftxui::bold, ftxui::filler(),
+                ftxui::text(" Esc " + this->sw_("back") + " ") | ftxui::color(this->_theme.muted)});
+            return ftxui::hbox({home, ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                ftxui::vbox({head, this->session_(*opened, width - homeWidth - 1, height - 1, true) | ftxui::flex}) | ftxui::flex});
+        }
+
+        /* a heavy job opened */
+        void openJob_(const std::string& id)
+        {
+            this->_jobOpen = id;
+            this->_jobRead = 0;
+            this->_jobData = cluster::Json::object();
+            this->_mode = Mode::Job;
+        }
+
+        _nodiscard ftxui::Element jobView_(void)
+        {
+            // its details and the end of its output, read again every second (its time and its memory live)
+            const std::int64_t now = cluster::now_ms();
+            if (now - this->_jobRead >= 1000) {
+                this->_jobRead = now;
+                try {
+                    this->_jobData = this->_manager.jobsCommand("job_status", {{"id", this->_jobOpen}, {"full", true}});
+                } catch (const utils::exception::IException& e) {
+                    this->_jobData = {{"gone", e.info()}};
+                }
+            }
+            this->_animating = true; // its time ticks
+            const cluster::Json& j = this->_jobData;
+            const Theme& th = this->_theme;
+            const std::function<std::string(std::int64_t)> took = [](const std::int64_t ms) {   // 42 s, 3 min 05 s, 1 h 02 min
+                const std::int64_t s = std::max<std::int64_t>(0, ms / 1000);
+                char text[40];
+                if (s < 60) std::snprintf(text, sizeof(text), "%lld s", static_cast<long long>(s));
+                else if (s < 3600) std::snprintf(text, sizeof(text), "%lld min %02lld s", static_cast<long long>(s / 60), static_cast<long long>(s % 60));
+                else std::snprintf(text, sizeof(text), "%lld h %02lld min", static_cast<long long>(s / 3600), static_cast<long long>(s % 3600 / 60));
+                return std::string(text);
+            };
+            if (j.contains("gone")) return ftxui::vbox({ftxui::text(" Job " + this->_jobOpen + " is gone ") | ftxui::bold | ftxui::color(th.warn),
+                ftxui::text(" " + j.value("gone", std::string())) | ftxui::color(th.muted), ftxui::text(" Esc close") | ftxui::color(th.muted)});
+            const std::string state = j.value("state", std::string());
+            const ftxui::Color tint = state == "running" ? th.ok : state == "queued" ? th.accent : state == "stopped" ? th.warn : state == "done" ? th.muted : th.error;
+            const std::string mark = state == "running" ? "▶" : state == "queued" ? "◌" : state == "stopped" ? "⏸" : state == "done" ? "✓" : state == "failed" ? "✗" : "⊘";
+            const std::int64_t started = j.value("started", std::int64_t{0}) * 1000;
+            const std::int64_t ended = j.value("ended", std::int64_t{0}) * 1000;
+            const std::string session = j.value("session", std::string());
+            const std::optional<cluster::Snapshot> owner = session.empty() ? std::nullopt : this->_manager.snapshot(session);
+            const std::function<ftxui::Element(const std::string&, const std::string&)> line = [&th](const std::string& key, const std::string& value) {
+                return ftxui::hbox({ftxui::text(" " + key) | ftxui::color(th.muted) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 13), ftxui::paragraph(value) | ftxui::color(th.text)});
+            };
+            ftxui::Elements rows = {
+                ftxui::hbox({ftxui::text(" " + mark + " ") | ftxui::bold | ftxui::color(tint), ftxui::text(this->_jobOpen + " ") | ftxui::bold,
+                    ftxui::text(j.value("class", std::string()) + " ") | ftxui::color(th.accent), ftxui::text(state) | ftxui::color(tint), ftxui::filler(),
+                    ftxui::text(started > 0 ? "⏱ " + took((ended > 0 ? ended : now) - started) + " " : "") | ftxui::color(th.muted)}),
+                ftxui::separatorLight() | ftxui::color(th.border),
+                line("command", j.value("command", std::string())),
+                line("session", session.empty() ? std::string("you") : owner ? (owner->spec.global ? std::string("global") : owner->spec.name) + " (" + session + ")" : session),
+                line("folder", cluster::short_path(j.value("cwd", std::string()))),
+                line("process", (j.value("pid", 0) > 0 ? "pid " + std::to_string(j.value("pid", 0)) + " · " : std::string()) + (j.value("rss_mb", 0) > 0 ? std::to_string(j.value("rss_mb", 0))
+                    + " MB in use · " : std::string()) + "~" + std::to_string(j.value("ram_mb", 0)) + " MB planned" + (j.value("threads", 0) > 0 ? " · " + std::to_string(j.value("threads", 0))
+                    + " thread(s)" : std::string()) + " · priority " + std::to_string(j.value("prio", 0)) + " · " + j.value("origin", std::string())),
+                line("now", j.value("message", std::string())),
+            };
+            const std::string tail = j.value("tail", std::string());
+            rows.push_back(ftxui::text(" output" + std::string(j.value("log", std::string()).empty() ? "" : " (" + cluster::short_path(j.value("log", std::string())) + ")")) | ftxui::bold
+                | ftxui::color(th.muted));
+            std::vector<std::string> lines = cluster::split(tail, '\n');
+            while (!lines.empty() && cluster::trim(lines.back()).empty()) lines.pop_back();
+            const std::size_t room = static_cast<std::size_t>(std::max(4, ftxui::Terminal::Size().dimy - 22));
+            if (lines.empty()) rows.push_back(ftxui::text("   (nothing yet)") | ftxui::color(th.muted) | ftxui::dim);
+            for (std::size_t i = lines.size() > room ? lines.size() - room : 0; i < lines.size(); ++i)
+                rows.push_back(ftxui::text("   " + cluster::one_line(lines[i], 200)) | ftxui::color(th.muted));
+            rows.push_back(ftxui::separatorLight() | ftxui::color(th.border));
+            const bool live = state == "running" || state == "stopped" || state == "queued";
+            rows.push_back(ftxui::paragraph(std::string(" ") + (state == "running" ? "s stop · " : state == "stopped" ? "s resume · " : "") + (live ? "k kill · + / - priority · " : "")
+                + (owner ? "o its session · " : "") + "a every action · Esc close") | ftxui::color(th.muted));
+            return ftxui::vbox(std::move(rows));
+        }
+
+        bool jobKey_(const ftxui::Event& event)
+        {
+            const std::string id = this->_jobOpen;
+            const std::string state = this->_jobData.value("state", std::string());
+            const std::function<void(const std::string&)> act = [this, id](const std::string& what) {
+                this->run_({"job_act:" + id + ":" + what, "", "", "", false}, "");
+                this->_jobRead = 0; // its new state at once
+            };
+            if (event == ftxui::Event::Escape || event == ftxui::Event::Character('q')) this->_mode = Mode::Normal;
+            else if (event == ftxui::Event::Character('s') && state == "running") act("stop");
+            else if (event == ftxui::Event::Character('s') && state == "stopped") act("resume");
+            else if (event == ftxui::Event::Character('k') && (state == "running" || state == "stopped" || state == "queued")) act("kill");
+            else if (event == ftxui::Event::Character('+')) act("prio_up");
+            else if (event == ftxui::Event::Character('-')) act("prio_down");
+            else if (event == ftxui::Event::Character('o') && !this->_jobData.value("session", std::string()).empty()) {
+                this->_active = this->_jobData.value("session", std::string());
+                this->_mode = Mode::Normal;
+            } else if (event == ftxui::Event::Character('a')) {
+                this->pick_("job:" + id);
+            }
+            return true;
+        }
+
+        bool simpleKey_(const ftxui::Event& event)
+        {
+            // the home without the mouse (the prompt empty): ←↑↓→ an item, Enter it; Esc: the session on the right closed
+            if (!this->_editor.text().empty() || this->_editor.completing()) return false;
+            if (event == ftxui::Event::Escape && this->_simplePanel) {
+                this->_simplePanel = false;
+                this->_active = GLOBAL_ID;
+                return true;
+            }
+            if (this->_simplePanel) return false; // its transcript keeps its keys
+            const int count = static_cast<int>(this->_simpleItems.size());
+            if (count == 0) return false;
+            int& sel = this->_simpleSel;
+            if (event == ftxui::Event::ArrowLeft) sel = std::max(0, sel - 1);
+            else if (event == ftxui::Event::ArrowRight) sel = std::min(count - 1, sel + 1);
+            else if (event == ftxui::Event::ArrowUp) sel = sel < this->_simpleAsks ? std::max(0, sel - 1) : sel - this->_simpleCols < this->_simpleAsks ? std::max(0, this->_simpleAsks - 1) : sel - this->_simpleCols;
+            else if (event == ftxui::Event::ArrowDown) sel = sel < this->_simpleAsks ? sel + 1 : std::min(count - 1, sel + this->_simpleCols);
+            else if (event == ftxui::Event::Return) this->_simpleItems[static_cast<std::size_t>(std::clamp(sel, 0, count - 1))]();
+            else return false;
+            sel = std::clamp(sel, 0, count - 1);
+            return true;
+        }
+
+        _nodiscard std::vector<SimpleRow> simpleRows_(void) const
+        {
+            // the rows of the page of its settings shown
+            const std::string& page = this->_simplePage;
+            std::vector<SimpleRow> rows;
+            if (page == "general") {
+                rows.push_back({this->sw_("set_language"), this->sw_("set_language_d"), "ui", "language", {{"en", "English"}, {"fr", "Français"}}, "choice"});
+                std::vector<std::pair<std::string, std::string>> styles;
+                for (const cluster::SettingsPage& p: cluster::settings_pages(this->_manager.config()))
+                    for (const cluster::Setting& s: p.settings)
+                        if (s.section == "ui" && s.key == "style")
+                            for (const std::string& c: s.choices)
+                                styles.push_back({c, c});
+                rows.push_back({this->sw_("set_look"), this->sw_("set_look_d"), "ui", "style", styles, "choice"});
+                rows.push_back({this->sw_("set_notify"), this->sw_("set_notify_d"), "ui", "notify", {{"false", "off"}, {"true", "on"}}, "switch"});
+                rows.push_back({this->sw_("set_interface"), this->sw_("set_interface_d"), "ui", "mode", {{"simple", this->sw_("simple")}, {"classic", this->sw_("classic")}}, "choice"});
+            } else if (page == "account") {
+                rows.push_back({this->sw_("set_provider"), this->sw_("set_provider_d") + " · " + this->simpleValue_("agent", "provider"), "agent", "provider", {}, "full"});
+                for (const cluster::SettingsPage& p: cluster::settings_pages(this->_manager.config()))
+                    for (const cluster::Setting& s: p.settings)
+                        if (s.key.starts_with("account_") && !s.key.starts_with("account_rm_"))
+                            rows.push_back({cluster::trim(s.label), s.value ? s.value(this->_manager.config()) : "", "", "", {}, "info"});
+            } else if (page == "assistant") {
+                const std::string orch = this->simpleValue_("agent", "orchestration").empty() ? std::string("hybrid") : this->simpleValue_("agent", "orchestration");
+                rows.push_back({this->sw_("set_orch"), this->sw_("orch_" + orch), "agent", "orchestration", {{"compact", "Compact"}, {"hybrid", "Hybrid"}, {"ultra", "Ultra"}}, "choice"});
+                rows.push_back({this->sw_("set_smart"), this->sw_("set_smart_d"), "agent", "effort", {{"low", this->sw_("smart_fast")}, {"", this->sw_("smart_balanced")},
+                    {"high", this->sw_("smart_best")}}, "choice"});
+                rows.push_back({this->sw_("set_ask"), this->sw_("set_ask_d"), "agent", "permission_mode", {{"default", this->sw_("ask_every")}, {"acceptEdits", this->sw_("ask_edits")},
+                    {"bypassPermissions", this->sw_("ask_never") + " ⚠"}}, "choice"});
+                rows.push_back({this->sw_("set_parallel"), this->sw_("set_parallel_d"), "sessions", "max_parallel", {{"2", "2"}, {"4", "4"}, {"8", "8"}}, "choice"});
+            } else if (page == "phone") {
+                const std::optional<cluster::WebStatus> web = cluster::web_status(this->_manager);
+                rows.push_back({this->sw_("set_web"), this->sw_("set_web_d") + (web && web->on ? " · " + web->url + " · code " + web->pin : std::string()), "", "", {}, "info"});
+                rows.push_back({this->sw_("set_web_start"), this->sw_("set_web_start_d"), "web", "enabled", {{"false", "off"}, {"true", "on"}}, "switch"});
+            } else if (page == "keys") {
+                std::map<std::string, std::string> keys = this->_manager.config().keys;
+                for (const auto &[where, v]: this->_simpleChanges)
+                    if (where.first == "keys") keys[where.second] = v;
+                for (const cluster::SettingsPage& p: cluster::settings_pages(this->_manager.config()))
+                    for (const cluster::Setting& s: p.settings) {
+                        if (s.section != "keys") continue;
+                        std::string twice;
+                        for (const auto &[k, others]: cluster::setting_key_clashes(keys, s.key)) {
+                            std::string names;
+                            for (const std::string& o: others)
+                                names += (names.empty() ? "" : ", ") + o;
+                            twice += (twice.empty() ? "" : " · ") + this->sw_("keys_twice", {{"key", k}, {"other", names}});
+                        }
+                        std::string words = cluster::trim(s.label);
+                        std::replace(words.begin(), words.end(), '_', ' ');
+                        rows.push_back({words + (twice.empty() ? "" : " !"), keys[s.key] + (twice.empty() ? "" : "  " + twice), "keys", s.key, {}, "full"});
+                    }
+            } else {
+                rows.push_back({this->sw_("about_version"), "claude-cluster " + std::string(CLUSTER_VERSION), "", "", {}, "info"});
+                rows.push_back({this->sw_("about_docs"), this->sw_("about_docs_d"), "", "", {}, "docs"});
+                rows.push_back({this->sw_("full_settings"), "", "", "", {}, "full"});
+            }
+            return rows;
+        }
+
+        _nodiscard std::string simpleValue_(const std::string& section, const std::string& key) const
+        {
+            const auto changed = this->_simpleChanges.find({section, key});
+            if (changed != this->_simpleChanges.end()) return changed->second;
+            for (const cluster::SettingsPage& p: cluster::settings_pages(this->_manager.config()))
+                for (const cluster::Setting& s: p.settings)
+                    if (s.section == section && s.key == key && s.value) return s.value(this->_manager.config());
+            return "";
+        }
+
+        void simpleSave_(void)
+        {
+            // the changes written (a dangerous one: Enter once more), the language / the mode / the look followed at once
+            const cluster::Config& config = this->_manager.config();
+            if (!this->_simpleConfirm)
+                for (const auto &[where, v]: this->_simpleChanges)
+                    for (const cluster::SettingsPage& p: cluster::settings_pages(config))
+                        for (const cluster::Setting& s: p.settings)
+                            if (s.section == where.first && s.key == where.second && s.value && s.value(config) != v)
+                                if (const std::string warning = cluster::setting_danger(s, v); !warning.empty()) {
+                                    this->_simpleConfirm = true;
+                                    this->status_(warning + " · Enter: " + this->sw_("save"), true);
+                                    return;
+                                }
+            for (const auto &[where, v]: this->_simpleChanges) {
+                try {
+                    (void)cluster::settings_set(config, where.first, where.second, v);
+                    if (where.first == "ui" && (where.second == "mode" || where.second == "language" || where.second == "style")) this->_manager.setUi(where.second, v);
+                } catch (const utils::exception::IException& e) {
+                    this->status_(e.info(), true);
+                    return;
+                }
+            }
+            (void)this->_manager.config().reload();
+            this->theme_();
+            this->_simpleChanges.clear();
+            this->_simpleConfirm = false;
+            this->_mode = Mode::Normal;
+            this->status_(this->sw_("saved"));
+        }
+
+        _nodiscard ftxui::Element simpleWindow_(void)
+        {
+            // Mode::Simple: its settings (pages on the left, rows on the right) or its stats
+            const std::function<ftxui::Element(const std::string&)> title = [this](const std::string& text) {
+                return ftxui::text(" " + text + " ") | ftxui::bold | ftxui::color(this->_theme.accent);
+            };
+            if (this->_simpleWin == "stats") {
+                this->_manager.usageRefresh();
+                const cluster::Json usage = this->_manager.usageJson("");
+                const cluster::Json vendors = usage.is_array() ? usage : usage.is_object() ? cluster::Json::array({usage}) : cluster::Json::array();
+                const std::function<std::string(std::int64_t)> fmt = [](const std::int64_t n) {
+                    return n >= 1000000 ? std::to_string(n / 1000000) + "." + std::to_string(n / 100000 % 10) + "M" : n >= 1000 ? std::to_string(n / 1000) + "k" : std::to_string(n);
+                };
+                ftxui::Elements lines = {title(this->sw_("stats")), ftxui::text("")};
+                for (const cluster::Json& v: vendors) {
+                    const std::string vendor = v.value("vendor", std::string());
+                    for (const auto &[field, word]: std::vector<std::pair<std::string, std::string>>{{"seven_day", "st_week"}, {"five_hour", "st_5h"}}) {
+                        if (!v.contains(field) || !v[field].is_object()) continue;
+                        const double left = std::max(0.0, 100.0 - v[field].value("used_percent", 0.0));
+                        lines.push_back(ftxui::hbox({ftxui::text(" " + this->sw_(word) + " · " + vendor + "  ") | ftxui::color(this->_theme.muted),
+                            ftxui::text(std::to_string(static_cast<int>(left)) + "%") | ftxui::bold}));
+                        lines.push_back(ftxui::hbox({ftxui::text(" "), ftxui::gauge(static_cast<float>(left / 100.0)) | ftxui::color(this->_theme.ok) | ftxui::flex, ftxui::text(" ")}));
+                    }
+                    const cluster::Json today = v.value("today", cluster::Json::object());
+                    const cluster::Json week = v.value("last_7_days", cluster::Json::object());
+                    lines.push_back(ftxui::hbox({ftxui::text(" " + this->sw_("st_today") + " · " + vendor + "  ") | ftxui::color(this->_theme.muted),
+                        ftxui::text(fmt(today.value("tokens", std::int64_t{0}))) | ftxui::bold, ftxui::text("  " + std::to_string(today.value("turns", 0)) + " turns") | ftxui::color(this->_theme.muted)}));
+                    lines.push_back(ftxui::hbox({ftxui::text(" " + this->sw_("st_7days") + " · " + vendor + "  ") | ftxui::color(this->_theme.muted),
+                        ftxui::text(fmt(week.value("tokens", std::int64_t{0}))) | ftxui::bold}));
+                    lines.push_back(ftxui::text(""));
+                }
+                std::vector<cluster::Snapshot> sessions = this->_manager.shown();
+                std::erase_if(sessions, [](const cluster::Snapshot& x) {return x.spec.tokens <= 0;});
+                std::sort(sessions.begin(), sessions.end(), [](const cluster::Snapshot& a, const cluster::Snapshot& b) {return a.spec.tokens > b.spec.tokens;});
+                if (!sessions.empty()) lines.push_back(ftxui::text(" " + this->sw_("st_top")) | ftxui::bold);
+                for (std::size_t i = 0; i < sessions.size() && i < 6; ++i)
+                    lines.push_back(ftxui::hbox({ftxui::text(" " + cluster::one_line(sessions[i].spec.global ? this->sw_("assistant") : sessions[i].spec.name, 18) + " ")
+                        | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 20), ftxui::gauge(static_cast<float>(sessions[i].spec.tokens) / static_cast<float>(sessions.front().spec.tokens))
+                        | ftxui::color(this->_theme.accent) | ftxui::flex, ftxui::text(" " + this->sw_("st_tokens", {{"n", fmt(sessions[i].spec.tokens)}}) + " ") | ftxui::color(this->_theme.muted)}));
+                lines.push_back(ftxui::text(""));
+                lines.push_back(ftxui::text(" f " + this->sw_("st_full") + " · Esc " + this->sw_("close")) | ftxui::color(this->_theme.muted));
+                return ftxui::vbox(std::move(lines));
+            }
+            static const std::vector<std::pair<std::string, std::string>> pages = {{"general", "set_general"}, {"account", "set_account"}, {"assistant", "set_assistant"},
+                {"phone", "set_phone"}, {"keys", "set_keys"}, {"about", "set_about"}};
+            ftxui::Elements nav;
+            for (const auto &[id, word]: pages) {
+                const std::string page = id;
+                const bool on = id == this->_simplePage;
+                nav.push_back(this->tap_(ftxui::text(" " + this->sw_(word) + " ") | (on ? ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent)
+                    : ftxui::color(this->_theme.text)), 1, [this, page]() {
+                        this->_simplePage = page;
+                        this->_simpleRow = 0;
+                    }));
+            }
+            const std::vector<SimpleRow> rows = this->simpleRows_();
+            this->_simpleRow = std::clamp(this->_simpleRow, 0, std::max(0, static_cast<int>(rows.size()) - 1));
+            ftxui::Elements right;
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                const SimpleRow& r = rows[i];
+                const bool chosen = static_cast<int>(i) == this->_simpleRow;
+                ftxui::Elements choice;
+                const std::string value = r.section.empty() ? std::string() : this->simpleValue_(r.section, r.key);
+                for (const auto &[v, label]: r.options) {
+                    const bool on = v == value || (r.key == "mode" && v == "simple" && value.empty());
+                    choice.push_back(ftxui::text(" " + label + " ") | (on ? ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent) : ftxui::color(this->_theme.muted)));
+                }
+                if (r.kind == "full" || r.kind == "docs") choice.push_back(ftxui::text(" " + this->sw_("open") + " › ") | ftxui::color(this->_theme.accent));
+                right.push_back(ftxui::hbox({ftxui::text(chosen ? "▸ " : "  ") | ftxui::color(this->_theme.accent), ftxui::vbox({ftxui::text(r.title) | ftxui::bold,
+                    ftxui::paragraph(r.help) | ftxui::color(this->_theme.muted)}) | ftxui::flex, ftxui::hbox(std::move(choice))})
+                    | (chosen ? ftxui::bgcolor(this->_theme.pick) : ftxui::Decorator(ftxui::nothing)));
+                right.push_back(ftxui::text(""));
+            }
+            return ftxui::vbox({title(this->sw_("settings")), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                ftxui::hbox({ftxui::vbox(std::move(nav)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 24), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                    ftxui::vbox(std::move(right)) | ftxui::yframe | ftxui::flex}) | ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, std::max(10, ftxui::Terminal::Size().dimy - 8)),
+                ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                ftxui::paragraph(" " + this->sw_("keys_settings")) | ftxui::color(this->_theme.muted)});
+        }
+
+        bool simpleWinKey_(const ftxui::Event& event)
+        {
+            // Mode::Simple: its keys (settings: Tab page, ↑↓ row, ←→ / Space change, Enter save, f full settings; Esc: closed, reopened here)
+            if (event == ftxui::Event::Escape) {
+                this->_simpleChanges.clear();
+                this->_simpleConfirm = false;
+                this->_mode = Mode::Normal;
+                return true;
+            }
+            if (this->_simpleWin == "stats") {
+                if (event == ftxui::Event::Character('f')) {
+                    this->_mode = Mode::Normal;
+                    this->run_({"stats", "", "", "", false}, "");
+                }
+                return true;
+            }
+            static const std::vector<std::string> pages = {"general", "account", "assistant", "phone", "keys", "about"};
+            const std::vector<SimpleRow> rows = this->simpleRows_();
+            const auto page = std::find(pages.begin(), pages.end(), this->_simplePage);
+            const int at = page == pages.end() ? 0 : static_cast<int>(page - pages.begin());
+            if (event == ftxui::Event::Tab || event == ftxui::Event::TabReverse || event == ftxui::Event::PageDown || event == ftxui::Event::PageUp) {
+                const int step = event == ftxui::Event::Tab || event == ftxui::Event::PageDown ? 1 : -1;
+                this->_simplePage = pages[static_cast<std::size_t>((at + step + static_cast<int>(pages.size())) % static_cast<int>(pages.size()))];
+                this->_simpleRow = 0;
+            } else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown) { // round: the first one after the last
+                const int size = std::max(1, static_cast<int>(rows.size()));
+                this->_simpleRow = (this->_simpleRow + (event == ftxui::Event::ArrowDown ? 1 : size - 1)) % size;
+            } else if (event == ftxui::Event::Character('f')) {
+                this->_mode = Mode::Normal;
+                this->openSettings_();
+            } else if (!rows.empty() && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Character(' '))) {
+                const SimpleRow& r = rows[static_cast<std::size_t>(std::clamp(this->_simpleRow, 0, static_cast<int>(rows.size()) - 1))];
+                if (r.options.empty()) return true;
+                const std::string value = this->simpleValue_(r.section, r.key);
+                int now = 0;
+                for (std::size_t i = 0; i < r.options.size(); ++i)
+                    if (r.options[i].first == value) now = static_cast<int>(i);
+                const int size = static_cast<int>(r.options.size());
+                now = (now + (event == ftxui::Event::ArrowLeft ? size - 1 : 1)) % size;
+                this->_simpleChanges[{r.section, r.key}] = r.options[static_cast<std::size_t>(now)].first;
+                this->_simpleConfirm = false;
+            } else if (event == ftxui::Event::Return) {
+                const SimpleRow* r = rows.empty() ? nullptr : &rows[static_cast<std::size_t>(std::clamp(this->_simpleRow, 0, static_cast<int>(rows.size()) - 1))];
+                if (r != nullptr && r->kind == "full") {
+                    this->_mode = Mode::Normal;
+                    this->openSettings_();
+                } else if (r != nullptr && r->kind == "docs") {
+                    this->_mode = Mode::Normal;
+                    this->run_({"docs", "", "", "", false}, "");
+                } else {
+                    this->simpleSave_();
+                }
+            }
+            return true;
+        }
+
         bool shortcut_(const std::string& action)
         {
             if (action.empty()) return false;
+            if (cluster::simple_on(this->_manager) && this->_mode == Mode::Normal) {
+                if (action == "settings" || action == "stats") {
+                    this->_simpleWin = action;
+                    this->_simpleChanges.clear();
+                    this->_simpleConfirm = false;
+                    this->_mode = Mode::Simple;
+                    return true;
+                }
+                if ((action == "allow" || action == "always" || action == "deny") && !this->_simplePanel && !this->_simpleAskIds.empty()) {
+                    this->simpleAnswer_(action);
+                    return true;
+                }
+                if (action == "layout" || action == "graph" || action == "grid_open") return true; // one view only
+            }
             if (action == "send_next") { // the next queued prompt now
                 this->run_({"send_next", "", "", "", false}, "");
                 return true;
@@ -2812,8 +3369,8 @@ class TtyUi {
                 node.name = s.spec.global ? "global" : s.spec.name;
                 node.kind = s.spec.id == GLOBAL_ID ? cluster::GraphKind::Global : cluster::GraphKind::Session;
                 node.tone = !s.permissions.empty() ? cluster::GraphTone::Waiting : s.state == cluster::State::Working || s.state == cluster::State::Starting ? cluster::GraphTone::Working
-                    : s.state == cluster::State::Error ? cluster::GraphTone::Error : cluster::GraphTone::Idle;
-                node.detail = !s.permissions.empty() ? "waiting for you" : cluster::state_name(s.state);
+                    : s.state == cluster::State::Error ? cluster::GraphTone::Error : cluster::background_busy(s) ? cluster::GraphTone::Busy : cluster::GraphTone::Idle;
+                node.detail = !s.permissions.empty() ? "waiting for you" : cluster::background_busy(s) ? "~_~ background" : cluster::state_name(s.state);
                 node.info = cluster::short_path(s.spec.cwd);
                 node.tokens = s.spec.tokens;
                 node.parent = node.kind == cluster::GraphKind::Global ? "" : GLOBAL_ID;
@@ -2850,7 +3407,7 @@ class TtyUi {
             }
             this->_graph.setNodes(nodes);
             const Theme& t = this->_theme;
-            return this->_graph.render(size.dimx, size.dimy, {t.bg, t.surface, t.text, t.muted, t.accent, t.ok, t.warn, t.error}, this->_active, this->_manager.config().keys);
+            return this->_graph.render(size.dimx, size.dimy, {t.bg, t.surface, t.text, t.muted, t.accent, t.ok, t.warn, t.error, t.busy}, this->_active, this->_manager.config().keys);
         }
 
         void openTree_(void)
@@ -2888,10 +3445,13 @@ class TtyUi {
                         return tags;
                     }();
                     const std::string id = s.spec.id;
-                    ftxui::Element row = ftxui::hbox({ftxui::text(branch) | ftxui::color(this->_theme.border), ftxui::text(!s.permissions.empty() ? "!" : s.state == cluster::State::Working ? "●" : s.state == cluster::State::Error ? "✖" : "○")
-                        | ftxui::color(!s.permissions.empty() ? this->_theme.warn : s.state == cluster::State::Working ? this->_theme.ok : s.state == cluster::State::Error ? this->_theme.error : this->_theme.muted),
+                    const bool busy = cluster::background_busy(s); // its background runs: active, purple
+                    ftxui::Element row = ftxui::hbox({ftxui::text(branch) | ftxui::color(this->_theme.border), ftxui::text(!s.permissions.empty() ? "!" : s.state == cluster::State::Working || busy ? "●"
+                        : s.state == cluster::State::Error ? "✖" : "○") | ftxui::color(!s.permissions.empty() ? this->_theme.warn : s.state == cluster::State::Working ? this->_theme.ok
+                        : s.state == cluster::State::Error ? this->_theme.error : busy ? this->_theme.busy : this->_theme.muted),
                         ftxui::text(" "),
-                        ftxui::text(s.spec.global ? "global" : s.spec.name) | ftxui::bold, ftxui::text(std::string("  ") + cluster::state_name(s.state)) | ftxui::color(this->_theme.muted),
+                        ftxui::text(s.spec.global ? "global" : s.spec.name) | ftxui::bold, ftxui::text(std::string("  ") + (busy ? "~_~ background" : cluster::state_name(s.state)))
+                        | ftxui::color(busy ? this->_theme.busy : this->_theme.muted),
                         ftxui::text(labels) | ftxui::color(this->_theme.accent), ftxui::text(s.spec.summary.empty() ? "" : "  · " + cluster::one_line(s.spec.summary, 60)) | ftxui::color(this->_theme.muted) | ftxui::dim});
                     rows.push_back(this->tap_(on ? row | ftxui::inverted : row, 0, [this, id]() {
                         this->_active = id;
@@ -3290,10 +3850,9 @@ class TtyUi {
                         this->_item = static_cast<int>(hit.item);
                     }
                     this->_finding = false;
-                } else if (event == ftxui::Event::ArrowDown) {
-                    this->_findHit = std::min(this->_findHit + 1, std::max(0, static_cast<int>(this->_hits.size()) - 1));
-                } else if (event == ftxui::Event::ArrowUp) {
-                    this->_findHit = std::max(this->_findHit - 1, 0);
+                } else if (event == ftxui::Event::ArrowDown || event == ftxui::Event::ArrowUp) { // round too
+                    const int hits = static_cast<int>(this->_hits.size());
+                    this->_findHit = hits == 0 ? 0 : (this->_findHit + (event == ftxui::Event::ArrowDown ? 1 : hits - 1)) % hits;
                 } else {
                     const std::string before = this->_find;
                     if (this->fieldKey_(this->_find, event) && this->_find != before) {
@@ -3433,11 +3992,11 @@ class TtyUi {
             } else if (event == ftxui::Event::TabReverse || event == ftxui::Event::PageUp) {
                 this->_page = (this->_page + static_cast<int>(this->_pages.size()) - 1) % static_cast<int>(this->_pages.size());
                 this->_item = 0;
-            } else if (event == ftxui::Event::ArrowDown) {
-                this->_item = std::min(this->_item + 1, std::max(0, count - 1));
+            } else if (event == ftxui::Event::ArrowDown) { // round: the last one, then the first
+                this->_item = count > 0 ? (this->_item + 1) % count : 0;
                 this->_svcButton = 0;
-            } else if (event == ftxui::Event::ArrowUp) {
-                this->_item = std::max(this->_item - 1, 0);
+            } else if (event == ftxui::Event::ArrowUp) {    // round: the first one, then the last
+                this->_item = count > 0 ? (this->_item + count - 1) % count : 0;
                 this->_svcButton = 0;
             } else if (count > 0 && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Return
                 || event == ftxui::Event::Character(' '))) {
@@ -4181,7 +4740,7 @@ class TtyUi {
                             ftxui::text(job.value("class", std::string()) + "  ") | ftxui::color(t.accent) | ftxui::dim,
                             ftxui::text(cluster::one_line(job.value("name", std::string()).empty() ? job.value("command", std::string()) : job.value("name", std::string()), static_cast<std::size_t>(std::max(16, room - 60))))
                             | ftxui::color(state == "done" ? t.muted : t.text), ftxui::filler(), ftxui::text("  → " + cluster::one_line(session.empty() ? std::string("you") : who(session), 14)) | ftxui::color(t.muted),
-                            ftxui::text("  " + age + " ") | ftxui::color(t.muted) | ftxui::dim}), [this, id]() {this->pick_("job:" + id);}));
+                            ftxui::text("  " + age + " ") | ftxui::color(t.muted) | ftxui::dim}), [this, id]() {this->openJob_(id);}));
                         if (state == "queued" && !job.value("waiting_for", std::string()).empty()) out.push_back(ftxui::text("       ↳ waits for " + cluster::one_line(job.value("waiting_for", std::string()), static_cast<std::size_t>(room - 20))) | ftxui::color(t.muted) | ftxui::dim);
                         if (state == "stopped") out.push_back(ftxui::text("       ↳ " + cluster::one_line(job.value("message", std::string()), static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
                         if (state == "killed" || state == "failed") out.push_back(ftxui::text("       ↳ " + cluster::one_line(job.value("message", std::string()), static_cast<std::size_t>(room - 10))) | ftxui::color(t.warn) | ftxui::dim);
@@ -5840,6 +6399,7 @@ class TtyUi {
                 it = list.begin();
             }
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
+            if (cluster::simple_on(this->_manager)) return this->simpleBody_(width, height, list);
 
             if (layout == "grid" && !list.empty()) {
                 // as many columns as the cells keep their minimum size, the rows that do not fit scroll
@@ -6056,6 +6616,8 @@ class TtyUi {
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), this->fieldView_(this->_filter, 72)}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items))}), 80);
             }
+            if (this->_mode == Mode::Job) return box(this->jobView_(), std::min(116, std::max(60, ftxui::Terminal::Size().dimx - 6)));
+            if (this->_mode == Mode::Simple) return box(this->simpleWindow_(), std::min(this->_simpleWin == "stats" ? 76 : 110, std::max(60, ftxui::Terminal::Size().dimx - 6)));
             if (this->_mode == Mode::Agents) {
                 const ftxui::Dimensions screen = ftxui::Terminal::Size();
                 return box(this->agentsView_(), this->_agentBig ? std::max(60, screen.dimx - 6) : std::min(112, std::max(60, screen.dimx - 6)));
@@ -6733,7 +7295,12 @@ class TtyUi {
                 error = notices.back().error;
             }
             const cluster::Config& c = this->_manager.config();
-            if (status.empty() && layout == "grid")
+            const bool simple = cluster::simple_on(this->_manager);
+            if (status.empty() && simple)
+                status = "←↑↓→ " + this->sw_("k_choose") + " · Enter " + this->sw_("k_open") + " · " + c.keys.at("allow") + " " + this->sw_("allow") + " · " + c.keys.at("deny") + " "
+                    + this->sw_("not_now") + " · " + c.keys.at("new_session") + " " + this->sw_("nt_title") + " · " + c.keys.at("settings") + " " + this->sw_("settings") + " · "
+                    + c.keys.at("stats") + " " + this->sw_("stats") + " · Esc " + this->sw_("back") + " · " + c.keys.at("quit") + " " + this->sw_("k_quit");
+            else if (status.empty() && layout == "grid")
                 status = "grid: ←↑↓→ between the cells (empty prompt; Alt+arrows always) · " + c.keys.at("grid_open") + " or Enter (empty prompt) opens the session in the list";
             const std::optional<cluster::WebStatus> webState = cluster::web_status(this->_manager);
             const std::string web = webState ? cluster::web_line(*webState) : "";
@@ -6749,13 +7316,16 @@ class TtyUi {
                     [this]() {(void)this->shortcut_("settings");}),
                 cluster::demo_enabled() ? ftxui::text(" DEMO ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.warn) : ftxui::emptyElement(),
                 this->updateMark_(),
-                key(" " + (this->_mode == Mode::Graph ? std::string(this->_graphHub ? "hub" : "graph") : this->_mode == Mode::Tree ? std::string("tree")
+                simple ? ftxui::emptyElement() : key(" " + (this->_mode == Mode::Graph ? std::string(this->_graphHub ? "hub" : "graph") : this->_mode == Mode::Tree ? std::string("tree")
                     : layout == "grid" ? std::string("grid") : std::string("list")), "layout"),
                 ftxui::text(" · " + this->_manager.ui("style", c.style) + (this->_manager.remote() ? " · remote" : "")) | ftxui::color(this->_theme.muted),
                 ftxui::filler(),
-                key(c.keys.at("palette") + " palette", "palette"), dot(), key(c.keys.at("settings") + " settings", "settings"), dot(),
-                key(c.keys.at("next_session") + "/" + c.keys.at("prev_session") + " session", "next_session"), dot(), key(c.keys.at("global") + " global", "global"), dot(),
-                key(c.keys.at("new_session") + " new", "new_session"), dot(), ftxui::text(c.keys.at("quit") + " quit ") | ftxui::color(this->_theme.muted),
+                simple ? key(c.keys.at("stats") + " " + this->sw_("stats"), "stats") : key(c.keys.at("palette") + " palette", "palette"), dot(),
+                key(c.keys.at("settings") + " " + (simple ? this->sw_("settings") : std::string("settings")), "settings"), dot(),
+                simple ? ftxui::emptyElement() : key(c.keys.at("next_session") + "/" + c.keys.at("prev_session") + " session", "next_session"), simple ? ftxui::emptyElement() : dot(),
+                simple ? ftxui::emptyElement() : key(c.keys.at("global") + " global", "global"), simple ? ftxui::emptyElement() : dot(),
+                key(c.keys.at("new_session") + " " + (simple ? this->sw_("nt_title") : std::string("new")), "new_session"), dot(),
+                ftxui::text(c.keys.at("quit") + " " + (simple ? this->sw_("k_quit") : std::string("quit")) + " ") | ftxui::color(this->_theme.muted),
             });
             // the web access under it: its state (● someone connected, ○ open, nobody), its address, its code, the mean ping; a click: the
             // code copied; devices: their list
@@ -7428,6 +7998,10 @@ class TtyUi {
                     return this->stashKey_(event);
                 case Mode::Agents:
                     return this->agentsKey_(event);
+                case Mode::Simple:
+                    return this->simpleWinKey_(event);
+                case Mode::Job:
+                    return this->jobKey_(event);
                 case Mode::Normal:
                     break;
             }
@@ -7454,10 +8028,10 @@ class TtyUi {
                     this->_editor.tab();
                     return true;
                 } else if (event == ftxui::Event::Return) {
-                    // its choice taken; nothing changed (the word already the one listed): Enter sends the prompt
+                    // its choice taken; nothing changed (the word already the one listed, at most its hidden id added): Enter sends the prompt
                     const std::string before = this->_editor.text();
                     this->_editor.accept();
-                    if (cluster::trim(this->_editor.text()) != cluster::trim(before)) return true;
+                    if (cluster::trim(cluster::slash_untag(this->_editor.text())) != cluster::trim(cluster::slash_untag(before))) return true;
                 } else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown) {
                     this->_editor.select(event == ftxui::Event::ArrowUp ? -1 : 1);
                     return true;
@@ -7480,6 +8054,7 @@ class TtyUi {
                 this->status_("voice prompt dropped (Ctrl+C: all of them)");
                 return true;
             }
+            if (cluster::simple_on(this->_manager) && this->simpleKey_(event)) return true; // its home: the arrows on its items
             if (this->_active == TASKS_ID && this->_manager.ui("layout", this->_manager.config().layout) == "grid" && !this->sessions_().empty()) {
                 // a cell of the grid like the others: focused only, ←↑↓→ between the cells, Enter (Shift+Enter, Alt+O, o) opens it in the list
                 if ((event == ftxui::Event::Return || event == ftxui::Event::Character('o')) && this->shortcut_("grid_open")) return true;

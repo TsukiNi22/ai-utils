@@ -136,6 +136,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"ui", "shared_core", "Several terminals / windows at once", SettingKind::Bool, {}, "claude-cluster opened again: attached to the one running, every "
                 "terminal and window in sync (the core of the sessions in a process of its own, until the last one closes); off: opened again is refused", true,
                 [](const cluster::Config& cf) {return cf.sharedCore ? std::string("true") : std::string("false");}},
+            {"ui", "restart_core", "Restart a crashed core", SettingKind::Bool, {}, "the core runs under a small watcher: crashed (a fault, an abort), it is "
+                "started again with its sessions restored - never after a normal end, never over another core, at most 5 times in 10 minutes; off: no watcher "
+                "(at the next start of the core)", true,
+                [](const cluster::Config& cf) {return cf.restartCore ? std::string("true") : std::string("false");}},
             {"ui", "quit_background", "Quit with sessions running", SettingKind::Choice, {"ask", "always", "never"}, "the last terminal / window closed while a "
                 "session works (or has prompts queued):\n• ask: a popup - keep them running in background (the core goes on without interface, its web access closed, "
                 "stopped by itself once every session is idle; claude-cluster opened again meanwhile shows them) / stop everything / back\n• always: kept without asking\n"
@@ -144,6 +148,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"ui", "gui_mode", "Window mode", SettingKind::Choice, {"gui", "tty"}, "gui: the window and its own interface; tty: the window shows the terminal "
                 "interface (a real terminal inside it, every key of it; -g --tty-mode for one run)", false,
                 [](const cluster::Config& cf) {return cf.guiMode;}},
+            {"ui", "mode", "Interface", SettingKind::Choice, {"classic", "simple"}, "classic: every view and every setting; simple: what needs you first, a card "
+                "per session in plain words, the same prompt, the useful settings only (--simple / --ipad-kid for one run)", false,
+                [](const cluster::Config& cf) {return cf.uiMode;}},
+            {"ui", "language", "Language of the simple mode", SettingKind::Choice, {"en", "fr"}, "the words of the simple interface (English, French)", false,
+                [](const cluster::Config& cf) {return cf.uiLanguage;}},
             {"ui", "layout", "Layout", SettingKind::Choice, {"list", "grid", "graph", "hub", "tree", "tabs"}, "the view at the start, the same five everywhere (F2 goes through them): "
                 "list (the sessions and the active one), grid (every session in a cell), graph (the global session in the middle, its categories / tags, then their "
                 "sessions), hub (every session around the global one), tree (the sessions by project folder); tabs: the window only", false,
@@ -1185,7 +1194,7 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "web.discovery", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
         "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "agent.work_method", "agent.orchestration", "agent.work_method_text", "agent.work_method_detect", "agent.work_method_every", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
-        "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
+        "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "orchestrator.memory_guard", "orchestrator.guard_free_mb", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
     return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"
         || (section == "sessions" && key == "budget_usd") || keys.contains(section + "." + key);
 }

@@ -34,6 +34,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Wire.hpp"
 #include "cluster/Web.hpp"
+#include "cluster/Simple.hpp"
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <sys/stat.h>
@@ -503,6 +504,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             manager.clientFocus(arg_(request, "client"), request.value("focused", false));
         } else if (cmd == "active") {
             manager.noteActive(arg_(request, "session"));
+        } else if (cmd == "simple_words") { // the words of the simple mode, once per language (the page)
+            const std::string lang = arg_(request, "lang");
+            data = cluster::simple_words(lang.empty() ? cluster::simple_lang(manager) : lang);
         } else if (cmd == "ui_set") {
             manager.setUi(arg_(request, "key"), request.value("value", std::string()));
         } else if (cmd == "unqueue") {

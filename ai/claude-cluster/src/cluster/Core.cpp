@@ -152,6 +152,8 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("tty", {"t", "", "tty", ""}, {}, "Terminal interface (fails when stdin / stdout are not a terminal)");
     this->_parser.setFlag("gui", {"g", "", "gui", ""}, {}, "Window interface (fails when it is not built or there is no display)");
     this->_parser.setFlag("ttymode", {"", "", "tty-mode", ""}, {}, "-g: the window shows the terminal interface (a real terminal inside it; [ui] gui_mode = tty keeps it)");
+    this->_parser.setFlag("simple", {"", "", "simple", ""}, {}, "The simple interface: what needs you first, a card per session, the same prompt, the useful settings ([ui] mode = simple keeps it)");
+    this->_parser.setFlag("ipadkid", {"", "", "ipad-kid", ""}, {}, "The same as --simple");
     this->_parser.setFlag("backend", {"b", "", "backend", "CLAUDE_CLUSTER_BACKEND"}, {{"provider[/model]", true, any}},
         "Backend of the new sessions: claude (default), ollama/<model>, openai/<model>, opencode/<p>/<m>, codex... (auth list)");
     this->_parser.setFlag("restore", {"", "", "restore", ""}, {}, "Restore the sessions of the previous run without asking");
@@ -274,6 +276,11 @@ _cold static bool supervise_(std::string& restore, int& code)
     // the new binary in place (the same pid): still watched. Another core answering already, or 5 crashes in 10 minutes: no more restarts.
     // true: this process was the watcher (code: its exit); false: this process is the core
     if (std::getenv("CLAUDE_CLUSTER_SUPERVISED") != nullptr || std::getenv("CLAUDE_CLUSTER_NO_SUPERVISOR") != nullptr || cluster::demo_enabled()) return false;
+    {
+        cluster::Config config; // [ui] restart_core off: no watcher
+        config.load();
+        if (!config.restartCore) return false;
+    }
     std::vector<std::int64_t> crashes;
     for (;;) {
         const pid_t child = ::fork(); // xstyle: ignore LU-SYSCALL (the watcher: a process of its own around the core)
@@ -500,6 +507,7 @@ _cold int cluster::Core::ui_(const bool serve)
         }
         if (!this->_options.layout.empty()) app.manager->setUi("layout", this->_options.layout);
         if (!this->_options.style.empty()) app.manager->setUi("style", this->_options.style);
+        if (this->_options.values.contains("simple") || this->_options.values.contains("ipadkid")) app.manager->setUi("mode", "simple"); // this run (every interface of it)
         app.askRestore = app.manager->restorable();
         app.askMachine = cluster::demo_enabled() ? 0 : this->_options.values.contains("rescan") ? 3 : app.manager->machineAsk();
         app.voice = std::make_unique<cluster::Voice>(*app.manager);
@@ -510,6 +518,8 @@ _cold int cluster::Core::ui_(const bool serve)
     app.manager->load();
     if (!this->_options.layout.empty()) app.manager->setUi("layout", this->_options.layout);
     if (!this->_options.style.empty()) app.manager->setUi("style", this->_options.style);
+    // the interface of this run: --simple / --ipad-kid, else the one of the settings (a flag of an earlier run never kept)
+    app.manager->setUi("mode", this->_options.values.contains("simple") || this->_options.values.contains("ipadkid") ? "simple" : app.config.uiMode);
     const std::string restore = this->_options.restore.empty() ? app.config.restore : this->_options.restore;
     bool askedLater = false;
     if (app.manager->restorable()) {

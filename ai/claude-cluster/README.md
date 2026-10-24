@@ -141,7 +141,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | categories and tags | one **category** (a word: `bugfix`, `docs`...) and several **tags** per session, set by the global session (`session_describe`: `category`, `tags`, `add_tags`, `remove_tags`; its prompt tells it when) or by you (`/category <word>`, `/tags a b` or `+a -b`, the palette *Category* / *Tags*, `claude-cluster label <s> --category c --tag a,b`, the web page: a click on them or the menu of a session); no model is called. Kept with the session (the trash, a restore, `/clear`). Shown as coloured chips under the description of each session (terminal, window, web page), in `/info`, in `session_list` / `session_status` / `claude-cluster list`. `session_list` filters: `category`, `tag`, `state` (open, `archived` = the trash, `all`, or a state); `search` and `claude-cluster search` find `#tag` (labels only) or the text in a label; the palette finds a session by its category / tag (*Open ...*). The list is **grouped by category** with `[ui] group_by_category` (settings, the palette *Group by category*, `/group`, the *Group by category* button of the web page) - **nested by the taxonomy** (below). **Taxonomy**: categories and tags form a forest - each node has an optional parent (another category / tag; none: it hangs under the root `global`), stored in `taxonomy.json` of the data dir and sent to every interface. A session hangs under its **primary** label (its category, else its first tag, else `global`): the grouped list (terminal, window, web page, app) nests its heads by the path of that node, and the **Hub** graph (web page, window, app: right click / the bar) becomes a tree - `global` at the root, the category / tag nodes coloured like their chips with the number of sessions below, the sessions as leaves (state colour), nodes that fold, *Focus* on a node (its descendants only), *By every tag* (a session under each of its labels), archived sessions greyed, a click on a node filters the session list to what is below it; the ring stays one click away. Edit it by hand: the graph (*Set parent*, *Rename*, *Merge into*, *Delete*, *Add node*), the palette (*Taxonomy: ...*), `claude-cluster taxonomy [set_parent <node> [parent] \| rename <node> <new> \| merge <node> <into> \| delete <node> [strip]]`, or by the global session's tool `taxonomy` (`list`, `set_parent`, `rename`, `merge`, `delete`; refused while the setting *Global session can edit the taxonomy* / `[agent] taxonomy_edit` is off; a cycle is refused, deleting a node moves its children to its parent). `session_list` filters `category` / `tag` also match the sessions under the labels below them (`descendants: false`: the label itself only), `under` takes any node |
 | short descriptions | a few words under the name of each session (the terminal, the window, the web page, the trash, the completions, `claude-cluster list`): the title Claude Code made, else written by a model after its 1st, 3rd, 9th... turn (its own process, nothing kept: the provider of the session, haiku for Anthropic, or any `[sessions] describe_model = <provider>/<model>`: codex / OpenAI, opencode, qwen, a local Ollama...), else its first prompt (`[sessions] describe = model / prompt / off`); given with `/describe <text>`, the palette, `claude-cluster describe <s> <text>`, the web page (a click on it) or the global session (`session_describe`): kept; empty: written again |
 | where a session runs | its header: its folder (a click opens it), its git branch, the computer, the pid of its agent; the palette: *Open its folder*, *Open a terminal in its folder* (ptyxis, gnome-terminal, kitty, konsole, alacritty, xterm...) |
-| `/` anywhere | a `/word` is completed anywhere in the prompt: first, every command; later, the skills (yours, your plugins', with their description) and the commands of the agent, known from the start of the session; each entry has a coloured **badge** with its source (terminal, window, web page): `local` (claude-cluster's commands, your own skills), `built-in` (the agent's), the name of a plugin, the slug of an imported link |
+| `/` anywhere | a `/word` is completed anywhere in the prompt: first, every command; later, the skills (yours, your plugins', with their description) and the commands of the agent, known from the start of the session; each entry has a coloured **badge** with its source (terminal, window, web page): `local` (claude-cluster's commands, your own skills), `built-in` (the agent's), the name of a plugin, the slug of an imported link. **The same name twice** (claude-cluster's `/context` and the agent's, your skill `export` and claude-cluster's `/export`...): both listed, the one chosen keeps an id hidden after its name (invisible Unicode tag characters, one block with its last letter for the cursor and Backspace): the core runs claude-cluster's command or sends the agent's one / the skill to the agent, the id removed before anything reaches the agent or the transcript; a `/name` typed by hand stays claude-cluster's command |
 | colours of the prompt | typed in the prompt, a `/command` / `/skill` that exists (`/<plugin>:<skill>` too) is coloured like the `@files`, `::sessions` and `[Pasted text]` blocks (terminal, window, web page), and the first word of the prompt is flagged in red when no command nor skill has that name (a later unknown `/word` may be a path: left alone) |
 | mouse click (terminal) | a session (list, tab, grid cell), the keys of the top bar, the answers of a permission, the items of the palette / history / question / dialogs, the settings (tab, line, its value: changed), a display (a checklist item ticked, a button, play, the form, details); the wheel: the item above / below in the lists |
 
@@ -202,9 +202,9 @@ window opens instead when there is a display). In the background: `claude-cluste
 | F8 / `/now` / a click on the first queued line | the next queued prompt sent now: the running turn interrupted (the window: the palette; the web page: *Send the next now*; the control: `send_next`) |
 | | **Queued prompts** of a session wait in claude-cluster until the end of the turn: editable, cancelled (Esc, ↑ back in the prompt) or sent now (F8: the turn interrupted) until then (`[sessions] queue_given = end`); `step`: given to claude 1.5 s after they are typed, taken at its next step between two tool calls like its own queue, shown `↳ given` and no longer taken back |
 | Esc / Ctrl+C with voice prompts waiting | drop the last one / all of them (before anything else these keys do) |
-| Esc (`[keys] take_back`) | one rule, by what is going on: a **queued** prompt goes back to the editor (removed from the queue); a turn **running** (or waiting for a permission): it is interrupted and only that prompt is taken back - it leaves the conversation (claude goes on from the message before it, `--resume-session-at`) and its text returns to the editor to be edited and sent again (`prompt taken back`); **nothing running and an empty prompt**: the chooser of the points of the conversation (below); **nothing running and a prompt being written**: Esc Esc clears it (the first Esc says so) |
+| Esc (`[keys] take_back`) | one rule, by what is going on: a **queued** prompt goes back to the editor (removed from the queue); a turn **running** (or waiting for a permission): **Esc Esc** (the first Esc says so) interrupts it and only that prompt is taken back - it leaves the conversation (claude goes on from the message before it, `--resume-session-at`) and its text returns to the editor to be edited and sent again (`prompt taken back`); **nothing running and an empty prompt**: the chooser of the points of the conversation (below); **nothing running and a prompt being written**: Esc Esc clears it (the first Esc says so) |
 | Esc, the rewind chooser | the prompts of the conversation, newest first, each with its time, its first line and the size of its answer / its tool calls; ↑ / ↓ choose, Enter goes back to just before the prompt chosen (the prompt returns to the editor; the later messages leave the conversation the agent resumes from), the `Cancel` row or Esc changes nothing; the line under the list shows what will be dropped (n messages, prompts, tool calls). Never while a turn runs. What it removed is kept in `rewind/<session>-<time>.json` of the data folder (the old leaf of claude, the removed lines of the log: claude's own transcript is never touched, so the old conversation is still there to resume at that leaf) and, with `[ui] stash_rewound = true` (off), the dropped prompts go to the stash. `/rewind` opens it too |
-| ↑ / ↓ | a **visual row** of the prompt: a prompt wrapped over several screen rows (even without a real line break) moves up / down by row, keeping the column as near as possible (a remembered target column, cells: wide characters and emoji count 2, a pasted-text / image chip is one block, the wrapping follows the width of the box: grid cell or list); on the **first / last** visual row (or empty): ↑ first takes back a prompt waiting in the queue (out of it) or the prompt sent but not answered yet (sending, like Claude Code: its turn stopped as Esc does), the one being written stashed first (the window too), else the history of the prompts of the session shown, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest. The web page and the app: ↑ in the empty prompt (or Esc) takes back the prompt queued last, else the one sent and not answered yet (Esc: a running turn too), no history there |
+| ↑ / ↓ | a **visual row** of the prompt: a prompt wrapped over several screen rows (even without a real line break) moves up / down by row, keeping the column as near as possible (a remembered target column, cells: wide characters and emoji count 2, a pasted-text / image chip is one block, the wrapping follows the width of the box: grid cell or list); on the **first / last** visual row (or empty): ↑ first takes back a prompt waiting in the queue (out of it), the one being written stashed first (the window too) - a prompt already given to the agent is never taken back by ↑ (Esc Esc only) -, else the history of the prompts of the session shown, never looped; the prompt being written and the entries changed are kept while browsing (forgotten when a prompt is sent); every way to empty the prompt (send, Esc Esc, Ctrl+C, stash...) starts the browsing again from the newest. The web page and the app: ↑ in the empty prompt takes back the prompt queued last (only a queued one), Esc Esc a running turn, no history there |
 | Ctrl+E | edit the prompt in an editor: `[ui] editor`, else the first installed of nvim, vim, vi, `$VISUAL`, `$EDITOR`, emacs -nw, nano (window: a multi-line dialog); the pasted texts are there in full, the ones left unchanged are blocks again after |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
@@ -720,6 +720,29 @@ background*, the core, the agents and the folder of the demo go with its termina
 `--web` opens its web access (port 8444, terminal mode 2223, no device approval) **read only**: the page lists and reads, `send`, `spawn`, the answers,
 the settings and every other change are refused. Without `--web` there is no web access at all.
 
+### Simple mode
+
+`claude-cluster --simple` (or `--ipad-kid`, the same) opens a calmer interface for someone who only wants the work done; `[ui] mode = "simple"`
+keeps it (Settings > Interface, or the *Interface* page of its own settings to go back to `classic`). The flag is for that run only. Terminal,
+window, web page and app show the same thing, in English or French (`[ui] language = "en" | "fr"`, the *Language* setting):
+
+- **Home**: what needs you first (a question, a permission: answered there), then one **card per helper** (a session): its name, what it is
+  doing in plain words, a coloured state (working, waiting for you, done, a problem), how long, its sub-agents; the global session is *your
+  assistant*. A filter (all / working / needs you / done) and a count per state.
+- **A card opened**: its conversation and the prompt, without the technical header and side panels; the prompt is the same as the classic one
+  (`/` skills and commands, `::sessions`, `@files`, completion, history), nothing of the prompting changes.
+- **New task**: a text and, if wanted, a folder; the assistant decides how to split it (its orchestration mode).
+- **Statistics**: the same Stats session (`F10`).
+- **Settings**, six pages: *General* (language, look, notifications, back to the classic interface), *Account & provider* (who runs the helpers,
+  the account and its limits), *Assistant* (how it splits the work - compact / hybrid / ultra -, how smart, what to ask first, helpers at once),
+  *Phone* (open the web access, its address and QR code, open at start), *Shortcuts* (a key used twice shown with `!`), *About* (version, the
+  documentation, *All settings* for the full page).
+
+Keys of the terminal (the prompt empty): arrows choose a card or an item (what needs you first), Enter opens or answers it, Esc closes the
+card opened; the usual keys stay - `F9` its settings, `F10` the statistics, `Alt+Y` / `Alt+A` / `Alt+D` answer the permission shown, `Ctrl+Q`
+quits - and the prompt of the home goes to your assistant. One view only (`F2` and the graph do nothing); the mouse works on every card and
+button.
+
 ### The five views
 
 The terminal, the window, the web page and the app have the same views, in the same order (`F2` / the layout key goes through them; the
@@ -763,6 +786,10 @@ double click to open the session, right click for the menu of the session. The k
 tasks of a project go in ONE session, it asks you before splitting, no sub-global), `hybrid` (default: several sub-sessions when
 they pay, sub-globals rarely) or `ultra` (a sub-session or sub-global per task). Both system prompts also say to prefer ONE call or
 ONE background task read once at the end over many wake-ups that each reload the context.
+
+A heavy job is opened like an agent or a shell: a click (or Enter) on it in the **Tasks** session shows its command, session, folder, pid,
+memory in use, threads, priority, its time live and the end of its output (read again every second), with its actions (stop / resume,
+priority, kill with a reason, its session) - terminal, window, web page and app.
 
 `/jobs` (palette: *Background jobs*) lists everything that runs without a prompt - the `!commands` (`b1`), the heavy jobs (`j1`),
 the tasks (`t1`) and the working sessions - and `/kill <id>` stops one (`/kill all`: the `!commands`).
@@ -1168,6 +1195,15 @@ thresholds, the running ones reniced and the lowest priority stopped, resumed wi
 `cluster-run` is installed next to `claude-cluster` and found in the `PATH` of every session (`CLUSTER_RUN_SESSION`,
 `CLUSTER_RUN_SOCKET` are set for them). Tests: `tests/orchestrator.sh`.
 
+**Memory guard** (`[orchestrator] memory_guard`, on): mechanical, no model involved. Every 5 s it reads what every session runs - its agent,
+its shells and background commands, its sub-agents, the heavy jobs, the global session too, never the core - and when the memory available
+falls under `guard_free_mb` (0: 5 % of the RAM, at least 500 MB) it kills the biggest of them (its whole process tree) before the system's
+out-of-memory killer picks something at random: a command or a job first (never one under `guard_min_mb`, 100 MB), an agent only when
+nothing else is big enough (the global session last). The session is told what was killed, how much it used and why, and that it may run it
+again with less memory (fewer jobs, `cluster-run`, a smaller test); a notice and a notification say it too. Settings > About / Processes
+shows the memory of each session (agent + what it runs), the computer's free / total, the guard (on / off, its floor) and the last kills.
+Off: nothing is watched. Test: `tests/memory_guard.py`.
+
 ## Security
 
 What protects the three ways of using claude-cluster, and what stays your responsibility.
@@ -1437,8 +1473,10 @@ own `[providers.<name>]`. See [`templates/config.toml`](templates/config.toml).
 (`claude-cluster serve --linger`, started by the first terminal / window, its log in `<data>/core.log`); every terminal
 and window is an interface of it, all in sync (the same sessions, prompts, questions, notices; sent again only when a
 session changed). Its first interface asks the previous run; closing one leaves the others (the core goes on), the last
-one closed stops it (the service, when it runs, is the core and stays). The core gone (a crash): started again by an
-interface. Two prompts sent at once to one session from two interfaces: told on that session (a minute in its header)
+one closed stops it (the service, when it runs, is the core and stays). The core gone (a crash): started again by its watcher (`[ui] restart_core`, on: a small process that only waits on the
+core and starts it again with its sessions restored; off: no watcher, an interface starts it again when it notices).
+A session closed leaves every list at once, its agent stopped after; the version the interfaces wait on only grows (a `/clear` then a
+`/close` never brings it back to a number already seen). Two prompts sent at once to one session from two interfaces: told on that session (a minute in its header)
 and in the notices, the second one waits behind the first. Off: a second claude-cluster is refused, as before.
 
 **Redraws** (terminal): an image is drawn when the state changed, 25 times a second while the prompt is typed or a text

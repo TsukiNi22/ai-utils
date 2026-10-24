@@ -270,6 +270,9 @@ _cold void cluster::Orchestrator::second_(void)
     const bool scan = cluster::now_ms() - this->_lastScan >= 5000;
     if (scan && this->_hooks.sessions) this->_agents = this->_hooks.sessions();
     const cluster::Host host = cluster::host_sample(c.procDir);
+    // the memory guard about to act: the agents of the sessions read now (outside the lock), not the ones of the last scan
+    const long floor = c.guardFreeMb > 0 ? c.guardFreeMb : std::max(500L, host.memTotalMb / 20);
+    if (c.memoryGuard && host.memTotalMb > 0 && host.memAvailMb < floor && !scan && this->_hooks.sessions) this->_agents = this->_hooks.sessions();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_host = host;
@@ -279,6 +282,7 @@ _cold void cluster::Orchestrator::second_(void)
                 && now - job.started - job.stoppedMs > static_cast<std::int64_t>(job.timeoutSeconds) * 1000)
                 this->kill_(job, "timeout", "ran past its timeout of " + std::to_string(job.timeoutSeconds) + " s");
         if (scan) this->processes_(c);
+        if (c.memoryGuard && host.memTotalMb > 0 && host.memAvailMb < floor) this->guard_(c);
         this->pressure_(c);
         this->schedule_();
         this->trim_(c);
@@ -453,6 +457,140 @@ _cold void cluster::Orchestrator::processes_(const cluster::OrchConf& c)
         else if (this->_hooks.notice) this->post_([this, session, text]() {this->_hooks.notice(session + ": " + text, false);});
         this->touch_();
     }
+}
+
+/* the memory guard */
+_cold long cluster::Orchestrator::guardFloor_(const cluster::OrchConf& c) const
+{
+    return c.guardFreeMb > 0 ? c.guardFreeMb : std::max(500L, this->_host.memTotalMb / 20);
+}
+
+_cold void cluster::Orchestrator::guard_(const cluster::OrchConf& c)
+{
+    // under the memory kept free: the biggest of what claude-cluster runs killed before the system kills anything itself - a command of a
+    // session (a child of its agent: its shell, a background task, what an agent ran; its whole tree), a heavy job, at worst an agent
+    // grown abnormal (the global one last); never the core, nor an MCP server; one every 3 s (its memory freed meanwhile)
+    const std::int64_t now = cluster::now_ms();
+    if (now - this->_lastGuard < 3000) return;
+    struct Proc {
+        int ppid = 0;
+        int pgrp = 0;
+        std::string comm;
+        std::int64_t rssKb = 0;
+    };
+    std::map<int, Proc> table;
+    std::map<int, std::vector<int>> children;
+    const long pageKb = ::sysconf(_SC_PAGESIZE) / 1024;
+    std::error_code error;
+    for (const fs::directory_entry& entry: fs::directory_iterator("/proc", error)) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || name.find_first_not_of("0123456789") != std::string::npos) continue;
+        const std::string line = cluster::read_small((entry.path() / "stat").string());
+        const std::size_t open = line.find('(');
+        const std::size_t close = line.rfind(')');
+        if (open == std::string::npos || close == std::string::npos || close + 2 >= line.size()) continue;
+        const std::vector<std::string> f = cluster::split(line.substr(close + 2), ' ');
+        if (f.size() < 22) continue;
+        const int pid = std::atoi(name.c_str());
+        table[pid] = {std::atoi(f[1].c_str()), std::atoi(f[2].c_str()), line.substr(open + 1, close - open - 1), std::atoll(f[21].c_str()) * pageKb};
+        children[table[pid].ppid].push_back(pid);
+    }
+    const int core = ::getpid();
+    const std::function<std::vector<int>(int)> tree = [&](const int root) {
+        std::vector<int> all = {root};
+        for (std::size_t i = 0; i < all.size() && i < 4000; ++i)
+            if (const auto kids = children.find(all[i]); kids != children.end())
+                for (const int kid: kids->second)
+                    if (kid != core) all.push_back(kid);
+        return all;
+    };
+    const std::function<std::string(int)> command = [&table](const int pid) {
+        std::string line = cluster::read_small("/proc/" + std::to_string(pid) + "/cmdline");
+        std::replace(line.begin(), line.end(), '\0', ' ');
+        line = cluster::trim(line);
+        const auto it = table.find(pid);
+        return cluster::one_line(line.empty() && it != table.end() ? it->second.comm : line, 140);
+    };
+    struct Pick {
+        std::string session;
+        std::string kind;       // command | job | agent
+        int pid = 0;
+        std::int64_t kb = 0;
+        std::vector<int> pids;
+        cluster::Job* job = nullptr;
+    };
+    std::vector<Pick> picks;
+    std::set<int> agentPids;
+    for (const auto &[session, pid]: this->_agents)
+        if (pid > 1) agentPids.insert(pid);
+    for (const auto &[session, agent]: this->_agents) {
+        if (agent <= 1 || !table.contains(agent)) continue;
+        if (const auto kids = children.find(agent); kids != children.end())
+            for (const int kid: kids->second) {
+                const std::string cmd = command(kid);
+                if (kid == core || agentPids.contains(kid) || cmd.find(" mcp") != std::string::npos || table[kid].comm == "claude-cluster") continue; // the tools of the session kept
+                Pick p{session, "command", kid, 0, tree(kid), nullptr};
+                for (const int pid: p.pids)
+                    p.kb += table[pid].rssKb;
+                picks.push_back(p);
+            }
+        picks.push_back({session, "agent", agent, table[agent].rssKb, {agent}, nullptr});
+    }
+    for (cluster::Job& job: this->_jobs) // a heavy job of the core (heavy_run, jobs_add): its process group
+        if (job.state == "running" && job.pid > 1) {
+            Pick p{job.session, "job", job.pid, 0, {}, &job};
+            for (const auto &[pid, proc]: table)
+                if (proc.pgrp == job.pid) {
+                    p.kb += proc.rssKb;
+                    p.pids.push_back(pid);
+                }
+            picks.push_back(p);
+        }
+    // the biggest command or job of at least guard_min_mb; else an agent grown abnormal (over 1.5 GB, the global session last)
+    const Pick* chosen = nullptr;
+    for (const Pick& p: picks)
+        if (p.kind != "agent" && p.kb >= static_cast<std::int64_t>(c.guardMinMb) * 1024 && (!chosen || p.kb > chosen->kb)) chosen = &p;
+    if (!chosen)
+        for (const Pick& p: picks)
+            if (p.kind == "agent" && p.kb >= 1500 * 1024 && (!chosen || (p.session != GLOBAL_ID && chosen->session == GLOBAL_ID) || (p.kb > chosen->kb && (p.session != GLOBAL_ID) == (chosen->session != GLOBAL_ID))))
+                chosen = &p;
+    const long floor = this->guardFloor_(c);
+    const cluster::Host& h = this->_host;
+    if (!chosen) {
+        if (now - this->_guardIdleTold >= 60000 && this->_hooks.notice) {
+            this->_guardIdleTold = now;
+            const std::string text = "memory guard: " + std::to_string(h.memAvailMb) + " MB free (kept: " + std::to_string(floor)
+                + " MB), but nothing claude-cluster runs is big: the rest of the computer uses it";
+            this->post_([this, text]() {this->_hooks.notice(text, true);});
+        }
+        return;
+    }
+    this->_lastGuard = now;
+    const std::string cmd = chosen->job != nullptr ? chosen->job->command : command(chosen->pid);
+    const std::string mb = std::to_string(chosen->kb / 1024);
+    const std::string why = "the computer had " + std::to_string(h.memAvailMb) + " MB of memory free of " + std::to_string(h.memTotalMb) + " MB (the memory guard keeps "
+        + std::to_string(floor) + " MB free so the system never kills anything itself) and it was the biggest of what claude-cluster runs";
+    const std::string name = this->_hooks.nameOf ? this->_hooks.nameOf(chosen->session) : chosen->session;
+    if (chosen->job != nullptr) {
+        this->kill_(*chosen->job, "memory", "killed by the memory guard (" + mb + " MB): " + why);
+    } else {
+        for (const int pid: chosen->pids)
+            if (pid > 1 && pid != core) (void)::kill(pid, SIGKILL);
+    }
+    this->_guardKills.push_back({{"at", cluster::now()}, {"session", chosen->session}, {"name", name}, {"kind", chosen->kind}, {"pid", chosen->pid}, {"command", cmd},
+        {"mb", chosen->kb / 1024}, {"free_mb", h.memAvailMb}, {"floor_mb", floor}, {"processes", chosen->pids.size()}});
+    if (this->_guardKills.size() > 20) this->_guardKills.erase(this->_guardKills.begin());
+    const std::string what = chosen->kind == "agent" ? "the agent of " + name + " itself" : "`" + cmd + "`";
+    const std::string text = "[claude-cluster memory guard] " + what + " (pid " + std::to_string(chosen->pid) + ", " + std::to_string(chosen->pids.size())
+        + " process(es), " + mb + " MB) was killed: " + why + ". If it is still needed, run it again using less memory - fewer parallel jobs (-j1 / -j2), "
+        "a smaller input, one test at a time - or through `cluster-run -- <command>` so it waits until the memory is there; tell the user if it cannot be done with less.";
+    if (chosen->kind == "command" && this->_hooks.tell) this->post_([this, session = chosen->session, text]() {this->_hooks.tell(session, text);});
+    if (this->_hooks.notice) this->post_([this, name, what, mb, h, floor]() {
+        this->_hooks.notice("memory guard: killed " + what + " of " + name + " (" + mb + " MB) - " + std::to_string(h.memAvailMb) + " MB were free, "
+            + std::to_string(floor) + " MB kept", true);
+    });
+    if (this->_hooks.notify) this->post_([this, name, what, mb]() {this->_hooks.notify("job", "Memory guard: " + name, "killed " + what + " (" + mb + " MB): the memory was short", true);});
+    this->touch_();
 }
 
 /* the limits */

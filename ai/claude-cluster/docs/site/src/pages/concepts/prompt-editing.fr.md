@@ -11,11 +11,15 @@ keywords = "prompt édition échap rewind reprendre réserve stash historique vi
 Une seule règle, choisie selon ce qui se passe (`[keys] take_back`) :
 
 - Un prompt **en file** revient dans l'éditeur, retiré de la file.
-- Un tour **en cours** (ou en attente d'une permission) : il est interrompu et seul ce prompt est repris : il quitte la conversation (claude repart du message précédent) et son texte revient dans l'éditeur pour être modifié et renvoyé (`prompt taken back`).
+- Un tour **en cours** (ou en attente d'une permission) : `Échap` `Échap` (le premier `Échap` le signale) l'interrompt et seul ce prompt est repris - jamais `↑`, qui ne reprend qu'un prompt en file : il quitte la conversation (claude repart du message précédent) et son texte revient dans l'éditeur pour être modifié et renvoyé (`prompt taken back`).
 - **Rien en cours, prompt vide** : le **choix de retour en arrière** liste les prompts de la conversation, du plus récent, chacun avec son heure, sa première ligne et la taille de sa réponse ; `↑` / `↓` choisissent, Entrée revient juste avant (le prompt revient dans l'éditeur, les messages suivants quittent la conversation d'où l'agent reprend), la ligne `Cancel` ou Échap ne change rien. Une ligne montre ce qui sera abandonné. `/rewind` l'ouvre aussi. Jamais pendant qu'un tour tourne.
 - **Rien en cours, un prompt en cours d'écriture** : `Échap` `Échap` le vide.
 
 Ce qu'un retour a retiré est gardé dans `rewind/<session>-<heure>.json` du dossier de données (la transcription propre de claude n'est jamais touchée, donc l'ancienne conversation peut être reprise à son ancienne feuille) ; avec `[ui] stash_rewound = true` les prompts abandonnés vont aussi dans la réserve.
+
+## Commandes et skills du même nom {#same-name}
+
+La complétion de `/` liste chaque commande et skill avec sa source (`local`, `built-in`, un plugin, un lien importé). Quand deux portent le même nom - le `/context` de claude-cluster et celui de l'agent, votre skill `export` et le `/export` de claude-cluster -, les deux sont listés, et celui choisi garde un identifiant caché après son nom : des caractères « tag » invisibles que le curseur et Retour arrière traitent comme un seul bloc avec la dernière lettre. Le cœur lance alors la commande de claude-cluster ou envoie la commande de l'agent / le skill à l'agent ; l'identifiant est retiré avant que quoi que ce soit n'atteigne l'agent ou le transcript. Un `/nom` tapé à la main reste la commande de claude-cluster.
 
 ## La réserve {#stash}
 

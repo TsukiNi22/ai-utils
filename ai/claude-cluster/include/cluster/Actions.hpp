@@ -54,6 +54,9 @@ struct SlashEntry {
     std::string source;     // local | built-in | a plugin | the slug of an imported link
     std::string description;
     bool command = false;   // a local command of claude-cluster (never a skill: only at the start of the prompt)
+    std::string id;         // which one among those of the same name: c (claude-cluster), a (the agent's own), s (a skill), p (a plugin), l (an
+                            // imported link), a number after it for the same kind again; hidden in the prompt (slash_tag)
+    bool shared = false;    // another entry has the same name: the completion writes its id after it
 };
 
 enum class MarkKind {

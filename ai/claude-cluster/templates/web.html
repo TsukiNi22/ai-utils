@@ -469,6 +469,122 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
     #ask input[type=text], #ask textarea, #ask select { min-height: 44px; font-size: 16px; }
     .picker-row { display: flex; align-items: center; }
 }
+
+/* ===== the simple mode (claude-cluster --simple / --ipad-kid, [ui] mode = simple): soft cards, plain words, the same prompt ===== */
+body.simple { --radius: 18px; --soft-ok: color-mix(in srgb, var(--ok) 16%, var(--surface)); --soft-warn: color-mix(in srgb, var(--warn) 18%, var(--surface));
+    --soft-bad: color-mix(in srgb, var(--error) 16%, var(--surface)); --soft-idle: color-mix(in srgb, var(--muted) 14%, var(--surface));
+    --soft-accent: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+body.simple #side, body.simple #views, body.simple #picker, body.simple #viewPane, body.simple #tabbar, body.simple #ttyButton,
+body.simple #sessionInfo, body.simple #sessionWhere, body.simple #sessionLabels, body.simple #sessionDesc, body.simple #fork, body.simple #closeSession,
+body.simple #settingsButton, body.simple #logout { display: none !important; }
+body.simple #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+body.simple header { grid-column: 1; }
+#simpleHome { display: none; }
+body.simple #simpleHome { display: block; overflow-y: auto; min-height: 0; padding: 18px 16px 8px; }
+body.simple #simpleHome .inner { max-width: 1120px; margin: 0 auto; }
+/* the prompt of the home: #main shows only its prompt (and a question / permission of the assistant) */
+body.simple:not(.s-open) #main { grid-column: 1; grid-row: 3; max-width: 1120px; width: 100%; margin: 0 auto; padding: 0 16px; }
+body.simple:not(.s-open) #sessionBar, body.simple:not(.s-open) #transcript, body.simple:not(.s-open) #newOutput, body.simple:not(.s-open) #pinned { display: none !important; }
+body.simple #composer { border-radius: 20px; border: 1px solid var(--line); background: var(--surface); margin: 6px 0 12px; box-shadow: 0 8px 28px rgba(0,0,0,.12); }
+/* a session opened (s-open, not .panel: the class of the side drawers): #main as a side panel */
+body.simple.s-open #main { position: fixed; top: 0; right: 0; bottom: 0; width: min(620px, 100%); z-index: 45; background: var(--bg); box-shadow: -10px 0 40px rgba(0,0,0,.25);
+    border-left: 1px solid var(--line); }
+body.simple.s-open::after { content: ""; position: fixed; inset: 0; background: rgba(0,0,0,.28); z-index: 44; }
+body.simple #simpleBack { display: inline-block; }
+#simpleBack { display: none; }
+body.simple .msg.tool, body.simple .msg.tool_result, body.simple .msg.system, body.simple .msg.thinking { display: none; }
+body.simple .msg.user { border-radius: 16px 16px 4px 16px; }
+body.simple .msg.assistant { border-radius: 16px 16px 16px 4px; }
+.s-top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.s-top .face { display: inline-grid; place-items: center; min-width: 46px; height: 46px; padding: 0 10px; border-radius: 16px; background: var(--soft-accent); color: var(--accent);
+    font: 700 16px ui-monospace, monospace; }
+.s-top h1 { font-size: 22px; margin: 0; }
+.s-top p { margin: 0; color: var(--muted); }
+.s-top .grow { flex: 1; min-width: 150px; }
+.s-top button { border-radius: 14px; }
+.s-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.s-chip { border-radius: 999px; padding: 7px 14px; font-weight: 600; border: 2px solid transparent; display: inline-flex; gap: 8px; align-items: center; }
+.s-chip::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.s-chip.working { background: var(--soft-ok); color: var(--ok); } .s-chip.needs { background: var(--soft-warn); color: var(--warn); }
+.s-chip.done { background: var(--soft-idle); color: var(--muted); } .s-chip.on { border-color: currentColor; }
+.s-chip.clear { background: transparent; color: var(--muted); border: 1px dashed var(--line); } .s-chip.clear::before { display: none; }
+.s-chip.zero:not(.on) { background: transparent; color: var(--muted); border-color: var(--line); opacity: .75; }   /* none of them: quiet */
+.s-h2 { font-size: 16px; margin: 0 0 10px; display: flex; gap: 8px; align-items: baseline; }
+.s-h2 small { color: var(--muted); font-weight: 400; }
+.s-asks { display: grid; gap: 10px; margin-bottom: 22px; }
+.s-ask { background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--warn); border-radius: var(--radius); padding: 14px 16px;
+    display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; transition: opacity .25s, transform .25s; }
+.s-ask.gone { opacity: 0; transform: translateX(24px); }
+.s-ask .what { font-weight: 600; }
+.s-ask code { display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 9px; background: var(--code); font-size: 13px; word-break: break-all; }
+.s-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.s-btns button { border-radius: 12px; padding: 9px 16px; font-weight: 600; }
+.s-btns .good { background: var(--ok); border-color: var(--ok); color: #fff; }
+.s-empty { color: var(--muted); border: 1px dashed var(--line); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 22px; }
+.s-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.s-card { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; cursor: pointer;
+    transition: transform .12s, border-color .12s; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.s-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.s-card .head { display: flex; gap: 8px; align-items: center; }
+.s-card .name { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-state { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.s-state.working { background: var(--soft-ok); color: var(--ok); } .s-state.needs { background: var(--soft-warn); color: var(--warn); }
+.s-state.stuck { background: var(--soft-bad); color: var(--error); } .s-state.done, .s-state.ready, .s-state.starting { background: var(--soft-idle); color: var(--muted); }
+.s-card .doing { color: var(--muted); font-size: 14px; min-height: 40px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.s-bar { height: 7px; border-radius: 99px; background: var(--code); overflow: hidden; margin-top: 6px; }
+.s-bar i { display: block; height: 100%; border-radius: 99px; background: var(--accent); transition: width .5s; }
+.s-card.needs .s-bar i { background: var(--warn); } .s-card.stuck .s-bar i { background: var(--error); } .s-card.done .s-bar i { background: var(--muted); }
+.s-card .foot { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; gap: 8px; }
+.s-card .tag::before { content: "● "; color: var(--chip, var(--accent)); }
+.s-card.new { align-items: center; justify-content: center; border: 2px dashed var(--line); background: transparent; color: var(--muted); font-weight: 600; min-height: 130px; }
+.s-card .retry { color: var(--accent); font-weight: 600; }
+/* the windows */
+.s-shade { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 60; }
+.s-win { position: fixed; z-index: 61; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(820px, calc(100% - 24px)); max-height: calc(100% - 32px);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 22px; display: flex; flex-direction: column; box-shadow: 0 30px 80px rgba(0,0,0,.35); }
+.s-win.narrow { width: min(520px, calc(100% - 24px)); }
+.s-win > .head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.s-win > .head b { flex: 1; font-size: 17px; }
+.s-win .body { overflow: auto; padding: 16px 18px; display: grid; gap: 12px; align-content: start; }
+.s-win .split { display: grid; grid-template-columns: 190px 1fr; min-height: 0; flex: 1; overflow: hidden; }
+.s-win .nav { border-right: 1px solid var(--line); padding: 10px; display: grid; gap: 4px; align-content: start; }
+.s-win .nav button { border: 0; background: transparent; text-align: left; border-radius: 12px; }
+.s-win .nav button.on { background: var(--soft-accent); color: var(--accent); font-weight: 600; }
+.s-win .foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; padding: 12px 18px; border-top: 1px solid var(--line); }
+.s-row { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.s-agents { color: var(--accent); font-size: 13px; margin-top: 2px; }
+.s-row .label { flex: 1; min-width: 160px; font-family: inherit; font-size: 15px; letter-spacing: normal; text-transform: none; color: var(--text); }
+.s-row .label small { display: block; color: var(--muted); font-size: 13px; }
+.s-seg { display: inline-flex; background: var(--code); border-radius: 12px; padding: 3px; flex-wrap: wrap; }
+.s-seg button { border: 0; background: transparent; padding: 6px 12px; border-radius: 10px; }
+.s-seg button.on { background: var(--surface); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.s-explain { background: var(--code); border-radius: 12px; padding: 9px 12px; color: var(--muted); font-size: 13.5px; }
+.s-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.s-kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+.s-kpi b { display: block; font-size: 22px; }
+.s-kpi span { color: var(--muted); font-size: 13px; }
+.s-meter { height: 10px; border-radius: 99px; background: var(--code); overflow: hidden; margin: 6px 0 2px; }
+.s-meter i { display: block; height: 100%; background: var(--ok); }
+.s-keyrow input.twice { color: var(--warn); border-color: var(--warn); }
+#simpleTabs { display: none; }
+@media (max-width: 760px) {
+    .s-ask { grid-template-columns: 1fr; }
+    .s-win .split { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    /* the pages: one row of chips that scrolls sideways, each on one line, no bar shown */
+    .s-win .nav { border-right: 0; border-bottom: 1px solid var(--line); grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto;
+        padding: 8px 10px; scrollbar-width: none; }
+    .s-win .nav::-webkit-scrollbar { display: none; }
+    .s-win .nav button { white-space: nowrap; padding: 6px 12px; }
+    body.simple #simpleTabs { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--surface); border-top: 1px solid var(--line);
+        padding-bottom: env(safe-area-inset-bottom); }
+    body.simple #simpleTabs button { flex: 1; border: 0; border-radius: 0; background: transparent; display: grid; gap: 1px; font-size: 12px; color: var(--muted); padding: 8px 0; }
+    body.simple #simpleTabs button span { font-size: 18px; }
+    body.simple #app { padding-bottom: 58px; }
+    body.simple .s-top .opt { display: none; }
+    body.simple #composer { flex-wrap: wrap; }
+    body.simple #promptBox { order: -1; flex: 1 1 100%; }   /* the prompt on a line of its own, its buttons under it */
+    body.simple #composer button[type="submit"] { margin-left: auto; }
+}
 </style>
 </head>
 <body>
@@ -549,6 +665,7 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
     </nav>
     <main id="main">
         <div id="sessionBar">
+            <button id="simpleBack" type="button" title="Back to the home">‹</button>
             <button id="sessionName" class="link" title="Sessions" style="border:none;background:none;padding:0;font-weight:600"></button>
             <span class="muted" id="sessionInfo"></span>
             <span class="where" id="sessionWhere"></span>
@@ -592,10 +709,11 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
             <button id="mic" type="button" title="Microphone">🎤</button>
             <span id="modeBadge" class="mode-badge hidden"></span>
             <div id="promptBox"><div id="promptHl" aria-hidden="true"></div><textarea id="prompt" rows="1" placeholder="Message (Enter sends, Shift+Enter: new line, @ file, / command)" spellcheck="false"></textarea></div>
-            <button class="primary" type="submit">Send</button>
+            <button id="send" class="primary" type="submit">Send</button>
         </form>
     </main>
     <section id="viewPane" class="hidden"></section>
+    <section id="simpleHome" aria-label="Home"><div class="inner" id="simpleInner"></div></section>
 </div>
 <aside id="drawer" class="panel hidden" aria-label="Settings">
     <div class="panel-head"><b>Settings</b><span class="grow"></span><button id="drawerHelp" class="help" title="Help: the documentation of the settings" aria-label="Help">?</button><button id="drawerClose" aria-label="Close">✕</button></div>
@@ -635,6 +753,8 @@ body:has(.picker-veil, .app-update, .link-lost, .failure-card) #transcript { ove
     <button data-tab="docs"><span>?</span>Docs</button>
     <button data-tab="settings"><span>⚙</span>Settings</button>
 </nav>
+<nav id="simpleTabs" aria-label="Sections"></nav>
+<div id="simpleLayer"></div>
 <div id="toast" class="hidden"></div>
 <script>
 // the visible viewport for the popups (a keyboard that does not resize the page) + the typed field kept in view
@@ -1011,6 +1131,7 @@ function render(state) {
     if (state.version_app && render.core && render.core !== state.version_app) { location.reload(); return; } // the core updated: its page
     if (state.version_app) render.core = state.version_app;
     applyStyle(state.style);
+    renderSimple(state);
     watchAlerts(state);
     if (state.face) $("brandFace").textContent = state.face.text;
     if (view !== "chat") renderView(state);
@@ -1404,19 +1525,47 @@ async function jobDo(id, cmdName, extra) {
     try { await act(Object.assign({cmd: cmdName, id}, extra || {})); } catch (error) { toast(error.message); }
     renderTasks();
 }
+// a heavy job opened (a click in the Tasks): its details, its time and memory, the end of its output - read again every second -, its actions
 function jobMenu(j) {
-    const items = [];
-    const active = j.state === "queued" || j.state === "running" || j.state === "stopped";
-    if (j.state === "queued") items.push({label: "Run it first (top priority)", run: () => jobDo(j.id, "job_prio", {prio: 10})});
-    if (active) items.push({label: "Priority +1", run: () => jobDo(j.id, "job_prio", {prio: (j.prio || 0) + 1})}, {label: "Priority -1", run: () => jobDo(j.id, "job_prio", {prio: (j.prio || 0) - 1})});
-    if (j.state === "running") items.push({label: "Stop it (keeps its memory, uses no CPU)", run: () => jobDo(j.id, "job_stop")});
-    if (j.state === "stopped") items.push({label: "Resume it", run: () => jobDo(j.id, "job_resume")});
-    if (j.session) items.push({label: "Open its session", run: () => select(j.session)});
-    if (active) items.push({label: "Kill it…", danger: true, run: () => {
-        const reason = prompt("A reason (optional: told to its session)", "");
-        if (reason !== null) jobDo(j.id, "job_kill", {reason});
-    }});
-    menuOf(j.id + " · " + (j.message || j.state), items);
+    const {win, done} = simpleWindow("Job " + j.id);
+    const body = el("div", "body");
+    const buttons = el("div", "foot");
+    win.append(body, buttons);
+    win.style.width = "min(860px, calc(100% - 24px))";
+    let last = j;
+    const fmt = (s) => (s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s" : Math.floor(s / 3600) + " h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") + " min");
+    const draw = () => {
+        const x = last;
+        const now = Math.floor(Date.now() / 1000);
+        body.textContent = "";
+        const mark = {running: "▶", queued: "◌", stopped: "⏸", done: "✓", failed: "✗", killed: "⊘"}[x.state] || "·";
+        body.append(el("div", "", mark + " " + x.id + " · " + (x.class || "") + " · " + x.state + (x.started ? " · ⏱ " + fmt((x.ended || now) - x.started) : "")));
+        const rows = [["command", x.command || ""], ["session", x.session ? nameOf(x.session) + " (" + x.session + ")" : "you"], ["folder", x.cwd || ""],
+            ["process", (x.pid ? "pid " + x.pid + " · " : "") + (x.rss_mb ? x.rss_mb + " MB in use · " : "") + "~" + (x.ram_mb || 0) + " MB planned" + (x.threads ? " · " + x.threads + " thread(s)" : "")
+                + " · priority " + (x.prio || 0) + " · " + (x.origin || "")], ["now", x.message || ""]];
+        for (const [k, v] of rows) { const r = el("div", ""); r.append(el("b", "", k + "  "), el("span", "", v)); body.append(r); }
+        body.append(el("b", "", "output" + (x.log ? " (" + x.log + ")" : "")));
+        const out = el("pre", "agent-tail", (x.tail || "(nothing yet)").split("\n").slice(-24).join("\n"));
+        body.append(out);
+        buttons.textContent = "";
+        const active = x.state === "queued" || x.state === "running" || x.state === "stopped";
+        const add = (label, run, cls) => { const b = el("button", cls || "", label); b.addEventListener("click", run); buttons.append(b); };
+        if (x.state === "queued") add("Run it first", () => jobDo(x.id, "job_prio", {prio: 10}));
+        if (active) { add("Priority +1", () => jobDo(x.id, "job_prio", {prio: (x.prio || 0) + 1})); add("Priority -1", () => jobDo(x.id, "job_prio", {prio: (x.prio || 0) - 1})); }
+        if (x.state === "running") add("Stop", () => jobDo(x.id, "job_stop"));
+        if (x.state === "stopped") add("Resume", () => jobDo(x.id, "job_resume"));
+        if (x.session) add("Its session", () => { done(); select(x.session); });
+        if (active) add("Kill…", () => { const reason = prompt("A reason (optional: told to its session)", ""); if (reason !== null) jobDo(x.id, "job_kill", {reason}); }, "danger");
+        add("Close", done);
+    };
+    const tick = async () => {
+        if (!document.body.contains(win)) return;
+        try { last = await cmd({cmd: "job_status", id: j.id}); } catch (e) { /* gone: the last seen kept */ }
+        draw();
+        setTimeout(tick, 1000);
+    };
+    draw();
+    tick();
 }
 function schedMenu(w, told) {
     const items = [];
@@ -3035,11 +3184,10 @@ for (const input of [$("prompt"), $("newCwd")]) {
             if (PHONE) return; // a phone: Enter is a new line, the Send button sends
             e.preventDefault();
             $("composer").requestSubmit();
-        } else if (input.id === "prompt" && !input.value && (e.key === "ArrowUp" || e.key === "Escape") && takeBackable(e.key === "Escape")) {
+        } else if (input.id === "prompt" && !input.value && (e.key === "Escape" || (e.key === "ArrowUp" && queuedNow())) && takeBackable(e.key === "Escape")) {
             e.preventDefault();
-            // queued: at once; already given to the agent (sending, its turn running): a second press within 0.8 s (never one by mistake)
-            const s = lastState && lastState.session;
-            const queued = s && (s.queued || 0) > (s.queue_given || 0);
+            // queued: at once (↑ or Esc); already given to the agent (sending, its turn running): Esc Esc only, a second one within 0.8 s
+            const queued = queuedNow();
             if (!queued && (armedKey !== e.key || Date.now() - armedAt >= 800)) {
                 armedKey = e.key;
                 armedAt = Date.now();
@@ -3056,6 +3204,10 @@ for (const input of [$("prompt"), $("newCwd")]) {
 // stopped, like Claude Code); Esc: a running turn too (it leaves the conversation, its prompt back)
 let armedKey = "";
 let armedAt = 0;
+function queuedNow() {
+    const s = lastState && lastState.session;
+    return !!(s && (s.queued || 0) > (s.queue_given || 0));
+}
 
 function takeBackable(esc) {
     const s = lastState && lastState.session;
@@ -3546,7 +3698,7 @@ function renderHub(pane, sessions) {
     const world = svgOf("g", {class: "world"});
     svg.append(world);
     const color = (s) => (s.permissions && s.permissions.length ? "var(--warn)" : s.state === "working" || s.state === "starting" ? "var(--ok)"
-        : s.state === "error" ? "var(--error)" : "var(--muted)");
+        : s.state === "error" ? "var(--error)" : s.background_busy ? "var(--busy)" : "var(--muted)");   // its background runs: purple
     const radius = Math.max(170, others.length * 92 / (2 * Math.PI)); // the nodes never glued (zoom out for many)
     let moved = false; // a drag: no session opened at its end
     const drawn = [];  // the nodes drawn: their labels are placed once all of them are (no text over another node or text)
@@ -3565,8 +3717,9 @@ function renderHub(pane, sessions) {
     others.forEach((s, i) => {
         const a = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
         const x = cx + Math.cos(a) * radius, y = cy + Math.sin(a) * radius * 0.78;
-        world.append(svgOf("line", {x1: cx, y1: cy, x2: x, y2: y, stroke: color(s), "stroke-width": s.state === "working" ? 2.5 : 1.5,
-            "stroke-dasharray": s.state === "working" ? "" : "4 5", opacity: 0.8}));
+        const active = s.state === "working" || s.background_busy; // its background runs: a solid link too
+        world.append(svgOf("line", {x1: cx, y1: cy, x2: x, y2: y, stroke: color(s), "stroke-width": active ? 2.5 : 1.5,
+            "stroke-dasharray": active ? "" : "4 5", opacity: 0.8}));
     });
     others.forEach((s, i) => {
         const a = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
@@ -3850,7 +4003,7 @@ function renderHubTree(pane, sessions, graph) {
     world.append(edges, nodes);
     svg.append(world);
     const color = (s) => (s.permissions && s.permissions.length ? "var(--warn)" : s.state === "working" || s.state === "starting" ? "var(--ok)"
-        : s.state === "error" ? "var(--error)" : "var(--muted)");
+        : s.state === "error" ? "var(--error)" : s.background_busy ? "var(--busy)" : "var(--muted)");   // its background runs: purple
     const drag = {moved: false};
     const toggle = (name) => {
         const next = new Set(collapsed);
@@ -3864,7 +4017,7 @@ function renderHubTree(pane, sessions, graph) {
             const d = radial ? `M${x1},${y1} Q${(x1 + x2) / 2 + (W / 2 - (x1 + x2) / 2) * 0.15},${(y1 + y2) / 2 + (H / 2 - (y1 + y2) / 2) * 0.15} ${x2},${y2}`
                 : `M${x1},${y1} C${xm},${y1} ${xm},${y2} ${x2},${y2}`;
             edges.append(svgOf("path", {d, fill: "none", stroke, "stroke-width": 1.6, opacity: 0.7,
-                "stroke-dasharray": child.kind === "session" && (child.it.archived || child.it.s.state !== "working") ? "4 5" : ""}));
+                "stroke-dasharray": child.kind === "session" && (child.it.archived || (child.it.s.state !== "working" && !child.it.s.background_busy)) ? "4 5" : ""}));
             draw(child);
         }
         const g = svgOf("g", {class: "node", transform: `translate(${X(node)},${Y(node)})`});
@@ -4662,6 +4815,432 @@ if (location.hash.length > 1) { // opened by a notification: its session
     setTimeout(() => openSession(session), 800);
 }
 if (!window.isSecureContext) $("mic").title = "The microphone needs https (settings page > Web > HTTPS)";
+
+
+// ===================== the simple mode (claude-cluster --simple / --ipad-kid, [ui] mode = simple) =====================
+// the home: what needs you, a card per session, the same prompt (to the assistant); a card opens the session as a side panel; the
+// useful settings in 6 pages (reopened on the last one), a Stats window; its words in English / French from the core (simple_words)
+let simpleWords = {};
+let simpleLang = "";
+let simpleFilter = "";
+let simplePage = store.get("cc-simple-page", "general");
+let simplePanel = "";           // the session shown in the side panel ("" : the home)
+let simpleLast = "";
+function sw(key, vars) {
+    let text = simpleWords[key] || key;
+    for (const [k, v] of Object.entries(vars || {})) text = text.split("{" + k + "}").join(String(v));
+    return text;
+}
+async function simpleLoadWords(lang) {
+    if (lang === simpleLang) return;
+    simpleLang = lang;
+    try { simpleWords = await cmd({cmd: "simple_words", lang}); } catch (e) { simpleWords = {}; }
+    simpleLast = "";
+    if (lastState) renderSimple(lastState);
+}
+// the hint of the prompt: to a helper opened "Tell it something…"; on the home the question, with its modes when they fit on the line
+function simpleHint() {
+    if (!document.body.classList.contains("simple")) return;
+    $("prompt").placeholder = simplePanel ? sw("tell_it") : sw("prompt_hint") + (window.innerWidth > 700 ? "   (" + sw("prompt_modes") + ")" : "");
+}
+function simpleOpen(id) {
+    simplePanel = id;
+    document.body.classList.add("s-open");
+    select(id);
+    simpleHint();
+}
+function simpleClose() {
+    simplePanel = "";
+    document.body.classList.remove("s-open");
+    select("g");
+    simpleHint();
+}
+$("simpleBack").addEventListener("click", simpleClose);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("s-open") && !$("simpleLayer").children.length) simpleClose(); });
+document.addEventListener("click", (e) => { if (document.body.classList.contains("s-open") && e.target === document.body) simpleClose(); });
+
+function renderSimple(state) {
+    const s = state.simple || {};
+    document.body.classList.toggle("simple", !!s.on);
+    if (!s.on) { document.body.classList.remove("s-open"); return; }
+    if (s.lang !== simpleLang) { simpleLoadWords(s.lang); }
+    simpleHint();
+    if ($("send")) $("send").textContent = sw("send");
+    // drawn again only when something shown changed (a click in it kept)
+    const key = JSON.stringify([s.cards, s.asks, s.counts, s.greeting, simpleFilter, simpleLang, state.ask && state.ask.request_id]);
+    if (key === simpleLast) return;
+    simpleLast = key;
+    const box = $("simpleInner");
+    box.textContent = "";
+    const top = el("div", "s-top");
+    const face = el("span", "face", (state.face && state.face.text) || "^_^");
+    const words = el("div", "grow");
+    words.append(el("h1", "", s.greeting || ""), el("p", "", s.subtitle || ""));
+    const statsB = el("button", "opt", sw("stats"));
+    statsB.addEventListener("click", simpleStats);
+    const docsB = el("button", "opt", "?");
+    docsB.title = sw("about_docs");
+    docsB.addEventListener("click", () => openDocs(""));
+    const setB = el("button", "", sw("settings"));
+    setB.addEventListener("click", simpleSettings);
+    top.append(face, words, statsB, docsB, setB);
+    box.append(top);
+    // the counts: a click filters the cards
+    const chips = el("div", "s-chips");
+    for (const [kind, word] of [["working", "chip_working"], ["needs", "chip_needs"], ["done", "chip_done"]]) {
+        const n = (s.counts || {})[kind] || 0;
+        const c = el("button", "s-chip " + kind + (simpleFilter === kind ? " on" : "") + (n ? "" : " zero"), sw(n === 1 && simpleWords[word + "_one"] ? word + "_one" : word, {n}));
+        c.addEventListener("click", () => { simpleFilter = simpleFilter === kind ? "" : kind; renderSimple(lastState); });
+        chips.append(c);
+    }
+    if (simpleFilter) {
+        const c = el("button", "s-chip clear", "× " + sw("chip_all"));
+        c.addEventListener("click", () => { simpleFilter = ""; renderSimple(lastState); });
+        chips.append(c);
+    }
+    box.append(chips);
+    // what needs you: the permissions (Allow / Always / Not now), the question of an agent (its popup: Answer)
+    const asks = s.asks || [];
+    const head = el("h2", "s-h2", sw("needs_you"));
+    if (asks.length || state.ask) head.append(el("small", "", String(asks.length + (state.ask ? 1 : 0))));
+    box.append(head);
+    const list = el("div", "s-asks");
+    for (const a of asks) {
+        const card = el("div", "s-ask");
+        const left = el("div");
+        left.append(el("div", "what", a.what));
+        if (a.detail) left.append(el("code", "", a.detail));
+        const btns = el("div", "s-btns");
+        for (const [behavior, word, cls] of [["allow", "allow", "good"], ["always", "always", ""], ["deny", "not_now", ""]]) {
+            const b = el("button", cls, sw(word));
+            b.addEventListener("click", async () => {
+                card.classList.add("gone");
+                try { await cmd({cmd: "allow", session: a.session, request_id: a.request_id, behavior}); toast(sw(behavior === "deny" ? "refused" : "allowed", {name: a.name})); }
+                catch (error) { card.classList.remove("gone"); toast(error.message); }
+            });
+            btns.append(b);
+        }
+        card.append(left, btns);
+        list.append(card);
+    }
+    if (state.ask) {
+        const card = el("div", "s-ask");
+        const left = el("div");
+        left.append(el("div", "what", sw("ask_question", {name: state.ask.name || "?"})));
+        const q = (state.ask.questions || [])[0];
+        if (q) left.append(el("div", "muted", q.question || ""));
+        const btns = el("div", "s-btns");
+        const b = el("button", "good", sw("answer"));
+        b.addEventListener("click", () => simpleOpen(state.ask.session || "g"));
+        btns.append(b);
+        card.append(left, btns);
+        list.append(card);
+    }
+    if (asks.length || state.ask) box.append(list);
+    else box.append(el("div", "s-empty", sw("nothing_waits")));
+    // the work: a card per session (its state in a word, what it does, its todo), then a new task
+    const cards = (s.cards || []).filter((c) => !simpleFilter || c.state === simpleFilter);
+    const h2 = el("h2", "s-h2", sw("your_work"));
+    h2.append(el("small", "", String(cards.length)));
+    box.append(h2);
+    const grid = el("div", "s-grid");
+    const words2 = {working: "st_working", needs: "st_needs", stuck: "st_stuck", done: "st_done", ready: "st_ready", starting: "st_starting"};
+    for (const c of cards) {
+        const card = el("button", "s-card " + c.state);
+        const h = el("div", "head");
+        h.append(el("span", "name", c.name), el("span", "s-state " + c.state, sw(words2[c.state] || c.state)));
+        card.append(h, el("div", "doing", c.doing || ""));
+        if (c.total) { const bar = el("div", "s-bar"); const i = el("i"); i.style.width = Math.round(100 * c.done / c.total) + "%"; bar.append(i); card.append(bar); }
+        const foot = el("div", "foot");
+        const tag = el("span", c.tag ? "tag" : "", c.tag || ""); // no category: nothing (never a lone dot)
+        if (c.tag) tag.style.setProperty("--chip", chipColor(c.tag));
+        foot.append(tag);
+        if (c.state === "stuck") {
+            const retry = el("span", "retry", sw("retry") + " ›");
+            retry.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                try { await cmd({cmd: "resume", session: c.id}); toast(sw("retried", {name: c.name})); } catch (error) { toast(error.message); }
+            });
+            foot.append(retry);
+        } else {
+            foot.append(el("span", "", c.total ? sw("steps", {a: c.done, b: c.total}) : c.state === "done" ? c.ago : ""));
+        }
+        if (c.agents) { // its own agents (its Agent tool): how many, for how long
+            const a = el("div", "s-agents", "⧉ " + sw(c.agents === 1 ? "agent_one" : "agents_run", {n: c.agents, t: agentUptime({started: c.agents_since}, state.now_ms)}));
+            a.dataset.since = c.agents_since;
+            card.append(a);
+        }
+        card.append(foot);
+        card.addEventListener("click", () => simpleOpen(c.id));
+        grid.append(card);
+    }
+    const add = el("button", "s-card new", sw("new_task"));
+    add.addEventListener("click", simpleNewTask);
+    grid.append(add);
+    box.append(grid);
+    // the phone: three tabs
+    const tabs = $("simpleTabs");
+    tabs.textContent = "";
+    for (const [icon, word, run] of [["⌂", "your_work", () => { simpleClose(); $("simpleHome").scrollTop = 0; }], ["▤", "stats", simpleStats], ["⚙", "settings", simpleSettings]]) {
+        const b = el("button");
+        b.append(el("span", "", icon), document.createTextNode(sw(word)));
+        b.addEventListener("click", run);
+        tabs.append(b);
+    }
+}
+
+// ---- windows ----
+function simpleWindow(title, narrow) {
+    const layer = $("simpleLayer");
+    layer.textContent = "";
+    const shade = el("div", "s-shade");
+    const win = el("div", "s-win" + (narrow ? " narrow" : ""));
+    win.setAttribute("role", "dialog");
+    const head = el("div", "head");
+    const close = el("button", "", "✕");
+    close.setAttribute("aria-label", sw("close"));
+    head.append(el("b", "", title), close);
+    win.append(head);
+    const done = () => { layer.textContent = ""; };
+    close.addEventListener("click", done);
+    shade.addEventListener("click", done);
+    win.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); done(); } });
+    layer.append(shade, win);
+    return {win, done};
+}
+function simpleSeg(options, value, change) {
+    const seg = el("div", "s-seg");
+    for (const [v, label] of options) {
+        const b = el("button", v === value ? "on" : "", label);
+        b.type = "button";
+        b.addEventListener("click", () => { for (const o of seg.children) o.classList.toggle("on", o === b); change(v); });
+        seg.append(b);
+    }
+    return seg;
+}
+function simpleRow(title, help, control) {
+    const row = el("div", "s-row");
+    const label = el("div", "label");
+    label.append(el("b", "", title));
+    if (help) label.append(el("small", "", help));
+    row.append(label);
+    if (control) row.append(control);
+    return row;
+}
+
+async function simpleNewTask() {
+    const {win, done} = simpleWindow(sw("nt_title"), true);
+    const body = el("div", "body");
+    const what = el("textarea");
+    what.rows = 4;
+    what.placeholder = sw("nt_hint");
+    const where = el("input");
+    where.placeholder = "~/projects/app";
+    const list = el("datalist");
+    list.id = "simpleProjects";
+    where.setAttribute("list", list.id);
+    let effort = "";
+    body.append(el("b", "", sw("nt_what")), what, el("small", "muted", sw("nt_skills")), el("b", "", sw("nt_where")), where, list, el("b", "", sw("set_smart")),
+        simpleSeg([["low", sw("smart_fast")], ["", sw("smart_balanced")], ["high", sw("smart_best")]], "", (v) => { effort = v; }));
+    const foot = el("div", "foot");
+    const cancel = el("button", "", sw("cancel"));
+    const create = el("button", "primary", sw("nt_create"));
+    foot.append(cancel, create);
+    win.append(body, foot);
+    cancel.addEventListener("click", done);
+    what.focus();
+    try {
+        const projects = await cmd({cmd: "projects", query: ""});
+        for (const p of projects || []) { const o = el("option"); o.value = p.path; o.textContent = p.name; list.append(o); }
+    } catch (e) { /* no map of the computer */ }
+    create.addEventListener("click", async () => {
+        const text = what.value.trim();
+        const cwd = where.value.trim();
+        if (!text || !cwd) { toast(!text ? sw("nt_what") : sw("nt_where")); return; }
+        const name = text.split(/\s+/).slice(0, 3).join("-").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 32) || "task";
+        const data = await act({cmd: "spawn", cwd, name, prompt: text, effort});
+        if (data && data.id) { done(); toast(sw("created", {name})); }
+    });
+}
+
+async function simpleSettings() {
+    const {win, done} = simpleWindow(sw("settings"));
+    let data = [];
+    try { data = await cmd({cmd: "settings_get"}); } catch (e) { toast(e.message); }
+    const changes = new Map();
+    const value = (section, key) => {
+        const k = section + "." + key;
+        if (changes.has(k)) return changes.get(k);
+        const s = data.find((x) => x.section === section && x.key === key);
+        return s ? s.value : "";
+    };
+    const set = (section, key, v) => { changes.set(section + "." + key, v); };
+    const choices = (section, key) => (data.find((x) => x.section === section && x.key === key) || {}).choices || [];
+    const pages = [["general", "set_general"], ["account", "set_account"], ["assistant", "set_assistant"], ["phone", "set_phone"], ["keys", "set_keys"], ["about", "set_about"]];
+    const split = el("div", "split");
+    const nav = el("div", "nav");
+    const body = el("div", "body");
+    split.append(nav, body);
+    const foot = el("div", "foot");
+    const note = el("span", "muted", sw("reopens"));
+    note.style.flex = "1";
+    const cancel = el("button", "", sw("close"));
+    const save = el("button", "primary", sw("save"));
+    foot.append(note, cancel, save);
+    win.append(split, foot);
+    win.style.height = "min(680px, calc(100% - 32px))";
+    cancel.addEventListener("click", done);
+    const clashKeys = () => {
+        const saved = settingsData;
+        settingsData = data.map((s) => Object.assign({}, s, s.section === "keys" && changes.has("keys." + s.key) ? {value: changes.get("keys." + s.key)} : {}));
+        const out = keyClashes();
+        settingsData = saved;
+        return out;
+    };
+    const draw = () => {
+        nav.textContent = "";
+        const clashes = clashKeys();
+        for (const [p, word] of pages) {
+            const b = el("button", p === simplePage ? "on" : "", sw(word));
+            if (p === "keys" && clashes.size) b.append(el("span", "twice-mark", " !"));
+            b.addEventListener("click", () => { simplePage = p; store.set("cc-simple-page", p); draw(); });
+            nav.append(b);
+        }
+        body.textContent = "";
+        if (simplePage === "general") {
+            body.append(simpleRow(sw("set_language"), sw("set_language_d"), simpleSeg([["en", "English"], ["fr", "Français"]], simpleLang || value("ui", "language") || "en", (v) => set("ui", "language", v))));
+            const style = el("select");
+            for (const c of choices("ui", "style")) { const o = el("option", "", c); o.value = c; style.append(o); }
+            style.value = value("ui", "style");
+            style.addEventListener("change", () => set("ui", "style", style.value));
+            body.append(simpleRow(sw("set_look"), sw("set_look_d"), style));
+            const notify = el("input");
+            notify.type = "checkbox";
+            notify.className = "switch";
+            notify.checked = value("ui", "notify") === "true";
+            notify.addEventListener("change", () => set("ui", "notify", notify.checked ? "true" : "false"));
+            body.append(simpleRow(sw("set_notify"), sw("set_notify_d"), notify));
+            body.append(simpleRow(sw("set_interface"), sw("set_interface_d"), simpleSeg([["simple", sw("simple")], ["classic", sw("classic")]], changes.get("ui.mode") || "simple", (v) => set("ui", "mode", v))));
+        } else if (simplePage === "account") {
+            const provider = el("input");
+            provider.value = value("agent", "provider");
+            provider.placeholder = "claude";
+            provider.addEventListener("change", () => set("agent", "provider", provider.value.trim()));
+            body.append(simpleRow(sw("set_provider"), sw("set_provider_d"), provider));
+            for (const s of data.filter((x) => x.kind === "action" && x.key.startsWith("account_") && !x.key.startsWith("account_rm_")))
+                body.append(simpleRow(s.label.trim(), String(s.value || ""), null));
+        } else if (simplePage === "assistant") {
+            const why = el("div", "s-explain", sw("orch_" + (value("agent", "orchestration") || "hybrid")));
+            const orch = simpleRow(sw("set_orch"), sw("set_orch_d"), simpleSeg([["compact", "Compact"], ["hybrid", "Hybrid"], ["ultra", "Ultra"]], value("agent", "orchestration") || "hybrid",
+                (v) => { set("agent", "orchestration", v); why.textContent = sw("orch_" + v); }));
+            orch.append(why);
+            why.style.flexBasis = "100%";
+            body.append(orch);
+            body.append(simpleRow(sw("set_smart"), sw("set_smart_d"), simpleSeg([["low", sw("smart_fast")], ["", sw("smart_balanced")], ["high", sw("smart_best")]], value("agent", "effort"),
+                (v) => set("agent", "effort", v))));
+            body.append(simpleRow(sw("set_ask"), sw("set_ask_d"), simpleSeg([["default", sw("ask_every")], ["acceptEdits", sw("ask_edits")], ["bypassPermissions", sw("ask_never") + " ⚠"]],
+                value("agent", "permission_mode") || "default", (v) => set("agent", "permission_mode", v))));
+            body.append(simpleRow(sw("set_parallel"), sw("set_parallel_d"), simpleSeg([["2", "2"], ["4", "4"], ["8", "8"]], value("sessions", "max_parallel"), (v) => set("sessions", "max_parallel", v))));
+        } else if (simplePage === "phone") {
+            const open = el("input");
+            open.type = "checkbox";
+            open.className = "switch";
+            open.checked = value("web", "enabled") === "true";
+            open.addEventListener("change", () => set("web", "enabled", open.checked ? "true" : "false"));
+            body.append(simpleRow(sw("set_web"), sw("set_web_d") + " · " + location.origin, null));
+            body.append(simpleRow(sw("set_web_start"), sw("set_web_start_d"), open));
+        } else if (simplePage === "keys") {
+            body.append(el("div", "s-explain", sw("set_keys_d")));
+            for (const s of data.filter((x) => x.section === "keys")) {
+                const input = el("input");
+                input.value = value("keys", s.key);
+                const twice = clashes.get(s.key);
+                if (twice) input.classList.add("twice");
+                input.addEventListener("change", () => { set("keys", s.key, input.value.trim()); draw(); });
+                const words = s.label.trim().replace(/_/g, " ");
+                const row = simpleRow(words.charAt(0).toUpperCase() + words.slice(1) + (twice ? " !" : ""), twice ? twice.map(([k, o]) => sw("keys_twice", {key: k, other: o.join(", ")})).join(" · ") : "", input);
+                row.classList.add("s-keyrow");
+                body.append(row);
+            }
+        } else {
+            body.append(simpleRow(sw("about_version"), "claude-cluster " + (lastState && lastState.version_app || ""), null));
+            const docs = el("button", "", sw("open"));
+            docs.addEventListener("click", () => { done(); openDocs(""); });
+            body.append(simpleRow(sw("about_docs"), sw("about_docs_d"), docs));
+            const full = el("button", "", sw("full_settings"));
+            full.addEventListener("click", () => { done(); openDrawer(); });
+            body.append(simpleRow(sw("full_settings"), "", full));
+        }
+    };
+    draw();
+    save.addEventListener("click", async () => {
+        for (const [key, v] of changes) {
+            const dot = key.indexOf(".");
+            const request = {cmd: "settings_set", section: key.slice(0, dot), key: key.slice(dot + 1), value: v, confirmed: true};
+            if (request.key === "permission_mode" && v === "bypassPermissions" && !confirm(sw("ask_never") + " ⚠ ?")) continue;
+            try { await cmd(request); } catch (e) { toast(e.message); return; }
+            if (request.section === "ui" && (request.key === "mode" || request.key === "language")) { try { await cmd({cmd: "ui_set", key: request.key, value: v}); } catch (e) { /* the next state */ } }
+        }
+        done();
+        toast(sw("saved"));
+        refresh();
+    });
+}
+
+async function simpleStats() {
+    const {win} = simpleWindow(sw("stats"));
+    const body = el("div", "body");
+    win.append(body);
+    let usage = null;
+    try { usage = await cmd({cmd: "usage"}); } catch (e) { body.append(el("div", "s-explain", e.message)); return; }
+    const vendors = Array.isArray(usage) ? usage : usage ? [usage] : [];
+    const kpis = el("div", "s-kpis");
+    const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n || 0);
+    for (const v of vendors) {
+        for (const [field, word] of [["seven_day", "st_week"], ["five_hour", "st_5h"]]) {
+            if (!v[field]) continue;
+            const left = Math.max(0, 100 - (v[field].used_percent || 0));
+            const k = el("div", "s-kpi");
+            const meter = el("div", "s-meter");
+            const i = el("i");
+            i.style.width = left + "%";
+            meter.append(i);
+            k.append(el("span", "", sw(word) + " · " + v.vendor), el("b", "", left + "%"), meter, el("span", "", v[field].resets_at ? sw("st_resets", {when: new Date(v[field].resets_at * 1000).toLocaleString(simpleLang === "fr" ? "fr-FR" : "en-GB",
+                {weekday: "short", hour: "2-digit", minute: "2-digit"})}) : ""));
+            kpis.append(k);
+        }
+        const today = v.today || {};
+        const k = el("div", "s-kpi");
+        k.append(el("span", "", sw("st_today") + " · " + v.vendor), el("b", "", fmt(today.tokens || 0)),
+            el("span", "", (typeof today.cost_usd === "number" ? "$" + today.cost_usd.toFixed(2) + " · " : "") + (today.turns || 0) + " turns"));
+        kpis.append(k);
+        const week = v.last_7_days || {};
+        const w = el("div", "s-kpi");
+        w.append(el("span", "", sw("st_7days") + " · " + v.vendor), el("b", "", fmt(week.tokens || 0)), el("span", "", typeof week.cost_usd === "number" ? "$" + week.cost_usd.toFixed(2) : ""));
+        kpis.append(w);
+    }
+    body.append(kpis);
+    // who used the most (all its life): the sessions by their tokens
+    const used = (s) => (s.tokens && typeof s.tokens === "object" ? s.tokens.total : s.tokens) || 0;
+    const sessions = ((lastState && lastState.sessions) || []).filter(used).sort((a, b) => used(b) - used(a)).slice(0, 6);
+    if (sessions.length) {
+        body.append(el("b", "", sw("st_top")));
+        const max = used(sessions[0]);
+        for (const s of sessions) {
+            const meter = el("div", "s-meter");
+            const i = el("i");
+            i.style.width = Math.round(100 * used(s) / max) + "%";
+            i.style.background = "var(--accent)";
+            meter.append(i);
+            meter.style.flex = "1";
+            const row = simpleRow(s.id === "g" ? sw("assistant") : s.name, sw("st_tokens", {n: fmt(used(s))}), meter);
+            body.append(row);
+        }
+    }
+    const full = el("button", "", sw("st_full"));
+    full.addEventListener("click", async () => { $("simpleLayer").textContent = ""; try { const d = await cmd({cmd: "stats", focus: true}); if (d && d.id) { document.body.classList.remove("simple"); } } catch (e) { toast(e.message); } });
+    body.append(full);
+}
 
 // ---- the agents of a session: the ones it made itself (its Agent tool, sub-agents of claude, not sessions of claude-cluster) ----
 let agentsOf = "";          // the session whose agents the panel lists

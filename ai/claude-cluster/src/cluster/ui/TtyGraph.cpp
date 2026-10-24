@@ -35,7 +35,7 @@ constexpr int MAP_WIDTH = 26;           // the minimap (borders included)
 constexpr int MAP_HEIGHT = 7;
 
 // The colours of a cell, by number (made into a colour at the end)
-enum Paint {PaintNone, PaintText, PaintMuted, PaintAccent, PaintOk, PaintWarn, PaintError, PaintSurface};
+enum Paint {PaintNone, PaintText, PaintMuted, PaintAccent, PaintOk, PaintWarn, PaintError, PaintSurface, PaintBusy};
 
 struct Cell {
     std::string glyph = " ";
@@ -139,6 +139,7 @@ _cold int paint_(const cluster::GraphTone tone)
 {
     if (tone == cluster::GraphTone::Working) return PaintOk;
     if (tone == cluster::GraphTone::Waiting) return PaintWarn;
+    if (tone == cluster::GraphTone::Busy) return PaintBusy;
     return tone == cluster::GraphTone::Error ? PaintError : PaintMuted;
 }
 
@@ -146,7 +147,8 @@ _cold const char* glyph_(const cluster::GraphNode& node)
 {
     if (node.kind == cluster::GraphKind::Global) return "◉";
     if (node.kind == cluster::GraphKind::Label) return "◇";
-    return node.tone == cluster::GraphTone::Working ? "●" : node.tone == cluster::GraphTone::Waiting ? "◆" : node.tone == cluster::GraphTone::Error ? "✖" : "○";
+    return node.tone == cluster::GraphTone::Working || node.tone == cluster::GraphTone::Busy ? "●" : node.tone == cluster::GraphTone::Waiting ? "◆"
+        : node.tone == cluster::GraphTone::Error ? "✖" : "○";
 }
 
 _cold bool token_(const std::string& token, const ftxui::Event& event, const std::string& name)
@@ -504,7 +506,7 @@ _cold bool cluster::GraphView::mouse(const ftxui::Mouse& mouse)
 /* drawing */
 _cold ftxui::Element cluster::GraphView::render(const int width, const int height, const cluster::GraphColors& colors, const std::string& active, const std::map<std::string, std::string>& keys)
 {
-    const std::vector<ftxui::Color> palette = {ftxui::Color::Default, colors.text, colors.muted, colors.accent, colors.ok, colors.warn, colors.error, colors.surface};
+    const std::vector<ftxui::Color> palette = {ftxui::Color::Default, colors.text, colors.muted, colors.accent, colors.ok, colors.warn, colors.error, colors.surface, colors.busy};
     const int cols = std::max(20, width);
     const int rows = std::max(4, height - CHROME - (this->_legend ? 1 : 0));
     this->_width = cols;
@@ -527,8 +529,9 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
         const int parent = this->find_(this->_nodes[i].parent);
         if (parent < 0 || static_cast<std::size_t>(parent) == i) continue;
         const bool working = this->_nodes[i].tone == GraphTone::Working;
+        const bool busy = this->_nodes[i].tone == GraphTone::Busy;     // its background runs: a solid link like a running one, purple
         dots.line(centers[static_cast<std::size_t>(parent)].first * 2 + 1, centers[static_cast<std::size_t>(parent)].second * 4 + 2, centers[i].first * 2 + 1, centers[i].second * 4 + 2,
-            working ? PaintOk : PaintMuted, !working);
+            working ? PaintOk : busy ? PaintBusy : PaintMuted, !working && !busy);
     }
     for (int y = 0; y < rows; ++y)
         for (int x = 0; x < cols; ++x) {
@@ -690,7 +693,7 @@ _cold ftxui::Element cluster::GraphView::render(const int width, const int heigh
     ftxui::Elements all = {head};
     all.push_back(ftxui::vbox(canvas) | ftxui::reflect(this->_box));
     if (this->_legend)
-        all.push_back(ftxui::hbox({ftxui::text(" ● working") | ftxui::color(colors.ok), ftxui::text("  ◆ waiting for you") | ftxui::color(colors.warn), ftxui::text("  ✖ error") | ftxui::color(colors.error),
+        all.push_back(ftxui::hbox({ftxui::text(" ● working") | ftxui::color(colors.ok), ftxui::text("  ◆ waiting for you") | ftxui::color(colors.warn), ftxui::text("  ✖ error") | ftxui::color(colors.error), ftxui::text("  ● ~_~ background") | ftxui::color(colors.busy),
             ftxui::text("  ○ idle") | ftxui::color(colors.muted), ftxui::text("  ◉ global") | ftxui::color(colors.accent) | ftxui::bold,
             ftxui::text(cols >= 150 ? "  ── working link  ┄ idle link  (n) = sessions under a node  bold name = the session shown" : cols >= 100 ? "  ── working  ┄ idle link  (n) = sessions under" : "")
                 | ftxui::color(colors.muted)}));  // the marks never squeezed: the explanation shortened, then dropped, when the width is short

@@ -190,6 +190,9 @@ struct OrchConf {                   // [orchestrator]: the heavy jobs of the ses
     int psiIoReduce = 80;
     int resumeAfter = 20;           // seconds under the thresholds before a stopped job resumes
     bool killOnOom = false;
+    bool memoryGuard = true;        // under guard_free_mb available: the biggest of what claude-cluster runs killed (never the core), told
+    int guardFreeMb = 0;            // the memory kept free (0: 5 % of the RAM, at least 500 MB)
+    int guardMinMb = 100;           // a command smaller than this is never the one killed
     int agingSeconds = 30;          // a waiting job gains one point of priority every so many seconds
     int focusBoost = 15;            // points of the session the user looks at
     bool subAdd = false;            // a sub-session may queue heavy jobs (MCP heavy_run, jobs_add): off until the permissions of its mode gate them; its Bash cluster-run is not concerned
@@ -229,11 +232,14 @@ class Config {
         std::string promptColorTask;      // of the prompts of the tasks and the schedules (empty: magenta)
         std::string shellContext = "ask"; // !command given to the agent: ask (after it ran) | always | never
         bool sharedCore = true;         // several terminals / windows at once on one core of its own (false: the first one is the core)
+        bool restartCore = true;        // a core that crashed started again by its watcher, its sessions restored (false: no watcher)
         std::string quitBackground = "ask"; // quit with sessions running: ask (keep them in background / stop) | always (kept) | never (stopped)
         bool debug = false;             // [debug] enabled: <data>/debug.log written by every process (core, terminals, windows)
         std::vector<std::string> debugTopics = {"core", "interfaces", "render", "voice", "service", "web", "platform"}; // [debug] topics
         std::string layout = "list";
         std::string guiMode = "gui";            // the window: gui (its own interface) | tty (the terminal interface in it)
+        std::string uiMode = "classic";         // classic (every view, every setting) | simple (what needs you, cards, the useful settings: --simple)
+        std::string uiLanguage = "en";          // the words of the simple mode: en | fr
         std::string style = "html-dark";
         std::vector<std::string> panels = {"skills", "tokens", "context", "cost", "usage", "git"};
         std::string restore = "ask";

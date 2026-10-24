@@ -124,6 +124,7 @@ _cold void cluster::Config::load(void)
     /* ui */
     this->frontend = table["ui"]["frontend"].value_or(this->frontend);
     this->sharedCore = table["ui"]["shared_core"].value_or(this->sharedCore);
+    this->restartCore = table["ui"]["restart_core"].value_or(this->restartCore);
     this->quitBackground = table["ui"]["quit_background"].value_or(this->quitBackground);
     this->debug = table["debug"]["enabled"].value_or(this->debug);
     if (const toml::array* topics = table["debug"]["topics"].as_array()) {
@@ -142,6 +143,8 @@ _cold void cluster::Config::load(void)
     cluster::set_matching(this->matching);
     this->layout = table["ui"]["layout"].value_or(this->layout);
     this->guiMode = table["ui"]["gui_mode"].value_or(this->guiMode);
+    this->uiMode = table["ui"]["mode"].value_or(this->uiMode);
+    this->uiLanguage = table["ui"]["language"].value_or(this->uiLanguage);
     this->style = table["ui"]["style"].value_or(this->style);
     this->panels = strings_(table["ui"]["panels"], this->panels);
     this->restore = table["ui"]["restore"].value_or(this->restore);
@@ -354,6 +357,9 @@ _cold void cluster::Config::load(void)
     this->orch.psiIoReduce = std::clamp(static_cast<int>(oc["psi_io_reduce"].value_or(this->orch.psiIoReduce)), 0, 100);
     this->orch.resumeAfter = std::clamp(static_cast<int>(oc["resume_after"].value_or(this->orch.resumeAfter)), 0, 3600);
     this->orch.killOnOom = oc["kill_on_oom"].value_or(this->orch.killOnOom);
+    this->orch.memoryGuard = oc["memory_guard"].value_or(this->orch.memoryGuard);
+    this->orch.guardFreeMb = std::max(0, static_cast<int>(oc["guard_free_mb"].value_or(this->orch.guardFreeMb)));
+    this->orch.guardMinMb = std::max(1, static_cast<int>(oc["guard_min_mb"].value_or(this->orch.guardMinMb)));
     this->orch.agingSeconds = std::clamp(static_cast<int>(oc["aging_seconds"].value_or(this->orch.agingSeconds)), 1, 86400);
     this->orch.focusBoost = std::clamp(static_cast<int>(oc["focus_boost"].value_or(this->orch.focusBoost)), 0, 1000);
     this->orch.subAdd = oc["sub_add"].value_or(this->orch.subAdd);
