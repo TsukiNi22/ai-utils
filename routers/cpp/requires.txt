@@ -9,6 +9,7 @@ libutils-install
 libutils-setup
 cpp-tests
 audit-bugs
+audit-security
 audit-quality
 comments
 benchmark

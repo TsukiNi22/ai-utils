@@ -80,7 +80,7 @@
     },
     {
       "name": "audit-skills",
-      "description": "Audits: bugs / UB, quality, dependencies (licenses, vulnerabilities), benchmark / profiling (skills: audit-bugs, audit-deps, audit-quality, benchmark)",
+      "description": "Audits: bugs / UB, security (passes fixing every flaw until a clean one), quality, dependencies (licenses, vulnerabilities), benchmark / profiling (skills: audit-bugs, audit-security, audit-deps, audit-quality, benchmark)",
       "source": "./",
       "strict": false,
       "skills": [

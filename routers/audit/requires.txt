@@ -1,4 +1,5 @@
 audit-bugs
+audit-security
 audit-quality
 audit-deps
 cpp-tests

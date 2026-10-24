@@ -48,6 +48,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | set up a whole new project (architecture + tests + license + git + CI/CD + README) | the steps of `setup-project` (its table, skills loaded in that order) | `setup-project` |
 | several / all audits of the project at once | follow the `audit` router (checklist of audits + format) | `audit` |
 | bugs / UB / crashes / sanitizers audit | `audit-bugs` | `cpp` |
+| security audit, flaws, vulnerabilities, hacking, memory errors fixed until clean | `audit-security` | - |
 | cleanliness / conventions audit with a PDF report | `audit-quality` | `style` |
 | comments of any language, file headers | `comments` (+ `cpp-comments`) | `doc` |
 | a deliverable as PDF (report, study, benchmark) | `report` | `doc` |

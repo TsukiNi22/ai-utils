@@ -38,6 +38,7 @@ if there is none, inspect the project and propose what can be done).
 | slow code, profiling, benchmark, optimization | `benchmark` |
 | CI / CD workflows (build, tests, xstyle, packages, release) | `ci-cd` |
 | bugs, UB, crashes, memory errors, sanitizers, correctness review | `audit-bugs` |
+| security audit, flaws, exploits, memory errors fixed in passes until clean | `audit-security` |
 | cleanliness / conventions audit, report of the project quality | `audit-quality` (PDF through `report`) |
 | new `.cpp` added | also `cmake-style` (registration in `SRC`, `cpp-class/scripts/cmake_add.py`) |
 | commit / docs asked at the end | `git-conventions` / `readme-style`, `html-doc` |

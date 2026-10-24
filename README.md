@@ -22,7 +22,7 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `html-style`, `explain-doc`, `protocol-doc`, `report`, `docs-update`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
 | [`/style`](routers/style/SKILL.md) | `cpp-style`, `python-style`, `python-comments`, `coding-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
 | [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps`, `legal-check`, `legal-setup` |
-| [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-quality`, `audit-deps`, `legal-check`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/` |
+| [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-security`, `audit-quality`, `audit-deps`, `legal-check`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/` |
 
 ## Graph explorer
 
@@ -56,6 +56,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`tests`](tests/tests/SKILL.md) | Unit tests for any language: detects the existing framework or asks which one to use, then setup, tests, CI (defers to `cpp-tests` for C++). |
 | [`comments`](style/comments/SKILL.md) | My comment style for every language (C, C++, CMake, Makefile, shell, Python, Lua, YAML, Markdown) and which file header goes where. |
 | [`audit-bugs`](audit/audit-bugs/SKILL.md) | Bug / UB audit loop (sanitizers, tests, static tools, code review, verification of each finding), single agent or subagents on request, fixes only after confirmation. |
+| [`audit-security`](audit/audit-security/SKILL.md) | Security / memory-safety audit of the whole project in passes back to back (sanitizers, dependencies, static tools, fuzzing, attacks on the running program, a review of memory, DoS, injection, auth, secrets, crypto, files, network), each finding verified and fixed at once, a new pass while the last one still found something; a PDF report of what was fixed. |
 | [`audit-quality`](audit/audit-quality/SKILL.md) | Cleanliness / conventions audit of a project (`scripts/collect.py` metrics + review against the style skills) delivered as a PDF report. |
 | [`report`](docs/report/SKILL.md) | Reports in my style as Markdown and/or PDF (format asked: both recommended), English by default (Markdown -> WeasyPrint, A4, Noto, navy title rule, tables and callouts) with `scripts/md2pdf.py`. |
 | [`license`](legal/license/SKILL.md) | Finds the license matching the needs (comparison matrix), negotiates the close ones, fetches the official text, replaces the current LICENSE only after confirmation, checks dependencies compatibility. |
@@ -213,7 +214,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 | `style-skills` | coding-style, comments |
 | `python-skills` | python-project, python-class, python-style, python-comments |
 | `test-skills` | tests, cpp-tests, coverage |
-| `audit-skills` | audit-bugs, audit-quality, audit-deps, benchmark |
+| `audit-skills` | audit-bugs, audit-security, audit-quality, audit-deps, benchmark |
 | `legal-skills` | license, legal-check, legal-setup |
 | `ux-skills` | multilingual-project, multilingual-website, color-modes-project, color-modes-website |
 | `system-skills` | computer-clean |
@@ -248,7 +249,7 @@ tests/     tests, cpp-tests, coverage
 style/     coding-style, comments, xstyle (tool)
 docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report, docs-update
 git/       git-conventions, git-commit, ci-cd, pre-commit
-audit/     audit-bugs, audit-quality, audit-deps, benchmark
+audit/     audit-bugs, audit-security, audit-quality, audit-deps, benchmark
 legal/     license, legal-check, legal-setup
 ux/        multilingual-project, multilingual-website, color-modes-project, color-modes-website
 system/    computer-clean

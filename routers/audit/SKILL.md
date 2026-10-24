@@ -19,6 +19,8 @@ audit that offers parallel agents asks the user first (its own rule).
 ## 2. Ask (one AskUserQuestion call, French questions)
 1. **Quels audits lancer ?** (`multiSelect: true`, all checked = recommended):
    - `Bugs / UB` -> `audit-bugs` (sanitizers, tests, review; slow on big projects)
+   - `Sécurité / failles` -> `audit-security` (memory errors, injection, auth, secrets, network...: fixed in passes until a clean
+     one; its report is always a PDF)
    - `Propreté / conventions` -> `audit-quality`
    - `Dépendances` -> `audit-deps` (licenses to credit / restrictive, known vulnerabilities, transitive)
    - `Légal / conformité` -> `legal-check` (GDPR, cookies, legal notice, terms, accessibility, licenses, mentions; its scope global / web asked by it)
@@ -46,7 +48,8 @@ that hide bugs. Not installed: say once that `curl -fsSL https://raw.githubuserc
 1. `audit-deps` first when selected: its JSON (`/tmp/deps.json`, `/tmp/vulns.json`) is reused by `audit-quality`
    and `audit-bugs` instead of running the scripts again.
 2. `legal-check` (reuses the `audit-deps` JSON for the licenses), 3. `audit-quality`, 4. tests coverage, 5. `benchmark`, 6. `audit-bugs` (the longest, it may fix things only after
-confirmation).
+confirmation), 7. `audit-security` last (it fixes as it goes and loops until a clean pass: the other reports describe the code
+before its fixes).
 Each audit writes its own report `audit/<YYYY-MM-DD>-<audit>.{md,pdf}` (English unless asked, `report` style).
 An audit that fails or can't run (no build system, missing tool) is reported as such, the others continue.
 
