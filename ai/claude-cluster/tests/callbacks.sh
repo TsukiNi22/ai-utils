@@ -43,6 +43,13 @@ sleep 6
 expect "spawn: the first answer comes back" "reply from watcher" 2
 expect "spawn: the wake-up turn comes back" "woken by the monitor" 1
 
+# (2b) a build in its background: "waiting" comes back, then the turn claude-cluster wakes it for (its <task-notification>) with the
+# real result - before, that last one never came back (the global session waited for nothing)
+call session_spawn "{\"cwd\":\"${WORK}/proj\",\"name\":\"builder\",\"prompt\":\"run the build\"}" > /dev/null
+sleep 8
+expect "background build: its waiting answer comes back" "waiting for it" 1
+expect "background build: the real result after the wake-up comes back" "final result after the build" 1
+
 # (3) an API error comes back once, as an error
 call session_spawn "{\"cwd\":\"${WORK}/proj\",\"name\":\"failing\",\"prompt\":\"please fail\"}" > /dev/null
 sleep 4

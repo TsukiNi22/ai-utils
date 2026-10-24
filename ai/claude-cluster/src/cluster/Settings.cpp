@@ -692,43 +692,32 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [name](const cluster::Config& cf) {return cf.mcpTool(name) ? std::string("true") : std::string("false");}});
         }
     }
-    // plugins / skills of repositories: the links, then a tick per plugin or skill found (and one for all of a repository)
+    // plugins / skills of sources: the links and how often they are pulled; what each one offers is chosen in the Plugins page (sources
+    // first, then their items, their settings, bulk actions)
     {
         std::string state;
         const std::vector<cluster::PluginRepo> repos = cluster::plugins_index();
-        for (const cluster::PluginRepo& repo: repos)
-            state += "\n• " + repo.url + ": " + (repo.error.empty() ? std::to_string(repo.items.size()) + (repo.marketplace.empty() ? " skill(s)" : " plugin(s) of the marketplace "
-                + repo.marketplace) : repo.error);
+        for (const cluster::PluginRepo& repo: repos) {
+            const long installed = std::count_if(repo.items.begin(), repo.items.end(), [](const cluster::PluginItem& i) {return i.installed;});
+            state += "\n• " + repo.slug + ": " + (repo.error.empty() ? std::to_string(repo.items.size()) + " offered, " + std::to_string(installed) + " installed"
+                : repo.error);
+        }
         cluster::SettingsPage page{"plugins", "Plugins", {
-            {"plugins", "repos", "Sources", SettingKind::List, {}, "where plugins / skills are offered below from, comma separated: a git repository "
-                "(GitHub owner/repo, an https or git URL), a folder of this computer (~/... or /...), a .zip (a path; dropped on the terminal: its path).\n• a Claude Code marketplace (.claude-plugin/marketplace.json): its plugins (claude plugin install)\n"
-                "• else its skills (the folders with a SKILL.md): linked in ~/.claude/skills\nA repository cloned / a .zip unpacked in the data folder when the "
-                "list changes (pulled at each start of the core); tick what to install: done at the save, for the sessions started after it. The palette, "
-                "Plugins: the browser (add with a path completed, on / off, install / remove, information, the tree of its files and their preview). Code of these repositories runs as you: only "
-                "repositories you trust" + (state.empty() ? std::string() : "\nListed:" + state), false,
+            {"plugins", "repos", "Sources", SettingKind::List, {}, "where plugins / skills come from, comma separated: a git repository "
+                "(GitHub owner/repo, an https or git URL), a folder of this computer (~/... or /...), a .zip (a path; dropped on the terminal: its path).\n• a Claude Code "
+                "marketplace (.claude-plugin/marketplace.json): its plugins (claude plugin install)\n• else its skills (the folders with a SKILL.md): linked in "
+                "~/.claude/skills\nWhat each source offers is chosen in the Plugins page (the palette: Plugins, /plugins): the sources first, then a checklist of "
+                "their plugins / skills (install, remove, on / off, several at once), each source's auto sync and on / off, its last sync and commit. Code of these "
+                "sources runs as you: only sources you trust" + (state.empty() ? std::string() : "\nListed:" + state), false,
                 [](const cluster::Config& cf) {return join_(cf.pluginRepos);}},
+            {"plugins", "sync_hours", "Sync every (hours)", SettingKind::Int, {}, "the sources with auto sync pulled again every N hours (and at each start of the core); "
+                "0: at the start only. A source with auto sync off is pulled only by hand (Sync in the Plugins page)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.pluginSyncHours);}},
         }};
         page.settings.front().danger = [](const std::string& v) {
             return cluster::trim(v).empty() ? std::string() : "the plugins / skills of these sources run as you in every session (their commands, hooks, MCP "
                 "servers): only sources you trust";
         };
-        for (const cluster::PluginRepo& repo: repos) {
-            if (repo.items.empty()) continue;
-            const std::string all = repo.slug + ":*";
-            page.settings.push_back({"plugins.select", "\"" + all + "\"", "All of " + repo.slug, SettingKind::Bool, {}, "every plugin / skill of " + repo.url
-                + " (the new ones too)", false, [all](const cluster::Config& cf) {return cf.pluginSelect.contains(all) && cf.pluginSelect.at(all) ? std::string("true")
-                    : std::string("false");}});
-            for (const cluster::PluginItem& item: repo.items) {
-                const std::string id = item.id;
-                page.settings.push_back({"plugins.select", "\"" + id + "\"", "  " + (item.kind == "skill" ? "/" + repo.slug + ":" + item.name : item.name) + " (" + item.kind + (item.installed ? item.enabled ? ", installed" : ", off" : "") + ")",
-                    SettingKind::Bool, {}, (item.description.empty() ? std::string("no description") : item.description) + "\nfrom " + repo.url, false,
-                    [id](const cluster::Config& cf) {return cf.pluginSelect.contains(id) && cf.pluginSelect.at(id) ? std::string("true") : std::string("false");}});
-                if (item.installed) // installed: turned off / on (a plugin disabled, a skill unlinked), kept installed
-                    page.settings.push_back({"plugins.off", "\"" + id + "\"", "    " + item.name + ": off", SettingKind::Bool, {}, "turned off: kept installed, not "
-                        "loaded by the sessions started after it", false,
-                        [id](const cluster::Config& cf) {return cf.pluginOff.contains(id) && cf.pluginOff.at(id) ? std::string("true") : std::string("false");}});
-            }
-        }
         const auto mcp = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "mcp";});
         pages.insert(mcp == pages.end() ? pages.end() : mcp + 1, page);
     }

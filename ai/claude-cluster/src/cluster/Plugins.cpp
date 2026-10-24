@@ -25,6 +25,7 @@ File Description:
 #include <filesystem>
 #include <algorithm>
 #include <fstream>
+#include <chrono>
 #include <regex>
 #include <mutex>
 #include <set>
@@ -98,9 +99,10 @@ _cold static std::set<std::string> ours_read_(void)
     return ours;
 }
 
-_cold static std::filesystem::path place_(cluster::PluginRepo& repo)
+_cold static std::filesystem::path place_(cluster::PluginRepo& repo, const bool fetch)
 {
-    // where a source is read: a folder in place, a .zip unpacked (again when it changed), a repository cloned / pulled
+    // where a source is read: a folder in place, a .zip unpacked (again when it changed), a repository cloned / pulled (fetch: else the
+    // copy there listed as it is)
     std::error_code error;
     if (repo.kind == "folder") {
         const std::filesystem::path dir = cluster::expand_home(repo.url);
@@ -124,18 +126,22 @@ _cold static std::filesystem::path place_(cluster::PluginRepo& repo)
                 return dir;
             }
             std::ofstream(mark) << zip.string() << "\n";
+            repo.synced = cluster::now();
         }
+        repo.commitTime = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::file_clock::to_sys(std::filesystem::last_write_time(zip, error))
+            .time_since_epoch()).count();
         // a .zip of one folder: that folder
         std::vector<std::filesystem::path> inside;
         for (const std::filesystem::directory_entry& e: std::filesystem::directory_iterator(dir, error))
             if (e.path().filename() != ".claude-cluster-unpacked" && e.path().filename() != "__MACOSX") inside.push_back(e.path());
         return inside.size() == 1 && std::filesystem::is_directory(inside[0]) ? inside[0] : dir;
     }
-    const cluster::Captured got = std::filesystem::exists(dir / ".git")
-        ? cluster::capture({"git", "-C", dir.string(), "pull", "--ff-only", "--quiet"}, "", 120)
+    const bool there = std::filesystem::exists(dir / ".git");
+    if (there && !fetch) return dir;
+    const cluster::Captured got = there ? cluster::capture({"git", "-C", dir.string(), "pull", "--ff-only", "--quiet"}, "", 120)
         : cluster::capture({"git", "clone", "--depth", "1", "--quiet", "--", cluster::plugin_source(repo.url), dir.string()}, "", 300);
-    if (got.code != 0) repo.error = std::filesystem::exists(dir / ".git") ? "not updated (the last copy listed): " + cluster::one_line(got.out, 160)
-        : "not cloned: " + cluster::one_line(got.out, 200);
+    if (got.code != 0) repo.error = there ? "not updated (the last copy listed): " + cluster::one_line(got.out, 160) : "not cloned: " + cluster::one_line(got.out, 200);
+    else repo.synced = cluster::now();
     return dir;
 }
 
@@ -179,7 +185,8 @@ _cold std::vector<cluster::PluginRepo> cluster::plugins_index(void)
     if (!index || !index->is_array()) return repos;
     for (const cluster::Json& r: *index) {
         cluster::PluginRepo repo{r.value("url", std::string()), r.value("slug", std::string()), r.value("kind", std::string("git")), r.value("dir", std::string()),
-            r.value("marketplace", std::string()), r.value("error", std::string()), {}};
+            r.value("marketplace", std::string()), r.value("error", std::string()), {}, r.value("synced", std::int64_t{0}), r.value("commit", std::string()),
+            r.value("commit_time", std::int64_t{0})};
         for (const cluster::Json& i: r.value("items", cluster::Json::array()))
             repo.items.push_back({i.value("id", std::string()), i.value("name", std::string()), i.value("kind", std::string()), i.value("description", std::string()),
                 i.value("path", std::string()), i.value("installed", false), i.value("enabled", true)});
@@ -188,20 +195,32 @@ _cold std::vector<cluster::PluginRepo> cluster::plugins_index(void)
     return repos;
 }
 
-_cold std::vector<cluster::PluginRepo> cluster::plugins_scan(const cluster::PluginSetup& setup)
+_cold std::vector<cluster::PluginRepo> cluster::plugins_scan(const cluster::PluginSetup& setup, const std::set<std::string>& pull)
 {
-    // each source placed (cloned, unpacked, in place), then listed; the index written for the settings and the browser
+    // each source placed (cloned, unpacked, in place; pulled again when asked), then listed; the index written for the settings and the
+    // browser (the date of the last sync of a source not pulled kept)
     std::error_code error;
     std::filesystem::create_directories(root_(), error);
     const std::map<std::string, bool> installed = plugins_installed_(setup.claude);
     const std::set<std::string> ours = ours_read_();
+    std::map<std::string, std::int64_t> before;
+    for (const cluster::PluginRepo& old: cluster::plugins_index())
+        before[old.slug] = old.synced;
     std::vector<cluster::PluginRepo> repos;
     cluster::Json index = cluster::Json::array();
     for (const std::string& url: setup.repos) {
         if (cluster::trim(url).empty()) continue;
-        cluster::PluginRepo repo{cluster::trim(url), cluster::plugin_slug(url), cluster::plugin_kind(url), "", "", "", {}};
-        const std::filesystem::path dir = place_(repo);
+        cluster::PluginRepo repo{cluster::trim(url), cluster::plugin_slug(url), cluster::plugin_kind(url), "", "", "", {}, 0, "", 0};
+        repo.synced = before.contains(repo.slug) ? before.at(repo.slug) : 0;
+        const std::filesystem::path dir = place_(repo, pull.contains("*") || pull.contains(repo.slug));
         repo.dir = dir.string();
+        if (repo.kind == "git" && std::filesystem::exists(dir / ".git")) { // its last commit
+            const std::vector<std::string> last = cluster::split(cluster::trim(cluster::capture({"git", "-C", dir.string(), "log", "-1", "--format=%h%x09%ct%x09%s"}, "", 20).out), '\t');
+            if (last.size() >= 3) {
+                repo.commit = last[0] + " " + cluster::one_line(last[2], 120);
+                repo.commitTime = std::atoll(last[1].c_str());
+            }
+        }
         if (std::filesystem::is_directory(dir)) {
             const std::optional<cluster::Json> market = cluster::read_json(dir / ".claude-plugin" / "marketplace.json");
             if (market && market->is_object() && market->contains("plugins")) {
@@ -235,6 +254,10 @@ _cold std::vector<cluster::PluginRepo> cluster::plugins_scan(const cluster::Plug
                     repo.items.push_back({id, name, "skill", description, folder.string(), linked || off, !off});
                 }
                 std::sort(repo.items.begin(), repo.items.end(), [](const cluster::PluginItem& a, const cluster::PluginItem& b) {return a.name < b.name;});
+                if (repo.kind == "folder") // a folder: the date of its newest SKILL.md
+                    for (const cluster::PluginItem& i: repo.items)
+                        repo.commitTime = std::max<std::int64_t>(repo.commitTime, std::chrono::duration_cast<std::chrono::seconds>(std::chrono::file_clock::to_sys(
+                            std::filesystem::last_write_time(std::filesystem::path(i.path) / "SKILL.md", error)).time_since_epoch()).count());
                 if (repo.items.empty() && repo.error.empty()) repo.error = "no plugin (.claude-plugin/marketplace.json) nor skill (SKILL.md) found";
             }
         }
@@ -243,7 +266,7 @@ _cold std::vector<cluster::PluginRepo> cluster::plugins_scan(const cluster::Plug
             items.push_back({{"id", i.id}, {"name", i.name}, {"kind", i.kind}, {"description", i.description}, {"path", i.path}, {"installed", i.installed},
                 {"enabled", i.enabled}});
         index.push_back({{"url", repo.url}, {"slug", repo.slug}, {"kind", repo.kind}, {"dir", repo.dir}, {"marketplace", repo.marketplace}, {"error", repo.error},
-            {"items", items}});
+            {"items", items}, {"synced", repo.synced}, {"commit", repo.commit}, {"commit_time", repo.commitTime}});
         repos.push_back(repo);
     }
     cluster::write_json(root_() / "index.json", index);
@@ -281,6 +304,12 @@ _cold std::string cluster::unprefix_skill(const std::string& text)
     return it != sources.end() && it->second == word.substr(0, colon) ? "/" + word.substr(colon + 1) + (end == std::string::npos ? std::string() : text.substr(end)) : text;
 }
 
+_cold bool cluster::plugin_auto(const std::map<std::string, bool>& autos, const std::string& slug)
+{
+    const auto it = autos.find(slug);
+    return it == autos.end() || it->second;
+}
+
 _cold std::string cluster::plugins_apply(const cluster::PluginSetup& setup)
 {
     // the index against the ticks: installed what is ticked, turned off / on, removed what claude-cluster installed and is unticked
@@ -298,7 +327,7 @@ _cold std::string cluster::plugins_apply(const cluster::PluginSetup& setup)
     for (const cluster::PluginRepo& repo: repos) {
         for (const cluster::PluginItem& item: repo.items) {
             const bool want = wanted_(setup, repo, item);
-            const bool off = on_(setup.off, item.id);
+            const bool off = on_(setup.off, item.id) || on_(setup.paused, repo.slug); // the source turned off: its items too
             if (!want && (!item.installed || !ours.contains(item.id))) continue; // not wanted, or installed by hand: left as it is
             if (item.kind == "plugin") {
                 const std::string id = item.name + "@" + repo.marketplace;

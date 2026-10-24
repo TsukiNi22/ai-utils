@@ -1152,8 +1152,16 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = {{"done", manager.shellKill(arg_(request, "id", "all"))}};
         } else if (cmd == "models_policy") {
             data = manager.modelsPolicyJson();
-        } else if (cmd == "plugins_refresh") {
-            manager.pluginsRefresh();
+        } else if (cmd == "plugins_refresh") { // a source (empty: every one) pulled now
+            if (from_web && !cluster::web_may(manager.config(), "plugins"))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            manager.pluginsRefresh(arg_(request, "source"));
+        } else if (cmd == "plugins") {
+            data = manager.pluginsJson();
+        } else if (cmd == "plugins_set") { // several ticks / sources at once (code of these sources runs as you: a web device only with [web] settings plugins)
+            if (from_web && !cluster::web_may(manager.config(), "plugins"))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            manager.pluginsSet(request.value("changes", cluster::Json::object()));
         } else if (cmd == "display_act") {
             data = {{"done", manager.displayAct(session(), arg_(request, "id"), request)}};
         } else if (cmd == "display_get") {

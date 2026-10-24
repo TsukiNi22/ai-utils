@@ -333,6 +333,9 @@ class Config {
         std::vector<std::string> pluginRepos;   // [plugins] repos: links of repositories (plugins / skills offered)
         std::map<std::string, bool> pluginSelect; // [plugins.select] "<repository>:<name>" ("<repository>:*": all) = installed
         std::map<std::string, bool> pluginOff;  // [plugins.off] "<repository>:<name>" = installed but turned off
+        std::map<std::string, bool> pluginAuto; // [plugins.auto] "<slug>" = false: never pulled by itself (synced by hand only)
+        std::map<std::string, bool> pluginPaused; // [plugins.paused] "<slug>" = true: every item of the source turned off, kept installed
+        int pluginSyncHours = 24;               // [plugins] sync_hours: the sources pulled again every N hours (0: at the start of the core only)
 
         cluster::VoiceConf voice;
         cluster::ServiceConf service;

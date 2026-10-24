@@ -13,7 +13,7 @@ Nothing in claude-cluster polls. When the global session sends a prompt (`sessio
 | Message | When |
 |---|---|
 | `[reply from <name> (<id>)] ...` | a sub-session finished the turn started for the global session |
-| `[reply from ...]` with a note | a later turn the agent started by itself, when a background task completes |
+| `[reply from ...]` with a note | a later turn the agent started by itself, when a background task completes - or claude-cluster woke it with the `<task-notification>` of its command done, a `[job ...]` / `[tasks]` result: its real result after a "waiting for my build" answer |
 | `[error from ...]` | an API error (a limit, the weekly limit...) |
 | `[interrupted: ...]` | an interrupted turn or an agent that exited |
 | `[job jN finished\|failed\|killed]` | a job added by `jobs_add`, with exit code, duration, tail |
@@ -24,7 +24,7 @@ Nothing in claude-cluster polls. When the global session sends a prompt (`sessio
 
 ## Questions of the agents {#questions}
 
-An agent can ask a question (`AskUserQuestion` of Claude Code, even in `bypassPermissions`). It shows as a **popup** on the session shown, in every interface: one question at a time with its options, `1`-`9` to pick, Enter to validate, `Other` to type, Esc to decline; several choices tick with Enter or Space.
+An agent can ask a question (`AskUserQuestion` of Claude Code, even in `bypassPermissions`). It shows as a **popup** on the session shown, in every interface: one question at a time with its options, `1`-`9` to pick, Enter to validate, `Other` to type, Esc to decline; several choices tick with Enter or Space, and a **Next →** row after `Other` (*Review →* / *Submit →* on the last question, like Claude Code) goes on with the ticks kept.
 
 - **One at a time for the whole cluster**, shared by keys, mouse, voice and web page. The question of a sub-session is shown on the global session (`[sessions] questions_to_global`, on) with the sub-session's own view greyed.
 - **Review**: after the last question every answer is shown on one page: *Submit*, *Cancel*, or back to edit.

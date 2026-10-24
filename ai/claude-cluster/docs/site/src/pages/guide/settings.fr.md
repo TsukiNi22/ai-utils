@@ -43,6 +43,10 @@ Une carte par sous-service, avec son état et ses boutons :
 
 *Accounts & limits* liste chaque fournisseur avec son état (clé stockée, connexion faite, ou ce qui manque). `claude-cluster auth login <fournisseur>` demande une clé sans écho et la stocke dans le trousseau (`secret-tool`) ou `credentials.json` (`0600`), jamais dans `config.toml`. Les **limites** plafonnent ce que les sessions peuvent dépenser ensemble par jour, semaine et mois (`[limits]`), comptées pour les clés d'API seulement (`scope = keys`) ou tout, avec *Block at the limit* et *Warn at* une part.
 
+## Plugins et skills {#plugins}
+
+La page **Plugins** (`/plugins`, la palette *Plugins*, dans chaque interface) liste d'abord les **sources** - un dépôt, un dossier, un `.zip` - chacune avec ce qu'elle propose, a installé et a activé, sa dernière synchronisation et son dernier commit (ou sa date). Une source ouverte montre son offre en **liste à cocher** : cochez-en plusieurs (ou toutes), puis installez, retirez, activez ou désactivez les cochées d'un coup. Chaque source peut être synchronisée tout de suite, installée ou retirée en entier, désactivée (tout ce qu'elle a désactivé, gardé installé) puis réactivée, voir sa **synchro auto** coupée (tirée à la main seulement), ou être retirée. *Sync all* tire toutes les sources ; `[plugins] sync_hours` (24) fixe la fréquence des sources en auto. La page de réglages ne garde que les sources et cette fréquence. Le code d'une source s'exécute en votre nom : n'ajoutez que des sources de confiance.
+
 ## Debug et la vitrine {#debug}
 
 *Debug* a une **vitrine** qui montre pour de vrai tout ce que claude-cluster sait dessiner (blocs d'affichage, fenêtres de question et de permission, états de session, fenêtres de progression et d'échec, notifications) dans une session à part dont l'agent n'est jamais sollicité : rien n'est dépensé.

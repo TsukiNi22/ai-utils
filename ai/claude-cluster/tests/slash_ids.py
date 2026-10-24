@@ -90,6 +90,17 @@ try:
     check("no tag character ever reaches the agent", not hidden(got))
     transcript = json.dumps(ask({"cmd": "transcript", "session": session}).get("data"), ensure_ascii=False)
     check("the transcript keeps the plain text", "/context now" in transcript and not hidden(transcript), transcript[-400:])
+
+    # a paste: its invisible marks (as the editors put them) -> <pasted> ... </pasted> for the agent, the plain text in the transcript
+    def tag(word: str) -> str:
+        return "".join(chr(0xE0000 + ord(c)) for c in word) + chr(0xE007F)
+    ask({"cmd": "send", "session": session, "text": "see " + tag("paste{") + "a pasted line" + tag("}paste") + " please"})
+    time.sleep(2)
+    got = log()
+    check("a paste reaches the agent between <pasted> and </pasted>", 'PROMPT "see <pasted>a pasted line</pasted> please"' in got, got[-400:])
+    transcript = json.dumps(ask({"cmd": "transcript", "session": session}).get("data"), ensure_ascii=False)
+    check("the transcript shows the paste as typed (no tag, no mark)", "see a pasted line please" in transcript and "<pasted>" not in transcript
+          and not hidden(transcript), transcript[-400:])
 finally:
     core.terminate()
     try:

@@ -703,7 +703,11 @@ class TtyUi {
         std::size_t _formFocus = 0;                 // a field, then Submit (size), Cancel (size + 1)
         std::map<std::string, std::int64_t> _audioStart; // an audio playing here: when it started (its display id)
         std::string _upgradeLater;                  // the newer version put off (Esc): not asked again in this run
-        std::vector<cluster::PluginRepo> _plug;     // the plugins browser: the sources listed (the index of the core)
+        cluster::Json _plug = cluster::Json::object(); // the plugins page: the sources of the core (their settings, counts, items)
+        std::string _plugSource;                    // the source opened (its items listed), empty: the sources
+        std::size_t _plugSrcSel = 0;                // the row of the source opened (back to it)
+        std::set<std::string> _plugMarked;          // the items ticked (a bulk action)
+        std::string _plugConfirm;                   // a removal / a drop asked once: the same key again does it
         std::int64_t _plugRead = 0;
         std::size_t _plugSel = 0;                   // its row (a source, an item)
         bool _plugTree = false;                     // the focus in the tree of the files of the item
@@ -2007,10 +2011,7 @@ class TtyUi {
 
         bool plugEvent_(const ftxui::Event& event)
         {
-            if (now_ms_() - this->_plugRead > 1000) { // the index of the core again (a scan, an install done)
-                this->_plug = cluster::plugins_index();
-                this->_plugRead = now_ms_();
-            }
+            if (now_ms_() - this->_plugRead > 1000) this->plugLoad_(); // the core again (a sync, an install done)
             if (this->_plugAdd) { // a source typed: Tab completes, Enter adds, Esc back
                 if (event == ftxui::Event::Escape) {
                     this->_plugAdd = false;
@@ -2027,15 +2028,29 @@ class TtyUi {
                 }
                 return true;
             }
-            const std::vector<std::pair<std::size_t, int>> rows = this->plugRows_();
-            const bool any = !rows.empty();
-            const std::pair<std::size_t, int> row = any ? rows[std::min(this->_plugSel, rows.size() - 1)] : std::pair<std::size_t, int>{0, -1};
-            const cluster::PluginRepo* repo = any ? &this->_plug[row.first] : nullptr;
-            const cluster::PluginItem* item = repo && row.second >= 0 ? &repo->items[static_cast<std::size_t>(row.second)] : nullptr;
-            const std::filesystem::path root = item ? std::filesystem::path(item->path.empty() ? repo->dir : item->path) : repo ? std::filesystem::path(repo->dir) : "";
+            const cluster::Json opened = this->plugOpened_();
+            const cluster::Json sources = this->plugSources_();
+            const cluster::Json items = opened.is_null() ? cluster::Json::array() : opened.value("items", cluster::Json::array());
+            const std::size_t count = opened.is_null() ? sources.size() : items.size();
+            this->_plugSel = count == 0 ? 0 : std::min(this->_plugSel, count - 1);
+            const cluster::Json source = !opened.is_null() ? opened : count > 0 ? sources[this->_plugSel] : cluster::Json(nullptr);
+            const cluster::Json item = !opened.is_null() && count > 0 ? items[this->_plugSel] : cluster::Json(nullptr);
+            const std::string slug = source.is_null() ? std::string() : source.value("slug", std::string());
+            const std::filesystem::path root = !item.is_null() ? std::filesystem::path(item.value("path", source.value("dir", std::string())))
+                : source.is_null() ? std::filesystem::path() : std::filesystem::path(source.value("dir", std::string()));
+            const std::string confirm = this->_plugConfirm;
+            this->_plugConfirm.clear();
             if (event == ftxui::Event::Escape || event == ftxui::Event::Character('q')) {
-                if (this->_plugTree) this->_plugTree = false;
-                else this->_mode = Mode::Normal;
+                if (this->_plugTree) {
+                    this->_plugTree = false;
+                } else if (!opened.is_null()) { // back to the sources, on the one opened
+                    this->_plugSource.clear();
+                    this->_plugMarked.clear();
+                    this->_plugSel = this->_plugSrcSel;
+                    this->_plugFile.clear();
+                } else {
+                    this->_mode = Mode::Normal;
+                }
                 return true;
             }
             if (this->_plugTree) { // the tree: ↑↓, Enter / → opens a folder or previews a file, ← closes / back to the list
@@ -2064,50 +2079,100 @@ class TtyUi {
                 }
                 return true;
             }
-            if (event == ftxui::Event::ArrowUp) {
-                this->_plugSel = this->_plugSel > 0 ? this->_plugSel - 1 : 0;
+            // both levels: move, sync, the settings of the source
+            if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown || event == ftxui::Event::PageUp || event == ftxui::Event::PageDown
+                || event == ftxui::Event::Home || event == ftxui::Event::End) {
+                const long step = event == ftxui::Event::ArrowUp ? -1 : event == ftxui::Event::ArrowDown ? 1 : event == ftxui::Event::PageUp ? -10 : event == ftxui::Event::PageDown ? 10
+                    : event == ftxui::Event::Home ? -100000 : 100000;
+                this->_plugSel = count == 0 ? 0 : static_cast<std::size_t>(std::clamp<long>(static_cast<long>(this->_plugSel) + step, 0, static_cast<long>(count) - 1));
                 this->_plugFile.clear();
-            } else if (event == ftxui::Event::ArrowDown) {
-                this->_plugSel = any ? std::min(this->_plugSel + 1, rows.size() - 1) : 0;
-                this->_plugFile.clear();
-            } else if ((event == ftxui::Event::Return || event == ftxui::Event::ArrowRight || event == ftxui::Event::Tab) && repo) {
-                this->_plugTree = true;
-                this->_plugNode = 0;
-                // its SKILL.md / README previewed at once
-                for (const char* first: {"SKILL.md", "README.md", ".claude-plugin/plugin.json"})
-                    if (std::filesystem::exists(root / first)) {
-                        this->_plugFile = (root / first).string();
-                        break;
-                    }
-            } else if (event == ftxui::Event::Character('a') || (event.is_character() && (event.character() == "/" || event.character() == "~"
+                return true;
+            }
+            if (event == ftxui::Event::Character('u') && !slug.empty()) {
+                this->_manager.pluginsRefresh(slug);
+                this->status_("syncing " + slug + "… (pulled, listed again, the ticks applied)");
+            } else if (event == ftxui::Event::Character('U')) {
+                this->_manager.pluginsRefresh("");
+                this->status_("syncing every source…");
+            } else if (event == ftxui::Event::Character('s') && !slug.empty()) {
+                const bool on = !source.value("auto", true);
+                this->plugSet_({{"items", cluster::Json::array({{{"table", "auto"}, {"key", slug}, {"value", on}}})}}, slug + ": auto sync " + (on ? "on" : "off (by hand only: u)"));
+            } else if (event == ftxui::Event::Character('p') && !slug.empty()) {
+                const bool pause = !source.value("paused", false);
+                this->plugSet_({{"items", cluster::Json::array({{{"table", "paused"}, {"key", slug}, {"value", pause}}})}},
+                    slug + (pause ? ": turned off (everything of it off, kept installed)" : ": turned on again"));
+            } else if (event == ftxui::Event::Character('a') || (opened.is_null() && event.is_character() && (event.character() == "/" || event.character() == "~"
                 || event.character() == "'" || event.character() == "\""))) {
                 // a source typed, or a file / folder dropped on the terminal (its path pasted)
                 this->_plugAdd = true;
                 this->_plugInput.clear();
                 if (event != ftxui::Event::Character('a')) this->_plugInput.insert(event.character());
-            } else if (event == ftxui::Event::Character('u')) {
-                this->_manager.pluginsRefresh();
-                this->status_("plugins: the sources pulled / listed again");
-            } else if (event == ftxui::Event::Character('d') && repo && !item) {
-                std::vector<std::string> repos = this->_manager.config().pluginRepos;
-                repos.erase(std::remove(repos.begin(), repos.end(), repo->url), repos.end());
-                std::string list;
-                for (const std::string& r: repos)
-                    list += (list.empty() ? "" : ",") + r;
-                this->plugWrite_("plugins", "repos", cluster::SettingKind::List, list);
-                this->status_("source dropped: " + repo->url + " (what it installed stays until removed: r)");
-            } else if ((event == ftxui::Event::Character('i') || event == ftxui::Event::Character('r') || event == ftxui::Event::Character(' ')) && repo) {
-                // installed / removed: the item, or every item of a source (its "*")
-                const std::string id = item ? item->id : repo->slug + ":*";
-                const bool install = event == ftxui::Event::Character('i') || (event == ftxui::Event::Character(' ') && !(item && item->installed));
-                this->plugWrite_("plugins.select", "\"" + id + "\"", cluster::SettingKind::Bool, install ? "true" : "false");
-                this->status_(std::string(install ? "installing " : "removing ") + (item ? item->name : "everything of " + repo->slug) + "… (for the sessions started after it)");
-            } else if (event == ftxui::Event::Character('e') && item) {
-                if (!item->installed) {
-                    this->status_("not installed: i first", true);
-                } else {
-                    this->plugWrite_("plugins.off", "\"" + item->id + "\"", cluster::SettingKind::Bool, item->enabled ? "true" : "false");
-                    this->status_(std::string(item->enabled ? "turning off " : "turning on ") + item->name + "…");
+            } else if (opened.is_null()) { // the sources
+                if ((event == ftxui::Event::Return || event == ftxui::Event::ArrowRight) && !slug.empty()) {
+                    this->_plugSource = slug;
+                    this->_plugSrcSel = this->_plugSel;
+                    this->_plugSel = 0;
+                    this->_plugMarked.clear();
+                } else if (event == ftxui::Event::Character('i') && !slug.empty()) {
+                    this->plugSet_({{"items", cluster::Json::array({{{"table", "select"}, {"key", slug + ":*"}, {"value", true}}})}}, "installing everything of " + slug + " (the new ones too)…");
+                } else if (event == ftxui::Event::Character('r') && !slug.empty()) {
+                    if (confirm != "r" + slug) {
+                        this->_plugConfirm = "r" + slug;
+                        this->status_("r again: remove every plugin / skill of " + slug + " installed by claude-cluster", true);
+                    } else {
+                        cluster::Json changes = cluster::Json::array({{{"table", "select"}, {"key", slug + ":*"}, {"value", false}}});
+                        for (const cluster::Json& i: source.value("items", cluster::Json::array()))
+                            changes.push_back({{"table", "select"}, {"key", i.value("id", std::string())}, {"value", false}});
+                        this->plugSet_({{"items", changes}}, "removing everything of " + slug + "…");
+                    }
+                } else if (event == ftxui::Event::Character('d') && !slug.empty()) {
+                    if (confirm != "d" + slug) {
+                        this->_plugConfirm = "d" + slug;
+                        this->status_("d again: drop the source " + slug + " (what it installed stays until removed: r first)", true);
+                    } else {
+                        std::vector<std::string> repos = this->_manager.config().pluginRepos;
+                        repos.erase(std::remove(repos.begin(), repos.end(), source.value("url", std::string())), repos.end());
+                        this->plugSet_({{"repos", repos}}, "source dropped: " + slug);
+                    }
+                }
+            } else { // the items of the source opened: a checklist
+                std::vector<cluster::Json> targets;
+                for (const cluster::Json& i: items)
+                    if (this->_plugMarked.contains(i.value("id", std::string()))) targets.push_back(i);
+                if (targets.empty() && !item.is_null()) targets.push_back(item);
+                if (event == ftxui::Event::ArrowLeft) {
+                    (void)this->plugEvent_(ftxui::Event::Escape);
+                } else if (event == ftxui::Event::Character(' ') && !item.is_null()) {
+                    const std::string id = item.value("id", std::string());
+                    if (this->_plugMarked.contains(id)) this->_plugMarked.erase(id);
+                    else this->_plugMarked.insert(id);
+                    this->_plugSel = std::min(this->_plugSel + 1, count - 1); // the next one: several ticked in a row
+                } else if (event == ftxui::Event::Character('A') || event == ftxui::Event::Character('*')) {
+                    if (this->_plugMarked.size() == items.size()) {
+                        this->_plugMarked.clear();
+                    } else {
+                        for (const cluster::Json& i: items)
+                            this->_plugMarked.insert(i.value("id", std::string()));
+                    }
+                } else if (event == ftxui::Event::Character('i') && !targets.empty()) {
+                    this->plugItems_(source, targets, "install");
+                    this->_plugMarked.clear();
+                } else if (event == ftxui::Event::Character('r') && !targets.empty()) {
+                    this->plugItems_(source, targets, "remove");
+                    this->_plugMarked.clear();
+                } else if (event == ftxui::Event::Character('e') && !targets.empty()) {
+                    const bool anyOff = std::any_of(targets.begin(), targets.end(), [](const cluster::Json& i) {return i.value("installed", false) && !i.value("enabled", true);});
+                    this->plugItems_(source, targets, anyOff ? "on" : "off");
+                    this->_plugMarked.clear();
+                } else if ((event == ftxui::Event::Return || event == ftxui::Event::ArrowRight || event == ftxui::Event::Tab || event == ftxui::Event::Character('f'))
+                    && !item.is_null()) {
+                    this->_plugTree = true;
+                    this->_plugNode = 0;
+                    for (const char* first: {"SKILL.md", "README.md", ".claude-plugin/plugin.json"}) // its SKILL.md / README previewed at once
+                        if (std::filesystem::exists(root / first)) {
+                            this->_plugFile = (root / first).string();
+                            break;
+                        }
                 }
             }
             return true;
@@ -3466,28 +3531,68 @@ class TtyUi {
             return ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::flex;
         }
 
+        void plugLoad_(void)
+        {
+            try {
+                this->_plug = this->_manager.pluginsJson();
+            } catch (const utils::exception::IException&) {} // the core away: the last ones kept
+            this->_plugRead = now_ms_();
+        }
+
+        _nodiscard cluster::Json plugSources_(void) const {return this->_plug.value("sources", cluster::Json::array());};
+
+        _nodiscard cluster::Json plugOpened_(void) const
+        {
+            // the source opened (its items listed), else null
+            for (const cluster::Json& s: this->plugSources_())
+                if (!this->_plugSource.empty() && s.value("slug", std::string()) == this->_plugSource) return s;
+            return nullptr;
+        }
+
         void openPlugins_(void)
         {
-            this->_plug = cluster::plugins_index();
-            this->_plugRead = now_ms_();
-            this->_plugSel = std::min(this->_plugSel, this->plugRows_().empty() ? 0 : this->plugRows_().size() - 1);
+            this->plugLoad_();
+            this->_plugSource.clear();
+            this->_plugMarked.clear();
+            this->_plugConfirm.clear();
+            this->_plugSel = 0;
             this->_plugTree = false;
             this->_plugAdd = false;
+            this->_plugFile.clear();
             this->_mode = Mode::Plugins;
         }
 
-        _nodiscard std::vector<std::pair<std::size_t, int>> plugRows_(void) const
+        void plugSet_(const cluster::Json& changes, const std::string& done)
         {
-            // a source, then its items (-1: the source itself)
-            std::vector<std::pair<std::size_t, int>> rows;
-            for (std::size_t r = 0; r < this->_plug.size(); ++r) {
-                rows.emplace_back(r, -1);
-                for (std::size_t i = 0; i < this->_plug[r].items.size(); ++i)
-                    rows.emplace_back(r, static_cast<int>(i));
+            // several ticks / settings written at once by the core (applied by it: installed, removed, turned on / off)
+            try {
+                this->_manager.pluginsSet(changes);
+                this->status_(done);
+            } catch (const utils::exception::IException& e) {
+                this->status_(e.info(), true);
             }
-            return rows;
+            this->plugLoad_();
         }
 
+        void plugItems_(const cluster::Json& source, const std::vector<cluster::Json>& targets, const std::string& action)
+        {
+            // install / remove / on / off of the items given; a source installed whole ("all") unticked first, its other items kept
+            cluster::Json changes = cluster::Json::array();
+            const std::string slug = source.value("slug", std::string());
+            std::set<std::string> ids;
+            for (const cluster::Json& i: targets)
+                ids.insert(i.value("id", std::string()));
+            if (action == "remove" && source.value("all", false)) {
+                changes.push_back({{"table", "select"}, {"key", slug + ":*"}, {"value", false}});
+                for (const cluster::Json& i: source.value("items", cluster::Json::array()))
+                    if (!ids.contains(i.value("id", std::string())) && i.value("wanted", false)) changes.push_back({{"table", "select"}, {"key", i.value("id", std::string())}, {"value", true}});
+            }
+            for (const std::string& id: ids) {
+                if (action == "install" || action == "remove") changes.push_back({{"table", "select"}, {"key", id}, {"value", action == "install"}});
+                if (action == "remove" || action == "on" || action == "off") changes.push_back({{"table", "off"}, {"key", id}, {"value", action == "off"}});
+            }
+            this->plugSet_({{"items", changes}}, action + ": " + std::to_string(ids.size()) + " of " + slug + "… (applied by the core, for the sessions started after it)");
+        }
         _nodiscard std::vector<std::tuple<int, std::filesystem::path, bool>> plugNodes_(const std::filesystem::path& root) const
         {
             // the tree of a folder: its opened folders unfolded (folders first, .git skipped), 600 rows at most
@@ -3516,21 +3621,6 @@ class TtyUi {
             return nodes;
         }
 
-        void plugWrite_(const std::string& section, const std::string& key, const cluster::SettingKind kind, const std::string& value)
-        {
-            // config.toml written ([plugins] / [plugins.select] / [plugins.off]): the core applies it at its reload
-            cluster::Setting setting;
-            setting.section = section;
-            setting.key = key;
-            setting.kind = kind;
-            try {
-                cluster::settings_write(this->_manager.config(), {{{section, key}, {setting, value}}});
-                (void)this->_manager.config().reload();
-            } catch (const utils::exception::IException& e) {
-                this->status_(e.info(), true);
-            }
-        }
-
         void plugAddSource_(std::string source)
         {
             // a link, a folder, a .zip (dropped on the terminal: its path, quoted or file://)
@@ -3545,11 +3635,7 @@ class TtyUi {
                 return;
             }
             repos.push_back(source);
-            std::string list;
-            for (const std::string& r: repos)
-                list += (list.empty() ? "" : ",") + r;
-            this->plugWrite_("plugins", "repos", cluster::SettingKind::List, list);
-            this->status_("source added: " + source + " (listed in a moment: cloned / unpacked by the core)");
+            this->plugSet_({{"repos", repos}}, "source added: " + source + " (listed in a moment: cloned / unpacked by the core)");
         }
 
         void plugComplete_(void)
@@ -6660,69 +6746,92 @@ class TtyUi {
                     ftxui::hbox({press(ftxui::text(" Enter: run"), ftxui::Event::Return), ftxui::text(" · "), press(ftxui::text("Escape: cancel"), ftxui::Event::Escape)}) | ftxui::dim}), 80);
             }
             if (this->_mode == Mode::Plugins) {
-                if (now_ms_() - this->_plugRead > 1000) {
-                    this->_plug = cluster::plugins_index();
-                    this->_plugRead = now_ms_();
-                }
+                if (now_ms_() - this->_plugRead > 1000) this->plugLoad_();
                 this->_spinning = true; // the core works (clone, install): its result shown as it comes
                 const ftxui::Dimensions size = ftxui::Terminal::Size();
                 const int width = std::max(80, size.dimx - 6);
                 const int height = std::max(16, size.dimy - 6);
-                const std::vector<std::pair<std::size_t, int>> rows = this->plugRows_();
-                if (!rows.empty()) this->_plugSel = std::min(this->_plugSel, rows.size() - 1);
-                // the list: the sources and their items, their state
+                const cluster::Json sources = this->plugSources_();
+                const cluster::Json opened = this->plugOpened_();
+                const cluster::Json items = opened.is_null() ? cluster::Json::array() : opened.value("items", cluster::Json::array());
+                const std::size_t count = opened.is_null() ? sources.size() : items.size();
+                if (count > 0) this->_plugSel = std::min(this->_plugSel, count - 1);
+                const std::int64_t now = cluster::now();
+                const std::function<std::string(const std::int64_t)> ago = [now](const std::int64_t when) {
+                    return when <= 0 ? std::string("never") : now - when < 60 ? std::string("just now") : cluster::human_age(when) + " ago";
+                };
+                const std::function<std::string(const cluster::Json&)> counts = [](const cluster::Json& s) {
+                    return std::to_string(s.value("offered", 0)) + " offered · " + std::to_string(s.value("installed", 0)) + " installed · " + std::to_string(s.value("enabled", 0)) + " on";
+                };
                 ftxui::Elements list;
-                const int listHeight = height - 4;
+                const int listHeight = (height - 4) / (opened.is_null() ? 2 : 1);
                 const int first = std::max(0, static_cast<int>(this->_plugSel) - listHeight / 2);
-                for (int k = first; k < static_cast<int>(rows.size()) && k < first + listHeight; ++k) {
-                    const auto &[r, i] = rows[static_cast<std::size_t>(k)];
-                    const cluster::PluginRepo& repo = this->_plug[r];
+                for (int k = first; k < static_cast<int>(count) && k < first + listHeight; ++k) {
                     const bool on = static_cast<std::size_t>(k) == this->_plugSel;
                     ftxui::Element element;
-                    if (i < 0) {
-                        const std::string icon = repo.kind == "zip" ? "▤ " : repo.kind == "folder" ? "▣ " : "⎇ ";
-                        element = ftxui::hbox({ftxui::text(icon + repo.slug) | ftxui::bold | ftxui::color(repo.error.empty() ? this->_theme.accent : this->_theme.warn),
-                            ftxui::text(repo.marketplace.empty() ? "" : "  marketplace") | ftxui::color(this->_theme.muted)});
-                    } else {
-                        const cluster::PluginItem& item = repo.items[static_cast<std::size_t>(i)];
-                        const std::string mark = !item.installed ? "○" : item.enabled ? "●" : "◐";
-                        element = ftxui::hbox({ftxui::text("  " + mark + " ") | ftxui::color(!item.installed ? this->_theme.muted : item.enabled ? this->_theme.ok : this->_theme.warn),
-                            ftxui::text(item.name) | ftxui::color(this->_theme.text), ftxui::text(" " + item.kind) | ftxui::color(this->_theme.muted)});
+                    if (opened.is_null()) { // a source: its name, its state, its counts and last sync
+                        const cluster::Json& s = sources[static_cast<std::size_t>(k)];
+                        const std::string kind = s.value("kind", std::string("git"));
+                        const std::string icon = kind == "zip" ? "▤ " : kind == "folder" ? "▣ " : "⎇ ";
+                        const bool paused = s.value("paused", false);
+                        const bool broken = !s.value("error", std::string()).empty();
+                        element = ftxui::vbox({ftxui::hbox({ftxui::text(icon + s.value("slug", std::string())) | ftxui::bold
+                                | ftxui::color(broken ? this->_theme.warn : paused ? this->_theme.muted : this->_theme.accent),
+                                ftxui::text(s.value("pending", false) ? "  being listed…" : paused ? "  off" : "") | ftxui::color(this->_theme.muted)}),
+                            ftxui::text("   " + counts(s) + " · " + (kind == "folder" ? std::string("in place") : ago(s.value("synced", std::int64_t{0}))))
+                                | ftxui::color(this->_theme.muted)});
+                    } else { // an item: its tick, its state, its name and kind
+                        const cluster::Json& i = items[static_cast<std::size_t>(k)];
+                        const bool installed = i.value("installed", false);
+                        const bool enabled = i.value("enabled", true);
+                        const std::string mark = !installed ? "○" : enabled ? "●" : "◐";
+                        const bool ticked = this->_plugMarked.contains(i.value("id", std::string()));
+                        element = ftxui::hbox({ftxui::text(ticked ? " [x] " : " [ ] ") | ftxui::color(ticked ? this->_theme.accent : this->_theme.border),
+                            ftxui::text(mark + " ") | ftxui::color(!installed ? this->_theme.muted : enabled ? this->_theme.ok : this->_theme.warn),
+                            ftxui::text(i.value("name", std::string())) | ftxui::color(this->_theme.text), ftxui::text(" " + i.value("kind", std::string())) | ftxui::color(this->_theme.muted)});
                     }
                     list.push_back(this->tap_(on && !this->_plugTree ? element | ftxui::bgcolor(this->_theme.border) : element, 1, [this, k]() {
-                        if (this->_plugSel == static_cast<std::size_t>(k)) (void)this->event_(ftxui::Event::Return); // clicked again: its files
-                        this->_plugSel = static_cast<std::size_t>(k);
+                        if (this->_plugSel == static_cast<std::size_t>(k)) (void)this->event_(this->_plugSource.empty() ? ftxui::Event::Return : ftxui::Event::Character(' '));
+                        else this->_plugSel = static_cast<std::size_t>(k); // clicked: chosen; again: opened (a source) / ticked (an item)
                         this->_plugTree = false;
                         this->_plugFile.clear();
                     }));
                 }
-                if (rows.empty()) list.push_back(ftxui::paragraph(" no source yet: a to add one (a repository link, a folder, a .zip; drop a file here)")
-                    | ftxui::color(this->_theme.muted));
-                // the item: its information, the tree of its files, the file previewed
+                if (count == 0) list.push_back(ftxui::paragraph(opened.is_null() ? " no source yet: a to add one (a repository link, a folder, a .zip; drop a file here)"
+                    : " nothing offered by this source") | ftxui::color(this->_theme.muted));
                 ftxui::Elements info;
                 ftxui::Element right = ftxui::text("");
-                if (!rows.empty()) {
-                    const auto &[r, i] = rows[this->_plugSel];
-                    const cluster::PluginRepo& repo = this->_plug[r];
-                    const cluster::PluginItem* item = i >= 0 ? &repo.items[static_cast<std::size_t>(i)] : nullptr;
-                    const std::filesystem::path root = item ? std::filesystem::path(item->path.empty() ? repo.dir : item->path) : std::filesystem::path(repo.dir);
-                    if (item) {
-                        info.push_back(ftxui::hbox({ftxui::text(" " + item->name) | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text("  " + item->kind + " · "
-                            + (!item->installed ? "not installed" : item->enabled ? "installed, on" : "installed, off")) | ftxui::color(this->_theme.muted)}));
-                        info.push_back(ftxui::hbox({ftxui::text(" " + (item->kind == "skill" ? "/" + repo.slug + ":" + item->name : "/" + item->name + ":<skill>") + " ") | ftxui::color(this->_theme.accent),
-                            ftxui::text(" " + (item->kind == "skill" ? repo.slug : item->name) + " ") | ftxui::bold | ftxui::color(ftxui::Color::RGB(255, 255, 255))
-                            | ftxui::bgcolor(hex_(cluster::source_color(item->kind == "skill" ? repo.slug : item->name)))}));
-                        info.push_back(ftxui::paragraph(" " + (item->description.empty() ? std::string("no description") : item->description)) | ftxui::color(this->_theme.text));
-                    } else {
-                        info.push_back(ftxui::text(" " + repo.url) | ftxui::bold | ftxui::color(this->_theme.text));
-                        info.push_back(ftxui::text(" " + repo.kind + (repo.marketplace.empty() ? "" : " · marketplace " + repo.marketplace) + " · "
-                            + std::to_string(repo.items.size()) + " item(s)") | ftxui::color(this->_theme.muted));
-                        if (!repo.error.empty()) info.push_back(ftxui::paragraph(" " + repo.error) | ftxui::color(this->_theme.warn));
-                    }
-                    info.push_back(ftxui::text(" " + cluster::short_path(root.string())) | ftxui::color(this->_theme.border));
+                const cluster::Json source = !opened.is_null() ? opened : count > 0 ? sources[this->_plugSel] : cluster::Json(nullptr);
+                if (!source.is_null()) { // the source: where, what, when, its settings
+                    const std::string kind = source.value("kind", std::string("git"));
+                    const int hours = this->_plug.value("sync_hours", 24);
+                    info.push_back(ftxui::text(" " + source.value("url", std::string())) | ftxui::bold | ftxui::color(this->_theme.text));
+                    info.push_back(ftxui::text(" " + kind + (source.value("marketplace", std::string()).empty() ? std::string(" · skills") : " · marketplace " + source.value("marketplace", std::string()))
+                        + " · " + std::to_string(source.value("skills", 0)) + " skill(s), " + std::to_string(source.value("plugins", 0)) + " plugin(s)") | ftxui::color(this->_theme.muted));
+                    info.push_back(ftxui::text(" " + counts(source)) | ftxui::color(this->_theme.text));
+                    info.push_back(ftxui::text(kind == "folder" ? std::string(" a folder read in place: nothing to sync") : " last sync " + ago(source.value("synced", std::int64_t{0}))
+                        + (source.value("auto", true) ? hours > 0 ? " · auto every " + std::to_string(hours) + " h" : " · auto at each start" : " · auto sync off (u: by hand)"))
+                        | ftxui::color(this->_theme.muted));
+                    if (!source.value("commit", std::string()).empty() || source.value("commit_time", std::int64_t{0}) > 0)
+                        info.push_back(ftxui::text(" " + (kind == "git" ? "last commit " + source.value("commit", std::string()) : kind == "zip" ? std::string("the .zip")
+                            : std::string("its newest SKILL.md")) + (source.value("commit_time", std::int64_t{0}) > 0 ? " · " + ago(source.value("commit_time", std::int64_t{0}))
+                            : std::string())) | ftxui::color(this->_theme.muted));
+                    info.push_back(ftxui::text(source.value("paused", false) ? " turned off: everything of it off, kept installed (p: on)" : " on (p: turn it all off)")
+                        | ftxui::color(source.value("paused", false) ? this->_theme.warn : this->_theme.ok));
+                    if (!source.value("error", std::string()).empty()) info.push_back(ftxui::paragraph(" " + source.value("error", std::string())) | ftxui::color(this->_theme.warn));
+                    info.push_back(ftxui::text(" " + cluster::short_path(source.value("dir", std::string()))) | ftxui::color(this->_theme.border));
+                }
+                if (!opened.is_null() && count > 0) { // an item of it: its information, the tree of its files, the file previewed
+                    const cluster::Json& item = items[this->_plugSel];
+                    const std::filesystem::path root = item.value("path", source.value("dir", std::string()));
+                    ftxui::Elements about;
+                    about.push_back(ftxui::hbox({ftxui::text(" " + item.value("name", std::string())) | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text("  " + item.value("kind", std::string())
+                        + " · " + (!item.value("installed", false) ? "not installed" : item.value("enabled", true) ? "installed, on" : "installed, off")) | ftxui::color(this->_theme.muted)}));
+                    about.push_back(ftxui::paragraph(" " + (item.value("description", std::string()).empty() ? std::string("no description") : item.value("description", std::string())))
+                        | ftxui::color(this->_theme.text));
                     ftxui::Elements tree;
                     const std::vector<std::tuple<int, std::filesystem::path, bool>> nodes = this->plugNodes_(root);
-                    const int treeHeight = height - 9;
+                    const int treeHeight = height - 14;
                     if (!nodes.empty()) this->_plugNode = std::min(this->_plugNode, nodes.size() - 1);
                     const int top = std::max(0, static_cast<int>(this->_plugNode) - treeHeight / 2);
                     for (int k = top; k < static_cast<int>(nodes.size()) && k < top + treeHeight; ++k) {
@@ -6744,13 +6853,13 @@ class TtyUi {
                         }));
                     }
                     const int previewWidth = width - 44 - 34 - 4;
-                    ftxui::Elements preview = this->_plugFile.empty() ? ftxui::Elements{ftxui::text(" Enter: its files, a file: previewed here") | ftxui::color(this->_theme.muted)}
+                    ftxui::Elements preview = this->_plugFile.empty() ? ftxui::Elements{ftxui::text(" Enter / f: its files, a file: previewed here") | ftxui::color(this->_theme.muted)}
                         : this->plugPreview_(this->_plugFile, treeHeight, previewWidth);
                     if (!this->_plugFile.empty()) preview.insert(preview.begin(), ftxui::text(" " + std::filesystem::path(this->_plugFile).filename().string() + "  (PageUp / PageDown)")
                         | ftxui::bold | ftxui::color(this->_theme.accent));
-                    right = ftxui::vbox({ftxui::vbox(std::move(info)), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                    right = ftxui::vbox({ftxui::vbox(std::move(about)), ftxui::separatorLight() | ftxui::color(this->_theme.border),
                         ftxui::hbox({ftxui::vbox(std::move(tree)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34) | ftxui::frame, ftxui::separatorLight() | ftxui::color(this->_theme.border),
-                            ftxui::vbox(std::move(preview)) | ftxui::flex})}) | ftxui::flex;
+                            ftxui::vbox(std::move(preview)) | ftxui::flex}) | ftxui::flex}) | ftxui::flex;
                 }
                 ftxui::Elements bottom;
                 if (this->_plugAdd) {
@@ -6761,13 +6870,22 @@ class TtyUi {
                         hints += h + "  ";
                     bottom.push_back(ftxui::text(hints.empty() ? " a repository (owner/repo, https / git URL), a folder, a .zip · Tab: complete the path · Enter: add · Esc"
                         : " " + hints) | ftxui::color(this->_theme.muted));
+                } else if (opened.is_null()) {
+                    bottom.push_back(ftxui::paragraph(" ↑↓ · Enter / →: what it offers · u sync · U sync all · s auto sync on / off · p turn the source off / on · i install all of it · "
+                        "r remove all of it · a add a source (or drop a file / folder) · d drop the source · Esc close") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 } else {
-                    bottom.push_back(ftxui::paragraph(" ↑↓ · Enter / →: its files · i install · r remove · Space toggle · e on / off · a add a source (or drop a file / folder) · "
-                        "d drop the source · u update · Esc close") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                    bottom.push_back(ftxui::paragraph(" Space tick · A all / none · i install · r remove · e on / off (the ticked ones, else the one chosen) · Enter / f its files · "
+                        "u sync · s auto sync · p source off / on · ← / Esc the sources") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 }
-                bottom.push_back(ftxui::paragraph(" ● on  ◐ off  ○ not installed · applied by the core, for the sessions started after it") | ftxui::color(this->_theme.muted) | ftxui::dim);
-                return box(ftxui::vbox({ftxui::text(" Plugins and skills") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::separatorLight() | ftxui::color(this->_theme.border),
-                    ftxui::hbox({ftxui::vbox(std::move(list)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 44), ftxui::separatorLight() | ftxui::color(this->_theme.border), right})
+                bottom.push_back(ftxui::paragraph(" ● on  ◐ off  ○ not installed · applied by the core, for the sessions started after it" + std::string(this->_plug.value("busy", false)
+                    ? " · the core is working on them…" : "")) | ftxui::color(this->_theme.muted) | ftxui::dim);
+                const std::string title = opened.is_null() ? " Plugins and skills · " + std::to_string(sources.size()) + " source(s)"
+                    : " ‹ " + opened.value("slug", std::string()) + " · " + counts(opened) + (this->_plugMarked.empty() ? std::string() : " · " + std::to_string(this->_plugMarked.size()) + " ticked");
+                return box(ftxui::vbox({this->tap_(ftxui::text(title) | ftxui::bold | ftxui::color(this->_theme.text), 1, [this]() {
+                        if (!this->_plugSource.empty()) (void)this->plugEvent_(ftxui::Event::Escape); // the title of a source: back to the sources
+                    }), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                    ftxui::hbox({ftxui::vbox(std::move(list)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 44), ftxui::separatorLight() | ftxui::color(this->_theme.border),
+                        opened.is_null() ? ftxui::vbox(std::move(info)) | ftxui::flex : ftxui::vbox({ftxui::vbox(std::move(info)), ftxui::separatorLight() | ftxui::color(this->_theme.border), right}) | ftxui::flex})
                         | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height - 4),
                     ftxui::separatorLight() | ftxui::color(this->_theme.border), ftxui::vbox(std::move(bottom))}), width);
             }
@@ -6950,6 +7068,15 @@ class TtyUi {
                             this->_manager.asking().choose(i);
                             if (!multi && i < count) this->askNext_();
                         }));
+                }
+                if (multi) { // like Claude Code: a row after Other to go on (the ticks kept): the next question, the review, or sent
+                    const int next = static_cast<int>(options.size()) + 1;
+                    const bool lastQuestion = a.index + 1 >= a.questions.size();
+                    const std::string word = !lastQuestion ? "Next →" : a.questions.size() > 1 ? "Review →" : "Submit →";
+                    ftxui::Element row = ftxui::text(std::string(" ") + (a.cursor == next ? "› " : "  ") + word) | ftxui::color(this->_theme.accent);
+                    optionRows.push_back(this->tap_(a.cursor == next ? row | ftxui::bold | ftxui::bgcolor(this->_theme.border) : row, 1, [this]() {
+                        if (!this->_manager.asking().forward()) this->status_("choose an option first (Enter)", true);
+                    }));
                 }
                 if (anyPreview) {
                     // the preview of the option under the cursor (Other: none): beside the list, or under it on a narrow screen
@@ -7826,8 +7953,10 @@ class TtyUi {
                         // on an Other typed: its answer validated (kept ticked, never unticked by the Enter), the next question
                         if (!ask->picked.contains(count)) asking.toggle();
                         this->askNext_();
+                    } else if (event == ftxui::Event::Return && multi && ask->cursor == count + 1) {
+                        if (!asking.forward()) this->status_("choose an option first (Enter)", true); // its Next row: the ticks kept, on
                     } else if (event == ftxui::Event::Return) {
-                        if (multi) asking.toggle(); // several choices: Enter ticks / unticks (Tab / → goes on)
+                        if (multi) asking.toggle(); // several choices: Enter ticks / unticks (Tab / →, or the Next row, goes on)
                         else this->askNext_();      // one choice: the option under the cursor is the answer
                     } else if (ask->cursor == count && this->_askOther.key(event)) {
                         // on Other: the answer edited with its cursor (digits and spaces too), the question told at each change

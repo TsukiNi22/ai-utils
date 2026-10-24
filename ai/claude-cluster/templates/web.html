@@ -551,6 +551,18 @@ body.simple .msg.assistant { border-radius: 16px 16px 16px 4px; }
 .s-win .nav button { border: 0; background: transparent; text-align: left; border-radius: 12px; }
 .s-win .nav button.on { background: var(--soft-accent); color: var(--accent); font-weight: 600; }
 .s-win .foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; padding: 12px 18px; border-top: 1px solid var(--line); }
+.plug .split { grid-template-columns: 290px 1fr; }
+.plug .nav button { display: grid; gap: 2px; padding: 8px 10px; }
+.plug .nav small, .plug .muted { color: var(--muted); font-size: 12px; }
+.plug .nav button.off b { color: var(--muted); }
+.plug .nav button.bad b { color: var(--warn); }
+.plug .top { display: flex; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.plug .top input { flex: 1; min-width: 180px; }
+.plug .items { display: grid; gap: 2px; }
+.plug .items label { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: start; padding: 6px 8px; border-radius: 10px; cursor: pointer; }
+.plug .items label:hover { background: var(--soft-accent); }
+.plug .items .st-on { color: var(--ok); } .plug .items .st-off { color: var(--warn); } .plug .items .st-none { color: var(--muted); }
+.plug .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .s-row { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .s-agents { color: var(--accent); font-size: 13px; margin-top: 2px; }
 .s-row .label { flex: 1; min-width: 160px; font-family: inherit; font-size: 15px; letter-spacing: normal; text-transform: none; color: var(--text); }
@@ -2589,6 +2601,7 @@ async function act(request) {
     try {
         const data = await cmd(request);
         if (data && data.message && data.ui === "message") infoBox(data.message); // a popup (/info...): never in the conversation
+        else if (data && data.ui === "plugins") pluginsWindow();
         else if (data && data.message) toast(data.message);
         shownAsk = "";
         refresh();
@@ -2848,9 +2861,20 @@ attachMenu.addEventListener("click", (e) => {
 });
 for (const id of ["attachFiles", "attachPhotos", "attachCamera"])
     $(id).addEventListener("change", (e) => { addFiles(Array.from(e.target.files)); e.target.value = ""; });
+// a text pasted carries two invisible marks (tag characters, the same as the core's): the agent gets it between <pasted> and </pasted>
+const tagOf = (s) => Array.from(s, (c) => String.fromCodePoint(0xE0000 + c.charCodeAt(0))).join("") + String.fromCodePoint(0xE007F);
+const PASTE_OPEN = tagOf("paste{"), PASTE_CLOSE = tagOf("}paste");
 $("prompt").addEventListener("paste", (e) => {
     const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
-    if (!files.length) return;
+    if (!files.length) {
+        const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
+        if (!text) return;
+        e.preventDefault();
+        const p = $("prompt");
+        p.setRangeText(PASTE_OPEN + text + PASTE_CLOSE, p.selectionStart, p.selectionEnd, "end");
+        p.dispatchEvent(new Event("input"));
+        return;
+    }
     e.preventDefault();
     addFiles(files);
 });
@@ -2869,8 +2893,8 @@ $("composer").addEventListener("drop", (e) => {
 let originOn = true;
 function markOrigin(div, m) {
     const origin = m.origin || "user";
-    const group = origin === "schedule" ? "task" : origin;
-    const label = origin === "mcp" ? "mcp" : origin === "task" ? "task" : origin === "schedule" ? "scheduled" : "";
+    const group = origin === "schedule" || origin === "wake" ? "task" : origin; // a schedule and a wake-up are tasks
+    const label = origin === "mcp" ? "mcp" : origin === "task" ? "task" : origin === "schedule" ? "scheduled" : origin === "wake" ? "woken" : "";
     if (!originOn || (group === "user" && !document.documentElement.style.getPropertyValue("--o-user"))) return;
     div.dataset.origin = origin;
     div.style.setProperty("--o", "var(--o-" + group + ")");
@@ -2929,6 +2953,7 @@ async function send(text, picked) {
     const images = [];
     for (const f of files) text += (text && !text.endsWith(" ") && !text.endsWith("\n") ? " " : "") + (f.image ? "[Image #" + images.push(f.path) + "]" : "@" + f.path) + " ";
     const data = await act({cmd: "send", session: current, text: text.trim(), images});
+    if (data && data.ui === "plugins") pluginsWindow();
     if (data && data.ui === "fill") { $("prompt").value = data.fill || ""; autosize(); } // a :s of the last prompt, a :r
     if (data && data.ui === "pick:share:") shareShell();
     if (data && data.ui && data.ui.startsWith("pick:delete:")) { const s = (lastState.sessions || []).find((x) => x.id === data.ui.slice(12)); deleteSession(data.ui.slice(12), s ? s.name : data.ui.slice(12)); }
@@ -5007,6 +5032,150 @@ function simpleWindow(title, narrow) {
     win.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); done(); } });
     layer.append(shade, win);
     return {win, done};
+}
+// the plugins: the sources first (their counts, last sync); the one chosen: its information, settings and offer as a checklist; the ticks
+// written at once by the core, which applies them (read again every 2 s)
+function pluginsWindow() {
+    const {win, done} = simpleWindow("Plugins and skills");
+    win.classList.add("plug");
+    win.style.width = "min(1060px, calc(100% - 24px))";
+    const top = el("div", "top");
+    const input = el("input");
+    input.placeholder = "a source: owner/repo, an https / git URL, a folder (~/...), a .zip";
+    const addB = el("button", "", "Add");
+    const hours = el("input");
+    hours.type = "number";
+    hours.min = "0";
+    hours.style.width = "72px";
+    hours.title = "the sources with auto sync pulled again every N hours (0: at each start of the core only)";
+    const syncAll = el("button", "", "Sync all");
+    top.append(input, addB, el("span", "muted", "auto sync every"), hours, el("span", "muted", "h"), syncAll);
+    const split = el("div", "split");
+    const nav = el("div", "nav");
+    const side = el("div", "body");
+    split.append(nav, side);
+    const foot = el("div", "foot");
+    const status = el("span", "muted", "");
+    status.style.marginRight = "auto";
+    foot.append(status);
+    win.append(top, split, foot);
+    let data = {sources: []};
+    let chosen = "";
+    let shown = "";
+    const marked = new Set();
+    const now = () => Math.floor(Date.now() / 1000);
+    const age = (s) => s < 3600 ? Math.max(1, Math.floor(s / 60)) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
+    const ago = (t) => !t ? "never" : now() - t < 60 ? "just now" : age(now() - t) + " ago";
+    const counts = (s) => (s.offered || 0) + " offered · " + (s.installed || 0) + " installed · " + (s.enabled || 0) + " on";
+    const source = () => (data.sources || []).find((s) => s.slug === chosen) || null;
+    const set = async (changes, said) => {
+        try { await cmd({cmd: "plugins_set", changes}); status.textContent = said; }
+        catch (e) { status.textContent = "refused: " + e.message; }
+        load(true);
+    };
+    const items = (action) => {
+        const s = source();
+        if (!s || !marked.size) return;
+        if (action === "remove" && !confirm("Remove the ticked plugins / skills (the ones installed by claude-cluster)?")) return;
+        const changes = [];
+        if (action === "remove" && s.all) {
+            changes.push({table: "select", key: s.slug + ":*", value: false});
+            for (const i of s.items || []) if (!marked.has(i.id) && i.wanted) changes.push({table: "select", key: i.id, value: true});
+        }
+        for (const id of marked) {
+            if (action === "install" || action === "remove") changes.push({table: "select", key: id, value: action === "install"});
+            if (action === "remove" || action === "on" || action === "off") changes.push({table: "off", key: id, value: action === "off"});
+        }
+        const n = marked.size;
+        marked.clear();
+        set({items: changes}, action + ": " + n + " of " + s.slug + "… (applied by the core, for the sessions started after it)");
+    };
+    const button = (label, run, cls) => { const b = el("button", cls || "", label); b.type = "button"; b.addEventListener("click", run); return b; };
+    const draw = () => {
+        const sources = data.sources || [];
+        if (!chosen && sources.length) chosen = sources[0].slug;
+        if (document.activeElement !== hours) hours.value = data.sync_hours ?? 24;
+        nav.textContent = "";
+        for (const s of sources) {
+            const b = el("button", (s.slug === chosen ? "on " : "") + (s.paused ? "off " : "") + (s.error ? "bad" : ""));
+            b.append(el("b", "", s.slug + (s.paused ? " (off)" : s.pending ? " (being listed…)" : "")), el("small", "", counts(s)), el("small", "", s.kind === "folder" ? "read in place" : "synced " + ago(s.synced)));
+            b.addEventListener("click", () => { chosen = s.slug; marked.clear(); draw(); });
+            nav.append(b);
+        }
+        side.textContent = "";
+        const s = source();
+        if (!s) { side.append(el("div", "muted", sources.length ? "" : "No source yet: add a repository link, a folder or a .zip above.")); return; }
+        const every = data.sync_hours ?? 24;
+        side.append(el("b", "", s.url),
+            el("div", "muted", (s.kind || "git") + (s.marketplace ? " · marketplace " + s.marketplace : " · skills") + " · " + (s.skills || 0) + " skill(s), " + (s.plugins || 0) + " plugin(s)"),
+            el("div", "", counts(s)),
+            el("div", "muted", s.kind === "folder" ? "a folder read in place: nothing to sync"
+                : "last sync " + ago(s.synced) + (s.auto ? (every > 0 ? " · auto every " + every + " h" : " · auto at each start") : " · auto sync off: by hand only")));
+        if (s.commit || s.commit_time) side.append(el("div", "muted", (s.kind === "git" ? "last commit " + (s.commit || "") : s.kind === "zip" ? "the .zip" : "its newest SKILL.md")
+            + (s.commit_time ? " · " + ago(s.commit_time) : "")));
+        if (s.error) { const e = el("div", "", s.error); e.style.color = "var(--warn)"; side.append(e); }
+        const settings = el("div", "row");
+        const autoBox = el("input"); autoBox.type = "checkbox"; autoBox.checked = !!s.auto;
+        autoBox.addEventListener("change", () => set({items: [{table: "auto", key: s.slug, value: autoBox.checked}]}, s.slug + ": auto sync " + (autoBox.checked ? "on" : "off")));
+        const onBox = el("input"); onBox.type = "checkbox"; onBox.checked = !s.paused;
+        onBox.addEventListener("change", () => set({items: [{table: "paused", key: s.slug, value: !onBox.checked}]}, s.slug + (onBox.checked ? ": turned on again" : ": turned off (kept installed)")));
+        const autoL = el("label", ""); autoL.append(autoBox, " Auto sync");
+        const onL = el("label", ""); onL.append(onBox, " Source on");
+        settings.append(autoL, onL,
+            button("Sync now", async () => { await cmd({cmd: "plugins_refresh", source: s.slug}).catch((e) => { status.textContent = e.message; }); status.textContent = "syncing " + s.slug + "…"; }),
+            button("Install all", () => set({items: [{table: "select", key: s.slug + ":*", value: true}]}, "installing everything of " + s.slug + "…")),
+            button("Remove all", () => {
+                if (!confirm("Remove every plugin / skill of " + s.slug + " installed by claude-cluster?")) return;
+                set({items: [{table: "select", key: s.slug + ":*", value: false}, ...(s.items || []).map((i) => ({table: "select", key: i.id, value: false}))]}, "removing everything of " + s.slug + "…");
+            }, "danger"),
+            button("Drop source", () => {
+                if (!confirm("Drop " + s.slug + "? What it installed stays until removed (Remove all first).")) return;
+                chosen = "";
+                set({repos: (data.sources || []).map((x) => x.url).filter((u) => u !== s.url)}, "source dropped: " + s.slug);
+            }, "danger"));
+        side.append(settings);
+        const bulk = el("div", "row");
+        bulk.append(el("span", "muted", marked.size + " ticked"),
+            button("Tick all", () => { for (const i of s.items || []) marked.add(i.id); draw(); }),
+            button("Untick all", () => { marked.clear(); draw(); }),
+            button("Install", () => items("install"), "primary"), button("Remove", () => items("remove"), "danger"), button("Turn on", () => items("on")), button("Turn off", () => items("off")));
+        side.append(bulk);
+        const list = el("div", "items");
+        for (const i of s.items || []) {
+            const row = el("label", "");
+            const box = el("input");
+            box.type = "checkbox";
+            box.checked = marked.has(i.id);
+            box.addEventListener("change", () => { if (box.checked) marked.add(i.id); else marked.delete(i.id); bulk.firstChild.textContent = marked.size + " ticked"; });
+            const text = el("div", "");
+            text.append(el("b", "", i.name), el("span", "muted", "  " + i.kind), el("div", "muted", i.description || "no description"));
+            const state = el("span", !i.installed ? "st-none" : i.enabled ? "st-on" : "st-off", !i.installed ? "○ not installed" : i.enabled ? "● on" : "◐ off");
+            row.append(box, text, state);
+            list.append(row);
+        }
+        if (!(s.items || []).length) list.append(el("div", "muted", "nothing offered by this source"));
+        side.append(list);
+    };
+    const load = async (force) => {
+        try { data = await cmd({cmd: "plugins"}); } catch (e) { status.textContent = e.message; }
+        const sig = JSON.stringify(data) + marked.size;
+        if (force || sig !== shown) { shown = sig; draw(); }
+    };
+    const add = () => {
+        const url = input.value.trim();
+        if (!url) return;
+        if (!confirm("Its plugins / skills will run as you in every session (commands, hooks, MCP servers). Add " + url + " (only a source you trust)?")) return;
+        input.value = "";
+        set({repos: [...(data.sources || []).map((x) => x.url), url]}, "source added: " + url + " (listed in a moment)");
+    };
+    addB.addEventListener("click", add);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+    hours.addEventListener("change", () => set({sync_hours: Math.max(0, parseInt(hours.value, 10) || 0)}, "auto sync every " + hours.value + " h"));
+    syncAll.addEventListener("click", async () => { await cmd({cmd: "plugins_refresh"}).catch((e) => { status.textContent = e.message; }); status.textContent = "syncing every source…"; });
+    const tick = () => { if (!document.body.contains(win)) return; load(false); setTimeout(tick, 2000); };
+    load(true);
+    setTimeout(tick, 2000);
+    return done;
 }
 function simpleSeg(options, value, change) {
     const seg = el("div", "s-seg");

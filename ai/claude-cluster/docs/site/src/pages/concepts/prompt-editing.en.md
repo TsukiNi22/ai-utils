@@ -52,7 +52,7 @@ Words and the kill ring work in the prompt where no `[keys]` action uses the key
 
 ## Pasted text and chips {#paste}
 
-A paste of more than `[ui] paste_lines` (3) lines or `paste_chars` (800) characters is one `[Pasted text #N +L lines]` block, sent, stashed and edited (`Ctrl+E`) as its full text. Images pasted from the clipboard are `[Image #N]`, saved by content so the same image is one reference. A chip per image or pasted text sits above the prompt: hover shows it, click puts it back, right click opens an image in the viewer of the desktop. `Backspace` on a block removes it whole.
+A paste of more than `[ui] paste_lines` (3) lines or `paste_chars` (800) characters is one `[Pasted text #N +L lines]` block, sent, stashed and edited (`Ctrl+E`) as its full text. Images pasted from the clipboard are `[Image #N]`, saved by content so the same image is one reference. A chip per image or pasted text sits above the prompt: hover shows it, click puts it back, right click opens an image in the viewer of the desktop. `Backspace` on a block removes it whole. Every paste (a block or a short text) is **told to the agent**: it gets it between `<pasted>` and `</pasted>`, while you see the plain text in the prompt, the transcript and the history (two invisible marks). A command pasted at the start of an empty prompt (`!`, `/`, `:`) keeps its mode.
 
 ## Prompt modes {#modes}
 

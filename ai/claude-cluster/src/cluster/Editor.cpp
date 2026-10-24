@@ -212,17 +212,29 @@ _cold void cluster::Editor::erase(void)
 
 _cold void cluster::Editor::wordLeft(const bool select)
 {
+    // a line break is a stop: at the start of a line, the end of the one before (never into its last word); within a line, the
+    // start of the word, never past the start of the line
     std::size_t p = this->_cursor;
+    if (p > 0 && this->_text[p - 1] == '\n') {
+        this->move_(p - 1, select);
+        return;
+    }
     while (p > 0 && this->_text[p - 1] == ' ') --p;
-    while (p > 0 && this->_text[p - 1] != ' ') --p;
+    while (p > 0 && this->_text[p - 1] != ' ' && this->_text[p - 1] != '\n') --p;
     this->move_(p, select);
 }
 
 _cold void cluster::Editor::wordRight(const bool select)
 {
+    // a line break is a stop: at the end of a line, the start of the next one (never after its first word); within a line, the end
+    // of the word, never past the end of the line
     std::size_t p = this->_cursor;
+    if (p < this->_text.size() && this->_text[p] == '\n') {
+        this->move_(p + 1, select);
+        return;
+    }
     while (p < this->_text.size() && this->_text[p] == ' ') ++p;
-    while (p < this->_text.size() && this->_text[p] != ' ') ++p;
+    while (p < this->_text.size() && this->_text[p] != ' ' && this->_text[p] != '\n') ++p;
     this->move_(p, select);
 }
 
@@ -357,7 +369,9 @@ _cold std::string cluster::Editor::newPaste(std::string text)
     const int lines = static_cast<int>(std::count(text.begin(), text.end(), '\n')) + 1;
     const bool lineLimit = this->_pasteLines > 0 && lines > this->_pasteLines;
     const bool charLimit = this->_pasteChars > 0 && static_cast<int>(text.size()) > this->_pasteChars;
-    if (!lineLimit && !charLimit) return text;
+    // inline, its invisible marks around it (told to the agent as pasted) - unless it starts the prompt as a command (!, /, :): its mode kept
+    const bool command = cluster::trim(this->_text).empty() && (text.starts_with("!") || text.starts_with("/") || text.starts_with(":"));
+    if (!lineLimit && !charLimit) return command ? text : cluster::paste_mark(text);
     this->_atoms.push_back({"[Pasted text #" + std::to_string(++this->_pasteCount) + (lines > 1 ? " +" + std::to_string(lines) + " lines]"
         : " " + std::to_string(text.size()) + " chars]"), text, ""});
     return cluster::atom_char(this->_atoms.size() - 1);
@@ -488,7 +502,7 @@ std::string cluster::Editor::expand(const std::string& text) const
         if (atom) {
             const cluster::Atom& a = this->_atoms[*atom];
             if (a.image.empty()) {
-                out += a.content;
+                out += cluster::paste_mark(a.content); // a pasted block: told to the agent as pasted (between <pasted> and </pasted>)
             } else {
                 auto it = std::find(order.begin(), order.end(), *atom);
                 if (it == order.end()) it = order.insert(order.end(), *atom);

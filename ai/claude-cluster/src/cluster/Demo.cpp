@@ -156,7 +156,7 @@ _cold bool cluster::demo_enabled(void)
 _cold bool cluster::demo_web_allows(const std::string& cmd)
 {
     static const std::set<std::string> reads = {"list", "read", "status", "notices", "usage", "task_list", "transcript", "display_get", "settings_get", "settings_search",
-        "settings_suggest", "orch_state", "job_status", "schedule_list", "todos", "services", "projects", "ask_preview", "stats", "shells", "trash", "hello", "simple_words", "agents"};
+        "settings_suggest", "orch_state", "job_status", "schedule_list", "todos", "services", "projects", "ask_preview", "stats", "shells", "trash", "hello", "simple_words", "agents", "plugins"};
     return reads.contains(cmd);
 }
 

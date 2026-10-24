@@ -43,6 +43,10 @@ One card per sub service, with its state and buttons:
 
 *Accounts & limits* lists every provider with its state (a key stored, a login done, or what is missing). `claude-cluster auth login <provider>` asks a key without echo and stores it in the keyring (`secret-tool`) or `credentials.json` (`0600`), never in `config.toml`. The **limits** cap what sessions may spend together per day, week and month (`[limits]`), counted for API keys only (`scope = keys`) or everything, with *Block at the limit* and *Warn at* a share.
 
+## Plugins and skills {#plugins}
+
+The **Plugins** page (`/plugins`, the palette *Plugins*, in every interface) lists the **sources** first - a repository, a folder, a `.zip` - each with what it offers, has installed and has on, its last sync and its last commit (or its date). A source opened shows its offer as a **checklist**: tick several (or all), then install, remove, turn on or off the ticked ones at once. Each source can be synced now, installed or removed whole, turned off (every item of it off, kept installed) and on again, have its **auto sync** turned off (pulled by hand only), or be dropped. *Sync all* pulls every source; `[plugins] sync_hours` (24) is how often the auto ones are pulled. The settings page keeps only the sources and that period. A source's code runs as you: add only sources you trust.
+
 ## Debug and the showcase {#debug}
 
 *Debug* has a **showcase** that shows for real everything claude-cluster can draw (display blocks, question and permission popups, session states, progress and failure popups, notifications) in a session of its own whose agent is never asked anything: nothing is spent.

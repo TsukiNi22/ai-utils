@@ -13,7 +13,7 @@ Rien dans claude-cluster n'interroge en boucle. Quand la session globale envoie 
 | Message | Quand |
 |---|---|
 | `[reply from <nom> (<id>)] ...` | une sous-session a fini le tour lancé pour la session globale |
-| `[reply from ...]` avec une note | un tour ultérieur que l'agent a lancé lui-même, quand une tâche d'arrière-plan se termine |
+| `[reply from ...]` avec une note | un tour ultérieur que l'agent a lancé lui-même, quand une tâche d'arrière-plan se termine - ou que claude-cluster l'a réveillé avec la `<task-notification>` de sa commande finie, un résultat `[job ...]` / `[tasks]` : son vrai résultat après une réponse « j'attends mon build » |
 | `[error from ...]` | une erreur d'API (une limite, la limite hebdomadaire...) |
 | `[interrupted: ...]` | un tour interrompu ou un agent qui s'est arrêté |
 | `[job jN finished\|failed\|killed]` | un travail ajouté par `jobs_add`, avec code, durée, fin de sortie |
@@ -24,7 +24,7 @@ Rien dans claude-cluster n'interroge en boucle. Quand la session globale envoie 
 
 ## Questions des agents {#questions}
 
-Un agent peut poser une question (`AskUserQuestion` de Claude Code, même en `bypassPermissions`). Elle s'affiche en **fenêtre** sur la session montrée, dans toutes les interfaces : une question à la fois avec ses options, `1`-`9` pour choisir, Entrée pour valider, `Other` pour taper, Échap pour décliner ; plusieurs choix se cochent avec Entrée ou Espace.
+Un agent peut poser une question (`AskUserQuestion` de Claude Code, même en `bypassPermissions`). Elle s'affiche en **fenêtre** sur la session montrée, dans toutes les interfaces : une question à la fois avec ses options, `1`-`9` pour choisir, Entrée pour valider, `Other` pour taper, Échap pour décliner ; plusieurs choix se cochent avec Entrée ou Espace, et une ligne **Next →** après `Other` (*Review →* / *Submit →* sur la dernière question, comme Claude Code) passe à la suite en gardant les coches.
 
 - **Une à la fois pour tout le cluster**, partagée par touches, souris, voix et page web. La question d'une sous-session s'affiche sur la session globale (`[sessions] questions_to_global`, activé) avec la vue propre de la sous-session grisée.
 - **Revue** : après la dernière question toutes les réponses s'affichent sur une page : *Submit*, *Cancel*, ou retour pour corriger.

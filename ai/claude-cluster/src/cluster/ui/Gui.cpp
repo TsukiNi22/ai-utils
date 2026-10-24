@@ -1837,6 +1837,289 @@ class Window: public QMainWindow {
             return browser;
         }
 
+        void pluginsDialog(void)
+        {
+            // the sources first (their counts, last sync); the one chosen: its information and settings, its offer as a checklist; the ticks
+            // written at once by the core, which applies them (read again every 1.5 s)
+            QDialog dialog(this);
+            dialog.setWindowTitle("Plugins and skills");
+            dialog.resize(1080, 680);
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+            QHBoxLayout* top = new QHBoxLayout();
+            layout->addLayout(top);
+            QLineEdit* add = new QLineEdit(&dialog);
+            add->setPlaceholderText("a source: owner/repo, an https / git URL, a folder (~/...), a .zip");
+            QPushButton* addButton = new QPushButton("Add", &dialog);
+            QPushButton* syncAll = new QPushButton("Sync all", &dialog);
+            QSpinBox* hours = new QSpinBox(&dialog);
+            hours->setRange(0, 24 * 30);
+            hours->setSuffix(" h");
+            hours->setToolTip("the sources with auto sync pulled again every N hours (0: at each start of the core only)");
+            top->addWidget(add, 1);
+            top->addWidget(addButton);
+            top->addSpacing(12);
+            top->addWidget(new QLabel("Auto sync every", &dialog));
+            top->addWidget(hours);
+            top->addWidget(syncAll);
+            QSplitter* split = new QSplitter(&dialog);
+            layout->addWidget(split, 1);
+            QListWidget* sourcesList = new QListWidget(split);
+            sourcesList->setMinimumWidth(300);
+            QWidget* side = new QWidget(split);
+            split->setStretchFactor(1, 1);
+            QVBoxLayout* sideLayout = new QVBoxLayout(side);
+            QLabel* about = new QLabel(side);
+            about->setTextFormat(Qt::RichText);
+            about->setWordWrap(true);
+            about->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            sideLayout->addWidget(about);
+            QHBoxLayout* sourceRow = new QHBoxLayout();
+            sideLayout->addLayout(sourceRow);
+            QCheckBox* autoBox = new QCheckBox("Auto sync", side);
+            QCheckBox* onBox = new QCheckBox("Source on", side);
+            onBox->setToolTip("off: every plugin / skill of it turned off, kept installed");
+            sourceRow->addWidget(autoBox);
+            sourceRow->addWidget(onBox);
+            sourceRow->addStretch(1);
+            std::map<std::string, QPushButton*> sourceButtons;
+            for (const auto &[key, label]: std::vector<std::pair<std::string, std::string>>{{"sync", "Sync now"}, {"all", "Install all"}, {"none", "Remove all"}, {"drop", "Drop source"}}) {
+                QPushButton* b = new QPushButton(q_(label), side);
+                sourceButtons[key] = b;
+                sourceRow->addWidget(b);
+            }
+            QTreeWidget* itemsTree = new QTreeWidget(side);
+            itemsTree->setHeaderLabels({"", "Name", "Kind", "State", "Description"});
+            itemsTree->setRootIsDecorated(false);
+            itemsTree->setAlternatingRowColors(true);
+            itemsTree->setColumnWidth(0, 28);
+            itemsTree->setColumnWidth(1, 200);
+            itemsTree->setColumnWidth(2, 60);
+            itemsTree->setColumnWidth(3, 110);
+            sideLayout->addWidget(itemsTree, 1);
+            QHBoxLayout* bulk = new QHBoxLayout();
+            sideLayout->addLayout(bulk);
+            QLabel* ticked = new QLabel(side);
+            bulk->addWidget(ticked);
+            bulk->addStretch(1);
+            std::map<std::string, QPushButton*> itemButtons;
+            for (const auto &[key, label]: std::vector<std::pair<std::string, std::string>>{{"every", "Tick all"}, {"clear", "Untick all"}, {"install", "Install"}, {"remove", "Remove"},
+                {"on", "Turn on"}, {"off", "Turn off"}}) {
+                QPushButton* b = new QPushButton(q_(label), side);
+                itemButtons[key] = b;
+                bulk->addWidget(b);
+            }
+            QLabel* said = new QLabel(&dialog);
+            layout->addWidget(said);
+            QDialogButtonBox* close = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+            QObject::connect(close, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+            layout->addWidget(close);
+            const std::shared_ptr<cluster::Json> data = std::make_shared<cluster::Json>(cluster::Json::object());
+            const std::shared_ptr<std::string> shown = std::make_shared<std::string>();     // the data drawn (redrawn only when it changed)
+            const std::shared_ptr<std::string> chosen = std::make_shared<std::string>();    // the slug of the source chosen
+            const std::shared_ptr<std::set<std::string>> marked = std::make_shared<std::set<std::string>>();
+            const std::shared_ptr<bool> filling = std::make_shared<bool>(false);
+            const std::function<cluster::Json(void)> source = [data, chosen]() {
+                for (const cluster::Json& s: data->value("sources", cluster::Json::array()))
+                    if (s.value("slug", std::string()) == *chosen) return s;
+                return cluster::Json(nullptr);
+            };
+            const std::function<std::string(const std::int64_t)> ago = [](const std::int64_t when) {
+                return when <= 0 ? std::string("never") : cluster::now() - when < 60 ? std::string("just now") : cluster::human_age(when) + " ago";
+            };
+            const std::function<std::string(const cluster::Json&)> counts = [](const cluster::Json& s) {
+                return std::to_string(s.value("offered", 0)) + " offered · " + std::to_string(s.value("installed", 0)) + " installed · " + std::to_string(s.value("enabled", 0)) + " on";
+            };
+            std::function<void(bool)> draw;
+            const std::function<void(const cluster::Json&, const std::string&)> set = [this, said, &draw](const cluster::Json& changes, const std::string& done) {
+                try {
+                    this->manager.pluginsSet(changes);
+                    said->setText(q_(done));
+                } catch (const utils::exception::IException& e) {
+                    said->setText(q_(std::string("refused: ") + e.info()));
+                }
+                draw(true);
+            };
+            const std::function<void(const std::string&)> items = [source, marked, set](const std::string& action) {
+                // install / remove / on / off of the ticked ones; a source installed whole unticked first (its others kept)
+                const cluster::Json s = source();
+                if (s.is_null() || marked->empty()) return;
+                const std::string slug = s.value("slug", std::string());
+                cluster::Json changes = cluster::Json::array();
+                if (action == "remove" && s.value("all", false)) {
+                    changes.push_back({{"table", "select"}, {"key", slug + ":*"}, {"value", false}});
+                    for (const cluster::Json& i: s.value("items", cluster::Json::array()))
+                        if (!marked->contains(i.value("id", std::string())) && i.value("wanted", false)) changes.push_back({{"table", "select"}, {"key", i.value("id", std::string())}, {"value", true}});
+                }
+                for (const std::string& id: *marked) {
+                    if (action == "install" || action == "remove") changes.push_back({{"table", "select"}, {"key", id}, {"value", action == "install"}});
+                    if (action == "remove" || action == "on" || action == "off") changes.push_back({{"table", "off"}, {"key", id}, {"value", action == "off"}});
+                }
+                const std::size_t n = marked->size();
+                marked->clear();
+                set({{"items", changes}}, action + ": " + std::to_string(n) + " of " + slug + "… (applied by the core, for the sessions started after it)");
+            };
+            draw = [this, data, shown, chosen, marked, filling, source, ago, counts, sourcesList, about, autoBox, onBox, itemsTree, ticked, hours, sourceButtons, itemButtons,
+                said](const bool force) {
+                try {
+                    *data = this->manager.pluginsJson();
+                } catch (const utils::exception::IException& e) {
+                    said->setText(q_(std::string("the core: ") + e.info()));
+                }
+                const std::string now = data->dump() + std::to_string(marked->size());
+                if (!force && now == *shown) return;
+                *shown = now;
+                *filling = true;
+                const cluster::Style& st = this->theme();
+                const cluster::Json sources = data->value("sources", cluster::Json::array());
+                if (chosen->empty() && !sources.empty()) *chosen = sources[0].value("slug", std::string());
+                sourcesList->clear();
+                for (const cluster::Json& s: sources) {
+                    const bool broken = !s.value("error", std::string()).empty();
+                    QListWidgetItem* row = new QListWidgetItem(q_(s.value("slug", std::string()) + (s.value("paused", false) ? "  (off)" : s.value("pending", false) ? "  (being listed…)" : "")
+                        + "\n" + counts(s) + (s.value("kind", std::string()) == "folder" ? std::string(" · in place") : " · synced " + ago(s.value("synced", std::int64_t{0})))), sourcesList);
+                    row->setData(Qt::UserRole, q_(s.value("slug", std::string())));
+                    row->setForeground(QColor(q_(broken ? st.warn : s.value("paused", false) ? st.muted : st.text)));
+                    if (s.value("slug", std::string()) == *chosen) sourcesList->setCurrentItem(row);
+                }
+                hours->setValue(data->value("sync_hours", 24));
+                const cluster::Json s = source();
+                const bool any = !s.is_null();
+                for (auto &[key, b]: sourceButtons)
+                    b->setEnabled(any);
+                autoBox->setEnabled(any);
+                onBox->setEnabled(any);
+                itemsTree->clear();
+                if (!any) {
+                    about->setText(sources.empty() ? "No source yet: add a repository link, a folder or a .zip above." : "");
+                } else {
+                    const std::string kind = s.value("kind", std::string("git"));
+                    const int every = data->value("sync_hours", 24);
+                    QString html = "<b>" + esc_(s.value("url", std::string())) + "</b><br>" + span_(st.muted, esc_(kind + (s.value("marketplace", std::string()).empty() ? std::string(" · skills")
+                        : " · marketplace " + s.value("marketplace", std::string())) + " · " + std::to_string(s.value("skills", 0)) + " skill(s), " + std::to_string(s.value("plugins", 0))
+                        + " plugin(s)")) + "<br>" + esc_(counts(s)) + "<br>" + span_(st.muted, esc_(kind == "folder" ? std::string("a folder read in place: nothing to sync")
+                        : "last sync " + ago(s.value("synced", std::int64_t{0})) + (s.value("auto", true) ? every > 0 ? " · auto every " + std::to_string(every) + " h"
+                        : std::string(" · auto at each start") : std::string(" · auto sync off: by hand only"))));
+                    if (!s.value("commit", std::string()).empty() || s.value("commit_time", std::int64_t{0}) > 0)
+                        html += "<br>" + span_(st.muted, esc_((kind == "git" ? "last commit " + s.value("commit", std::string()) : kind == "zip" ? std::string("the .zip")
+                            : std::string("its newest SKILL.md")) + (s.value("commit_time", std::int64_t{0}) > 0 ? " · " + ago(s.value("commit_time", std::int64_t{0})) : std::string())));
+                    if (!s.value("error", std::string()).empty()) html += "<br>" + span_(st.warn, esc_(s.value("error", std::string())));
+                    html += "<br>" + span_(st.border, esc_(cluster::short_path(s.value("dir", std::string()))));
+                    about->setText(html);
+                    autoBox->setChecked(s.value("auto", true));
+                    onBox->setChecked(!s.value("paused", false));
+                    for (const cluster::Json& i: s.value("items", cluster::Json::array())) {
+                        const bool installed = i.value("installed", false);
+                        const bool enabled = i.value("enabled", true);
+                        QTreeWidgetItem* row = new QTreeWidgetItem(itemsTree);
+                        row->setFlags(row->flags() | Qt::ItemIsUserCheckable);
+                        row->setCheckState(0, marked->contains(i.value("id", std::string())) ? Qt::Checked : Qt::Unchecked);
+                        row->setData(0, Qt::UserRole, q_(i.value("id", std::string())));
+                        row->setText(1, q_(i.value("name", std::string())));
+                        row->setText(2, q_(i.value("kind", std::string())));
+                        row->setText(3, q_(!installed ? "○ not installed" : enabled ? "● on" : "◐ off"));
+                        row->setForeground(3, QColor(q_(!installed ? st.muted : enabled ? st.ok : st.warn)));
+                        row->setText(4, q_(cluster::one_line(i.value("description", std::string()), 200)));
+                        row->setToolTip(4, q_(i.value("description", std::string())));
+                    }
+                }
+                ticked->setText(q_(std::to_string(marked->size()) + " ticked"));
+                for (const std::string& key: {"install", "remove", "on", "off"})
+                    itemButtons.at(key)->setEnabled(!marked->empty());
+                *filling = false;
+            };
+            QObject::connect(sourcesList, &QListWidget::currentItemChanged, &dialog, [chosen, marked, filling, &draw](QListWidgetItem* row, QListWidgetItem*) {
+                if (*filling || row == nullptr) return;
+                *chosen = row->data(Qt::UserRole).toString().toStdString();
+                marked->clear();
+                QTimer::singleShot(0, [&draw]() {draw(true);});
+            });
+            QObject::connect(itemsTree, &QTreeWidget::itemChanged, &dialog, [marked, filling, ticked, itemButtons](QTreeWidgetItem* row, const int column) {
+                if (*filling || column != 0) return;
+                const std::string id = row->data(0, Qt::UserRole).toString().toStdString();
+                if (row->checkState(0) == Qt::Checked) marked->insert(id);
+                else marked->erase(id);
+                ticked->setText(q_(std::to_string(marked->size()) + " ticked"));
+                for (const std::string& key: {"install", "remove", "on", "off"})
+                    itemButtons.at(key)->setEnabled(!marked->empty());
+            });
+            QObject::connect(itemsTree, &QTreeWidget::itemDoubleClicked, &dialog, [](QTreeWidgetItem* row, int) { // a double click ticks / unticks
+                row->setCheckState(0, row->checkState(0) == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+            });
+            QObject::connect(itemButtons.at("every"), &QPushButton::clicked, &dialog, [source, marked, &draw]() {
+                for (const cluster::Json& i: source().value("items", cluster::Json::array()))
+                    marked->insert(i.value("id", std::string()));
+                draw(true);
+            });
+            QObject::connect(itemButtons.at("clear"), &QPushButton::clicked, &dialog, [marked, &draw]() {
+                marked->clear();
+                draw(true);
+            });
+            for (const std::string& action: {"install", "remove", "on", "off"})
+                QObject::connect(itemButtons.at(action), &QPushButton::clicked, &dialog, [items, action, &dialog]() {
+                    if (action == "remove" && QMessageBox::question(&dialog, "Remove", "Remove the ticked plugins / skills (the ones installed by claude-cluster)?") != QMessageBox::Yes) return;
+                    items(action);
+                });
+            QObject::connect(autoBox, &QCheckBox::clicked, &dialog, [source, set](const bool on) {
+                const std::string slug = source().value("slug", std::string());
+                set({{"items", cluster::Json::array({{{"table", "auto"}, {"key", slug}, {"value", on}}})}}, slug + ": auto sync " + (on ? "on" : "off (Sync now by hand)"));
+            });
+            QObject::connect(onBox, &QCheckBox::clicked, &dialog, [source, set](const bool on) {
+                const std::string slug = source().value("slug", std::string());
+                set({{"items", cluster::Json::array({{{"table", "paused"}, {"key", slug}, {"value", !on}}})}}, slug + (on ? ": turned on again" : ": turned off (everything of it, kept installed)"));
+            });
+            QObject::connect(sourceButtons.at("sync"), &QPushButton::clicked, &dialog, [this, source, said]() {
+                const std::string slug = source().value("slug", std::string());
+                this->manager.pluginsRefresh(slug);
+                said->setText(q_("syncing " + slug + "…"));
+            });
+            QObject::connect(syncAll, &QPushButton::clicked, &dialog, [this, said]() {
+                this->manager.pluginsRefresh("");
+                said->setText("syncing every source…");
+            });
+            QObject::connect(sourceButtons.at("all"), &QPushButton::clicked, &dialog, [source, set]() {
+                const std::string slug = source().value("slug", std::string());
+                set({{"items", cluster::Json::array({{{"table", "select"}, {"key", slug + ":*"}, {"value", true}}})}}, "installing everything of " + slug + " (the new ones too)…");
+            });
+            QObject::connect(sourceButtons.at("none"), &QPushButton::clicked, &dialog, [source, set, &dialog]() {
+                const cluster::Json s = source();
+                const std::string slug = s.value("slug", std::string());
+                if (QMessageBox::question(&dialog, "Remove all", q_("Remove every plugin / skill of " + slug + " installed by claude-cluster?")) != QMessageBox::Yes) return;
+                cluster::Json changes = cluster::Json::array({{{"table", "select"}, {"key", slug + ":*"}, {"value", false}}});
+                for (const cluster::Json& i: s.value("items", cluster::Json::array()))
+                    changes.push_back({{"table", "select"}, {"key", i.value("id", std::string())}, {"value", false}});
+                set({{"items", changes}}, "removing everything of " + slug + "…");
+            });
+            QObject::connect(sourceButtons.at("drop"), &QPushButton::clicked, &dialog, [this, source, set, chosen, &dialog]() {
+                const cluster::Json s = source();
+                if (QMessageBox::question(&dialog, "Drop the source", q_("Drop " + s.value("slug", std::string()) + "? What it installed stays until removed (Remove all first).")) != QMessageBox::Yes) return;
+                std::vector<std::string> repos = this->manager.config().pluginRepos;
+                repos.erase(std::remove(repos.begin(), repos.end(), s.value("url", std::string())), repos.end());
+                chosen->clear();
+                set({{"repos", repos}}, "source dropped: " + s.value("slug", std::string()));
+            });
+            const std::function<void(void)> adding = [this, add, set, &dialog]() {
+                const std::string url = cluster::trim(add->text().toStdString());
+                if (url.empty()) return;
+                std::vector<std::string> repos = this->manager.config().pluginRepos;
+                if (std::find(repos.begin(), repos.end(), url) != repos.end()) return;
+                if (QMessageBox::warning(&dialog, "Add a source", q_("Its plugins / skills will run as you in every session (commands, hooks, MCP servers).\nAdd " + url
+                    + " (only a source you trust)?"), QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+                repos.push_back(url);
+                add->clear();
+                set({{"repos", repos}}, "source added: " + url + " (listed in a moment: cloned / unpacked by the core)");
+            };
+            QObject::connect(addButton, &QPushButton::clicked, &dialog, adding);
+            QObject::connect(add, &QLineEdit::returnPressed, &dialog, adding);
+            QObject::connect(hours, &QSpinBox::editingFinished, &dialog, [hours, data, set]() {
+                if (hours->value() != data->value("sync_hours", 24)) set({{"sync_hours", hours->value()}}, "auto sync every " + std::to_string(hours->value()) + " h");
+            });
+            draw(true);
+            QTimer timer(&dialog);
+            QObject::connect(&timer, &QTimer::timeout, &dialog, [&draw]() {draw(false);});
+            timer.start(1500);
+            dialog.exec();
+        }
+
         void jobDialog(const std::string& id)
         {
             // a heavy job of the orchestrator: its state, command, session, folder, pid, memory, threads, priority, its time live, the end of
@@ -2388,6 +2671,8 @@ class Window: public QMainWindow {
                         this->openProgram(result.ui.substr(5));
                     } else if (result.ui == "message") {
                         this->info(result.message); // a popup (/info...): never in the conversation
+                    } else if (result.ui == "plugins") {
+                        QTimer::singleShot(0, this, [this]() {this->pluginsDialog();});
                     } else if (result.ui.starts_with("pick:delete:")) { // a session deleted for good: asked here
                         this->confirmDelete(result.ui.substr(12));
                     } else if (result.ui.starts_with("pick:")) { // a next step to pick (where it applies), once this palette is closed
@@ -3400,6 +3685,7 @@ class Window: public QMainWindow {
                         if (local->ui.starts_with("term:")) this->openProgram(local->ui.substr(5));
                         else if (local->ui == "message") this->info(local->message);
                         else if (local->ui == "settings") this->settings();
+                        else if (local->ui == "plugins") QTimer::singleShot(0, this, [this]() {this->pluginsDialog();});
                         else if (local->ui == "restore_menu") this->openRestore();
                         else if (local->ui == "rewind") this->rewind();
                         else if (local->ui.starts_with("pick:delete:")) this->confirmDelete(local->ui.substr(12)); // asked here

@@ -408,6 +408,15 @@ _cold void cluster::Config::load(void)
     if (const toml::table* off = table["plugins"]["off"].as_table())
         for (const auto &[name, value]: *off)
             if (value.is_boolean()) this->pluginOff[std::string(name.str())] = value.as_boolean()->get();
+    this->pluginAuto.clear();
+    if (const toml::table* autos = table["plugins"]["auto"].as_table())
+        for (const auto &[name, value]: *autos)
+            if (value.is_boolean()) this->pluginAuto[std::string(name.str())] = value.as_boolean()->get();
+    this->pluginPaused.clear();
+    if (const toml::table* paused = table["plugins"]["paused"].as_table())
+        for (const auto &[name, value]: *paused)
+            if (value.is_boolean()) this->pluginPaused[std::string(name.str())] = value.as_boolean()->get();
+    this->pluginSyncHours = std::max(0, table["plugins"]["sync_hours"].value_or(this->pluginSyncHours));
     this->mcpTools.clear();
     if (const toml::table* toolsTable = table["mcp_tools"].as_table())
         for (const auto &[tool, on]: *toolsTable)

@@ -205,6 +205,9 @@ class Manager {
         std::vector<std::string> _pluginRepos;     // the [plugins] last applied
         std::map<std::string, bool> _pluginSelect;
         std::map<std::string, bool> _pluginOff;
+        std::map<std::string, bool> _pluginPaused;
+        std::set<std::string> _pluginPull;         // the sources to pull at the next tick ("*": every one), under _mutex
+        std::int64_t _pluginSyncAt = 0;            // the last pull of the auto ones (every [plugins] sync_hours)
         std::atomic<std::uint64_t> _machineRequest{0};  // the global session asked to map this computer again (the UI asks)
         std::atomic<bool> _restartAfterTurn{false};     // its system prompt changed by itself: started again after its turn
         std::deque<cluster::Json> _pushLog;             // the last notifications published to the app (100)
@@ -344,7 +347,9 @@ class Manager {
         /* usage (Manager-Usage.cpp) */
         _cold _nodiscard std::string vendorOf(const std::string& backend) const;   // its provider ("" unknown)
         _cold _nodiscard cluster::UsageReport usage(const std::string& vendor) const;
-        _cold void pluginsRefresh(void);                     // the plugin sources pulled / listed again, the ticks applied
+        _cold void pluginsRefresh(const std::string& source = "");   // a plugin source (empty: every one) pulled / listed again, the ticks applied
+        _cold _nodiscard cluster::Json pluginsJson(void);        // the sources: their settings, dates, counts, items (the plugins page of every interface)
+        _cold void pluginsSet(const cluster::Json& changes);    // [{"table": select|off|auto|paused, "key", "value": bool}], {"repos": [...]}: written at once
         _cold void askUser(const std::string& session, const std::string& header, const std::string& question, const std::vector<std::pair<std::string, std::string>>& options,
             const std::function<void(const std::string&)>& onAnswer);                 // the core asks the user (a popup on every interface): the label chosen, or "deny"
         _cold _nodiscard cluster::Json modelsPolicyJson(void);        // the policy + the models (tier, price, the user's cost), the efforts, the limits: the tool of the global session

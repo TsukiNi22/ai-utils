@@ -282,6 +282,11 @@ _cold static bool supervise_(std::string& restore, int& code)
         if (!config.restartCore) return false;
     }
     std::vector<std::int64_t> crashes;
+    if (const char* before = std::getenv("CLAUDE_CLUSTER_CRASHES"); before != nullptr) { // started again by itself after a crash: the ones before
+        for (const std::string& at: cluster::split(before, ','))
+            if (!at.empty()) crashes.push_back(std::atoll(at.c_str()));
+        ::unsetenv("CLAUDE_CLUSTER_CRASHES");
+    }
     for (;;) {
         const pid_t child = ::fork(); // xstyle: ignore LU-SYSCALL (the watcher: a process of its own around the core)
         if (child < 0) return false; // no watcher: the core runs here
@@ -290,6 +295,7 @@ _cold static bool supervise_(std::string& restore, int& code)
             if (!crashes.empty()) restore = "always";
             return false;
         }
+        ::unsetenv("CLAUDE_CLUSTER_UPGRADED_FROM"); // said once, by this core only
         watched_ = child;
         for (const int signal: {SIGTERM, SIGINT, SIGHUP, SIGQUIT})
             (void)std::signal(signal, [](const int s) {
@@ -317,7 +323,12 @@ _cold static bool supervise_(std::string& restore, int& code)
             code = 0;
             return true;
         }
-        std::cerr << "claude-cluster: the core (pid " << child << ") crashed (signal " << signal << "): started again, its sessions restored" << std::endl;
+        std::cerr << "claude-cluster: the core (pid " << child << ") crashed (signal " << signal << "): started again from the binary on disk, its sessions restored" << std::endl;
+        // the binary on disk, never this image in memory: a core that crashed while stopping for an update comes back on the new version
+        std::string list;
+        for (const std::int64_t at: crashes)
+            list += (list.empty() ? "" : ",") + std::to_string(at);
+        cluster::restart_exec(list); // back: the exec failed, this image forked again
     }
 }
 

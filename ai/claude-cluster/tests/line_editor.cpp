@@ -17,6 +17,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/LineEditor.hpp"
+#include "cluster/Tools.hpp"
 #include <ftxui/screen/screen.hpp>
 #include <iostream>
 #include <string>
@@ -61,6 +62,42 @@ int main(void)
         editor.right(false);
         editor.backspace();
         CHECK(editor.text() == "ab");
+    }
+    // words across lines: a line break is a stop - at the end of a line, the start of the next one (not after its first word); at the
+    // start of a line, the end of the one before (not before its last word); the selection made so stops there too
+    {
+        cluster::Editor editor;
+        editor.insert("one two\nthree four");
+        editor.place(8, false);                 // the start of "three four"
+        CHECK(editor.text().substr(editor.cursor()) == "three four");
+        editor.wordLeft(true);
+        CHECK(editor.cursor() == 7);            // the end of "one two", the line break selected only
+        editor.wordLeft(true);
+        CHECK(editor.cursor() == 4);            // "two"
+        editor.place(7, false);                 // the end of the first line
+        editor.wordRight(true);
+        CHECK(editor.cursor() == 8);            // the start of "three four", not after "three"
+        editor.wordRight(true);
+        CHECK(editor.cursor() == 13);           // after "three"
+    }
+    // the hidden id of a /entry and the marks of a paste: invisible, one cell with the letter before, told apart for the core
+    {
+        const std::string tagged = "/export" + cluster::slash_tag("s") + " now";
+        std::string id;
+        CHECK(cluster::slash_untag(tagged, &id) == "/export now");
+        CHECK(id == "s");
+        const std::string pasted = "see " + cluster::paste_mark("a pasted line") + " ok";
+        CHECK(cluster::paste_reveal(pasted) == "see <pasted>a pasted line</pasted> ok");
+        CHECK(cluster::slash_untag(pasted) == "see a pasted line ok");
+        CHECK(cluster::paste_keep(tagged + pasted).find(cluster::slash_tag("s")) == std::string::npos);
+        CHECK(cluster::paste_reveal(cluster::paste_keep(tagged + pasted)) == "/export nowsee <pasted>a pasted line</pasted> ok");
+        cluster::Editor editor;
+        editor.paste("xyz");
+        CHECK(cluster::paste_reveal(editor.text()) == "<pasted>xyz</pasted>");
+        CHECK(editor.shown(editor.text()).find("xyz") != std::string::npos);
+        cluster::Editor command;
+        command.paste("!ls -la");               // a command starting the prompt: its mode kept, no mark
+        CHECK(command.text() == "!ls -la");
     }
     // words, kill ring, undo / redo, selection replaced by typing
     {

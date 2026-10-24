@@ -143,8 +143,9 @@ struct Prepared {
 
 _cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
 {
-    const std::string sent = queued.context.empty() ? queued.text : queued.context + "\n\n" + queued.text;
-    Prepared out{queued.text, sent, cluster::Json::array()};
+    // what was pasted: between <pasted> and </pasted> for the agent, the plain text in the transcript
+    const std::string sent = cluster::paste_reveal(queued.context.empty() ? queued.text : queued.context + "\n\n" + queued.text);
+    Prepared out{cluster::slash_untag(queued.text), sent, cluster::Json::array()};
     for (std::size_t i = 0; i < queued.images.size(); ++i) {
         const std::string& path = queued.images[i];
         const std::string token = "[Image #" + std::to_string(i + 1) + "]";
@@ -1109,7 +1110,7 @@ _cold void cluster::Session::agentTask_(const std::string& subtype, const cluste
                 + (agent.summary.empty() ? std::string() : ": " + agent.summary) + "</summary>"
                 + (agent.outputFile.empty() ? std::string() : "\n<output-file>" + agent.outputFile + "</output-file>") + "\n</task-notification>", {}, {}};
             wake.at = cluster::now_ms();
-            wake.origin = "task";
+            wake.origin = "wake"; // a turn of its own (not asked by a prompt): its end goes to whoever follows the session
             this->dispatch_(wake);
         }
     }
@@ -1444,7 +1445,7 @@ _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
     const std::string uuid = uuid_();
     this->_sent.insert(uuid);
     this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
-    this->_prompted = true;
+    this->_prompted = prompt.origin != "wake"; // a wake-up: a turn of its own, like the ones claude starts by itself
     this->_data.state = cluster::State::Working;
     this->_turn = {};
     this->turnStart_();
@@ -1480,7 +1481,7 @@ _cold void cluster::Session::giveQueued(const int delayMs)
             return; // not written: kept, sent at the end of the turn
         }
         queued.given = true;
-        this->_prompted = true;
+        this->_prompted = this->_prompted || queued.origin != "wake";
         this->_lastPrompt = queued;
         this->entry_(cluster::EntryKind::User, prepared.shown, "", queued.origin);
         changed = true;

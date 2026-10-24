@@ -43,7 +43,7 @@ _cold cluster::OriginColors cluster::origin_colors(void)
 
 _cold std::string cluster::prompt_origin(const std::string& origin, const std::string& text)
 {
-    if (origin == "user" || origin == "mcp" || origin == "task" || origin == "schedule") return origin;
+    if (origin == "user" || origin == "mcp" || origin == "task" || origin == "schedule" || origin == "wake") return origin;
     for (const char* mark: {"[from the global session]", "[reply from ", "[error from ", "[interrupted: ", "[form \"", "[question from ", "[questions from ",
         "[permission request from ", "[context given by the global session"})
         if (text.starts_with(mark)) return "mcp";

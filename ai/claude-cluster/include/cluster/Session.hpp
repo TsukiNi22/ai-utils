@@ -56,7 +56,8 @@ struct Queued {
     std::string context{};      // given to the agent before the text, not shown (the !commands run since the last prompt)
     std::int64_t at = 0;        // unix ms when it was queued
     bool given = false;         // written to the agent while its turn runs (taken at its next step): no longer editable
-    std::string origin{};       // user (empty) | mcp | task | schedule: shown as the colour of the prompt
+    std::string origin{};       // user (empty) | mcp | task | schedule | wake (claude-cluster woke the agent for itself: its background
+                                // done, a [job] / [tasks] told - a turn of its own): shown as the colour of the prompt
 };
 
 struct Launch {

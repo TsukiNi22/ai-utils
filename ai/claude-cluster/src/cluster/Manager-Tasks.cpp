@@ -597,7 +597,7 @@ _cold void cluster::Manager::tell_(const std::string& by, const std::string& tex
     // the session that made it: told (a prompt: it may react); you or a session gone: a notice
     if (!by.empty() && this->snapshot(by)) {
         try {
-            this->send(by, text, true, {}, "task");
+            this->send(by, text, true, {}, "wake"); // a turn of its own: its end goes to the global session if it follows it
             return;
         } catch (const utils::exception::IException&) {}
     }

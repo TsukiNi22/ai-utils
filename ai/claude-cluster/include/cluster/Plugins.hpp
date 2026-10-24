@@ -31,6 +31,8 @@ File Description:
     #include <string>                       // std::string
     #include <vector>                       // std::vector
     #include <map>                          // std::map
+    #include <set>                          // std::set
+    #include <cstdint>                      // std::int64_t
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
@@ -40,6 +42,7 @@ struct PluginSetup {                    // what the listing and the install need
     std::vector<std::string> repos;     // [plugins] repos
     std::map<std::string, bool> select; // [plugins.select]: installed
     std::map<std::string, bool> off;    // [plugins.off]: installed but turned off
+    std::map<std::string, bool> paused; // [plugins.paused] "<slug>": every item of that source turned off (kept installed)
     std::string claude = "claude";      // the claude command ([commands] claude)
 };
 
@@ -61,6 +64,9 @@ struct PluginRepo {                     // a repository given in [plugins] repos
     std::string marketplace;            // its Claude Code marketplace (.claude-plugin/marketplace.json), empty: skills only
     std::string error;                  // cloned / read: what went wrong
     std::vector<cluster::PluginItem> items;
+    std::int64_t synced = 0;            // its last pull / unpack that worked (unix time), 0: never
+    std::string commit;                 // a repository: its last commit ("<short hash> <subject>"), a .zip / folder: empty
+    std::int64_t commitTime = 0;        // the date of that commit, or of the .zip / the newest SKILL.md of a folder
 };
 
 //----------------------------------------------------------------//
@@ -70,10 +76,12 @@ _cold _nodiscard std::string plugin_kind(const std::string& source);        // g
 _cold _nodiscard std::string plugin_slug(const std::string& url);           // "owner/repo", https / git URL -> "owner-repo"
 _cold _nodiscard std::string plugin_source(const std::string& url);         // "owner/repo" -> its GitHub https URL, the rest as given
 _cold _nodiscard std::vector<cluster::PluginRepo> plugins_index(void);      // the last listing (<data>/plugins/index.json), installed or not
-_cold _nodiscard std::vector<cluster::PluginRepo> plugins_scan(const cluster::PluginSetup& setup);  // every repository cloned / pulled, listed
+_cold _nodiscard std::vector<cluster::PluginRepo> plugins_scan(const cluster::PluginSetup& setup, const std::set<std::string>& pull = {"*"}); // listed;
+                                                                            // pull ("*": all): pulled / unpacked again; a new one always cloned
 _cold _nodiscard std::string plugins_apply(const cluster::PluginSetup& setup); // the ones ticked installed, the ones unticked removed; what was done
 _cold _nodiscard std::map<std::string, std::string> plugin_skill_sources(void); // the imported skills linked now: <skill, its source (slug of the link)>
-_cold _nodiscard std::string unprefix_skill(const std::string& text);       // "/<source>:<skill> x" of an imported skill -> "/<skill> x" (the agent knows the skill only)
+_cold _nodiscard std::string unprefix_skill(const std::string& text);
+_cold _nodiscard bool plugin_auto(const std::map<std::string, bool>& autos, const std::string& slug); // [plugins.auto]: pulled by itself (unless false)       // "/<source>:<skill> x" of an imported skill -> "/<skill> x" (the agent knows the skill only)
 
 } // namespace end
 #endif /* PLUGINS_H */

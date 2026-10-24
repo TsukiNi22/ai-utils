@@ -156,6 +156,59 @@ std::string cluster::slash_untag(const std::string& text, std::string* first)
     return out;
 }
 
+static const std::string& paste_open_(void)
+{
+    static const std::string open = cluster::slash_tag("paste{");
+    return open;
+}
+
+static const std::string& paste_close_(void)
+{
+    static const std::string close = cluster::slash_tag("}paste");
+    return close;
+}
+
+std::string cluster::paste_keep(const std::string& text)
+{
+    // the hidden ids of the /entries dropped, the marks of the pastes kept for the session (it gives them to the agent)
+    std::string out;
+    for (std::size_t at = 0; at < text.size();) {
+        const std::size_t open = text.find(paste_open_(), at);
+        const std::size_t close = text.find(paste_close_(), at);
+        const std::size_t next = std::min(open, close);
+        if (next == std::string::npos) {
+            out += cluster::slash_untag(text.substr(at));
+            break;
+        }
+        out += cluster::slash_untag(text.substr(at, next - at)) + (next == open ? paste_open_() : paste_close_());
+        at = next + (next == open ? paste_open_().size() : paste_close_().size());
+    }
+    return out;
+}
+
+std::string cluster::paste_reveal(const std::string& text)
+{
+    // each paste between <pasted> and </pasted> (a mark alone, a paste cut while editing: the tags kept balanced), the rest untagged
+    std::string out;
+    int depth = 0;
+    for (std::size_t at = 0; at < text.size();) {
+        const std::size_t open = text.find(paste_open_(), at);
+        const std::size_t close = text.find(paste_close_(), at);
+        const std::size_t next = std::min(open, close);
+        out += cluster::slash_untag(text.substr(at, next == std::string::npos ? std::string::npos : next - at));
+        if (next == std::string::npos) break;
+        if (next == open) {
+            if (depth++ == 0) out += "<pasted>";
+            at = next + paste_open_().size();
+        } else {
+            if (depth > 0 && --depth == 0) out += "</pasted>";
+            at = next + paste_close_().size();
+        }
+    }
+    if (depth > 0) out += "</pasted>";
+    return out;
+}
+
 std::string cluster::one_line(const std::string& text, const std::size_t max)
 {
     std::string line;
@@ -612,6 +665,26 @@ _cold void cluster::upgrade_exec(void)
     argv.push_back(nullptr);
     ::execv(args[0].c_str(), argv.data());
     std::cerr << "claude-cluster: the update failed (" << std::strerror(errno) << "): start it again" << std::endl;
+}
+
+_cold void cluster::restart_exec(const std::string& crashes)
+{
+    // the watcher after a crash of its core: itself again from the binary on disk (an update installed meanwhile, its core crashed while
+    // stopping for it: the new version, never the old one in memory), the same arguments, the sessions restored, its crashes passed on
+    // (5 in 10 minutes: no more restarts); back here only when it failed
+    if (program_args_.empty()) return;
+    std::vector<std::string> args = program_args_;
+    args[0] = cluster::self_exe().string();
+    if (std::find(args.begin(), args.end(), "--restore") == args.end()) args.push_back("--restore");
+    ::setenv("CLAUDE_CLUSTER_CRASHES", crashes.c_str(), 1);
+    const std::string version = cluster::binary_version(args[0]);
+    if (!version.empty() && version != CLUSTER_VERSION) ::setenv("CLAUDE_CLUSTER_UPGRADED_FROM", CLUSTER_VERSION, 1);
+    std::vector<char*> argv;
+    for (std::string& arg: args)
+        argv.push_back(arg.data());
+    argv.push_back(nullptr);
+    ::execv(args[0].c_str(), argv.data());
+    ::unsetenv("CLAUDE_CLUSTER_UPGRADED_FROM");
 }
 
 _cold int cluster::version_compare(const std::string& a, const std::string& b)

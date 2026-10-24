@@ -282,7 +282,8 @@ std::string cluster::Manager::origin(const std::string& id) const
 
 _cold void cluster::Manager::send(const std::string& id, const std::string& tagged, const bool force, const std::vector<std::string>& images, const std::string& origin)
 {
-    const std::string text = cluster::slash_untag(tagged); // the hidden ids of the /entries picked: for the interfaces only, never the agent
+    const std::string text = cluster::paste_keep(tagged); // the hidden ids of the /entries picked: for the interfaces only; the marks of the pastes:
+                                                          // the session gives them to the agent
     if (this->_replica) {
         (void)this->call({{"cmd", "send"}, {"session", id}, {"text", text}, {"force", force}, {"images", images}, {"prompt_origin", origin}, {"raw", true}});
         return;
@@ -930,21 +931,105 @@ _cold void cluster::Manager::notice_(const std::string& session, const std::stri
 }
 
 /* lifecycle */
-_cold void cluster::Manager::pluginsRefresh(void)
+_cold void cluster::Manager::pluginsRefresh(const std::string& source)
 {
     if (this->_replica) {
-        (void)this->call({{"cmd", "plugins_refresh"}});
+        (void)this->call({{"cmd", "plugins_refresh"}, {"source", source}});
         return;
     }
-    this->_pluginsSeen = false; // the next tick: listed again (the sources pulled)
-    this->_pluginRepos.clear();
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_pluginPull.insert(source.empty() ? std::string("*") : source); // the next tick: pulled, listed again, the ticks applied
+}
+
+_cold cluster::Json cluster::Manager::pluginsJson(void)
+{
+    // every source: its settings (auto sync, paused), its dates (last sync, last commit), its counts (offered / installed / on), its items
+    if (this->_replica) return this->call({{"cmd", "plugins"}});
+    const cluster::Config& c = this->_config;
+    const std::function<bool(const std::map<std::string, bool>&, const std::string&)> on = [](const std::map<std::string, bool>& table, const std::string& key) {
+        const auto it = table.find(key);
+        return it != table.end() && it->second;
+    };
+    cluster::Json sources = cluster::Json::array();
+    for (const cluster::PluginRepo& repo: cluster::plugins_index()) {
+        if (std::find(c.pluginRepos.begin(), c.pluginRepos.end(), repo.url) == c.pluginRepos.end()) continue; // dropped since
+        int installed = 0;
+        int enabled = 0;
+        int skills = 0;
+        cluster::Json items = cluster::Json::array();
+        for (const cluster::PluginItem& i: repo.items) {
+            installed += i.installed ? 1 : 0;
+            enabled += i.installed && i.enabled ? 1 : 0;
+            skills += i.kind == "skill" ? 1 : 0;
+            items.push_back({{"id", i.id}, {"name", i.name}, {"kind", i.kind}, {"description", i.description}, {"path", i.path}, {"installed", i.installed},
+                {"enabled", i.enabled}, {"wanted", on(c.pluginSelect, i.id) || on(c.pluginSelect, repo.slug + ":*")}, {"off", on(c.pluginOff, i.id)}});
+        }
+        sources.push_back({{"url", repo.url}, {"slug", repo.slug}, {"kind", repo.kind}, {"dir", repo.dir}, {"marketplace", repo.marketplace}, {"error", repo.error},
+            {"synced", repo.synced}, {"commit", repo.commit}, {"commit_time", repo.commitTime}, {"auto", cluster::plugin_auto(c.pluginAuto, repo.slug)},
+            {"paused", on(c.pluginPaused, repo.slug)}, {"all", on(c.pluginSelect, repo.slug + ":*")}, {"offered", repo.items.size()}, {"skills", skills},
+            {"plugins", static_cast<int>(repo.items.size()) - skills}, {"installed", installed}, {"enabled", enabled}, {"items", items}});
+    }
+    // a source given but not listed yet (being cloned)
+    for (const std::string& url: c.pluginRepos)
+        if (std::none_of(sources.begin(), sources.end(), [&url](const cluster::Json& s) {return s.value("url", std::string()) == url;}))
+            sources.push_back({{"url", url}, {"slug", cluster::plugin_slug(url)}, {"kind", cluster::plugin_kind(url)}, {"pending", true}, {"items", cluster::Json::array()},
+                {"auto", cluster::plugin_auto(c.pluginAuto, cluster::plugin_slug(url))}, {"paused", on(c.pluginPaused, cluster::plugin_slug(url))}, {"offered", 0},
+                {"installed", 0}, {"enabled", 0}});
+    return {{"sources", sources}, {"sync_hours", c.pluginSyncHours}, {"busy", this->_pluginsBusy.load()}, {"now", cluster::now()}};
+}
+
+_cold void cluster::Manager::pluginsSet(const cluster::Json& changes)
+{
+    // the ticks of several items / sources written in one go (a bulk action of the plugins page), the sources list too: applied by the core
+    if (this->_replica) {
+        (void)this->call({{"cmd", "plugins_set"}, {"changes", changes}});
+        return;
+    }
+    std::map<std::pair<std::string, std::string>, std::pair<cluster::Setting, std::string>> writes;
+    const std::function<void(const std::string&, const std::string&, const cluster::SettingKind, const std::string&)> put = [&writes](const std::string& section,
+        const std::string& key, const cluster::SettingKind kind, const std::string& value) {
+        cluster::Setting setting;
+        setting.section = section;
+        setting.key = key;
+        setting.kind = kind;
+        writes[{section, key}] = {setting, value};
+    };
+    static const std::set<std::string> tables = {"select", "off", "auto", "paused"};
+    for (const cluster::Json& change: changes.value("items", cluster::Json::array())) {
+        const std::string table = change.value("table", std::string());
+        const std::string key = change.value("key", std::string());
+        if (!tables.contains(table) || key.empty() || key.find('"') != std::string::npos || key.find('\n') != std::string::npos)
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "plugins_set: a change of an unknown table or key");
+        put("plugins." + table, "\"" + key + "\"", cluster::SettingKind::Bool, change.value("value", false) ? "true" : "false");
+    }
+    if (changes.contains("repos") && changes["repos"].is_array()) {
+        std::string list;
+        for (const cluster::Json& r: changes["repos"])
+            if (r.is_string() && !cluster::trim(r.get<std::string>()).empty() && r.get<std::string>().find(',') == std::string::npos)
+                list += (list.empty() ? "" : ",") + cluster::trim(r.get<std::string>());
+        put("plugins", "repos", cluster::SettingKind::List, list);
+    }
+    if (changes.contains("sync_hours")) put("plugins", "sync_hours", cluster::SettingKind::Int, std::to_string(std::max(0, changes.value("sync_hours", 24))));
+    if (writes.empty()) return;
+    cluster::settings_write(this->_config, writes);
+    (void)this->_config.reload();
+    ++this->_version;
 }
 
 _cold void cluster::Manager::pluginsSync_(void)
 {
     // the repositories changed (or the first tick): cloned / pulled and listed, then the ticks applied; the ticks only: applied
-    const bool repos = !this->_pluginsSeen || this->_config.pluginRepos != this->_pluginRepos;
-    const bool select = this->_config.pluginSelect != this->_pluginSelect || this->_config.pluginOff != this->_pluginOff;
+    // a source asked (pulled now), the auto ones every sync_hours (and at the start of the core), a new one cloned
+    const std::int64_t now = cluster::now();
+    const int hours = this->_config.pluginSyncHours;
+    const bool due = hours > 0 && this->_pluginSyncAt > 0 && now - this->_pluginSyncAt >= static_cast<std::int64_t>(hours) * 3600;
+    bool asked = false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        asked = !this->_pluginPull.empty();
+    }
+    const bool repos = !this->_pluginsSeen || this->_config.pluginRepos != this->_pluginRepos || asked || due;
+    const bool select = this->_config.pluginSelect != this->_pluginSelect || this->_config.pluginOff != this->_pluginOff || this->_config.pluginPaused != this->_pluginPaused;
     if (!repos && !select) return;
     if (this->_pluginsBusy.exchange(true)) return; // the next tick again
     const bool first = !this->_pluginsSeen;
@@ -952,17 +1037,28 @@ _cold void cluster::Manager::pluginsSync_(void)
     this->_pluginRepos = this->_config.pluginRepos;
     this->_pluginSelect = this->_config.pluginSelect;
     this->_pluginOff = this->_config.pluginOff;
-    const cluster::PluginSetup setup{this->_config.pluginRepos, this->_config.pluginSelect, this->_config.pluginOff, this->_config.command("claude")};
+    this->_pluginPaused = this->_config.pluginPaused;
+    std::set<std::string> pull;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        pull.swap(this->_pluginPull);
+    }
+    if (first || due) { // the ones synced by themselves
+        for (const std::string& url: this->_config.pluginRepos)
+            if (cluster::plugin_auto(this->_config.pluginAuto, cluster::plugin_slug(url))) pull.insert(cluster::plugin_slug(url));
+        this->_pluginSyncAt = now;
+    }
+    const cluster::PluginSetup setup{this->_config.pluginRepos, this->_config.pluginSelect, this->_config.pluginOff, this->_config.pluginPaused, this->_config.command("claude")};
     if (first && setup.repos.empty() && setup.select.empty()) {
         this->_pluginsBusy = false;
         return;
     }
-    std::thread([this, setup, repos]() {
+    std::thread([this, setup, repos, pull]() {
         try {
             if (repos) {
                 std::size_t count = 0;
                 std::string errors;
-                for (const cluster::PluginRepo& repo: cluster::plugins_scan(setup)) {
+                for (const cluster::PluginRepo& repo: cluster::plugins_scan(setup, pull)) {
                     count += repo.items.size();
                     if (!repo.error.empty()) errors += " " + repo.slug + ": " + repo.error + ";";
                 }
@@ -1597,7 +1693,7 @@ void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string&
     const char* kind = event.error ? "[error from " : event.interrupted ? "[interrupted: " : "[reply from ";
     const std::string text = std::string(kind) + name + " (" + event.session + ")]\n" + (event.spontaneous ? "(a turn woken up by a background task / Monitor)\n" : "")
         + cluster::head_utf8(event.text, 6000);
-    const bool finished = !event.error && !event.interrupted && !event.spontaneous;
+    const bool finished = !event.error && !event.interrupted; // a one-shot session closed after it (never while its background runs)
     const std::string id = event.session;
     std::thread([this, text, id, finished]() {
         try {
@@ -1622,7 +1718,8 @@ void cluster::Manager::archiveOneShot_(const std::string& id)
     }
     if (!this->_config.archiveOneShot) return;
     const std::optional<cluster::Snapshot> snap = this->snapshot(id);
-    if (!snap || snap->state != cluster::State::Idle || snap->queued > 0 || !snap->permissions.empty()) return;
+    if (!snap || snap->state != cluster::State::Idle || snap->queued > 0 || !snap->permissions.empty() || cluster::background_busy(*snap)) return; // its background
+                                                                                     // still runs: its result to come (woken)
     try {
         this->close(id);
     } catch (const utils::exception::IException&) {}

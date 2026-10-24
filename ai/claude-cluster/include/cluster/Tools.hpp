@@ -63,6 +63,8 @@ _nodiscard std::string lower(std::string text);
 _nodiscard std::string one_line(const std::string& text, const std::size_t max);
 _nodiscard std::string slash_tag(const std::string& id);    // an id written in invisible tag characters (U+E0020-E007E, U+E007F at its end)
 _nodiscard std::string slash_untag(const std::string& text, std::string* first = nullptr); // without them; first: the id after the first /word
+_nodiscard std::string paste_keep(const std::string& text);    // every hidden id dropped but the marks of the pastes
+_nodiscard std::string paste_reveal(const std::string& text);  // for the agent: each paste between <pasted> and </pasted>, nothing hidden left
 _nodiscard std::string language_of(const std::string& text);      // "fr" | "en" | "es" | "it" | "de" | "pt" | "nl"
 _nodiscard std::string summary_of(const std::string& text, const std::size_t max);
 _nodiscard std::string clean_label(const std::string& text);                    // a category / a tag: lower case, one word (- and _ kept), 24 characters at most
@@ -72,6 +74,8 @@ _nodiscard std::string content_hash(const std::string& bytes);   // FNV-1a 64, h
 
 /* format */
 _nodiscard inline std::int64_t now(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
+// a paste between its two invisible marks (tag characters): told to the agent only, the user sees the text alone
+_nodiscard inline std::string paste_mark(const std::string& text) {return text.empty() ? text : slash_tag("paste{") + text + slash_tag("}paste");};
 _nodiscard inline std::int64_t now_ms(void) {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
 // seconds this computer was awake (a monotonic clock: a sleep / suspend never counts, unlike now())
 _nodiscard inline std::int64_t awake_s(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();};
@@ -146,6 +150,7 @@ _cold void set_program_args(const int argc, char** argv);   // the arguments of 
 _cold void upgrade_request(const bool restore);             // after the quit: the binary on disk run again, its arguments (+ --restore)
 _cold _nodiscard bool upgrade_requested(void);
 _cold void upgrade_exec(void);                              // the exec of it (main, after the quit); back only when it failed
+_cold void restart_exec(const std::string& crashes);        // the watcher again from the binary on disk after a crash of its core (back: failed)
 _cold _nodiscard int version_compare(const std::string& a, const std::string& b);    // "1.4.18" vs "1.4.17": > 0
 _cold _nodiscard std::string upgrade_selftest(const std::filesystem::path& binary);   // the binary started alone (own folders, no global session): empty when it runs, else why not
 _cold _nodiscard std::string binary_version(const std::filesystem::path& binary);   // its --version ("1.4.18"); empty: not one

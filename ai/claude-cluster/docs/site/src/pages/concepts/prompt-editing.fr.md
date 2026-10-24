@@ -52,7 +52,7 @@ Les mots et le kill ring fonctionnent dans le prompt là où aucune action de `[
 
 ## Texte collé et pastilles {#paste}
 
-Un collage de plus de `[ui] paste_lines` (3) lignes ou `paste_chars` (800) caractères est un bloc `[Pasted text #N +L lines]`, envoyé, mis en réserve et édité (`Ctrl+E`) comme son texte complet. Les images collées du presse-papiers sont `[Image #N]`, enregistrées par contenu donc la même image est une seule référence. Une pastille par image ou texte collé se tient au-dessus du prompt : le survol le montre, un clic le remet, un clic droit ouvre une image dans la visionneuse du bureau. `Retour arrière` sur un bloc le retire en entier.
+Un collage de plus de `[ui] paste_lines` (3) lignes ou `paste_chars` (800) caractères est un bloc `[Pasted text #N +L lines]`, envoyé, mis en réserve et édité (`Ctrl+E`) comme son texte complet. Les images collées du presse-papiers sont `[Image #N]`, enregistrées par contenu donc la même image est une seule référence. Une pastille par image ou texte collé se tient au-dessus du prompt : le survol le montre, un clic le remet, un clic droit ouvre une image dans la visionneuse du bureau. `Retour arrière` sur un bloc le retire en entier. Chaque collage (un bloc ou un texte court) est **signalé à l'agent** : il le reçoit entre `<pasted>` et `</pasted>`, tandis que vous voyez le texte simple dans le prompt, le transcript et l'historique (deux marques invisibles). Une commande collée au début d'un prompt vide (`!`, `/`, `:`) garde son mode.
 
 ## Modes du prompt {#modes}
 

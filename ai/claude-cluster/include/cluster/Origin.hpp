@@ -40,13 +40,14 @@ struct OriginColors {
 _cold void set_origin_colors(const cluster::OriginColors& colors);
 _cold _nodiscard cluster::OriginColors origin_colors(void);
 
-// "user" | "mcp" | "task" | "schedule" of a prompt: the origin stored when it entered the session, else (old transcripts) the
+// "user" | "mcp" | "task" | "schedule" | "wake" of a prompt: the origin stored when it entered the session, else (old transcripts) the
 // markers of its text
 _cold _nodiscard std::string prompt_origin(const std::string& origin, const std::string& text);
 
-// the colour group of an origin ("user" | "mcp" | "task": a schedule is a task) and its label in the header ("" for the user)
-_cold _nodiscard inline std::string origin_group(const std::string& origin) {return origin == "schedule" ? "task" : origin;};
-_cold _nodiscard inline std::string origin_label(const std::string& origin) {return origin == "mcp" ? "mcp" : origin == "task" ? "task" : origin == "schedule" ? "scheduled" : "";};
+// the colour group of an origin ("user" | "mcp" | "task": a schedule and a wake-up are tasks) and its label in the header ("" for the user)
+_cold _nodiscard inline std::string origin_group(const std::string& origin) {return origin == "schedule" || origin == "wake" ? "task" : origin;};
+_cold _nodiscard inline std::string origin_label(const std::string& origin) {return origin == "mcp" ? "mcp" : origin == "task" ? "task" : origin == "schedule" ? "scheduled"
+    : origin == "wake" ? "woken" : "";};
 
 // the colour "#rrggbb" of an origin on a light / dark theme (the config, else the default; user: "" = the accent of the theme)
 // defaults: mcp violet, task magenta, 4.5:1 or more on the backgrounds of the built-in themes, apart from the blue accent,

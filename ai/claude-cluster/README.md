@@ -208,7 +208,7 @@ window opens instead when there is a display). In the background: `claude-cluste
 | Ctrl+E | edit the prompt in an editor: `[ui] editor`, else the first installed of nvim, vim, vi, `$VISUAL`, `$EDITOR`, emacs -nw, nano (window: a multi-line dialog); the pasted texts are there in full, the ones left unchanged are blocks again after |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | Ctrl+A, Shift+← →, Ctrl+Shift+← →, Shift+Home / End | select all, by character, by word |
-| Ctrl+← → , Home / End | move by word, to the start / end |
+| Ctrl+← → , Home / End | move by word, to the start / end; a line break is a stop: at the end of a line the start of the next one, at its start the end of the one before (never into the first / last word of the other line; Ctrl+Shift selects the same way) |
 | Ctrl+X / Ctrl+C / Ctrl+V | cut / copy (with a selection) / paste: text, or an **image** of the clipboard as `[Image #N]` |
 | Backspace / Delete / ← → on `[Image #N]`, `[Pasted text #N]` | the whole block at once (one character for the editor, like Claude Code) |
 | Ctrl+S / Ctrl+P | stash the prompt (and clear the editor) / take the last stashed one back (kept over the runs; full: see `stash_full`) |
@@ -320,7 +320,10 @@ rewind) are never refused, so the list may pass the maximum until you clean it. 
 **Pasted text**: a paste of more than `[ui] paste_lines` lines (3) or `paste_chars` characters (800) is one
 `[Pasted text #N +L lines]` block in the prompt (0: never); it is sent, stashed, edited (Ctrl+E) as its full text. In
 the terminal the paste of the terminal itself (Ctrl+Shift+V, bracketed paste) arrives in one piece: its new lines don't
-send the prompt.
+send the prompt. **What is pasted is told to the agent**: every paste (a block or a short text; the terminal, the window,
+the web page) carries two invisible marks in the prompt, and the agent gets it between `<pasted>` and `</pasted>` - you see
+the plain text in the prompt, the transcript and the history. A command pasted at the start of an empty prompt (`!`, `/`, `:`)
+keeps its mode, without marks.
 
 **Vim mode** (`/vim`, the palette, or `[ui] vim = true`): the prompt starts in Insert (`-- INSERT --`), **Esc** goes to
 Normal (block cursor, `-- NORMAL --`): `h j k l` / arrows, `w b e`, `0 ^ $`, `gg G`, `f t F T<c>`, `x X s S D C`,
@@ -472,7 +475,9 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   empty `[from the global session]` prompt (`tests/send_prompt.sh` checks it with a fake `claude`);
   every end of a turn started for the global session calls it back **once**: the answer to the first prompt of a
   `session_spawn` (`reply: false` opts out), a later turn the agent starts by itself when a background task / Monitor
-  completes (`[reply from ...]` with a note), an API error (`[error from ...]`, weekly limit...), an interrupted turn
+  completes (`[reply from ...]` with a note) - the agent idle, claude-cluster wakes it with the `<task-notification>` of its
+  command done, or tells it a `[job ...]` / `[tasks]` result (origin `wake`, shown *woken*): that turn is one of its own, its
+  result comes back too (before, the "waiting for my build" answer came back, the result after it never did) -, an API error (`[error from ...]`, weekly limit...), an interrupted turn
   (`[interrupted: ...]`), an agent that exited; a task queued by the global session (`task_add`) is answered the same way
   (`tests/callbacks.sh` checks it with a fake `claude`);
 - **one-shot sessions**: `session_spawn` `one_shot: true` (set by the global session for ONE precise task, never for a project it
@@ -527,7 +532,8 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   allowed without asking (`--allowedTools mcp__claude-cluster`);
 - **questions of the agents** (AskUserQuestion of Claude Code, asked even in `bypassPermissions`): a popup on the
   session shown, like Claude Code / Claude Desktop - the terminal: one question at a time, its options and their
-  description, ↑↓ move the cursor only (it is never an answer), 1-9 pick; one choice: Enter validates the option under the cursor and goes on; several choices: Enter / Space tick and untick (the answer follows the ticks, Enter never goes on); ← / Shift+Tab the question before, → / Tab the next one (answered or not, like Claude Code: going to and fro never changes a validated answer - it shows again with its option marked ✔, only Enter on another option changes it - and the review flags the ones left; on the only question → / Tab sends it once answered), Other typed, Esc declines; the window / the web page: the same (a click on a radio validates it, check boxes tick, Enter ticks a box, Next only goes on); the voice: a bare "next" needs an option chosen first - Esc declines; the window: a dialog
+  description, ↑↓ move the cursor only (it is never an answer), 1-9 pick; one choice: Enter validates the option under the cursor and goes on; several choices: Enter / Space tick and untick (the answer follows the ticks), and a **Next →** row after Other (*Review →* /
+*Submit →* on the last question, like Claude Code): ↓ reaches it, Enter or a click on it goes on with the ticks kept; ← / Shift+Tab the question before, → / Tab the next one (answered or not, like Claude Code: going to and fro never changes a validated answer - it shows again with its option marked ✔, only Enter on another option changes it - and the review flags the ones left; on the only question → / Tab sends it once answered), Other typed, Esc declines; the window / the web page: the same (a click on a radio validates it, check boxes tick, Enter ticks a box, Next only goes on); the voice: a bare "next" needs an option chosen first - Esc declines; the window: a dialog
   (radio buttons or check boxes, Other, Answer / Decline); its notice and notification tell the question; the global
   session sees them in `session_status` and answers with `session_allow` `answers` {question: label}; a plain allow
   is refused (the agent would go on without its answer). One question at a time for the whole cluster, shared by the
@@ -973,14 +979,16 @@ says `updated: 1.4.17 -> 1.4.18`. Never from the web page or the global session 
 
 Like the plugins of claude.ai: **sources** of plugins / skills (settings > Plugins > Sources, `[plugins] repos`) - a
 git repository (GitHub `owner/repo`, an https or git URL), a folder of this computer, or a `.zip` - listed by the
-core: a repository cloned (shallow, pulled at each start of the core), a `.zip` unpacked (again when it changes), a
-folder read in place, in `<data>/plugins` (its index `index.json`). A Claude Code marketplace
+core: a repository cloned (shallow), a `.zip` unpacked (again when it changes), a folder read in place, in
+`<data>/plugins` (its index `index.json`). A source with **auto sync** (on by default, `[plugins.auto]`) is pulled at each
+start of the core and every `[plugins] sync_hours` (24; 0: at the start only); off, only by hand (*Sync*). A Claude Code marketplace
 (`.claude-plugin/marketplace.json`) offers its plugins, else the folders with a `SKILL.md` are skills.
 
 What is ticked is installed by the core, for the sessions started after it: a plugin by `claude plugin marketplace
 add` + `claude plugin install <name>@<marketplace>`, a skill by a link in `~/.claude/skills`; *All of a source* takes
 every item (the new ones too); turned **off** (`[plugins.off]`): a plugin disabled, a skill unlinked, both still
-installed; unticked: removed - only what claude-cluster installed (a skill or plugin of the user of the same name is
+installed; a **source turned off** (`[plugins.paused]`): every item of it off at once, kept installed, back as they were when
+turned on again; unticked: removed - only what claude-cluster installed (a skill or plugin of the user of the same name is
 never replaced: told). These settings are protected (never changed by the global session, a confirmation for the
 sources: their code runs as you).
 
@@ -989,12 +997,29 @@ imported link is `/<link>:<skill>` (`<link>` = the slug of the source, `owner-re
 list); `/<skill>` alone still works when no other has the name (the prefix is dropped before the prompt reaches the agent,
 which knows the skill under its own name). The completion of `/` shows the source of each entry in a badge.
 
-The **browser** of the terminal (`/plugins`, the palette *Plugins*): the sources and their items (● on, ◐ off, ○ not
-installed), `i` install, `r` remove, Space toggle, `e` on / off, `a` add a source (a path completed by Tab, a link; a
-file or a folder **dropped** on the terminal is added from its path), `d` drop a source, `u` update; Enter / →: the
-information of the item and the **tree of its files** (▸ / ▾ folders, like nvim-tree), a file previewed with its
-colours (its language; Markdown drawn: front matter, headings, bullets, code blocks), PageUp / PageDown; the mouse
-too. The window and the web page have the same sources and ticks in their settings.
+The **Plugins page** (`/plugins`, the palette *Plugins*; terminal, window, web page and app) shows the **sources first**, each
+with what it offers / has installed / has on, its last sync, its last commit (a repository: hash, subject, date; a `.zip`: its
+date; a folder: its newest `SKILL.md`), its auto sync and whether it is on. A source opened shows its offer as a
+**checklist**: tick several (or all), then install, remove, turn on or off the ticked ones at once; the source itself can be
+synced now, installed or removed whole, turned off / on, its auto sync changed, or dropped (asked first). *Sync all* pulls
+every source now; a source is added from a link, a folder or a `.zip` (asked first: its code runs as you).
+
+| Terminal key | Sources | A source opened (its checklist) |
+|---|---|---|
+| ↑ ↓ PageUp PageDown Home End | choose | choose |
+| Enter / → | open it | its files (tree + preview); `f` too |
+| Space / `A` | | tick the one chosen (then the next) / all or none |
+| `i` / `r` / `e` | install all of it / remove all of it (`r` twice) | install / remove / on-off: the ticked ones, else the one chosen |
+| `u` / `U` / `s` / `p` | sync it / sync every source / auto sync on-off / source off-on | the same for its source |
+| `a` / `d` | add a source (a path completed by Tab, a link; a file or folder **dropped** on the terminal) / drop it (`d` twice) | add a source |
+| ← / Esc | close | back to the sources |
+
+The tree of the files (▸ / ▾ folders, like nvim-tree) previews a file with its colours (its language; Markdown drawn:
+front matter, headings, bullets, code blocks), PageUp / PageDown; the mouse too (a click chooses, a second opens / ticks).
+The settings page keeps only the sources and the sync period. The control commands: `plugins` (the sources, their
+counts, dates and items), `plugins_set` (several ticks / settings at once: `{"items": [{"table": "select" | "off" | "auto" |
+"paused", "key", "value"}], "repos": [...], "sync_hours": N}`), `plugins_refresh` (`source`: one, empty: all); from the web
+page `plugins_set` / `plugins_refresh` need `[web] settings` to allow `plugins`. Test: `tests/plugins_sources.py`.
 
 ## Conversations of the other agents
 
@@ -1474,7 +1499,9 @@ own `[providers.<name>]`. See [`templates/config.toml`](templates/config.toml).
 and window is an interface of it, all in sync (the same sessions, prompts, questions, notices; sent again only when a
 session changed). Its first interface asks the previous run; closing one leaves the others (the core goes on), the last
 one closed stops it (the service, when it runs, is the core and stays). The core gone (a crash): started again by its watcher (`[ui] restart_core`, on: a small process that only waits on the
-core and starts it again with its sessions restored; off: no watcher, an interface starts it again when it notices).
+core and starts it again with its sessions restored - from the binary on disk: a core that crashed while stopping for an
+update comes back on the new version, never on the old one the watcher had in memory; 5 crashes in 10 minutes: no more
+restarts; off: no watcher, an interface starts it again when it notices).
 A session closed leaves every list at once, its agent stopped after; the version the interfaces wait on only grows (a `/clear` then a
 `/close` never brings it back to a number already seen). Two prompts sent at once to one session from two interfaces: told on that session (a minute in its header)
 and in the notices, the second one waits behind the first. Off: a second claude-cluster is refused, as before.

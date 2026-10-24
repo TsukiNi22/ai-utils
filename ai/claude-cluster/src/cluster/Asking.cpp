@@ -249,8 +249,9 @@ _cold void cluster::Asking::move(const int delta)
     if (this->_manager.replica()) {
         this->local_([delta](cluster::Ask& a) {
             a.touched = true;
-            const int count = static_cast<int>(question_at_(a.questions, a.index).value("options", cluster::Json::array()).size());
-            a.cursor = std::clamp(a.cursor + delta, 0, count);
+            const cluster::Json& q = question_at_(a.questions, a.index);
+            const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
+            a.cursor = std::clamp(a.cursor + delta, 0, count + (q.value("multiSelect", false) ? 1 : 0)); // a multi choice: its Next row too
         });
         this->post_({{"action", "move"}, {"delta", delta}});
         return;
@@ -258,8 +259,9 @@ _cold void cluster::Asking::move(const int delta)
 
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
-    const int count = static_cast<int>(question_at_(this->_ask->questions, this->_ask->index).value("options", cluster::Json::array()).size());
-    this->_ask->cursor = std::clamp(this->_ask->cursor + delta, 0, count);
+    const cluster::Json& q = question_at_(this->_ask->questions, this->_ask->index);
+    const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
+    this->_ask->cursor = std::clamp(this->_ask->cursor + delta, 0, count + (q.value("multiSelect", false) ? 1 : 0)); // a multi choice: after Other, its Next row
     this->_ask->touched = true; // only the cursor: no answer recorded
     ++this->_version;
 }
@@ -270,7 +272,7 @@ _cold void cluster::Asking::choose(const int option)
         this->local_([option](cluster::Ask& a) {
             const cluster::Json& q = question_at_(a.questions, a.index);
             const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
-            if (option < 0 || option > count) return;
+            if (option < 0 || option > count + (q.value("multiSelect", false) ? 1 : 0)) return;
             a.cursor = option;
             if (q.value("multiSelect", false) && option < count && !a.picked.erase(option)) a.picked.insert(option);
         });
@@ -282,7 +284,7 @@ _cold void cluster::Asking::choose(const int option)
     if (!this->_ask) return;
     const cluster::Json& q = question_at_(this->_ask->questions, this->_ask->index);
     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
-    if (option < 0 || option > count) return;
+    if (option < 0 || option > count + (q.value("multiSelect", false) ? 1 : 0)) return; // a multi choice: its Next row (never ticked)
     this->_ask->cursor = option;
     this->_ask->touched = true;
     if (q.value("multiSelect", false)) {
@@ -296,6 +298,7 @@ _cold void cluster::Asking::toggle(void)
 {
     if (this->_manager.replica()) {
         this->local_([](cluster::Ask& a) {
+            if (a.cursor > static_cast<int>(question_at_(a.questions, a.index).value("options", cluster::Json::array()).size())) return; // the Next row
             if (!a.picked.erase(a.cursor)) a.picked.insert(a.cursor);
         });
         this->post_({{"action", "toggle"}});
@@ -304,6 +307,7 @@ _cold void cluster::Asking::toggle(void)
 
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask || !question_at_(this->_ask->questions, this->_ask->index).value("multiSelect", false)) return;
+    if (this->_ask->cursor > static_cast<int>(question_at_(this->_ask->questions, this->_ask->index).value("options", cluster::Json::array()).size())) return; // Next: no tick
     if (!this->_ask->picked.erase(this->_ask->cursor)) this->_ask->picked.insert(this->_ask->cursor);
     this->_ask->touched = true;
     record_(*this->_ask);
