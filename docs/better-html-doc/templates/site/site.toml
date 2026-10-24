@@ -1,0 +1,49 @@
+# {{PROJECT}} documentation site (better-html-doc) - build: python3 <skills>/better-html-doc/scripts/build_site.py --site <this folder> --out <out>
+
+[site]
+name = "{{PROJECT}}"
+langs = ["en", "fr"]                   # ["en"] / ["fr"] for one language (then pages are <slug>.md)
+repo = "{{REPO_URL}}"                  # the code icon of the top bar ("" = none)
+edit_url = ""                          # "https://github.com/<owner>/<repo>/edit/main/docs/site/{path}" -> "Edit this page"
+pages_url = ""                         # the published address (sitemap.xml), "" = no sitemap
+storage_key = "{{PROJECT}}-docs"       # theme / language choices shared by the pages
+logo = ""                              # an SVG of the project ("" = the default documentation logo)
+# version = "1.2.0"                    # default: --version, else the last git tag
+# css = ["assets/extra.css"]           # project additions on top of the site style (tokens only)
+# copy = ["downloads/report.pdf"]      # files copied as they are next to the pages
+
+[home]
+title = { en = "Documentation", fr = "Documentation" }
+tagline = { en = "{{TAGLINE_EN}}", fr = "{{TAGLINE_FR}}" }
+changelog = ""                         # "../../CHANGELOG.md": its last versions on the home
+links = [
+    { href = "faq.html", text = { en = "FAQ", fr = "FAQ" } },
+]
+
+[[sections]]
+id = "guide"
+title = { en = "User guide", fr = "Guide utilisateur" }
+desc = { en = "Install, first steps, everyday use.", fr = "Installation, premiers pas, usage courant." }
+icon = '<path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14"/>'
+
+[[sections]]
+id = "concepts"
+title = { en = "Concepts", fr = "Concepts" }
+desc = { en = "How it works, explained.", fr = "Comment ça marche, expliqué." }
+icon = '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/>'
+
+[[sections]]
+id = "reference"
+title = { en = "Reference", fr = "Référence" }
+desc = { en = "Configuration, commands, formats, protocol.", fr = "Configuration, commandes, formats, protocole." }
+icon = '<path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/>'
+
+[[sections]]
+id = "resources"
+title = { en = "Resources", fr = "Ressources" }
+desc = { en = "FAQ, glossary, changelog.", fr = "FAQ, glossaire, historique." }
+icon = '<path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h4"/>'
+
+# contextual help of an application: a screen -> page#id (docs-map.json, checked by check_site.py)
+# [contexts]
+# settings = "configuration#files"

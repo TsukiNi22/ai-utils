@@ -26,7 +26,7 @@
     },
     {
       "name": "doc-skills",
-      "description": "Documentation: README, GitHub wiki, uniform HTML docs with the project graph, HTML style, explanation pages (simple + technical), protocol / wire format docs, Markdown / PDF reports, update of every doc / site / package / install script after changes (skills: docs-update, explain-doc, html-doc, html-style, protocol-doc, readme-style, report, wiki-style)",
+      "description": "Documentation: README, GitHub wiki, uniform HTML docs with the project graph, HTML style, explanation pages (simple + technical), protocol / wire format docs, Markdown / PDF reports, update of every doc / site / package / install script after changes, documentation sites with search in the claude-cluster style (skills: better-explain-doc, better-html-doc, better-html-style, better-protocol-doc, docs-update, explain-doc, html-doc, html-style, protocol-doc, readme-style, report, wiki-style)",
       "source": "./",
       "strict": false,
       "skills": [

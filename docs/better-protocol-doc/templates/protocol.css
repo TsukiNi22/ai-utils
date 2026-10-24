@@ -1,0 +1,20 @@
+/* better-protocol-doc - a protocol page inside a better-html-doc site: a message (:::message) = its name / code, its byte layout
+   (one cell per field, as wide as its size) and the table of its fields; sequences of frames; phone layout */
+figure.message { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+figure.message > figcaption { margin: 0 0 10px; font-size: 15px; }
+figure.message > figcaption b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+figure.message .table-wrap { margin-bottom: 0; }
+.frame { display: flex; flex-wrap: wrap; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font: 13px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.frame > span { flex-basis: 0; min-width: 86px; padding: 8px 10px; border-right: 1px solid var(--border); background: var(--bg); }
+.frame > span:nth-child(even) { background: var(--code-bg); }
+.frame > span:last-child { border-right: 0; }
+.frame > span b { display: block; color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
+.frame > span small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.seq { margin: 16px 0; padding: 0; list-style: none; counter-reset: seq; }
+.seq li { display: grid; grid-template-columns: 2.2em 1fr; gap: 4px 10px; padding: 8px 0; border-top: 1px solid var(--border); counter-increment: seq; }
+.seq li:first-child { border-top: 0; }
+.seq li::before { content: counter(seq); font-weight: 600; color: var(--accent); }
+.seq .dir { font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); }
+.results .kind.protocol, .results .kind.message { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+@media (max-width: 600px) { .frame > span { min-width: 72px; padding: 6px 8px; } figure.message { padding: 12px; } }
+@media print { figure.message { break-inside: avoid; } }

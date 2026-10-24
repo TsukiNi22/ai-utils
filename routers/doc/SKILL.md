@@ -1,6 +1,6 @@
 ---
 name: doc
-description: Router for documentation tasks of the user - README and Markdown docs, GitHub wiki, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), explanation pages (simple + technical), protocol / wire format docs, HTML style, reports, code comments - loads readme-style, wiki-style, html-doc, explain-doc, protocol-doc, html-style, report, docs-update, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
+description: Router for documentation tasks of the user - README and Markdown docs, GitHub wiki, CHANGELOG / release notes, HTML documentation (user guide, technical doc, project graph), explanation pages (simple + technical), protocol / wire format docs, HTML style, reports, code comments - loads readme-style, wiki-style, html-doc, better-html-doc, explain-doc, better-explain-doc, protocol-doc, better-protocol-doc, html-style, better-html-style, report, docs-update, git-conventions or cpp-comments depending on what is documented. Invoke manually with /doc.
 disable-model-invocation: true
 ---
 
@@ -22,9 +22,10 @@ request; if none, inspect `README.md`, `CHANGELOG.md`, `docs/` and propose what 
 | README, Markdown guide | `readme-style` |
 | GitHub wiki (`<repo>.wiki`: Home, sidebar, section pages) | `wiki-style` (+ `readme-style` for the Markdown rules, `libutils` for a libutils based project) |
 | HTML documentation, `docs/` site, GitHub Pages, project graph | `html-doc` (+ `readme-style` for the README link) |
+| a documentation **site** with search, several pages / sections, EN / FR, "like the claude-cluster docs", "better" docs | `better-html-doc` (+ `better-html-style`; explanations in it: `better-explain-doc`, protocol pages: `better-protocol-doc`) |
 | explain how something works (concept, algorithm, protocol, math) with diagrams / animations / interactive examples, simple + technical | `explain-doc` (+ `html-style`) |
 | specify / document a protocol, a wire or message format, a handshake, the commands of a client / server, a storage format (the reference of the frames, codes and commands) | `protocol-doc` (it asks the output: Markdown, PDF via `report`, HTML sections via `html-doc`) |
-| any other HTML page, a palette / color / font / theme to define | `html-style` |
+| any other HTML page, a palette / color / font / theme to define | `html-style` (`better-html-style` for the claude-cluster docs look with search) |
 | CHANGELOG, release notes, PR description | `git-conventions` |
 | comments / documentation inside the code (any language), file headers | `comments` (+ `cpp-comments` for C++, `python-comments` for Python) |
 | a result / report / study delivered as PDF | `report` |

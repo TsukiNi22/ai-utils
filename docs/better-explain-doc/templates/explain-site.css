@@ -1,0 +1,10 @@
+/* better-explain-doc - an explanation page inside a better-html-doc site: the level switch next to the search, the level shown on
+   the page header, the stepper / playground cards at the width of the site column; phone layout */
+.topbar .level-switch { margin-right: 4px; }
+main > header .level-note { display: inline-block; margin-top: 10px; font-size: 13px; color: var(--muted); }
+:root[data-level="simple"] .level-note .technical, :root[data-level="technical"] .level-note .simple { display: none; }
+main section > div[data-level] > :first-child { margin-top: 0; }
+.results .kind.explain { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+@media (max-width: 600px) { .topbar .level-switch button { padding: 4px 8px; font-size: 12.5px; } }
+@media (max-width: 480px) { .topbar .level-switch button { padding: 3px 6px; font-size: 12px; } }
+@media print { .level-switch { display: none !important; } }

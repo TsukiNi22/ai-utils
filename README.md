@@ -19,7 +19,7 @@ skills below by themselves. `/dev` is enough most of the time.
 | [`/python`](routers/python/SKILL.md) | `python-project`, `python-class`, `python-style`, `python-comments`, `tests`, `ci-cd`, `benchmark` |
 | [`/setup-project`](routers/setup-project/SKILL.md) | a whole new project in order: architecture (`cpp-project` / `python-project` / `coding-style`), base unit tests (`cpp-tests` / `tests`), `license`, `git-conventions` + `pre-commit`, `ci-cd`, `readme-style`, then a quick architecture audit |
 | [`/git`](routers/git/SKILL.md) | `git-conventions`, `git-commit`, `ci-cd`, `pre-commit` |
-| [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `html-style`, `explain-doc`, `protocol-doc`, `report`, `docs-update`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
+| [`/doc`](routers/doc/SKILL.md) | `readme-style`, `html-doc`, `html-style`, `explain-doc`, `protocol-doc`, `better-html-doc`, `better-html-style`, `better-explain-doc`, `better-protocol-doc`, `report`, `docs-update`, `git-conventions` (CHANGELOG), `comments`, `cpp-comments` |
 | [`/style`](routers/style/SKILL.md) | `cpp-style`, `python-style`, `python-comments`, `coding-style`, `cpp-comments`, `comments`, `cmake-style` (by file type), `audit-quality` |
 | [`/legal`](routers/legal/SKILL.md) | `license`, `audit-deps`, `legal-check`, `legal-setup` |
 | [`/audit`](routers/audit/SKILL.md) | asks which audits to run (checklist: `audit-bugs`, `audit-security`, `audit-quality`, `audit-deps`, `legal-check`, `coverage`, `benchmark`; coverage and benchmark checked and run automatically) and the report format, runs them and writes a summary report in `audit/` |
@@ -48,6 +48,10 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`html-style`](docs/html-style/SKILL.md) | My visual style for any HTML page (from `html-doc`): light / dark color tokens, system fonts and type scale, layout, components, SVG diagram classes, sun/moon and EN/FR switches, rules (self-contained, WCAG contrast, **responsive on phones / tablets / TV / touch**: viewport, safe areas, 44px targets, no hover-only content, print); `scripts/new_page.py` builds a self-contained page, `scripts/check_style.py` checks a page or a palette (tokens, contrast, unreadable inherited colors, external resources). |
 | [`explain-doc`](docs/explain-doc/SKILL.md) | Explanation pages (how something works) in two levels switched in place, **Simple** (analogies, plain words, numbers) and **Technical** (terms, formulas, complexity, edge cases, code, sources), with SVG diagrams, step-by-step animations, MathML formulas, interactive playgrounds / simulations checking the formulas, quizzes and a glossary. Built on `html-style`. |
 | [`protocol-doc`](docs/protocol-doc/SKILL.md) | Protocol / wire format documentation (from the 2ETP doc of my networking projects): framing with the control bytes, the payload types table, one section per message type (grammar + fields), the code tables (errors, events, commands), every frame in one block, the handshake step by step with a sequence diagram, the client / server commands, the storage format; always asks the output - Markdown, PDF (report style) or sections of the existing HTML docs (html-doc) - and checks it (`check_protocol.py`: anchors, types, frames, codes). |
+| [`better-html-style`](docs/better-html-style/SKILL.md) | The look of the claude-cluster docs site on top of `html-style`: a typo-tolerant search (top bar + big home search, `/` or Ctrl+K, a site index, a server endpoint or the sections of the page itself), home hero, section tiles, sidebar by section, page meta, changelog, embed mode, phone layout. |
+| [`better-html-doc`](docs/better-html-doc/SKILL.md) | A whole documentation site in that style, generated from Markdown (`site.toml`, pages `<slug>.<en\|fr>.md`, generators reading the code): home, numbered section cards, search over every page and section, EN / FR, sitemap, contextual help map, `--split`; `check_site.py` (links, anchors, languages, html-style rules) and `test_search.js`. |
+| [`better-explain-doc`](docs/better-explain-doc/SKILL.md) | Explanation pages (Simple \| Technical, steppers, formulas, playgrounds of `explain-doc`) as pages of a `better-html-doc` site: `:::simple` / `:::technical` blocks, the level switch next to the search. |
+| [`better-protocol-doc`](docs/better-protocol-doc/SKILL.md) | Protocol references (`protocol-doc` content) as pages of a `better-html-doc` site: one `:::message` per message (byte layout sized by the fields, fields table), handshake sequences, code tables. |
 | [`docs-update`](docs/docs-update/SKILL.md) | Brings every piece of documentation up to date after changes or a new version: README, CHANGELOG, HTML docs and graph, `gh-pages`, wiki, packages / manifests / version numbers, setup and install scripts, `--help` texts, completions, marketplace and skill lists, claude.ai bundles - finds every place the change is written, takes the newest version from the code, verifies against the code (`scripts/inventory.sh`), commits nothing on its own. |
 | [`computer-clean`](system/computer-clean/SKILL.md) | Frees space on the computer and in the data of Claude Code / claude-cluster: caches, trash, old build outputs (never a git-tracked file), Docker / Podman, journal, dnf, flatpak, big old downloads, old conversations, finished jobs, worktrees without changes, claude-cluster leftovers - listed with size and why, chosen in a QCM, then deleted for good. |
 | [`cpp-project`](cpp/cpp-project/SKILL.md) | Sets up a new C++ project with the `setup.sh` of [cpp_project_template](https://github.com/TsukiNi22/cpp_project_template) (never committing): renaming, binary / `.a` / `.so` / header-only, RPM/DEB packages of every variant, Linux + Windows (MinGW-w64) builds and packages, libutils (v4.1) or not, exceptions, GTest, the template's workflows (dispatch, unit tests, build, packages, GitHub release from the CHANGELOG, docs), optional gh-pages branch (signed packages repository + docs), README/CHANGELOG/docs, using the other skills. |
@@ -210,7 +214,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 |---|---|
 | `cpp-skills` | cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style |
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
-| `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report, docs-update |
+| `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, better-html-doc, better-html-style, better-explain-doc, better-protocol-doc, report, docs-update |
 | `git-skills` | git-conventions, git-commit, ci-cd, pre-commit |
 | `ai-skills` | interactive-questions, clarify, ideation, export, onboard, rtk |
 | `style-skills` | coding-style, comments |
@@ -249,7 +253,7 @@ python/    python-project, python-class, python-style, python-comments
 libutils/  libutils, libutils-exception, libutils-install, libutils-setup
 tests/     tests, cpp-tests, coverage
 style/     coding-style, comments, xstyle (tool)
-docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report, docs-update
+docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, better-html-doc, better-html-style, better-explain-doc, better-protocol-doc, report, docs-update
 git/       git-conventions, git-commit, ci-cd, pre-commit
 audit/     audit-bugs, audit-security, audit-quality, audit-deps, benchmark
 legal/     license, legal-check, legal-setup

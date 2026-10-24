@@ -68,6 +68,7 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | README, Markdown docs | `readme-style` | `doc` |
 | GitHub wiki | `wiki-style` | `doc` |
 | HTML docs, project graph | `html-doc` | `doc` |
+| documentation site with search (claude-cluster docs style) | `better-html-doc` | `doc` |
 | explanation page (how something works), simple + technical | `explain-doc` | `doc` |
 | protocol of a networking project (frames, handshake, codes, commands, storage) | `protocol-doc` | `doc` |
 | any other HTML page, palette / color / font | `html-style` | `doc` |
