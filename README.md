@@ -73,6 +73,7 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`interactive-questions`](ai/interactive-questions/SKILL.md) | Asks through the built-in QCM / Q&A popup (AskUserQuestion) instead of a list in the text: questions, proposals, ideas, choices, rounds of ideas; French labels, 1-4 questions × 2-4 options, the recommended one first, multi choice, previews to compare, the answers (and their notes) followed exactly. Works in claude-cluster too (its popups, the voice, *Global answers*). |
 | [`clarify`](ai/clarify/SKILL.md) | Summoned before a request: lists everything unclear (scope, ambiguous words, missing details, several approaches, contradictions, risky actions), asks it through `interactive-questions` in as many rounds as needed (structuring questions first), then acts on the answers; no popup when nothing is ambiguous. |
 | [`ideation`](ai/ideation/SKILL.md) | Ideas, recommendations, an honest opinion or variants of ideas, asked through `interactive-questions`: grounded in the real project, 8-16 ideas by theme (effort / gain each) or the best few ranked, per idea keep / change / drop, variants compared with previews; rounds of which to keep and when (now, backlog, POC first), then a recap and the kept ones stored as tasks. |
+| [`export`](ai/export/SKILL.md) | A handover file for another session / machine / model (`PASSATION.md` by default): goal, rules of the user, done / running / todo (each with its exact next step) / blocked, decisions, files and repo state, how to build / test / run, tools and scripts used, traps met - terse for an AI (`rtk`), never a secret |
 | [`multilingual-project`](ux/multilingual-project/SKILL.md) | Any project in several languages: the languages asked (a few, Europe, the most spoken, as many as possible, RTL), every user string in standard catalogs (Qt `.ts`, gettext `.po`, Fluent, Android / iOS, ICU JSON) with named placeholders, plurals, locale formats, RTL and fonts, the language setting + system locale + fallbacks, AI-drafted translations marked for review, missing / unused keys checked in the CI. |
 | [`multilingual-website`](ux/multilingual-website/SKILL.md) | The web part of `multilingual-project`: the framework's library, `/fr/` URLs and translated slugs, hreflang + x-default, sitemaps, `lang` / `dir`, a switcher with the languages written in themselves (no flags), Accept-Language suggested never forced, SEO meta, emails in the user's language, legal pages per language. |
 | [`color-modes-project`](ux/color-modes-project/SKILL.md) | Light / dark / system (and high contrast, sepia, palettes, an accent) for any project: the modes asked, semantic colour tokens, WCAG contrast checked in each mode, the system scheme followed live (Qt, GTK portal, Windows, macOS, Android, iOS, terminals), persisted and switched without restart, icons / charts / highlighting adapted. |
@@ -210,7 +211,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
 | `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, report, docs-update |
 | `git-skills` | git-conventions, git-commit, ci-cd, pre-commit |
-| `ai-skills` | interactive-questions, clarify, ideation, rtk |
+| `ai-skills` | interactive-questions, clarify, ideation, export, rtk |
 | `style-skills` | coding-style, comments |
 | `python-skills` | python-project, python-class, python-style, python-comments |
 | `test-skills` | tests, cpp-tests, coverage |
@@ -253,7 +254,7 @@ audit/     audit-bugs, audit-security, audit-quality, audit-deps, benchmark
 legal/     license, legal-check, legal-setup
 ux/        multilingual-project, multilingual-website, color-modes-project, color-modes-website
 system/    computer-clean
-ai/        interactive-questions, clarify, ideation, rtk, claude-cluster (tool)
+ai/        interactive-questions, clarify, ideation, export, rtk, claude-cluster (tool)
 context/   global context of Claude Code (CLAUDE.md, RTK.md, hooks, sudo-askpass), installed by setup.sh
 ```
 
