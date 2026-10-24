@@ -23,11 +23,12 @@ _cold static std::string more_(const cluster::Draft& draft)
 }
 
 /* open */
-_cold void cluster::StashPopup::open(const std::string& session, const int max)
+_cold void cluster::StashPopup::open(const std::string& session, const int max, const std::map<std::string, std::string>& names)
 {
     this->_open = true;
     this->_ask = cluster::StashAsk::None;
     this->_session = session;
+    this->_names = names;
     this->_max = max;
     this->_selected = 0;
     this->_note.clear();
@@ -37,8 +38,16 @@ _cold void cluster::StashPopup::open(const std::string& session, const int max)
 
 _cold void cluster::StashPopup::reload_(void)
 {
-    this->_stash = cluster::stash_read();
-    std::reverse(this->_stash.begin(), this->_stash.end());
+    // the prompts stashed from this session first (newest first), then the ones of the others: tied to its session like the history
+    const std::vector<cluster::StashEntry> all = cluster::stash_read();
+    this->_stash.clear();
+    this->_index.clear();
+    for (const bool mine: {true, false})
+        for (std::size_t i = all.size(); i-- > 0;)
+            if ((all[i].session == this->_session) == mine) {
+                this->_stash.push_back(all[i]);
+                this->_index.push_back(i);
+            }
     this->_selected = std::clamp(this->_selected, 0, std::max(0, static_cast<int>(this->_stash.size()) - 1));
 }
 
@@ -153,7 +162,9 @@ _cold ftxui::Element cluster::StashPopup::render(const cluster::PopupColors& col
     for (int i = start; i < count && i < start + 16; ++i) {
         const cluster::StashEntry& entry = this->_stash[static_cast<std::size_t>(i)];
         items.push_back(press(ftxui::hbox({cluster::popup_row(cluster::popup_clock(entry.time) + "  " + cluster::one_line(cluster::stash_label(entry.draft), 80), i == this->_selected, colors),
-            ftxui::text(more_(entry.draft) + (entry.session.empty() ? "" : "  from " + entry.session)) | ftxui::color(colors.muted) | ftxui::dim}), ftxui::Event::Return, i));
+            ftxui::text(more_(entry.draft) + (entry.session.empty() ? "" : "  from " + (entry.session == this->_session ? std::string("this session")
+                : this->_names.contains(entry.session) ? this->_names.at(entry.session) + " (" + entry.session + ")" : entry.session))) | ftxui::color(colors.muted) | ftxui::dim}),
+            ftxui::Event::Return, i));
     }
     if (items.empty()) items.push_back(ftxui::text(" the stash is empty (Ctrl+S puts the prompt aside)") | ftxui::color(colors.muted));
     ftxui::Element foot;
@@ -172,7 +183,8 @@ _cold ftxui::Element cluster::StashPopup::render(const cluster::PopupColors& col
         foot = ftxui::vbox({this->_note.empty() ? ftxui::text("") : ftxui::text(" " + this->_note) | ftxui::color(colors.warn),
             ftxui::text(" Enter: load (removed from the stash) · Del / x: remove · u: undo · X: clear all · Esc: close") | ftxui::dim});
     }
-    return ftxui::vbox({ftxui::text(" stashed prompts (" + std::to_string(count) + "/" + std::to_string(this->_max) + ") · loaded into " + this->_session) | ftxui::bold | ftxui::color(colors.accent),
+    const std::string into = this->_names.contains(this->_session) ? this->_names.at(this->_session) : this->_session;
+    return ftxui::vbox({ftxui::text(" stashed prompts (" + std::to_string(count) + "/" + std::to_string(this->_max) + ") · this session's first · loaded into " + into) | ftxui::bold | ftxui::color(colors.accent),
         ftxui::separatorLight(), ftxui::vbox(std::move(items)), ftxui::separatorLight(), foot});
 }
 

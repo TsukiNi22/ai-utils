@@ -174,6 +174,25 @@ int main(void)
         CHECK(start.find("0") != std::string::npos);
         CHECK(start.find("j") == std::string::npos);
     }
+    // a prompt taller than its box: a line kept below / above the cursor when there is one (never the cursor on the edge row)
+    {
+        cluster::LineEditor editor(true);
+        editor.set("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
+        (void)drawn(editor, 20, 4);                             // the cursor at the end: the last rows, l8 at the bottom
+        for (int i = 0; i < 4; ++i)
+            (void)editor.key(ftxui::Event::ArrowUp);            // on l4
+        std::string box = drawn(editor, 20, 4);
+        CHECK(box.find("l3") != std::string::npos);             // the line before it shown
+        CHECK(box.find("l4") != std::string::npos);
+        (void)editor.key(ftxui::Event::ArrowUp);                // on l3: l2 comes in above it
+        box = drawn(editor, 20, 4);
+        CHECK(box.find("l2") != std::string::npos);
+        for (int i = 0; i < 3; ++i)
+            (void)editor.key(ftxui::Event::ArrowDown);          // on l6: l7 shown below it
+        box = drawn(editor, 20, 4);
+        CHECK(box.find("l7") != std::string::npos);
+        CHECK(box.find("l6") != std::string::npos);
+    }
     if (failures == 0) std::cout << "line_editor: ok" << std::endl;
     return failures == 0 ? 0 : 1;
 }

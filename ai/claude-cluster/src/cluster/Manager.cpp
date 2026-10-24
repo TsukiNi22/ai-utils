@@ -402,16 +402,34 @@ _cold void cluster::Manager::close(const std::string& id)
     const std::shared_ptr<cluster::Session> session = this->get_(id);
     cluster::SessionSpec spec = session->spec();
     spec.deleted = cluster::now();
+    bool owed = false;              // the global session still waits for its answer
+    std::set<std::string> waiting;  // the sub-sessions whose task ran in it
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
+        owed = this->_replies.contains(id);
+        this->_replies.erase(id);
         this->_followed.erase(id);
         this->_oneShot.erase(id);
         this->_sessions.erase(id);
         std::erase(this->_order, id);
         this->_trash.push_back(spec);
         for (cluster::Task& task: this->_tasks)
-            if (task.session == id && task.status == "running") task.status = "failed";
+            if (task.session == id && task.status == "running") {
+                task.status = "failed";
+                task.reason = "its session was closed before it finished";
+                task.ended = cluster::now();
+                if (!task.by.empty() && task.by != GLOBAL_ID && task.group.empty()) waiting.insert(task.by);
+            }
     }
+    // never left waiting for an answer that will not come
+    const std::string closed = "[closed: " + spec.name + " (" + id + ")]\nclosed before it answered: no reply will come from it (restorable from the trash)";
+    if (owed) std::thread([this, closed]() {
+        try {
+            this->send(GLOBAL_ID, closed, true, {}, "mcp");
+        } catch (const utils::exception::IException&) {}
+    }).detach();
+    for (const std::string& by: waiting)
+        if (by != id) this->tell_(by, closed);
     ++this->_version;
     session->stop();
     this->dropFor_(id, false, spec.name); // its tasks and schedules: cancelled (closed)
@@ -905,7 +923,10 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                 break;
             }
             this->notice_(event.session, name + ": " + event.text, true);
-            if (event.session != GLOBAL_ID) this->replyEnd_(event, name, true);
+            if (event.session != GLOBAL_ID) {
+                this->replyEnd_(event, name, true);
+                this->taskDone_(event.session, true, false, "its agent stopped: " + event.text); // its task ended (failed), never left running untold
+            }
             {
                 const std::string sid = event.session;
                 (void)this->fail(name + " running (its agent)", name + " (" + sid + ")", event.text, [this, sid]() {(void)this->resume(sid);});
@@ -1114,6 +1135,9 @@ _cold void cluster::Manager::load(void)
         this->_tasks.push_back(task);
     }
     this->_ui = state->value("ui", std::map<std::string, std::string>());
+    this->_replies = state->value("replies", std::map<std::string, int>());
+    this->_followed = state->value("followed", std::map<std::string, std::set<std::string>>());
+    this->_oneShot = state->value("one_shot", std::set<std::string>());
 }
 
 _cold void cluster::Manager::save(void) const
@@ -1141,6 +1165,10 @@ _cold void cluster::Manager::save(void) const
         for (const cluster::Task& t: this->_tasks)
             state["tasks"].push_back(t);
         state["ui"] = this->_ui;
+        // the callbacks still owed (who waits for which session): kept over a restart of the core
+        state["replies"] = this->_replies;
+        state["followed"] = this->_followed;
+        state["one_shot"] = this->_oneShot;
     }
     try {
         cluster::write_json(state_file_(), state);
@@ -1653,11 +1681,15 @@ void cluster::Manager::archive_(const std::string& id)
     if (error) this->notice_(id, "transcript not archived: " + error.message(), true);
 }
 
-void cluster::Manager::replyTo(const std::string& id)
+void cluster::Manager::replyTo(const std::string& id, const std::string& by)
 {
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    ++this->_replies[id];
-    this->_followed.insert(id);
+    // saved with the state: a callback still owed survives a restart of the core (an update, a crash)
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (by == GLOBAL_ID) ++this->_replies[id];
+        if (by != id) this->_followed[id].insert(by); // a task of a sub-session for itself: never told to itself
+    }
+    this->save();
 }
 
 void cluster::Manager::userTouched(const std::string& id)
@@ -1669,30 +1701,49 @@ void cluster::Manager::userTouched(const std::string& id)
 void cluster::Manager::replyUndo_(const std::string& id)
 {
     // the prompt that was to be answered was not sent: its callback forgotten
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    auto it = this->_replies.find(id);
-    if (it != this->_replies.end() && --it->second <= 0) this->_replies.erase(it);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = this->_replies.find(id);
+        if (it != this->_replies.end() && --it->second <= 0) this->_replies.erase(it);
+    }
+    this->save();
 }
 
 void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string& name, const bool all)
 {
     // an end of turn (done, error, interrupted, agent exited) of a session the global session started a turn on: one message back to it.
     // A turn no prompt started (a Monitor / background task woke the agent up) of a followed session is answered too.
+    // A sub-session that queued a task on it is told its wake-up turns the same way (its first end: by the task).
     bool reply = false;
+    bool owed = false;  // a callback owed was given: the saved state follows
+    std::vector<std::string> subs;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         auto it = this->_replies.find(event.session);
+        const auto followers = this->_followed.find(event.session);
         if (it != this->_replies.end() && it->second > 0) {
             reply = true;
+            owed = true;
             if (all || --it->second == 0) this->_replies.erase(it);
-        } else if (event.spontaneous && this->_followed.contains(event.session)) {
+        } else if (event.spontaneous && followers != this->_followed.end() && followers->second.contains(GLOBAL_ID)) {
             reply = true;
         }
+        if (event.spontaneous && followers != this->_followed.end())
+            for (const std::string& by: followers->second)
+                if (by != GLOBAL_ID) subs.push_back(by);
     }
-    if (!reply) return;
-    const char* kind = event.error ? "[error from " : event.interrupted ? "[interrupted: " : "[reply from ";
-    const std::string text = std::string(kind) + name + " (" + event.session + ")]\n" + (event.spontaneous ? "(a turn woken up by a background task / Monitor)\n" : "")
+    if (owed) this->save();
+    if (!reply && subs.empty()) return;
+    const std::optional<cluster::Snapshot> snap = this->snapshot(event.session);
+    const bool waiting = snap && cluster::background_busy(*snap); // its result not there yet: said, so nobody polls it
+    const char* kind = event.kind == cluster::Event::Kind::Exited ? "[stopped: " : event.error ? "[error from " : event.interrupted ? "[interrupted: " : "[reply from ";
+    const std::string text = std::string(kind) + name + " (" + event.session + ")]\n"
+        + (event.spontaneous ? "(a turn woken up by its background task / Monitor done: its result)\n" : "")
+        + (waiting && event.kind != cluster::Event::Kind::Exited ? "(its background still runs: its result comes back to you by itself as another [reply from ...] when it is done - no need to poll it)\n" : "")
         + cluster::head_utf8(event.text, 6000);
+    for (const std::string& by: subs)
+        this->tell_(by, text);
+    if (!reply) return;
     const bool finished = !event.error && !event.interrupted; // a one-shot session closed after it (never while its background runs)
     const std::string id = event.session;
     std::thread([this, text, id, finished]() {

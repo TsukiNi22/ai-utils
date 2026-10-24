@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regression test: every end of turn started on behalf of the global session calls it back once - the first prompt of a spawn,
-# a turn woken up by a Monitor / background task, an API error (weekly limit) - and the task queue fails with a clear reason.
+# a turn woken up by a Monitor / background task, an API error (weekly limit) - and the task queue fails with a clear reason; a callback
+# owed is saved, a session closed before it answered is told.
 # Isolated core + a fake `claude` (tests/fake_claude_wake.py); the global session is the fake too, its log shows what it received.
 # Usage: tests/callbacks.sh [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster)
 set -euo pipefail
@@ -14,7 +15,7 @@ export CLAUDE_CLUSTER_CONFIG_DIR="${WORK}/cfg" CLAUDE_CLUSTER_DATA_DIR="${WORK}/
 source "$(dirname "${BASH_SOURCE[0]}")/isolate.sh"   # refuses the real config / data / socket of the user, a home of its own
 export FAKE_CLAUDE_LOG="${WORK}/log"
 command mkdir -p "${WORK}/cfg" "${WORK}/data" "${WORK}/proj"
-printf '[commands]\nclaude = "%s/fake_claude_wake.py"\n' "${HERE}" > "${WORK}/cfg/config.toml"
+printf '[commands]\nclaude = "%s/fake_claude_wake.py"\n[agent]\nsub_spawn = true\n' "${HERE}" > "${WORK}/cfg/config.toml"
 
 "${BIN}" serve > "${WORK}/serve.log" 2>&1 &
 SERVE=$!
@@ -49,6 +50,7 @@ call session_spawn "{\"cwd\":\"${WORK}/proj\",\"name\":\"builder\",\"prompt\":\"
 sleep 8
 expect "background build: its waiting answer comes back" "waiting for it" 1
 expect "background build: the real result after the wake-up comes back" "final result after the build" 1
+expect "background build: the waiting answer says its result follows (no polling)" "its background still runs" 1
 
 # (3) an API error comes back once, as an error
 call session_spawn "{\"cwd\":\"${WORK}/proj\",\"name\":\"failing\",\"prompt\":\"please fail\"}" > /dev/null
@@ -68,5 +70,24 @@ if grep -qF "does not exist" <<< "${LIST}"; then echo "ok   task to a missing se
 call task_add "{\"prompt\":\"work\",\"target\":\"quiet\"}" > /dev/null
 sleep 4
 expect "task: its answer comes back" "reply from quiet" 1
+
+# (5) a callback owed is saved (it survives a restart of the core); the session closed before it answered: the global session is
+# told, never left waiting
+call session_spawn "{\"cwd\":\"${WORK}/proj\",\"name\":\"slowpoke\",\"prompt\":\"a slow job\"}" > /dev/null
+sleep 2
+owed() { python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1])).get("replies", {})))' "${WORK}/data/state.json"; }
+if [[ "$(owed)" == 1 ]]; then echo "ok   the callback owed is in the saved state"; else echo "FAIL the callback owed is not saved ($(owed))"; fail=1; fi
+call session_close '{"session":"slowpoke"}' > /dev/null
+sleep 3
+expect "closed before it answered: the global session is told" "[closed: slowpoke" 1
+if [[ "$(owed)" == 0 ]]; then echo "ok   nothing owed left after the close"; else echo "FAIL still owed after the close ($(owed))"; fail=1; fi
+
+# (6) a sub-session (watcher, s1) queues a task with a session of its own: its result comes back to it as [tasks], and the turn its
+# Monitor wakes it for as [reply from helper ...] - to the sub-session that asked, not to the global session
+WATCHER=s1   # the first session spawned by this test
+CLAUDE_CLUSTER_SESSION="${WATCHER}" call task_add "{\"prompt\":\"arm a monitor\",\"spawn\":{\"cwd\":\"${WORK}/proj\",\"name\":\"helper\"}}" > /dev/null
+sleep 8
+expect "task of a sub-session: its result told to it" "[tasks] task t3 done" 1
+expect "task of a sub-session: the woken turn of its session told to it" "reply from helper" 1
 if [[ "${fail}" != 0 ]]; then echo "--- what the global session received:"; cut -c1-200 "${WORK}/log"; fi
 exit "${fail}"

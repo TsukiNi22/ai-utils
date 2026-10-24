@@ -511,6 +511,7 @@ _cold void cluster::Manager::schedule_(void)
         std::string group;
         std::string by;
         std::string expect;
+        bool quiet = false;
         std::optional<cluster::Snapshot> snap = this->snapshot(sessionId);
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
@@ -520,6 +521,7 @@ _cold void cluster::Manager::schedule_(void)
                 group = task.group;
                 by = task.by;
                 expect = task.expect;
+                quiet = task.quiet;
                 task.started = cluster::now();
                 task.reason.clear();
                 task.costBase = snap ? snap->metrics.cost : 0.0;
@@ -550,6 +552,7 @@ _cold void cluster::Manager::schedule_(void)
         const bool answered = by == GLOBAL_ID && group.empty(); // a task of the global session: its answer comes back to it (a group has its own)
         try {
             if (answered) this->replyTo(sessionId); // before: a short turn could end before it is known
+            else if (!by.empty() && group.empty() && !quiet) this->replyTo(sessionId, by); // a sub-session's: its wake-up turns told to it too
             try {
                 this->send(sessionId, prompt, false, {}, prompt.starts_with("[from the global session]") ? "mcp" : "task");
             } catch (const utils::exception::IException&) {

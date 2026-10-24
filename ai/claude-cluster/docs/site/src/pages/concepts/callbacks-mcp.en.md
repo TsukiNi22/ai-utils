@@ -13,7 +13,8 @@ Nothing in claude-cluster polls. When the global session sends a prompt (`sessio
 | Message | When |
 |---|---|
 | `[reply from <name> (<id>)] ...` | a sub-session finished the turn started for the global session |
-| `[reply from ...]` with a note | a later turn the agent started by itself, when a background task completes - or claude-cluster woke it with the `<task-notification>` of its command done, a `[job ...]` / `[tasks]` result: its real result after a "waiting for my build" answer |
+| `[reply from ...]` with a note | a later turn the agent started by itself, when a background task completes - or claude-cluster woke it with the `<task-notification>` of its command done, a `[job ...]` / `[tasks]` result: its real result after a "waiting for my build" answer (that answer noted "its background still runs") |
+| `[closed: ...]` / `[stopped: ...]` | the session was closed before it answered / its agent stopped: no answer will come |
 | `[error from ...]` | an API error (a limit, the weekly limit...) |
 | `[interrupted: ...]` | an interrupted turn or an agent that exited |
 | `[job jN finished\|failed\|killed]` | a job added by `jobs_add`, with exit code, duration, tail |

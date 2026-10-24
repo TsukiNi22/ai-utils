@@ -822,6 +822,9 @@ class TtyUi {
         std::int64_t _lastInterrupt = 0;            // Ctrl+C Ctrl+C on an empty prompt, nothing running: quit
         std::uint64_t _machineSeen = 0;             // the map of this computer asked by the global session (its question shown)
         std::atomic<bool> _sendPending{false};      // Enter waits a few ms: a key right after it is a pasted line break
+        std::string _draftSeen;                     // the prompt as last seen by the draft keeper, and when it changed
+        std::int64_t _draftAt = 0;
+        std::string _draftSaved;                    // the prompt as saved in drafts.json (a quit / crash gives it back)
         std::int64_t _sendAt = 0;                   // ms of that Enter
         std::optional<std::string> _pasting;        // bracketed paste of the terminal: its text until ESC[201~
         cluster::Worker _worker;                    // the sends / commands, in their order, out of the drawing thread
@@ -1360,6 +1363,26 @@ class TtyUi {
             for (const char c: label)
                 hash = (hash ^ static_cast<unsigned char>(c)) * 16777619U;
             return ftxui::Color::HSV(static_cast<std::uint8_t>(hash % 256), 140, 235);
+        }
+
+        std::string draftKey_(void) const
+        {
+            return this->_webTty ? "tty-web" : "tty";
+        }
+
+        void draftKeep_(const bool now)
+        {
+            // the prompt not sent yet: saved a moment after its last change (and at the quit), so a quit or a crash never loses it
+            const std::string text = this->_editor.text();
+            if (text == this->_draftSaved) return;
+            if (!now && text != this->_draftSeen) {
+                this->_draftSeen = text;
+                this->_draftAt = now_ms_();
+                return;
+            }
+            if (!now && now_ms_() - this->_draftAt < 700) return;
+            this->_draftSaved = text;
+            this->_manager.draftSave(this->draftKey_(), this->_editor.draft());
         }
 
         void quit_(void)
@@ -3262,10 +3285,13 @@ class TtyUi {
             } else if (action == "agents") {
                 this->openAgents_();
             } else if (action == "stashes") {
-                this->_stash.open(this->_active, this->_manager.config().stashMax);
+                std::map<std::string, std::string> names; // each stashed prompt told by the name of its session
+                for (const cluster::Snapshot& s: this->_manager.list(true))
+                    names[s.spec.id] = s.spec.name;
+                this->_stash.open(this->_active, this->_manager.config().stashMax, names);
                 this->_mode = Mode::Stash;
             } else if (action == "unstash") {
-                const std::optional<cluster::Draft> text = this->_manager.stashPop();
+                const std::optional<cluster::Draft> text = this->_manager.stashPop(this->_active);
                 if (!text) {
                     this->status_("the stash is empty");
                 } else {
@@ -7619,6 +7645,7 @@ class TtyUi {
                     this->_sendPending = false;
                     this->submit_();
                 }
+                this->draftKeep_(false);
                 return true;
             }
             // a failure shown: answered first (Enter / Esc / o: OK, r: Retry); the mouse: its buttons
@@ -8329,6 +8356,12 @@ class TtyUi {
                     }
                 }
             });
+            if (cluster::trim(this->_editor.text()).empty()) // the prompt left unsent at the last quit / crash: back in the prompt
+                if (const std::optional<cluster::Draft> kept = this->_manager.draftLoad(this->draftKey_())) {
+                    this->_editor.load(*kept);
+                    this->_draftSaved = this->_draftSeen = this->_editor.text();
+                    this->status_("your unsent prompt is back");
+                }
             ftxui::Component root = ftxui::Renderer([this]() {return this->render_();});
             // Ctrl+Z: its action (undo) or nothing, never the interface stopped in the background
             root = ftxui::CatchEvent(root, [this](ftxui::Event event) {
@@ -8344,6 +8377,7 @@ class TtyUi {
             });
             cluster::debug("render", "terminal " + std::to_string(this->_screen.dimx()) + "x" + std::to_string(this->_screen.dimy()) + " (" + cluster::platform_summary() + ")");
             this->_screen.Loop(root);
+            this->draftKeep_(true); // what is typed and not sent: kept for the next start
             this->_worker.stop(); // the running job ends before the screen goes
             // the terminal as it was: the frames buffer out first (it hides the cursor), then the modes off, the cursor
             // shown, the synchronized update closed

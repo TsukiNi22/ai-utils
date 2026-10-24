@@ -2964,10 +2964,33 @@ $("composer").addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = $("prompt").value;
     $("prompt").value = "";
+    store.set("cc-draft", "");
     autosize();
     closeComplete();
     await send(text);
 });
+
+// the prompt not sent yet: kept in this browser a moment after each change (and when the page goes), given back when it opens again
+// (a reload, a crash, the app closed)
+(function () {
+    const p = $("prompt");
+    const saved = store.get("cc-draft", "");
+    if (saved && !p.value) { p.value = saved; autosize(); }
+    let timer = 0;
+    p.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => store.set("cc-draft", p.value), 500); });
+    window.addEventListener("pagehide", () => store.set("cc-draft", p.value));
+    // a line kept above / below the cursor when the prompt scrolls (the browser stops at the edge line)
+    const margin = () => {
+        if (p.scrollHeight <= p.clientHeight) return;
+        const style = getComputedStyle(p), line = parseFloat(style.lineHeight) || 20, pad = parseFloat(style.paddingTop) || 0;
+        const y = pad + (p.value.slice(0, p.selectionStart).split("\n").length - 1) * line;
+        if (y - p.scrollTop < line + pad) p.scrollTop = Math.max(0, y - line - pad);
+        else if (y + 2 * line > p.scrollTop + p.clientHeight) p.scrollTop = y + 2 * line - p.clientHeight;
+    };
+    p.addEventListener("keyup", margin);
+    p.addEventListener("click", margin);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) store.set("cc-draft", p.value); });
+})();
 
 function autosize() {
     const p = $("prompt");

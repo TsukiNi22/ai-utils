@@ -1515,6 +1515,7 @@ class Window: public QMainWindow {
                 }
             }
             this->quitDecided = true;
+            if (this->input) this->manager.draftSave("gui", this->input->draft()); // what is typed and not sent: kept for the next start
             QMainWindow::closeEvent(event);
         }
 
@@ -3484,7 +3485,7 @@ class Window: public QMainWindow {
                     this->message("prompt stashed (" + std::to_string(this->manager.stashSize()) + ")", false);
                 }
             } else if (action == "unstash") {
-                const std::optional<cluster::Draft> text = this->manager.stashPop();
+                const std::optional<cluster::Draft> text = this->manager.stashPop(this->active);
                 if (!text) {
                     this->message("the stash is empty", false);
                 } else {
@@ -4552,6 +4553,21 @@ class Window: public QMainWindow {
             QHBoxLayout* bar = new QHBoxLayout();
             this->input = new PromptEdit(this, central);
             QObject::connect(this->input, &QPlainTextEdit::textChanged, this, [this]() {if (this->target) this->modeTarget();}); // its mode (! / :) shown
+            {
+                // the prompt not sent yet: saved a moment after its last change (and at the close), given back at the next start
+                QTimer* keep = new QTimer(this);
+                keep->setSingleShot(true);
+                keep->setInterval(700);
+                QObject::connect(keep, &QTimer::timeout, this, [this]() {this->manager.draftSave("gui", this->input->draft());});
+                QObject::connect(this->input, &QPlainTextEdit::textChanged, keep, [keep]() {keep->start();});
+                QTimer::singleShot(0, this, [this]() { // once the prompt and its chips exist
+                    if (!this->input->toPlainText().trimmed().isEmpty()) return;
+                    if (const std::optional<cluster::Draft> kept = this->manager.draftLoad("gui")) {
+                        this->input->loadDraft(*kept);
+                        this->message("your unsent prompt is back", false);
+                    }
+                });
+            }
             this->input->setPlaceholderText(simple ? q_(cluster::simple_word(this->active == GLOBAL_ID ? "prompt_hint" : "tell_it", lang) + "   (" + cluster::simple_word("prompt_modes", lang) + ")")
                 : QString("Prompt (Enter to send, Shift / Alt+Enter new line) · @ file · / command · ! shell · : command · Ctrl+K palette · F1 keys"));
             this->input->chipsBar = new QWidget(central);
@@ -5403,6 +5419,14 @@ PromptEdit::PromptEdit(Window* owner, QWidget* parent)
             return;
         }
         this->refreshCompletion();
+        // a line kept above / below the cursor when the prompt scrolls: after the scroll of Qt (which stops at the edge line)
+        QTimer::singleShot(0, this, [this]() {
+            QScrollBar* bar = this->verticalScrollBar();
+            const int line = this->fontMetrics().lineSpacing();
+            const QRect at = this->cursorRect();
+            if (at.top() < line && bar->value() > bar->minimum()) bar->setValue(bar->value() - 1);
+            else if (at.bottom() > this->viewport()->height() - line && bar->value() < bar->maximum()) bar->setValue(bar->value() + 1);
+        });
     });
     this->fit();
 }

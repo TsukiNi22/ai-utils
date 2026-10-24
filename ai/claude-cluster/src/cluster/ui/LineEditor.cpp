@@ -356,8 +356,10 @@ _cold ftxui::Element cluster::LineEditor::render(const int width, const int rows
     if (focused) sel = this->_editor.selection();
     const std::size_t room = static_cast<std::size_t>(std::max(1, rows));
     const std::size_t current = this->rowOf_(cursor);
-    if (this->_top > current) this->_top = current;
-    else if (current >= this->_top + room) this->_top = current + 1 - room;
+    // a row kept above / below the cursor when there is one (3 rows or more): the cursor is never on the edge row with text beyond it
+    const std::size_t margin = room >= 3 ? 1 : 0;
+    if (current < this->_top + margin) this->_top = current > margin ? current - margin : 0;
+    else if (current + margin >= this->_top + room) this->_top = current + margin + 1 - room;
     if (this->_top + room > this->_rows.size()) this->_top = std::min(current, this->_rows.size() > room ? this->_rows.size() - room : 0);
     const std::size_t cursorEnd = cluster::cell_next(text, cursor);
     const std::function<ftxui::Element(const std::string&)> cursorCell = [&](const std::string& glyph) {return ftxui::text(glyph) | ftxui::color(colors.background) | ftxui::bgcolor(colors.accent) | ftxui::bold;};

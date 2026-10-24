@@ -150,7 +150,7 @@ class Manager {
         std::atomic<bool> _closing{false};              // claude-cluster quits: the agents ending are not an error
         std::map<std::string, int> _replies;            // sessions whose next turn ends are sent back to the global session
         std::set<std::string> _oneShot;                 // sessions to close once their answer is relayed (untouched by the user since)
-        std::set<std::string> _followed;                // sessions the global session asked a reply from: their wake-up turns (Monitor, background task) come back too
+        std::map<std::string, std::set<std::string>> _followed; // session -> who asked it (the global session, a sub-session's task): its wake-up turns come back to them too
         bool _globalNew = false;                        // the global session starts a new conversation (marked in its transcript)
         std::atomic<std::uint64_t> _focusVersion{0};
         std::atomic<std::uint64_t> _raiseVersion{0};    // a notification clicked: the interface to the front
@@ -463,7 +463,9 @@ class Manager {
                                                             // duplicate; a session: its prompts only (the arrows), none: every one (Ctrl+R)
         _cold _nodiscard std::vector<std::string> history(const std::size_t max = 500, const std::string& session = "") const; // their texts
         _cold cluster::StashAdd stashPush(const cluster::Draft& draft, const std::string& session = "", const bool force = true); // prompt put aside (stash.json); force: a copy, never refused for [ui] stash_max
-        _cold _nodiscard std::optional<cluster::Draft> stashPop(void);
+        _cold _nodiscard std::optional<cluster::Draft> stashPop(const std::string& session = "");    // the newest of this session first, else the newest
+        _cold void draftSave(const std::string& key, const cluster::Draft& draft) const;         // the prompt typed, not sent (drafts.json): kept over a quit / crash
+        _cold _nodiscard std::optional<cluster::Draft> draftLoad(const std::string& key) const;  // key: the interface (tty, gui...)
         _cold _nodiscard std::size_t stashSize(void) const;
 
         /* state */
@@ -496,7 +498,7 @@ class Manager {
         _cold _nodiscard cluster::Json pin(const std::string& id, const cluster::Json& what, const std::string& by = "user");
         _cold void unpin(const std::string& id, const std::string& by = "user");
         _cold _nodiscard cluster::Json pinOf(const std::string& id) const;
-        void replyTo(const std::string& id);                // the end of the next turn of this session sent to the global session
+        void replyTo(const std::string& id, const std::string& by = GLOBAL_ID); // the end of its next turn sent to the global session; by a sub-session: its wake-up turns told to it
         bool notifyDesktop(const std::string& title, const std::string& text, const bool urgent = false); // false: notifications off
         // its face, buttons, sound; one per session (replaced); kind: global | done | permission | question | error | limit | web | task |
         // reminder (its setting, [ui] notify_when); false: not shown

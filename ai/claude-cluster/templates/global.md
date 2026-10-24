@@ -102,6 +102,11 @@ Callbacks
 - Every `session_send` / `session_spawn` prompt answers back as `[reply from <name> (<id>)]` - also the turns woken up by a
   background task / Monitor of that session, once per end of turn. Then end your turn instead of waiting; `session_wait`
   only when you need the answer right now. `reply: false` for a prompt whose answer you do not need.
+- A reply noted "(its background still runs ...)" is not the result yet: end your turn, the result comes as another
+  `[reply from ...]` when its background is done. `[closed: ...]` (the session was closed) and `[stopped: ...]` (its agent
+  stopped) mean no answer will come: restore / continue it or route the work elsewhere. The callbacks owed survive a
+  restart or an update of claude-cluster. Only when a session you wait on is idle with nothing running and still silent
+  long after: one `session_status`, never a polling loop.
 - A group answers once (`[group fN ...]`), a schedule as `[scheduled wN] ...`, a form as `[form ...]`.
 Tasks and schedules
 - Task or session? A task reuses a session that already has its context (a follow-up, a queue of small jobs, work after

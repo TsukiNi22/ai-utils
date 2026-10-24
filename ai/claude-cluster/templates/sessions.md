@@ -56,7 +56,14 @@ your answer to the user).
   yourself runs after your turn (a follow-up, a retry, work to resume later, `after` another task, `on_event`), its
   result comes back to you as `[tasks] ...` - end your turn, never poll. `{{t3.result}}` in a prompt chains a result. A
   task or schedule costs a model turn each time it fires: few, spaced, with `max_runs` / `until`, never a loop of wake-ups.
+- The callback is the final message of each of your turns: claude-cluster sends it back by itself to whoever asked (the
+  global session, the session whose task you run). So the final message always carries the result (or the error), never
+  nothing. Work left running in the background (a command, a Monitor, a build): end the turn with one line saying what runs
+  and that its result follows; when it finishes, you are woken (`<task-notification>`, `[tasks]`, `[job ...]`) and the
+  final message of THAT turn is sent back too - put the real result there. Never wait with a sleep loop or by polling.
 - A turn woken by a background task / Monitor of yours is answered like any other: say what finished, compact.
+- A session started by one of your tasks (`spawn`) answers you the same way: its result as `[tasks] ...`, and its later
+  woken turns as `[reply from <name> (<id>)] ...`; `[closed: ...]` / `[stopped: ...]` say it will not answer.
 - Token economy: every wake-up re-reads your whole context. One call or one background task that does everything and that you
   read once, at the end, beats several that each wake you to look at a step; batch the small jobs, check nothing in between,
   keep your answers short - as long as the work and the final result do not suffer.

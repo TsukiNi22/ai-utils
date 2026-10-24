@@ -25,6 +25,7 @@ File Description:
     #include "Popup.hpp"            // cluster::PopupColors, cluster::PopupPress
     #include "Types.hpp"            // cluster::Draft
     #include <optional>             // std::optional
+    #include <map>                  // std::map
     #include <cstddef>              // std::size_t
     #include <utility>              // std::pair
     #include <string>               // std::string
@@ -61,8 +62,10 @@ class StashPopup {
         cluster::StashAsk _ask = cluster::StashAsk::None;
         int _choice = 0;                                    // the button of the question asked
         int _selected = 0;
-        std::vector<cluster::StashEntry> _stash;            // newest first
+        std::vector<cluster::StashEntry> _stash;            // the prompts of the session first (like its history), then the others; newest first
+        std::vector<std::size_t> _index;                    // a row -> its index in stash_read()
         std::string _session;                               // the session the prompts are loaded into
+        std::map<std::string, std::string> _names;          // session id -> its name (the session of each prompt shown by name)
         int _max = 10;
         std::string _note;                                  // last thing done (removed: u undoes it)
         std::optional<std::pair<std::size_t, cluster::StashEntry>> _undo;   // where it was in stash_read()
@@ -73,11 +76,11 @@ class StashPopup {
         _cold _nodiscard cluster::StashResult load_(const bool append, const bool replace);
 
         // ---------- Function -------- //
-        _nodiscard inline std::size_t stored_(const int shown) const {return this->_stash.size() - 1 - static_cast<std::size_t>(shown);};  // a row -> its index in stash_read()
+        _nodiscard inline std::size_t stored_(const int shown) const {return this->_index.at(static_cast<std::size_t>(shown));};  // a row -> its index in stash_read()
 
     public:
         // ---------- Pre-Function -------- //
-        _cold void open(const std::string& session, const int max);
+        _cold void open(const std::string& session, const int max, const std::map<std::string, std::string>& names = {});
         _cold _nodiscard cluster::StashResult key(const ftxui::Event& event, const bool editorEmpty);
         _cold _nodiscard ftxui::Element render(const cluster::PopupColors& colors, const cluster::PopupPress& press) const;
 

@@ -13,7 +13,8 @@ Rien dans claude-cluster n'interroge en boucle. Quand la session globale envoie 
 | Message | Quand |
 |---|---|
 | `[reply from <nom> (<id>)] ...` | une sous-session a fini le tour lancé pour la session globale |
-| `[reply from ...]` avec une note | un tour ultérieur que l'agent a lancé lui-même, quand une tâche d'arrière-plan se termine - ou que claude-cluster l'a réveillé avec la `<task-notification>` de sa commande finie, un résultat `[job ...]` / `[tasks]` : son vrai résultat après une réponse « j'attends mon build » |
+| `[reply from ...]` avec une note | un tour ultérieur que l'agent a lancé lui-même, quand une tâche d'arrière-plan se termine - ou que claude-cluster l'a réveillé avec la `<task-notification>` de sa commande finie, un résultat `[job ...]` / `[tasks]` : son vrai résultat après une réponse « j'attends mon build » (cette réponse notée « its background still runs ») |
+| `[closed: ...]` / `[stopped: ...]` | la session a été fermée avant de répondre / son agent s'est arrêté : aucune réponse ne viendra |
 | `[error from ...]` | une erreur d'API (une limite, la limite hebdomadaire...) |
 | `[interrupted: ...]` | un tour interrompu ou un agent qui s'est arrêté |
 | `[job jN finished\|failed\|killed]` | un travail ajouté par `jobs_add`, avec code, durée, fin de sortie |

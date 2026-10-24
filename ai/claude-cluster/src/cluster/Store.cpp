@@ -190,12 +190,55 @@ _cold cluster::StashAdd cluster::Manager::stashPush(const cluster::Draft& draft,
     return cluster::stash_add(draft, session, this->_config.stashMax, this->_config.stashFull == "drop_oldest", force);
 }
 
-_cold std::optional<cluster::Draft> cluster::Manager::stashPop(void)
+_cold std::optional<cluster::Draft> cluster::Manager::stashPop(const std::string& session)
 {
+    // tied to its session like the history: the newest prompt stashed from this session, else the newest of all
     const std::vector<cluster::StashEntry> list = cluster::stash_read();
     if (list.empty()) return std::nullopt;
-    const std::optional<cluster::StashEntry> entry = cluster::stash_remove(list.size() - 1);
+    std::size_t at = list.size() - 1;
+    for (std::size_t i = list.size(); !session.empty() && i-- > 0;)
+        if (list[i].session == session) {
+            at = i;
+            break;
+        }
+    const std::optional<cluster::StashEntry> entry = cluster::stash_remove(at);
     return entry ? std::optional<cluster::Draft>(entry->draft) : std::nullopt;
+}
+
+_cold static std::mutex& drafts_mutex_(void)
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+_cold void cluster::Manager::draftSave(const std::string& key, const cluster::Draft& draft) const
+{
+    // one draft per interface (the terminal, the window...): what is typed in its prompt, saved a moment after each change and at
+    // the quit, given back at the next start; an empty prompt (sent, cleared) removes it
+    std::lock_guard<std::mutex> lock(drafts_mutex_());
+    const std::filesystem::path file = cluster::data_dir() / "drafts.json";
+    cluster::Json all = cluster::read_json(file).value_or(cluster::Json::object());
+    if (!all.is_object()) all = cluster::Json::object();
+    if (cluster::trim(draft.text).empty()) {
+        if (!all.contains(key)) return;
+        all.erase(key);
+    } else {
+        all[key] = {{"text", draft.text}, {"images", draft.images}, {"pastes", draft.pastes}, {"time", cluster::now()}};
+    }
+    try {
+        cluster::write_json(file, all);
+    } catch (const utils::exception::IException&) {} // saved again at the next change
+}
+
+_cold std::optional<cluster::Draft> cluster::Manager::draftLoad(const std::string& key) const
+{
+    std::lock_guard<std::mutex> lock(drafts_mutex_());
+    const std::optional<cluster::Json> all = cluster::read_json(cluster::data_dir() / "drafts.json");
+    if (!all || !all->is_object() || !all->contains(key) || !(*all)[key].is_object()) return std::nullopt;
+    const cluster::Json& d = (*all)[key];
+    cluster::Draft draft{d.value("text", std::string()), d.value("images", std::vector<std::string>()), d.value("pastes", std::vector<std::string>())};
+    if (cluster::trim(draft.text).empty()) return std::nullopt;
+    return draft;
 }
 
 _cold std::size_t cluster::Manager::stashSize(void) const

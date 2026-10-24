@@ -325,6 +325,14 @@ the web page) carries two invisible marks in the prompt, and the agent gets it b
 the plain text in the prompt, the transcript and the history. A command pasted at the start of an empty prompt (`!`, `/`, `:`)
 keeps its mode, without marks.
 
+**Unsent prompt**: what is typed and not sent is kept - saved a moment after each change and at the quit
+(`drafts.json` of the data folder, one per interface: the terminal, the window; the web page and the app keep theirs in their
+browser), given back at the next start ("your unsent prompt is back"), even after a crash or a power loss; a prompt sent
+or cleared removes it. The **stash** (prompts put aside) is saved the same way (`stash.json`, kept over a quit / crash) and tied
+to its session like the history: its list shows the prompts of the session first (the others with the name of their session),
+taking one back takes the newest of the session first. A prompt taller than its box scrolls with **one line kept above and below the cursor** when there is
+one (the cursor is never on the edge line with text beyond it).
+
 **Vim mode** (`/vim`, the palette, or `[ui] vim = true`): the prompt starts in Insert (`-- INSERT --`), **Esc** goes to
 Normal (block cursor, `-- NORMAL --`): `h j k l` / arrows, `w b e`, `0 ^ $`, `gg G`, `f t F T<c>`, `x X s S D C`,
 `dd cc yy`, `d c y` + a motion, `p P`, `u` / `Ctrl+R`, `~`, `J`, `r<c>`, counts (`3w`, `2dd`), `v` / `V` visual
@@ -477,9 +485,14 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   `session_spawn` (`reply: false` opts out), a later turn the agent starts by itself when a background task / Monitor
   completes (`[reply from ...]` with a note) - the agent idle, claude-cluster wakes it with the `<task-notification>` of its
   command done, or tells it a `[job ...]` / `[tasks]` result (origin `wake`, shown *woken*): that turn is one of its own, its
-  result comes back too (before, the "waiting for my build" answer came back, the result after it never did) -, an API error (`[error from ...]`, weekly limit...), an interrupted turn
+  result comes back too (before, the "waiting for my build" answer came back, the result after it never did; a reply whose
+  background still runs says so: its result follows by itself, nothing to poll) -, an API error (`[error from ...]`, weekly limit...), an interrupted turn
   (`[interrupted: ...]`), an agent that exited; a task queued by the global session (`task_add`) is answered the same way
-  (`tests/callbacks.sh` checks it with a fake `claude`);
+  (`tests/callbacks.sh` checks it with a fake `claude`); the callbacks owed are saved with the state (an update or a crash of the
+  core never loses one); a session closed before it answered: `[closed: ...]`, its agent stopped: `[stopped: ...]` (never left
+  waiting); a task with a session of its own queued by a sub-session: its result (`[tasks]`) and the later woken turns of that
+  session (`[reply from ...]`) go back to that sub-session; the system prompts say it plainly (the final message of each turn
+  is the callback: the result in it, never nothing);
 - **one-shot sessions**: `session_spawn` `one_shot: true` (set by the global session for ONE precise task, never for a project it
   will talk to again) closes the session to the trash (restorable) once its answer was relayed, when *Archive one-shot sessions*
   (`[sessions] archive_one_shot`, on by default) allows it - the flag is ignored when it is off. It stays when the user typed
