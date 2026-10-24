@@ -590,6 +590,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "the process that runs the sessions, shared by the terminals and windows (Several terminals / windows at once).\n"
                 "• Restart: it stops, its terminals / windows start it again, the sessions resumed (their conversations kept)\n"
                 "• Stop all: the core and every terminal / window closed", false, [](const cluster::Config&) {return std::string("core");}},
+            {"services", "svc_processes", "Processes and version", SettingKind::Action, {},
+                "what claude-cluster runs now: its version (this interface and the core), since when, the changes of the last versions; the memory of the "
+                "core, of each interface and of each session with what it started (its shells, its MCP servers), the tokens of this launch.\n"
+                "• Stop the shells of a session (or every shell): the shells it runs in the background stopped, the session goes on", false,
+                [](const cluster::Config&) {return std::string("processes");}},
             {"services", "svc_voice", "Voice", SettingKind::Action, {},
                 "the voice of the core: listening or not, what it hears now (what is being said, the transcriptions waiting), what it misses", false,
                 [](const cluster::Config&) {return std::string("voice");}},

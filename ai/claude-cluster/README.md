@@ -1239,6 +1239,10 @@ What protects the three ways of using claude-cluster, and what stays your respon
 
 ## Background service
 
+**Background state.** A session whose turn is over but whose shells, tasks or agents still run in the background is
+purple, `~_~ background` (terminal, window, page); it turns grey (idle) only once all of them ended. **F7 / Alt+B** opens
+what it runs: each agent and shell with its time going on live, a running shell's last lines as they come.
+
 **Locked or asleep.** A locked screen never stops claude-cluster (nor its agents): only a *suspend* does. `[service] keep_awake`
 (*Keep the computer awake*) keeps the computer from suspending by itself (idle) with a `systemd-inhibit` that claude-cluster renews
 every 100 s: `off` - never; `working` (default) - while a session works on a turn; `always` - while claude-cluster runs. The lid and the
@@ -1348,6 +1352,9 @@ it again; the window, the web page: its buttons):
   the voice's of the core): what is heard now is under *Voice*.
 - **Web access**: open or closed, its address and code, outside reached or why not; Open / Close now, New code, Ask
   the router again.
+- **Processes and version**: this interface's version and the core's (pid, uptime, build), what the last versions
+  brought; the memory of the core, of each interface and of each session with what runs under it (its shells, its MCP
+  servers), in all; the tokens of this launch; Stop the shells of a session, or every shell (the sessions go on).
 - **Core**: its pid, since when, its version / build, who started it (an interface, the systemd service, `serve`), the
   platform it runs on (OS, Wayland / X11, desktop, terminal), its memory, **its interfaces by kind** (terminal, window,
   web terminal, with their pid), its sessions working / queued, **in background since when** and when it will stop,

@@ -213,7 +213,7 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
     const cluster::Metrics& m = snap.metrics;
     cluster::Json json = {
         {"id", snap.spec.id}, {"name", snap.spec.name}, {"cwd", snap.spec.cwd}, {"backend", snap.spec.backend},
-        {"model", snap.modelUsed.empty() ? snap.spec.model : snap.modelUsed}, {"state", cluster::state_name(snap.state)},
+        {"model", snap.modelUsed.empty() ? snap.spec.model : snap.modelUsed}, {"state", cluster::state_name(snap.state)}, {"background_busy", cluster::background_busy(snap)},
         {"mode", snap.spec.mode}, {"effort", snap.spec.effort.empty() ? std::string("default") : snap.spec.effort}, {"auth", this->authKind(snap.spec.backend)},
         {"model_label", cluster::model_label(snap.spec.backend, snap.modelUsed)}, {"effort_label", cluster::effort_label(snap.spec.effort, this->_config.effort, snap.spec.backend, snap.modelUsed)},
         {"queued", snap.queued}, {"queue_given", snap.queueGiven}, {"summary", snap.spec.summary}, {"pinned", snap.spec.pin.is_object() ? cluster::Json{{"kind", snap.spec.pin.value("kind", std::string())}, {"id", snap.spec.pin.value("id", std::string())}, {"title", snap.spec.pin.value("title", std::string())}} : cluster::Json()}, {"category", snap.spec.category}, {"tags", snap.spec.tags}, {"resumable", cluster::resumable(snap)},

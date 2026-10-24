@@ -1032,7 +1032,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "services") {
             // its state, and the card of each one made here (the web page draws them as they are)
             data = cluster::services(manager);
-            for (const char* name: {"service", "web", "core", "voice", "mcp", "outside"}) {
+            for (const char* name: {"service", "web", "core", "voice", "mcp", "outside", "processes"}) {
                 cluster::Json lines = cluster::Json::array();
                 for (const cluster::ServiceLine& l: cluster::service_lines(name, data))
                     lines.push_back({{"text", l.text}, {"kind", l.kind}});

@@ -93,6 +93,8 @@ struct Theme {
     ftxui::Color error;
     bool dark = true;
     ftxui::Color okInk = ftxui::Color::Default;     // the text on a plate of the ok colour (bg or text: the more contrasted)
+    ftxui::Color busy = ftxui::Color::Default;      // a session waiting on its background (its shells, tasks, agents): purple
+    ftxui::Color pick = ftxui::Color::Default;      // the row chosen in a list: the accent faded into the surface
 };
 
 //----------------------------------------------------------------//
@@ -255,11 +257,28 @@ _nodiscard double contrast_(const std::string& a, const std::string& b)
     return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
 }
 
+_cold std::string blend_(const std::string& a, const std::string& b, const double part)
+{
+    // a over b, part of a (0..1): "#rrggbb"
+    if (a.size() != 7 || b.size() != 7) return b;
+    std::string out = "#";
+    for (std::size_t i = 1; i < 7; i += 2) {
+        const int x = std::stoi(a.substr(i, 2), nullptr, 16);
+        const int y = std::stoi(b.substr(i, 2), nullptr, 16);
+        const int mixed = static_cast<int>(x * part + y * (1.0 - part) + 0.5);
+        const char digits[] = "0123456789abcdef";
+        out += digits[mixed / 16];
+        out += digits[mixed % 16];
+    }
+    return out;
+}
+
 _cold Theme make_theme_(const cluster::Style& style)
 {
     return {hex_(style.bg), hex_(style.surface), hex_(style.text), hex_(style.muted), hex_(style.accent), hex_(style.border),
         hex_(style.ok), hex_(style.warn), hex_(style.error), style.dark,
-        hex_(contrast_(style.ok, style.bg) >= contrast_(style.ok, style.text) ? style.bg : style.text)};
+        hex_(contrast_(style.ok, style.bg) >= contrast_(style.ok, style.text) ? style.bg : style.text), hex_(style.dark ? "#bb8cf2" : "#8a3fb5"),
+        hex_(blend_(style.accent, style.surface, 0.24))};
 }
 
 _cold std::size_t width_(const std::string& text)
@@ -4201,10 +4220,11 @@ class TtyUi {
 
         _nodiscard ftxui::Element sessionRow_(const cluster::Snapshot& s, const bool active, const int clip)
         {
+            const bool busy = cluster::background_busy(s); // its turn over, what it runs in the background not yet: purple until it all ends
             const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error
-                : s.state == cluster::State::Working ? this->_theme.ok : this->_theme.muted;
+                : s.state == cluster::State::Working ? this->_theme.ok : busy ? this->_theme.busy : this->_theme.muted;
             ftxui::Elements row = {
-                ftxui::text(state_mark_(s.state) + " ") | ftxui::color(mark),
+                ftxui::text((busy ? std::string("~") : state_mark_(s.state)) + " ") | ftxui::color(mark),
                 ftxui::text(cluster::one_line(s.spec.name, 16)) | (active ? ftxui::bold : ftxui::nothing) | ftxui::color(this->_theme.text),
                 ftxui::filler(),
                 ftxui::text(cluster::human_tokens(s.metrics.total.total()) + " ") | ftxui::color(this->_theme.muted),
@@ -5290,6 +5310,21 @@ class TtyUi {
             return ftxui::vbox(std::move(shown)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 36) | ftxui::reflect(this->_panelBox);
         }
 
+        _nodiscard static std::string fit_path_(const std::string& path, const int room)
+        {
+            // "~/…/its/last/folders": its last folders kept while they fit, never cut inside one (the last one alone: "…/name")
+            if (ftxui::string_width(path) <= room) return path;
+            const std::vector<std::string> parts = cluster::split(path, '/');
+            const std::string head = path.starts_with("~/") ? "~/…" : "…";
+            std::string tail;
+            for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+                const std::string next = "/" + *it + tail;
+                if (!tail.empty() && ftxui::string_width(head + next) > room) break;
+                tail = next;
+            }
+            return head + tail;
+        }
+
         _nodiscard static std::string short_mode_(const std::string& mode)
         {
             // the permission mode in a narrow header
@@ -5367,7 +5402,7 @@ class TtyUi {
             const std::string effort = snap ? cluster::effort_label(snap->spec.effort, this->_manager.config().effort, snap->spec.backend, snap->modelUsed) : std::string();
             const ftxui::Dimensions screen = ftxui::Terminal::Size();
             const int room = this->_agentBig ? std::max(8, screen.dimy - 10) : 18;
-            this->_spinning = std::any_of(agents.begin(), agents.end(), [](const cluster::SubAgent& a) {return a.status == "running";}); // its time goes on
+            if (std::any_of(agents.begin(), agents.end(), [](const cluster::SubAgent& a) {return a.status == "running";})) this->_spinning = true; // its time goes on
             const std::function<ftxui::Color(const cluster::SubAgent&)> tint = [this](const cluster::SubAgent& a) {
                 return a.stopping || a.status == "stopped" ? this->_theme.warn : a.status == "failed" ? this->_theme.error : a.status == "running" ? this->_theme.ok : this->_theme.muted;
             };
@@ -5393,19 +5428,32 @@ class TtyUi {
                     | ftxui::color(this->_theme.muted) | ftxui::dim);
                 rows.push_back(ftxui::separatorLight() | ftxui::color(this->_theme.border));
                 this->_agentsCursor = std::clamp(this->_agentsCursor, 0, std::max(0, static_cast<int>(agents.size()) - 1));
-                const int per = 3;
+                const int per = 4;
                 const int first = std::max(0, std::min(this->_agentsCursor - room / per / 2, static_cast<int>(agents.size()) - room / per));
                 for (int i = first; i < static_cast<int>(agents.size()) && i < first + std::max(1, room / per); ++i) {
                     const cluster::SubAgent& a = agents[static_cast<std::size_t>(i)];
                     const bool on = i == this->_agentsCursor;
-                    ftxui::Element top = ftxui::hbox({ftxui::text(on ? " ❯ " : "   ") | ftxui::color(this->_theme.accent),
+                    ftxui::Element top = ftxui::hbox({ftxui::text(on ? "▌❯ " : "   ") | ftxui::color(this->_theme.accent),
                         ftxui::text(cluster::one_line(a.description.empty() ? a.type : a.description, 70)) | ftxui::bold | ftxui::color(this->_theme.text), ftxui::filler(),
                         ftxui::text(word(a) + " ") | ftxui::color(tint(a))});
-                    ftxui::Element line = ftxui::text("     " + meta(a)) | ftxui::color(this->_theme.muted);
+                    const std::string bar = on ? "▌" : " ";
+                    ftxui::Element line = ftxui::hbox({ftxui::text(bar) | ftxui::color(this->_theme.accent), ftxui::text("    " + meta(a)) | ftxui::color(this->_theme.muted), ftxui::filler()});
                     const std::string said = !a.error.empty() ? a.error : a.summary;
-                    ftxui::Element say = said.empty() ? ftxui::text("") : ftxui::text("     " + cluster::one_line(said, 150)) | ftxui::color(this->_theme.muted) | ftxui::dim;
-                    ftxui::Element row = ftxui::vbox({top, line, say});
-                    if (on) row = row | ftxui::bgcolor(this->_theme.surface) | ftxui::inverted;
+                    ftxui::Elements parts = {top, line};
+                    if (a.kind == "shell" && a.status == "running" && !a.outputFile.empty()) {
+                        // its last lines as they come (the end of its output file)
+                        std::string out = cluster::read_small(a.outputFile);
+                        if (out.size() > 4000) out = out.substr(out.size() - 4000);
+                        std::vector<std::string> tail = cluster::split(cluster::trim(cluster::clean_utf8(out)), '\n');
+                        if (tail.size() > 3) tail.erase(tail.begin(), tail.end() - 3);
+                        for (const std::string& l: tail)
+                            parts.push_back(ftxui::hbox({ftxui::text(bar) | ftxui::color(this->_theme.accent), ftxui::text("    │ " + cluster::one_line(l, 140)) | ftxui::color(this->_theme.text) | ftxui::dim,
+                                ftxui::filler()}));
+                    }
+                    if (!said.empty() && parts.size() == 2) parts.push_back(ftxui::hbox({ftxui::text(bar) | ftxui::color(this->_theme.accent),
+                        ftxui::text("    " + cluster::one_line(said, 150)) | ftxui::color(this->_theme.muted) | ftxui::dim, ftxui::filler()}));
+                    ftxui::Element row = ftxui::vbox(std::move(parts));
+                    if (on) row = row | ftxui::bgcolor(this->_theme.pick);
                     rows.push_back(this->tap_(std::move(row), 1, [this, i]() {
                         if (this->_agentsCursor == i) (void)this->event_(ftxui::Event::Return);
                         this->_agentsCursor = i;
@@ -5510,8 +5558,10 @@ class TtyUi {
         _nodiscard ftxui::Element header_(const cluster::Snapshot& s, const bool compact, const int width)
         {
             if (compact) {
-                const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error : this->_theme.muted;
-                return ftxui::hbox({ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.text), ftxui::text(state_mark_(s.state) + " " + cluster::state_name(s.state)) | ftxui::color(mark),
+                const bool busy = cluster::background_busy(s);
+                const ftxui::Color mark = s.state == cluster::State::Waiting ? this->_theme.warn : s.state == cluster::State::Error ? this->_theme.error : busy ? this->_theme.busy : this->_theme.muted;
+                return ftxui::hbox({ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.text),
+                    ftxui::text(busy ? std::string("~_~ background") : state_mark_(s.state) + " " + cluster::state_name(s.state)) | ftxui::color(mark),
                     running_agents_(s) > 0 ? ftxui::text(" ⧉" + std::to_string(running_agents_(s))) | ftxui::color(this->_theme.accent) : ftxui::emptyElement(),
                     ftxui::filler(), ftxui::text(s.spec.backend.substr(0, s.spec.backend.find('/')) + " ") | ftxui::color(this->_theme.muted) | ftxui::dim});
             }
@@ -5531,13 +5581,19 @@ class TtyUi {
                 path = level >= 5 ? std::string() : level >= 3 ? std::filesystem::path(cluster::expand_home(s.spec.cwd)).filename().string() : cluster::short_path(s.spec.cwd);
                 where = this->whereOf_(s);
                 if (level >= 3 && where.find(" · " + this->_host) != std::string::npos) where = where.substr(0, where.find(" · " + this->_host)); // the branch only
-                const int used = ftxui::string_width(" " + s.spec.name + " " + " " + std::string(cluster::state_name(s.state)) + " " + model + "  " + auth + "  " + effort + "  "
-                    + mode + agents + "  " + path + where + " ");
-                if (used <= width) break;
+                const int rest = ftxui::string_width(" " + s.spec.name + " " + " " + std::string(cluster::background_busy(s) ? "~_~ background" : cluster::state_name(s.state)) + " " + model + "  " + auth + "  " + effort + "  "
+                    + mode + agents + "  " + where + " ");
+                if (rest + ftxui::string_width(path) <= width) break;
+                // the folder shortened first, from its start (its end is what tells it): the rest kept whole while it still says something
+                if (level < 5 && width - rest >= 18) {
+                    path = fit_path_(path, width - rest);
+                    break;
+                }
             }
             ftxui::Elements left = {
                 ftxui::text(" " + s.spec.name + " ") | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent),
-                ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
+                cluster::background_busy(s) ? ftxui::text(" ~_~ background ") | ftxui::color(this->_theme.busy)
+                    : ftxui::text(" " + std::string(cluster::state_name(s.state)) + " ") | ftxui::color(s.state == cluster::State::Error ? this->_theme.error : this->_theme.text),
                 this->tap_(ftxui::text(model) | ftxui::color(this->_theme.muted), 0, [this]() {this->pick_("model:");}),
                 // how it is billed: api (an API key, per token) | auth (a login, a subscription) | local; its thinking and mode; each one a click away
                 this->tap_(ftxui::text("  " + auth) | ftxui::bold | ftxui::color(auth == "api" ? this->_theme.warn : this->_theme.ok), 0, [this]() {this->pick_("backend:");}),

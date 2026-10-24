@@ -71,7 +71,7 @@ _cold void cluster::Config::defaults_(void)
         {"new_session", "Ctrl+T"}, {"close_session", "Ctrl+W"}, {"allow", "Alt+Y"}, {"always", "Alt+A"}, {"deny", "Alt+D"},
         {"undo", "Ctrl+Z"}, {"redo", "Ctrl+Y"}, {"select_all", "Ctrl+A"}, {"stash", "Ctrl+S"}, {"unstash", "Ctrl+P"}, {"stashes", "Ctrl+L"}, {"take_back", "Escape"},
         {"history", "Ctrl+R"}, {"paste", "Ctrl+V"}, {"cut", "Ctrl+X"},
-        {"interrupt", "Ctrl+C"}, {"resume", "F4"}, {"send_next", "F8"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"stats", "F10"}, {"agents", "F7"}, {"graph", "Alt+G"}, {"quit", "Ctrl+Q"},
+        {"interrupt", "Ctrl+C"}, {"resume", "F4"}, {"send_next", "F8"}, {"push_to_talk", "F5"}, {"mute", "F6"}, {"layout", "F2"}, {"settings", "F9"}, {"stats", "F10"}, {"agents", "F7|Alt+B"}, {"graph", "Alt+G"}, {"quit", "Ctrl+Q"},
         {"graph_up", "Z|Up"}, {"graph_left", "Q|Left"}, {"graph_down", "S|Down"}, {"graph_right", "D|Right"}, {"graph_zoom_in", "E|+|="}, {"graph_zoom_out", "A|-"},
         {"graph_fit", "0|Home"}, {"graph_focus", "F"}, {"graph_next", "Tab"}, {"graph_prev", "Shift+Tab"}, {"graph_open", "Enter"}, {"graph_legend", "L"}, {"graph_map", "M"},
         {"graph_close", "Escape"},

@@ -9,12 +9,12 @@
 :root {
     /* the styles html-light / html-dark of claude-cluster: the page before its state (the code page) already in its colours */
     --bg: #f7f7f5; --surface: #ffffff; --line: #dfe1e5; --text: #1d1f23; --muted: #5d636e; --accent: #2f5bd3;
-    --ok: #1f7a4a; --warn: #a8540a; --error: #b42318; --user: #eaeffb; --code: #efefec; --pick: #d5def6;
+    --ok: #1f7a4a; --warn: #a8540a; --error: #b42318; --user: #eaeffb; --code: #efefec; --pick: #d5def6; --busy: #8a3fb5;
 }
 @media (prefers-color-scheme: dark) {
     :root {
         --bg: #15171b; --surface: #1d2025; --line: #30343b; --text: #e6e7ea; --muted: #9aa0ab; --accent: #7d9cf0;
-        --ok: #6fcf97; --warn: #f0a868; --error: #f47174; --user: #272c38; --code: #222428; --pick: #2c3548;
+        --ok: #6fcf97; --warn: #f0a868; --error: #f47174; --user: #272c38; --code: #222428; --pick: #2c3548; --busy: #bb8cf2;
     }
 }
 * { box-sizing: border-box; }
@@ -75,6 +75,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .group-head { font-size: 12px; font-weight: 600; margin: 6px 4px 0; color: var(--chip, var(--muted)); }
 #groupToggle { align-self: flex-end; font-size: 11px; padding: 0 8px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.busy { background: var(--busy); } .card.busy { border-color: var(--busy); }
 .dot.working { background: var(--ok); } .dot.waiting { background: var(--warn); } .dot.error { background: var(--error); }
 .badge { background: var(--warn); color: #000; border-radius: 9px; font-size: 11px; padding: 0 6px; }
 #newSession { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
@@ -938,7 +939,8 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && !$
 window.addEventListener("online", () => { if (!$("app").classList.contains("hidden")) refresh(); });
 window.addEventListener("focus", () => { if (!$("app").classList.contains("hidden")) refresh(); });
 
-function stateClass(state) {
+function stateClass(state, s) {
+    if (s && s.background_busy) return "busy"; // its turn over, its shells / tasks / agents still running: purple until they all end
     return state === "working" || state === "starting" ? "working" : state === "waiting" ? "waiting" : state === "error" ? "error" : "";
 }
 
@@ -1057,7 +1059,7 @@ function render(state) {
         const name = document.createElement("div");
         name.className = "name";
         const dot = document.createElement("span");
-        dot.className = "dot " + stateClass(s.state);
+        dot.className = "dot " + stateClass(s.state, s);
         name.append(dot, document.createTextNode(s.id === "g" ? "global" : s.name || s.id));
         if (s.permissions && s.permissions.length) {
             const badge = document.createElement("span");
@@ -3308,7 +3310,7 @@ document.addEventListener("keydown", (e) => {
 let view = "chat";   // every start on the list (as the terminal and the window); the other views by their buttons / tabs
 let lastState = null;
 const shortName = (s) => (s.id === "g" ? "global" : s.name || s.id);
-const faceOf = (s) => (s.permissions && s.permissions.length ? "•_•" : s.state === "working" || s.state === "starting" ? ">_<" : s.state === "error" ? "o_o" : "-_-");
+const faceOf = (s) => (s.permissions && s.permissions.length ? "•_•" : s.state === "working" || s.state === "starting" ? ">_<" : s.state === "error" ? "o_o" : s.background_busy ? "~_~" : "-_-");
 const shortPath = (p) => (p || "").replace(/^\/home\/[^/]+/, "~");
 
 function setView(next) {
@@ -3347,10 +3349,10 @@ function el(tag, cls, text) {
 
 function card(s, tools) {
     // a session: its state, its model and folder, its last messages, its turn, a prompt sent to it from here
-    const c = el("article", "card " + stateClass(s.state) + (s.permissions && s.permissions.length ? " waiting" : ""));
+    const c = el("article", "card " + stateClass(s.state, s) + (s.permissions && s.permissions.length ? " waiting" : ""));
     c.dataset.id = s.id;
     const head = el("div", "card-head");
-    const dot = el("span", "dot " + stateClass(s.state));
+    const dot = el("span", "dot " + stateClass(s.state, s));
     head.append(dot, el("span", "name", shortName(s)), el("span", "face", faceOf(s)));
     if (s.permissions && s.permissions.length) head.append(el("span", "badge", String(s.permissions.length)));
     if (tools) head.append(tools);
@@ -3944,7 +3946,7 @@ function renderTree(pane, sessions) {
     const root = el("ul");
     const row = (s) => {
         const r = el("div", "row");
-        r.append(el("span", "dot " + stateClass(s.state)), el("b", "", shortName(s)), el("span", "face", faceOf(s)));
+        r.append(el("span", "dot " + stateClass(s.state, s)), el("b", "", shortName(s)), el("span", "face", faceOf(s)));
         const last = (s.recent || []).slice(-1)[0];
         r.append(el("span", "last", s.turn ? s.turn.verb + "…" : last ? last.text : s.state));
         r.addEventListener("click", () => openSession(s.id));

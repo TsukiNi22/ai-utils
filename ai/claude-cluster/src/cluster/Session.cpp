@@ -166,6 +166,19 @@ _cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
     return out;
 }
 
+_cold static std::string task_output_(const std::string& claudeId, const std::string& task)
+{
+    // a shell in the background whose output file claude did not tell: where Claude Code writes it,
+    // <tmp>/claude-<uid>/<its folder>/<its session>/tasks/<task>.output (the file may come a moment later)
+    if (claudeId.empty() || task.empty()) return std::string();
+    const char* tmp = std::getenv("TMPDIR");
+    const std::filesystem::path base = std::filesystem::path(tmp != nullptr && *tmp ? tmp : "/tmp") / ("claude-" + std::to_string(::getuid()));
+    std::error_code error;
+    for (const std::filesystem::directory_entry& folder: std::filesystem::directory_iterator(base, error))
+        if (std::filesystem::is_directory(folder.path() / claudeId / "tasks", error)) return (folder.path() / claudeId / "tasks" / (task + ".output")).string();
+    return std::string();
+}
+
 _cold static std::optional<std::string> rewind_point_(const std::string& claudeId, const std::string& leaf, int back = 1)
 {
     // the transcript of claude (~/.claude/projects/<folder>/<id>.jsonl): from the leaf of the conversation up its
@@ -1013,14 +1026,20 @@ _cold static std::string agent_status_(const std::string& status)
 
 _cold cluster::SubAgent& cluster::Session::agent_(const std::string& toolUseId, const std::string& taskId)
 {
-    // found by its task or its call; a new one: the oldest ended one dropped past 40
+    // found by its task (sure), else by its call when it has no task yet; a new one: the oldest ended one dropped past 40
     std::vector<cluster::SubAgent>& agents = this->_data.agents;
-    for (cluster::SubAgent& agent: agents)
-        if ((!taskId.empty() && agent.taskId == taskId) || (!toolUseId.empty() && agent.toolUseId == toolUseId)) {
-            if (agent.taskId.empty()) agent.taskId = taskId;
-            if (agent.toolUseId.empty()) agent.toolUseId = toolUseId;
-            return agent;
-        }
+    if (!taskId.empty())
+        for (cluster::SubAgent& agent: agents)
+            if (agent.taskId == taskId) {
+                if (agent.toolUseId.empty()) agent.toolUseId = toolUseId;
+                return agent;
+            }
+    if (!toolUseId.empty())
+        for (cluster::SubAgent& agent: agents)
+            if (agent.toolUseId == toolUseId && (agent.taskId.empty() || taskId.empty())) {
+                if (agent.taskId.empty()) agent.taskId = taskId;
+                return agent;
+            }
     if (agents.size() >= 40) {
         const auto ended = std::find_if(agents.begin(), agents.end(), [](const cluster::SubAgent& a) {return a.status != "running";});
         agents.erase(ended != agents.end() ? ended : agents.begin());
@@ -1040,9 +1059,10 @@ _cold void cluster::Session::agentTask_(const std::string& subtype, const cluste
     const std::string task = event.value("task_id", cluster::Json()).is_string() ? event["task_id"].get<std::string>() : std::string();
     const std::string call = event.value("tool_use_id", cluster::Json()).is_string() ? event["tool_use_id"].get<std::string>() : std::string();
     if (task.empty()) return;
-    const auto known = std::find_if(this->_data.agents.begin(), this->_data.agents.end(), [&](const cluster::SubAgent& a) {
-        return a.taskId == task || (!call.empty() && a.toolUseId == call);
-    });
+    // its task id first (it names the task for sure), its call id only for a task not known by its id yet
+    auto known = std::find_if(this->_data.agents.begin(), this->_data.agents.end(), [&](const cluster::SubAgent& a) {return a.taskId == task;});
+    if (known == this->_data.agents.end())
+        known = std::find_if(this->_data.agents.begin(), this->_data.agents.end(), [&](const cluster::SubAgent& a) {return !call.empty() && a.toolUseId == call && a.taskId.empty();});
     const std::string kind = event.value("task_type", std::string());
     const bool agentLike = event.value("subagent_type", cluster::Json()).is_string() || kind.find("agent") != std::string::npos;
     const bool shellLike = kind.find("bash") != std::string::npos || kind.find("shell") != std::string::npos;
@@ -1054,6 +1074,7 @@ _cold void cluster::Session::agentTask_(const std::string& subtype, const cluste
         agent.background = true;
     }
     if (event.value("output_file", cluster::Json()).is_string() && !event["output_file"].get<std::string>().empty()) agent.outputFile = event["output_file"].get<std::string>();
+    if (agent.kind == "shell" && agent.outputFile.empty()) agent.outputFile = task_output_(this->_data.spec.claudeId, task); // its last lines shown live
     const cluster::Json usage = event.value("usage", cluster::Json::object());
     if (event.value("description", cluster::Json()).is_string() && !event["description"].get<std::string>().empty())
         agent.description = event["description"].get<std::string>();

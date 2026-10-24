@@ -20,6 +20,7 @@ File Description:
     #define _Attribute
     #include <utils/utils.hpp>      // _nodiscard
     #include <nlohmann/json.hpp>    // nlohmann::json
+    #include <algorithm>            // std::any_of
     #include <cstdint>              // std::int64_t
     #include <utility>              // std::pair
     #include <string>               // std::string
@@ -447,6 +448,9 @@ struct Snapshot {
 /* FUNCTION */
 
 _nodiscard const char* state_name(cluster::State state);
+
+// its turn over, but shells / tasks / agents of it still running in the background (shown purple, ~_~): idle only once all of them ended
+_nodiscard inline bool background_busy(const cluster::Snapshot& s) {return s.state == cluster::State::Idle && s.permissions.empty() && std::any_of(s.agents.begin(), s.agents.end(), [](const cluster::SubAgent& a) {return a.status == "running";});};
 
 // The labels of a session: "a b c" (the tags, to edit) and "bugfix · #a #b" (its category and tags, to show)
 _nodiscard inline std::string join_labels(const std::vector<std::string>& tags) {std::string out; for (const std::string& tag: tags) out += (out.empty() ? "" : " ") + tag; return out;};

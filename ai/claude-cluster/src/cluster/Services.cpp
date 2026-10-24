@@ -121,6 +121,82 @@ _cold static cluster::Json core_info_(cluster::Manager& manager)
         {"quit_background", c.quitBackground}};
 }
 
+/* the processes: claude-cluster, the sessions and what they started, their memory */
+_cold static std::int64_t rss_kb_(const int pid)
+{
+    for (const std::string& line: cluster::split(read_proc_("/proc/" + std::to_string(pid) + "/status"), '\n'))
+        if (line.starts_with("VmRSS:")) return std::atoll(line.substr(6).c_str());
+    return 0;
+}
+
+_cold static std::map<int, std::vector<int>> children_(void)
+{
+    // every process of the computer by its parent (its stat: "pid (comm) state ppid ...", the comm may hold spaces)
+    std::map<int, std::vector<int>> out;
+    std::error_code error;
+    for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator("/proc", error)) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || !std::all_of(name.begin(), name.end(), [](const char c) {return std::isdigit(static_cast<unsigned char>(c));})) continue;
+        const std::string stat = read_proc_(entry.path().string() + "/stat");
+        const std::size_t close = stat.rfind(')');
+        if (close == std::string::npos || close + 4 >= stat.size()) continue;
+        const std::vector<std::string> fields = cluster::split(stat.substr(close + 2), ' ');
+        if (fields.size() > 1) out[std::atoi(fields[1].c_str())].push_back(std::atoi(name.c_str()));
+    }
+    return out;
+}
+
+_cold static std::string command_(const int pid)
+{
+    std::string line = read_proc_("/proc/" + std::to_string(pid) + "/cmdline");
+    std::replace(line.begin(), line.end(), '\0', ' ');
+    return cluster::one_line(cluster::trim(line), 90);
+}
+
+_cold static cluster::Json processes_info_(cluster::Manager& manager, const cluster::Json& core)
+{
+    // the versions and uptime, the memory of everything claude-cluster runs (the core, its interfaces, each session: its agent and what it
+    // started - its shells, its MCP servers), the tokens of this launch, the changes of the last versions
+    const std::map<int, std::vector<int>> tree = children_();
+    std::int64_t total = core.value("rss_kb", std::int64_t{0});
+    cluster::Json interfaces = cluster::Json::array();
+    for (const cluster::Json& i: core.value("interface_list", cluster::Json::array())) {
+        const std::int64_t kb = rss_kb_(i.value("pid", 0));
+        total += kb;
+        interfaces.push_back({{"pid", i.value("pid", 0)}, {"kind", i.value("kind", std::string())}, {"rss_kb", kb}});
+    }
+    cluster::Json sessions = cluster::Json::array();
+    for (const cluster::Snapshot& s: manager.list(false)) {
+        cluster::Json children = cluster::Json::array();
+        std::int64_t kb = s.pid > 0 ? rss_kb_(s.pid) : 0;
+        std::vector<int> todo = s.pid > 0 && tree.contains(s.pid) ? tree.at(s.pid) : std::vector<int>();
+        for (std::size_t i = 0; i < todo.size() && i < 200; ++i) {
+            const int pid = todo[i];
+            const std::int64_t own = rss_kb_(pid);
+            kb += own;
+            const std::string command = command_(pid);
+            children.push_back({{"pid", pid}, {"command", command}, {"rss_kb", own}, {"mcp", command.find(" mcp") != std::string::npos}});
+            if (tree.contains(pid)) todo.insert(todo.end(), tree.at(pid).begin(), tree.at(pid).end());
+        }
+        int shells = 0;
+        for (const cluster::SubAgent& a: s.agents)
+            shells += a.kind == "shell" && a.status == "running" ? 1 : 0;
+        total += kb;
+        sessions.push_back({{"id", s.spec.id}, {"name", s.spec.global ? std::string("global") : s.spec.name}, {"pid", s.pid}, {"rss_kb", kb},
+            {"children", children}, {"shells", shells}, {"tokens", s.metrics.total.total()}});
+    }
+    std::int64_t tokens = 0;
+    for (const cluster::UsageRecord& r: manager.usageLedger())
+        tokens += r.time >= manager.startedAt() ? r.tokens : 0;
+    // the changes of the last three versions (the notes kept in the binary)
+    std::vector<std::string> parts = cluster::split(CLUSTER_VERSION, '.');
+    if (parts.size() == 3) parts[2] = std::to_string(std::max(0, std::atoi(parts[2].c_str()) - 3));
+    const std::string since = parts.size() == 3 ? parts[0] + "." + parts[1] + "." + parts[2] : std::string(CLUSTER_VERSION);
+    return {{"version", CLUSTER_VERSION}, {"build", cluster::build_id()}, {"pid", ::getpid()}, {"since", manager.startedAt()}, {"total_kb", total},
+        {"core_kb", core.value("rss_kb", std::int64_t{0})}, {"interfaces", interfaces}, {"sessions", sessions}, {"tokens", tokens},
+        {"notes", cluster::release_notes(since)}};
+}
+
 _cold cluster::Json cluster::services(cluster::Manager& manager)
 {
     if (manager.replica()) return manager.call({{"cmd", "services"}});
@@ -151,6 +227,7 @@ _cold cluster::Json cluster::services(cluster::Manager& manager)
         {"fingerprint", web ? web->fingerprint : ""}};
     // core
     out["core"] = core_info_(manager);
+    out["processes"] = processes_info_(manager, out["core"]);
     // voice (of the core): what it hears now (what is being said, the transcriptions waiting)
     cluster::Voice* voice = manager.voice();
     cluster::Json heard = cluster::Json::array();
@@ -295,12 +372,27 @@ _cold static std::string act_(cluster::Manager& manager, const std::string& serv
         }
         need(false);
     }
+    if (service == "processes") {
+        // the shells running in the background of one session (shells:<id>) or of all (shells): stopped as Claude Code does, their sessions go on
+        need(action == "shells" || action.starts_with("shells:"));
+        const std::string only = action.starts_with("shells:") ? action.substr(7) : std::string();
+        int stopped = 0;
+        for (const cluster::Snapshot& s: manager.list(false)) {
+            if (!only.empty() && s.spec.id != only) continue;
+            for (const cluster::SubAgent& a: s.agents)
+                if (a.kind == "shell" && a.status == "running" && !a.taskId.empty()) {
+                    manager.stopAgent(s.spec.id, a.taskId);
+                    ++stopped;
+                }
+        }
+        return stopped == 0 ? std::string("no shell running") : std::to_string(stopped) + " shell(s) stopped (their sessions go on)";
+    }
     if (service == "mcp") {
         need(action == "restart_global");
         manager.restartGlobal();
         return "the global session started again (its MCP servers loaded again)";
     }
-    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown service " + service + " (service, web, core, voice, mcp, outside)");
+    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown service " + service + " (service, web, core, voice, mcp, outside, processes)");
 }
 
 _cold std::string cluster::service_act(cluster::Manager& manager, const std::string& service, const std::string& action)
@@ -308,7 +400,8 @@ _cold std::string cluster::service_act(cluster::Manager& manager, const std::str
     // its popup while it takes time, its failure (OK / Retry) when an interface asked it
     if (manager.replica()) return manager.call({{"cmd", "service_act"}, {"service", service}, {"action", action}, {"ui", true}}).value("message", std::string());
     const std::string title = (service == "service" ? std::string("Service (systemd)") : service == "web" ? std::string("Web access") : service == "core" ? std::string("Core")
-        : service == "voice" ? std::string("Voice") : service == "mcp" ? std::string("MCP") : std::string("Outside")) + ": " + action;
+        : service == "voice" ? std::string("Voice") : service == "mcp" ? std::string("MCP") : service == "processes" ? std::string("Processes") : std::string("Outside"))
+        + ": " + action;
     cluster::Busy busy(manager, title);
     cluster::debug("service", title);
     try {
@@ -361,6 +454,8 @@ _cold std::string cluster::service_summary(const std::string& name, const cluste
     if (name == "voice") return !s.value("enabled", false) ? std::string("off (Voice > enabled)") : s.value("listening", false) ? std::string("listening")
         : s.value("running", false) ? "on (" + s.value("mode", std::string()) + ")" : std::string("stopped");
     if (name == "mcp") return std::to_string(s.value("servers", cluster::Json::array()).size()) + " server(s) · global session " + s.value("global", std::string());
+    if (name == "processes") return "claude-cluster " + s.value("version", std::string()) + " · up " + duration_(cluster::now() - s.value("since", cluster::now())) + " · "
+        + std::to_string(s.value("total_kb", std::int64_t{0}) / 1024) + " MB in all · " + cluster::human_tokens(s.value("tokens", std::int64_t{0})) + " tokens this launch";
     if (name == "outside") {
         const std::string mode = s.value("mode", std::string("off"));
         return mode == "off" ? std::string("off (LAN only)") : mode + (s.value("remote_ok", false) ? " · reached" : " · not reached ✕");
@@ -426,6 +521,30 @@ _cold std::vector<cluster::ServiceLine> cluster::service_lines(const std::string
         if (servers.empty()) out.push_back({"none (MCP > Custom MCP servers)", "log"});
         for (const cluster::Json& server: servers)
             out.push_back({"• " + server.get<std::string>(), "text"});
+    } else if (name == "processes") {
+        // this interface: the binary drawing it (its own version, the core may be another one)
+        const std::int64_t up = cluster::now() - s.value("since", cluster::now());
+        out.push_back({"this interface: claude-cluster " CLUSTER_VERSION " · the core: " + s.value("version", std::string()) + " (pid " + std::to_string(s.value("pid", 0))
+            + ", up " + duration_(up) + ", build " + s.value("build", std::string()) + ")", s.value("version", std::string()) == CLUSTER_VERSION ? "text" : "warn"});
+        out.push_back({"memory " + std::to_string(s.value("total_kb", std::int64_t{0}) / 1024) + " MB in all: the core " + std::to_string(s.value("core_kb", std::int64_t{0}) / 1024)
+            + " MB", "text"});
+        for (const cluster::Json& i: s.value("interfaces", cluster::Json::array()))
+            out.push_back({"  " + i.value("kind", std::string()) + " " + std::to_string(i.value("pid", 0)) + ": " + std::to_string(i.value("rss_kb", std::int64_t{0}) / 1024) + " MB", "muted"});
+        for (const cluster::Json& session: s.value("sessions", cluster::Json::array())) {
+            const cluster::Json children = session.value("children", cluster::Json::array());
+            out.push_back({"  " + session.value("name", std::string()) + (session.value("pid", 0) > 0 ? " (agent " + std::to_string(session.value("pid", 0)) + ")" : " (not running)")
+                + ": " + std::to_string(session.value("rss_kb", std::int64_t{0}) / 1024) + " MB · " + std::to_string(children.size()) + " process(es) under it"
+                + (session.value("shells", 0) > 0 ? " · " + std::to_string(session.value("shells", 0)) + " shell(s) in the background" : "") + " · "
+                + cluster::human_tokens(session.value("tokens", std::int64_t{0})) + " tokens", "text"});
+            for (const cluster::Json& child: children)
+                out.push_back({"      " + std::string(child.value("mcp", false) ? "mcp " : "$ ") + child.value("command", std::string()) + "  (" + std::to_string(child.value("pid", 0))
+                    + ", " + std::to_string(child.value("rss_kb", std::int64_t{0}) / 1024) + " MB)", "log"});
+        }
+        out.push_back({"tokens this launch: " + cluster::human_tokens(s.value("tokens", std::int64_t{0})) + " (every session, since the core started)", "muted"});
+        const cluster::Json notes = s.value("notes", cluster::Json::array());
+        if (!notes.empty()) out.push_back({"what the last versions brought:", "text"});
+        for (std::size_t i = 0; i < notes.size() && i < 12; ++i)
+            out.push_back({"  • " + cluster::one_line(notes[i].get<std::string>(), 200), "muted"});
     } else if (name == "outside") {
         if (s.value("mode", std::string("off")) != "off" && !s.value("remote_ok", false)) out.push_back({s.value("why", std::string()), "error"});
         out.push_back({"upnpc: " + std::string(s.value("upnpc", false) ? "installed" : "missing") + " · tailscale: " + s.value("tailscale", std::string()) + " · port outside "
@@ -453,6 +572,13 @@ _cold std::vector<std::pair<std::string, std::string>> cluster::service_buttons(
     }
     if (name == "voice") return {s.value("listening", false) ? Button{"Stop", "stop"} : Button{"Listen", "listen"}, {"Mute", "mute"}};
     if (name == "mcp") return {{"Restart the global session", "restart_global"}};
+    if (name == "processes") {
+        std::vector<Button> buttons;
+        for (const cluster::Json& session: s.value("sessions", cluster::Json::array()))
+            if (session.value("shells", 0) > 0) buttons.push_back({"Stop the shells of " + session.value("name", std::string()), "shells:" + session.value("id", std::string())});
+        if (buttons.size() > 1) buttons.push_back({"Stop every shell", "shells"});
+        return buttons;
+    }
     if (name == "outside") return {{"Ask the router again", "reopen"}, {"Remove the redirection", "unmap"}, {"Tailscale up", "tailscale_up"},
         {"Allow tailscale certificates", "tailscale_operator"}};
     return {};

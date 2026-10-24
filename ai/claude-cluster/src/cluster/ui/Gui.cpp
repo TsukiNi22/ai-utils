@@ -344,6 +344,12 @@ static bool unanswered_(const cluster::Snapshot& snap)
     return false;
 }
 
+// a session whose turn is over but whose shells / tasks / agents still run in the background: purple (~_~), idle only once they all ended
+static std::string busy_color_(const cluster::Style& st)
+{
+    return st.dark ? "#bb8cf2" : "#8a3fb5";
+}
+
 class Window;
 
 // Prompt of the window: QLineEdit (undo / redo / selection / clipboard of Qt) + the completion list and the images
@@ -996,7 +1002,7 @@ class HubView: public QGraphicsView {
                 (s.spec.id == GLOBAL_ID ? global : others.emplace_back()) = &s;
             const std::function<QColor(const cluster::Snapshot&)> color = [&st](const cluster::Snapshot& s) {
                 return QColor(QString::fromStdString(!s.permissions.empty() ? st.warn : s.state == cluster::State::Working || s.state == cluster::State::Starting ? st.ok
-                    : s.state == cluster::State::Error ? st.error : st.muted));
+                    : s.state == cluster::State::Error ? st.error : cluster::background_busy(s) ? busy_color_(st) : st.muted));
             };
             const double radius = std::max(170.0, static_cast<double>(others.size()) * 92.0 / (2.0 * M_PI));
             std::vector<LabelSpot> spots;           // the text of each node, placed once all of them are drawn (no text over a node or another text)
@@ -1006,7 +1012,7 @@ class HubView: public QGraphicsView {
                 circle->setData(0, QString::fromStdString(s.spec.id));
                 circle->setCursor(Qt::PointingHandCursor);
                 circle->setToolTip(QString::fromStdString(s.spec.name + " · " + cluster::state_name(s.state) + " · " + cluster::short_path(s.spec.cwd)));
-                const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
+                const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : cluster::background_busy(s) ? "~_~" : "-_-";
                 QGraphicsSimpleTextItem* faceItem = this->_scene.addSimpleText(face, QFont(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(), r > 40 ? 13 : 10));
                 faceItem->setBrush(color(s));
                 faceItem->setPos(x - faceItem->boundingRect().width() / 2, y - faceItem->boundingRect().height() / 2);
@@ -1287,7 +1293,7 @@ class HubView: public QGraphicsView {
             const std::function<double(const Node&)> Y = [&](const Node& n) {return oy + n.y;};
             const std::function<QColor(const cluster::Snapshot&)> color = [&st](const cluster::Snapshot& s) {
                 return QColor(QString::fromStdString(!s.permissions.empty() ? st.warn : s.state == cluster::State::Working || s.state == cluster::State::Starting ? st.ok
-                    : s.state == cluster::State::Error ? st.error : st.muted));
+                    : s.state == cluster::State::Error ? st.error : cluster::background_busy(s) ? busy_color_(st) : st.muted));
             };
             const QColor surface(QString::fromStdString(st.surface));
             QColor plate(QString::fromStdString(st.bg));
@@ -1311,7 +1317,7 @@ class HubView: public QGraphicsView {
                     QGraphicsEllipseItem* circle = this->_scene.addEllipse(x, y - 22, 44, 44, QPen(c, 2), QBrush(surface));
                     circle->setZValue(1);
                     circle->setToolTip(global != nullptr ? "the global session (click: open it)" : "claude-cluster");
-                    const char* face = global == nullptr ? "^_^" : !global->permissions.empty() ? "•_•" : global->state == cluster::State::Working ? ">_<" : global->state == cluster::State::Error ? "o_o" : "-_-";
+                    const char* face = global == nullptr ? "^_^" : !global->permissions.empty() ? "•_•" : global->state == cluster::State::Working ? ">_<" : global->state == cluster::State::Error ? "o_o" : cluster::background_busy(*global) ? "~_~" : "-_-";
                     QGraphicsSimpleTextItem* faceItem = this->_scene.addSimpleText(face, QFont(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(), 10));
                     faceItem->setBrush(c);
                     faceItem->setPos(x + 22 - faceItem->boundingRect().width() / 2, y - faceItem->boundingRect().height() / 2);
@@ -3681,8 +3687,8 @@ class Window: public QMainWindow {
                     for (const std::string& tag: s.spec.tags)
                         chips += (chips.isEmpty() ? "<br>" : " ") + pill_("#" + tag, chip_color_(tag), st.bg, false, false, 8.2, true);
                     const std::string dot = s.state == cluster::State::Working ? st.ok : s.state == cluster::State::Waiting || !s.permissions.empty() ? st.warn
-                        : s.state == cluster::State::Error ? st.error : st.muted;
-                    const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : "-_-";
+                        : s.state == cluster::State::Error ? st.error : cluster::background_busy(s) ? busy_color_(st) : st.muted;
+                    const char* face = !s.permissions.empty() ? "•_•" : s.state == cluster::State::Working ? ">_<" : s.state == cluster::State::Error ? "o_o" : cluster::background_busy(s) ? "~_~" : "-_-";
                     QLabel* row = new QLabel(this->list);
                     row->setTextFormat(Qt::RichText);
                     row->setAttribute(Qt::WA_TransparentForMouseEvents);

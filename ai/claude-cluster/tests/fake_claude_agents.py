@@ -65,10 +65,14 @@ for line in sys.stdin:
     out({"type": "result", "subtype": "success", "is_error": False, "result": "ok", "session_id": SID, "total_cost_usd": 0, "duration_ms": 1, "num_turns": 1,
          "usage": {"input_tokens": 1, "output_tokens": 1}})
 
-    def shell_ends():  # the shell ends after the turn: its output written, its notification (the session idle: woken by claude-cluster)
-        time.sleep(1.0)
+    def shell_ends():  # the shell ends after the turn: its output written (line by line, FAKE_SHELL_SECONDS), its notification (the session idle: woken by claude-cluster)
         output = os.path.join(os.environ.get("FAKE_CLAUDE_OUT", "/tmp"), "task-sh.output")
+        seconds = float(os.environ.get("FAKE_SHELL_SECONDS", "1.0"))
         with open(output, "w", encoding="utf-8") as file:
+            for i in range(int(seconds * 2)):
+                time.sleep(0.5)
+                file.write(f"SHELL-LINE-{i}\n")
+                file.flush()
             file.write("PASS 12 tests\nSHELL-OUTPUT-END\n")
         out({"type": "system", "subtype": "task_notification", "task_id": "task-sh", "tool_use_id": "call-sh", "status": "completed", "summary": "exit code 0",
              "output_file": output})
