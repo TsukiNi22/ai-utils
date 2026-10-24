@@ -3035,8 +3035,56 @@ for (const input of [$("prompt"), $("newCwd")]) {
             if (PHONE) return; // a phone: Enter is a new line, the Send button sends
             e.preventDefault();
             $("composer").requestSubmit();
+        } else if (input.id === "prompt" && !input.value && (e.key === "ArrowUp" || e.key === "Escape") && takeBackable(e.key === "Escape")) {
+            e.preventDefault();
+            // queued: at once; already given to the agent (sending, its turn running): a second press within 0.8 s (never one by mistake)
+            const s = lastState && lastState.session;
+            const queued = s && (s.queued || 0) > (s.queue_given || 0);
+            if (!queued && (armedKey !== e.key || Date.now() - armedAt >= 800)) {
+                armedKey = e.key;
+                armedAt = Date.now();
+                toast(e.key === "Escape" ? "Esc again: take back the prompt of the turn running (it stops)" : "↑ again: take back the prompt being sent (its turn stopped)");
+                return;
+            }
+            armedKey = "";
+            takeBack(e.key === "Escape");
         }
     });
+}
+
+// ↑ in the empty prompt / Esc: the prompt queued last back here (out of the queue), else the one sent and not answered yet (its turn
+// stopped, like Claude Code); Esc: a running turn too (it leaves the conversation, its prompt back)
+let armedKey = "";
+let armedAt = 0;
+
+function takeBackable(esc) {
+    const s = lastState && lastState.session;
+    if (!s || s.id !== current) return false;
+    if ((s.queued || 0) > (s.queue_given || 0)) return true;
+    if (s.state !== "working") return false;
+    const said = (s.messages || []).filter((m) => m.kind !== "system" && m.kind !== "error");
+    return esc || (said.length > 0 && said[said.length - 1].kind === "user");
+}
+
+async function takeBack(esc) {
+    const s = lastState && lastState.session;
+    const box = $("prompt");
+    let back = null;
+    try {
+        if ((s.queued || 0) > (s.queue_given || 0)) back = await cmd({cmd: "unqueue", session: current});
+        if (!back || back.text === undefined) back = await cmd({cmd: "rewind", session: current, back: 1});
+    } catch (error) {
+        // not in the transcript of claude yet (just sent) or not Claude Code: its turn stopped, its text back (it stays in the conversation)
+        const said = (s.messages || []).filter((m) => m.kind === "user");
+        try { await cmd({cmd: "interrupt", session: current}); } catch (e) { /* already over */ }
+        back = said.length ? {text: said[said.length - 1].text} : null;
+    }
+    if (!back || back.text === undefined) return;
+    box.value = back.text;
+    autosize();
+    box.focus();
+    toast(esc ? "prompt taken back (its turn stopped)" : "prompt taken back (Enter: send it again)");
+    refresh();
 }
 
 // ---- voice: the microphone (each sentence to claude-cluster, recognized by its speech model) ----

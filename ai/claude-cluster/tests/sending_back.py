@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# ↑ in the prompt on a prompt sent but not answered yet (sending, like Claude Code): its turn stopped and the prompt back in the
-# prompt to edit (nothing queued); the text being written stashed first. Once answered, ↑ is the history again.
+# ↑↑ in the prompt on a prompt sent but not answered yet (sending, like Claude Code): its turn stopped and the prompt back in the
+# prompt to edit (nothing queued); one ↑ only tells it (never taken back by mistake); the text being written stashed first.
 # Usage: tests/queue_back.py [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster); needs python3-pyte
 """Up arrow: a prompt not answered yet taken back."""
 import fcntl
@@ -107,7 +107,10 @@ try:
     state = next((s for s in ask({"cmd": "list"}).get("data", []) if s.get("name") == "worker"), {})
     check("sent: its turn runs, nothing answered", state.get("state") == "working", json.dumps({k: state.get(k) for k in ("queued", "state")}))
     typed("DRAFT-TEXT")
-    term.send(b"\x1b[A", 3.5)  # Up
+    term.send(b"\x1b[A", 0.4)  # Up once: told, nothing taken (a prompt already sent: two presses, never one by mistake)
+    once = term.text()
+    check("one ↑: told, nothing taken back yet", "↑ again" in once and "DRAFT-TEXT" in once[-700:], once[-500:])
+    term.send(b"\x1b[A", 3.5)  # Up again
     shown = term.text()
     check("Up: the prompt sent back in the prompt", "SENT-NOT-ANSWERED" in shown[-700:], shown[-700:])
     check("told so", "taken back" in shown, shown[-400:])

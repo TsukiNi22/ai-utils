@@ -3129,6 +3129,8 @@ class Window: public QMainWindow {
             }
         }
 
+        std::int64_t upArmed = 0; // the first ↑ on a prompt being sent (ms)
+
         bool takeBackUp(void)
         {
             // ↑ on the first line of the prompt (not in the history): the queued prompt back to edit (out of the queue), else the
@@ -3148,6 +3150,14 @@ class Window: public QMainWindow {
                 }
             }
             if (!unanswered_(*snap)) return false;
+            // a prompt already given to the agent: a second ↑ within 0.8 s takes it back (never one by mistake)
+            const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now - this->upArmed >= 800) {
+                this->upArmed = now;
+                this->message("↑ again: take back the prompt being sent (its turn stopped)", false);
+                return true;
+            }
+            this->upArmed = 0;
             this->rewind(true);
             return true;
         }

@@ -792,6 +792,8 @@ class TtyUi {
         std::string _webConfirm;                    // a dangerous action of the devices waiting for its y (ban, kick_all)
         std::int64_t _lastEscapeAt = 0;             // takeBack_: ms of the Esc that asked for a second one
         int _lostChoice = 0;                        // the Reconnecting popup: 0 Retry now, 1 Quit
+        std::int64_t _armedAt = 0;                  // a prompt already sent: taken back by a second ↑ / Esc within 0.8 s
+        std::string _armedKey;
         struct Button {
             std::string label;
             ftxui::Event key;
@@ -1125,6 +1127,20 @@ class TtyUi {
             });
         }
 
+        bool armed_(const std::string& key, const std::string& hint)
+        {
+            // a prompt already given to the agent: its take back needs a second press (never one by mistake), the first one says so
+            const std::int64_t now = now_ms_();
+            if (this->_armedKey == key && now - this->_armedAt < 800) {
+                this->_armedKey.clear();
+                return true;
+            }
+            this->_armedKey = key;
+            this->_armedAt = now;
+            this->status_(hint);
+            return false;
+        }
+
         bool queuedBack_(void)
         {
             // ↑ on the first row of the prompt: the last prompt waiting in the queue (not given to the agent yet) back in it, the one
@@ -1135,7 +1151,7 @@ class TtyUi {
             if (!snap) return false;
             if (snap->queued <= snap->queueGiven) {
                 if (!unanswered_(*snap)) return false;
-                this->takeBackRunning_(true);
+                if (this->armed_("up", "↑ again: take back the prompt being sent (its turn stopped)")) this->takeBackRunning_(true);
                 return true;
             }
             bool stashed = false;
@@ -1174,7 +1190,7 @@ class TtyUi {
                 this->_editor.setImages(queued->images);
                 this->status_("prompt taken back (Enter: queue it again)");
             } else if (snap && (snap->state == cluster::State::Working || snap->state == cluster::State::Waiting)) {
-                this->takeBackRunning_(unanswered_(*snap));
+                if (this->armed_("esc", "Esc again: take back the prompt of the turn running (it stops)")) this->takeBackRunning_(unanswered_(*snap));
             } else if (!empty) {
                 if (now - this->_lastEscapeAt < 600) {
                     this->_lastEscapeAt = 0;
