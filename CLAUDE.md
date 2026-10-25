@@ -21,6 +21,11 @@ The global context (`~/.claude/CLAUDE.md`, `RTK.md`, hooks) lives in `context/` 
   routers that should load it, and the marketplace (`.claude-plugin/marketplace.json`, one plugin per category folder).
 - Scripts tested for real before committing (generated files, outputs), placeholders `{{NAME}}` in the templates.
 
+## Versions
+- The tools (claude-cluster, xstyle...) follow major.minor.patch by the size of the change: a real feature (a new mode, view,
+  subsystem: the supervisor) -> **minor** (1.5.0); fixes, look changes, a few settings -> **patch** (1.5.1); a breaking change (config /
+  data format, a command removed) -> **major**. Several features in one release: one minor bump.
+
 ## Git
 - Commits allowed in this repository (the user granted it), format of `git-conventions` (`type(scope): message`),
   ending with the `Co-Authored-By` trailer of the current model; never force-push or rewrite pushed history without
