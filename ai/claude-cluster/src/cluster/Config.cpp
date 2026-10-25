@@ -231,6 +231,11 @@ _cold void cluster::Config::load(void)
     this->memoryMb = std::clamp(static_cast<int>(table["sessions"]["memory_mb"].value_or(this->memoryMb)), 1, 1024);
     this->memoryTotalMb = std::clamp(static_cast<int>(table["sessions"]["memory_total_mb"].value_or(this->memoryTotalMb)), 1, 65536);
     this->memoryEntries = std::max(0, static_cast<int>(table["sessions"]["memory_entries"].value_or(this->memoryEntries)));
+    this->keepWarm = table["sessions"]["keep_warm"].value_or(this->keepWarm);
+    if (this->keepWarm != "off" && this->keepWarm != "chosen" && this->keepWarm != "all") this->keepWarm = "off";
+    this->keepWarmTtl = std::clamp(static_cast<int>(table["sessions"]["keep_warm_ttl"].value_or(this->keepWarmTtl)), 1, 120);
+    this->keepWarmMargin = std::clamp(static_cast<int>(table["sessions"]["keep_warm_margin"].value_or(this->keepWarmMargin)), 10, 600);
+    this->keepWarmHours = std::clamp(static_cast<int>(table["sessions"]["keep_warm_hours"].value_or(this->keepWarmHours)), 0, 168);
     this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
     this->sessionsPrompt = table["sessions"]["prompt"].value_or((cluster::config_dir() / "sessions.md").string());

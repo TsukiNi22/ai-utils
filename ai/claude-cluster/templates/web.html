@@ -91,6 +91,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 #sessionBar .muted { color: var(--muted); font-size: 13px; }
 #picker { display: none; }
 #transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.session .name .warm { color: var(--warn); }
 #transcript .older-mark { align-self: center; padding: 4px 12px; color: var(--muted); font-style: italic; font-size: 13px; cursor: pointer; }
 #newOutput { align-self: center; position: relative; z-index: 3; margin: -40px 0 12px; padding: 5px 14px; border-radius: 16px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); font-size: 13px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); flex: none; }
 .msg { max-width: 900px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
@@ -1202,6 +1203,13 @@ function render(state) {
         const dot = document.createElement("span");
         dot.className = "dot " + stateClass(s.state, s);
         name.append(dot, document.createTextNode(s.id === "g" ? "global" : s.name || s.id));
+        if (s.keep_warm) { // kept warm: woken up before its prompt cache expires
+            const warm = document.createElement("span");
+            warm.className = "warm";
+            warm.textContent = " ♨";
+            warm.title = "kept warm: woken up a little before its prompt cache expires (Settings > Sessions > Keep warm, /keepwarm)";
+            name.append(warm);
+        }
         if (s.permissions && s.permissions.length) {
             const badge = document.createElement("span");
             badge.className = "badge";

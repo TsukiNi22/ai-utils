@@ -4770,6 +4770,7 @@ class Window: public QMainWindow {
                         : cluster::one_line(s.spec.summary, 400)), Qt::ElideRight, room);
                     row->setText("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>" + span_(dot, "●") + "&nbsp; <b>" + name.toHtmlEscaped() + "</b>&nbsp; "
                         + pill_(face, dot, mix_(st.surface, dot, 0.22))
+                        + (cluster::keep_warm_on(this->manager.config(), s.spec) ? "&nbsp;" + span_(st.warn, "♨") : QString()) // kept warm
                         + (s.permissions.empty() ? QString() : "&nbsp;" + span_(st.warn, "<b>" + QString::number(s.permissions.size()) + "</b>"))
                         + "</td><td align=\"right\">" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::human_tokens(s.metrics.total.total()))
                         + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt;white-space:pre\">" + what.toHtmlEscaped()

@@ -179,6 +179,7 @@ class Session {
         void noVerdict_(const std::string& tool);   // the auto mode classifier answered nothing for this tool (under the lock)  // a display replaced (its log written again)
         _cold void remoteControl(const bool on, const std::string& name); // claude: Remote Control of this session (claude.ai)
         _cold void togglePanel(const std::string& panel);
+        _cold void setKeepWarm(const bool on);
         _cold void loadHistory(void);                      // the last entries of the log within the memory budget (restored session)
         _cold std::size_t loadOlder(const std::size_t count);  // up to count entries of the log before the first one in memory: loaded again (returns how many)
         _cold void limitMemory(const std::uintmax_t bytes, const std::size_t entries); // the memory budget of its entries (the settings of the moment)

@@ -369,6 +369,36 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         std::lock_guard<std::mutex> lock(this->_mutex);
         version = this->_upgradeVersion;
     }
+    // asked by hand (/update, Settings > Services > Update): the binary on disk read again, a newer one offered even when it was ignored
+    if (action == "update" || action == "offer" || action == "check") {
+        const std::filesystem::path exe = cluster::self_exe();
+        const std::string installed = cluster::binary_version(exe);
+        std::string ignored;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            ignored = this->_upgradeIgnored;
+        }
+        if (!installed.empty() && cluster::version_compare(installed, CLUSTER_VERSION) > 0 && (installed != version || version.empty())) {
+            if (action == "check" && installed == ignored) // seen, not offered: its card tells it, Offer it again brings the popup back
+                return "claude-cluster " + installed + " is installed (this one: " + CLUSTER_VERSION + "), ignored: Offer it again or Update now";
+            std::vector<std::string> notes = notes_of_(exe);
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                this->_upgradeVersion = installed;
+                this->_upgradeNotes = std::move(notes);
+                this->_upgradeJump = jump_(CLUSTER_VERSION, installed);
+                if (this->_upgradeIgnored == installed) this->_upgradeIgnored.clear();
+            }
+            if (installed == ignored) cluster::write_json(upgrade_file_(), cluster::Json::object()); // no longer ignored
+            version = installed;
+            ++this->_version;
+        }
+        if (action == "check" || action == "offer") {
+            if (version.empty())
+                return std::string("claude-cluster is up to date (") + CLUSTER_VERSION + (installed.empty() ? std::string() : ", installed " + installed) + ")";
+            return "claude-cluster " + version + " is installed (this one: " + CLUSTER_VERSION + "): Update / Ignore / Quit";
+        }
+    }
     if (version.empty()) {
         const std::string installed = cluster::binary_version(cluster::self_exe());
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, std::string("no newer claude-cluster installed (running ") + CLUSTER_VERSION

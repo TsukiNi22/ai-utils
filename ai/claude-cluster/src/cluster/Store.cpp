@@ -261,6 +261,7 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         {"model_label", cluster::model_label(snap.spec.backend, snap.modelUsed)}, {"effort_label", cluster::effort_label(snap.spec.effort, this->_config.effort, snap.spec.backend, snap.modelUsed)},
         {"queued", snap.queued}, {"queue_given", snap.queueGiven}, {"summary", snap.spec.summary}, {"pinned", snap.spec.pin.is_object() ? cluster::Json{{"kind", snap.spec.pin.value("kind", std::string())}, {"id", snap.spec.pin.value("id", std::string())}, {"title", snap.spec.pin.value("title", std::string())}} : cluster::Json()}, {"category", snap.spec.category}, {"tags", snap.spec.tags}, {"resumable", cluster::resumable(snap)},
         {"warning", !snap.warning.empty() && cluster::now() - snap.warningAt < 60 ? snap.warning : std::string()},
+        {"keep_warm", cluster::keep_warm_on(this->_config, snap.spec)},
         {"tokens", {{"last", m.last.total()}, {"current", m.current.total()}, {"total", m.total.total()},
             {"detail", {{"last", usage_json_(m.last)}, {"current", usage_json_(m.current)}, {"total", usage_json_(m.total)}}}}},
         {"context", {{"used", m.contextUsed}, {"window", m.contextWindow}}},

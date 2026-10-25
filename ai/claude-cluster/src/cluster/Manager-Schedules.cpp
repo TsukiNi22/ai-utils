@@ -637,6 +637,7 @@ _cold void cluster::Manager::handoff_(void)
             const cluster::Json queued = given.value("queued", cluster::Json::object());
             for (cluster::Json::const_iterator it = queued.begin(); it != queued.end(); ++it)
                 if (!this->_handoff["queued"].contains(it.key())) this->_handoff["queued"][it.key()] = it.value();
+            this->_handoff["background"] = given.value("background", cluster::Json::object()); // a forced switch: the background it stopped
         }
         if (!this->_handoff.is_object()) return;
         if (this->_handoff.value("web", false) && this->_web != nullptr && !this->_web->status().on) {
@@ -676,7 +677,26 @@ _cold void cluster::Manager::handoff_(void)
             } catch (const utils::exception::IException&) {}
         it = queued.erase(it);
     }
-    if ((!turns.is_array() || turns.empty()) && (!queued.is_object() || queued.empty())) this->_handoff = cluster::Json();
+    // a forced switch stopped its background shells / agents: its session asked to run them again, once its turn is over
+    cluster::Json& background = this->_handoff["background"];
+    for (auto it = background.begin(); background.is_object() && it != background.end();) {
+        if (!ready(it.key()) || (turns.is_array() && std::find(turns.begin(), turns.end(), cluster::Json(it.key())) != turns.end())) {
+            ++it;
+            continue;
+        }
+        std::string list;
+        for (const cluster::Json& b: it.value())
+            list += "\n- " + std::string(b.value("kind", std::string()) == "shell" ? "background shell" : "background agent") + " \""
+                + cluster::one_line(b.value("description", std::string()), 160) + "\"" + (b.value("prompt", std::string()).empty() ? std::string()
+                : " (it was: " + cluster::one_line(b.value("prompt", std::string()), 300) + ")");
+        try {
+            this->send(it.key(), "[claude-cluster was switched to another version: these background items of yours were stopped by the switch:" + list
+                + "\nStart again the ones still needed, the same way.]", false, {}, "wake");
+        } catch (const utils::exception::IException&) {}
+        it = background.erase(it);
+    }
+    if ((!turns.is_array() || turns.empty()) && (!queued.is_object() || queued.empty()) && (!background.is_object() || background.empty()))
+        this->_handoff = cluster::Json();
 }
 
 _cold void cluster::Manager::fireSchedules_(void)

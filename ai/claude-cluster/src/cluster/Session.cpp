@@ -1897,6 +1897,13 @@ _cold std::int64_t cluster::Session::countTurn(void)
     return ++this->_data.spec.turns;
 }
 
+_cold void cluster::Session::setKeepWarm(const bool on)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_data.spec.keepWarm = on;
+    this->touch_();
+}
+
 _cold void cluster::Session::togglePanel(const std::string& panel)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);

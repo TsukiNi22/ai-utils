@@ -405,21 +405,25 @@ _cold bool cluster::Core::otherBuild_(const bool window)
     const std::vector<int> interfaces = cluster::interface_pids();
     const std::string question = "claude-cluster " + theirs + " runs the core of your sessions; this one is " + cluster::build_id() + ".\n\n"
         "Replace it: its terminals / windows (" + std::to_string(interfaces.size()) + ") and its core stopped (the sessions kept: resumed by this one), "
-        "this version started.\nQuit: nothing changed (open the other version, or close it first).\n\nIts service, if any, runs on: claude-cluster service restart.";
+        "this version started.\nForce the switch: nothing waited for - its turns and its background shells / agents stopped now, then continued / run "
+        "again by this version; its terminals / windows kept, they follow the new core (an Updating popup on them meanwhile).\nQuit: nothing changed "
+        "(open the other version, or close it first).\n\nIts service, if any, runs on: claude-cluster service restart.";
     int choice = -1;
     #ifdef CLUSTER_GUI
-        if (window) choice = cluster::gui_choice("claude-cluster: another version runs", question, {"Replace it", "Quit"});
+        if (window) choice = cluster::gui_choice("claude-cluster: another version runs", question, {"Replace it", "Force the switch", "Quit"});
     #endif
     if (!window) {
-        std::cout << question << "\n\n[r] replace it   [q] quit (default) > " << std::flush;
+        std::cout << question << "\n\n[r] replace it   [f] force the switch   [q] quit (default) > " << std::flush;
         std::string answer;
         (void)std::getline(std::cin, answer);
-        choice = cluster::lower(cluster::trim(answer)) == "r" ? 0 : 1;
+        const std::string picked = cluster::lower(cluster::trim(answer));
+        choice = picked == "r" ? 0 : picked == "f" ? 1 : 2;
     }
-    if (choice != 0) {
+    if (choice != 0 && choice != 1) {
         if (!window) std::cout << "nothing changed" << std::endl;
         return false;
     }
+    const bool force = choice == 1;
     // what it has going, handed to this version (handoff.json, applied by the new core) - never waited for: its web access open, the
     // turns it runs (stopped now, continued by the new core), the prompts of its queues (taken out of it, sent again)
     cluster::Json handoff = {{"web", false}, {"turns", cluster::Json::array()}, {"queued", cluster::Json::object()}, {"at", cluster::now()}};
@@ -443,15 +447,61 @@ _cold bool cluster::Core::otherBuild_(const bool window)
             if (!taken.empty()) handoff["queued"][id] = taken;
         }
     } catch (const utils::exception::IException&) {}
+    if (force) {
+        // forced: its background shells / agents stopped (run again by the sessions after the switch), its turns stopped (continued)
+        handoff["background"] = cluster::Json::object();
+        try {
+            const cluster::Json agents = cluster::Control::request({{"cmd", "agents"}});
+            for (const cluster::Json& a: agents.value("data", cluster::Json::array())) {
+                if (a.value("status", std::string()) != "running" || a.value("taskId", std::string()).empty()) continue;
+                const std::string session = a.value("session", std::string());
+                handoff["background"][session].push_back({{"kind", a.value("kind", std::string("agent"))}, {"description", a.value("description", std::string())},
+                    {"prompt", a.value("prompt", std::string())}});
+                (void)cluster::Control::request({{"cmd", "agent_stop"}, {"session", session}, {"task", a.value("taskId", std::string())}});
+            }
+        } catch (const utils::exception::IException&) {}
+        for (const cluster::Json& id: handoff["turns"])
+            try {
+                (void)cluster::Control::request({{"cmd", "interrupt"}, {"session", id.get<std::string>()}});
+            } catch (const utils::exception::IException&) {}
+    }
     try {
         cluster::write_json(cluster::data_dir() / "handoff.json", handoff);
     } catch (const utils::exception::IException&) {}
+    if (force) {
+        // the old core asked to update itself to the binary on disk (this one): its terminals / windows follow it with its Updating popup,
+        // nothing left running holds it back; refused (another binary, ignored...) or too long: stopped by hand below
+        bool asked = false;
+        try {
+            const cluster::Json hello = cluster::Control::request({{"cmd", "hello"}});
+            if (hello.value("ok", false) && hello["data"].value("binary", std::string()) == cluster::self_exe().string())
+                asked = cluster::Control::request({{"cmd", "upgrade"}, {"action", "update"}}).value("ok", false);
+        } catch (const utils::exception::IException&) {}
+        if (!window) std::cout << (asked ? "switching: the old core updates itself to this version, its terminals / windows follow it…" : "switching: the old core stopped…") << std::flush;
+        for (int i = 0; asked && i < 150; ++i) { // 15 s at most (a turn that ignores its interrupt): then stopped by hand below
+            try {
+                const cluster::Json hello = cluster::Control::request({{"cmd", "hello"}});
+                if (hello.value("ok", false) && hello["data"].value("build", std::string()) == cluster::build_id()) {
+                    if (!window) std::cout << " done (" << handoff["turns"].size() << " turn(s) continued, " << handoff["background"].size()
+                        << " session(s) asked to run their background again)" << std::endl;
+                    return true;
+                }
+            } catch (const utils::exception::IException&) {}
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if (!window) std::cout << (asked ? " still busy: stopped by hand" : "") << std::endl;
+    }
     if (!window) std::cout << "taken over: " << handoff["turns"].size() << " running turn(s) (continued), " << handoff["queued"].size()
         << " session(s) with queued prompts" << (handoff["web"].get<bool>() ? ", the web access (opened again)" : "") << std::endl;
     // its interfaces first (they would start their core again), then its watcher (it would start it again) and the core; waited for
-    // (10 s, then killed)
-    for (const int pid: interfaces)
+    // (10 s, then killed). Forced: the interfaces of this binary kept (they follow the new core by themselves, same terminal / window)
+    std::vector<int> stopped;
+    for (const int pid: interfaces) {
+        std::error_code same;
+        if (force && std::filesystem::read_symlink("/proc/" + std::to_string(pid) + "/exe", same).string().starts_with(cluster::self_exe().string())) continue;
         (void)::kill(pid, SIGTERM);
+        stopped.push_back(pid);
+    }
     const int core = cluster::Control::corePid();
     if (core > 0) {
         std::ifstream stat("/proc/" + std::to_string(core) + "/stat");
@@ -468,7 +518,7 @@ _cold bool cluster::Core::otherBuild_(const bool window)
     for (int i = 0; i < 100 && (cluster::Control::alive() || (core > 0 && ::kill(core, 0) == 0)); ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (core > 0 && ::kill(core, 0) == 0) (void)::kill(core, SIGKILL);
-    for (const int pid: interfaces)
+    for (const int pid: stopped)
         if (::kill(pid, 0) == 0) (void)::kill(pid, SIGKILL);
     std::error_code error;
     if (!cluster::Control::alive()) std::filesystem::remove(cluster::socket_path(), error); // left by a killed one

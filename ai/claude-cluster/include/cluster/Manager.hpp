@@ -47,6 +47,7 @@ File Description:
 
     #define GLOBAL_ID "g" // id of the global session
     #define TASKS_ID "tasks" // the Tasks session of the interfaces (its todo lists, the task queue, the schedules): not a session
+    #define KEEP_WARM_MARK "[claude-cluster keep-warm:" // the start of a keep-warm prompt (never a real prompt of the user)
 
 namespace cluster { // namespace start
 class Web;
@@ -128,6 +129,8 @@ struct Hit {
 /* FUNCTION */
 
 _cold bool start_core(const std::vector<std::string>& args = {});   // the core in a process of its own (its options), false not started
+// the session kept warm (its prompt cache never let expire): [sessions] keep_warm = all, or chosen and the session marked
+_nodiscard inline bool keep_warm_on(const cluster::Config& c, const cluster::SessionSpec& s) {return c.keepWarm == "all" || (c.keepWarm == "chosen" && s.keepWarm);};
 
 //----------------------------------------------------------------//
 /* CLASS */
@@ -198,7 +201,7 @@ class Manager {
         std::string _upgradeWaiting;               // what it waits for (shown while it waits)
         std::string _upgradeJump;                  // patch | minor | major
         std::vector<std::string> _upgradeNotes;    // what the offered version brings (read from its binary)
-        std::string _upgradeIgnored;
+        std::string _upgradeIgnored;               // read by the Update card (upgradeIgnored)
         std::int64_t _exeStamp = 0;
         std::atomic<bool> _upgradeStarted{false};
         std::atomic<bool> _upgrading{false};
@@ -315,7 +318,8 @@ class Manager {
         _cold void scanTranscripts_(void);                  // in a thread: what grew
         _cold void refreshAccount_(void);                   // in a thread: the windows of the account
         _cold void limitMemory_(const std::vector<std::shared_ptr<cluster::Session>>& sessions);
-        _cold void restartYoung_(std::set<std::string>& restarted);  // an update: the young safe background items stopped (run again after it), noted // the transcripts in memory: each within its budget, all within the global one
+        _cold void restartYoung_(std::set<std::string>& restarted);  // an update: the young safe background items stopped (run again after it), noted
+        _cold void keepWarm_(void);                                  // the idle sessions kept warm woken up before their prompt cache expires // the transcripts in memory: each within its budget, all within the global one
         _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
         void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)
         _cold void relaunch_(const std::string& id, const cluster::SessionSpec& spec); // started again with this spec (same conversation)
@@ -421,6 +425,7 @@ class Manager {
         _cold void cd(const std::string& id, const std::string& cwd);
         _cold void togglePanel(const std::string& id, const std::string& panel);
         _cold cluster::Json loadOlder(const std::string& id, const std::size_t count); // older entries of its transcript loaded again from its log ({loaded, older})
+        _cold std::string setKeepWarm(const std::string& id, const std::string& value); // on | off | toggle: the session kept warm (the mode chosen if off)
         _cold void setRemote(const bool on);
 
         /* tasks (Manager-Tasks.cpp) */

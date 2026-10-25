@@ -246,6 +246,13 @@ _cold cluster::Json cluster::services(cluster::Manager& manager)
     out["outside"] = {{"mode", c.web.remote}, {"upnpc", slow.value("upnpc", false)}, {"tailscale", slow.value("tailscale", std::string("missing"))},
         {"remote_ok", web && web->remoteOk}, {"remote_url", web ? web->remoteUrl : ""}, {"why", web ? web->remoteState : ""},
         {"port", c.web.remotePort > 0 ? c.web.remotePort : c.web.port}};
+    // update: this version, the one installed on disk, the one offered, the one ignored
+    {
+        const cluster::UpgradeOffer offer = manager.upgradeOffer();
+        const std::optional<cluster::Json> kept = cluster::read_json(cluster::data_dir() / "upgrade.json");
+        out["update"] = {{"running", CLUSTER_VERSION}, {"installed", cluster::binary_version(cluster::self_exe())}, {"offered", offer.version},
+            {"upgrading", offer.started}, {"ignored", kept && kept->is_object() ? kept->value("ignored", std::string()) : std::string()}};
+    }
     out["refresh"] = c.services.refresh;
     out["delay"] = c.services.delay;
     return out;
@@ -389,6 +396,10 @@ _cold static std::string act_(cluster::Manager& manager, const std::string& serv
         }
         return stopped == 0 ? std::string("no shell running") : std::to_string(stopped) + " shell(s) stopped (their sessions go on)";
     }
+    if (service == "update") { // the newer version installed: asked for again (an ignored one too), or the update started
+        need(action == "update" || action == "offer" || action == "check");
+        return manager.upgradeAct(action);
+    }
     if (service == "mcp") {
         need(action == "restart_global");
         manager.restartGlobal();
@@ -402,7 +413,8 @@ _cold std::string cluster::service_act(cluster::Manager& manager, const std::str
     // its popup while it takes time, its failure (OK / Retry) when an interface asked it
     if (manager.replica()) return manager.call({{"cmd", "service_act"}, {"service", service}, {"action", action}, {"ui", true}}).value("message", std::string());
     const std::string title = (service == "service" ? std::string("Service (systemd)") : service == "web" ? std::string("Web access") : service == "core" ? std::string("Core")
-        : service == "voice" ? std::string("Voice") : service == "mcp" ? std::string("MCP") : service == "processes" ? std::string("Processes") : std::string("Outside"))
+        : service == "voice" ? std::string("Voice") : service == "mcp" ? std::string("MCP") : service == "processes" ? std::string("Processes")
+        : service == "update" ? std::string("Update") : std::string("Outside"))
         + ": " + action;
     cluster::Busy busy(manager, title);
     cluster::debug("service", title);
@@ -456,6 +468,13 @@ _cold std::string cluster::service_summary(const std::string& name, const cluste
     if (name == "voice") return !s.value("enabled", false) ? std::string("off (Voice > enabled)") : s.value("listening", false) ? std::string("listening")
         : s.value("running", false) ? "on (" + s.value("mode", std::string()) + ")" : std::string("stopped");
     if (name == "mcp") return std::to_string(s.value("servers", cluster::Json::array()).size()) + " server(s) · global session " + s.value("global", std::string());
+    if (name == "update") {
+        const std::string running = s.value("running", std::string());
+        const std::string installed = s.value("installed", std::string());
+        if (s.value("upgrading", false)) return "updating to " + s.value("offered", installed) + "…";
+        if (installed.empty() || cluster::version_compare(installed, running) <= 0) return "up to date (" + running + ")";
+        return installed + " installed (running " + running + ")" + (s.value("ignored", std::string()) == installed ? std::string(" · ignored") : std::string(" · offered"));
+    }
     if (name == "processes") return "claude-cluster " + s.value("version", std::string()) + " · up " + duration_(cluster::now() - s.value("since", cluster::now())) + " · "
         + std::to_string(s.value("total_kb", std::int64_t{0}) / 1024) + " MB in all · " + cluster::human_tokens(s.value("tokens", std::int64_t{0})) + " tokens this launch";
     if (name == "outside") {
@@ -518,6 +537,11 @@ _cold std::vector<cluster::ServiceLine> cluster::service_lines(const std::string
             out.push_back({"» " + h.get<std::string>(), "heard"});
         for (const cluster::Json& m: s.value("missing", cluster::Json::array()))
             out.push_back({"✗ missing: " + m.get<std::string>(), "error"});
+    } else if (name == "update") {
+        const std::string installed = s.value("installed", std::string());
+        out.push_back({"running " + s.value("running", std::string()) + " · installed on disk " + (installed.empty() ? std::string("unknown") : installed), "text"});
+        if (!s.value("ignored", std::string()).empty()) out.push_back({"ignored: " + s.value("ignored", std::string()) + " (Offer it again: its popup back)", "log"});
+        out.push_back({"a new version: installed by ./setup.sh install claude-cluster, then offered here (Update keeps the sessions)", "log"});
     } else if (name == "mcp") {
         const cluster::Json servers = s.value("servers", cluster::Json::array());
         if (servers.empty()) out.push_back({"none (MCP > Custom MCP servers)", "log"});
@@ -586,6 +610,16 @@ _cold std::vector<std::pair<std::string, std::string>> cluster::service_buttons(
     }
     if (name == "voice") return {s.value("listening", false) ? Button{"Stop", "stop"} : Button{"Listen", "listen"}, {"Mute", "mute"}};
     if (name == "mcp") return {{"Restart the global session", "restart_global"}};
+    if (name == "update") {
+        const std::string installed = s.value("installed", std::string());
+        std::vector<Button> buttons;
+        if (!installed.empty() && cluster::version_compare(installed, s.value("running", std::string())) > 0 && !s.value("upgrading", false)) {
+            buttons.push_back({"Update now", "update"});
+            if (s.value("ignored", std::string()) == installed) buttons.push_back({"Offer it again", "offer"});
+        }
+        buttons.push_back({"Check again", "check"});
+        return buttons;
+    }
     if (name == "processes") {
         std::vector<Button> buttons;
         for (const cluster::Json& session: s.value("sessions", cluster::Json::array()))

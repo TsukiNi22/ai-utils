@@ -356,6 +356,16 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.memoryTotalMb);}},
             {"sessions", "memory_entries", "Transcript in memory (entries)", SettingKind::Int, {}, "also at most this number of entries in memory per "
                 "conversation; 0: off (the size only, the default)", false, [](const cluster::Config& cf) {return std::to_string(cf.memoryEntries);}},
+            {"sessions", "keep_warm", "Keep warm (auto wake-up)", SettingKind::Choice, {"off", "chosen", "all"}, "an idle session woken up a little before its "
+                "prompt cache expires, so its context is never unloaded (the next prompt fast and cheap): a tiny turn (the agent answers ok) costing a "
+                "cache read.\n• off: never (the default)\n• chosen: the sessions marked (/keepwarm, the palette: Keep this session warm)\n• all: every "
+                "session\nThe sessions kept warm show ♨", false, [](const cluster::Config& cf) {return cf.keepWarm;}},
+            {"sessions", "keep_warm_ttl", "Keep warm: cache life (min)", SettingKind::Int, {}, "how long the prompt cache of the agent lives: 5 (the "
+                "default of Claude Code), 60 with a 1 h cache", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmTtl);}},
+            {"sessions", "keep_warm_margin", "Keep warm: margin (s)", SettingKind::Int, {}, "the wake-up this long before the cache expires (10 to 600 s; "
+                "45: room for a slow start)", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmMargin);}},
+            {"sessions", "keep_warm_hours", "Keep warm: for (hours)", SettingKind::Int, {}, "kept warm so long after its last real prompt, then left to "
+                "cool (0: always)", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmHours);}},
             {"sessions", "task_queue", "Task queue", SettingKind::Int, {}, "tasks waiting for a free place, at most (a new one past it is refused)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.taskQueue);}},
             {"sessions", "task_result_chars", "Task result size", SettingKind::Int, {}, "the answer kept in a task (its result, chained into the prompt of the "
@@ -625,6 +635,10 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"services", "svc_voice", "Voice", SettingKind::Action, {},
                 "the voice of the core: listening or not, what it hears now (what is being said, the transcriptions waiting), what it misses", false,
                 [](const cluster::Config&) {return std::string("voice");}},
+            {"services", "svc_update", "Update", SettingKind::Action, {},
+                "the version running and the one installed on disk (./setup.sh install claude-cluster): a newer one is offered in a popup (Update / Ignore / "
+                "Quit); ignored, it comes back here.\n• Update now: the smooth update (the turns end first, the sessions kept)\n• Offer it again: its popup back "
+                "(no longer ignored)\n• Check again: the binary on disk read again (also /update)", false, [](const cluster::Config&) {return std::string("update");}},
             {"services", "svc_mcp", "MCP servers", SettingKind::Action, {},
                 "the MCP servers given to the global session (MCP > Custom MCP servers): Restart the global session to load them again", false,
                 [](const cluster::Config&) {return std::string("mcp");}},

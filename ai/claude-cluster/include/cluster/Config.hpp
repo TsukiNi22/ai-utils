@@ -319,6 +319,10 @@ class Config {
         int memoryMb = 1;                       // each transcript in memory (what the interfaces show): its newest entries within this size, the older ones loaded on demand
         int memoryTotalMb = 100;                // every transcript in memory together: past it, the oldest entries of each dropped (on demand again)
         int memoryEntries = 0;                  // also at most this number of entries in memory per transcript (0: off, the size only)
+        std::string keepWarm = "off";           // off | chosen (the sessions marked, /keepwarm) | all: an idle session woken up before its prompt cache expires
+        int keepWarmTtl = 5;                    // minutes the prompt cache of the agent lives (5; 60 with a 1 h cache)
+        int keepWarmMargin = 45;                // seconds before it expires: the wake-up then
+        int keepWarmHours = 2;                  // kept warm for so long after the last real prompt (0: always)
         std::string queueGiven = "end";         // a prompt queued while the turn runs: end (kept here, editable, F8 sends it now; after the turn) | step (given to claude, taken at its next step)
         double budget = 0.0;
         bool questionsToGlobal = true;          // the questions of the sub-sessions shown on the global session (their own one: greyed)

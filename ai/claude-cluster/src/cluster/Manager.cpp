@@ -602,6 +602,51 @@ _cold void cluster::Manager::limitMemory_(const std::vector<std::shared_ptr<clus
     cluster::debug("core", "transcripts in memory: " + std::to_string(used / 1024 / 1024) + " MB past " + std::to_string(total / 1024 / 1024) + " MB, the oldest entries dropped");
 }
 
+_cold std::string cluster::Manager::setKeepWarm(const std::string& id, const std::string& value)
+{
+    // a session kept warm or not; marked while the mode is off: the mode becomes chosen (the marked ones only)
+    if (this->_replica) return this->call({{"cmd", "keep_warm"}, {"session", id}, {"value", value}}).value("message", std::string());
+    const std::string session = this->resolve(id);
+    const std::shared_ptr<cluster::Session> target = this->get_(session);
+    const bool on = value == "on" || (value != "off" && !target->snapshot().spec.keepWarm);
+    target->setKeepWarm(on);
+    std::string mode = this->_config.keepWarm;
+    if (on && mode == "off") {
+        (void)cluster::settings_set(this->_config, "sessions", "keep_warm", "chosen");
+        (void)this->_config.reload();
+        mode = "chosen";
+    }
+    this->save();
+    ++this->_version;
+    return std::string(on ? "kept warm ♨" : "no longer kept warm") + " (mode " + mode + (mode == "all" ? ": every session is kept warm whatever its mark" : "")
+        + "; woken up " + std::to_string(this->_config.keepWarmMargin) + " s before its " + std::to_string(this->_config.keepWarmTtl) + " min cache expires)";
+}
+
+_cold void cluster::Manager::keepWarm_(void)
+{
+    // an idle session kept warm, its last entry close to the end of its prompt cache (ttl - margin): a tiny turn now, the cache read again
+    // (and kept). Never when it works, asks, queues or runs its background; never after the cache expired (the core was down: left to
+    // cool) nor past keep_warm_hours after its last real prompt
+    if (this->_replica || this->_closing || this->_holding || this->_config.keepWarm == "off") return;
+    const std::int64_t now = cluster::now();
+    const std::int64_t ttl = static_cast<std::int64_t>(this->_config.keepWarmTtl) * 60;
+    const std::int64_t margin = std::min<std::int64_t>(this->_config.keepWarmMargin, ttl - 5);
+    for (const cluster::Snapshot& s: this->list(true)) {
+        if (!cluster::keep_warm_on(this->_config, s.spec) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0
+            || cluster::background_busy(s) || s.entries.empty())
+            continue;
+        const std::int64_t last = s.entries.back().time;
+        if (now - last < ttl - margin || now - last > ttl) continue;
+        std::int64_t real = 0;
+        for (auto it = s.entries.rbegin(); it != s.entries.rend() && real == 0; ++it)
+            if (it->kind == cluster::EntryKind::User && !it->text.starts_with(KEEP_WARM_MARK)) real = it->time;
+        if (this->_config.keepWarmHours > 0 && real > 0 && now - real > static_cast<std::int64_t>(this->_config.keepWarmHours) * 3600) continue;
+        try {
+            this->send(s.spec.id, std::string(KEEP_WARM_MARK) + " nothing to do: reply with just: ok]", false, {}, "wake");
+        } catch (const utils::exception::IException&) {}
+    }
+}
+
 _cold void cluster::Manager::togglePanel(const std::string& id, const std::string& panel)
 {
     this->get_(id)->togglePanel(panel);
@@ -1335,6 +1380,7 @@ _cold void cluster::Manager::tick(void)
             if (seconds % 60 == 17 && this->_config.transcriptLimitMb > 0) session->limitLog(static_cast<std::uintmax_t>(this->_config.transcriptLimitMb) * 1024 * 1024);
         }
         if (seconds % 60 == 19) this->limitMemory_(sessions);
+        if (seconds % 15 == 7) this->keepWarm_();
     }
     if (seconds % 60 == 2) this->scanTranscripts_();        // the transcripts of Claude Code: what grew
     if (seconds % 30 == 3) this->refreshAccount_();         // the windows of the account (read from the shared copy, fetched once too old)

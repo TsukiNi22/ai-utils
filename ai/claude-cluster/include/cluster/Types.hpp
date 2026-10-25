@@ -216,6 +216,7 @@ struct SessionSpec {
     std::vector<std::string> tags;  // its labels (several, lower case), same
     std::int64_t turns = 0;         // its turns finished
     cluster::Json pin;              // the pinned item (null: none): {kind: display | message, id, title, by, at, role, text}
+    bool keepWarm = false;          // chosen to be kept warm ([sessions] keep_warm = chosen): woken up before its prompt cache expires
 };
 
 // A shell command checked by a trigger (on_event command of a task, if.command of a schedule): what it must print or return, how

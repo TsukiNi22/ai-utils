@@ -53,6 +53,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     std::vector<cluster::Action> list = {
         {"settings", "Settings: every option (setup page, like a BIOS)", "", "", true},
         {"plugins", "Plugins: sources (a repository, a folder, a .zip), install / remove, on / off, their files", "", "", true},
+        {"keep_warm", "Keep this session warm (or not): woken up before its prompt cache expires, ♨ on it", "", "", false},
         {"graph", "Graph (terminal): the global session and the sessions around it, moved / zoomed with the mouse or Z Q S D / A E (Alt+G)", "", "", true},
         {"upgrade", "Update claude-cluster to the newer version installed (the sessions kept, nothing to restart)", "", "", false},
         {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
@@ -494,6 +495,8 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         } else if (base == "info") {
             result.message = session_info_(manager, session);
             result.ui = "message"; // a popup in every interface
+        } else if (base == "keep_warm") {
+            result.message = manager.setKeepWarm(session, "toggle");
         } else if (base == "upgrade") { // the update by hand: its progress popup (waiting for the turns, saving, starting the new version) in every interface
             result.message = manager.upgradeAct("update");
         } else if (base == "pin_display" || base == "pin_entry" || base == "pin_last") {
@@ -668,6 +671,8 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"status", "the same as /info"},
         {"mcp", "the MCP servers given to the sessions: a popup"},
         {"plugins", "the plugins browser: sources (repositories, folders, .zip), install / remove, on / off, their files"},
+        {"update", "the newer claude-cluster installed: updated now (the turns end first, the sessions kept), an ignored one too; 'check': asked again in its popup"},
+        {"keepwarm", "[on|off]: this session kept warm - woken up a little before its prompt cache expires (its context never unloaded); ♨ on it"},
         {"rewind", "go back in the conversation: the chooser of its prompts (= Esc on an empty prompt)"},
         {"exit", "close the session (= /close)"},
         {"delete", "delete the session for good: asked first (/delete! at once); /close keeps it in the trash"},
@@ -1182,6 +1187,11 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
             result.ui = "message";
         } else if (name == "plugins") {
             result.ui = "plugins";
+        } else if (name == "keepwarm") { // /keepwarm [on|off]: this session kept warm (toggled without a word)
+            const std::string value = cluster::trim(arg) == "on" || cluster::trim(arg) == "off" ? cluster::trim(arg) : std::string("toggle");
+            result.message = manager.setKeepWarm(session, value);
+        } else if (name == "update") { // /update: the update now; /update check: its popup again (an ignored version too), or up to date
+            result.message = manager.upgradeAct(cluster::trim(arg) == "check" ? "offer" : "update");
         } else if (name == "agents") {
             result.ui = "agents";
         } else if (name == "rewind") {

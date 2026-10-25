@@ -1224,6 +1224,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
                     "not allowed: the user did not let the global session fork (settings page > Sessions > Global session can fork)");
             data = {{"id", manager.forkSession(session(), arg_(request, "name"))}};
+        } else if (cmd == "keep_warm") { // a session kept warm or not: on | off | toggle
+            data = {{"message", manager.setKeepWarm(session(), request.value("value", std::string("toggle")))}};
         } else if (cmd == "older") {
             // scrolled to the top of a transcript: its older entries read again from its log
             data = manager.loadOlder(session(), static_cast<std::size_t>(std::clamp(request.value("count", 300), 1, 5000)));

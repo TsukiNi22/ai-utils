@@ -991,7 +991,9 @@ session told by the new version), every other one is waited for - then the sessi
 binary in its own place (same pid: a systemd service keeps running, same arguments, the sessions resumed at once), its
 terminals and windows follow it by themselves (an *Updating claude-cluster…* popup while it starts, then each one runs
 the new binary too, same pid, same terminal) and the web pages reload; the conversations go on (`--resume`), a notice
-says `updated: 1.4.17 -> 1.4.18`. Never from the web page or the global session (the user only).
+says `updated: 1.4.17 -> 1.4.18`. Never from the web page or the global session (the user only). Ignored, or missed: **`/update`**
+updates now (an ignored version too), `/update check` brings its popup back, and **Settings > Services > Update** shows the version
+running and the one installed (offered or ignored) with *Update now*, *Offer it again* and *Check again* (the binary on disk read again).
 
 ## Plugins and skills
 
@@ -1461,7 +1463,11 @@ it again; the window, the web page: its buttons):
 **Limits** (settings > *Sessions*): the prompt history (↑, Ctrl+R: `history.jsonl`) keeps its newest **1000** prompts
 (`history_limit`), each conversation kept here (`logs/<session>.jsonl`, with its pictures and display blocks) its
 newest entries within **25 MB** (`transcript_limit_mb`, checked at its start and every minute); the conversation of the
-agent itself is never touched; 0 = no limit. **In memory** (what the interfaces show) each transcript keeps its newest entries
+agent itself is never touched; 0 = no limit. **Keep warm** (`[sessions] keep_warm`: `off` by default, `chosen`, `all`): an idle
+session is woken up a little before its prompt cache expires (`keep_warm_ttl` 5 min, 60 with a 1 h cache; `keep_warm_margin` 45 s
+before), a tiny turn the agent answers *ok*, so its context is never unloaded; kept so for `keep_warm_hours` (2) after its last real
+prompt, never when it works, asks or runs its background. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
+`chosen`); the sessions kept warm show **♨** in every list. **In memory** (what the interfaces show) each transcript keeps its newest entries
 within **1 MB** (`memory_mb`) and all of them together within **100 MB** (`memory_total_mb`: past it, the oldest entries of each
 leave the memory); the size counts, not a number of entries (`memory_entries`, off by default, adds one). Scrolled to its top, a
 transcript draws more of its entries, then reads the older ones again from its log (`older`: the core keeps them while they are
@@ -1541,7 +1547,11 @@ window: a dialog): **replace it** - the terminals / windows of the other version
 and its core stopped (10 s, then killed), the sessions resumed by this version - or **quit**, nothing changed. The replace never
 waits for the other version: what it has going is handed over first (`handoff.json`) - its web access open (opened again here), the
 turns it runs (stopped, then continued by this version with a short note), the prompts of its queues (taken out of it, sent again in
-their order) - and its watcher is stopped with it (it would start the old version again). An
+their order) - and its watcher is stopped with it (it would start the old version again). **Force the switch** (`f`, the third
+choice) waits for nothing: the turns it runs are stopped (continued by the new core), its background shells / agents stopped (their
+sessions asked to run them again after the switch), then the old core is asked to update itself to this binary - its terminals and
+windows follow it in place, an *Updating* popup on them meanwhile - or, still busy after 15 s, stopped by hand (its interfaces of the
+same binary kept: they follow the new core by themselves). An
 interface of another build is refused by a core (told on it: close it and open it again). Only through the local
 socket of this user, never the network; the service, its MCP servers and the headless commands are left alone (the
 service: `claude-cluster service restart`).
