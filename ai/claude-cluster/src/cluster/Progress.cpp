@@ -157,7 +157,8 @@ _cold std::optional<cluster::Progress> cluster::Manager::progress(void) const
 }
 
 /* what failed of what the user did: its popup (OK, Retry) */
-_cold std::string cluster::Manager::fail(const std::string& action, const std::string& source, const std::string& error, const std::function<void(void)>& retry)
+_cold std::string cluster::Manager::fail(const std::string& action, const std::string& source, const std::string& error, const std::function<void(void)>& retry,
+    const std::string& otherLabel, const std::function<void(void)>& other)
 {
     std::string id;
     {
@@ -167,10 +168,15 @@ _cold std::string cluster::Manager::fail(const std::string& action, const std::s
                 known.first.at = cluster::now();
                 return known.first.id;
             }
-        cluster::Failure f{(this->_replica ? "l" : "c") + std::to_string(this->_failureNext++), action, source, error, static_cast<bool>(retry), cluster::now()};
+        cluster::Failure f{(this->_replica ? "l" : "c") + std::to_string(this->_failureNext++), action, source, error, static_cast<bool>(retry), cluster::now(),
+            other ? otherLabel : std::string()};
         id = f.id;
         this->_failures.emplace_back(f, retry);
-        if (this->_failures.size() > 20) this->_failures.pop_front();
+        if (other) this->_failureOther[f.id] = other;
+        if (this->_failures.size() > 20) {
+            this->_failureOther.erase(this->_failures.front().first.id);
+            this->_failures.pop_front();
+        }
     }
     ++this->_version;
     return id;
@@ -196,10 +202,11 @@ _cold std::vector<cluster::Failure> cluster::Manager::failures(void) const
     return list;
 }
 
-_cold void cluster::Manager::failureAnswer(const std::string& id, const bool retry)
+_cold void cluster::Manager::failureAnswer(const std::string& id, const std::string& answer)
 {
-    // OK: gone; Retry: gone, what failed run again (failing again: its popup again)
+    // OK: gone; Retry: gone, what failed run again (failing again: its popup again); other: gone, its third choice run
     std::optional<std::pair<cluster::Failure, std::function<void(void)>>> found;
+    std::function<void(void)> other;
     {
         std::lock_guard<std::mutex> lock(this->_progressMutex);
         for (auto it = this->_failures.begin(); it != this->_failures.end(); ++it)
@@ -208,18 +215,32 @@ _cold void cluster::Manager::failureAnswer(const std::string& id, const bool ret
                 this->_failures.erase(it);
                 break;
             }
+        if (const auto it = this->_failureOther.find(id); it != this->_failureOther.end()) {
+            other = it->second;
+            this->_failureOther.erase(it);
+        }
         if (!found && this->_replica) this->_failureGone.insert(id);
     }
     ++this->_version;
     if (!found) {
         if (this->_replica) {
             try {
-                (void)this->call({{"cmd", "failure"}, {"id", id}, {"answer", retry ? "retry" : "ok"}});
+                (void)this->call({{"cmd", "failure"}, {"id", id}, {"answer", answer}});
             } catch (const utils::exception::IException&) {}
         }
         return;
     }
-    if (!retry || !found->second) return;
+    if (answer == "other" && other) {
+        std::thread([this, f = found->first, other]() {
+            try {
+                other();
+            } catch (const utils::exception::IException& e) {
+                (void)this->fail(f.action, f.source, std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info()));
+            }
+        }).detach();
+        return;
+    }
+    if (answer != "retry" || !found->second) return;
     std::thread([this, f = found->first, again = found->second]() {
         try {
             again();

@@ -997,7 +997,7 @@ says `updated: 1.4.17 -> 1.4.18`. Never from the web page or the global session 
 
 Like the plugins of claude.ai: **sources** of plugins / skills (settings > Plugins: one row per source like the Services -
 its counts available / installed / on, its last sync, paused or synced by hand; Enter / Open: its page in the Plugins browser;
-*+ Add a source*; `[plugins] repos`) - a
+*+ Add a source*; opened from there, Esc goes back to the settings; `[plugins] repos`) - a
 git repository (GitHub `owner/repo`, an https or git URL), a folder of this computer, or a `.zip` - listed by the
 core: a repository cloned (shallow), a `.zip` unpacked (again when it changes), a folder read in place, in
 `<data>/plugins` (its index `index.json`). A source with **auto sync** (on by default, `[plugins.auto]`) is pulled at each
@@ -1428,7 +1428,8 @@ access opened without blocking them).
 **What failed of what you did** (an action, a command, a prompt not sent, the settings not saved, a turn ending in
 an error, the port of the router not opened, an install) opens a popup in every interface: what you did, where it
 failed (its source), the error, **OK** (Enter, the default) or **Retry** (`r`: run again; failing again, its popup
-again). A request of the control socket (the CLI, a script, the MCP) is told by its answer only; the web page shows
+again), and a third choice when one fits (`u`): the web access not opened because another program uses its port offers
+**Use port N** - the next free port, saved in the settings, the web access opened on it. A request of the control socket (the CLI, a script, the MCP) is told by its answer only; the web page shows
 the failures of its own requests the same way. The web line shows the public address only when it is reached for
 sure (the router opened its port, tailscale connected, *Name from outside* given), else `outside ✕` and why.
 

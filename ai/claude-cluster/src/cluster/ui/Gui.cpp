@@ -1745,13 +1745,14 @@ class Window: public QMainWindow {
             box->setTextFormat(Qt::RichText);
             QPushButton* ok = box->addButton(QMessageBox::Ok);
             QPushButton* retry = f.retry ? box->addButton("Retry", QMessageBox::AcceptRole) : nullptr;
+            QPushButton* other = f.other.empty() ? nullptr : box->addButton(q_(f.other), QMessageBox::ActionRole); // a third choice (a free port...)
             box->setDefaultButton(ok);
             box->setAttribute(Qt::WA_DeleteOnClose);
             box->setWindowModality(Qt::NonModal);
-            QObject::connect(box, &QMessageBox::finished, this, [this, box, retry, id = f.id]() {
+            QObject::connect(box, &QMessageBox::finished, this, [this, box, retry, other, id = f.id]() {
                 const bool again = retry != nullptr && box->clickedButton() == retry;
                 this->failureBox = nullptr;
-                this->manager.failureAnswer(id, again);
+                this->manager.failureAnswer(id, other != nullptr && box->clickedButton() == other ? std::string("other") : std::string(again ? "retry" : "ok"));
                 this->refresh(true);
             });
             this->failureBox = box;

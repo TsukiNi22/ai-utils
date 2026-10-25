@@ -178,6 +178,7 @@ class Manager {
         std::vector<cluster::Progress> _progresses; // the long operations (the oldest first), their results kept 1.5 s
         std::uint64_t _progressNext = 1;
         std::deque<std::pair<cluster::Failure, std::function<void(void)>>> _failures; // failed, their retry (under _progressMutex)
+        std::map<std::string, std::function<void(void)>> _failureOther;              // their third choice, by id (under _progressMutex)
         std::uint64_t _failureNext = 1;
         std::set<std::string> _failureGone;        // the ones of the core answered here (until its next sync)
         std::atomic<int> _faceKey{-1};             // the face of the app last seen by the tick (its change: a new version)
@@ -543,9 +544,11 @@ class Manager {
         _cold void progressEnd(const std::uint64_t id, const bool ok, const std::string& text, const bool notice = true);
         _cold void progressDrop(const std::uint64_t id);
         // what failed of what the user did: its popup in every interface (OK, Retry: run again), answered once
-        _cold std::string fail(const std::string& action, const std::string& source, const std::string& error, const std::function<void(void)>& retry = {});
+        _cold std::string fail(const std::string& action, const std::string& source, const std::string& error, const std::function<void(void)>& retry = {},
+            const std::string& otherLabel = "", const std::function<void(void)>& other = {});  // other: a third choice (its label on its button)
         _cold _nodiscard std::vector<cluster::Failure> failures(void) const;
-        _cold void failureAnswer(const std::string& id, const bool retry);
+        _cold void failureAnswer(const std::string& id, const std::string& answer);   // ok | retry | other
+        _cold inline void failureAnswer(const std::string& id, const bool retry) {this->failureAnswer(id, std::string(retry ? "retry" : "ok"));};
         _cold _nodiscard std::optional<cluster::Progress> progress(void) const;    // the one shown (the first of the queue running 0.4 s, or its result)
         _cold _nodiscard std::vector<cluster::Progress> progressAll(void) const;   // this process's ones (running, results < 1.5 s)
         _cold _nodiscard std::optional<cluster::Queued> unqueue(const std::string& id); // last queued prompt, removed

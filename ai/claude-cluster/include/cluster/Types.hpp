@@ -374,6 +374,7 @@ struct Failure {
     std::string error;
     bool retry = false;             // Retry offered
     std::int64_t at = 0;
+    std::string other;              // a third choice offered (its label: "Use port 8791"), empty: none
 };
 
 // A long operation shown in a popup (an install, the sessions restored...): what it does now, its last lines

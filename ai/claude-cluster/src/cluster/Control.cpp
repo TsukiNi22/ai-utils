@@ -1058,7 +1058,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = {{"message", cluster::service_act(manager, arg_(request, "service"), arg_(request, "action"))}};
         } else if (cmd == "failure") {
             // a failure answered: OK (gone), retry (run again)
-            manager.failureAnswer(arg_(request, "id"), request.value("answer", std::string("ok")) == "retry");
+            const std::string answer = request.value("answer", std::string("ok"));
+            manager.failureAnswer(arg_(request, "id"), answer == "retry" || answer == "other" ? answer : std::string("ok"));
             data = {{"done", true}};
         } else if (cmd == "failures") {
             data = manager.failures();

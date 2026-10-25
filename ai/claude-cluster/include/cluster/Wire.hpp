@@ -33,7 +33,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SessionSpec, id, name, cwd, back
     panels, global, created, deleted, cost, tokens, summary, summaryAuto, summaryTurns, category, tags, turns, pin)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Todo, id, content, status, activeForm)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Progress, id, title, session, now, log, done, ok, started, ended)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Failure, id, action, source, error, retry, at)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Failure, id, action, source, error, retry, at, other)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ScheduleRun, at, note)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(CommandMatch, out, contains, regex, code, codeAsked, every, failAfter, failures, last)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ScheduleIf, sessionIdle, command, match, fileChanged, fileBase, usage)

@@ -706,6 +706,7 @@ class TtyUi {
         std::string _upgradeLater;                  // the newer version put off (Esc): not asked again in this run
         cluster::Json _plug = cluster::Json::object(); // the plugins page: the sources of the core (their settings, counts, items)
         std::string _plugSource;                    // the source opened (its items listed), empty: the sources
+        bool _plugFromSettings = false;             // opened from Settings > Plugins: Esc goes back there (not to the sessions)
         std::size_t _plugSrcSel = 0;                // the row of the source opened (back to it)
         std::set<std::string> _plugMarked;          // the items ticked (a bulk action)
         std::string _plugConfirm;                   // a removal / a drop asked once: the same key again does it
@@ -932,7 +933,7 @@ class TtyUi {
 
         ftxui::Element failureBox_(const std::vector<cluster::Failure>& failed)
         {
-            // what the user did, where it failed, its error; OK (Enter, the default) / Retry (r), clickable
+            // what the user did, where it failed, its error; OK (Enter, the default) / Retry (r) / its third choice (u), clickable
             const Theme& t = this->_theme;
             const cluster::Failure& f = failed.front();
             const std::string id = f.id;
@@ -948,6 +949,12 @@ class TtyUi {
             if (f.retry) {
                 buttons.push_back(ftxui::text("   "));
                 buttons.push_back(this->tap_(ftxui::text(" [r] Retry ") | ftxui::bold | ftxui::color(t.warn), 9, [this, id]() {this->_manager.failureAnswer(id, true);}));
+            }
+            if (!f.other.empty()) { // a third choice (a free port...): u
+                const std::string label = " [u] " + f.other + " ";
+                buttons.push_back(ftxui::text("   "));
+                buttons.push_back(this->tap_(ftxui::text(label) | ftxui::bold | ftxui::color(t.accent), static_cast<int>(label.size()),
+                    [this, id]() {this->_manager.failureAnswer(id, std::string("other"));}));
             }
             lines.push_back(ftxui::hbox(std::move(buttons)));
             return ftxui::vbox(std::move(lines)) | ftxui::borderRounded | ftxui::color(t.error) | ftxui::bgcolor(t.surface) | ftxui::clear_under
@@ -987,6 +994,7 @@ class TtyUi {
             // session or of the sub-sessions, the showcase of the Debug page
             if (key.starts_with("plugsrc_")) { // a source of Settings > Plugins: its page in the Plugins browser (or its field to add one)
                 this->openPlugins_();
+                this->_plugFromSettings = true;
                 if (key == "plugsrc_add") this->_plugAdd = true;
                 else this->_plugSource = key.substr(8);
                 return;
@@ -2077,6 +2085,11 @@ class TtyUi {
             if (event == ftxui::Event::Escape || event == ftxui::Event::Character('q')) {
                 if (this->_plugTree) {
                     this->_plugTree = false;
+                } else if (this->_plugFromSettings) { // opened from the settings: back there (their page, their line, the changes not saved)
+                    this->_pages = cluster::settings_pages(this->_manager.config()); // its counts read again
+                    this->_page = std::clamp(this->_page, 0, std::max(0, static_cast<int>(this->_pages.size()) - 1));
+                    this->_plugFromSettings = false;
+                    this->_mode = Mode::Settings;
                 } else if (!opened.is_null()) { // back to the sources, on the one opened
                     this->_plugSource.clear();
                     this->_plugMarked.clear();
@@ -3590,6 +3603,7 @@ class TtyUi {
         void openPlugins_(void)
         {
             this->plugLoad_();
+            this->_plugFromSettings = false;
             this->_plugSource.clear();
             this->_plugMarked.clear();
             this->_plugConfirm.clear();
@@ -7727,6 +7741,8 @@ class TtyUi {
                         this->_manager.failureAnswer(failed.front().id, false);
                     else if ((event == ftxui::Event::Character('r') || event == ftxui::Event::Character('R')) && failed.front().retry)
                         this->_manager.failureAnswer(failed.front().id, true);
+                    else if ((event == ftxui::Event::Character('u') || event == ftxui::Event::Character('U')) && !failed.front().other.empty())
+                        this->_manager.failureAnswer(failed.front().id, std::string("other"));
                     return true;
                 }
             // focus reporting of the terminal (?1004): in / out

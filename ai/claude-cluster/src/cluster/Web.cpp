@@ -16,6 +16,7 @@ File Description:
 #define _SManip
 #include <utils/utils.hpp>
 #include "cluster/Attachments.hpp"
+#include "cluster/Settings.hpp"
 #include "cluster/Templates.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
@@ -703,8 +704,24 @@ _cold void cluster::Web::open_(const int port)
         if (!error.empty()) {
             if (error != this->_error) {
                 this->_manager.notice(GLOBAL_ID, "web access: port " + std::to_string(port) + " not opened (" + error + ")", true);
+                // in use: a third choice, the next free port (saved in the settings, the access opened on it)
+                int free = 0;
+                for (int next = port + 1; inUse && free == 0 && next <= std::min(65535, port + 100); ++next) {
+                    std::string busy;
+                    const int probe = cluster::Web::listen_(next, busy);
+                    if (probe < 0) continue;
+                    ::close(probe);
+                    if (next != this->_ttyPort) free = next;
+                }
+                const std::function<void(void)> moved = [m = &this->_manager, free]() {
+                    (void)cluster::settings_set(m->config(), "web", "port", std::to_string(free));
+                    (void)m->config().reload();
+                    if (m->web() != nullptr) m->web()->reopen();
+                };
                 (void)this->_manager.fail("Open the web access", "port " + std::to_string(port) + " of this computer", error
-                    + (inUse ? " (another program uses it: change Port in the settings, or stop it)" : ""), [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();});
+                    + (inUse ? " (another program uses it: change Port in the settings, stop it, or take a free one)" : ""),
+                    [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();}, free > 0 ? "Use port " + std::to_string(free) : std::string(),
+                    free > 0 ? moved : std::function<void(void)>());
             }
             this->_error = error;
             return;

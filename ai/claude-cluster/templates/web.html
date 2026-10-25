@@ -1310,12 +1310,12 @@ function renderFailure(list) {
     const info = el("div", "info");
     info.append(el("span", "muted", "source"), el("span", "", f.source || "the computer"), el("span", "muted", "error"), el("span", "error", f.error));
     card.append(info);
-    const answer = async (again) => {
+    const answer = async (again) => {  // false: OK, true: Retry, "other": its third choice (a free port...)
         card.remove();
-        if (failureLocal) { const request = failureLocal.request; failureLocal = null; if (again) act(request); renderFailure(); return; }
+        if (failureLocal) { const request = failureLocal.request; failureLocal = null; if (again === true) act(request); renderFailure(); return; }
         failureDone.add(f.id);
         renderFailure();
-        try { await cmd({cmd: "failure", id: f.id, answer: again ? "retry" : "ok"}); } catch (error) { /* gone */ }
+        try { await cmd({cmd: "failure", id: f.id, answer: again === "other" ? "other" : again ? "retry" : "ok"}); } catch (error) { /* gone */ }
         refresh();
     };
     const buttons = el("div", "buttons");
@@ -1328,6 +1328,12 @@ function renderFailure(list) {
         again.type = "button";
         again.addEventListener("click", () => answer(true));
         buttons.append(again);
+    }
+    if (f.other) { // a third choice (a free port...)
+        const other = el("button", "", f.other);
+        other.type = "button";
+        other.addEventListener("click", () => answer("other"));
+        buttons.append(other);
     }
     card.append(buttons);
     card.addEventListener("keydown", (e) => { if (e.key === "Escape") answer(false); });
@@ -5091,7 +5097,7 @@ function simpleWindow(title, narrow) {
     close.setAttribute("aria-label", sw("close"));
     head.append(el("b", "", title), close);
     win.append(head);
-    const done = () => { layer.textContent = ""; };
+    const done = () => { layer.textContent = ""; if (win.onclosed) win.onclosed(); };
     close.addEventListener("click", done);
     shade.addEventListener("click", done);
     win.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); done(); } });
@@ -5127,6 +5133,7 @@ function pluginsWindow(open) {
     win.append(top, split, foot);
     let data = {sources: []};
     let chosen = open && open !== "+add" ? open : "";  // Settings > Plugins: the source opened there
+    if (open) win.onclosed = () => openDrawer();        // opened from the settings: closed, back to them (their Plugins tab)
     let shown = "";
     const marked = new Set();
     const now = () => Math.floor(Date.now() / 1000);
