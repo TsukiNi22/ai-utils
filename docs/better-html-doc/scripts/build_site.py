@@ -369,10 +369,11 @@ def build_index(ctx: Context, all_pages: list[dict], extra: list[dict]) -> list[
             e.pop("l", None)
     return entries
 
-def split_assets(ctx: Context) -> None:
-    """--split: the style and the scripts every page repeats move to site.css / site.js (the pages stay valid on file://)."""
+def split_assets(ctx: Context, names: list[str]) -> None:
+    """--split: the style and the scripts every page repeats move to site.css / site.js (the pages stay valid on file://).
+    Only the pages of this build: an other page of the folder (the graph.html of html-doc, an app) keeps its own style."""
     style = script = ""
-    for path in sorted(ctx.out.glob("*.html")):
+    for path in sorted(ctx.out / name for name in names):
         text = path.read_text(encoding="utf-8")
         m_style = re.search(r"<style>\n(.*?)\n</style>", text, re.S)
         scripts = re.findall(r"<script>\n(.*?)\n</script>", text, re.S)
@@ -425,7 +426,7 @@ def write_site(ctx: Context) -> None:
         target = ctx.out / source.name
         target.write_bytes(source.read_bytes())
     if ctx.split:
-        split_assets(ctx)
+        split_assets(ctx, ["index.html"] + ["%s.html" % p["slug"] for p in all_pages])
     print("built %d pages + home + index in %s (%s%s)" % (len(all_pages), ctx.out, ctx.name, (" " + ctx.version) if ctx.version else ""))
 
 def main() -> None:
