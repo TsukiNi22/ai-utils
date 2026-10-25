@@ -95,6 +95,8 @@ class Renderer:
                     i += 1
                 i += 1
                 attr = ' data-title="%s"' % html.escape(title.strip('"')) if title else ""
+                label = html.escape(title.strip('"') if title else "Code (%s)" % (lang or "text"))
+                attr += ' tabindex="0" role="region" aria-label="%s"' % label  # RGAA 7.3: a block that scrolls is reachable with the keyboard
                 out.append({"html": '<pre%s><code class="language-%s">%s</code></pre>' % (attr, lang or "text", html.escape("\n".join(code), quote=False))})
             elif re.match(r"^:::\w", line):
                 kind, _, arg = line[3:].strip().partition(" ")
@@ -207,7 +209,9 @@ class Renderer:
             return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", row)]
 
         head = cells(rows[0])
-        out = ['<div class="table-wrap"><table><thead><tr>' + "".join("<th>%s</th>" % self.inline(c) for c in head) + "</tr></thead><tbody>"]
+        name = html.escape("Table: " + ", ".join(re.sub(r"[`*]", "", c) for c in head if c.strip()), quote=True)
+        out = ['<div class="table-wrap" tabindex="0" role="region" aria-label="%s"><table><thead><tr>' % name
+               + "".join('<th scope="col">%s</th>' % self.inline(c) for c in head) + "</tr></thead><tbody>"]
         for r in rows[2:]:
             out.append("<tr>" + "".join("<td>%s</td>" % self.inline(c) for c in cells(r)) + "</tr>")
         out.append("</tbody></table></div>")

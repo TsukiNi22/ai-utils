@@ -60,7 +60,10 @@ def main():
     page = page.replace("/*@STYLE@*/", read([SKILL / "templates" / "style.css", *a.css]).rstrip())
     page = page.replace("/*@SCRIPT@*/", read([SKILL / "templates" / "base.js", *a.js]).rstrip())
     page = page.replace("<!--@ACTIONS@-->", actions)
-    page = page.replace("<!--@BODY@-->", Path(a.body).read_text(encoding="utf-8").strip())
+    body = Path(a.body).read_text(encoding="utf-8").strip()
+    if re.search(r"<main>", body):  # the target of the skip link (RGAA 12.7), focusable by the link only
+        body = body.replace("<main>", '<main id="main" tabindex="-1">', 1)
+    page = page.replace("<!--@BODY@-->", body)
     for kv in a.attr:
         if "=" not in kv:
             sys.exit(f"Error: --attr expects NAME=VALUE, got '{kv}'")

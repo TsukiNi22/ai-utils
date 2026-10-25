@@ -30,6 +30,12 @@ class Page(HTMLParser):
         self.langs: dict[str, int] = {"en": 0, "fr": 0}
         self.text: list[str] = []
         self.skip = 0
+        self.levels: list[int] = []  # RGAA 9.1: the headings
+        self.lang = ""  # RGAA 8.3
+        self.skip_link = False  # RGAA 12.7
+        self.main_id = ""
+        self.no_scope = 0  # RGAA 5.7: th without scope
+        self.not_focusable = 0  # RGAA 7.3: a block that scrolls without tabindex
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
         a = dict(attrs)
@@ -38,6 +44,18 @@ class Page(HTMLParser):
         for key in ("href", "src"):
             if a.get(key):
                 self.links.append(a[key])
+        if tag == "html":
+            self.lang = a.get("lang", "")
+        if re.fullmatch(r"h[1-6]", tag):
+            self.levels.append(int(tag[1]))
+        if tag == "main":
+            self.main_id = a.get("id", "")
+        if tag == "a" and "skip-link" in a.get("class", "").split():
+            self.skip_link = a.get("href", "") == "#" + self.main_id or not self.main_id
+        if tag == "th" and "scope" not in a:
+            self.no_scope += 1
+        if (tag == "pre" or (tag == "div" and "table-wrap" in a.get("class", "").split())) and "tabindex" not in a:
+            self.not_focusable += 1
         if a.get("data-lang") in self.langs:
             self.langs[a["data-lang"]] += 1
         if tag in ("script", "style", "pre", "code"):
@@ -50,6 +68,27 @@ class Page(HTMLParser):
     def handle_data(self, data: str) -> None:
         if not self.skip:
             self.text.append(data)
+
+def accessibility(name: str, p: Page) -> list[str]:
+    """The RGAA criteria that a page can break by its markup alone (the generator writes them: a failure is a bug of the skill)."""
+    found: list[str] = []
+    if not p.lang:
+        found.append("%s: <html> without lang (RGAA 8.3)" % name)
+    if p.levels.count(1) != 1:
+        found.append("%s: %d h1, one expected (RGAA 9.1)" % (name, p.levels.count(1)))
+    for before, after in zip(p.levels, p.levels[1:]):
+        if after > before + 1:
+            found.append("%s: heading level h%d after h%d (RGAA 9.1)" % (name, after, before))
+            break
+    if not p.skip_link:
+        found.append("%s: no skip link to the main region (RGAA 12.7)" % name)
+    if not p.main_id:
+        found.append("%s: <main> without id, the target of the skip link (RGAA 12.7)" % name)
+    if p.no_scope:
+        found.append("%s: %d th without scope (RGAA 5.7)" % (name, p.no_scope))
+    if p.not_focusable:
+        found.append("%s: %d scrolling block(s) (pre, table) without tabindex (RGAA 7.3)" % (name, p.not_focusable))
+    return found
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Check a built better-html-doc site")
@@ -72,6 +111,7 @@ def main() -> int:
     for name, p in parsed.items():
         if bilingual and p.langs["en"] != p.langs["fr"]:
             errors.append("%s: %d EN blocks but %d FR blocks" % (name, p.langs["en"], p.langs["fr"]))
+        errors += accessibility(name, p)
         found = PLACEHOLDER.search(" ".join(p.text)) if name not in args.allow_placeholder else None
         if found:
             errors.append("%s: placeholder text %r" % (name, found.group(0)))

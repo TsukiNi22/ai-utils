@@ -254,6 +254,13 @@ pre .copy:hover { color: var(--text); }
 .pager a.next { text-align: right; }
 .pager:empty { display: none; }
 /* ---------- Footer ---------- */
+/* RGAA 12.7: skip link, first focusable element of the page (visible only when focused); the target is the main region */
+.skip-link { position: absolute; left: 8px; top: -64px; z-index: 1000; padding: 10px 14px; border-radius: 8px; background: var(--accent); color: var(--surface); font-weight: 600; text-decoration: none; }
+.skip-link:focus, .skip-link:focus-visible { top: 8px; outline: 2px solid var(--text); outline-offset: 2px; }
+.skip-link code { color: var(--surface); }
+main:focus { outline: none; }
+/* RGAA 7.3: a block that scrolls (code, table) is reached and scrolled with the keyboard */
+pre:focus-visible, .table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 footer.site { max-width: 1180px; margin: 0 auto; padding: 22px 24px 30px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
 footer.site a { color: var(--accent); }
 @media (max-width: 860px) {

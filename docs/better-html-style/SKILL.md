@@ -24,7 +24,7 @@ searchable for free. Self-contained, offline, `file://`.
 |---|---|
 | home hero | `<header class="hero"><div class="page-eyebrow">Name <span class="badge">v1.2</span></div><h1>…</h1><p class="lead">…</p><div class="sbox">…</div></header>` in a `.layout.wide` |
 | big search | `<div class="sbox"><svg>…</svg><input type="search" placeholder="Search…  ( / )" data-ph-fr="Rechercher…"><ul class="results" hidden></ul></div>` |
-| section tiles | `<div class="grid"><a class="tile" href><svg>icon</svg><span class="count">3 pages</span><h3>…</h3><p>…</p></a></div>` |
+| section tiles | `<div class="grid"><a class="tile" href><svg>icon</svg><span class="count">3 pages</span><h2>…</h2><p>…</p></a></div>` (h2: a tile is a section of the home, no level skipped under the h1) |
 | two columns (stack under 860px) | `<div class="two">…</div>` |
 | changelog | `<ul class="cl"><li><b>1.2.0</b><span>what changed</span></li></ul>` |
 | row of links | `<div class="links"><a href>FAQ</a>…</div>` |
@@ -40,7 +40,9 @@ searchable for free. Self-contained, offline, `file://`.
   `{results: [...]}` for `?q=&lang=`), else the sections of the page.
 - **Ranking**: every word of the query must match; prefix > start of a word > inside > one / two typos (a missing, doubled,
   wrong or swapped letter) > letters in order (`sesend` finds `session_send`); title > description > text. Accents kept.
-- Keys: <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd> focus the search (the big one on the home), <kbd>↑</kbd> <kbd>↓</kbd>
+- Keys: <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd> focus the search (the big one on the home); <kbd>/</kbd> is a one-character
+  shortcut, so (RGAA 12.10) a checkbox in the footer turns it off (kept per site, its hint in the search box disappears),
+  <kbd>Ctrl</kbd>+<kbd>K</kbd> stays; <kbd>↑</kbd> <kbd>↓</kbd>
   move, <kbd>Enter</kbd> opens, <kbd>Esc</kbd> closes; the query words are marked in the results; `?q=text` opens with results.
 - Phone (≤ 480px): the small search leaves the bar for a sticky row under it (hidden on the home, which has its big one).
 - `?embed=1` hides the top bar and footer and keeps it on every link (docs shown in an app panel); `postMessage({docsLang,
@@ -51,6 +53,13 @@ Those of `html-style` (tokens only, both themes, contrast, self-contained, respo
 reduced motion), plus: the search works without a server and without the index (never an empty box); every interactive
 element has a visible `:focus-visible`; results and tiles are 44px tall on touch screens; the UI words are translated by
 `DOC_FR` (`site.js` adds its own: Search, Home, Edit this page, Updated, Changelog...).
+
+## 4b. Accessibility built in (RGAA 4.1, no script needed)
+The page template and the generator write what the RGAA asks, so every page is compliant by construction: a **skip link**
+(`a.skip-link` to `<main id="main">`, 12.7), `<th scope>` on every header cell (5.7), `tabindex="0"` + `role="region"` + a name
+on every block that scrolls (`pre`, `.table-wrap`, 7.3), headings without a skipped level (9.1), `lang` on `<html>` (8.3), the
+one-character shortcut controllable (12.10), a visible `:focus-visible` everywhere. `check_site.py` of `better-html-doc` fails
+a site that breaks one of them.
 
 ## 5. Check
 `python3 ../html-style/scripts/check_style.py <page.html>` (0 error), then the screenshots of `html-style` §7 (1280 / 768 /

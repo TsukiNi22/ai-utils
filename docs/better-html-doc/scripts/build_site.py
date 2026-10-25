@@ -282,7 +282,7 @@ def home_body(ctx: Context, all_pages: list[dict]) -> str:
         if not mine:
             continue
         count = '<span class="count">%d <span data-i18n>pages</span></span>' % len(mine) if len(mine) > 1 else ""
-        out.append('<a class="tile" href="%s.html">%s%s<h3>%s</h3><p>%s</p></a>' % (
+        out.append('<a class="tile" href="%s.html">%s%s<h2>%s</h2><p>%s</p></a>' % (
             mine[0]["slug"], count, TILE_SVG % sec.get("icon", DEFAULT_ICON), both_tr(ctx, sec["title"]), both_tr(ctx, sec.get("desc", ""))))
     out.append("</div>")
     changes = changelog(ctx)

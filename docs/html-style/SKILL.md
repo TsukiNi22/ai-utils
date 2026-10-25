@@ -104,6 +104,7 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 ## 5. Rules
 - Self-contained: inline CSS / JS / SVG, no CDN, no framework, no web font, no external image (inline SVG or
   `data:` URI); no gradient, no emoji, no shadow except the floating ones (open menu, popovers).
+- Accessible by the template (RGAA 4.1): `page.html` starts with a skip link to `<main id="main">` (`new_page.py` writes the id), `lang` on `<html>`, a visible `:focus-visible`; your body markup gives every `th` a `scope`, every scrolling block (`pre`, a wide table) `tabindex="0"` + `role="region"` + a name, and never skips a heading level.
 - Contrast WCAG AA in **both** themes: text >= 4.5:1, lines / meaningful graphics >= 3:1.
 - An element with its own background (`code`, `kbd`, `mark`, badge) inside an element that sets a light text
   color (accent button, dark table head, colored banner) gets an explicit override

@@ -7,7 +7,8 @@
   var root = document.documentElement;
   if (window.DOC_FR) { // the words of the site in the French table of base.js (the same object), applied again
     var words = { 'Search': 'Rechercher', 'Home': 'Accueil', 'Edit this page': 'Modifier cette page', 'Updated': 'Mis à jour', 'pages': 'pages',
-      'Changelog': 'Historique', 'Full changelog': 'Historique complet', 'Sections': 'Sections', 'On this page': 'Sur cette page' };
+      'Changelog': 'Historique', 'Full changelog': 'Historique complet', 'Sections': 'Sections', 'On this page': 'Sur cette page',
+      'Shortcut / for the search': 'Raccourci / pour la recherche' };
     for (var w in words) if (!Object.prototype.hasOwnProperty.call(window.DOC_FR, w)) window.DOC_FR[w] = words[w];
     if (window.docI18n && root.lang === 'fr') window.docI18n.apply();
   }
@@ -163,8 +164,21 @@
     }
     place(); mq.addEventListener('change', place);
   })();
-  document.addEventListener('keydown', function (ev) { // / or Ctrl+K: the search
-    if ((ev.key === '/' || ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k')) && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
+  // RGAA 12.10: "/" is a one-character shortcut, so the reader can turn it off (the choice is kept); Ctrl+K is a combination and stays
+  var skey = (root.getAttribute('data-storage-key') || 'page') + '-shortcut';
+  function slash() { try { return localStorage.getItem(skey) !== 'off'; } catch (e) { return true; } }
+  (function () {
+    var foot = document.querySelector('footer.site'); if (!foot || !document.querySelector('.sbox input') || EMBED) return;
+    var lab = document.createElement('label'), box = document.createElement('input'), txt = document.createElement('span');
+    lab.className = 'keys-toggle'; box.type = 'checkbox'; box.checked = slash(); txt.setAttribute('data-i18n', ''); txt.textContent = 'Shortcut / for the search';
+    lab.appendChild(box); lab.appendChild(txt); foot.appendChild(lab);
+    function hints() { document.querySelectorAll('.sbox kbd.hint').forEach(function (k) { k.hidden = !box.checked; }); }
+    box.addEventListener('change', function () { try { localStorage.setItem(skey, box.checked ? 'on' : 'off'); } catch (e) { /* storage unavailable */ } hints(); });
+    hints();
+    if (window.docI18n && root.lang === 'fr') window.docI18n.apply();
+  })();
+  document.addEventListener('keydown', function (ev) { // / (unless turned off) or Ctrl+K: the search
+    if (((ev.key === '/' && slash()) || ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k')) && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
       var i = document.querySelector('.hero .sbox input') || document.querySelector('.sbox input'); if (i) { ev.preventDefault(); i.focus(); i.select(); }
     }
   });

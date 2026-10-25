@@ -72,8 +72,14 @@ generator entries; `site.js` (better-html-style) ranks it (typos, prefixes, lett
 every page comes first for its title and stays in the top 3 with a typo; add the project's own cases in a JSON file
 (`[["en", "sesend", "session_send"]]`) for the words users type.
 
+## 6b. Accessibility (RGAA 4.1)
+Compliant without JavaScript, by the generator and the templates (skip link and `<main id="main">`, `scope` on every `th`,
+focusable and named scrolling blocks, no skipped heading level, `lang`), plus the search shortcut `/` that the reader can turn off
+(footer checkbox; <kbd>Ctrl</kbd>+<kbd>K</kbd> stays). Do not add a script that patches them: fix the template. A project
+page written as raw `:::html` must follow the same rules (a `th` has its `scope`, a scrolling block its `tabindex="0"`).
+
 ## 7. Check before delivering
-- `check_site.py`: links / anchors / `page:` links, EN and FR blocks balanced, no placeholder (`{{X}}`, TODO, lorem), every page
+- `check_site.py`: links / anchors / `page:` links, the RGAA structure of every page (`lang`, one `h1`, no skipped heading level, skip link, `th scope`, focusable scrolling blocks), EN and FR blocks balanced, no placeholder (`{{X}}`, TODO, lorem), every page
   in the index, `docs-map.json` targets, and `check_style.py` of html-style on every page (contrast, tokens, responsive) -
   0 error.
 - `test_search.js`: 0 FAIL.
