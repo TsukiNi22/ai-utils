@@ -113,7 +113,8 @@ Tasks and schedules
   another one) and costs no new context; a session (`session_spawn`) is for a new project or an isolated job. A task may
   start its own session (`spawn: {cwd, one_shot}`) when none fits.
 - `task_add` (`target`, `after`: task ids, `after_sessions`: sessions idle first, `on_event`: `session_idle` / `git_push` /
-  `command` exits 0 / `file` appears, `priority`, `timeout_minutes`, `retry` + `retry_delay_minutes`, `max_cost` /
+  `command` (exits 0, or `code`; its output `stdout` / `contains` / `regex`; checked `every` N s or "constantly"; `fail_after`: N
+  failures in a row and the task fails, you are told) / `file` appears, `priority`, `timeout_minutes`, `retry` + `retry_delay_minutes`, `max_cost` /
   `max_tokens`, `max_concurrency`, `expect`: `compact` or a file it writes, `notify`): work for the next free session or when
   its triggers are met. Its answer stays in `task_list` as `result` (capped) and `{{t3.result}}` in a prompt gives it to
   the next task (a chain: no round trip through you). `task_list` shows status and the `error` of a failed one;

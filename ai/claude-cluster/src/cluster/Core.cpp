@@ -420,11 +420,51 @@ _cold bool cluster::Core::otherBuild_(const bool window)
         if (!window) std::cout << "nothing changed" << std::endl;
         return false;
     }
-    // its interfaces first (they would start their core again), then the core; waited for (10 s, then killed)
+    // what it has going, handed to this version (handoff.json, applied by the new core) - never waited for: its web access open, the
+    // turns it runs (stopped now, continued by the new core), the prompts of its queues (taken out of it, sent again)
+    cluster::Json handoff = {{"web", false}, {"turns", cluster::Json::array()}, {"queued", cluster::Json::object()}, {"at", cluster::now()}};
+    try {
+        const cluster::Json web = cluster::Control::request({{"cmd", "web"}});
+        if (web.value("ok", false)) handoff["web"] = web["data"].value("on", false);
+    } catch (const utils::exception::IException&) {}
+    try {
+        const cluster::Json list = cluster::Control::request({{"cmd", "list"}});
+        for (const cluster::Json& s: list.value("data", cluster::Json::array())) {
+            const std::string id = s.value("id", std::string());
+            const std::string state = s.value("state", std::string());
+            if (id.empty()) continue;
+            if (state == "working" || state == "permission") handoff["turns"].push_back(id);
+            cluster::Json taken = cluster::Json::array();
+            for (int n = std::min(50, s.value("queued", 0)); n > 0; --n) { // the newest first: put back in order
+                const cluster::Json q = cluster::Control::request({{"cmd", "unqueue"}, {"session", id}});
+                if (!q.value("ok", false) || !q["data"].is_object()) break;
+                taken.insert(taken.begin(), q["data"]);
+            }
+            if (!taken.empty()) handoff["queued"][id] = taken;
+        }
+    } catch (const utils::exception::IException&) {}
+    try {
+        cluster::write_json(cluster::data_dir() / "handoff.json", handoff);
+    } catch (const utils::exception::IException&) {}
+    if (!window) std::cout << "taken over: " << handoff["turns"].size() << " running turn(s) (continued), " << handoff["queued"].size()
+        << " session(s) with queued prompts" << (handoff["web"].get<bool>() ? ", the web access (opened again)" : "") << std::endl;
+    // its interfaces first (they would start their core again), then its watcher (it would start it again) and the core; waited for
+    // (10 s, then killed)
     for (const int pid: interfaces)
         (void)::kill(pid, SIGTERM);
     const int core = cluster::Control::corePid();
-    if (core > 0) (void)::kill(core, SIGTERM);
+    if (core > 0) {
+        std::ifstream stat("/proc/" + std::to_string(core) + "/stat");
+        std::string line;
+        std::getline(stat, line);
+        const std::size_t close = line.rfind(')');
+        int parent = 0;
+        if (close != std::string::npos) std::istringstream(line.substr(close + 2)) >> std::ws >> line >> parent; // "S <ppid>"
+        std::error_code error;
+        const std::string exe = parent > 1 ? std::filesystem::read_symlink("/proc/" + std::to_string(parent) + "/exe", error).filename().string() : "";
+        if (exe.starts_with("claude-cluster")) (void)::kill(parent, SIGTERM); // its watcher (restart_core): ends with it, never restarts it
+        (void)::kill(core, SIGTERM);
+    }
     for (int i = 0; i < 100 && (cluster::Control::alive() || (core > 0 && ::kill(core, 0) == 0)); ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (core > 0 && ::kill(core, 0) == 0) (void)::kill(core, SIGKILL);
@@ -483,6 +523,20 @@ _cold int cluster::Core::ui_(const bool serve)
         else if (choice.kind == cluster::StartChoice::Kind::Independent) cluster::start_instance(choice.instance);
         app.options = this->_options;
     }
+    #ifdef CLUSTER_GUI
+        // the window: the same choices in its dialog (connect / restore / start new / an independent instance / quit), never opened silently
+        if (!serve && frontend == "gui" && app.config.startMenu && this->_options.restore.empty() && !cluster::demo_enabled() && std::getenv("CLAUDE_CLUSTER_SOCKET") == nullptr
+            && std::getenv("CLAUDE_CLUSTER_NO_MENU") == nullptr && !this->_options.values.contains("voice")) {
+            const cluster::StartChoice choice = cluster::start_menu_buttons(CLUSTER_VERSION, [](const std::string& title, const std::string& text, const std::vector<std::string>& buttons) {
+                return cluster::gui_choice(title, text, buttons);
+            });
+            if (choice.kind == cluster::StartChoice::Kind::Quit) return 0;
+            if (choice.kind == cluster::StartChoice::Kind::Restore) this->_options.restore = "always";
+            else if (choice.kind == cluster::StartChoice::Kind::New) this->_options.restore = "never";
+            else if (choice.kind == cluster::StartChoice::Kind::Independent) cluster::start_instance(choice.instance);
+            app.options = this->_options;
+        }
+    #endif
 
     // Core: one per user (control socket), previous sessions, global session. An interface attaches to the core running, or to
     // one started for it (a process of its own: several terminals / windows at once, all in sync; the core goes on until the

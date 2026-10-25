@@ -19,6 +19,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Cron.hpp"
 #include "cluster/Wire.hpp"
+#include "cluster/Web.hpp"
 #include <filesystem>
 #include <functional>
 #include <algorithm>
@@ -143,6 +144,7 @@ _cold void cluster::Manager::applySchedule_(cluster::Schedule& w, const cluster:
     if (const auto it = o.find("if"); it != o.end() && it->is_object()) {
         w.cond.sessionIdle = opt::text(*it, "session_idle");
         w.cond.command = opt::text(*it, "command");
+        if (!w.cond.command.empty()) w.cond.match = cluster::command_match(*it); // its output / code wanted, its failures before giving up
         w.cond.fileChanged = opt::text(*it, "file_changed");
         w.cond.fileBase = w.cond.fileChanged.empty() ? 0 : opt::mtime(w.cond.fileChanged);
         w.cond.usage = cluster::trim(opt::text(*it, "usage"));
@@ -215,7 +217,12 @@ _cold cluster::Json cluster::Manager::scheduleJson(const cluster::Schedule& w) c
     if (w.ack) out["ack"] = {{"nag_minutes", w.nag}, {"pending", w.pending}, {"asked", w.asks}};
     cluster::Json cond = cluster::Json::object();
     if (!w.cond.sessionIdle.empty()) cond["session_idle"] = w.cond.sessionIdle;
-    if (!w.cond.command.empty()) cond["command"] = w.cond.command;
+    if (!w.cond.command.empty()) {
+        cond["command"] = w.cond.command;
+        cluster::Json match = cluster::command_match_json(w.cond.match);
+        match.erase("every"); // a schedule runs at its own times
+        cond.update(match);
+    }
     if (!w.cond.fileChanged.empty()) cond["file_changed"] = w.cond.fileChanged;
     if (!w.cond.usage.empty()) cond["usage"] = w.cond.usage;
     if (!cond.empty()) out["if"] = cond;
@@ -327,7 +334,7 @@ _cold std::int64_t cluster::Manager::resetAt_(const std::string& window) const
     return reset > cluster::now() ? reset : 0;
 }
 
-_cold bool cluster::Manager::conditionMet_(const cluster::ScheduleIf& cond, std::string& why)
+_cold bool cluster::Manager::conditionMet_(cluster::ScheduleIf& cond, std::string& why)
 {
     if (!cond.sessionIdle.empty()) {
         std::optional<cluster::Snapshot> snap;
@@ -340,9 +347,10 @@ _cold bool cluster::Manager::conditionMet_(const cluster::ScheduleIf& cond, std:
         }
     }
     if (!cond.command.empty()) {
-        const cluster::Captured result = cluster::capture({"/bin/sh", "-c", cond.command}, "", 30);
-        if (result.code != 0) {
-            why = "`" + cluster::one_line(cond.command, 60) + "` exited " + std::to_string(result.code);
+        const cluster::CommandVerdict verdict = cluster::command_check(cond.command, cond.match);
+        if (verdict != cluster::CommandVerdict::Met) {
+            why = "`" + cluster::one_line(cond.command, 60) + "` " + cond.match.last;
+            if (verdict == cluster::CommandVerdict::GaveUp) why = "given up: " + why + " (" + std::to_string(cond.match.failures) + " failures in a row)";
             return false;
         }
     }
@@ -454,6 +462,7 @@ _cold void cluster::Manager::runSchedule_(const std::string& id)
     }
     const std::int64_t now = cluster::now();
     const bool forced = w.now;
+    bool gaveUp = false;
     std::string note;
     bool fire = true;
     bool recheck = false;   // reset: not a reset yet
@@ -500,6 +509,11 @@ _cold void cluster::Manager::runSchedule_(const std::string& id)
         s.busy = false;
         s.now = false;
         s.note = note;
+        s.cond.match = w.cond.match; // its failures in a row so far
+        if (w.cond.match.failAfter > 0 && w.cond.match.failures >= w.cond.match.failAfter && s.status == "waiting") {
+            s.status = "cancelled"; // its command failed too often: no more runs
+            gaveUp = true;
+        }
         if (recheck) {
             s.at = w.at;
             s.polling = w.polling;
@@ -528,6 +542,7 @@ _cold void cluster::Manager::runSchedule_(const std::string& id)
             else this->advance_(s, now, false);
         }
     }
+    if (gaveUp) this->notice_(w.session, "schedule " + id + " cancelled - " + note, true);
     this->save();
     ++this->_version;
 }
@@ -536,25 +551,30 @@ _cold void cluster::Manager::pollEvents_(void)
 {
     // the events of the queued tasks that need a look outside (a command, git, a file): not every second
     const std::int64_t now = cluster::now();
-    if (now - this->_bgPoll < 5) return;
+    if (now - this->_bgPoll < 2) return; // a command trigger may ask every 2 s ("constantly")
     this->_bgPoll = now;
     std::vector<std::pair<std::string, cluster::TaskEvent>> checks;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         for (const cluster::Task& t: this->_tasks) {
             if (t.status != "queued" || t.on.met || t.notBefore > now) continue;
-            const std::int64_t interval = t.on.type == "file" ? 5 : t.on.type == "command" ? 30 : t.on.type == "git_push" ? 60 : 0;
+            const std::int64_t interval = t.on.type == "file" ? 5 : t.on.type == "command" ? std::max(2, t.on.match.every) : t.on.type == "git_push" ? 60 : 0;
             if (interval > 0 && now - t.on.checked >= interval) checks.emplace_back(t.id, t.on);
         }
     }
     bool met = false;
+    std::vector<std::pair<std::string, std::string>> gaveUp; // a command trigger that failed too often: the task failed, its owner told
     for (auto &[id, on]: checks) {
         on.checked = now;
         if (on.type == "file") {
             const bool exists = std::filesystem::exists(cluster::expand_home(on.arg));
             on.met = on.arg2 == "changed" ? exists && std::to_string(opt::mtime(on.arg)) != on.base : exists;
         } else if (on.type == "command") {
-            on.met = cluster::capture({"/bin/sh", "-c", on.arg}, "", 30).code == 0;
+            const cluster::CommandVerdict verdict = cluster::command_check(on.arg, on.match);
+            on.met = verdict == cluster::CommandVerdict::Met;
+            if (verdict == cluster::CommandVerdict::GaveUp)
+                gaveUp.emplace_back(id, "its trigger gave up: `" + cluster::one_line(on.arg, 60) + "` failed " + std::to_string(on.match.failures) + " time"
+                    + (on.match.failures > 1 ? "s in a row - " : " - ") + on.match.last);
         } else if (on.type == "git_push") {
             const std::string repo = cluster::expand_home(on.arg).string();
             std::string branch = on.arg2;
@@ -568,6 +588,21 @@ _cold void cluster::Manager::pollEvents_(void)
         std::lock_guard<std::mutex> lock(this->_mutex);
         for (cluster::Task& t: this->_tasks)
             if (t.id == id) t.on = on;
+    }
+    for (const auto &[id, why]: gaveUp) {
+        std::string by;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            for (cluster::Task& t: this->_tasks)
+                if (t.id == id && t.status == "queued") {
+                    t.status = "failed";
+                    t.reason = why;
+                    t.ended = now;
+                    by = t.by;
+                }
+        }
+        this->notice_("", "task " + id + " failed: " + why, true);
+        if (!by.empty()) this->tell_(by, "[tasks] task " + id + " failed: " + why);
     }
     if (!checks.empty()) {
         this->save();
@@ -583,8 +618,70 @@ _cold void cluster::Manager::bgPass_(const std::vector<std::string>& due)
         this->runSchedule_(id);
 }
 
+_cold void cluster::Manager::handoff_(void)
+{
+    // a core of another version replaced by this one (Core::otherBuild_, without waiting for its turns): what it had going - its web
+    // access open, the turns it was running (stopped by the replace: continued here), the prompts of its queues (sent again) - given
+    // back as soon as their session runs here; read once, never applied twice, dropped after 30 min
+    const std::filesystem::path file = cluster::data_dir() / "handoff.json";
+    if (!this->_handoffRead) {
+        this->_handoffRead = true;
+        const cluster::Json given = cluster::read_json(file).value_or(cluster::Json());
+        std::error_code error;
+        std::filesystem::remove(file, error);
+        if (given.is_object()) { // merged with the queues saved by the last run (load)
+            if (!this->_handoff.is_object()) this->_handoff = {{"turns", cluster::Json::array()}, {"queued", cluster::Json::object()}, {"at", cluster::now()}};
+            this->_handoff["web"] = given.value("web", false);
+            for (const cluster::Json& id: given.value("turns", cluster::Json::array()))
+                this->_handoff["turns"].push_back(id);
+            const cluster::Json queued = given.value("queued", cluster::Json::object());
+            for (cluster::Json::const_iterator it = queued.begin(); it != queued.end(); ++it)
+                if (!this->_handoff["queued"].contains(it.key())) this->_handoff["queued"][it.key()] = it.value();
+        }
+        if (!this->_handoff.is_object()) return;
+        if (this->_handoff.value("web", false) && this->_web != nullptr && !this->_web->status().on) {
+            this->_web->setOn(true);
+            this->notice_("", "the web access was open in the replaced core: opened again");
+        }
+    }
+    if (!this->_handoff.is_object()) return;
+    if (cluster::now() - this->_handoff.value("at", std::int64_t(0)) > 1800) // a turn stopped long ago: not continued any more (its queue: still sent)
+        this->_handoff["turns"] = cluster::Json::array();
+    const std::function<bool(const std::string&)> ready = [this](const std::string& id) {
+        const std::optional<cluster::Snapshot> snap = this->snapshot(id);
+        return snap && snap->state == cluster::State::Idle;
+    };
+    cluster::Json& turns = this->_handoff["turns"];
+    for (auto it = turns.begin(); turns.is_array() && it != turns.end();) {
+        const std::string id = it->is_string() ? it->get<std::string>() : "";
+        if (id.empty() || !ready(id)) {
+            ++it;
+            continue;
+        }
+        try {
+            this->send(id, "[claude-cluster was replaced by another version while this turn ran: the turn was stopped. Continue where you were - "
+                "what was done is in the conversation above.]", false, {}, "wake");
+        } catch (const utils::exception::IException&) {}
+        it = turns.erase(it);
+    }
+    cluster::Json& queued = this->_handoff["queued"];
+    for (auto it = queued.begin(); queued.is_object() && it != queued.end();) {
+        if (!ready(it.key()) || (turns.is_array() && std::find(turns.begin(), turns.end(), cluster::Json(it.key())) != turns.end())) { // after its turn
+            ++it;
+            continue;
+        }
+        for (const cluster::Json& q: it.value())
+            try {
+                this->send(it.key(), q.value("text", std::string()), false, q.value("images", std::vector<std::string>()), q.value("origin", std::string()));
+            } catch (const utils::exception::IException&) {}
+        it = queued.erase(it);
+    }
+    if ((!turns.is_array() || turns.empty()) && (!queued.is_object() || queued.empty())) this->_handoff = cluster::Json();
+}
+
 _cold void cluster::Manager::fireSchedules_(void)
 {
+    this->handoff_();
     // due: its action (a prompt wakes its session up, a notification, a task, a command), then again (every, cron) or ended; the checks
     // that may take a while (commands, git) run in a thread of their own, never in the second of the tick
     const std::int64_t now = cluster::now();

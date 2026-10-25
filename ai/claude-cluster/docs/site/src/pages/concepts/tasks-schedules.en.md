@@ -24,7 +24,7 @@ A task is a prompt queued for a session. `claude-cluster task add [--target T] [
 | `task_add` option | What it does |
 |---|---|
 | `after`, `after_sessions` | wait for tasks to be done / sessions to be idle |
-| `on_event` | `session_idle`, `git_push` (a new commit on the remote), `command` (exits 0), `file` (changed); checked in the background |
+| `on_event` | `session_idle`, `git_push` (a new commit on the remote), `command`, `file` (changed); checked in the background. A `command` is met when it exits 0 (or `code`) and prints what is asked (`stdout` exactly, `contains`, `regex`), run `every` N s (`constantly` = 2 s); `fail_after: N` gives up after N failures in a row (the task fails, its owner is told) |
 | `spawn` | the task makes its own session (`cwd`, `name`, `backend`, `mode`, `effort`, `profile`, `one_shot`) |
 | `priority`, `max_concurrency` + `lane` | higher first; at most N tasks of a lane at once |
 | `timeout_minutes`, `retry`, `max_cost`, `max_tokens` | stopped and reported when exceeded, tried again after an error |
@@ -41,7 +41,7 @@ The answer is kept in the task (`result`, up to `[sessions] task_result_chars`) 
 | `when` / `every` / `cron` / `reset` | once (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`), every N minutes, a cron expression (`*/15 9-17 * * mon-fri`), or at each reset of the 5 h / 7 d limit window |
 | `days`, `window`, `quiet`, `tz` | only on these days, inside / never inside these hours, in this timezone |
 | `until`, `max_runs` | ended after a time or a number of runs |
-| `if` | `session_idle`, `command` (exits 0), `file_changed`, `usage` (`5h>80`): not met, the run is skipped |
+| `if` | `session_idle`, `command` (exits 0, or the `code` / `stdout` / `contains` / `regex` asked; `fail_after`: the schedule cancelled after N failures in a row), `file_changed`, `usage` (`5h>80`): not met, the run is skipped |
 | `action` | `prompt` (default), `notify`, `spawn`, `task`, `command` (run locally with **no model**; only a non-empty output is sent or notified) |
 | `ack`, `nag` | asked again every `nag` minutes until acknowledged |
 | `dry_run` | nothing made: tells when it would fire |

@@ -1745,6 +1745,16 @@ _cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::
     return prompt;
 }
 
+_cold std::vector<cluster::Queued> cluster::Session::waiting(void) const
+{
+    // given to the agent during its turn too: a turn stopped by a quit has not taken them yet (they leave the queue once it ends)
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    std::vector<cluster::Queued> out(this->_pending.begin(), this->_pending.end());
+    for (cluster::Queued& queued: out)
+        queued.given = false;
+    return out;
+}
+
 _cold std::vector<cluster::Queued> cluster::Session::unfinished(void) const
 {
     std::lock_guard<std::mutex> lock(this->_mutex);

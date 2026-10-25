@@ -124,7 +124,10 @@ _cold std::string cluster::Manager::addTaskJson(const cluster::Json& o, const st
         else if (task.on.type == "git_push") {
             task.on.arg = opt::text(*it, "repo");
             task.on.arg2 = opt::text(*it, "branch");
-        } else if (task.on.type == "command") task.on.arg = opt::text(*it, "command");
+        } else if (task.on.type == "command") {
+            task.on.arg = opt::text(*it, "command");
+            task.on.match = cluster::command_match(*it); // its output / code wanted, its interval, when it gives up
+        }
         else if (task.on.type == "file") {
             task.on.arg = opt::text(*it, "path");
             task.on.arg2 = opt::flag(*it, "changed", false) ? "changed" : "";
@@ -199,6 +202,7 @@ _cold cluster::Json cluster::Manager::taskJson(const cluster::Task& t) const
         {"label", t.label}, {"forced", t.forced}, {"error", t.status == "failed" ? t.reason : std::string()}};
     if (!t.afterSessions.empty()) out["after_sessions"] = t.afterSessions;
     if (!t.on.type.empty()) out["on_event"] = {{"type", t.on.type}, {"arg", t.on.arg}, {"arg2", t.on.arg2}, {"met", t.on.met}};
+    if (t.on.type == "command") out["on_event"].update(cluster::command_match_json(t.on.match));
     if (!t.spawn.cwd.empty() || t.spawned) out["spawn"] = {{"cwd", t.spawn.cwd}, {"name", t.spawn.name}, {"backend", t.spawn.backend}, {"mode", t.spawn.mode}, {"effort", t.spawn.effort},
         {"one_shot", t.spawn.oneShot}, {"spawned", t.spawned}};
     if (t.priority != 0) out["priority"] = t.priority;

@@ -24,7 +24,7 @@ Une tâche est un prompt mis en file pour une session. `claude-cluster task add 
 | Option de `task_add` | Effet |
 |---|---|
 | `after`, `after_sessions` | attendre que des tâches soient faites / des sessions inactives |
-| `on_event` | `session_idle`, `git_push` (un nouveau commit sur le distant), `command` (sort à 0), `file` (modifié) ; surveillé en arrière-plan |
+| `on_event` | `session_idle`, `git_push` (un nouveau commit sur le distant), `command`, `file` (modifié) ; surveillé en arrière-plan. Une `command` est remplie quand elle sort à 0 (ou `code`) et affiche ce qui est demandé (`stdout` exactement, `contains`, `regex`), lancée toutes les `every` s (`constantly` = 2 s) ; `fail_after: N` abandonne après N échecs d'affilée (la tâche échoue, son auteur est prévenu) |
 | `spawn` | la tâche crée sa propre session (`cwd`, `name`, `backend`, `mode`, `effort`, `profile`, `one_shot`) |
 | `priority`, `max_concurrency` + `lane` | les plus hautes d'abord ; au plus N tâches d'une voie à la fois |
 | `timeout_minutes`, `retry`, `max_cost`, `max_tokens` | arrêtée et signalée si dépassé, retentée après une erreur |
@@ -41,7 +41,7 @@ La réponse est gardée dans la tâche (`result`, jusqu'à `[sessions] task_resu
 | `when` / `every` / `cron` / `reset` | une fois (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`), toutes les N minutes, une expression cron (`*/15 9-17 * * mon-fri`), ou à chaque remise à zéro de la fenêtre de limite 5 h / 7 j |
 | `days`, `window`, `quiet`, `tz` | seulement ces jours, dans / jamais dans ces heures, dans ce fuseau |
 | `until`, `max_runs` | terminée après une heure ou un nombre d'exécutions |
-| `if` | `session_idle`, `command` (sort à 0), `file_changed`, `usage` (`5h>80`) : non remplie, l'exécution est sautée |
+| `if` | `session_idle`, `command` (sort à 0, ou le `code` / `stdout` / `contains` / `regex` demandé ; `fail_after` : la planification annulée après N échecs d'affilée), `file_changed`, `usage` (`5h>80`) : non remplie, l'exécution est sautée |
 | `action` | `prompt` (défaut), `notify`, `spawn`, `task`, `command` (lancée en local **sans modèle** ; seule une sortie non vide est envoyée ou notifiée) |
 | `ack`, `nag` | redemandée toutes les `nag` minutes jusqu'à acquittement |
 | `dry_run` | rien n'est fait : dit quand elle se déclencherait |

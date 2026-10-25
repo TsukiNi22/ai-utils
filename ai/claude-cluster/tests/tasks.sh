@@ -77,6 +77,26 @@ touch "${WORK}/ready"
 sleep 14
 if [[ "$(count 'after the file')" == 1 ]]; then ok "event: runs once the file exists"; else bad "event: did not run ($(count 'after the file'))"; fi
 
+# (3b) command triggers: its output (exactly / regex) or its exit code, checked every 2 s; given up after 2 failures in a row
+echo wait > "${WORK}/value"
+call task_add "{\"prompt\":\"value is ready\",\"target\":\"worker\",\"on_event\":{\"type\":\"command\",\"command\":\"cat ${WORK}/value\",\"stdout\":\"ready\",\"every\":2}}" > /dev/null
+call task_add '{"prompt":"regex matched","target":"worker","on_event":{"type":"command","command":"echo build 42 ok","regex":"build [0-9]+ ok","every":"constantly"}}' > /dev/null
+call task_add '{"prompt":"code five","target":"worker","on_event":{"type":"command","command":"exit 5","code":5,"every":2}}' > /dev/null
+G="$(call task_add '{"prompt":"never runs","target":"worker","on_event":{"type":"command","command":"echo broken; exit 3","stdout":"ok","every":2,"fail_after":2}}' | idof)"
+sleep 8
+if [[ "$(count 'value is ready')" == 0 ]]; then ok "command trigger: waits while its output is not the one asked"; else bad "command trigger: ran on another output"; fi
+if [[ "$(count 'regex matched')" == 1 ]]; then ok "command trigger: its output matched by a regex"; else bad "command trigger: regex ($(count 'regex matched'))"; fi
+if [[ "$(count 'code five')" == 1 ]]; then ok "command trigger: the exit code asked"; else bad "command trigger: code ($(count 'code five'))"; fi
+echo ready > "${WORK}/value"
+sleep 8
+if [[ "$(count 'value is ready')" == 1 ]]; then ok "command trigger: runs once its output is the one asked"; else bad "command trigger: did not run ($(count 'value is ready'))"; fi
+LIST="$(call task_list '{"status":"failed"}')"
+has "command trigger: given up after 2 failures, the task failed" "${LIST}" "its trigger gave up"
+hasnt "command trigger given up: its prompt never sent" "$(cat "${WORK}/log")" 'never runs'
+if [[ "$(count "[tasks] task ${G} failed")" -ge 1 ]]; then ok "command trigger given up: its owner told"; else bad "command trigger given up: nobody told"; fi
+has "command trigger: a bad regex refused" "$(call task_add '{"prompt":"x","on_event":{"type":"command","command":"true","regex":"(["}}')" 'regex'
+has "schedule: a bad regex refused too" "$(call schedule_add '{"text":"x","when":"+1h","if":{"command":"true","regex":"(["}}')" 'regex'
+
 # (4) bad arguments are refused
 has "unknown event type refused" "$(call task_add '{"prompt":"x","on_event":{"type":"nope"}}')" 'on_event type'
 has "unknown dependency refused" "$(call task_add '{"prompt":"x","after":["t999"]}')" "no task"

@@ -35,7 +35,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Todo, id, content, status, activ
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Progress, id, title, session, now, log, done, ok, started, ended)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Failure, id, action, source, error, retry, at)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ScheduleRun, at, note)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ScheduleIf, sessionIdle, command, fileChanged, fileBase, usage)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(CommandMatch, out, contains, regex, code, codeAsked, every, failAfter, failures, last)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ScheduleIf, sessionIdle, command, match, fileChanged, fileBase, usage)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Schedule, id, at, every, action, session, text, by, status, reason, archived, runs, last, cron, days, window, quiet, tz,
     until, maxRuns, reset, cond, options, ack, nag, skipped, note, history, pending, asks, polling)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SubAgent, kind, taskId, toolUseId, description, type, prompt, model, effort, status, summary, lastTool, error,
@@ -43,7 +44,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SubAgent, kind, taskId, toolUseI
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Snapshot, spec, state, stopped, metrics, entries, permissions, tools, skillsLoaded, skillsAvailable,
     slashCommands, commandHelp, files, partial, thinking, step, stepSince, stepDetail, turnSince, streamed, thinkingTokens, steps, modelUsed, pid,
     lastError, remoteUrl, bridgeState, queued, queue, queueGiven, version, warning, warningAt, todos, agents)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(TaskEvent, type, arg, arg2, base, checked, met)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(TaskEvent, type, arg, arg2, base, checked, met, match)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(TaskSpawn, cwd, name, backend, mode, effort, profile, oneShot)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Task, id, prompt, target, after, status, session, created, group, label, answer, retries, started, ended,
     by, reason, archived, forced, afterSessions, on, spawn, spawned, priority, timeout, retry, retryDelay, notBefore, maxConcurrency, lane, maxCost, maxTokens,

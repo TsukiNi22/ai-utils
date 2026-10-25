@@ -199,7 +199,7 @@ _cold Look look_(const cluster::GraphNode& node, const int level, const bool ful
 /* layout */
 _cold void cluster::GraphView::setNodes(std::vector<cluster::GraphNode> nodes)
 {
-    std::string signature;
+    std::string signature = this->tree ? "tree;" : "rings;";
     for (const cluster::GraphNode& node: nodes) signature += node.id + ">" + node.parent + ";";
     std::string labels;
     for (const cluster::GraphNode& node: nodes) labels += node.name + "\x1f" + node.detail + "\x1f" + std::to_string(node.count) + "\x1e";
@@ -255,6 +255,26 @@ _cold void cluster::GraphView::layout_(void)
     for (const std::size_t root: roots) {
         measure(root, single ? 0 : 1);
         total += leaves[root];
+    }
+    if (this->tree) {
+        // the graph: a tree from the top (global, then its levels below), a node above the middle of its children, a leaf per column
+        double column = -total * PITCH / 2.0;
+        const std::function<void(std::size_t)> lay = [&](const std::size_t i) {
+            const double y = (depth[i] - (single ? 0 : 1)) * RING * 0.55;
+            if (kids[i].empty()) {
+                this->_places[i] = {column + PITCH / 2.0, y};
+                column += PITCH;
+                return;
+            }
+            for (const std::size_t kid: kids[i])
+                lay(kid);
+            this->_places[i] = {(this->_places[kids[i].front()].x + this->_places[kids[i].back()].x) / 2.0, y};
+        };
+        for (const std::size_t root: roots)
+            lay(root);
+        this->_fitted = false;
+        this->_planValid = false;
+        return;
     }
     std::vector<double> radius(perDepth.size(), 0.0);
     for (std::size_t d = 1; d < radius.size(); ++d)

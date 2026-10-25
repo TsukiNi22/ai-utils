@@ -150,6 +150,8 @@ class Manager {
         std::atomic<bool> _closing{false};              // claude-cluster quits: the agents ending are not an error
         std::map<std::string, int> _replies;            // sessions whose next turn ends are sent back to the global session
         std::set<std::string> _oneShot;                 // sessions to close once their answer is relayed (untouched by the user since)
+        cluster::Json _handoff;                         // handoff.json read once at the start: the turns / queued prompts not given back yet
+        bool _handoffRead = false;
         std::map<std::string, std::set<std::string>> _followed; // session -> who asked it (the global session, a sub-session's task): its wake-up turns come back to them too
         bool _globalNew = false;                        // the global session starts a new conversation (marked in its transcript)
         std::atomic<std::uint64_t> _focusVersion{0};
@@ -283,6 +285,7 @@ class Manager {
         _cold void retryGlobal_(void);                  // the global session started again until it runs
         _cold _nodiscard std::vector<std::string> subArgs_(const std::string& id) const;   // the MCP of a sub-session (its tasks / schedules): its arguments, none when closed
         _cold void fireSchedules_(void);                // the schedules due: done, then again (every) or removed
+        _cold void handoff_(void);                      // what a replaced core of another version had going (handoff.json), given back here
         _cold void schedule_(void);                         // Manager-Tasks.cpp
         _cold void enforceTasks_(void);                     // the running tasks: past their timeout / budget stopped
         _cold void bgPass_(const std::vector<std::string>& due);   // Manager-Schedules.cpp, in a thread: the events, the schedules due
@@ -290,7 +293,7 @@ class Manager {
         _cold void applySchedule_(cluster::Schedule& w, const cluster::Json& options, const bool creating, const std::int64_t now);   // its fields set (an error: why)
         _cold void pollEvents_(void);                               // the events of the queued tasks (command, git, file)
         _cold _nodiscard std::string execute_(const cluster::Schedule& w);   // its action done; what it did
-        _cold _nodiscard bool conditionMet_(const cluster::ScheduleIf& cond, std::string& why);
+        _cold _nodiscard bool conditionMet_(cluster::ScheduleIf& cond, std::string& why);
         _cold void advance_(cluster::Schedule& w, const std::int64_t now, const bool fired);    // its next time (or its end), under the lock
         _cold _nodiscard std::int64_t resetAt_(const std::string& window) const;   // the next reset of the 5h / 7d limit (0: unknown; the lock held)
         _cold _nodiscard std::size_t spawnedBy_(const std::string& by) const;      // the sessions of its tasks waiting or open (the lock held)

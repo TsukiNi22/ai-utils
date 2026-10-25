@@ -130,6 +130,7 @@ class GraphView {
         std::function<void(const std::string&)> onOpen;     // a session opened (Enter, a double click)
         std::function<void(const std::string&)> onMenu;     // a session right clicked
         std::string title = "Graph";                        // the view it draws (Graph: the taxonomy between; Hub: every session around)
+        bool tree = false;                                  // a tree from the top (the graph, like the web page); else rings around the root (the hub)
 
         // The nodes to draw (the view kept where it is; the layout made again when the tree changed)
         void setNodes(std::vector<GraphNode> nodes);

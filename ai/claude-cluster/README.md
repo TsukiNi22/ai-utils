@@ -126,7 +126,7 @@ Keys of the interfaces (every one set in `[keys]` / the settings page, alternati
 | Alt+Y / Alt+A / Alt+D | allow / always allow / deny the permission |
 | Ctrl+C | stop the running turn; none: clear the prompt (copy when text is selected); twice within 2 s on an empty prompt: quit |
 | Ctrl+Q | quit, from anywhere (a dialog open too); the questions at start (restore, map of this computer) also quit with `q` / Ctrl+C / Ctrl+D / Ctrl+Z, asked again at the next start. SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: the same clean quit (sessions saved, terminal restored) |
-| | **A session still working** (or prompts queued) when the last terminal / window quits: a popup asks (`[ui] quit_background = ask`) - **keep them running in background** (the core goes on without interface, its web access closed, and stops by itself once every session is idle for 5 s; `claude-cluster` opened again meanwhile attaches to it and shows them, and the web access closed by the background opens again), **stop everything** (the turns interrupted, the sessions kept for the next start) or back; `always` / `never` skip the popup. Without the shared core the terminal stays busy meanwhile (closing it is fine: the sessions go on); a desktop notification tells when the background core stopped |
+| | **Queues kept**: the prompts waiting in a queue are saved with the state; after a quit, a crash or an update they are sent again to their session, in their order, once it runs. **A session still working** (or prompts queued) when the last terminal / window quits: a popup asks (`[ui] quit_background = ask`) - **keep them running in background** (the core goes on without interface, its web access closed, and stops by itself once every session is idle for 5 s; `claude-cluster` opened again meanwhile attaches to it and shows them, and the web access closed by the background opens again), **stop everything** (the turns interrupted, the sessions kept for the next start) or back; `always` / `never` skip the popup. Without the shared core the terminal stays busy meanwhile (closing it is fine: the sessions go on); a desktop notification tells when the background core stopped |
 | Shift+Tab | next permission mode (auto, acceptEdits, plan, bypassPermissions, manual) |
 | text fields (terminal) | every popup that takes text (the **Other** answer and the **chat** of a question, forms, settings values and search, palette / history filters, rename / describe / cd / vocabulary, the plugin source) is a real line editor, the same code as the prompt (`LineEditor`, on `cluster::Editor`): `←` `→` one character (an emoji, an accent: one cell), `Ctrl+←` `Ctrl+→` / `Alt+b` `Alt+f` one word, `Home` `End` / `Ctrl+A` `Ctrl+E` the line (`Ctrl+Home` `Ctrl+End` the text), `↑` `↓` a visual line in a field of several lines (the chat; a single line keeps them for its list), `Delete` / `Backspace` one character, `Ctrl+Backspace` / `Alt+Backspace` / `Ctrl+W` the word before, `Ctrl+Delete` / `Alt+d` the next word, `Ctrl+U` / `Ctrl+K` to the start / the end of the line (kept: `Ctrl+Y` puts it back), `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo, `Shift` (+ `Ctrl`) + arrows / `Home` / `End` select (typing replaces the selection), `Ctrl+Shift+C` / `Ctrl+X` / `Ctrl+Shift+V` (`Ctrl+V`) copy / cut / paste (the bracketed paste of the terminal too), the mouse: click places the cursor, drag selects, double click takes a word. The cursor and the selection are cells of the frame (no terminal cursor to hide, no flicker); a long single line scrolls sideways around the cursor with `…` marks, several lines wrap and scroll. A value stays in its field when the popup is left and entered again (the question popup: Enter validates, the arrows between questions never change a validated answer). The prompt gets the keys it did not have (words, kill ring, `Ctrl+Backspace`...) where no action of `[keys]` uses them; a password is typed blind (append / Backspace only) |
 | Shift+PageUp / Shift+PageDown | jump to the start / the end of the transcript (the end follows again); many terminals keep these for their own scrollback: **Ctrl+Home / Ctrl+End** always arrive (also in the web page / the apk; palette: Go to the start / end of the transcript; config `[keys]` `transcript_top` / `transcript_bottom`) |
@@ -258,7 +258,7 @@ compatible; the same from the CLI, the palette, the Tasks session):
 | `task_add` option | What it does |
 |---|---|
 | `after`, `after_sessions` | wait for tasks to be done / for sessions to be idle (nothing queued for them) |
-| `on_event` | `{type: session_idle (session) \| git_push (repo, branch: a new commit on the remote) \| command (command exits 0) \| file (path, changed)}`, looked at in a background thread (file 5 s, command 30 s, git 60 s) |
+| `on_event` | `{type: session_idle (session) \| git_push (repo, branch: a new commit on the remote) \| command \| file (path, changed)}`, looked at in a background thread (file 5 s, git 60 s); **command**: `command`, met when it exits 0 (or `code: N`) and its output is the one asked (`stdout` exactly, `contains`, `regex`), run `every` N seconds (default 30, `"constantly"` = 2 s), `fail_after: N`: N failures in a row (it could not run, or it exited with another code than 0 when no `code` is asked) and the task fails with the reason, its owner told (1 = at the first, 0 = never) |
 | `spawn` | `{cwd, name, backend, mode, effort, profile, one_shot}`: the task makes its own session (the policy of the user applies; `one_shot`: closed to the trash after it) instead of looking for a free one |
 | `priority`, `max_concurrency` + `lane` | higher first; at most N tasks of a lane running |
 | `timeout_minutes`, `retry` + `retry_delay_minutes`, `max_cost`, `max_tokens` | stopped and reported when exceeded (its author is told why), tried again after an error, a budget measured on its session from its start |
@@ -272,7 +272,7 @@ compatible; the same from the CLI, the palette, the Tasks session):
 | `when` / `every` / `cron` / `reset` | once (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM` in `tz`), every N minutes, a cron expression (`*/15 9-17 * * mon-fri`), or at each reset of the `5h` / `7d` limit window |
 | `days`, `window`, `quiet`, `tz` | only on these days (`mon-fri`, `weekend`), inside / never inside these hours (`09:00-18:00`, `22:00-07:00`), in this timezone (IANA name) |
 | `until`, `max_runs` | ended after a time / a number of runs |
-| `if` | `{session_idle, command (exits 0), file_changed, usage: "5h>80" \| "7d<30"}`: not met, that run is skipped (a one-time schedule looks again every 5 min) |
+| `if` | `{session_idle, command (exits 0, or the `code` / `stdout` / `contains` / `regex` asked; `fail_after`: N failures in a row and the schedule is cancelled), file_changed, usage: "5h>80" \| "7d<30"}`: not met, that run is skipped (a one-time schedule looks again every 5 min) |
 | `action` | `prompt` (default), `notify`, `spawn` (`options.cwd`), `task` (`options`: the task options above), `command` (`options.command`, run locally, **no model**, only a non-empty output is sent to `session` or notified with `options.output: notify`) |
 | `ack`, `nag` | asked again every `nag` minutes (12 times at most) until `schedule_act` `ack` |
 | `dry_run` | nothing made: when it would fire |
@@ -699,7 +699,7 @@ global session. Never applied silently. State: `method.json` in the data folder 
 
 ### The start menu
 
-Every start of the terminal opens a menu first (`[ui] start_menu`, on by default; `--restore` / `--fresh` skip it, and so do an isolated
+Every start of the terminal opens a menu first, and the window the same choices as a dialog (`[ui] start_menu`, on by default; `--restore` / `--fresh` skip it, and so do an isolated
 run - `CLAUDE_CLUSTER_SOCKET` set -, the demo, the web terminal and a voice start). The main menu follows what is there:
 
 | Choice | When | Does |
@@ -1526,7 +1526,10 @@ were the same picture, ~2.5 times less CPU in a working session), once a second 
 **Another version runs the core** (installed again while it runs, older or newer: its build is its version and the
 date of its binary): a new terminal / window does not mix with it, it asks first (the terminal: a question, the
 window: a dialog): **replace it** - the terminals / windows of the other version (the same install, the same socket)
-and its core stopped (10 s, then killed), the sessions resumed by this version - or **quit**, nothing changed. An
+and its core stopped (10 s, then killed), the sessions resumed by this version - or **quit**, nothing changed. The replace never
+waits for the other version: what it has going is handed over first (`handoff.json`) - its web access open (opened again here), the
+turns it runs (stopped, then continued by this version with a short note), the prompts of its queues (taken out of it, sent again in
+their order) - and its watcher is stopped with it (it would start the old version again). An
 interface of another build is refused by a core (told on it: close it and open it again). Only through the local
 socket of this user, never the network; the service, its MCP servers and the headless commands are left alone (the
 service: `claude-cluster service restart`).

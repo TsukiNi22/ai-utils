@@ -342,3 +342,64 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
     screen.Loop(component);
     return picked;
 }
+
+_cold cluster::StartChoice cluster::start_menu_buttons(const std::string& version,
+    const std::function<int(const std::string&, const std::string&, const std::vector<std::string>&)>& choose)
+{
+    // the choices of the terminal menu for the window (its dialog): connect / restore / start new / an independent instance / quit
+    const Seen running = look_(cluster::socket_path());
+    const std::size_t previous = running.alive ? 0 : previous_(cluster::data_dir());
+    std::vector<Instance> instances;
+    std::set<std::string> taken;
+    std::error_code error;
+    for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(instances_(), error)) {
+        if (!entry.is_directory(error)) continue;
+        Instance instance{entry.path().filename().string(), look_(entry.path() / "sock"), 0, last_used_(entry.path())};
+        taken.insert(instance.name);
+        if (!instance.seen.alive) instance.kept = previous_(entry.path());
+        if (instance.seen.alive || instance.kept > 0) instances.push_back(instance);
+    }
+    std::sort(instances.begin(), instances.end(), [](const Instance& a, const Instance& b) {return a.name < b.name;});
+    std::vector<std::string> buttons;
+    std::vector<cluster::StartChoice> picks;
+    std::string text = "claude-cluster " + version + "\n\n";
+    if (running.alive) {
+        buttons.push_back("Connect");
+        picks.push_back({cluster::StartChoice::Kind::Open, ""});
+        text += "Connect: the running claude-cluster (" + count_(running) + ")\n";
+    } else {
+        if (previous > 0) {
+            buttons.push_back("Restore");
+            picks.push_back({cluster::StartChoice::Kind::Restore, ""});
+            text += "Restore: " + std::to_string(previous) + " session" + (previous == 1 ? "" : "s") + " of the previous run come back\n";
+        }
+        buttons.push_back("Start new");
+        picks.push_back({cluster::StartChoice::Kind::New, ""});
+        text += std::string("Start new: ") + (previous > 0 ? "nothing restored (the previous sessions go to the trash)" : "an empty start") + "\n";
+    }
+    buttons.push_back("Independent…");
+    picks.push_back({cluster::StartChoice::Kind::Open, "list"});
+    text += "Independent: an instance of its own (its own sessions and global session, nothing shared)\n";
+    buttons.push_back("Quit");
+    picks.push_back({cluster::StartChoice::Kind::Quit, ""});
+    const int chosen = choose("claude-cluster", text, buttons);
+    if (chosen < 0 || chosen >= static_cast<int>(picks.size())) return {cluster::StartChoice::Kind::Quit, ""};
+    if (picks[static_cast<std::size_t>(chosen)].instance != "list") return picks[static_cast<std::size_t>(chosen)];
+    // the independent instances: one of them, or a new one (its name: the next free indep-N)
+    std::string suggestion = "indep-1";
+    for (int i = 1; taken.contains(suggestion); suggestion = "indep-" + std::to_string(++i)) {}
+    std::vector<std::string> names;
+    std::string list = "Independent instances\n\n";
+    for (const Instance& instance: instances) {
+        names.push_back(instance.name);
+        list += instance.name + ": " + (instance.seen.alive ? "running · " + count_(instance.seen) : "stopped · " + std::to_string(instance.kept) + " session(s) kept")
+            + " · " + ago_(instance.last) + "\n";
+    }
+    names.push_back("New (" + suggestion + ")");
+    names.push_back("Back");
+    const int which = choose("claude-cluster: independent instances", list + (instances.empty() ? "none yet\n" : ""), names);
+    if (which < 0) return {cluster::StartChoice::Kind::Quit, ""};
+    if (which == static_cast<int>(names.size()) - 1) return cluster::start_menu_buttons(version, choose);
+    if (which == static_cast<int>(instances.size())) return {cluster::StartChoice::Kind::Independent, suggestion};
+    return {cluster::StartChoice::Kind::Independent, instances[static_cast<std::size_t>(which)].name};
+}

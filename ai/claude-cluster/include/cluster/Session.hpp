@@ -154,6 +154,7 @@ class Session {
         _cold void rename(const std::string& name);
         _cold void describe(const std::string& text, const bool given);     // its short description (written by claude-cluster: not over one given)
         _cold _nodiscard std::vector<cluster::Queued> unfinished(void) const;  // the running turn's prompt and the queued ones (a restart: sent again)
+        _cold _nodiscard std::vector<cluster::Queued> waiting(void) const;     // the queued prompts (given during the turn or not): saved, a quit keeps them
         _cold void setPin(const cluster::Json& pin);   // the pinned item of its view (null: none), kept with the session
         _cold void label(const std::string& category, const std::vector<std::string>& tags);  // its category and tags (kept by /clear, the trash, a restore)
         _cold std::int64_t countTurn(void);                                // a turn finished: its count

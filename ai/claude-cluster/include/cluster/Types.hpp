@@ -218,7 +218,21 @@ struct SessionSpec {
     cluster::Json pin;              // the pinned item (null: none): {kind: display | message, id, title, by, at, role, text}
 };
 
-// What a task waits for besides its dependencies (task_add on_event): a session idle, a commit pushed, a command exiting 0, a file
+// A shell command checked by a trigger (on_event command of a task, if.command of a schedule): what it must print or return, how
+// often it is run, when the trigger gives up
+struct CommandMatch {
+    std::string out;                // its output (trimmed) must be exactly this ("": not checked)
+    std::string contains;           // its output must hold this
+    std::string regex;              // its output must match this (searched, ECMAScript)
+    int code = 0;                   // the exit code wanted
+    bool codeAsked = false;         // a code asked: another code is "not yet", never a failure; else a code other than 0 is a failure
+    int every = 30;                 // seconds between two checks of a task trigger (2 at least: "constantly")
+    int failAfter = 0;              // failures in a row before the trigger gives up (0: never; 1: at the first)
+    int failures = 0;               // failures in a row so far
+    std::string last;               // what the last check printed / why it failed
+};
+
+// What a task waits for besides its dependencies (task_add on_event): a session idle, a commit pushed, a command (its output / code), a file
 struct TaskEvent {
     std::string type;               // "" none | session_idle | git_push | command | file
     std::string arg;                // the session | the repository | the command | the file
@@ -226,6 +240,7 @@ struct TaskEvent {
     std::string base;               // what it was when the task was queued (the commit, the modification time)
     std::int64_t checked = 0;       // last check (unix seconds)
     bool met = false;
+    cluster::CommandMatch match;    // command: what it must print / return, its interval, its failures
 };
 
 // A task that makes its own session (the options of session_spawn) instead of looking for a free one
@@ -307,7 +322,8 @@ struct ScheduleRun {
 // What a schedule checks before it runs (all that are set must hold; not met: the run is skipped)
 struct ScheduleIf {
     std::string sessionIdle;        // a session (id / name) idle
-    std::string command;            // a shell command exiting 0
+    std::string command;            // a shell command: exiting 0, or what match asks
+    cluster::CommandMatch match;    // its output / code wanted, its failures before the schedule gives up
     std::string fileChanged;        // a file modified since the last run (or since it was made)
     std::int64_t fileBase = 0;      // its modification time then
     std::string usage;              // "5h>80", "7d<30": a limit window used above / below a percent

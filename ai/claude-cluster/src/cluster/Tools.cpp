@@ -37,6 +37,8 @@ File Description:
 #include <array>
 #include <ctime>
 #include <set>
+#include <regex>
+#include <functional>
 
 /* paths */
 _cold std::filesystem::path cluster::expand_home(const std::string& path)
@@ -1105,4 +1107,88 @@ _cold std::string cluster::read_small(const std::string& path)
     } catch (const std::exception&) {
         return std::string(); // ESRCH: the process ended between the open and the read
     }
+}
+
+/* command triggers */
+_cold cluster::CommandMatch cluster::command_match(const cluster::Json& options)
+{
+    // the output wanted (stdout: exactly, contains, regex), the exit code wanted (code), how often (every: seconds, "constantly"),
+    // when to give up (fail_after: failures in a row, 1 = the first)
+    const std::function<void(const std::string&)> bad = [](const std::string& why) {
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, why);
+    };
+    cluster::CommandMatch match;
+    if (!options.is_object()) return match;
+    const std::function<std::string(const char*)> text = [&](const char* key) {
+        return options.contains(key) && options[key].is_string() ? options[key].get<std::string>() : options.contains(key) && options[key].is_number() ? options[key].dump() : std::string();
+    };
+    match.out = cluster::trim(!text("stdout").empty() ? text("stdout") : text("output"));
+    match.contains = text("contains");
+    match.regex = text("regex");
+    if (!match.regex.empty()) {
+        try {
+            (void)std::regex(match.regex);
+        } catch (const std::regex_error& e) {
+            bad("regex " + match.regex + ": " + e.what());
+        }
+    }
+    if (options.contains("code")) {
+        if (!options["code"].is_number_integer()) bad("code: an exit code (0-255)");
+        match.code = options["code"].get<int>();
+        match.codeAsked = true;
+    }
+    if (options.contains("every")) {
+        const cluster::Json& every = options["every"];
+        if (every.is_string() && cluster::lower(every.get<std::string>()) == "constantly") match.every = 2;
+        else if (every.is_number()) match.every = std::max(2, every.get<int>());
+        else bad("every: seconds between two checks, or \"constantly\"");
+    }
+    if (options.contains("fail_after")) {
+        if (!options["fail_after"].is_number_integer() || options["fail_after"].get<int>() < 0) bad("fail_after: failures in a row before giving up (0: never, 1: the first)");
+        match.failAfter = options["fail_after"].get<int>();
+    }
+    return match;
+}
+
+_cold cluster::CommandVerdict cluster::command_check(const std::string& command, cluster::CommandMatch& match)
+{
+    // met: the code wanted and the output wanted; a failure: it could not run, or (no code asked) it exited with another code than 0;
+    // anything else: not yet (it ran fine, its value is not the one wanted)
+    const cluster::Captured run = cluster::capture({"/bin/sh", "-c", command}, "", 30);
+    const std::string out = cluster::trim(run.out);
+    bool output = (match.out.empty() || out == match.out) && (match.contains.empty() || out.find(match.contains) != std::string::npos);
+    if (output && !match.regex.empty()) {
+        try {
+            output = std::regex_search(out, std::regex(match.regex));
+        } catch (const std::regex_error&) {
+            output = false;
+        }
+    }
+    if (run.code == match.code && output) {
+        match.failures = 0;
+        match.last = "met: " + cluster::one_line(out, 120);
+        return cluster::CommandVerdict::Met;
+    }
+    const bool failed = run.code < 0 || (!match.codeAsked && run.code != 0);
+    if (!failed) {
+        match.failures = 0;
+        match.last = "exited " + std::to_string(run.code) + ": " + cluster::one_line(out, 120);
+        return cluster::CommandVerdict::NotYet;
+    }
+    ++match.failures;
+    match.last = (run.code < 0 ? std::string("could not run / timed out") : "failed (exit " + std::to_string(run.code) + ")") + ": " + cluster::one_line(out, 120);
+    return match.failAfter > 0 && match.failures >= match.failAfter ? cluster::CommandVerdict::GaveUp : cluster::CommandVerdict::Failed;
+}
+
+_cold cluster::Json cluster::command_match_json(const cluster::CommandMatch& match)
+{
+    cluster::Json out = {{"every", match.every}};
+    if (!match.out.empty()) out["stdout"] = match.out;
+    if (!match.contains.empty()) out["contains"] = match.contains;
+    if (!match.regex.empty()) out["regex"] = match.regex;
+    if (match.codeAsked) out["code"] = match.code;
+    if (match.failAfter > 0) out["fail_after"] = match.failAfter;
+    if (match.failures > 0) out["failures"] = match.failures;
+    if (!match.last.empty()) out["last"] = match.last;
+    return out;
 }

@@ -857,6 +857,7 @@ class TtyUi {
         std::string _agentStopAsk;                  // its stop asked (y / n)
         int _agentScroll = 0;                       // entries scrolled back from the end of its activity
         bool _agentBig = false;                     // the popup over the whole screen (b), else a small window
+        bool _agentFull = false;                    // its activity with nothing folded (f), else the very long blocks folded
         int _machineKind = 0;                       // 1 no map yet, 2 an old one (its sync proposed)
         std::vector<cluster::ProfileQuestion> _questions;   // about the user, before a scan
         std::size_t _question = 0;
@@ -3434,6 +3435,7 @@ class TtyUi {
         {
             this->_graphHub = hub;
             this->_graph.title = hub ? "Hub" : "Graph";
+            this->_graph.tree = !hub; // the graph: a tree from the top; the hub: rings around global
             this->_graph.onOpen = [this](const std::string& id) { // a session opened: its view, the graph closed
                 if (!this->_manager.snapshot(id)) return;
                 this->_active = id;
@@ -6155,26 +6157,46 @@ class TtyUi {
                     rows.push_back(ftxui::text(" this agent is not kept any more (Esc: the list)") | ftxui::color(this->_theme.muted));
                 } else {
                     const cluster::SubAgent& a = *found;
-                    rows.push_back(ftxui::hbox({ftxui::text(" " + cluster::one_line(a.description.empty() ? a.type : a.description, 80)) | ftxui::bold | ftxui::color(this->_theme.accent),
-                        ftxui::filler(), ftxui::text(word(a) + " ") | ftxui::color(tint(a))}));
+                    // every text whole and wrapped (the command, the tools, their results); only a very long one folded, f shows it all
+                    const std::function<ftxui::Element(const std::string&, const std::string&, ftxui::Color, bool)> block =
+                        [this](const std::string& lead, const std::string& text, const ftxui::Color color, const bool dim) {
+                        std::string shown = cluster::clean_utf8(text);
+                        std::vector<std::string> parts = cluster::split(shown, '\n');
+                        std::string more;
+                        if (!this->_agentFull && (parts.size() > 8 || shown.size() > 900)) {
+                            if (parts.size() > 8) parts.resize(8);
+                            shown.clear();
+                            for (const std::string& part: parts)
+                                shown += (shown.empty() ? "" : "\n") + part;
+                            if (shown.size() > 900) shown = cluster::head_utf8(shown, 900);
+                            more = "   … " + std::to_string(text.size() - shown.size()) + " more characters (f: everything)";
+                        }
+                        ftxui::Elements lines;
+                        for (const std::string& line: cluster::split(shown, '\n'))
+                            lines.push_back(ftxui::paragraph(line.empty() ? " " : line) | ftxui::color(color) | (dim ? ftxui::dim : ftxui::nothing));
+                        if (!more.empty()) lines.push_back(ftxui::text(more) | ftxui::color(this->_theme.muted));
+                        return ftxui::hbox({ftxui::text(lead) | ftxui::color(this->_theme.accent), ftxui::vbox(std::move(lines)) | ftxui::flex});
+                    };
+                    rows.push_back(ftxui::hbox({block(" ", a.description.empty() ? a.type : a.description, this->_theme.accent, false) | ftxui::bold | ftxui::flex,
+                        ftxui::text(" " + word(a) + " ") | ftxui::color(tint(a))}));
                     rows.push_back(ftxui::text(" " + meta(a)) | ftxui::color(this->_theme.muted));
                     rows.push_back(ftxui::separatorLight() | ftxui::color(this->_theme.border));
                     ftxui::Elements lines;
-                    if (!a.prompt.empty()) lines.push_back(ftxui::hbox({ftxui::text(" asked › ") | ftxui::color(this->_theme.accent), ftxui::paragraph(a.prompt) | ftxui::color(this->_theme.muted)}));
+                    if (!a.prompt.empty()) lines.push_back(block(" asked › ", a.prompt, this->_theme.muted, false));
                     for (const cluster::Entry& e: a.entries) {
                         if (e.kind == cluster::EntryKind::User && !a.prompt.empty()) continue;
-                        if (e.kind == cluster::EntryKind::Tool) lines.push_back(ftxui::text(" ▸ " + e.tool + " " + cluster::one_line(e.text, 140)) | ftxui::color(this->_theme.muted));
-                        else if (e.kind == cluster::EntryKind::ToolResult) lines.push_back(ftxui::text("   " + cluster::one_line(e.text, 140)) | ftxui::color(this->_theme.muted) | ftxui::dim);
-                        else if (e.kind == cluster::EntryKind::Error) lines.push_back(ftxui::text("   " + cluster::one_line(e.text, 140)) | ftxui::color(this->_theme.error));
-                        else lines.push_back(ftxui::hbox({ftxui::text(" "), ftxui::paragraph(e.text) | ftxui::color(this->_theme.text)}));
+                        if (e.kind == cluster::EntryKind::Tool) lines.push_back(block(" ▸ " + e.tool + " ", e.text, this->_theme.muted, false));
+                        else if (e.kind == cluster::EntryKind::ToolResult) lines.push_back(block("   ", e.text, this->_theme.muted, true));
+                        else if (e.kind == cluster::EntryKind::Error) lines.push_back(block("   ", e.text, this->_theme.error, false));
+                        else lines.push_back(block(" ", e.text, this->_theme.text, false));
                     }
-                    if (!a.outputFile.empty()) { // a shell: the end of its output
+                    if (!a.outputFile.empty()) { // a shell: its output, each line whole (wrapped); its start dropped beyond 6000 characters unless f
                         std::string out = cluster::read_small(a.outputFile);
-                        if (out.size() > 6000) out = out.substr(out.size() - 6000);
+                        if (!this->_agentFull && out.size() > 6000) out = "… (f: its whole output)\n" + out.substr(out.size() - 6000);
                         for (const std::string& line: cluster::split(cluster::clean_utf8(out), '\n'))
-                            lines.push_back(ftxui::text(" " + cluster::one_line(line, 160)) | ftxui::color(this->_theme.text));
+                            lines.push_back(ftxui::hbox({ftxui::text(" "), ftxui::paragraph(line.empty() ? " " : line) | ftxui::color(this->_theme.text)}));
                     }
-                    if (!a.summary.empty()) lines.push_back(ftxui::text(" ⤷ " + cluster::one_line(a.summary, 150)) | ftxui::color(this->_theme.accent));
+                    if (!a.summary.empty()) lines.push_back(block(" ⤷ ", a.summary, this->_theme.accent, false));
                     if (lines.empty()) lines.push_back(ftxui::text(" nothing said or done yet") | ftxui::color(this->_theme.muted));
                     this->_agentScroll = std::clamp(this->_agentScroll, 0, std::max(0, static_cast<int>(lines.size()) - 1));
                     const int end = static_cast<int>(lines.size()) - this->_agentScroll;
@@ -6188,7 +6210,8 @@ class TtyUi {
                 rows.push_back(ftxui::text(" Stop this agent? its session goes on   [y] stop · [n] no ") | ftxui::bold | ftxui::color(this->_theme.warn));
             rows.push_back(ftxui::separatorLight() | ftxui::color(this->_theme.border));
             rows.push_back(ftxui::text(this->_agentShown.empty() ? " ↑↓ choose · Enter: its activity · s: stop it · b: " + std::string(this->_agentBig ? "small window" : "whole screen") + " · Esc: close"
-                : " ↑↓ / PgUp PgDn: scroll · s: stop it · b: " + std::string(this->_agentBig ? "small window" : "whole screen") + " · Esc: the list") | ftxui::color(this->_theme.muted) | ftxui::dim);
+                : " ↑↓ / PgUp PgDn: scroll · f: " + std::string(this->_agentFull ? "fold the long blocks" : "everything, nothing folded") + " · s: stop it · b: "
+                    + std::string(this->_agentBig ? "small window" : "whole screen") + " · Esc: the list") | ftxui::color(this->_theme.muted) | ftxui::dim);
             return ftxui::vbox(std::move(rows));
         }
 
@@ -6221,6 +6244,8 @@ class TtyUi {
                 else this->_mode = Mode::Normal;
             } else if (event == ftxui::Event::Character('b') || event == ftxui::Event::Character('B')) {
                 this->_agentBig = !this->_agentBig;
+            } else if (!this->_agentShown.empty() && (event == ftxui::Event::Character('f') || event == ftxui::Event::Character('F'))) {
+                this->_agentFull = !this->_agentFull; // its activity: everything (nothing folded) or the long blocks folded
             } else if (event == ftxui::Event::Character('s') || event == ftxui::Event::Character('S') || event == ftxui::Event::Delete) {
                 const cluster::SubAgent* a = chosen();
                 if (a == nullptr || a->status != "running") this->status_("this agent already ended");

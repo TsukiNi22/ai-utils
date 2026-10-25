@@ -1138,6 +1138,8 @@ _cold void cluster::Manager::load(void)
     this->_replies = state->value("replies", std::map<std::string, int>());
     this->_followed = state->value("followed", std::map<std::string, std::set<std::string>>());
     this->_oneShot = state->value("one_shot", std::set<std::string>());
+    if (state->contains("queued") && (*state)["queued"].is_object() && !(*state)["queued"].empty()) // sent again once their session runs (handoff_)
+        this->_handoff = {{"turns", cluster::Json::array()}, {"queued", (*state)["queued"]}, {"at", cluster::now()}};
 }
 
 _cold void cluster::Manager::save(void) const
@@ -1169,6 +1171,13 @@ _cold void cluster::Manager::save(void) const
         state["replies"] = this->_replies;
         state["followed"] = this->_followed;
         state["one_shot"] = this->_oneShot;
+        // the prompts waiting in the queues (and the ones of the last run not given back yet): a quit / crash keeps them, sent again
+        cluster::Json queued = this->_handoff.is_object() && this->_handoff.contains("queued") && this->_handoff["queued"].is_object() ? this->_handoff["queued"] : cluster::Json::object();
+        for (const auto &[id, session]: this->_sessions) {
+            const std::vector<cluster::Queued> waiting = session->waiting();
+            if (!waiting.empty()) queued[id] = waiting;
+        }
+        if (!queued.empty()) state["queued"] = queued;
     }
     try {
         cluster::write_json(state_file_(), state);
@@ -1229,12 +1238,17 @@ _cold void cluster::Manager::shutdown(void)
         this->_describer->alive = false;
     }
     std::vector<std::shared_ptr<cluster::Session>> sessions;
-    this->save();
     {
+        // the queues kept aside first: a session stopped empties its own, and a save after it must still write them
         std::lock_guard<std::mutex> lock(this->_mutex);
-        for (const auto &[id, session]: this->_sessions)
+        if (!this->_handoff.is_object()) this->_handoff = {{"turns", cluster::Json::array()}, {"queued", cluster::Json::object()}, {"at", cluster::now()}};
+        for (const auto &[id, session]: this->_sessions) {
             sessions.push_back(session);
+            const std::vector<cluster::Queued> waiting = session->waiting();
+            if (!waiting.empty()) this->_handoff["queued"][id] = waiting;
+        }
     }
+    this->save();
     for (const std::shared_ptr<cluster::Session>& session: sessions)
         session->stop();
 }
@@ -1498,8 +1512,8 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
         actions += "]";
         const std::string hints = "{'desktop-entry': <'claude-cluster'>, 'urgency': <byte " + std::string(n.urgent ? "2" : "1") + ">}";
         const cluster::Captured got = cluster::capture({"gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications",
-            "--method", "org.freedesktop.Notifications.Notify", "claude-cluster", replaces, cluster::face_file(n.face).string(), n.title, cluster::one_line(n.body, 400),
-            actions, hints, n.urgent ? "0" : "-1"}, "", 10);
+            "--method", "org.freedesktop.Notifications.Notify", "--", "claude-cluster", replaces, cluster::face_file(n.face).string(), n.title, cluster::one_line(n.body, 400),
+            actions, hints, n.urgent ? "0" : "-1"}, "", 10); // "--": the -1 (the default timeout) is an argument, never read as an option
         std::string id;
         for (const char ch: got.out)
             if (ch >= '0' && ch <= '9') id += ch;
@@ -1523,6 +1537,7 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     args.insert(args.end(), {"-A", "default=Open"}); // its body clicked: its session, the interface to the front
     for (const auto &[action, label]: n.actions)
         args.insert(args.end(), {"-A", action + "=" + label});
+    args.push_back("--"); // a title / body starting with "-" (a list of questions) is text, never an option
     args.push_back(n.title);
     args.push_back(markup_(cluster::one_line(n.body, 400)));
     std::thread([this, args, n, key]() {

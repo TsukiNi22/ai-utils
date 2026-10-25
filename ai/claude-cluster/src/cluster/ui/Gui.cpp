@@ -1387,12 +1387,10 @@ class HubView: public QGraphicsView {
         void populate(const std::vector<cluster::Snapshot>& sessions, const cluster::Style& st, const std::string& active, const cluster::Taxonomy& taxonomy,
             const std::vector<cluster::SessionSpec>& archivedSpecs)
         {
-            // the tree of the taxonomy when the sessions have labels (or the taxonomy has nodes) and the ring was not chosen, else the ring
+            // the graph: always the tree (global, the taxonomy, the sessions - without labels the sessions right under global); the hub: the ring
+            // (the two views never the same drawing)
             this->activeId = active;
-            const bool labels = !taxonomy.nodes().empty() || std::any_of(sessions.begin(), sessions.end(), [](const cluster::Snapshot& s) {
-                return !s.spec.category.empty() || !s.spec.tags.empty();
-            });
-            if (this->ring || !labels) this->populateRing_(sessions, st, active);
+            if (this->ring) this->populateRing_(sessions, st, active);
             else this->populateTree_(sessions, st, taxonomy, archivedSpecs);
             this->_markColor = QColor(QString::fromStdString(st.accent));
             this->markSelected_();

@@ -320,7 +320,9 @@ header .muted { color: var(--muted); font-size: 13px; }
 #agentWin.big { right: 4vw; bottom: 5vh; width: 92vw; height: 88vh; }
 #agentWin.hidden { display: none; }
 #agentWin .head { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-#agentWin .head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#agentWin .head b { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 7.5em; overflow: auto; cursor: pointer; font-family: var(--mono); font-size: 13px; }
+#agentWin .head b.full { max-height: 45vh; }
+#agentWin .head { align-items: flex-start; }
 #agentWin .meta { font-size: 12px; font-family: var(--mono); padding: 6px 12px; border-bottom: 1px solid var(--line); }
 #agentWin .body { flex: 1; overflow: auto; padding: 10px 14px; font-size: 14px; }
 .agent-entry { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -639,6 +641,7 @@ body.simple .msg.assistant { border-radius: 16px 16px 16px 4px; }
         <span id="updateMark" class="update-mark hidden"></span>
         <button id="bell" title="Notifications" aria-label="Notifications">🔔<span id="bellCount" class="count hidden"></span></button>
         <button id="ttyButton" class="hidden" title="The terminal interface of claude-cluster in this browser (its own port)">⌨</button>
+        <button id="appDisconnect" class="hidden" title="Disconnect: another computer, address or port" aria-label="Disconnect">⏏</button>
         <button id="docsButton" title="Documentation (Ctrl+K)" aria-label="Documentation">?</button>
         <button id="settingsButton" title="Settings">⚙</button>
         <button id="logout">Log out</button>
@@ -5469,8 +5472,8 @@ function renderAgents() {
         const session = (lastState && lastState.session) || {};
         const effort = a.effort ? "think " + a.effort : session.effort_label || "think default";
         const shell = a.kind === "shell";
-        const meta = el("div", "meta", [shell ? "$ shell in the background" : a.type, shell ? "" : a.model || "model: not seen yet", shell ? "" : effort + " (its session)", "", a.tokens ? fmtTokens(a.tokens) + " tokens" : "",
-            a.toolUses ? a.toolUses + " tool" + (a.toolUses > 1 ? "s" : "") : "", a.lastTool ? "last " + a.lastTool : "", a.background ? "background" : ""].filter((x, i) => x || i === 3).join(" · "));
+        const meta = el("div", "meta", agentMeta(a, effort));
+        meta.dataset.effort = effort;
         meta.dataset.agent = a.taskId || a.toolUseId;
         row.append(top, meta);
         if (a.summary || a.error) row.append(el("div", "say", a.error || a.summary));
@@ -5495,14 +5498,19 @@ function renderAgents() {
     }
     agentTick();
 }
+// the line under an agent: what it is, its model and effort, its time (live), tokens, tools - built from its data each time (never
+// edited in place: a shell has fewer parts, the time would pile up)
+function agentMeta(a, effort) {
+    const shell = a.kind === "shell";
+    return [shell ? "$ shell in the background" : a.type, shell ? "" : a.model || "model: not seen yet", shell ? "" : effort + " (its session)",
+        "⏱ " + agentUptime(a, Date.now()), a.tokens ? fmtTokens(a.tokens) + " tokens" : "", a.toolUses ? a.toolUses + " tool" + (a.toolUses > 1 ? "s" : "") : "",
+        a.lastTool ? "last " + a.lastTool : "", a.background ? "background" : ""].filter(Boolean).join(" · ");
+}
 function agentTick() {
     // the time of each agent, live (once a second while it is shown)
     for (const m of document.querySelectorAll("#agentsList .meta")) {
         const a = agentsData.find((x) => (x.taskId || x.toolUseId) === m.dataset.agent);
-        if (!a) continue;
-        const parts = m.textContent.split(" · ");
-        parts[3] = "⏱ " + agentUptime(a, Date.now());
-        m.textContent = parts.filter(Boolean).join(" · ");
+        if (a) m.textContent = agentMeta(a, m.dataset.effort || "");
     }
     for (const s of document.querySelectorAll(".s-agents")) {
         const since = Number(s.dataset.since || 0);
@@ -5510,6 +5518,15 @@ function agentTick() {
     }
 }
 setInterval(agentTick, 1000);
+// the command / description of an agent: whole and wrapped (a few lines, scrolled), a click shows it all
+$("agentWinTitle").addEventListener("click", () => $("agentWinTitle").classList.toggle("full"));
+// the app: back to its first screen (the computers of the network, the address with its port to change), from the top bar at any time
+if (window.ClusterApp && window.ClusterApp.changeComputer) {
+    $("appDisconnect").classList.remove("hidden");
+    $("appDisconnect").addEventListener("click", () => {
+        if (confirm("Disconnect from " + location.host + "? (another computer, address or port)")) window.ClusterApp.changeComputer();
+    });
+}
 $("agentsButton").addEventListener("click", () => {
     const s = lastState && lastState.session;
     if (!s) return;

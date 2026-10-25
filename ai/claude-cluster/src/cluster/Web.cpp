@@ -728,6 +728,7 @@ _cold void cluster::Web::open_(const int port)
     this->_authority = this->_tls != nullptr ? authority_() : "";
     this->_findFd = find_socket_();
     cluster::debug("web", this->_findFd >= 0 ? "found by the app: UDP " + std::to_string(discovery_port_()) : "UDP " + std::to_string(discovery_port_()) + " taken: not found by the app");
+    if (!tls.empty()) cluster::debug("web", "no https: " + tls);
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
     if (!this->_certWhy.empty()) // tailscale without its real certificate: the authority of this computer meanwhile (a warning until it is trusted)
         (void)this->_manager.fail("Get the real certificate of the tailnet (no browser warning)", "tailscale cert", this->_certWhy, [m = &this->_manager]() {
@@ -1032,12 +1033,16 @@ _cold std::string cluster::Web::tls_(void)
         std::error_code error;
         std::filesystem::create_directories(dir, error);
         ::chmod(dir.c_str(), S_IRWXU);
+        // a CN is 64 characters at most (openssl refuses more): a long host name (a reverse DNS name given by the network) cut, the
+        // short name (before its first dot) in the authority; the full names stay in the subjectAltName
+        const std::function<std::string(const std::string&)> cn = [](const std::string& text) {return text.substr(0, 64);};
         // the authority of this computer: made once (trusted once per device, it stays)
         if (!std::filesystem::exists(ca) || !std::filesystem::exists(caKey)) {
             std::array<char, 256> own{};
             (void)::gethostname(own.data(), own.size() - 1);
+            const std::string host = own[0] != '\0' ? std::string(own.data()).substr(0, std::string(own.data()).find('.')) : "this computer";
             const cluster::Captured made = cluster::capture({"openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
-                "-days", "7300", "-subj", "/O=claude-cluster/CN=claude-cluster on " + std::string(own[0] != '\0' ? own.data() : "this computer"),
+                "-days", "7300", "-subj", "/O=claude-cluster/CN=" + cn("claude-cluster on " + host),
                 "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0", "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-keyout", caKey.string(),
                 "-out", ca.string()}, "", 30);
             ::chmod(caKey.c_str(), S_IRUSR | S_IWUSR);
@@ -1065,7 +1070,7 @@ _cold std::string cluster::Web::tls_(void)
             const std::filesystem::path extensions = dir / "cert.ext";
             std::ofstream(extensions) << "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=" << wanted << "\n";
             const cluster::Captured req = cluster::capture({"openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
-                "-subj", "/O=claude-cluster/CN=" + std::string(own[0] != '\0' ? own.data() : "claude-cluster"), "-keyout", key.string(), "-out", request.string()}, "", 30);
+                "-subj", "/O=claude-cluster/CN=" + cn(own[0] != '\0' ? own.data() : "claude-cluster"), "-keyout", key.string(), "-out", request.string()}, "", 30);
             ::chmod(key.c_str(), S_IRUSR | S_IWUSR);
             const cluster::Captured sign = req.code != 0 ? req : cluster::capture({"openssl", "x509", "-req", "-in", request.string(), "-CA", ca.string(), "-CAkey",
                 caKey.string(), "-CAcreateserial", "-days", "397", "-sha256", "-extfile", extensions.string(), "-out", cert.string()}, "", 30);
