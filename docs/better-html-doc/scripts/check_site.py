@@ -32,6 +32,7 @@ class Page(HTMLParser):
         self.skip = 0
         self.levels: list[int] = []  # RGAA 9.1: the headings
         self.lang = ""  # RGAA 8.3
+        self.page = ""  # data-page of <html>: "graph" is the canvas application of html-doc, not a page of text
         self.skip_link = False  # RGAA 12.7
         self.main_id = ""
         self.no_scope = 0  # RGAA 5.7: th without scope
@@ -46,6 +47,7 @@ class Page(HTMLParser):
                 self.links.append(a[key])
         if tag == "html":
             self.lang = a.get("lang", "")
+            self.page = a.get("data-page", "")
         if re.fullmatch(r"h[1-6]", tag):
             self.levels.append(int(tag[1]))
         if tag == "main":
@@ -72,6 +74,8 @@ class Page(HTMLParser):
 def accessibility(name: str, p: Page) -> list[str]:
     """The RGAA criteria that a page can break by its markup alone (the generator writes them: a failure is a bug of the skill)."""
     found: list[str] = []
+    if p.page == "graph":  # an interactive canvas (html-doc build_graph.mjs): not covered by the checks of a text page
+        return found
     if not p.lang:
         found.append("%s: <html> without lang (RGAA 8.3)" % name)
     if p.levels.count(1) != 1:
