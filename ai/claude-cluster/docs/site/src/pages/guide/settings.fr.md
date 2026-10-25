@@ -3,7 +3,7 @@ title = "Réglages"
 summary = "La page de réglages, config.toml, valeurs dangereuses, réglages protégés, l'onglet Services et la recherche d'un réglage."
 section = "guide"
 order = 60
-keywords = "réglages config.toml f9 dangereux protégés services service systemd recherche profils fournisseurs styles"
+keywords = "profiles profils sync shared partagés réglages config.toml f9 dangereux protégés services service systemd recherche profils fournisseurs styles"
 +++
 
 ## La page de réglages {#page}
@@ -38,6 +38,10 @@ Une carte par sous-service, avec son état et ses boutons :
 - **Web access** : état, adresse, code, si l'extérieur est joint ; ouvrir / fermer, nouveau code.
 - **Core** : pid, version et build, qui l'a lancé, ses interfaces par genre, sessions au travail, combien de temps il restera en arrière-plan ; redémarrer, tout arrêter.
 - **Voice**, **MCP servers**, **Outside (router / tailscale)**.
+
+## Profils {#profiles}
+
+Chaque claude-cluster de l'ordinateur partage `config.toml` et le relit quand il change : un réglage changé quelque part l'est partout. **Réglages > Profiles** garde des copies nommées de tous les réglages : *Save the settings of now as…* (n'importe quel nom), puis sur chaque profil **Apply** (les réglages d'avant gardés : *Undo the last apply*), **Save the settings of now into it**, **Rename…**, **Note…**, **Archive** / **Unarchive**, **Delete** (la corbeille 7 jours : *Restore* ou *Delete for good*, puis supprimé). Les mêmes cartes dans le terminal, la fenêtre, la page et l'app.
 
 ## Comptes et limites {#accounts}
 

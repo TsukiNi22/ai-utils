@@ -4593,7 +4593,10 @@ function paintServices(d) {
     const box = document.querySelector("#drawerBody .services");
     if (!box) return;
     box.textContent = "";
-    for (const [name, title] of SERVICES) {
+    // the Profiles tab: the card of the profiles, then one per profile (their names from the computer)
+    const shown = settingsTab === "Profiles" ? [["profiles", "Profiles"], ...Object.keys(d.cards || {}).filter((k) => k.startsWith("profile:")).map((k) => [k, k.slice(8)])]
+        : SERVICES;
+    for (const [name, title] of shown) {
         const c = (d.cards || {})[name] || {summary: d.error ? "✗ " + d.error : "reading…", lines: [], buttons: []};
         const card = el("div", "svc-card");
         const head = el("div", "svc-head");
@@ -4606,9 +4609,16 @@ function paintServices(d) {
             button.type = "button";
             if (!webMay("services")) { button.disabled = true; button.title = "allowed on the computer: Web › Settings from the page (services)"; }
             button.addEventListener("click", async () => {
-                if (b.risky && !confirm(b.label + " (" + name + ")?")) return;
+                let action = b.action;
+                if (action.startsWith("ask:")) { // a text first (a profile's name): ask:<action>:<question>
+                    const rest = action.slice(4);
+                    const text = prompt(rest.includes(":") ? rest.slice(rest.indexOf(":") + 1) : "Text", "");
+                    if (!text || !text.trim()) return;
+                    action = (rest.includes(":") ? rest.slice(0, rest.indexOf(":")) : rest) + ":" + text.trim();
+                }
+                if (b.risky && !confirm(b.label + " (" + title + ")?")) return;
                 button.disabled = true;
-                await act({cmd: "service_act", service: name, action: b.action});
+                await act({cmd: "service_act", service: name, action});
                 button.disabled = false;
                 servicesAt = 0;
             });
@@ -4620,7 +4630,7 @@ function paintServices(d) {
 }
 async function readServices() {
     // while its tab is shown: live (0.7 s), interval (every Delay), manual (Read again, after an action)
-    if (servicesReading || settingsTab !== "Services" || $("drawer").classList.contains("hidden") || !document.querySelector("#drawerBody .services")) return;
+    if (servicesReading || (settingsTab !== "Services" && settingsTab !== "Profiles") || $("drawer").classList.contains("hidden") || !document.querySelector("#drawerBody .services")) return;
     const mode = servicesSetting("refresh");
     const delay = Math.max(1, parseInt(servicesSetting("delay"), 10) || 2) * 1000;
     const now = Date.now();
@@ -4678,10 +4688,11 @@ function drawDrawer() {
     body.textContent = "";
     $("drawerNote").textContent = settingsChanged.size ? settingsChanged.size + " change(s) not saved" : "";
     if (settingsTab === "This device") return drawDevice(body);
-    if (settingsTab === "Services") servicesAt = 0; // its cards read at once
+    if (settingsTab === "Services" || settingsTab === "Profiles") servicesAt = 0; // its cards read at once
     if (settingsData.some((s) => s.page === settingsTab && s.web_editable === false))
         body.append(el("div", "readonly-note", "Read only from this page: the computer allows it in its settings (Web › Settings from the page)."));
     for (const s of settingsData.filter((x) => x.page === settingsTab)) {
+        if (settingsTab === "Profiles" && s.key.startsWith("svc_")) continue; // drawn as cards below
         if (s.kind === "action" && s.key.startsWith("showcase_")) {
             // the Debug page: everything claude-cluster can show, shown here (this page or the app)
             const row = el("div", "setting");
@@ -4787,7 +4798,7 @@ function drawDrawer() {
             setTimeout(() => { row.scrollIntoView({block: "center", behavior: "smooth"}); input.focus({preventScroll: true}); }, 30);
         }
     }
-    if (settingsTab === "Services") drawServicesBox(body); // its cards under Refresh / Delay
+    if (settingsTab === "Services" || settingsTab === "Profiles") drawServicesBox(body); // its cards (under Refresh / Delay)
 }
 function drawDevice(body) {
     // what this browser keeps: its name, its theme, its view, its voice, its notifications

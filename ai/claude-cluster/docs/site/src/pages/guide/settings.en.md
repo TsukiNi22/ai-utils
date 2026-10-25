@@ -3,7 +3,7 @@ title = "Settings"
 summary = "The settings page, config.toml, dangerous values, protected settings, the Services tab and searching a setting."
 section = "guide"
 order = 60
-keywords = "settings config.toml f9 dangerous protected services service systemd search profiles providers styles"
+keywords = "profiles profils sync shared partagés settings config.toml f9 dangerous protected services service systemd search profiles providers styles"
 +++
 
 ## The settings page {#page}
@@ -38,6 +38,10 @@ One card per sub service, with its state and buttons:
 - **Web access**: state, address, code, whether the outside is reached; open / close, new code.
 - **Core**: pid, version and build, who started it, its interfaces by kind, sessions working, how long it will stay in the background; restart, stop all.
 - **Voice**, **MCP servers**, **Outside (router / tailscale)**.
+
+## Profiles {#profiles}
+
+Every claude-cluster of the computer shares `config.toml` and reads it again when it changes: a setting changed anywhere is changed everywhere. **Settings > Profiles** keeps named copies of every setting: *Save the settings of now as…* (any name), then on each profile **Apply** (the settings before kept: *Undo the last apply*), **Save the settings of now into it**, **Rename…**, **Note…**, **Archive** / **Unarchive**, **Delete** (the trash for 7 days: *Restore* or *Delete for good*, then gone). The same cards in the terminal, the window, the page and the app.
 
 ## Accounts and limits {#accounts}
 

@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Services.hpp"
+#include "cluster/Profiles.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Service.hpp"
 #include "cluster/Control.hpp"
@@ -253,6 +254,7 @@ _cold cluster::Json cluster::services(cluster::Manager& manager)
         out["update"] = {{"running", CLUSTER_VERSION}, {"installed", cluster::binary_version(cluster::self_exe())}, {"offered", offer.version},
             {"upgrading", offer.started}, {"ignored", kept && kept->is_object() ? kept->value("ignored", std::string()) : std::string()}};
     }
+    out["profiles"] = cluster::profiles_json(); // the settings profiles (Settings > Profiles: the same cards)
     out["refresh"] = c.services.refresh;
     out["delay"] = c.services.delay;
     return out;
@@ -273,6 +275,15 @@ _cold static std::string run_service_(const std::string& action)
 
 _cold static std::string act_(cluster::Manager& manager, const std::string& service, const std::string& action)
 {
+    if (service == "profiles" || service.starts_with("profile:")) { // a settings profile: <action>[:<text asked>]
+        const std::size_t colon = action.find(':');
+        const std::string what = action.substr(0, colon);
+        const std::string text = colon == std::string::npos ? std::string() : action.substr(colon + 1);
+        const std::string message = service == "profiles" ? cluster::profile_act(what, text, "")
+            : cluster::profile_act(what == "save_over" ? std::string("save") : what, service.substr(8), text);
+        (void)manager.config().reload(); // applied: this core at once (the others: config.toml changed)
+        return message;
+    }
     const cluster::Config& c = manager.config();
     const std::function<void(bool)> need = [&service, &action](const bool ok) {
         if (!ok) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown action " + action + " of " + service);
@@ -414,8 +425,9 @@ _cold std::string cluster::service_act(cluster::Manager& manager, const std::str
     if (manager.replica()) return manager.call({{"cmd", "service_act"}, {"service", service}, {"action", action}, {"ui", true}}).value("message", std::string());
     const std::string title = (service == "service" ? std::string("Service (systemd)") : service == "web" ? std::string("Web access") : service == "core" ? std::string("Core")
         : service == "voice" ? std::string("Voice") : service == "mcp" ? std::string("MCP") : service == "processes" ? std::string("Processes")
-        : service == "update" ? std::string("Update") : std::string("Outside"))
-        + ": " + action;
+        : service == "update" ? std::string("Update") : service == "profiles" ? std::string("Profiles") : service.starts_with("profile:")
+        ? "Profile " + service.substr(8) : std::string("Outside"))
+        + ": " + action.substr(0, action.find(':'));
     cluster::Busy busy(manager, title);
     cluster::debug("service", title);
     try {
@@ -439,7 +451,27 @@ _cold std::string cluster::service_act(cluster::Manager& manager, const std::str
 /* its card */
 _cold static cluster::Json part_(const std::string& name, const cluster::Json& all)
 {
+    if (name.starts_with("profile:") && all.is_object() && all.contains("profiles")) { // one profile of the list
+        for (const cluster::Json& p: all["profiles"].value("profiles", cluster::Json::array()))
+            if (p.value("name", std::string()) == name.substr(8)) return p;
+        return cluster::Json::object();
+    }
     return all.is_object() && all.contains(name) && all[name].is_object() ? all[name] : cluster::Json::object();
+}
+
+_cold static std::string day_(const std::int64_t time)
+{
+    // "25/10 14:03" (today: the hour only)
+    if (time <= 0) return "-";
+    const std::time_t t = static_cast<std::time_t>(time);
+    std::tm local{};
+    ::localtime_r(&t, &local);
+    const std::time_t now = std::time(nullptr);
+    std::tm today{};
+    ::localtime_r(&now, &today);
+    char text[32];
+    std::strftime(text, sizeof(text), local.tm_yday == today.tm_yday && local.tm_year == today.tm_year ? "%H:%M" : "%d/%m %H:%M", &local);
+    return text;
 }
 
 _cold static std::string duration_(const std::int64_t seconds)
@@ -453,6 +485,23 @@ _cold std::string cluster::service_summary(const std::string& name, const cluste
     if (!all.is_object()) return "reading…";
     if (all.contains("error")) return "✗ " + all.value("error", std::string());
     const cluster::Json s = part_(name, all);
+    if (name == "profiles") {
+        std::size_t shown = 0;
+        std::size_t archived = 0;
+        std::size_t trash = 0;
+        for (const cluster::Json& p: s.value("profiles", cluster::Json::array())) {
+            trash += p.value("deleted", 0) > 0 ? 1 : 0;
+            archived += p.value("deleted", 0) == 0 && p.value("archived", 0) > 0 ? 1 : 0;
+            shown += p.value("deleted", 0) == 0 && p.value("archived", 0) == 0 ? 1 : 0;
+        }
+        return std::to_string(shown) + " profile(s)" + (archived > 0 ? " · " + std::to_string(archived) + " archived" : "")
+            + (trash > 0 ? " · " + std::to_string(trash) + " in the trash" : "");
+    }
+    if (name.starts_with("profile:")) {
+        if (s.empty()) return "gone";
+        if (s.value("deleted", 0) > 0) return "in the trash · deleted for good " + day_(s.value("purge_at", static_cast<std::int64_t>(0)));
+        return std::string(s.value("archived", 0) > 0 ? "archived · " : "") + std::to_string(s.value("settings", 0)) + " settings · saved " + day_(s.value("updated", static_cast<std::int64_t>(0)));
+    }
     if (name == "service") return !s.value("installed", false) ? "not installed" : s.value("active", std::string()) + " · " + s.value("enabled", std::string())
         + (s.value("debug", false) ? " · debug" : "");
     if (name == "web") return s.value("on", false) ? "open · " + std::to_string(s.value("connected", 0)) + " connected"
@@ -489,6 +538,20 @@ _cold std::vector<cluster::ServiceLine> cluster::service_lines(const std::string
     // its details, its journal (log), what the voice hears now (heard), what is wrong (error)
     const cluster::Json s = part_(name, all);
     std::vector<cluster::ServiceLine> out;
+    if (name == "profiles") {
+        out.push_back({"a profile keeps every setting of now under a name (any name): Apply puts them back in a few clicks, on every claude-cluster of "
+            "this computer (they share config.toml and read it again when it changes)", "muted"});
+        const cluster::Json previous = s.value("previous", cluster::Json::object());
+        if (!previous.empty()) out.push_back({"Undo: the settings " + previous.value("reason", std::string()) + " (" + day_(previous.value("at", static_cast<std::int64_t>(0)))
+            + ")", "text"});
+        out.push_back({"deleted: in the trash " + std::to_string(s.value("trash_days", 7)) + " days (Restore), then gone", "muted"});
+        return out;
+    }
+    if (name.starts_with("profile:")) {
+        if (!s.value("note", std::string()).empty()) out.push_back({s.value("note", std::string()), "text"});
+        out.push_back({"created " + day_(s.value("created", static_cast<std::int64_t>(0))) + " · saved " + day_(s.value("updated", static_cast<std::int64_t>(0))), "muted"});
+        return out;
+    }
     if (name == "service") {
         out.push_back({s.value("detector", std::string()), "muted"});
         if (s.value("installed", false)) out.push_back({"wake phrase: " + s.value("wake", std::string()), "muted"});
@@ -626,6 +689,17 @@ _cold std::vector<std::pair<std::string, std::string>> cluster::service_buttons(
             if (session.value("shells", 0) > 0) buttons.push_back({"Stop the shells of " + session.value("name", std::string()), "shells:" + session.value("id", std::string())});
         if (buttons.size() > 1) buttons.push_back({"Stop every shell", "shells"});
         return buttons;
+    }
+    if (name == "profiles") {
+        std::vector<Button> buttons = {{"Save the settings of now as…", "ask:save:Name of the new profile"}};
+        if (!s.value("previous", cluster::Json::object()).empty()) buttons.push_back({"Undo the last apply", "undo"});
+        return buttons;
+    }
+    if (name.starts_with("profile:")) {
+        if (s.empty()) return {};
+        if (s.value("deleted", 0) > 0) return {{"Restore", "restore"}, {"Delete for good", "purge"}};
+        return {{"Apply", "apply"}, {"Save the settings of now into it", "save_over"}, {"Rename…", "ask:rename:New name"}, {"Note…", "ask:note:Its note"},
+            s.value("archived", 0) > 0 ? Button{"Unarchive", "unarchive"} : Button{"Archive", "archive"}, {"Delete", "delete"}};
     }
     if (name == "outside") return {{"Ask the router again", "reopen"}, {"Remove the redirection", "unmap"}, {"Tailscale up", "tailscale_up"},
         {"Allow tailscale certificates", "tailscale_operator"}};

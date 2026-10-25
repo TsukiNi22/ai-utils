@@ -18,6 +18,7 @@ File Description:
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/Vocabulary.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Profiles.hpp"
 #include "cluster/Plugins.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Machine.hpp"
@@ -759,6 +760,21 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             [](const cluster::Config& cf) {return std::to_string(cf.pluginSyncHours);}});
         const auto mcp = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "mcp";});
         pages.insert(mcp == pages.end() ? pages.end() : mcp + 1, page);
+    }
+    // settings profiles: the card of the profiles (a new one from the settings of now, undo the last apply) and a card per profile (its buttons:
+    // apply, save into it, rename, note, archive, delete / restore), the same cards as the Services page
+    {
+        cluster::SettingsPage page{"profiles", "Profiles", {}};
+        page.settings.push_back({"profiles", "svc_profiles", "Profiles", SettingKind::Action, {}, "a profile keeps every setting of now under the name you "
+            "choose; Apply puts them back on every claude-cluster of this computer (they share config.toml and read it again when it changes), Undo "
+            "brings back the settings before. Archive keeps one apart, Delete puts it in the trash for " + std::to_string(PROFILES_TRASH_DAYS)
+            + " days (Restore), then it goes for good", false, [](const cluster::Config&) {return std::string();}});
+        for (const cluster::SettingsProfile& p: cluster::profiles_list())
+            page.settings.push_back({"profiles", "svc_profile:" + p.name, p.name + (p.deleted > 0 ? "  (trash)" : p.archived > 0 ? "  (archived)" : ""),
+                SettingKind::Action, {}, p.note.empty() ? "a profile of settings: Apply, save the settings of now into it, rename, note, archive, delete" : p.note,
+                false, [](const cluster::Config&) {return std::string();}});
+        const auto services = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& s) {return s.section == "services";});
+        pages.insert(services == pages.end() ? pages.end() : services + 1, page);
     }
     // accounts & limits: the providers (store / remove a key, log in) and what the sessions may spend together
     {

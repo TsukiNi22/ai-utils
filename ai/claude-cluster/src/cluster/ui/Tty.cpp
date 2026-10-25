@@ -668,6 +668,8 @@ _cold std::string state_mark_(const cluster::State state)
 //----------------------------------------------------------------//
 /* CLASS */
 
+_nodiscard static bool cards_page_(const std::string& section) {return section == "services" || section == "profiles";} // a settings page of cards
+
 class TtyUi {
     private:
         cluster::App& _app;
@@ -1342,6 +1344,11 @@ class TtyUi {
         std::atomic<bool> _servicesReading{false};
         int _svcButton = 0;                         // the button of the service chosen (←→)
         std::string _svcConfirm;                    // "service|action" waiting for its y / n
+        std::string _svcAskName;                    // a button asked a text first (a profile's name): its card, its action, its label, its question
+        std::string _svcAskAction;
+        std::string _svcAskLabel;
+        std::string _svcAskQuestion;
+        mutable Line _svcAskInput;                  // the text typed for it
         std::vector<std::pair<int, std::function<void(void)>>> _taskItems; // its items drawn (their part, what Enter does)
         std::vector<cluster::SettingsPage> _pages;  // settings page
         int _page = 0;
@@ -3803,6 +3810,15 @@ class TtyUi {
                 this->_note = "read only from the web page: the computer allows it (Web > Settings from the page: services)";
                 return;
             }
+            if (cluster::service_asks(action)) { // a text first (a name): the field under its card
+                this->_svcAskName = name;
+                this->_svcAskAction = cluster::service_ask_action(action);
+                this->_svcAskLabel = label;
+                this->_svcAskQuestion = cluster::service_ask_question(action);
+                this->_svcAskInput.clear();
+                this->_note.clear();
+                return;
+            }
             // the core, a removal: y / n first; run by the worker (its popup), its result in the note, read again after
             if (cluster::service_risky(name, action) && this->_svcConfirm != name + "|" + action) {
                 this->_svcConfirm = name + "|" + action + "|" + label;
@@ -3820,9 +3836,14 @@ class TtyUi {
                     message = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
                     failed = true;
                 }
-                this->_screen.Post([this, message, failed]() {
+                this->_screen.Post([this, name, message, failed]() {
                     this->_note = (failed ? "✗ " : "") + message;
                     this->_servicesAt = 0; // read again
+                    if (name == "profiles" || name.starts_with("profile:")) { // a profile added, renamed, gone: its rows again
+                        this->_pages = cluster::settings_pages(this->_manager.config());
+                        this->_page = std::clamp(this->_page, 0, static_cast<int>(this->_pages.size()) - 1);
+                        this->_item = std::clamp(this->_item, 0, std::max(0, static_cast<int>(this->_pages[static_cast<std::size_t>(this->_page)].settings.size()) - 1));
+                    }
                 });
                 this->_screen.PostEvent(ftxui::Event::Custom);
             });
@@ -3855,6 +3876,9 @@ class TtyUi {
                 buttons.push_back(ftxui::text(" "));
             }
             out.push_back(ftxui::hbox(std::move(buttons)));
+            if (this->_svcAskName == name) // the text its button asked
+                out.push_back(ftxui::hbox({ftxui::text("      " + this->_svcAskQuestion + " › ") | ftxui::color(t.accent) | ftxui::bold,
+                    this->lineView_(this->_svcAskInput, 50, 1), ftxui::text("  Enter · Esc") | ftxui::color(t.muted)}));
             out.push_back(ftxui::text(""));
             return out;
         }
@@ -4085,11 +4109,26 @@ class TtyUi {
                 }
                 return true;
             }
-            if (page.section == "services" && (event == ftxui::Event::Character('R') || event == ftxui::Event::Character('r'))) {
+            if (!this->_svcAskName.empty()) { // the text a button asked (a profile's name): Enter sends it, Esc drops it
+                if (event == ftxui::Event::Escape) {
+                    this->_svcAskName.clear();
+                    this->_note = "nothing done";
+                } else if (event == ftxui::Event::Return) {
+                    const std::string text = cluster::trim(this->_svcAskInput.text());
+                    const std::string name = this->_svcAskName;
+                    this->_svcAskName.clear();
+                    if (text.empty()) this->_note = "nothing done (no text)";
+                    else this->svcRun_(name, this->_svcAskAction + ":" + text, this->_svcAskLabel);
+                } else {
+                    (void)this->_svcAskInput.key(event);
+                }
+                return true;
+            }
+            if (cards_page_(page.section) && (event == ftxui::Event::Character('R') || event == ftxui::Event::Character('r'))) {
                 this->servicesRead_(true); // read again now
                 return true;
             }
-            if (count > 0 && page.section == "services" && page.settings[static_cast<std::size_t>(this->_item)].key.starts_with("svc_")
+            if (count > 0 && cards_page_(page.section) && page.settings[static_cast<std::size_t>(this->_item)].key.starts_with("svc_")
                 && (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Return || event == ftxui::Event::Character(' '))) {
                 // a service: ←→ its buttons, Enter / Space the one chosen
                 const std::string name = page.settings[static_cast<std::size_t>(this->_item)].key.substr(4);
@@ -4414,7 +4453,7 @@ class TtyUi {
                 }));
             }
             const cluster::SettingsPage& page = this->_pages[static_cast<std::size_t>(this->_page)];
-            if (page.section == "services") { // its state read (live / every Delay / by hand)
+            if (cards_page_(page.section)) { // its state read (live / every Delay / by hand)
                 this->servicesRead_();
                 if (this->servicesSetting_("refresh") != "manual") this->_spinning = true;
             }
@@ -4432,7 +4471,7 @@ class TtyUi {
                 if (typing) value = this->_edit;
                 else if (setting.kind == cluster::SettingKind::Bool) value = value == "true" ? "● Enabled" : "○ Disabled";
                 else if (setting.kind == cluster::SettingKind::Choice) value = "‹ " + (value.empty() ? std::string("(agent default)") : value) + " ›";
-                else if (setting.kind == cluster::SettingKind::Action && page.section == "services") value = cluster::service_summary(value, this->_services); // a sub service: its state
+                else if (setting.kind == cluster::SettingKind::Action && cards_page_(page.section)) value = cluster::service_summary(setting.key.substr(4), this->_services); // a sub service: its state
                 else if (setting.kind == cluster::SettingKind::Action) value = "▶ " + value;
                 else if (value.empty()) value = "(empty)";
                 const bool typed = setting.kind != cluster::SettingKind::Bool && setting.kind != cluster::SettingKind::Choice; // between brackets; a switch and a choice have their own marks
@@ -4490,7 +4529,7 @@ class TtyUi {
                         rows.push_back(ftxui::text("      ✗ not a key: " + names + "  (Ctrl / Alt / Shift + a letter, F1..F12, Tab, Enter, Escape, PageUp...)") | ftxui::color(t.error) | ftxui::bold);
                     }
                 }
-                if (page.section == "services" && setting.key.starts_with("svc_"))
+                if (cards_page_(page.section) && setting.key.starts_with("svc_"))
                     for (ftxui::Element& e: this->svcCard_(setting.key.substr(4), selected, index, clip))
                         rows.push_back(std::move(e));
                 if (selected) {
@@ -4554,7 +4593,7 @@ class TtyUi {
                 if (!this->_find.empty() && this->_hits.empty()) rows.push_back(ftxui::text("   nothing found") | ftxui::color(t.muted));
             }
             std::string note = this->_note == "confirm" || this->_note == "danger_save" || this->_note == "svc_confirm" ? std::string() : this->_note; // those: a popup
-            if (page.section == "services" && this->_note.empty()) note = "←→ a button · Enter run it · R read again (" + this->servicesSetting_("refresh") + ")";
+            if (cards_page_(page.section) && this->_note.empty()) note = "←→ a button · Enter run it · R read again (" + this->servicesSetting_("refresh") + ")";
             ftxui::Elements choice;
             for (const std::string& line: cluster::split(choiceHelp, '\n'))
                 choice.push_back(ftxui::paragraph(line) | (choice.empty() ? ftxui::bold | ftxui::color(t.accent) : ftxui::color(t.text)));

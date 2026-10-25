@@ -24,6 +24,7 @@ File Description:
 #include "cluster/Actions.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Supervisor.hpp"
+#include "cluster/Profiles.hpp"
 #include "cluster/Docs.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
@@ -1051,7 +1052,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "services") {
             // its state, and the card of each one made here (the web page draws them as they are)
             data = cluster::services(manager);
-            for (const char* name: {"service", "web", "core", "voice", "mcp", "outside", "processes"}) {
+            std::vector<std::string> names = {"service", "web", "core", "voice", "mcp", "outside", "processes", "profiles"};
+            for (const cluster::Json& p: data["profiles"].value("profiles", cluster::Json::array()))
+                names.push_back("profile:" + p.value("name", std::string()));
+            for (const std::string& name: names) {
                 cluster::Json lines = cluster::Json::array();
                 for (const cluster::ServiceLine& l: cluster::service_lines(name, data))
                     lines.push_back({{"text", l.text}, {"kind", l.kind}});
@@ -1233,6 +1237,13 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
                     "not allowed: the user did not let the global session fork (settings page > Sessions > Global session can fork)");
             data = {{"id", manager.forkSession(session(), arg_(request, "name"))}};
+        } else if (cmd == "profiles") { // the settings profiles
+            data = cluster::profiles_json();
+        } else if (cmd == "profile") { // one of them: save | apply | undo | rename | note | archive | unarchive | delete | restore | purge
+            if (from_web && !cluster::web_may(manager.config(), "services")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            if (from_global) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the settings profiles are changed by the user only");
+            data = {{"message", cluster::profile_act(arg_(request, "action"), arg_(request, "name"), arg_(request, "arg"))}};
+            (void)manager.config().reload();
         } else if (cmd == "supervisor") { // every claude-cluster of this computer (the supervisor)
             data = cluster::supervisor_json(cluster::supervisor_scan());
         } else if (cmd == "supervisor_act") { // one of them (or "*"): update | force | stop | start

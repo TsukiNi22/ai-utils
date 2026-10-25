@@ -2971,6 +2971,7 @@ class Window: public QMainWindow {
                 bool reading = false;
                 bool alive = true;              // the dialog still open
                 QWidget* page = nullptr;        // its tab
+                QWidget* profiles = nullptr;    // the Profiles tab (the same cards)
             };
             const std::shared_ptr<ServicesView> svc = std::make_shared<ServicesView>();
 
@@ -3020,7 +3021,7 @@ class Window: public QMainWindow {
                         box->setValue(QString::fromStdString(current).toDouble());
                         read = [box]() {return QString::number(box->value()).toStdString();};
                         widget = box;
-                    } else if (setting.kind == cluster::SettingKind::Action && page.section == "services") {
+                    } else if (setting.kind == cluster::SettingKind::Action && (page.section == "services" || page.section == "profiles")) {
                         // a sub service: its card (its state, its lines, its buttons)
                         const std::string name = setting.key.substr(4);
                         QFrame* card = new QFrame(tab);
@@ -3040,8 +3041,14 @@ class Window: public QMainWindow {
                             row->addWidget(button);
                             buttons.push_back(button);
                             QObject::connect(button, &QPushButton::clicked, &dialog, [this, button, name, svc, &dialog]() {
-                                const std::string action = button->property("action").toString().toStdString();
+                                std::string action = button->property("action").toString().toStdString();
                                 const std::string label = button->text().toStdString();
+                                if (cluster::service_asks(action)) { // a text first (a profile's name)
+                                    bool ok = false;
+                                    const QString text = QInputDialog::getText(&dialog, q_(label), q_(cluster::service_ask_question(action)), QLineEdit::Normal, QString(), &ok);
+                                    if (!ok || text.trimmed().isEmpty()) return;
+                                    action = cluster::service_ask_action(action) + ":" + text.trimmed().toStdString();
+                                }
                                 if (cluster::service_risky(name, action)
                                     && QMessageBox::question(&dialog, q_(label), q_(label + " (" + name + ")?")) != QMessageBox::Yes) return;
                                 button->setEnabled(false);
@@ -3054,9 +3061,16 @@ class Window: public QMainWindow {
                                         done = std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info());
                                         failed = true;
                                     }
-                                    QMetaObject::invokeMethod(this, [this, done, failed, button, svc]() {
+                                    const bool rows = !failed && (name == "profiles" || name.starts_with("profile:"))
+                                        && !action.starts_with("note") && action != "apply" && action != "save_over" && action != "undo";
+                                    QMetaObject::invokeMethod(this, [this, done, failed, button, svc, rows]() {
                                         this->message(done, failed);
                                         if (!svc->alive) return;
+                                        if (rows) { // a profile added, renamed, gone: the settings opened again on this tab (its rows)
+                                            if (QDialog* open = qobject_cast<QDialog*>(button->window())) open->reject();
+                                            QTimer::singleShot(0, this, [this]() {this->settings();});
+                                            return;
+                                        }
                                         button->setEnabled(true);
                                         svc->at = 0; // read again
                                     }, Qt::QueuedConnection);
@@ -3197,6 +3211,7 @@ class Window: public QMainWindow {
                 }
                 QScrollArea* scroll = new QScrollArea(sections);
                 if (page.section == "services") svc->page = scroll;
+                if (page.section == "profiles") svc->profiles = scroll;
                 scrolls.push_back(scroll);
                 scroll->setWidget(tab);
                 scroll->setWidgetResizable(true);
@@ -3231,7 +3246,7 @@ class Window: public QMainWindow {
             };
             QTimer* reading = new QTimer(&dialog);
             QObject::connect(reading, &QTimer::timeout, &dialog, [this, svc, sections, svcSetting]() {
-                if (svc->reading || svc->page == nullptr || sections->currentWidget() != svc->page) return;
+                if (svc->reading || (sections->currentWidget() != svc->page && sections->currentWidget() != svc->profiles) || sections->currentWidget() == nullptr) return;
                 const std::string mode = svcSetting("refresh");
                 const std::int64_t delay = static_cast<std::int64_t>(std::max(1, std::atoi(svcSetting("delay").c_str()))) * 1000;
                 const std::int64_t now = cluster::now_ms();

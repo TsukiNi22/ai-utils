@@ -1463,6 +1463,18 @@ again), and a third choice when one fits (`u`): the web access not opened becaus
 the failures of its own requests the same way. The web line shows the public address only when it is reached for
 sure (the router opened its port, tailscale connected, *Name from outside* given), else `outside ✕` and why.
 
+**Settings shared, settings profiles.** Every claude-cluster of this computer - the main one, each independent instance,
+the supervisor - reads the same `config.toml` and reads it again by itself when it changes (its date, checked every second):
+a setting changed in one terminal, window or page is the setting of all of them. **Settings > Profiles** keeps named
+copies of every setting (`<config>/profiles/<file>.toml`, private 0600, an index `index.json`): the first card
+*Save the settings of now as…* asks a name (any text, 80 characters at most) and makes one; each profile has its card
+(its note, created / saved dates, how many settings) with **Apply** (asked first: the settings before it are kept, *Undo
+the last apply* puts them back), **Save the settings of now into it**, **Rename…**, **Note…**, **Archive** / **Unarchive**
+(kept apart, at the end of the list) and **Delete**: to the trash, restorable for **7 days** (*Restore*, *Delete for good*),
+then removed with its file. Applied, every claude-cluster of the computer follows it at once. The control commands
+`profiles` and `profile` (`action` save | apply | undo | rename | note | archive | unarchive | delete | restore | purge,
+`name`, `arg`) do the same from a script; the global session never changes them.
+
 **The Services tab** of the settings drives the sub services of claude-cluster, a card each (its state on the right
 of its name, its details, its buttons; the terminal: ↑↓ a service, ←→ a button, Enter runs it, a click too; R reads
 it again; the window, the web page: its buttons):
