@@ -24,6 +24,7 @@ File Description:
 #include <sys/un.h>
 #include <unistd.h>
 #include <csignal>
+#include <cerrno>
 #include <fcntl.h>
 #include <iomanip>
 #include <fstream>
@@ -608,12 +609,31 @@ std::string cluster::head_utf8(const std::string& text, const std::size_t max)
 
 _cold void cluster::detach(const std::vector<std::string>& args)
 {
+    // started and left alone (a viewer, a file manager, a notification): its own session (never killed with a group of ours, never
+    // waited for), /dev/null for its input and outputs, none of our descriptors (a socket of the core never held by a viewer); the
+    // middle child ends at once and is reaped here, the program itself is a child of init
     if (args.empty() || !cluster::has_command(args[0])) return;
-    std::thread([args]() {
-        try {
-            (void)cluster::capture(args, "", 30);
-        } catch (...) {} // a notification that fails is not an error of the tool
-    }).detach();
+    std::vector<char*> argv;
+    for (const std::string& arg: args)
+        argv.push_back(const_cast<char*>(arg.c_str()));
+    argv.push_back(nullptr);
+    const pid_t middle = ::fork(); // only async-signal-safe calls in the children (fork of a threaded process)
+    if (middle < 0) return;
+    if (middle == 0) {
+        (void)::setsid();
+        if (::fork() != 0) ::_exit(0);
+        const int null = ::open("/dev/null", O_RDWR);
+        if (null >= 0) {
+            (void)::dup2(null, STDIN_FILENO);
+            (void)::dup2(null, STDOUT_FILENO);
+            (void)::dup2(null, STDERR_FILENO);
+        }
+        (void)::close_range(3, ~0U, 0);
+        ::execvp(argv[0], argv.data());
+        ::_exit(127);
+    }
+    int status = 0;
+    while (::waitpid(middle, &status, 0) < 0 && errno == EINTR) {}
 }
 
 _cold void cluster::complete_path(void)
