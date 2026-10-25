@@ -228,6 +228,9 @@ _cold void cluster::Config::load(void)
     this->pinGlobal = table["agent"]["global_pin"].value_or(this->pinGlobal);
     this->taxonomyEdit = table["agent"]["taxonomy_edit"].value_or(this->taxonomyEdit);
     this->transcriptLimitMb = std::max(0, table["sessions"]["transcript_limit_mb"].value_or(this->transcriptLimitMb));
+    this->memoryMb = std::clamp(static_cast<int>(table["sessions"]["memory_mb"].value_or(this->memoryMb)), 1, 1024);
+    this->memoryTotalMb = std::clamp(static_cast<int>(table["sessions"]["memory_total_mb"].value_or(this->memoryTotalMb)), 1, 65536);
+    this->memoryEntries = std::max(0, static_cast<int>(table["sessions"]["memory_entries"].value_or(this->memoryEntries)));
     this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);
     this->sessionsPrompt = table["sessions"]["prompt"].value_or((cluster::config_dir() / "sessions.md").string());
@@ -383,6 +386,7 @@ _cold void cluster::Config::load(void)
     this->limits.block = table["limits"]["block"].value_or(this->limits.block);
     this->limits.warnPercent = std::clamp(static_cast<int>(table["limits"]["warn_percent"].value_or(this->limits.warnPercent)), 0, 99);
     this->usage.account = table["usage"]["account"].value_or(this->usage.account);
+    this->usage.accountRefresh = std::clamp(static_cast<int>(table["usage"]["account_refresh"].value_or(this->usage.accountRefresh)), 30, 3600);
     if (table["usage"]["transcripts"].as_array()) this->usage.transcripts = strings_(table["usage"]["transcripts"], this->usage.transcripts);
     else if (const char* env = std::getenv("CLAUDE_CLUSTER_TRANSCRIPTS")) // the environment of the core (tests): folders apart by ':', empty: none
         this->usage.transcripts = cluster::split(env, ':');

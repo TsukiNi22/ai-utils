@@ -33,7 +33,7 @@ The config and data folders are `0700`. Besides them an installed binary writes 
 | File | Format and content |
 |---|---|
 | `state.json` | one JSON object: `sessions` (each: `id`, `name`, `cwd`, `backend`, `claude_id` for `--resume`, `model`, `mode`, `effort`, `panels`, `global`, `created`, `cost`, `tokens`, `summary`, `category`, `tags`, `turns`, `pin`...), `trash`, `tasks`, `schedules`, `next*` counters, `ui` |
-| `logs/<id>.jsonl` | the transcript of a session, one JSON entry per line (kept within `transcript_limit_mb`, 25 MB); `logs/archive/` holds conversations ended by `/clear`; each entry has its `origin` (user, mcp, task, scheduled) |
+| `logs/<id>.jsonl` | the transcript of a session, one JSON entry per line (kept within `transcript_limit_mb`, 25 MB; in memory its newest entries within `memory_mb`, 1 MB, all of them within `memory_total_mb`, 100 MB - the older ones read again from here when its top is reached); `logs/archive/` holds conversations ended by `/clear`; each entry has its `origin` (user, mcp, task, scheduled) |
 | `history.jsonl` | the prompts you sent: `{time, session, text, images, pastes}` per line, newest `history_limit` (1000) kept |
 | `stash.json` | the stashed prompts, global, with time and session |
 | `taxonomy.json` | the forest of categories and tags: node to parent |

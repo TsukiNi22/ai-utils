@@ -4,6 +4,7 @@
 import json, os, sys, threading, time
 log = open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8")
 SID = "00000000-0000-0000-0000-000000000002"
+BG_DESC = os.environ.get("FAKE_BG_DESC", "Watch the tests")  # the background agent (a dangerous one: deploy, push...)
 
 
 def out(event):
@@ -43,11 +44,11 @@ for line in sys.stdin:
     # the session asks two agents: a reviewer (in the foreground) and a watcher (in the background)
     assistant([{"type": "text", "text": "I ask two agents."},
                {"type": "tool_use", "id": "call-fg", "name": "Agent", "input": {"description": "Review the diff", "subagent_type": "code-reviewer", "prompt": "Review it"}},
-               {"type": "tool_use", "id": "call-bg", "name": "Agent", "input": {"description": "Watch the tests", "subagent_type": "general-purpose", "prompt": "Watch",
+               {"type": "tool_use", "id": "call-bg", "name": "Agent", "input": {"description": BG_DESC, "subagent_type": "general-purpose", "prompt": "Watch",
                                                                                    "run_in_background": True}}])
     out({"type": "system", "subtype": "task_started", "task_id": "task-fg", "tool_use_id": "call-fg", "description": "Review the diff", "subagent_type": "code-reviewer",
          "task_type": "local_agent", "is_backgrounded": False, "prompt": "Review it"})
-    out({"type": "system", "subtype": "task_started", "task_id": "task-bg", "tool_use_id": "call-bg", "description": "Watch the tests", "subagent_type": "general-purpose",
+    out({"type": "system", "subtype": "task_started", "task_id": "task-bg", "tool_use_id": "call-bg", "description": BG_DESC, "subagent_type": "general-purpose",
          "task_type": "local_agent", "is_backgrounded": True, "prompt": "Watch"})
     out({"type": "system", "subtype": "task_started", "task_id": "task-sh", "tool_use_id": "call-sh", "description": "npm test", "task_type": "local_bash"})  # a shell in the background
     out({"type": "user", "parent_tool_use_id": "call-fg", "message": {"role": "user", "content": "Review it"}})

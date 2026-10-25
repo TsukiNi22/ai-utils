@@ -201,6 +201,44 @@ _cold void cluster::Manager::holdAsk_(const cluster::Snapshot& s)
     } catch (const utils::exception::IException&) {} // already over
 }
 
+_cold void cluster::Manager::restartYoung_(std::set<std::string>& restarted)
+{
+    // a background shell / agent / job started less than a minute ago and labelled safe: stopped now and run again after the update (its
+    // session told by the new version) instead of held for; an older one or a dangerous one is waited for (never cut in the middle)
+    const std::int64_t now = cluster::now_ms();
+    for (const cluster::Snapshot& s: this->list(true))
+        for (const cluster::SubAgent& a: s.agents) {
+            const std::string key = s.spec.id + ":" + a.taskId;
+            const std::string label = a.label.empty() ? cluster::command_label(a.description + "\n" + a.prompt) : a.label;
+            if (a.status != "running" || a.taskId.empty() || restarted.contains(key) || now - a.started >= 60 * 1000 || label != "safe") continue;
+            restarted.insert(key);
+            try {
+                this->stopAgent(s.spec.id, a.taskId);
+            } catch (const utils::exception::IException&) {} // already over
+            const std::string what = a.kind == "shell" ? "background shell" : "background agent";
+            (void)this->hold_(s.spec.id, "[claude-cluster] claude-cluster was updated: it stopped your " + what + " \"" + cluster::one_line(a.description, 120)
+                + "\" (started " + std::to_string((now - a.started) / 1000) + " s before, labelled safe to run again). Start it again now the same way"
+                + (a.prompt.empty() ? std::string() : " (it was: " + cluster::one_line(a.prompt, 400) + ")") + " if it is still needed.", {}, "update");
+            this->notice_(s.spec.id, "its " + what + " (" + cluster::one_line(a.description, 60) + ", " + std::to_string((now - a.started) / 1000) + " s old, safe) stopped for the update, run again after it");
+        }
+    for (const cluster::Json& job: this->jobsState().value("jobs", cluster::Json::array())) {
+        const std::string id = job.value("id", std::string());
+        const std::string command = job.value("command", std::string());
+        const std::int64_t started = job.value("started", std::int64_t{0});
+        if (job.value("state", std::string()) != "running" || restarted.contains("job:" + id) || started <= 0 || now - started >= 60 * 1000
+            || cluster::command_label(command) != "safe") continue;
+        restarted.insert("job:" + id);
+        try {
+            (void)this->jobsCommand("job_kill", {{"id", id}, {"reason", "stopped by the update (started less than a minute before): run again after it"}});
+        } catch (const utils::exception::IException&) {} // already over
+        const std::string owner = job.value("session", std::string());
+        if (!owner.empty())
+            (void)this->hold_(owner, "[claude-cluster] claude-cluster was updated: it stopped your job " + id + " (" + cluster::one_line(command, 300) + ", started "
+                + std::to_string((now - started) / 1000) + " s before, labelled safe to run again). Run it again now the same way if it is still needed.", {}, "update");
+        this->notice_(owner, "job " + id + " (" + cluster::one_line(command, 60) + ") stopped for the update, run again after it");
+    }
+}
+
 _cold void cluster::Manager::holdQueues_(void)
 {
     // the prompts waiting in the queue of a turn (not given to the agent yet): held in their order, the turn ends without them
@@ -299,7 +337,9 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
             this->holdQueues_();
             std::set<std::string> asked;
             this->holdAsks_(asked);
-            return std::to_string(this->heldCount_()) + " held";
+            std::set<std::string> restarted;
+            this->restartYoung_(restarted);
+            return std::to_string(this->heldCount_()) + " held, " + std::to_string(restarted.size()) + " restarted";
         }
         this->_holding = false;
         this->releaseHeld_();
@@ -390,20 +430,27 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         this->_holding = true;
         this->holdQueues_();
         std::set<std::string> asked; // the sessions whose question / permission is held
+        std::set<std::string> restarted; // the background items stopped to be run again after the update
         for (;;) {
             std::string names;
             const std::int64_t now = cluster::now_ms();
             // a session waiting for the user only (a question, a permission): its request held - the new version tells it, it asks again
             // (the popup back) - and its turn stopped; it no longer holds the update back
             this->holdAsks_(asked);
+            this->restartYoung_(restarted);
             for (const cluster::Snapshot& s: this->list(true)) {
                 if (asked.contains(s.spec.id) && s.state != cluster::State::Working) continue; // its request held: stopped, not waited for
-                const bool agents = std::any_of(s.agents.begin(), s.agents.end(), [now](const cluster::SubAgent& a) {
-                    return a.status == "running" && now - a.started < 3600 * 1000; // its agents in the background too (an hour at most)
+                const bool agents = std::any_of(s.agents.begin(), s.agents.end(), [now, &s, &restarted](const cluster::SubAgent& a) {
+                    // its agents and shells in the background too (an hour at most), but not the ones stopped to be run again
+                    return a.status == "running" && now - a.started < 3600 * 1000 && !restarted.contains(s.spec.id + ":" + a.taskId);
                 });
                 if (s.state == cluster::State::Working || s.state == cluster::State::Waiting || agents)
                     names += (names.empty() ? "" : ", ") + s.spec.name + (s.state == cluster::State::Waiting ? " (waits for your answer)" : agents && s.state != cluster::State::Working ? " (its agents)" : "");
             }
+            // the jobs of the orchestrator running (a build, tests): waited for too, but not the ones stopped to be run again
+            for (const cluster::Json& job: this->jobsState().value("jobs", cluster::Json::array()))
+                if (job.value("state", std::string()) == "running" && !restarted.contains("job:" + job.value("id", std::string())))
+                    names += (names.empty() ? "" : ", ") + std::string("job ") + job.value("id", std::string()) + " (" + cluster::one_line(job.value("command", std::string()), 40) + ")";
             const std::size_t held = this->heldCount_();
             {
                 std::lock_guard<std::mutex> lock(this->_mutex);

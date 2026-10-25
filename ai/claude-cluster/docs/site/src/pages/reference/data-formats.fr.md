@@ -33,7 +33,7 @@ Les dossiers de config et de données sont en `0700`. En dehors d'eux un binaire
 | Fichier | Format et contenu |
 |---|---|
 | `state.json` | un objet JSON : `sessions` (chacune : `id`, `name`, `cwd`, `backend`, `claude_id` pour `--resume`, `model`, `mode`, `effort`, `panels`, `global`, `created`, `cost`, `tokens`, `summary`, `category`, `tags`, `turns`, `pin`...), `trash`, `tasks`, `schedules`, compteurs `next*`, `ui` |
-| `logs/<id>.jsonl` | la transcription d'une session, une entrée JSON par ligne (gardée dans `transcript_limit_mb`, 25 Mo) ; `logs/archive/` contient les conversations terminées par `/clear` ; chaque entrée a son `origin` (user, mcp, task, scheduled) |
+| `logs/<id>.jsonl` | la transcription d'une session, une entrée JSON par ligne (gardée dans `transcript_limit_mb`, 25 Mo ; en mémoire ses entrées récentes dans `memory_mb`, 1 Mo, toutes ensemble dans `memory_total_mb`, 100 Mo - les plus anciennes relues d'ici quand on remonte en haut) ; `logs/archive/` contient les conversations terminées par `/clear` ; chaque entrée a son `origin` (user, mcp, task, scheduled) |
 | `history.jsonl` | les prompts envoyés : `{time, session, text, images, pastes}` par ligne, les `history_limit` (1000) derniers gardés |
 | `stash.json` | les prompts mis de côté, global, avec l'heure et la session |
 | `taxonomy.json` | la forêt de catégories et tags : nœud vers parent |

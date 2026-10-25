@@ -128,6 +128,7 @@ enum class CommandVerdict {Met, NotYet, Failed, GaveUp};
 _cold _nodiscard cluster::CommandMatch command_match(const cluster::Json& options);          // stdout / contains / regex / code / every / fail_after (throws on a bad one)
 _cold _nodiscard cluster::CommandVerdict command_check(const std::string& command, cluster::CommandMatch& match); // run once: met, not yet, failed, given up
 _cold _nodiscard cluster::Json command_match_json(const cluster::CommandMatch& match);    // its options as given, and its state (failures, last)
+_cold _nodiscard std::string command_label(const std::string& text);  // dangerous (it changes things outside: push, deploy, remove, sudo...) | safe
 _cold void stop_group(const int pid, const bool force);             // a command and everything it started (its process group): TERM, KILL (force)
 _cold _nodiscard std::string interactive_program(const std::string& command);   // vim, less, top, ssh, a REPL...: the program that needs a terminal in a shell command ("" none)
 _cold _nodiscard std::string open_terminal_command(const std::filesystem::path& folder, const std::string& command); // an emulator running it there: its name ("" none found)

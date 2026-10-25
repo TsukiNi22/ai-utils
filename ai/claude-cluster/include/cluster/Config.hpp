@@ -122,7 +122,8 @@ struct ServiceConf {
 };
 
 struct UsageConf {
-    bool account = true;            // the windows of the Claude account read from its usage endpoint (the token of Claude Code), every 5 min
+    bool account = true;            // the windows of the Claude account read from its usage endpoint (the token of Claude Code)
+    int accountRefresh = 120;       // seconds: the account read again past this age (one read shared by every instance of this user)
     std::vector<std::string> transcripts = {"~/.claude/projects"};  // the transcripts of Claude Code summed (every session of this computer); empty: the ledger of claude-cluster only
     std::map<std::string, std::pair<double, double>> prices;        // [usage.prices] model = input $/M tokens (output 5x), or [input, output]
 };
@@ -315,6 +316,9 @@ class Config {
         bool pinGlobal = true;                  // the global session may pin an item on any session (MCP session_pin)
         bool taxonomyEdit = true;               // the global session may edit the taxonomy of the categories / tags (MCP taxonomy)
         int transcriptLimitMb = 25;             // each session transcript (logs/<id>.jsonl): its newest entries within this size (0: no limit)
+        int memoryMb = 1;                       // each transcript in memory (what the interfaces show): its newest entries within this size, the older ones loaded on demand
+        int memoryTotalMb = 100;                // every transcript in memory together: past it, the oldest entries of each dropped (on demand again)
+        int memoryEntries = 0;                  // also at most this number of entries in memory per transcript (0: off, the size only)
         std::string queueGiven = "end";         // a prompt queued while the turn runs: end (kept here, editable, F8 sends it now; after the turn) | step (given to claude, taken at its next step)
         double budget = 0.0;
         bool questionsToGlobal = true;          // the questions of the sub-sessions shown on the global session (their own one: greyed)

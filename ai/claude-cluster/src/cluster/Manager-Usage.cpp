@@ -466,14 +466,22 @@ _cold void cluster::Manager::refreshAccount_(void)
     // the windows of the account: its utilization in percent, the resets in ISO dates; the extra usage; kept per vendor
     if (this->_replica || !this->_config.usage.account) return;
     {
-        std::lock_guard<std::mutex> lock(this->_mutex); // read less than a minute ago: kept
-        if (cluster::now() - this->_limits["anthropic"].accountAt < 60) return;
+        std::lock_guard<std::mutex> lock(this->_mutex); // read by this core moments ago: kept
+        if (cluster::now() - this->_accountTried < 25) return;
+        this->_accountTried = cluster::now();
     }
     if (this->_usageStop || this->_accountBusy.exchange(true)) return;
     if (this->_accountThread.joinable()) this->_accountThread.join(); // the one before (done)
     this->_accountThread = std::thread([this]() {
-        const std::optional<cluster::Json> json = cluster::account_usage();
-        if (!json || this->_usageStop) {
+        // the copy shared by every core of this user; the account itself asked only when that copy is too old
+        std::int64_t at = 0;
+        const std::optional<cluster::Json> json = cluster::account_usage_shared(this->_config.usage.accountRefresh, &at);
+        bool known = false;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            known = at > 0 && at <= this->_limits["anthropic"].accountAt;
+        }
+        if (!json || this->_usageStop || known) {
             this->_accountBusy = false;
             return;
         }
@@ -521,7 +529,7 @@ _cold void cluster::Manager::refreshAccount_(void)
         std::lock_guard<std::mutex> lock(this->_mutex);
         cluster::UsageReport& limits = this->_limits["anthropic"];
         limits.windows = windows;
-        limits.accountAt = cluster::now();
+        limits.accountAt = at > 0 ? at : cluster::now(); // when the account told it (the shared copy may come from another core)
         for (const cluster::UsageWindow& w: windows) {
             if (w.name == "5h" && w.used >= 0.0) {
                 limits.limit5h = w.used;

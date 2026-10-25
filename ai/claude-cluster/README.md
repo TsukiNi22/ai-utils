@@ -366,7 +366,9 @@ input tokens, the output 5x, the cache written 1.25x / 2x, read 0.1x; or `[input
 from the cost Claude Code tells for its own turns (`prices.json`, exact for its table), else the public table of the
 known models; unknown: the cost says so. The **windows of the account** (5 h, 7 d, a model's 7 d, the extra usage
 credits) come from the usage endpoint of claude.ai with the token of Claude Code (`~/.claude/.credentials.json`, sent
-to that endpoint only, never shown or logged), read every 5 minutes, after a turn and when the usage is asked
+to that endpoint only, never shown or logged), read again once older than `[usage] account_refresh` (120 s), after a turn
+and when the usage is asked - one read for every core of the user: its answer is kept in `~/.cache/claude-cluster/account-usage.json`,
+an independent instance or a second core reads that copy instead of asking again, a lock keeps two cores from asking at once
 (`[usage] account = false` keeps the ones the last turn told). The other vendors (codex, ollama...) keep the ledger of
 claude-cluster (`usage.jsonl`, with the same breakdown from now on). `claude-cluster usage [vendor]` and the `usage`
 tool give all of it as JSON (the breakdown, the windows, the source).
@@ -982,7 +984,10 @@ A newer claude-cluster installed over the running one (`setup.sh`, a package: th
 higher; a rebuild of the same version or an older one: nothing) is seen by the core within seconds and offered in
 every terminal and window: **Update** (the default: Enter / `u`), **Ignore** this version (offered again for a newer
 one), **Quit** (everything stopped, to start again by hand), Esc later (the palette: *Update claude-cluster*). Update:
-a progress popup - the turns running end first (their sessions named), the sessions saved, then the core runs the new
+a progress popup - the turns running end first (their sessions named), and their background too: each background shell /
+agent / job is labelled at its start, **safe** or **dangerous** (a push, a deploy, a removal, root, a migration, a publish...: a tag
+in the agents and jobs lists); one started less than a minute ago and labelled safe is stopped and run again after the update (its
+session told by the new version), every other one is waited for - then the sessions saved, then the core runs the new
 binary in its own place (same pid: a systemd service keeps running, same arguments, the sessions resumed at once), its
 terminals and windows follow it by themselves (an *Updating claude-cluster…* popup while it starts, then each one runs
 the new binary too, same pid, same terminal) and the web pages reload; the conversations go on (`--resume`), a notice
@@ -990,7 +995,9 @@ says `updated: 1.4.17 -> 1.4.18`. Never from the web page or the global session 
 
 ## Plugins and skills
 
-Like the plugins of claude.ai: **sources** of plugins / skills (settings > Plugins > Sources, `[plugins] repos`) - a
+Like the plugins of claude.ai: **sources** of plugins / skills (settings > Plugins: one row per source like the Services -
+its counts available / installed / on, its last sync, paused or synced by hand; Enter / Open: its page in the Plugins browser;
+*+ Add a source*; `[plugins] repos`) - a
 git repository (GitHub `owner/repo`, an https or git URL), a folder of this computer, or a `.zip` - listed by the
 core: a repository cloned (shallow), a `.zip` unpacked (again when it changes), a folder read in place, in
 `<data>/plugins` (its index `index.json`). A source with **auto sync** (on by default, `[plugins.auto]`) is pulled at each
@@ -1453,7 +1460,11 @@ it again; the window, the web page: its buttons):
 **Limits** (settings > *Sessions*): the prompt history (↑, Ctrl+R: `history.jsonl`) keeps its newest **1000** prompts
 (`history_limit`), each conversation kept here (`logs/<session>.jsonl`, with its pictures and display blocks) its
 newest entries within **25 MB** (`transcript_limit_mb`, checked at its start and every minute); the conversation of the
-agent itself is never touched; 0 = no limit.
+agent itself is never touched; 0 = no limit. **In memory** (what the interfaces show) each transcript keeps its newest entries
+within **1 MB** (`memory_mb`) and all of them together within **100 MB** (`memory_total_mb`: past it, the oldest entries of each
+leave the memory); the size counts, not a number of entries (`memory_entries`, off by default, adds one). Scrolled to its top, a
+transcript draws more of its entries, then reads the older ones again from its log (`older`: the core keeps them while they are
+read, every interface sees them), up to its very first entry; a `↑ N older entries` mark tells how many are left.
 
 **The core lost** by a terminal, a window or the page (killed, crashed, being restarted): a *Reconnecting* popup over
 everything - since when, the tries, the next one (1, 2, 4... 10 s apart; the core started again when it is gone, its

@@ -304,6 +304,8 @@ _cold cluster::Json cluster::Orchestrator::jobJson_(const cluster::Job& job, con
     cluster::Json out = {{"id", job.id}, {"class", job.cls}, {"session", job.session}, {"state", job.state}, {"prio", job.prio}, {"origin", job.origin}};
     if (!job.name.empty()) out["name"] = job.name;
     out["command"] = full ? job.command : cluster::one_line(job.command, 100);
+    out["started"] = job.started;
+    out["label"] = cluster::command_label(job.command); // safe | dangerous: an update stops a young safe job (run again after it), waits for the rest
     std::string status;
     std::string message;
     if (job.state == "queued") {

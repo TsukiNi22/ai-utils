@@ -54,6 +54,7 @@ File Description:
 #include <unistd.h>
 #include <optional>
 #include <iostream>
+#include <thread>
 #include <csignal>
 #include <fstream>
 #include <sstream>
@@ -984,6 +985,12 @@ class TtyUi {
         {
             // an action of the settings page: the map of this computer (asked first), the system prompt of the global
             // session or of the sub-sessions, the showcase of the Debug page
+            if (key.starts_with("plugsrc_")) { // a source of Settings > Plugins: its page in the Plugins browser (or its field to add one)
+                this->openPlugins_();
+                if (key == "plugsrc_add") this->_plugAdd = true;
+                else this->_plugSource = key.substr(8);
+                return;
+            }
             if (key.starts_with("account_")) {
                 // a provider: its key stored / removed, its login run (the settings left for the prompt, the key asked without echo)
                 if (!this->_changes.empty()) {
@@ -1319,6 +1326,9 @@ class TtyUi {
             int fresh = 0;                          // lines added below the view since it left the end
         };
         std::map<std::string, Anchor> _anchors;     // per session: the first line shown stays where it is when text is added or resized
+        std::map<std::string, std::size_t> _window; // per session: the newest entries drawn (300 more each time its top is reached)
+        std::map<std::string, std::size_t> _olderSeen;  // per session: its entries left in the log at the last drawing (the anchor follows a load / a trim)
+        std::map<std::string, std::int64_t> _olderAsked; // per session: when its older entries were last asked to the core (ms)
         std::int64_t _servicesAt = 0;               // ms of its last read (0: read again)
         std::uint64_t _servicesSeen = 0;            // the version of the core it was read at (live: read again when it changes)
         std::atomic<bool> _servicesReading{false};
@@ -4962,7 +4972,8 @@ class TtyUi {
             const bool searching = this->_mode == Mode::Search && s.spec.id == this->_active && !this->_matches.empty();
             const std::size_t hitEntry = searching ? this->_matches[static_cast<std::size_t>(this->_hit)] : std::string::npos;
             int hitLine = -1;
-            const std::size_t start = s.entries.size() > 300 && !searching ? s.entries.size() - 300 : 0;
+            std::size_t& window = this->_window.try_emplace(s.spec.id, 300).first->second;
+            const std::size_t start = s.entries.size() > window && !searching ? s.entries.size() - window : 0;
             const cluster::Config& config = this->_manager.config();
             const cluster::Frame frame = this->_reveal.step(s, config.typewriter, config.typewriterSpeed);
             const std::size_t room = static_cast<std::size_t>(std::max(14, width - 2));
@@ -5556,6 +5567,12 @@ class TtyUi {
                 if (first && head != "  ") add("", head, "  ", ftxui::color(this->_theme.text) | mark);
             };
             std::vector<std::pair<std::size_t, std::size_t>> starts;   // the first line of each entry
+            if (start > 0 || s.older > 0) { // more above: drawn once the top is reached, else read again from the log of the core
+                const std::size_t above = start + s.older;
+                const bool asked = cluster::now_ms() - this->_olderAsked[s.spec.id] < 3000;
+                lines.push_back({"  ↑ " + std::to_string(above) + " older entr" + (above == 1 ? "y" : "ies") + (asked ? " - loading…" : " - scroll up to see them"),
+                    ftxui::color(this->_theme.muted) | ftxui::italic, "\n"});
+            }
             for (std::size_t i = start; i < frame.visible && i < s.entries.size(); ++i) {
                 const cluster::Entry& e = s.entries[i];
                 const bool matched = searching && std::find(this->_matches.begin(), this->_matches.end(), i) != this->_matches.end();
@@ -5704,6 +5721,17 @@ class TtyUi {
             int& scroll = this->_scroll[s.spec.id];
             Anchor& anchor = this->_anchors[s.spec.id];
             const int total = static_cast<int>(lines.size());
+            {
+                // entries put back in front (older loaded) or dropped from it (the memory budget): the anchor moves with its entry
+                const auto seen = this->_olderSeen.find(s.spec.id);
+                if (seen != this->_olderSeen.end() && seen->second != s.older && anchor.valid && anchor.entry != std::string::npos) {
+                    const long moved = static_cast<long>(anchor.entry) + static_cast<long>(seen->second) - static_cast<long>(s.older);
+                    if (moved < 0) anchor.valid = false;
+                    else anchor.entry = static_cast<std::size_t>(moved);
+                }
+                if (seen != this->_olderSeen.end() && seen->second > s.older) this->_olderAsked[s.spec.id] = 0; // loaded: asked again at the top
+                this->_olderSeen[s.spec.id] = s.older;
+            }
             if (hitLine >= 0) {
                 scroll = std::max(0, total - hitLine - height / 2);
                 anchor.valid = false;
@@ -5726,6 +5754,19 @@ class TtyUi {
                 }
             }
             scroll = std::clamp(scroll, 0, std::max(0, total - height));
+            if (scroll > 0 && total > height && scroll == total - height && !searching) { // its top reached: more drawn, or more read from the log
+                if (start > 0) {
+                    window += 300;
+                } else if (s.older > 0 && cluster::now_ms() - this->_olderAsked[s.spec.id] >= 3000) {
+                    this->_olderAsked[s.spec.id] = cluster::now_ms();
+                    window += 300;
+                    std::thread([manager = &this->_manager, id = s.spec.id]() {
+                        try {
+                            (void)manager->loadOlder(id, 300);
+                        } catch (const std::exception&) {} // the core gone: asked again at the top
+                    }).detach();
+                }
+            }
             if (scroll == 0) {
                 anchor = Anchor{}; // at the end: followed again
             } else {
@@ -6105,6 +6146,7 @@ class TtyUi {
                 std::string line = a.kind == "shell" ? "$ shell in the background · ⏱ " + agent_time_(a) : (a.type.empty() ? std::string("agent") : a.type) + " · "
                     + (a.model.empty() ? std::string("model not seen yet") : a.model) + " · " + (a.effort.empty() ? effort : "think " + a.effort) + " (its session) · ⏱ " + agent_time_(a);
                 if (a.tokens > 0) line += " · " + cluster::human_tokens(a.tokens) + " tokens";
+                if (!a.label.empty()) line += a.label == "dangerous" ? " · ⚠ dangerous" : " · safe"; // an update stops a young safe one, waits for the rest
                 if (a.toolUses > 0) line += " · " + std::to_string(a.toolUses) + (a.toolUses > 1 ? " tools" : " tool");
                 if (!a.lastTool.empty()) line += " · last " + a.lastTool;
                 if (a.background) line += " · background";

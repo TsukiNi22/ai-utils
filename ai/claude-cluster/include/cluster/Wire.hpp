@@ -39,11 +39,11 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(CommandMatch, out, contains, reg
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ScheduleIf, sessionIdle, command, match, fileChanged, fileBase, usage)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Schedule, id, at, every, action, session, text, by, status, reason, archived, runs, last, cron, days, window, quiet, tz,
     until, maxRuns, reset, cond, options, ack, nag, skipped, note, history, pending, asks, polling)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SubAgent, kind, taskId, toolUseId, description, type, prompt, model, effort, status, summary, lastTool, error,
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SubAgent, kind, taskId, toolUseId, description, type, prompt, model, effort, status, summary, lastTool, error, label,
     outputFile, background, stopping, started, ended, tokens, toolUses, entries)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Snapshot, spec, state, stopped, metrics, entries, permissions, tools, skillsLoaded, skillsAvailable,
     slashCommands, commandHelp, files, partial, thinking, step, stepSince, stepDetail, turnSince, streamed, thinkingTokens, steps, modelUsed, pid,
-    lastError, remoteUrl, bridgeState, queued, queue, queueGiven, version, warning, warningAt, todos, agents)
+    lastError, remoteUrl, bridgeState, queued, queue, queueGiven, version, warning, warningAt, todos, agents, older)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(TaskEvent, type, arg, arg2, base, checked, met, match)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(TaskSpawn, cwd, name, backend, mode, effort, profile, oneShot)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Task, id, prompt, target, after, status, session, created, group, label, answer, retries, started, ended,

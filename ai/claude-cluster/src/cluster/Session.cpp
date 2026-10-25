@@ -230,6 +230,8 @@ _cold cluster::Session::Session(cluster::Launch launch)
         this->_data.metrics.costKnown = false; // claude prices other models as if they were Claude ones
     std::error_code error;
     std::filesystem::create_directories(this->_launch.log.parent_path(), error);
+    this->_memBytes = std::max<std::uintmax_t>(this->_launch.memoryBytes, 64 * 1024);
+    this->_memEntries = this->_launch.memoryEntries;
     if (const int limit = this->_launch.transcriptLimitMb; limit > 0) // its oldest entries dropped before it is read
         (void)cluster::keep_newest(this->_launch.log, 0, static_cast<std::uintmax_t>(limit) * 1024 * 1024);
     this->_log.open(this->_launch.log, std::ios::app);
@@ -1090,6 +1092,7 @@ _cold void cluster::Session::agentTask_(const std::string& subtype, const cluste
     if (subtype == "task_started") {
         if (event.value("is_backgrounded", cluster::Json()).is_boolean()) agent.background = event["is_backgrounded"].get<bool>();
         if (agent.prompt.empty() && event.value("prompt", cluster::Json()).is_string()) agent.prompt = clip_(event["prompt"].get<std::string>(), 2000);
+        if (agent.label.empty()) agent.label = cluster::command_label(agent.description + "\n" + agent.prompt); // safe | dangerous, once at its start
     } else if (subtype == "task_progress") {
         if (event.value("last_tool_name", cluster::Json()).is_string()) agent.lastTool = event["last_tool_name"].get<std::string>();
     } else if (subtype == "task_updated") {
@@ -1241,7 +1244,7 @@ _cold void cluster::Session::append(const std::vector<cluster::Entry>& entries)
         this->_data.entries.push_back(entry);
         if (this->_log) this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(entry.kind)}, {"text", entry.text}, {"tool", entry.tool}, {"origin", entry.origin}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
     }
-    if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.end() - 1500);
+    this->trim_();
     if (this->_log) this->_log.flush();
     this->touch_();
 }
@@ -1356,7 +1359,7 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
             } catch (const std::exception&) {}
         }
     }
-    if (this->_data.entries.size() > 2000) this->_data.entries.erase(this->_data.entries.begin(), this->_data.entries.begin() + 500);
+    this->trim_();
     if (this->_log) {
         this->_log << cluster::Json{{"time", entry.time}, {"kind", static_cast<int>(kind)}, {"text", text}, {"tool", tool}, {"origin", origin}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
         this->_log.flush();
@@ -1901,21 +1904,99 @@ _cold void cluster::Session::togglePanel(const std::string& panel)
     this->touch_();
 }
 
-_cold void cluster::Session::loadHistory(const std::size_t max)
+_cold static std::uintmax_t entry_bytes_(const cluster::Entry& entry)
 {
-    std::ifstream file(this->_launch.log);
-    std::deque<cluster::Entry> entries;
+    return entry.text.size() + entry.tool.size() + entry.origin.size() + sizeof(cluster::Entry);
+}
+
+_cold static std::vector<cluster::Entry> read_log_(const std::filesystem::path& path)
+{
+    // every entry of a transcript log (logs/<id>.jsonl), a line not read skipped
+    std::ifstream file(path);
+    std::vector<cluster::Entry> entries;
     std::string line;
 
     while (std::getline(file, line)) {
         try {
             const cluster::Json json = cluster::Json::parse(line);
             entries.push_back({static_cast<cluster::EntryKind>(json.value("kind", 0)), json.value("text", std::string()), json.value("tool", std::string()), json.value("time", std::int64_t{0}), json.value("origin", std::string())});
-            if (entries.size() > max) entries.pop_front();
         } catch (const cluster::Json::exception&) {}
     }
+    return entries;
+}
+
+_cold void cluster::Session::loadHistory(void)
+{
+    std::vector<cluster::Entry> entries = read_log_(this->_launch.log);
     std::lock_guard<std::mutex> lock(this->_mutex);
-    this->_data.entries.assign(entries.begin(), entries.end());
+    this->_data.entries = std::move(entries);
+    this->_data.older = 0;
+    this->trim_(); // its newest ones within the budget, the others counted in older
+    this->touch_();
+}
+
+_cold std::size_t cluster::Session::loadOlder(const std::size_t count)
+{
+    // the log read outside the lock (it may be big), then its entries before the ones in memory put back in front of them; the
+    // memory is the end of the log: what lies before is the log minus the entries here
+    const std::vector<cluster::Entry> all = read_log_(this->_launch.log);
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    const std::size_t before = all.size() > this->_data.entries.size() ? all.size() - this->_data.entries.size() : 0;
+    const std::size_t from = before > count ? before - count : 0;
+    if (before > from)
+        this->_data.entries.insert(this->_data.entries.begin(), all.begin() + static_cast<std::ptrdiff_t>(from), all.begin() + static_cast<std::ptrdiff_t>(before));
+    this->_data.older = from;
+    std::uintmax_t used = 0;
+    for (const cluster::Entry& entry: this->_data.entries)
+        used += entry_bytes_(entry);
+    this->_keptBytes = used; // kept while they are read: 15 min, the global budget only past it
+    this->_keepUntil = cluster::now() + 900;
+    this->touch_();
+    return before - from;
+}
+
+_cold void cluster::Session::limitMemory(const std::uintmax_t bytes, const std::size_t entries)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_memBytes = std::max<std::uintmax_t>(bytes, 64 * 1024);
+    this->_memEntries = entries;
+    this->trim_();
+}
+
+_cold std::uintmax_t cluster::Session::memoryUsed(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    std::uintmax_t used = 0;
+    for (const cluster::Entry& entry: this->_data.entries)
+        used += entry_bytes_(entry);
+    return used;
+}
+
+_cold void cluster::Session::trimTo(const std::uintmax_t bytes)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_keepUntil = 0; // past the global budget: what was loaded on demand goes too
+    const std::uintmax_t own = this->_memBytes;
+    this->_memBytes = std::min(own, std::max<std::uintmax_t>(bytes, 64 * 1024));
+    this->trim_();
+    this->_memBytes = own;
+}
+
+_cold void cluster::Session::trim_(void)
+{
+    // the newest entries within the budget (the last one always kept); the ones dropped stay in the log, counted in older
+    std::vector<cluster::Entry>& entries = this->_data.entries;
+    const std::uintmax_t budget = this->_keepUntil > cluster::now() ? std::max(this->_memBytes, this->_keptBytes) : this->_memBytes;
+    std::uintmax_t used = 0;
+    std::size_t keep = 0;
+    for (auto it = entries.rbegin(); it != entries.rend(); ++it, ++keep) {
+        used += entry_bytes_(*it);
+        if (keep > 0 && (used > budget || (this->_memEntries > 0 && keep >= this->_memEntries))) break;
+    }
+    if (keep >= entries.size()) return;
+    const std::size_t drop = entries.size() - keep;
+    entries.erase(entries.begin(), entries.begin() + static_cast<std::ptrdiff_t>(drop));
+    this->_data.older += drop;
     this->touch_();
 }
 

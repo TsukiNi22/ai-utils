@@ -234,6 +234,7 @@ class Manager {
         cluster::Transcripts _transcripts;              // the transcripts of Claude Code (every session of this computer)
         std::atomic<bool> _usageBusy{false};            // a scan of the transcripts running
         std::atomic<bool> _accountBusy{false};          // a read of the account running
+        std::int64_t _accountTried = 0;                 // the last look at the shared copy of the account (unix seconds)
         std::atomic<bool> _usageStop{false};            // the manager ends: the scan stops, the threads joined
         std::thread _scanThread;                        // the scan of the transcripts (joined before the next one, at the end)
         std::thread _accountThread;                     // the read of the account
@@ -312,6 +313,8 @@ class Manager {
         _cold void loadUsage_(void);                        // Manager-Usage.cpp
         _cold void scanTranscripts_(void);                  // in a thread: what grew
         _cold void refreshAccount_(void);                   // in a thread: the windows of the account
+        _cold void limitMemory_(const std::vector<std::shared_ptr<cluster::Session>>& sessions);
+        _cold void restartYoung_(std::set<std::string>& restarted);  // an update: the young safe background items stopped (run again after it), noted // the transcripts in memory: each within its budget, all within the global one
         _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
         void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)
         _cold void relaunch_(const std::string& id, const cluster::SessionSpec& spec); // started again with this spec (same conversation)
@@ -416,6 +419,7 @@ class Manager {
         _cold _nodiscard cluster::Queued rewind(const std::string& id, const int back = 1); // the last `back` prompts removed from the conversation, the oldest of them back (Esc)
         _cold void cd(const std::string& id, const std::string& cwd);
         _cold void togglePanel(const std::string& id, const std::string& panel);
+        _cold cluster::Json loadOlder(const std::string& id, const std::size_t count); // older entries of its transcript loaded again from its log ({loaded, older})
         _cold void setRemote(const bool on);
 
         /* tasks (Manager-Tasks.cpp) */

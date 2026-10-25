@@ -414,6 +414,7 @@ struct SubAgent {
     std::string error;
     std::string outputFile;         // a shell: the file of its output (its last lines shown)
     bool background = false;        // run in the background (its session goes on meanwhile)
+    std::string label;              // safe | dangerous (cluster::command_label of what it runs, at its start): an update stops a young safe one, waits for the rest
     bool stopping = false;          // a stop asked, not confirmed yet
     std::int64_t started = 0;       // ms
     std::int64_t ended = 0;         // ms, 0: running
@@ -456,6 +457,7 @@ struct Snapshot {
     std::uint64_t version = 0;          // its version when taken (an interface of another process: sent again when it changed)
     std::string warning;                // a problem of its interfaces (two prompts at once...), shown a minute on it
     std::int64_t warningAt = 0;
+    std::size_t older = 0;              // entries of its log before the first one here (memory kept by size: loaded again on demand, cmd older)
     std::vector<cluster::Todo> todos;   // its todo list now (its last TodoWrite)
     std::vector<cluster::SubAgent> agents;  // the agents it made (its Agent tool), the last 40
 };

@@ -348,6 +348,14 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
             {"sessions", "transcript_limit_mb", "Transcript size (MB)", SettingKind::Int, {}, "each conversation kept here (logs/<session>.jsonl, the "
                 "pictures and display blocks in it): its oldest entries dropped beyond this size (the conversation of the agent itself untouched); 0: no "
                 "limit", false, [](const cluster::Config& cf) {return std::to_string(cf.transcriptLimitMb);}},
+            {"sessions", "memory_mb", "Transcript in memory (MB)", SettingKind::Int, {}, "each conversation shown: its newest entries kept in memory within "
+                "this size (1 to 1024); scrolled to its top, the older ones are read again from its log, up to its very start", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.memoryMb);}},
+            {"sessions", "memory_total_mb", "Transcripts in memory, all (MB)", SettingKind::Int, {}, "every conversation in memory together: past this size, the "
+                "oldest entries of each are dropped from memory (still in their log, read again on demand)", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.memoryTotalMb);}},
+            {"sessions", "memory_entries", "Transcript in memory (entries)", SettingKind::Int, {}, "also at most this number of entries in memory per "
+                "conversation; 0: off (the size only, the default)", false, [](const cluster::Config& cf) {return std::to_string(cf.memoryEntries);}},
             {"sessions", "task_queue", "Task queue", SettingKind::Int, {}, "tasks waiting for a free place, at most (a new one past it is refused)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.taskQueue);}},
             {"sessions", "task_result_chars", "Task result size", SettingKind::Int, {}, "the answer kept in a task (its result, chained into the prompt of the "
@@ -547,8 +555,12 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         }},
         {"usage", "Usage", {
             {"usage", "account", "Account windows", SettingKind::Bool, {}, "the 5 h / 7 d windows of the Claude account logged in here (the usage endpoint of claude.ai, "
-                "the token of Claude Code: ~/.claude/.credentials.json, never shown), read every 5 min and after each turn; off: the ones the last turn told only", false,
+                "the token of Claude Code: ~/.claude/.credentials.json, never shown), read again once too old (Account refresh) and after each turn; off: the ones the "
+                "last turn told only", false,
                 [](const cluster::Config& cf) {return cf.usage.account ? std::string("true") : std::string("false");}},
+            {"usage", "account_refresh", "Account refresh (s)", SettingKind::Int, {}, "the account windows read again past this age (30 to 3600 s); one read shared by "
+                "every instance of this user (~/.cache/claude-cluster/account-usage.json): an independent instance or a second core reads the one already made", false,
+                [](const cluster::Config& cf) {return std::to_string(cf.usage.accountRefresh);}},
             {"usage", "transcripts", "Claude Code transcripts", SettingKind::List, {}, "the folders of the transcripts of Claude Code (~/.claude/projects): every answer's usage "
                 "(the API's own numbers: input, cache written / read, output, thinking) summed by day and model, every session of this computer - in claude-cluster or not; "
                 "empty: the ledger of claude-cluster's own sessions only.\nThe prices: [usage.prices] in config.toml (model = $ per million input tokens), else the ones learned "
@@ -692,32 +704,41 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [name](const cluster::Config& cf) {return cf.mcpTool(name) ? std::string("true") : std::string("false");}});
         }
     }
-    // plugins / skills of sources: the links and how often they are pulled; what each one offers is chosen in the Plugins page (sources
-    // first, then their items, their settings, bulk actions)
+    // plugins / skills of sources: one row per source like the Services (its counts, its last sync and commit; Enter: its page in the
+    // Plugins browser - sync, auto sync, pause, its skills on / off, remove), a source added, how often they are pulled
     {
-        std::string state;
         const std::vector<cluster::PluginRepo> repos = cluster::plugins_index();
-        for (const cluster::PluginRepo& repo: repos) {
-            const long installed = std::count_if(repo.items.begin(), repo.items.end(), [](const cluster::PluginItem& i) {return i.installed;});
-            state += "\n• " + repo.slug + ": " + (repo.error.empty() ? std::to_string(repo.items.size()) + " offered, " + std::to_string(installed) + " installed"
-                : repo.error);
+        cluster::SettingsPage page{"plugins", "Plugins", {}};
+        const std::function<std::string(const std::int64_t)> ago = [](const std::int64_t at) {return at > 0 ? cluster::human_age(at) : std::string("never");};
+        for (const std::string& url: config.pluginRepos) {
+            const std::string slug = cluster::plugin_slug(url);
+            const auto repo = std::find_if(repos.begin(), repos.end(), [&slug](const cluster::PluginRepo& r) {return r.slug == slug;});
+            std::string value = "not read yet (Sync)";
+            std::string detail = url;
+            if (repo != repos.end()) {
+                const long installed = std::count_if(repo->items.begin(), repo->items.end(), [](const cluster::PluginItem& i) {return i.installed;});
+                const long enabled = std::count_if(repo->items.begin(), repo->items.end(), [](const cluster::PluginItem& i) {return i.installed && i.enabled;});
+                value = repo->error.empty() ? std::to_string(repo->items.size()) + " available · " + std::to_string(installed) + " installed · "
+                    + std::to_string(enabled) + " on · synced " + ago(repo->synced) : "✗ " + cluster::one_line(repo->error, 80);
+                detail = url + " (" + repo->kind + (repo->marketplace.empty() ? ", skills" : ", a Claude Code marketplace") + ")"
+                    + (repo->commit.empty() ? std::string() : "\nlast commit: " + repo->commit + (repo->commitTime > 0 ? " (" + ago(repo->commitTime) + ")" : std::string()))
+                    + (repo->synced > 0 ? "\nlast sync: " + ago(repo->synced) : std::string());
+            }
+            page.settings.push_back({"plugins", "plugsrc_" + slug, slug, SettingKind::Action, {}, detail + "\nEnter: its page in the Plugins browser - Sync now, "
+                "auto sync on / off, Pause (every item off, kept installed), its plugins / skills (install, remove, on / off, several at once), remove the source",
+                false, [value, slug](const cluster::Config& cf) {
+                    const bool paused = cf.pluginPaused.contains(slug) && cf.pluginPaused.at(slug);
+                    const bool manual = cf.pluginAuto.contains(slug) && !cf.pluginAuto.at(slug);
+                    return value + (paused ? " · paused" : "") + (manual ? " · sync by hand" : "");
+                }});
         }
-        cluster::SettingsPage page{"plugins", "Plugins", {
-            {"plugins", "repos", "Sources", SettingKind::List, {}, "where plugins / skills come from, comma separated: a git repository "
-                "(GitHub owner/repo, an https or git URL), a folder of this computer (~/... or /...), a .zip (a path; dropped on the terminal: its path).\n• a Claude Code "
-                "marketplace (.claude-plugin/marketplace.json): its plugins (claude plugin install)\n• else its skills (the folders with a SKILL.md): linked in "
-                "~/.claude/skills\nWhat each source offers is chosen in the Plugins page (the palette: Plugins, /plugins): the sources first, then a checklist of "
-                "their plugins / skills (install, remove, on / off, several at once), each source's auto sync and on / off, its last sync and commit. Code of these "
-                "sources runs as you: only sources you trust" + (state.empty() ? std::string() : "\nListed:" + state), false,
-                [](const cluster::Config& cf) {return join_(cf.pluginRepos);}},
-            {"plugins", "sync_hours", "Sync every (hours)", SettingKind::Int, {}, "the sources with auto sync pulled again every N hours (and at each start of the core); "
-                "0: at the start only. A source with auto sync off is pulled only by hand (Sync in the Plugins page)", false,
-                [](const cluster::Config& cf) {return std::to_string(cf.pluginSyncHours);}},
-        }};
-        page.settings.front().danger = [](const std::string& v) {
-            return cluster::trim(v).empty() ? std::string() : "the plugins / skills of these sources run as you in every session (their commands, hooks, MCP "
-                "servers): only sources you trust";
-        };
+        page.settings.push_back({"plugins", "plugsrc_add", "+ Add a source", SettingKind::Action, {}, "a repository (GitHub owner/repo, an https URL), a folder "
+            "of this computer (~/... or /...), a .zip (a path; dropped on the terminal: its path).\n• a Claude Code marketplace (.claude-plugin/marketplace.json): "
+            "its plugins (claude plugin install)\n• else its skills (the folders with a SKILL.md): linked in ~/.claude/skills\nCode of these sources runs as you: "
+            "only sources you trust", false, [](const cluster::Config& cf) {return std::to_string(cf.pluginRepos.size()) + " source(s)";}});
+        page.settings.push_back({"plugins", "sync_hours", "Sync every (hours)", SettingKind::Int, {}, "the sources with auto sync pulled again every N hours (and at "
+            "each start of the core); 0: at the start only. A source with auto sync off is pulled only by hand (Sync in its page)", false,
+            [](const cluster::Config& cf) {return std::to_string(cf.pluginSyncHours);}});
         const auto mcp = std::find_if(pages.begin(), pages.end(), [](const cluster::SettingsPage& p) {return p.section == "mcp";});
         pages.insert(mcp == pages.end() ? pages.end() : mcp + 1, page);
     }

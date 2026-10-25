@@ -488,9 +488,9 @@ _cold static cluster::Json light_display_(const cluster::Json& display)
     return light;
 }
 
-_cold static cluster::Json session_json_(cluster::Manager& manager, const std::string& id)
+_cold static cluster::Json session_json_(cluster::Manager& manager, const std::string& id, const std::size_t count = 150)
 {
-    // the session shown: its state, permissions, questions and the last 150 entries of its transcript
+    // the session shown: its state, permissions, questions and the last entries of its transcript (count: more as the page scrolls up)
     const std::optional<cluster::Snapshot> snap = manager.snapshot(id);
     if (!snap) return nullptr;
     cluster::Json json = manager.toJson(*snap, false);
@@ -503,7 +503,9 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
         json["agent_list"].push_back(std::move(item));
     }
     json["messages"] = cluster::Json::array();
-    const std::size_t start = snap->entries.size() > 150 ? snap->entries.size() - 150 : 0;
+    const std::size_t start = snap->entries.size() > count ? snap->entries.size() - count : 0;
+    json["above"] = start;          // in memory, not sent (a bigger count at its top)
+    json["older"] = snap->older;    // in its log only (read again: cmd older)
     for (std::size_t i = start; i < snap->entries.size(); ++i) {
         const cluster::Entry& e = snap->entries[i];
         if (e.kind == cluster::EntryKind::Thinking) continue;
@@ -1492,7 +1494,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
 {
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "unqueue", "rewind", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
-        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "ask", "display_act", "display_get", "pin", "unpin", "settings_get", "simple_words", "settings_suggest", "ask_preview", "settings_search", "settings_set", "ui_state", "delete",
+        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "older", "ask", "display_act", "display_get", "pin", "unpin", "settings_get", "simple_words", "settings_suggest", "ask_preview", "settings_search", "settings_set", "ui_state", "delete",
         "projects", "agents", "agent_stop", "send_next", "install_package", "failure", "services", "service_act", "showcase", "task_act", "orch_state", "job_status", "job_kill", "job_stop", "job_resume", "job_prio", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel", "schedule_edit",
         "plugins", "plugins_set", "plugins_refresh"};
     Conn& conn = *static_cast<Conn*>(connection);
@@ -1684,6 +1686,10 @@ self.addEventListener("notificationclick", (e) => {
         while (this->_running && version() == seen && now_ms_() < end)
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         const std::string wanted = request.query.contains("session") && !request.query.at("session").empty() ? request.query.at("session") : GLOBAL_ID;
+        std::size_t count = 150;
+        try {
+            if (request.query.contains("count")) count = std::clamp<std::size_t>(std::stoul(request.query.at("count")), 50, 20000);
+        } catch (const std::exception&) {}
         // each session: its state, its last messages (the cards of the grid and the board), its turn
         cluster::Json sessions = cluster::Json::array();
         for (const cluster::Snapshot& snap: this->_manager.shown()) {
@@ -1719,7 +1725,7 @@ self.addEventListener("notificationclick", (e) => {
         cluster::Json archived = cluster::Json::array();
         for (const cluster::SessionSpec& spec: this->_manager.trash())
             archived.push_back({{"id", spec.id}, {"name", spec.name}, {"category", spec.category}, {"tags", spec.tags}});
-        json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted)},
+        json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted, count)},
             {"group", this->_manager.ui("group_by_category", config.groupByCategory ? "true" : "false") == "true"},
             {"taxonomy", this->_manager.taxonomyJson()}, {"archived", archived},
             {"tasks_open", open}, {"schedules_waiting", waiting}, {"simple", cluster::simple_json(this->_manager)},

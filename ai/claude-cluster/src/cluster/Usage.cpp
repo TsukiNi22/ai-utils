@@ -16,9 +16,12 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Demo.hpp"
 #include "cluster/Usage.hpp"
+#include <functional>
 #include <algorithm>
 #include <unistd.h>
 #include <fstream>
+#include <sys/stat.h>
+#include <sys/file.h>
 #include <fcntl.h>
 #include <atomic>
 #include <cstdio>
@@ -227,6 +230,61 @@ _cold std::optional<cluster::Json> cluster::account_usage(void)
     const cluster::Json json = cluster::Json::parse(got.out, nullptr, false);
     if (!json.is_object() || !json.contains("five_hour")) return std::nullopt;
     return json;
+}
+
+_cold static std::filesystem::path account_cache_(void)
+{
+    // one copy for the user (every instance, every core): the cache folder, not the data of an instance
+    const char* cache = std::getenv("XDG_CACHE_HOME");
+    const std::filesystem::path root = cache != nullptr && cache[0] == '/' ? std::filesystem::path(cache) : cluster::expand_home("~/.cache");
+    return root / "claude-cluster" / (std::getenv("CLAUDE_CLUSTER_ACCOUNT_URL") != nullptr ? "account-usage-test.json" : "account-usage.json");
+}
+
+_cold std::optional<cluster::Json> cluster::account_usage_shared(const int maxAge, std::int64_t* at)
+{
+    if (cluster::demo_enabled()) return std::nullopt;
+    const std::filesystem::path path = account_cache_();
+    const std::function<std::optional<cluster::Json>()> read = [&path]() -> std::optional<cluster::Json> {
+        const std::optional<cluster::Json> copy = cluster::read_json(path);
+        return copy && copy->is_object() ? copy : std::nullopt;
+    };
+    const std::function<std::optional<cluster::Json>(const std::optional<cluster::Json>&)> answer = [at](const std::optional<cluster::Json>& copy) -> std::optional<cluster::Json> {
+        if (!copy || !copy->contains("usage") || !(*copy)["usage"].is_object()) return std::nullopt;
+        if (at != nullptr) *at = copy->value("at", std::int64_t{0});
+        return (*copy)["usage"];
+    };
+    // a failed read counts too (tried): the account asked again only once maxAge has passed, never at every tick
+    const std::function<bool(const std::optional<cluster::Json>&)> fresh = [maxAge](const std::optional<cluster::Json>& copy) {
+        return copy && cluster::now() - std::max(copy->value("at", std::int64_t{0}), copy->value("tried", std::int64_t{0})) < maxAge;
+    };
+    std::optional<cluster::Json> copy = read();
+    if (fresh(copy)) return answer(copy);
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    const std::filesystem::path lockPath = path.string() + ".lock";
+    const int lock = ::open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (lock < 0) return answer(copy);
+    if (::flock(lock, LOCK_EX | LOCK_NB) != 0) { // another core reads the account now: its copy at the next tick
+        ::close(lock);
+        return answer(copy);
+    }
+    copy = read(); // written meanwhile by the core that held the lock
+    if (!fresh(copy)) {
+        cluster::Json next = copy ? *copy : cluster::Json::object();
+        next["tried"] = cluster::now();
+        if (const std::optional<cluster::Json> json = cluster::account_usage()) {
+            next["usage"] = *json;
+            next["at"] = cluster::now();
+        }
+        try {
+            cluster::write_json(path, next);
+            ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+        } catch (const utils::exception::IException&) {} // not kept: this core asks again past maxAge
+        copy = next;
+    }
+    ::flock(lock, LOCK_UN);
+    ::close(lock);
+    return answer(copy);
 }
 
 /* the transcripts of Claude Code */

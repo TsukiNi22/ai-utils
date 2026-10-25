@@ -482,6 +482,9 @@ class SessionView: public QFrame {
         QWidget* permBar = nullptr;
         QLabel* permLabel = nullptr;
         std::string lastKey;
+        std::size_t shownEntries = 400;         // the newest entries drawn (400 more each time its top is reached)
+        std::size_t olderSeen = 0;              // its entries left in the log at the last drawing (the kept line follows a load / a trim)
+        std::int64_t olderAsked = 0;            // when its older entries were last asked to the core (ms)
         std::map<QString, QImage> pictures;     // the pictures of the displays (display:<entry>), given to the transcript
 
         SessionView(Window* window, const std::string& sessionId, const bool compact);
@@ -1836,7 +1839,7 @@ class Window: public QMainWindow {
             return browser;
         }
 
-        void pluginsDialog(void)
+        void pluginsDialog(const std::string& open = "")
         {
             // the sources first (their counts, last sync); the one chosen: its information and settings, its offer as a checklist; the ticks
             // written at once by the core, which applies them (read again every 1.5 s)
@@ -1914,7 +1917,7 @@ class Window: public QMainWindow {
             layout->addWidget(close);
             const std::shared_ptr<cluster::Json> data = std::make_shared<cluster::Json>(cluster::Json::object());
             const std::shared_ptr<std::string> shown = std::make_shared<std::string>();     // the data drawn (redrawn only when it changed)
-            const std::shared_ptr<std::string> chosen = std::make_shared<std::string>();    // the slug of the source chosen
+            const std::shared_ptr<std::string> chosen = std::make_shared<std::string>(open == "+add" ? std::string() : open); // the slug of the source chosen
             const std::shared_ptr<std::set<std::string>> marked = std::make_shared<std::set<std::string>>();
             const std::shared_ptr<bool> filling = std::make_shared<bool>(false);
             const std::function<cluster::Json(void)> source = [data, chosen]() {
@@ -2113,6 +2116,7 @@ class Window: public QMainWindow {
                 if (hours->value() != data->value("sync_hours", 24)) set({{"sync_hours", hours->value()}}, "auto sync every " + std::to_string(hours->value()) + " h");
             });
             draw(true);
+            if (open == "+add") add->setFocus(); // Settings > Plugins > Add a source: its field first
             QTimer timer(&dialog);
             QObject::connect(&timer, &QTimer::timeout, &dialog, [&draw]() {draw(false);});
             timer.start(1500);
@@ -4943,6 +4947,11 @@ class Window: public QMainWindow {
         {
             // an action of the settings: the map of this computer, the system prompt of the global session or of the
             // sub-sessions (edited here), the showcase of the Debug page (in a thread: the window never frozen)
+            if (key.starts_with("plugsrc_")) { // a source of Settings > Plugins: its page in the Plugins browser (or its field to add one)
+                const std::string open = key == "plugsrc_add" ? std::string("+add") : key.substr(8);
+                QTimer::singleShot(0, this, [this, open]() {this->pluginsDialog(open);});
+                return;
+            }
             if (key.starts_with("account_")) {
                 // a provider: its key asked (without echo) and stored, removed, or its login run
                 const bool remove = key.starts_with("account_rm_");
@@ -6396,7 +6405,8 @@ _cold static void agents_dialog_(Window* window, const std::string& session)
         for (int row = 0; row < static_cast<int>(shown->size()); ++row) {
             const cluster::SubAgent& a = (*shown)[static_cast<std::size_t>(row)];
             const bool shell = a.kind == "shell";
-            const std::vector<std::string> cells = {agent_state_(a), a.description.empty() ? a.type : a.description, shell ? std::string("$ shell") : a.type + (a.background ? " · background" : ""),
+            const std::string tag = a.label.empty() ? std::string() : a.label == "dangerous" ? " · ⚠ dangerous" : " · safe"; // an update stops a young safe one
+            const std::vector<std::string> cells = {agent_state_(a), a.description.empty() ? a.type : a.description, (shell ? std::string("$ shell") : a.type + (a.background ? " · background" : "")) + tag,
                 shell ? std::string("-") : a.model.empty() ? std::string("not seen yet") : a.model, shell ? std::string("-") : (a.effort.empty() ? effort : "think " + a.effort) + " (its session)",
                 agent_time_(a), a.tokens > 0 ? cluster::human_tokens(a.tokens) : std::string("-"), std::to_string(a.toolUses), a.lastTool};
             for (int col = 0; col < static_cast<int>(cells.size()); ++col) {
@@ -6729,13 +6739,18 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     for (const cluster::Entry& e: s.entries)
         if (e.kind == cluster::EntryKind::Display) displays += e.text.size();
     const std::string key = std::to_string(frame.visible) + "|" + std::to_string(frame.typedBytes) + "|" + std::to_string(frame.partialBytes) + "|" + std::to_string(s.thinking.size())
-        + "|" + std::to_string(displays)
+        + "|" + std::to_string(displays) + "|" + std::to_string(s.older) + "|" + std::to_string(this->shownEntries)
         + "|" + cluster::state_name(s.state) + "|" + st.name + "|" + (expanded ? "e" : "") + (s.state == cluster::State::Working ? "|" + std::to_string(ms / 150) : "");
     if (key != this->lastKey) {
         this->lastKey = key;
         QString html;
-        const std::size_t start = s.entries.size() > 400 ? s.entries.size() - 400 : 0;
+        const std::size_t start = s.entries.size() > this->shownEntries ? s.entries.size() - this->shownEntries : 0;
         const QString more = " (" + q_(config.keys.contains("expand") ? config.keys.at("expand") : std::string("Ctrl+O")) + " to expand)";
+        if (start > 0 || s.older > 0) { // more above: drawn once the top is reached, else read again from the log of the core
+            const std::size_t above = start + s.older;
+            html += "<p>" + span_(st.muted, "<i>↑ " + QString::number(above) + (above == 1 ? " older entry" : " older entries")
+                + (cluster::now_ms() - this->olderAsked < 3000 ? " - loading…" : " - scroll up to see them") + "</i>") + "</p>";
+        }
         const std::function<QString(const std::string&)> pre = [](const std::string& text) {return "<pre style=\"margin:0;white-space:pre-wrap\">" + esc_(text) + "</pre>";};
         // an empty anchor at the start of each entry (cc-e<index>): the right click finds the entry under the mouse by it
         const std::function<QString(const std::size_t)> entryAnchor = [](const std::size_t index) {return "<a name=\"cc-e" + QString::number(index) + "\"></a>";};
@@ -6861,6 +6876,9 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         }
         this->log->setHtml(html);
         int target = bottom ? bar->maximum() : value;
+        if (topEntry >= 0) // entries put back in front or dropped from it since: its index moved with them
+            topEntry += static_cast<long>(this->olderSeen) - static_cast<long>(s.older);
+        this->olderSeen = s.older;
         if (topEntry >= 0) {
             const QString wanted = "cc-e" + QString::number(topEntry);
             for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
@@ -6877,6 +6895,26 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
         // new output below the view while scrolled up: a cue under it (the view stays where it is)
         if (bottom) this->newCue->setVisible(false);
         else if (bar->maximum() > maximum) this->newCue->setVisible(true);
+    }
+    {
+        // its top reached: more entries drawn, or more read again from the log of the core (every interface sees them)
+        QScrollBar* bar = this->log->verticalScrollBar();
+        const std::size_t start = s.entries.size() > this->shownEntries ? s.entries.size() - this->shownEntries : 0;
+        if (bar->maximum() > 0 && bar->value() <= bar->minimum()) {
+            if (start > 0) {
+                this->shownEntries += 400;
+                this->lastKey.clear();
+            } else if (s.older > 0 && cluster::now_ms() - this->olderAsked >= 3000) {
+                this->olderAsked = cluster::now_ms();
+                this->shownEntries += 400;
+                this->lastKey.clear();
+                std::thread([m = &manager, id = s.spec.id]() {
+                    try {
+                        (void)m->loadOlder(id, 400);
+                    } catch (const std::exception&) {} // the core gone: asked again at the top
+                }).detach();
+            }
+        }
     }
 
     // the pinned item: the display as it is now (a checklist ticked, a form submitted: drawn again), or the message

@@ -196,6 +196,8 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     launch.spec = spec;
     launch.log = log_file_(spec.id);
     launch.transcriptLimitMb = this->_config.transcriptLimitMb;
+    launch.memoryBytes = static_cast<std::uintmax_t>(std::max(1, this->_config.memoryMb)) * 1024 * 1024;
+    launch.memoryEntries = static_cast<std::size_t>(std::max(0, this->_config.memoryEntries));
     launch.listener = [this](const cluster::Event& event) {this->event_(event);};
     return std::make_shared<cluster::Session>(std::move(launch));
 }
@@ -326,7 +328,7 @@ _cold void cluster::Manager::clear(const std::string& id)
     spec.cost = 0.0;   // the figures of the list follow the conversation (the usage ledger keeps the spent ones): zero BEFORE the new session reads them
     spec.tokens = 0;
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
-    session->loadHistory(300);
+    session->loadHistory();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_sessions[id] = session;
@@ -383,7 +385,7 @@ _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::Ses
     const std::vector<cluster::Queued> unfinished = old->unfinished();
     old->stop();
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
-    session->loadHistory(300);
+    session->loadHistory();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_sessions[id] = session;
@@ -450,7 +452,7 @@ _cold std::string cluster::Manager::restore(const std::string& id)
     }
     spec.deleted = 0;
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
-    session->loadHistory(300);
+    session->loadHistory();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_sessions[spec.id] = session;
@@ -571,6 +573,35 @@ _cold void cluster::Manager::setMode(const std::string& id, const std::string& m
     this->save();
 }
 
+_cold cluster::Json cluster::Manager::loadOlder(const std::string& id, const std::size_t count)
+{
+    // an interface scrolled to the top of a transcript: its older entries back in memory (the core keeps them; every interface sees them)
+    if (this->_replica) return this->call({{"cmd", "older"}, {"session", id}, {"count", count}});
+    const std::shared_ptr<cluster::Session> session = this->get_(this->resolve(id));
+    const std::size_t loaded = session->loadOlder(std::clamp<std::size_t>(count, 1, 5000));
+    ++this->_version;
+    return {{"loaded", loaded}, {"older", session->snapshot().older}};
+}
+
+_cold void cluster::Manager::limitMemory_(const std::vector<std::shared_ptr<cluster::Session>>& sessions)
+{
+    // the settings of the moment for each transcript, then all of them together: past the global budget, each keeps its share
+    // (its newest entries), the older ones stay in its log (loaded again when its top is reached)
+    const std::uintmax_t own = static_cast<std::uintmax_t>(std::max(1, this->_config.memoryMb)) * 1024 * 1024;
+    const std::uintmax_t total = static_cast<std::uintmax_t>(std::max(1, this->_config.memoryTotalMb)) * 1024 * 1024;
+    std::uintmax_t used = 0;
+    std::vector<std::uintmax_t> each;
+    for (const std::shared_ptr<cluster::Session>& session: sessions) {
+        session->limitMemory(own, static_cast<std::size_t>(std::max(0, this->_config.memoryEntries)));
+        each.push_back(session->memoryUsed());
+        used += each.back();
+    }
+    if (used <= total) return;
+    for (std::size_t i = 0; i < sessions.size(); ++i)
+        sessions[i]->trimTo(static_cast<std::uintmax_t>(static_cast<long double>(each[i]) * static_cast<long double>(total) / static_cast<long double>(used)));
+    cluster::debug("core", "transcripts in memory: " + std::to_string(used / 1024 / 1024) + " MB past " + std::to_string(total / 1024 / 1024) + " MB, the oldest entries dropped");
+}
+
 _cold void cluster::Manager::togglePanel(const std::string& id, const std::string& panel)
 {
     this->get_(id)->togglePanel(panel);
@@ -589,7 +620,7 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
     spec.cwd = path.string();
     spec.claudeId.clear();
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
-    session->loadHistory(300);
+    session->loadHistory();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_sessions[id] = session;
@@ -669,7 +700,7 @@ _cold void cluster::Manager::startGlobal(void)
             this->archive_(GLOBAL_ID);
         }
         const std::shared_ptr<cluster::Session> session = this->make_(spec);
-        session->loadHistory(200);
+        session->loadHistory();
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
             this->_sessions[GLOBAL_ID] = session;
@@ -1205,7 +1236,7 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
         }
         try {
             const std::shared_ptr<cluster::Session> session = this->make_(spec);
-            session->loadHistory(300);
+            session->loadHistory();
             {
                 std::lock_guard<std::mutex> lock(this->_mutex);
                 this->_sessions[spec.id] = session;
@@ -1303,9 +1334,10 @@ _cold void cluster::Manager::tick(void)
             session->giveQueued(this->_config.queueGiven == "end" ? -1 : 1500);
             if (seconds % 60 == 17 && this->_config.transcriptLimitMb > 0) session->limitLog(static_cast<std::uintmax_t>(this->_config.transcriptLimitMb) * 1024 * 1024);
         }
+        if (seconds % 60 == 19) this->limitMemory_(sessions);
     }
     if (seconds % 60 == 2) this->scanTranscripts_();        // the transcripts of Claude Code: what grew
-    if (seconds % 300 == 3) this->refreshAccount_();        // the windows of the account
+    if (seconds % 30 == 3) this->refreshAccount_();         // the windows of the account (read from the shared copy, fetched once too old)
     if (seconds == 5) this->describeMissing_();
 }
 
@@ -1444,7 +1476,7 @@ _cold void cluster::Manager::restartGlobal(void)
     const std::shared_ptr<cluster::Session> old = this->get_(GLOBAL_ID);
     old->stop();
     const std::shared_ptr<cluster::Session> session = this->make_(old->spec());
-    session->loadHistory(200);
+    session->loadHistory();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_sessions[GLOBAL_ID] = session;

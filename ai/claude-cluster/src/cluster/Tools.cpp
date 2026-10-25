@@ -1180,6 +1180,16 @@ _cold cluster::CommandVerdict cluster::command_check(const std::string& command,
     return match.failAfter > 0 && match.failures >= match.failAfter ? cluster::CommandVerdict::GaveUp : cluster::CommandVerdict::Failed;
 }
 
+_cold std::string cluster::command_label(const std::string& text)
+{
+    // what a background command / agent does, judged from its command or its task: stopped and run again by an update only when safe
+    // (a build, tests, a search, a server: run again from the start, nothing lost); dangerous: it changes things outside or cannot be
+    // run twice (a push, a deploy, a removal, root, a migration, a publish, a payment, a message sent...)
+    static const std::regex danger(R"((^|[^\w-])(git\s+(push|reset\s+--hard|clean|rebase|commit|tag)|rm\s+-[a-z]*[rf]|sudo|pkexec|dd\s+if=|mkfs|shred|truncate|kill(all)?|pkill|systemctl|reboot|shutdown|deploy|publish|release|upload|migrat|drop\s+table|delete\s+from|terraform\s+apply|kubectl\s+(apply|delete)|helm\s+(install|upgrade)|docker\s+(push|rm|system\s+prune)|npm\s+publish|cargo\s+publish|twine|scp|rsync|ssh|curl[^|]*\|\s*(ba)?sh|wget[^|]*\|\s*(ba)?sh|mail|send|pay|transfer|format|wipe|overwrite|install)($|[^\w]))",
+        std::regex::icase | std::regex::ECMAScript);
+    return std::regex_search(text, danger) ? "dangerous" : "safe";
+}
+
 _cold cluster::Json cluster::command_match_json(const cluster::CommandMatch& match)
 {
     cluster::Json out = {{"every", match.every}};

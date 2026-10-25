@@ -72,6 +72,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 .card > .chips { padding: 6px 12px 0; }
 .chip { font-size: 11px; line-height: 16px; border-radius: 9px; padding: 1px 7px; border: 1px solid var(--chip); color: var(--chip); white-space: nowrap; flex: none; }
 .chip.category { background: var(--chip); color: var(--bg); font-weight: 600; }
+.chip.warn { --chip: var(--warn); } .chip.ok { --chip: var(--ok); }
 .group-head { font-size: 12px; font-weight: 600; margin: 6px 4px 0; color: var(--chip, var(--muted)); }
 #groupToggle { align-self: flex-end; font-size: 11px; padding: 0 8px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
@@ -90,6 +91,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 #sessionBar .muted { color: var(--muted); font-size: 13px; }
 #picker { display: none; }
 #transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+#transcript .older-mark { align-self: center; padding: 4px 12px; color: var(--muted); font-style: italic; font-size: 13px; cursor: pointer; }
 #newOutput { align-self: center; position: relative; z-index: 3; margin: -40px 0 12px; padding: 5px 14px; border-radius: 16px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); font-size: 13px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); flex: none; }
 .msg { max-width: 900px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; background: var(--user); padding: 8px 12px; border-radius: 12px; }
@@ -800,6 +802,9 @@ let version = 0;
 let loop = 0;           // the loop of the state: a new one replaces the previous
 let shownAsk = "";      // the permission shown (not rebuilt while it stays the same)
 let lastKey = -1;
+const shownCount = {};  // per session: the entries asked (150 more each time its top is reached)
+const olderSeen = {};   // per session: its entries left in the log at the last drawing (the kept message follows a load / a trim)
+let olderAsked = 0;     // when older entries were last asked to the core (ms)
 const scrollMemo = {}; // per session: the place of its transcript when it was left (viewSpot)
 let voiceInfo = {available: false, confirm: 3, end_silence: 1.0};
 
@@ -1029,7 +1034,7 @@ async function run(id) {
             polling = new AbortController();
             const timer = setTimeout(() => polling.abort(), 20000);
             let state;
-            try { state = await api("/api/state?v=" + version + "&session=" + encodeURIComponent(current), undefined, polling.signal); }
+            try { state = await api("/api/state?v=" + version + "&session=" + encodeURIComponent(current) + "&count=" + (shownCount[current] || 150), undefined, polling.signal); }
             finally { clearTimeout(timer); }
             if (id !== loop) return;
             version = state.version;
@@ -1246,7 +1251,7 @@ function render(state) {
     $("closeSession").classList.toggle("hidden", s.id === "g");
     $("fork").classList.toggle("hidden", s.id === "g" || /^codex/.test(s.backend || ""));
     renderAgentsButton(s);
-    renderTranscript(s.messages || [], s.error);
+    renderTranscript(s.messages || [], s.error, s);
     renderPin(s);
     renderFace(s.face);
     renderTurn(s.turn);
@@ -2183,7 +2188,20 @@ $("newOutput").addEventListener("click", jumpToEnd);
 $("transcript").addEventListener("scroll", () => {
     const box = $("transcript");
     if (box.scrollHeight - box.scrollTop - box.clientHeight < 60) $("newOutput").classList.add("hidden");
+    if (box.scrollTop < 40 && box.scrollHeight > box.clientHeight) moreAbove(false);
 });
+
+// its top reached (or the mark clicked): more entries asked; none left in memory, the older ones read again from the log by the core
+async function moreAbove(clicked) {
+    const s = lastState && lastState.session;
+    if (!s || s.id !== current || (!s.above && !s.older) || (!clicked && Date.now() - olderAsked < 3000)) return;
+    olderAsked = Date.now();
+    shownCount[current] = (shownCount[current] || 150) + 150;
+    if (!s.above && s.older) {
+        try { await cmd({cmd: "older", session: current, count: 300}); } catch (error) { /* the core gone: asked again at the top */ }
+    }
+    refresh();
+}
 
 // a list drawn again from its top (emptied then filled): its scroller keeps its place
 function keepScroll(scroller) {
@@ -2316,15 +2334,27 @@ document.addEventListener("keydown", (e) => {
     else jumpToEnd();
 });
 
-function renderTranscript(messages, error) {
+function renderTranscript(messages, error, s) {
     const box = $("transcript");
     const spot = viewSpot(box);
+    const older = s ? s.older || 0 : 0;
+    const above = (s ? s.above || 0 : 0) + older;
+    // entries put back in front (older read again) or dropped from it (the memory budget) since: the kept message moved with them
+    if (spot.index !== undefined && olderSeen[current] !== undefined && olderSeen[current] !== older) spot.index = String(+spot.index + olderSeen[current] - older);
+    olderSeen[current] = older;
     const displays = messages.filter((m) => m.kind === "display").reduce((n, m) => n + m.text.length, 0); // a display ticked / updated: drawn again
-    const key = messages.length + ":" + (messages.length ? messages[messages.length - 1].text.length : 0) + ":" + displays + ":" + (error || "");
+    const key = messages.length + ":" + (messages.length ? messages[messages.length - 1].text.length : 0) + ":" + displays + ":" + (error || "") + ":" + above;
     if (key === lastKey) return;
     const first = lastKey === -1;
     lastKey = key;
     box.textContent = "";   // the state of the turn too (drawn again after)
+    if (above > 0) {
+        const div = document.createElement("div");
+        div.className = "older-mark";
+        div.textContent = "↑ " + above + (above === 1 ? " older entry" : " older entries") + (Date.now() - olderAsked < 3000 ? " - loading…" : " - scroll up to see them");
+        div.addEventListener("click", () => moreAbove(true));
+        box.append(div);
+    }
     for (const m of messages) {
         const div = document.createElement("div");
         div.className = "msg " + m.kind;
@@ -4588,6 +4618,15 @@ function drawDrawer() {
             body.append(row);
             continue;
         }
+        if (s.kind === "action" && s.key.startsWith("plugsrc_")) {
+            // a source of the plugins (like a service): its counts and its last sync, Open: its page in the Plugins window
+            const row = el("div", "setting");
+            const go = el("button", "", s.key === "plugsrc_add" ? "Add…" : "Open");
+            go.addEventListener("click", () => { closePanels(); pluginsWindow(s.key === "plugsrc_add" ? "+add" : s.key.slice(8)); });
+            row.append(el("label", "", s.label.trim()), el("div", "setting-help", String(s.value || "")), go, el("div", "setting-help", s.help || ""));
+            body.append(row);
+            continue;
+        }
         if (s.kind === "action") continue;
         const key = s.section + "." + s.key;
         const row = el("div", "setting" + (settingsChanged.has(key) ? " changed" : ""));
@@ -5061,7 +5100,7 @@ function simpleWindow(title, narrow) {
 }
 // the plugins: the sources first (their counts, last sync); the one chosen: its information, settings and offer as a checklist; the ticks
 // written at once by the core, which applies them (read again every 2 s)
-function pluginsWindow() {
+function pluginsWindow(open) {
     const {win, done} = simpleWindow("Plugins and skills");
     win.classList.add("plug");
     win.style.width = "min(1060px, calc(100% - 24px))";
@@ -5076,6 +5115,7 @@ function pluginsWindow() {
     hours.title = "the sources with auto sync pulled again every N hours (0: at each start of the core only)";
     const syncAll = el("button", "", "Sync all");
     top.append(input, addB, el("span", "muted", "auto sync every"), hours, el("span", "muted", "h"), syncAll);
+    if (open === "+add") setTimeout(() => input.focus(), 0); // Settings > Plugins > Add a source: its field first
     const split = el("div", "split");
     const nav = el("div", "nav");
     const side = el("div", "body");
@@ -5086,7 +5126,7 @@ function pluginsWindow() {
     foot.append(status);
     win.append(top, split, foot);
     let data = {sources: []};
-    let chosen = "";
+    let chosen = open && open !== "+add" ? open : "";  // Settings > Plugins: the source opened there
     let shown = "";
     const marked = new Set();
     const now = () => Math.floor(Date.now() / 1000);
@@ -5475,6 +5515,8 @@ function renderAgents() {
         const meta = el("div", "meta", agentMeta(a, effort));
         meta.dataset.effort = effort;
         meta.dataset.agent = a.taskId || a.toolUseId;
+        // its label: an update stops a young safe one (run again after it), waits for a dangerous one
+        if (a.label) top.append(el("span", "chip " + (a.label === "dangerous" ? "warn" : "ok"), a.label === "dangerous" ? "⚠ dangerous" : "safe"));
         row.append(top, meta);
         if (a.summary || a.error) row.append(el("div", "say", a.error || a.summary));
         const acts = el("div", "acts");

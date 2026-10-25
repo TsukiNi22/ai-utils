@@ -1223,6 +1223,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
                     "not allowed: the user did not let the global session fork (settings page > Sessions > Global session can fork)");
             data = {{"id", manager.forkSession(session(), arg_(request, "name"))}};
+        } else if (cmd == "older") {
+            // scrolled to the top of a transcript: its older entries read again from its log
+            data = manager.loadOlder(session(), static_cast<std::size_t>(std::clamp(request.value("count", 300), 1, 5000)));
         } else if (cmd == "transcript") {
             data = manager.transcript(session(), request.value("from", -50L), static_cast<std::size_t>(std::clamp(request.value("count", 50), 1, 500)));
         } else if (cmd == "context") {

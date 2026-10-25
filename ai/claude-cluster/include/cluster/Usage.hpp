@@ -59,6 +59,9 @@ _cold _nodiscard std::string day_of(const std::int64_t time);              // lo
 // the windows of the Claude account logged in here (the token of Claude Code, never shown): the OAuth usage endpoint
 // (a test: CLAUDE_CLUSTER_ACCOUNT_URL in the environment of the core, a local http://127.0.0.1 one only - never the config)
 _cold _nodiscard std::optional<cluster::Json> account_usage(void);
+// the same shared by every core of this user (~/.cache/claude-cluster/account-usage.json): read from that copy while younger than
+// maxAge seconds, else fetched by one core only (a lock; the others read the copy); *at: when the answer was read from the account
+_cold _nodiscard std::optional<cluster::Json> account_usage_shared(const int maxAge, std::int64_t* at);
 
 //----------------------------------------------------------------//
 /* CLASS */

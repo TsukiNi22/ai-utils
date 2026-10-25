@@ -69,6 +69,8 @@ struct Launch {
     std::vector<std::string> extraArgs;     // added by the manager (global session: MCP, system prompt)
     std::filesystem::path log;              // JSONL of the transcript
     int transcriptLimitMb = 0;              // its size kept under it (MB, 0: no limit)
+    std::uintmax_t memoryBytes = 1 << 20;   // its entries in memory within this size (the older ones on demand from the log)
+    std::size_t memoryEntries = 0;          // and at most this number of them (0: no count)
     std::function<void(const cluster::Event&)> listener;
     std::string remoteName;                 // claude: Remote Control on at every start under this name (empty: off)
 };
@@ -98,6 +100,10 @@ class Session {
         bool _prompted = false;             // a prompt was written since the last end of turn (else the next one is a wake-up of the agent)
         cluster::Queued _lastPrompt;        // last prompt sent (rewind: back in the prompt with its images)
         std::set<std::string> _sent;        // uuids of the prompts written here (their replay is not shown twice)
+        std::uintmax_t _memBytes = 1 << 20; // the entries in memory within this size, at most _memEntries of them (0: no count)
+        std::size_t _memEntries = 0;
+        std::int64_t _keepUntil = 0;        // older entries loaded on demand: kept until then (unix seconds), the budget raised to _keptBytes
+        std::uintmax_t _keptBytes = 0;
         std::map<std::string, cluster::Json> _inputs;   // the input of the tools running (by tool_use id): a command stopped
         std::string _approved;              // a command the user allowed after the safety check stopped it: allowed when asked again
         std::string _modeBack;              // the mode it is run out of (auto: never asks), put back after
@@ -133,6 +139,7 @@ class Session {
 
         // ------------ Function ---------- //
         _cold inline void touch_(void) {++this->_version;};
+        _cold void trim_(void);                            // (locked) the entries in memory within the budget: the oldest ones dropped, counted in older
 
     public:
         // ---------- Pre-Function -------- //
@@ -172,7 +179,11 @@ class Session {
         void noVerdict_(const std::string& tool);   // the auto mode classifier answered nothing for this tool (under the lock)  // a display replaced (its log written again)
         _cold void remoteControl(const bool on, const std::string& name); // claude: Remote Control of this session (claude.ai)
         _cold void togglePanel(const std::string& panel);
-        _cold void loadHistory(const std::size_t max);     // last entries of the log (restored session)
+        _cold void loadHistory(void);                      // the last entries of the log within the memory budget (restored session)
+        _cold std::size_t loadOlder(const std::size_t count);  // up to count entries of the log before the first one in memory: loaded again (returns how many)
+        _cold void limitMemory(const std::uintmax_t bytes, const std::size_t entries); // the memory budget of its entries (the settings of the moment)
+        _cold _nodiscard std::uintmax_t memoryUsed(void) const; // the size of its entries in memory
+        _cold void trimTo(const std::uintmax_t bytes);     // its oldest entries in memory dropped down to this size (the global budget)
         _cold _nodiscard cluster::Queued rewind(const int back = 1, std::vector<std::string>* dropped = nullptr);      // claude: the last `back` prompts removed from the conversation, the oldest of them returned (dropped: the prompts after it)
         _nodiscard cluster::Snapshot snapshot(void) const;
         _nodiscard cluster::SessionSpec spec(void) const;
