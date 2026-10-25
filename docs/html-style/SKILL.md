@@ -106,6 +106,8 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
   `data:` URI); no gradient, no emoji, no shadow except the floating ones (open menu, popovers).
 - Accessible by the template (RGAA 4.1): `page.html` starts with a skip link to `<main id="main">` (`new_page.py` writes the id), `lang` on `<html>`, a visible `:focus-visible`; your body markup gives every `th` a `scope`, every scrolling block (`pre`, a wide table) `tabindex="0"` + `role="region"` + a name, and never skips a heading level.
 - Contrast WCAG AA in **both** themes: text >= 4.5:1, lines / meaningful graphics >= 3:1.
+- Scrollbars: thin, a transparent track and a rounded thumb from `--line` (stronger on hover), never the browser's
+  default bar (on Linux a wide grey track appears on hover): the "scrollbars" block of `templates/style.css`, keep it.
 - An element with its own background (`code`, `kbd`, `mark`, badge) inside an element that sets a light text
   color (accent button, dark table head, colored banner) gets an explicit override
   (`th code { background: rgba(255,255,255,.18); color: #fff; }`): it never inherits a color unreadable on its

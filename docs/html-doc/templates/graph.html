@@ -59,6 +59,13 @@
   --node-alt: #283043;
   --line: #747a85;
 }
+/* scrollbars: thin, a transparent track, a rounded thumb in the theme (never the wide grey bar of the browser on hover) */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--line) 55%, transparent) transparent; }
+*:hover { scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--line) 55%, transparent); background-clip: padding-box; border: 3px solid transparent; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--line); background-clip: padding-box; border-width: 2px; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
