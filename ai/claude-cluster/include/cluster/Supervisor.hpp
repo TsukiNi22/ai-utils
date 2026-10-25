@@ -138,6 +138,7 @@ _cold std::string supervisor_web_toggle(void);                                //
 _cold int supervisor_tty(std::string& open);                                  // the terminal view; open: the instance chosen to open ("" none)
 _cold _nodiscard cluster::Json supervisor_web_state(void);                  // its web access as its core tells it (devices too)
 _cold std::string supervisor_web_device(const std::string& what, const std::string& id, const std::string& answer); // approve | kick | untrust | ban | unban
+_cold std::string supervisor_web_service(const std::string& action);     // beyond the LAN: reopen | tailscale_up | tailscale_operator
 _cold bool supervisor_web_close_mine(void);                                 // the web access this supervisor opened, closed (its quit)
 _cold void supervisor_perf(cluster::SupPerf& meter, const std::vector<cluster::SupInstance>& all);
 _cold _nodiscard std::vector<cluster::SupAgent> supervisor_agents(void);    // the agents running outside claude-cluster

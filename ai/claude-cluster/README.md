@@ -747,10 +747,13 @@ its background runs (purple: a shell of its own), idle (grey) - its folder, its 
 | `s` / `S` | stop it (asked again) / start a stopped one |
 | `F2` | normal / details (the sessions of each one) |
 | `w` | its web access on / off |
-| `F9` | its web access: its settings (its port `[web] supervisor_port`, approval, outside, https...: shared with every claude-cluster but the port) and its devices (allow, allow and trust, deny, kick, untrust, ban, unban) |
+| `F9` | its web access: its settings (its port `[web] supervisor_port`, approval, outside, https...: shared with every claude-cluster but the port), its outside address or why not reached (`r` ask the router / tailscale again, `T` tailscale up, `O` allow the tailscale certificates) |
+| `D` | its devices, like a session's *Web devices*: connected / waiting, trusted, banned, their ping and ages; `Space` tick, `k` kick, `K` kick all, `b` ban (asked again), `n` unban, `u` trust no more, `a` / `t` / `d` a waiting one |
+| `c`, a click on the code | the code of its web access copied (the desktop clipboard and the terminal's) |
+| the mouse | a drag selects (inverted), released: copied, like in a session |
 | `P` | the performance of the computer, live: CPU (model, cores, threads, MHz, °C, use, load), RAM, swap, each GPU (VRAM used / total, use, °C), disk, pressure, power, uptime, the memory of each claude-cluster core |
 | `F1` | the keys, the faces and the kinds |
-| `q`, `Esc` | quit (`Ctrl+C` never does) |
+| `q`, `Esc`, `Ctrl+C` | quit (its web access closed with it) |
 
 A device asking to use its web access pops up at once (Allow / Allow and trust / Deny; Esc: later, in F9 > Devices). Stopping a
 claude-cluster never closes the supervisor (it is never taken for one of its interfaces), and its web access never stays open without it:

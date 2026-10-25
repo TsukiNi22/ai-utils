@@ -7336,6 +7336,24 @@ _cold int cluster::supervisor_gui(std::string& open)
                 form->addRow(q_(s.label), field);
                 fields.emplace_back(s, read);
             }
+        // beyond the LAN: its address, else why not; the router / tailscale asked again
+        {
+            const cluster::Json web = cluster::supervisor_web_state();
+            QLabel* outside = new QLabel(&dialog);
+            outside->setWordWrap(true);
+            outside->setText(q_(now.web.remote == "off" || now.web.remote.empty() ? std::string("outside: off (Beyond the LAN)") : "outside (" + now.web.remote + "): "
+                + (web.value("remote_ok", false) ? web.value("remote_url", std::string()) : "✗ " + web.value("remote", std::string("not reached")))));
+            outside->setStyleSheet(q_("color:" + (web.value("remote_ok", false) ? st.ok : st.warn) + ";"));
+            inside->addWidget(outside);
+            QHBoxLayout* remote = new QHBoxLayout();
+            inside->addLayout(remote);
+            for (const auto &[label, action]: std::vector<std::pair<QString, std::string>>{{"Ask the router / tailscale again", "reopen"}, {"Tailscale up", "tailscale_up"},
+                {"Allow tailscale certificates", "tailscale_operator"}}) {
+                QPushButton* b = new QPushButton(label, &dialog);
+                QObject::connect(b, &QPushButton::clicked, &dialog, [note, action]() {note->setText(q_(cluster::supervisor_web_service(action)));});
+                remote->addWidget(b);
+            }
+        }
         QLabel* shared = new QLabel("shared by every claude-cluster of this computer (but its port); the access closed and opened again uses them", &dialog);
         shared->setStyleSheet(q_("color:" + st.muted + ";"));
         inside->addWidget(shared);
@@ -7386,6 +7404,14 @@ _cold int cluster::supervisor_gui(std::string& open)
         (void)dialog.exec();
     };
     button("Web settings (F9)", webDialog);
+    button("Copy the code", [&]() { // the code of its web access, ready to paste in the page
+        std::string digits;
+        for (const char c: cluster::supervisor_web_state().value("pin", std::string()))
+            if (c >= '0' && c <= '9') digits += c;
+        if (digits.empty()) return note->setText("no code: the web access is closed (Web on / off opens it)");
+        QGuiApplication::clipboard()->setText(q_(digits));
+        note->setText(q_("code " + digits.substr(0, 3) + " " + digits.substr(3) + " copied"));
+    });
     const std::function<void(void)> perfDialog = [&]() {
         // P: the performance of the computer, read again every 1.5 s while it is open
         QDialog dialog(&window);

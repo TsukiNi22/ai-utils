@@ -17,6 +17,10 @@ File Description:
 ##  The supervisor: every claude-cluster of this computer read on its socket, its light actions, its web access, its terminal view
 \**************************************************************/
 
+#define _Exception
+#define _Attribute
+#define _SManip
+#include <utils/utils.hpp>
 #include "cluster/Supervisor.hpp"
 #include "cluster/StartMenu.hpp"
 #include "cluster/Settings.hpp"
@@ -28,6 +32,8 @@ File Description:
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/dom/node.hpp>
+#include <ftxui/screen/screen.hpp>
 #include <sys/stat.h>
 #include <functional>
 #include <algorithm>
@@ -47,6 +53,49 @@ File Description:
 /* TOOLS */
 
 namespace {
+    // a selection of the mouse drawn on what is under it (its cells inverted)
+    class Selected : public ftxui::Node {
+        public:
+            Selected(ftxui::Element child, std::function<bool(int, int)> in, std::string* text) : ftxui::Node({std::move(child)}), _in(std::move(in)), _text(text) {}
+
+            void ComputeRequirement(void) override
+            {
+                this->children_[0]->ComputeRequirement();
+                this->requirement_ = this->children_[0]->requirement();
+            }
+
+            void SetBox(ftxui::Box box) override
+            {
+                ftxui::Node::SetBox(box);
+                this->children_[0]->SetBox(box);
+            }
+
+            void Render(ftxui::Screen& screen) override
+            {
+                // drawn, then the cells selected inverted and their text kept (copied when the button is released)
+                this->children_[0]->Render(screen);
+                std::string text;
+                for (int y = this->box_.y_min; y <= this->box_.y_max; ++y) {
+                    std::string line;
+                    bool any = false;
+                    for (int x = this->box_.x_min; x <= this->box_.x_max; ++x) {
+                        if (!this->_in(x, y)) continue;
+                        any = true;
+                        line += screen.PixelAt(x, y).character.empty() ? std::string(" ") : screen.PixelAt(x, y).character;
+                        screen.PixelAt(x, y).inverted = !screen.PixelAt(x, y).inverted;
+                    }
+                    while (!line.empty() && line.back() == ' ')
+                        line.pop_back();
+                    if (any) text += (text.empty() ? "" : "\n") + line;
+                }
+                *this->_text = text;
+            }
+
+        private:
+            std::function<bool(int, int)> _in;
+            std::string* _text;         // the text under the selection, at the last frame
+    };
+
     // the settings as config.toml has them (a Config made bare holds the defaults only)
     cluster::Config loaded_(void)
     {
@@ -400,6 +449,15 @@ _cold std::string cluster::supervisor_web_device(const std::string& what, const 
     return what == "approve" ? (answer == "deny" ? "denied" : answer == "trust" ? "allowed and trusted" : "allowed") : what + ": done";
 }
 
+_cold std::string cluster::supervisor_web_service(const std::string& action)
+{
+    // beyond the LAN of its web access: reopen (the router / tailscale asked again), tailscale_up, tailscale_operator
+    const cluster::Json done = ask_(main_data_() / "instances" / SUPERVISOR_INSTANCE / "sock", {{"cmd", "service_act"}, {"service", action == "reopen" ? "web" : "outside"},
+        {"action", action}});
+    if (!done.value("ok", false)) return done.value("error", std::string("the web access of the supervisor is closed (w opens it)"));
+    return cluster::one_line(done.value("data", cluster::Json::object()).value("message", std::string("done")), 200);
+}
+
 _cold bool cluster::supervisor_web_close_mine(void)
 {
     // the web access this supervisor opened, closed with it (another supervisor's left alone)
@@ -742,7 +800,7 @@ _cold int cluster::supervisor_tty(std::string& open)
     // chosen (a popup, the risky ones asked again); F1 the keys, F9 its web access (settings, devices), P the performance of the computer;
     // a device asking to come in: its popup; its own update: run again at once; quit: its web access closed with it
     ftxui::ScreenInteractive screen = ftxui::ScreenInteractive::Fullscreen();
-    screen.ForceHandleCtrlC(false); // Ctrl+C / Ctrl+Shift+C never quit it (q, Esc do)
+    screen.ForceHandleCtrlC(false); // Ctrl+C quits through q (its web access closed with it)
     screen.ForceHandleCtrlZ(false);
     std::mutex mutex;
     std::vector<cluster::SupInstance> all = cluster::supervisor_scan();
@@ -765,6 +823,19 @@ _cold int cluster::supervisor_tty(std::string& open)
     bool editing = false;
     std::string edit;
     std::set<std::string> asked;    // the devices already shown in an approval popup (answered or put aside)
+    std::set<std::string> picked;   // F9 > Devices: the ticked ones ("<list>:<id>")
+    std::function<std::string(void)> confirmWork; // asked again: what it runs (else a supervisor action)
+    bool confirmToWeb = false;      // back to F9 after it
+    ftxui::Box codeBox;             // the address / code of the header: a click copies the code
+    struct Drag {
+        int x0 = 0;
+        int y0 = 0;
+        int x1 = 0;
+        int y1 = 0;
+        bool on = false;            // the button held
+        bool shown = false;         // drawn (kept after the copy until the next click)
+    } drag;
+    std::string selection;          // the text under it, read while it is drawn
     cluster::Json approve;          // the device waiting now (its popup)
     int approveAt = 0;
     cluster::SupPerf perf;
@@ -882,14 +953,37 @@ _cold int cluster::supervisor_tty(std::string& open)
         webList = web_settings();
         note = s.label + " = " + value + " (every claude-cluster of this computer; the supervisor's access: closed and opened again to use it)";
     };
+    const std::function<std::vector<cluster::Json>(void)> web_rows = [&]() { // F9 > Devices: connected / waiting, trusted, banned
+        std::vector<cluster::Json> rows;
+        for (const char* list: {"devices", "trusted", "banned"})
+            for (const cluster::Json& d: webState.value(list, cluster::Json::array())) {
+                cluster::Json one = d;
+                one["list"] = list;
+                rows.push_back(one);
+            }
+        return rows;
+    };
+    const std::function<void(void)> copy_code = [&]() { // the code in the clipboards (the desktop's, the terminal's: OSC 52, over ssh too)
+        std::string digits;
+        for (const char c: webState.value("pin", std::string()))
+            if (c >= '0' && c <= '9') digits += c;
+        if (digits.empty()) {
+            note = "no code: the web access is closed (w opens it)";
+            return;
+        }
+        const bool desktop = cluster::copy_text(digits);
+        const std::string osc = "\x1b]52;c;" + utils::smanip::codec::Base64Codec().encode(digits) + "\a";
+        (void)!::write(STDOUT_FILENO, osc.data(), osc.size());
+        note = "code " + webState.value("pin", std::string()) + " copied" + (desktop ? "" : " (terminal clipboard)");
+    };
     ftxui::Component view = ftxui::Renderer([&]() {
         std::lock_guard<std::mutex> lock(mutex);
         const bool webOn = webState.value("on", false);
         ftxui::Elements rows;
         rows.push_back(ftxui::hbox({ftxui::text(" ^_^ claude-cluster supervisor ") | ftxui::bold | ftxui::color(accent),
             ftxui::text(std::string(CLUSTER_VERSION) + (installed != CLUSTER_VERSION ? " (installed " + installed + ")" : "")) | ftxui::color(muted), ftxui::filler(),
-            ftxui::text(webOn ? " web " + webState.value("url", std::string()) + "  code " + webState.value("pin", std::string()) + " " : " web off ")
-                | ftxui::color(webOn ? teal : muted),
+            (ftxui::text(webOn ? " web " + webState.value("url", std::string()) + (webState.value("remote_ok", false) ? " · " + webState.value("remote_url", std::string()) : "")
+                + "  code " + webState.value("pin", std::string()) + " " : " web off ") | ftxui::color(webOn ? teal : muted)) | ftxui::reflect(codeBox),
             ftxui::text("· " + std::string(details ? "details" : "normal") + " (F2) · F1 help ") | ftxui::color(muted)}));
         rows.push_back(ftxui::separator() | ftxui::color(ftxui::Color::RGB(48, 52, 59)));
         for (std::size_t i = 0; i < all.size(); ++i) {
@@ -984,8 +1078,9 @@ _cold int cluster::supervisor_tty(std::string& open)
             for (const auto &[key, what]: std::vector<std::pair<std::string, std::string>>{{"↑ ↓", "choose a claude-cluster"}, {"Enter", "what to do with it: open, update, force, stop, start (asked again)"},
                 {"u / U", "its smooth update / every one behind the binary installed"}, {"f / F", "force its switch / every one behind (asked again)"},
                 {"s / S", "stop it (asked again) / start a stopped one"}, {"F2", "normal / details (the sessions of each one)"},
-                {"w", "the web access of the supervisor on / off"}, {"F9", "the web access: its settings, its devices (allow, kick, untrust, ban)"},
-                {"P", "the performance of the computer, live (CPU, memory, GPU, disk)"}, {"↓ below", "the other agents of the computer (Claude Code, Codex, Ollama...): Enter opens one in claude-cluster"}, {"F1", "this help"}, {"q / Esc", "quit (its web access closed with it)"}})
+                {"w", "the web access of the supervisor on / off"}, {"F9", "the web access: its settings, its outside address (tailscale / router), its devices"}, {"D", "the devices of its web access (tick, kick, ban, unban, untrust, allow)"},
+                {"c / a click", "the code of its web access copied (on the address at the top)"},
+                {"P", "the performance of the computer, live (CPU, memory, GPU, disk)"}, {"↓ below", "the other agents of the computer (Claude Code, Codex, Ollama...): Enter opens one in claude-cluster"}, {"F1", "this help"}, {"q / Esc / Ctrl+C", "quit (its web access closed with it)"}, {"mouse", "a drag selects, released: copied"}})
                 body.push_back(ftxui::hbox({ftxui::text("  " + key) | ftxui::bold | ftxui::color(accent) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 12), ftxui::text(what)}));
             body.push_back(ftxui::text(""));
             body.push_back(ftxui::hbox({ftxui::text("  faces  ") | ftxui::color(muted), ftxui::text(">_< working  ") | ftxui::color(ok), ftxui::text("•_• ! waits for you  ") | ftxui::color(warn),
@@ -1000,6 +1095,13 @@ _cold int cluster::supervisor_tty(std::string& open)
                 ftxui::text(webTab == 1 ? " [Devices] " : "  Devices  ") | (webTab == 1 ? ftxui::bold | ftxui::color(accent) : ftxui::color(muted)), ftxui::filler(),
                 ftxui::text(webOn ? webState.value("url", std::string()) + "  code " + webState.value("pin", std::string()) : std::string("closed (w opens it)")) | ftxui::color(webOn ? teal : muted)}),
                 ftxui::text("")};
+            if (webOn) { // beyond the LAN: its address, else why not (tailscale down, the router refused...)
+                const std::string mode = loaded_().web.remote;
+                if (mode != "off" && !mode.empty())
+                    body.insert(body.begin() + 1, ftxui::hbox({ftxui::text(" outside (" + mode + ") ") | ftxui::color(muted),
+                        ftxui::text(webState.value("remote_ok", false) ? webState.value("remote_url", std::string()) : "✗ " + cluster::one_line(webState.value("remote", std::string("not reached")), 90))
+                            | ftxui::color(webState.value("remote_ok", false) ? ok : warn)}));
+            }
             if (webTab == 0) {
                 const cluster::Config config = loaded_();
                 for (std::size_t i = 0; i < webList.size(); ++i) {
@@ -1015,28 +1117,36 @@ _cold int cluster::supervisor_tty(std::string& open)
                     body.push_back(ftxui::paragraph(" " + cluster::one_line(webList[static_cast<std::size_t>(webAt)].description, 300)) | ftxui::color(muted)
                         | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 96));
                 body.push_back(ftxui::text(" shared by every claude-cluster of this computer (but its port); the access closed and opened again uses them") | ftxui::color(muted));
-                body.push_back(ftxui::text(" ↑↓ · Enter edit / switch · ←→ a choice · Tab devices · Esc close") | ftxui::color(muted));
+                body.push_back(ftxui::text(" ↑↓ · Enter edit / switch · ←→ a choice · Tab devices · c copy the code · Esc close") | ftxui::color(muted));
+                body.push_back(ftxui::text(" outside: r ask the router / tailscale again · T tailscale up · O allow the tailscale certificates") | ftxui::color(muted));
             } else {
-                std::vector<cluster::Json> devices;
-                for (const char* list: {"devices", "trusted", "banned"})
-                    for (const cluster::Json& d: webState.value(list, cluster::Json::array())) {
-                        cluster::Json one = d;
-                        one["list"] = list;
-                        devices.push_back(one);
-                    }
-                if (devices.empty()) body.push_back(ftxui::text("   no device yet") | ftxui::color(muted));
+                const std::vector<cluster::Json> devices = web_rows();
+                if (devices.empty()) body.push_back(ftxui::text("   nobody connected, no trusted or banned device") | ftxui::color(muted));
+                std::string title;
                 for (std::size_t i = 0; i < devices.size(); ++i) {
                     const cluster::Json& d = devices[i];
+                    const std::string list = d.value("list", std::string());
+                    const std::string section = list == "trusted" ? " trusted (no code, no approval)" : list == "banned" ? " banned (refused, its code too)" : " connected / waiting";
+                    if (section != title) {
+                        body.push_back(ftxui::text(section) | ftxui::bold | ftxui::color(list == "banned" ? bad : muted));
+                        title = section;
+                    }
                     const bool on = static_cast<int>(i) == webAt;
-                    const std::string kind = d.value("list", std::string());
-                    const std::string state = kind == "banned" ? "banned" : kind == "trusted" ? "trusted" : d.value("state", std::string());
-                    ftxui::Element line = ftxui::hbox({ftxui::text(on ? " ❯ " : "   "), ftxui::text(cluster::one_line(d.value("name", std::string("device")), 22))
-                        | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 24), ftxui::text(d.value("address", std::string())) | ftxui::color(muted) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 18),
-                        ftxui::text(state) | ftxui::color(state == "connected" ? ok : state == "waiting" ? warn : state == "banned" ? bad : muted)});
-                    body.push_back(on ? line | ftxui::bgcolor(lit) : line);
+                    const bool ticked = picked.contains(list + ":" + d.value("id", std::string()));
+                    const std::string state = list == "trusted" ? "last " + (d.value("seen", 0) > 0 ? cluster::human_age(d.value("seen", static_cast<std::int64_t>(0))) + " ago" : std::string("never"))
+                        : list == "banned" ? "since " + cluster::human_age(d.value("since", static_cast<std::int64_t>(0))) + " ago"
+                        : d.value("state", std::string()) + (d.value("trusted", false) ? " · trusted" : "");
+                    const int ping = d.value("ping", -1);
+                    const std::string pinged = d.value("state", std::string()) != "connected" ? "" : ping < 0 ? "  ping …" : "  ping " + std::to_string(ping) + " ms";
+                    ftxui::Element line = ftxui::hbox({ftxui::text(std::string(on ? " ❯" : "  ") + (ticked ? " [x] " : " [ ] ")), ftxui::text(cluster::one_line(d.value("name", std::string("device")), 26) + "  "),
+                        ftxui::text(d.value("address", std::string()) + "  ") | ftxui::color(muted),
+                        ftxui::text(state) | ftxui::color(d.value("state", std::string()) == "connected" ? ok : d.value("state", std::string()) == "waiting" ? warn : list == "banned" ? bad : muted),
+                        ftxui::text(pinged) | ftxui::color(ping > 300 ? warn : accent), ftxui::filler()});
+                    body.push_back(on ? line | ftxui::bgcolor(lit) | ftxui::bold : line);
                 }
                 body.push_back(ftxui::text(""));
-                body.push_back(ftxui::text(" a allow · t allow and trust · d deny · k kick · x untrust · b ban · B unban · Tab settings · Esc close") | ftxui::color(muted));
+                body.push_back(ftxui::text(" Space tick · k kick the ticked · K kick all · b ban · n unban · u trust no more · a / t / d a waiting one (allow, allow and trust, deny)") | ftxui::color(muted));
+                body.push_back(ftxui::text(" none ticked: the one under the cursor · ping: the round trip of its page · Tab settings · c copy the code · Esc close") | ftxui::color(muted));
             }
             over = popup("Web access of the supervisor", std::move(body));
         } else if (pop == Pop::Perf) {
@@ -1091,7 +1201,19 @@ _cold int cluster::supervisor_tty(std::string& open)
             body.push_back(ftxui::text(" ↑↓ choose · Enter · Esc later (F9 > Devices)") | ftxui::color(muted));
             over = popup("A device asks to use the supervisor", std::move(body));
         }
-        return ftxui::dbox({base, over});
+        // the selection of the mouse: from (x0, y0) to (x1, y1), line by line like a terminal's
+        const std::function<bool(int, int)> in = [&drag](const int x, const int y) {
+            if (!drag.shown) return false;
+            int ax = drag.x0, ay = drag.y0, bx = drag.x1, by = drag.y1;
+            if (ay > by || (ay == by && ax > bx)) {
+                std::swap(ax, bx);
+                std::swap(ay, by);
+            }
+            if (y < ay || y > by) return false;
+            if (ay == by) return x >= ax && x <= bx;
+            return (y == ay && x >= ax) || (y == by && x <= bx) || (y > ay && y < by);
+        };
+        return std::make_shared<Selected>(ftxui::dbox({base, over}), in, &selection);
     });
     ftxui::Component keys = ftxui::CatchEvent(view, [&](const ftxui::Event& event) {
         std::unique_lock<std::mutex> lock(mutex);
@@ -1106,8 +1228,42 @@ _cold int cluster::supervisor_tty(std::string& open)
                     }
             return false;
         }
-        if (event.is_mouse()) return false;
-        if (event == ftxui::Event::Special("\x03") || event == ftxui::Event::Special("\x1a")) return true; // Ctrl+C / Ctrl+Z: nothing
+        if (event.is_mouse()) {
+            // a drag selects (inverted), released: copied like in a session; a click on the code of the header copies the code
+            ftxui::Event copy = event;
+            const ftxui::Mouse mouse = copy.mouse();
+            if (mouse.button == ftxui::Mouse::Left && mouse.motion == ftxui::Mouse::Pressed) {
+                drag = Drag{mouse.x, mouse.y, mouse.x, mouse.y, true, false};
+                return true;
+            }
+            if (drag.on && mouse.motion == ftxui::Mouse::Moved) {
+                drag.x1 = mouse.x;
+                drag.y1 = mouse.y;
+                drag.shown = drag.x1 != drag.x0 || drag.y1 != drag.y0;
+                return true;
+            }
+            if (drag.on && mouse.motion == ftxui::Mouse::Released) {
+                drag.on = false;
+                if (!drag.shown) { // a click
+                    if (pop == Pop::None && codeBox.Contain(mouse.x, mouse.y)) copy_code();
+                    return true;
+                }
+                const std::string text = selection;
+                if (!text.empty()) {
+                    const bool desktop = cluster::copy_text(text);
+                    const std::string osc = "\x1b]52;c;" + utils::smanip::codec::Base64Codec().encode(text) + "\a";
+                    (void)!::write(STDOUT_FILENO, osc.data(), osc.size());
+                    note = "copied (" + std::to_string(text.size()) + " characters)" + (desktop ? "" : " (terminal clipboard)");
+                }
+                return true;
+            }
+            return false;
+        }
+        if (event == ftxui::Event::Special("\x03") || event.input() == "\x03") { // Ctrl+C: quit (as q)
+            screen.Exit();
+            return true;
+        }
+        if (event == ftxui::Event::Special("\x1a") || event.input() == "\x1a") return true; // Ctrl+Z: nothing
         const int count = static_cast<int>(all.size() + agents.size());
         if (pop == Pop::Help || pop == Pop::Perf) {
             pop = Pop::None;
@@ -1117,11 +1273,17 @@ _cold int cluster::supervisor_tty(std::string& open)
         if (pop == Pop::Confirm) {
             if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Tab) confirmYes = !confirmYes;
             else if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y') || (event == ftxui::Event::Return && confirmYes)) {
-                pop = Pop::None;
+                pop = confirmToWeb ? Pop::Web : Pop::None;
+                const std::function<std::string(void)> work = confirmWork;
+                confirmWork = nullptr;
+                confirmToWeb = false;
                 lock.unlock();
-                act(confirmName, confirmAction);
+                if (work) background(work);
+                else act(confirmName, confirmAction);
             } else if (event == ftxui::Event::Character('n') || event == ftxui::Event::Escape || event == ftxui::Event::Return) {
-                pop = Pop::None;
+                pop = confirmToWeb ? Pop::Web : Pop::None;
+                confirmWork = nullptr;
+                confirmToWeb = false;
                 note = "nothing done";
             }
             return true;
@@ -1194,23 +1356,66 @@ _cold int cluster::supervisor_tty(std::string& open)
                     editing = true;
                     edit = now;
                 }
-            } else if (webTab == 1 && event.is_character()) {
-                std::vector<cluster::Json> devices;
-                for (const char* list: {"devices", "trusted", "banned"})
-                    for (const cluster::Json& d: webState.value(list, cluster::Json::array()))
-                        devices.push_back(d);
-                if (webAt < static_cast<int>(devices.size())) {
-                    const std::string id = devices[static_cast<std::size_t>(webAt)].value("id", std::string());
-                    const std::string c = event.character();
-                    const std::map<std::string, std::pair<std::string, std::string>> actions = {{"a", {"approve", "allow"}}, {"t", {"approve", "trust"}}, {"d", {"approve", "deny"}},
-                        {"k", {"kick", ""}}, {"x", {"untrust", ""}}, {"b", {"ban", ""}}, {"B", {"unban", ""}}};
-                    if (actions.contains(c)) {
-                        const auto &[what, answer] = actions.at(c);
+            } else if (webTab == 1 && (event.is_character() || event == ftxui::Event::Character(' '))) {
+                const std::vector<cluster::Json> rows = web_rows();
+                const std::string c = event.character();
+                std::vector<std::string> ids; // the ticked ones of that list, else the one under the cursor
+                const std::function<std::string(const std::string&)> chosenIds = [&](const std::string& list) {
+                    std::string out;
+                    for (const cluster::Json& d: rows)
+                        if (picked.contains(d.value("list", std::string()) + ":" + d.value("id", std::string())) && (list.empty() || d.value("list", std::string()) == list))
+                            out += (out.empty() ? "" : ",") + d.value("id", std::string());
+                    if (out.empty() && webAt < static_cast<int>(rows.size()) && (list.empty() || rows[static_cast<std::size_t>(webAt)].value("list", std::string()) == list))
+                        out = rows[static_cast<std::size_t>(webAt)].value("id", std::string());
+                    return out;
+                };
+                if (c == " " && webAt < static_cast<int>(rows.size())) {
+                    const std::string key = rows[static_cast<std::size_t>(webAt)].value("list", std::string()) + ":" + rows[static_cast<std::size_t>(webAt)].value("id", std::string());
+                    if (!picked.erase(key)) picked.insert(key);
+                } else if (c == "k" || c == "n" || c == "u") {
+                    const std::string what = c == "k" ? "kick" : c == "n" ? "unban" : "untrust";
+                    const std::string which = chosenIds(c == "k" ? "devices" : c == "n" ? "banned" : "trusted");
+                    if (which.empty()) note = "none to " + what + " there";
+                    else {
+                        picked.clear();
                         lock.unlock();
-                        background([id, what, answer]() {return cluster::supervisor_web_device(what, id, answer);});
+                        background([what, which]() {return cluster::supervisor_web_device(what, which, "");});
                     }
+                } else if (c == "K") {
+                    confirmText = "Kick every device of the supervisor's web access? A new code too.";
+                    confirmWork = []() {return cluster::supervisor_web_device("kick", "", "");};
+                    confirmToWeb = true;
+                    confirmYes = false;
+                    pop = Pop::Confirm;
+                } else if (c == "b") {
+                    const std::string which = chosenIds("");
+                    if (!which.empty()) {
+                        confirmText = "Ban the device(s)? Refused from now, their code too, until unbanned.";
+                        confirmWork = [which]() {return cluster::supervisor_web_device("ban", which, "");};
+                        confirmToWeb = true;
+                        confirmYes = false;
+                        pop = Pop::Confirm;
+                        picked.clear();
+                    }
+                } else if ((c == "a" || c == "t" || c == "d") && webAt < static_cast<int>(rows.size())
+                    && rows[static_cast<std::size_t>(webAt)].value("state", std::string()) == "waiting") {
+                    const std::string id = rows[static_cast<std::size_t>(webAt)].value("id", std::string());
+                    const std::string answer = c == "a" ? "allow" : c == "t" ? "trust" : "deny";
+                    lock.unlock();
+                    background([id, answer]() {return cluster::supervisor_web_device("approve", id, answer);});
+                } else if (c == "c") {
+                    copy_code();
                 }
+                if (lock.owns_lock()) webAt = std::clamp(webAt, 0, std::max(0, static_cast<int>(rows.size()) - 1));
+                return true;
             }
+            if (webTab == 0 && (event == ftxui::Event::Character('r') || event == ftxui::Event::Character('T') || event == ftxui::Event::Character('O'))) {
+                const std::string action = event == ftxui::Event::Character('r') ? "reopen" : event == ftxui::Event::Character('T') ? "tailscale_up" : "tailscale_operator";
+                lock.unlock();
+                background([action]() {return cluster::supervisor_web_service(action);});
+                return true;
+            }
+            if (event == ftxui::Event::Character('c')) copy_code();
             if (webTab == 0) webAt = std::clamp(webAt, 0, std::max(0, static_cast<int>(webList.size()) - 1));
             return true;
         }
@@ -1234,11 +1439,13 @@ _cold int cluster::supervisor_tty(std::string& open)
         else if (event == ftxui::Event::ArrowUp) focus = count > 0 ? (focus + count - 1) % count : 0;
         else if (event == ftxui::Event::F2) details = !details;
         else if (event == ftxui::Event::F1 || event == ftxui::Event::Character('?')) pop = Pop::Help;
-        else if (event == ftxui::Event::F9) {
+        else if (event == ftxui::Event::F9 || event == ftxui::Event::Character('D')) {
             webList = web_settings();
-            webTab = 0;
+            webTab = event == ftxui::Event::Character('D') ? 1 : 0;
             webAt = 0;
             pop = Pop::Web;
+        } else if (event == ftxui::Event::Character('c')) {
+            copy_code();
         } else if (event == ftxui::Event::Character('p') || event == ftxui::Event::Character('P')) {
             perfOn = true;
             pop = Pop::Perf;

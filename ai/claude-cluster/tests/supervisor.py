@@ -243,16 +243,29 @@ try:
     check("the main core stopped", main.poll() is not None)
     check("... the supervisor still there (never closed with the interfaces of what it stops)", os.waitpid(term.pid, os.WNOHANG)[0] == 0 and "claude-cluster supervisor" in term.text(),
           term.text()[-500:])
-    term.send(b"\x03")  # Ctrl+C: nothing
+    # a mouse drag on its title: selected, copied when released (SGR mouse events)
+    term.send(b"\x1b[<0;3;1M")
+    term.pump(0.2)
+    term.send(b"\x1b[<32;20;1M")
+    term.pump(0.2)
+    term.send(b"\x1b[<0;20;1m")
     term.pump(1)
-    check("Ctrl+C never quits it", os.waitpid(term.pid, os.WNOHANG)[0] == 0)
-    term.send(b"q")
+    check("a mouse drag: copied like in a session", "copied (" in term.text(), term.text()[-400:])
+    term.send(b"c")
+    term.pump(0.8)
+    check("c: the code of its web access copied", "copied" in term.text() and "code" in term.text(), term.text()[-400:])
+    term.send(b"D")
+    term.pump(0.8)
+    check("D: its devices (connected / waiting, kick, ban...)", "[Devices]" in term.text() and "phone" in term.text() and "kick" in term.text(), term.text()[-1200:])
+    term.send(b"\x1b")
+    term.pump(0.8)
+    term.send(b"\x03")  # Ctrl+C: quits (as q)
     began = time.time()
     ended = False
     while not ended and time.time() - began < 10:
         term.pump(0.1)
         ended = os.waitpid(term.pid, os.WNOHANG)[0] == term.pid
-    check("q: quits at once", ended and time.time() - began < 3, f"{time.time() - began:.1f} s, ended {ended}")
+    check("Ctrl+C: quits at once", ended and time.time() - began < 3, f"{time.time() - began:.1f} s, ended {ended}")
     deadline = time.time() + 8
     while time.time() < deadline and ask_alive(own):
         time.sleep(0.3)
