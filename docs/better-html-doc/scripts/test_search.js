@@ -8,7 +8,7 @@ const vm = require('vm');
 const dir = process.argv[2] || '.';
 const site = path.join(__dirname, '..', '..', 'better-html-style', 'templates', 'site.js');
 const window = { addEventListener() {}, matchMedia() { return { matches: false, addEventListener() {} }; } };
-const root = { classList: { add() {} }, lang: 'en', setAttribute() {} };
+const root = { classList: { add() {} }, lang: 'en', setAttribute() {}, getAttribute() { return null; } };
 const document = { documentElement: root, querySelector() { return null; }, querySelectorAll() { return []; }, addEventListener() {} };
 class Observer { observe() {} }
 const sandbox = { window, document, location: { search: '' }, URLSearchParams, MutationObserver: Observer, fetch: undefined };
