@@ -732,16 +732,31 @@ waiting for you - a question or a permission -, idle with its background running
 to install`, `⟳ updating`). `F2` switches to the details: under each one its pid, its address, the version offered, and every session with its state,
 its queued prompts, its agents running, ♨ when kept warm and its model.
 
+Each one shows a face like a session's (`>_<` working, `•_• !` waits for you, `>_< ~` its background runs, `o_o` an error, `-_-` idle, `z_z`
+stopped) and its kind (`◆` the main claude-cluster, `◇` an independent instance; `◆ global` its global session in the details). Under them,
+**Other agents on this computer**: Claude Code, Codex, OpenCode, Qwen Code, Gemini, Aider and Ollama running in their own terminals (not
+the ones a claude-cluster runs), each with a coloured dot for its state - working (green), waits for you (yellow: its last tool not answered),
+its background runs (purple: a shell of its own), idle (grey) - its folder, its conversation, its pid / terminal and its CPU.
+
 | Key | Does |
 |---|---|
-| `↑` / `↓` | choose one |
-| `Enter` | open it (the supervisor closes, the usual interface attaches to it) |
-| `u` / `U` | its smooth update (its turns end first, its interfaces follow) / the same for every one behind the binary installed |
-| `f` / `F` | force its switch (asked first): its turns and background stopped now, then continued by the new version (`handoff.json`) / every one behind |
-| `s` / `S` | stop it (asked first: its terminals and windows close, its sessions are kept) / start a stopped one (its sessions restored) |
+| `↑` / `↓` | choose one (the claude-clusters, then the other agents) |
+| `Enter` | a popup of what to do with it: open (the supervisor closes), update, force its switch, stop, start, cancel; an outside agent: open its conversation in the main claude-cluster as a copy (its terminal keeps the original) |
+| `u` / `U` | its smooth update / every one behind the binary installed |
+| `f` / `F` | force its switch / every one behind (asked again: Yes / No) |
+| `s` / `S` | stop it (asked again) / start a stopped one |
+| `F2` | normal / details (the sessions of each one) |
 | `w` | its web access on / off |
-| `F2` | normal / details |
-| `q`, `Esc` | quit |
+| `F9` | its web access: its settings (its port `[web] supervisor_port`, approval, outside, https...: shared with every claude-cluster but the port) and its devices (allow, allow and trust, deny, kick, untrust, ban, unban) |
+| `P` | the performance of the computer, live: CPU (model, cores, threads, MHz, °C, use, load), RAM, swap, each GPU (VRAM used / total, use, °C), disk, pressure, power, uptime, the memory of each claude-cluster core |
+| `F1` | the keys, the faces and the kinds |
+| `q`, `Esc` | quit (`Ctrl+C` never does) |
+
+A device asking to use its web access pops up at once (Allow / Allow and trust / Deny; Esc: later, in F9 > Devices). Stopping a
+claude-cluster never closes the supervisor (it is never taken for one of its interfaces), and its web access never stays open without it:
+closed when it quits, and its core stops by itself when the supervisor is gone (a crash too). The window (`--supervisor -g`) has the same in
+the colours of claude-cluster: the tree (the other agents under it, double click opens), Open / Stop / Force asked first, the approval
+popup, F1, F9 (Web settings: its settings and devices), P (Performance).
 
 The supervisor updates itself: once a newer binary is installed it runs it again at once (it holds nothing to wait for). Its **web access** (`w`) is a
 core of its own (`<data>/instances/.supervisor`, never listed as an instance) on `[web] supervisor_port` (8788 by default), with its own code and

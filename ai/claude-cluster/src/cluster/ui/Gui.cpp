@@ -7096,63 +7096,141 @@ _cold int cluster::gui_choice(const std::string& title, const std::string& text,
 
 _cold int cluster::supervisor_gui(std::string& open)
 {
-    // every claude-cluster of this computer in a tree (F2: their sessions under them), read again every 1.5 s; the actions in a
-    // thread (an update waits for its turns), their result under the list; its own update: run again at once
+    // every claude-cluster of this computer in a tree (F2: their sessions under them) and the agents running outside it, read again
+    // every 1.5 s, in the colours of claude-cluster; the actions in a thread, their result under the list; a device asking to come in:
+    // its popup; F1 the keys, F9 the web access (settings, devices), P the performance; quit: its web access closed with it
     int argc = 1;
     char name[] = "claude-cluster";
     char* argv[] = {name, nullptr};
     QApplication::setApplicationName("claude-cluster");
     QGuiApplication::setDesktopFileName("claude-cluster");
     QApplication application(argc, argv);
+    cluster::Config config;
+    config.load(); // the style chosen (a bare Config: the defaults)
+    const cluster::Style st = config.currentStyle();
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor(q_(st.bg)));
+    palette.setColor(QPalette::Base, QColor(q_(st.surface)));
+    palette.setColor(QPalette::AlternateBase, QColor(q_(st.bg)));
+    palette.setColor(QPalette::Text, QColor(q_(st.text)));
+    palette.setColor(QPalette::WindowText, QColor(q_(st.text)));
+    palette.setColor(QPalette::Button, QColor(q_(st.surface)));
+    palette.setColor(QPalette::ButtonText, QColor(q_(st.text)));
+    palette.setColor(QPalette::Highlight, QColor(q_(mix_(st.surface, st.accent, 0.30))));
+    palette.setColor(QPalette::HighlightedText, QColor(q_(st.text)));
+    palette.setColor(QPalette::PlaceholderText, QColor(q_(st.muted)));
+    QApplication::setPalette(palette);
+    application.setStyleSheet(q_(
+        "QWidget{background:" + st.bg + ";color:" + st.text + ";}"
+        "QTreeWidget{background:" + st.surface + ";border:1px solid " + st.border + ";border-radius:10px;padding:4px;}"
+        "QTreeWidget::item{padding:3px 2px;}"
+        "QTreeWidget::item:selected{background:" + mix_(st.surface, st.accent, 0.28) + ";color:" + st.text + ";}"
+        "QTreeWidget::item:hover{background:" + mix_(st.surface, st.accent, 0.12) + ";}"
+        "QHeaderView::section{background:" + st.bg + ";color:" + st.muted + ";border:none;border-bottom:1px solid " + st.border + ";padding:4px 6px;}"
+        "QPushButton{background:" + st.surface + ";border:1px solid " + st.border + ";border-radius:8px;padding:6px 12px;}"
+        "QPushButton:hover{border-color:" + st.accent + ";color:" + st.accent + ";}"
+        "QPushButton#risky:hover{border-color:" + st.warn + ";color:" + st.warn + ";}"
+        "QLineEdit,QComboBox,QSpinBox{background:" + st.surface + ";border:1px solid " + st.border + ";border-radius:8px;padding:4px 8px;}"
+        "QScrollBar:vertical{width:8px;background:transparent;}QScrollBar::handle:vertical{background:" + st.border + ";border-radius:4px;min-height:24px;}"
+        "QScrollBar::add-line,QScrollBar::sub-line{height:0;}"));
     QWidget window;
     window.setWindowTitle("claude-cluster supervisor");
-    window.resize(1040, 600);
+    window.resize(1180, 680);
     QVBoxLayout* layout = new QVBoxLayout(&window);
     QLabel* head = new QLabel(&window);
+    head->setTextFormat(Qt::RichText);
     layout->addWidget(head);
     QTreeWidget* tree = new QTreeWidget(&window);
-    tree->setHeaderLabels({"claude-cluster", "version", "sessions", "update"});
-    tree->setColumnWidth(0, 220);
-    tree->setColumnWidth(1, 90);
-    tree->setColumnWidth(2, 520);
+    tree->setHeaderLabels({"claude-cluster", "kind", "version", "state", "update"});
+    tree->setColumnWidth(0, 250);
+    tree->setColumnWidth(1, 110);
+    tree->setColumnWidth(2, 80);
+    tree->setColumnWidth(3, 560);
+    tree->setRootIsDecorated(true);
     layout->addWidget(tree, 1);
     QLabel* note = new QLabel(&window);
     note->setWordWrap(true);
+    note->setStyleSheet(q_("color:" + st.accent + ";"));
     layout->addWidget(note);
     QHBoxLayout* row = new QHBoxLayout();
     layout->addLayout(row);
     bool details = false;
+    std::vector<cluster::SupAgent> outside;
+    std::set<std::string> asked;
     const std::function<std::string(void)> chosen = [tree]() {
         QTreeWidgetItem* item = tree->currentItem();
         while (item != nullptr && item->parent() != nullptr)
             item = item->parent();
         return item == nullptr ? std::string() : item->data(0, Qt::UserRole).toString().toStdString();
     };
+    const std::function<QString(const std::string&)> tint = [&st](const std::string& state) {
+        return q_(state == "working" ? st.ok : state == "question" || state == "waiting" ? st.warn : state == "error" ? st.error : state == "background" ? std::string("#a46ad8") : st.muted);
+    };
     const std::function<void(void)> draw = [&]() {
         const std::vector<cluster::SupInstance> all = cluster::supervisor_scan();
+        outside = cluster::supervisor_agents();
         const std::string installed = cluster::supervisor_installed();
+        const cluster::Json web = cluster::supervisor_web_state();
         const std::string keep = chosen();
-        head->setText(q_("<b>claude-cluster supervisor</b> " + std::string(CLUSTER_VERSION) + (installed != CLUSTER_VERSION ? " (installed " + installed + ")" : "")
-            + " · " + std::to_string(all.size()) + " claude-cluster · web " + (cluster::supervisor_web() ? "on" : "off") + " · " + (details ? "details" : "normal") + " (F2)"));
+        head->setText(q_("<b><span style=\"color:" + st.accent + "\">^_^ claude-cluster supervisor</span></b> <span style=\"color:" + st.muted + "\">" + std::string(CLUSTER_VERSION)
+            + (installed != CLUSTER_VERSION ? " (installed " + installed + ")" : "") + " · " + std::to_string(all.size()) + " claude-cluster · " + (details ? "details" : "normal")
+            + " (F2) · F1 help</span>  " + (web.value("on", false) ? "<span style=\"color:" + st.ok + "\">web " + esc_(web.value("url", std::string())).toStdString() + "  code "
+            + web.value("pin", std::string()) + "</span>" : "<span style=\"color:" + st.muted + "\">web off</span>")));
         tree->clear();
         for (const cluster::SupInstance& it: all) {
-            const std::string state = !it.alive ? "stopped · " + std::to_string(it.kept) + " session(s) kept" : std::to_string(it.sessions.size()) + " sessions: "
+            const std::string face = !it.alive ? "z_z" : it.upgrading ? "^_^" : it.waiting > 0 ? "•_• !" : it.errors > 0 ? "o_o" : it.working > 0 ? ">_<" : it.background > 0 ? ">_< ~" : "-_-";
+            const std::string state = !it.alive ? "stopped · " + std::to_string(it.kept) + " session(s) kept" : std::to_string(it.sessions.size()) + " sessions · "
                 + std::to_string(it.working) + " working · " + std::to_string(it.idle) + " idle · " + std::to_string(it.waiting) + " waiting for you · "
                 + std::to_string(it.background) + " background" + (it.queued > 0 ? " · " + std::to_string(it.queued) + " queued" : "") + (it.web ? " · web on" : "");
-            const std::string update = it.upgrading ? "updating" : it.alive && cluster::version_compare(it.version, installed) < 0 ? installed + " to install" : "";
-            QTreeWidgetItem* item = new QTreeWidgetItem(tree, {q_(it.name), q_(it.alive ? it.version : "-"), q_(state), q_(update)});
+            const std::string update = it.upgrading ? "⟳ updating" : it.alive && cluster::version_compare(it.version, installed) < 0 ? "⬆ " + installed : "";
+            QTreeWidgetItem* item = new QTreeWidgetItem(tree, {q_(face + "   " + (it.main ? "◆ " : "◇ ") + it.name), q_(it.main ? "main" : "independent"), q_(it.alive ? it.version : "-"),
+                q_(state), q_(update)});
             item->setData(0, Qt::UserRole, q_(it.name));
-            item->setForeground(2, QColor(!it.alive ? "#888888" : it.waiting > 0 ? "#d7a32b" : it.errors > 0 ? "#d9534f" : it.working > 0 ? "#3fae6a" : it.background > 0 ? "#a46ad8" : "#9aa0ab"));
+            item->setForeground(0, QColor(q_(it.main ? st.accent : mix_(st.accent, st.ok, 0.6))));
+            item->setForeground(3, QColor(tint(!it.alive ? "idle" : it.waiting > 0 ? "question" : it.errors > 0 ? "error" : it.working > 0 ? "working" : it.background > 0 ? "background" : "idle")));
+            QFont bold = item->font(0);
+            bold.setBold(true);
+            item->setFont(0, bold);
             if (it.name == keep) tree->setCurrentItem(item);
             if (!details) continue;
             for (const cluster::Json& s: it.sessions) {
-                std::string line = s.value("asking", 0) > 0 ? std::string("waits for you") : s.value("background", false) ? std::string("idle, its background runs") : s.value("state", std::string());
+                const bool asking = s.value("asking", 0) > 0;
+                const std::string sessionState = asking ? "question" : s.value("background", false) ? "background" : s.value("state", std::string());
+                std::string line = asking ? std::string("waits for you") : s.value("background", false) ? std::string("idle, its background runs") : s.value("state", std::string());
                 if (s.value("queued", 0) > 0) line += " · " + std::to_string(s.value("queued", 0)) + " queued";
                 if (s.value("agents", 0) > 0) line += " · " + std::to_string(s.value("agents", 0)) + " agent(s)";
                 if (s.value("keep_warm", false)) line += " · ♨";
-                (void)new QTreeWidgetItem(item, {q_(s.value("name", std::string())), q_(s.value("model", std::string())), q_(line), QString()});
+                QTreeWidgetItem* child = new QTreeWidgetItem(item, {q_((s.value("name", std::string()) == "global" ? "◆ " : "") + s.value("name", std::string())), QString(),
+                    q_(s.value("model", std::string())), q_(line), QString()});
+                child->setForeground(3, QColor(tint(sessionState)));
             }
             item->setExpanded(true);
+        }
+        QTreeWidgetItem* group = new QTreeWidgetItem(tree, {q_("Other agents on this computer"), QString(), QString(), q_(outside.empty() ? std::string("none running")
+            : std::to_string(outside.size()) + " running · double click: open one in claude-cluster"), QString()});
+        group->setForeground(0, QColor(q_(st.muted)));
+        for (std::size_t i = 0; i < outside.size(); ++i) {
+            const cluster::SupAgent& a = outside[i];
+            QTreeWidgetItem* child = new QTreeWidgetItem(group, {q_("●  " + a.agent), q_(cluster::short_path(a.cwd)), q_("pid " + std::to_string(a.pid)),
+                q_((a.state == "question" ? std::string("waits for you") : a.state == "background" ? std::string("its background runs") : a.state) + " · " + cluster::one_line(a.title, 70)), QString()});
+            child->setData(0, Qt::UserRole + 1, static_cast<int>(i) + 1);
+            child->setForeground(0, QColor(tint(a.state)));
+            child->setForeground(3, QColor(tint(a.state)));
+        }
+        group->setExpanded(true);
+        // a device asking to use the supervisor: its popup, once
+        for (const cluster::Json& d: web.value("devices", cluster::Json::array())) {
+            const std::string id = d.value("id", std::string());
+            if (d.value("state", std::string()) != "waiting" || asked.contains(id)) continue;
+            asked.insert(id);
+            QMessageBox box(&window);
+            box.setWindowTitle("A device asks to use the supervisor");
+            box.setText(q_(d.value("name", std::string("a device")) + " · " + d.value("address", std::string()) + "\n" + cluster::one_line(d.value("agent", std::string()), 160)));
+            QPushButton* allow = box.addButton("Allow", QMessageBox::AcceptRole);
+            QPushButton* trust = box.addButton("Allow and trust", QMessageBox::AcceptRole);
+            box.addButton("Deny", QMessageBox::RejectRole);
+            (void)box.exec();
+            note->setText(q_(cluster::supervisor_web_device("approve", id, box.clickedButton() == allow ? "allow" : box.clickedButton() == trust ? "trust" : "deny")));
         }
         if (cluster::version_compare(installed, CLUSTER_VERSION) > 0) { // its own update: run again on the new binary
             ::setenv("CLAUDE_CLUSTER_SUPERVISOR", "1", 1);
@@ -7173,54 +7251,223 @@ _cold int cluster::supervisor_gui(std::string& open)
             QMetaObject::invokeMethod(&window, [note, done]() {note->setText(q_(done));}, Qt::QueuedConnection);
         }).detach();
     };
-    const std::function<void(const QString&, const std::function<void(void)>&)> button = [&](const QString& label, const std::function<void(void)>& run) {
+    const std::function<bool(const QString&, const QString&)> sure = [&window](const QString& title, const QString& text) {
+        return QMessageBox::question(&window, title, text, QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
+    };
+    const std::function<QPushButton*(const QString&, const std::function<void(void)>&)> button = [&](const QString& label, const std::function<void(void)>& run) {
         QPushButton* b = new QPushButton(label, &window);
         QObject::connect(b, &QPushButton::clicked, &window, run);
         row->addWidget(b);
+        return b;
     };
-    button("Open", [&]() {
-        open = chosen();
-        if (!open.empty()) application.quit();
-    });
+    const std::function<void(void)> openChosen = [&]() {
+        if (const QTreeWidgetItem* item = tree->currentItem(); item != nullptr && item->data(0, Qt::UserRole + 1).toInt() > 0) { // an outside agent
+            const cluster::SupAgent a = outside[static_cast<std::size_t>(item->data(0, Qt::UserRole + 1).toInt() - 1)];
+            if (a.id.empty()) return note->setText(q_("no conversation of it to open (" + a.agent + ")"));
+            if (!sure("Open it in claude-cluster?", q_("Open the conversation of " + a.agent + " (" + cluster::short_path(a.cwd) + ") in the main claude-cluster, as a copy? Its terminal keeps the original.")))
+                return;
+            try {
+                note->setText(q_(cluster::supervisor_agent_open(a)));
+            } catch (const std::exception& e) {
+                note->setText(q_(e.what()));
+            }
+            return;
+        }
+        const std::string target = chosen();
+        if (target.empty() || !sure("Open it?", q_("Open " + target + "? The supervisor closes, its interface opens."))) return;
+        open = target;
+        application.quit();
+    };
+    button("Open", openChosen);
     button("Update", [&]() {act(chosen(), "update");});
     button("Update all", [&]() {act("*", "update");});
     button("Force", [&]() {
-        if (QMessageBox::question(&window, "Force the switch?", q_("Force the switch of " + chosen() + ": its turns and its background stopped now, then continued by the new version?")) == QMessageBox::Yes)
-            act(chosen(), "force");
-    });
+        if (sure("Force the switch?", q_("Force the switch of " + chosen() + ": its turns and its background stopped now, then continued by the new version?"))) act(chosen(), "force");
+    })->setObjectName("risky");
     button("Force all", [&]() {
-        if (QMessageBox::question(&window, "Force the switch?", "Force the switch of every claude-cluster that is behind?") == QMessageBox::Yes) act("*", "force");
-    });
+        if (sure("Force the switch?", "Force the switch of every claude-cluster that is behind?")) act("*", "force");
+    })->setObjectName("risky");
     button("Stop", [&]() {
-        if (QMessageBox::question(&window, "Stop it?", q_("Stop " + chosen() + "? Its terminals / windows closed, its sessions kept.")) == QMessageBox::Yes) act(chosen(), "stop");
-    });
+        if (sure("Stop it?", q_("Stop " + chosen() + "? Its terminals / windows closed, its sessions kept."))) act(chosen(), "stop");
+    })->setObjectName("risky");
     button("Start", [&]() {act(chosen(), "start");});
-    button("Web", [&]() {
+    button("Web on / off", [&]() {
         note->setText("…");
         std::thread([&window, note]() {
             const std::string done = cluster::supervisor_web_toggle();
             QMetaObject::invokeMethod(&window, [note, done]() {note->setText(q_(done));}, Qt::QueuedConnection);
         }).detach();
     });
+    const std::function<void(void)> webDialog = [&]() {
+        // F9: the settings of its web access (shared by every claude-cluster, but its port) and its devices
+        QDialog dialog(&window);
+        dialog.setWindowTitle("Web access of the supervisor");
+        dialog.resize(760, 560);
+        QVBoxLayout* inside = new QVBoxLayout(&dialog);
+        QFormLayout* form = new QFormLayout();
+        inside->addLayout(form);
+        std::vector<std::pair<cluster::Setting, std::function<std::string(void)>>> fields;
+        cluster::Config now;
+        now.load();
+        for (const cluster::SettingsPage& page: cluster::settings_pages(now))
+            for (const cluster::Setting& s: page.settings) {
+                if (s.section != "web" || s.kind == cluster::SettingKind::Action || s.key == "port" || s.key == "tty_port" || s.key == "enabled") continue;
+                const std::string value = s.value(now);
+                QWidget* field = nullptr;
+                std::function<std::string(void)> read;
+                if (s.kind == cluster::SettingKind::Bool) {
+                    QCheckBox* box = new QCheckBox(&dialog);
+                    box->setChecked(value == "true");
+                    read = [box]() {return std::string(box->isChecked() ? "true" : "false");};
+                    field = box;
+                } else if (s.kind == cluster::SettingKind::Choice) {
+                    QComboBox* box = new QComboBox(&dialog);
+                    for (const std::string& c: s.choices)
+                        box->addItem(q_(c));
+                    box->setCurrentText(q_(value));
+                    read = [box]() {return box->currentText().toStdString();};
+                    field = box;
+                } else {
+                    QLineEdit* line = new QLineEdit(q_(value), &dialog);
+                    read = [line]() {return line->text().toStdString();};
+                    field = line;
+                }
+                field->setToolTip(q_(s.description));
+                form->addRow(q_(s.label), field);
+                fields.emplace_back(s, read);
+            }
+        QLabel* shared = new QLabel("shared by every claude-cluster of this computer (but its port); the access closed and opened again uses them", &dialog);
+        shared->setStyleSheet(q_("color:" + st.muted + ";"));
+        inside->addWidget(shared);
+        QTreeWidget* devices = new QTreeWidget(&dialog);
+        devices->setHeaderLabels({"device", "address", "state"});
+        devices->setRootIsDecorated(false);
+        const cluster::Json web = cluster::supervisor_web_state();
+        for (const char* list: {"devices", "trusted", "banned"})
+            for (const cluster::Json& d: web.value(list, cluster::Json::array())) {
+                QTreeWidgetItem* item = new QTreeWidgetItem(devices, {q_(d.value("name", std::string("device"))), q_(d.value("address", std::string())),
+                    q_(std::string(list) == "devices" ? d.value("state", std::string()) : std::string(list) == "trusted" ? std::string("trusted") : std::string("banned"))});
+                item->setData(0, Qt::UserRole, q_(d.value("id", std::string())));
+            }
+        inside->addWidget(devices, 1);
+        QHBoxLayout* acts = new QHBoxLayout();
+        inside->addLayout(acts);
+        for (const auto &[label, what, answer]: std::vector<std::tuple<QString, std::string, std::string>>{{"Allow", "approve", "allow"}, {"Allow and trust", "approve", "trust"},
+            {"Deny", "approve", "deny"}, {"Kick", "kick", ""}, {"Untrust", "untrust", ""}, {"Ban", "ban", ""}, {"Unban", "unban", ""}}) {
+            QPushButton* b = new QPushButton(label, &dialog);
+            QObject::connect(b, &QPushButton::clicked, &dialog, [devices, note, what, answer]() {
+                if (devices->currentItem() == nullptr) return;
+                note->setText(q_(cluster::supervisor_web_device(what, devices->currentItem()->data(0, Qt::UserRole).toString().toStdString(), answer)));
+            });
+            acts->addWidget(b);
+        }
+        QDialogButtonBox* box = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Close, &dialog);
+        inside->addWidget(box);
+        QObject::connect(box, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        QObject::connect(box, &QDialogButtonBox::accepted, &dialog, [&]() {
+            cluster::Config writing;
+            writing.load();
+            std::string done;
+            for (const auto &[s, read]: fields) {
+                const std::string value = read();
+                if (value == s.value(writing)) continue;
+                const std::string error = cluster::setting_check(s, value);
+                if (!error.empty()) {
+                    QMessageBox::warning(&dialog, q_(s.label), q_(error));
+                    return;
+                }
+                if (const std::string danger = cluster::setting_danger(s, value); !danger.empty() && !sure(q_(s.label), q_(danger))) continue;
+                (void)cluster::settings_set(writing, "web", s.key, value);
+                done += (done.empty() ? "" : ", ") + s.label;
+            }
+            note->setText(q_(done.empty() ? std::string("nothing changed") : "saved: " + done + " (the access closed and opened again uses them)"));
+            dialog.accept();
+        });
+        (void)dialog.exec();
+    };
+    button("Web settings (F9)", webDialog);
+    const std::function<void(void)> perfDialog = [&]() {
+        // P: the performance of the computer, read again every 1.5 s while it is open
+        QDialog dialog(&window);
+        dialog.setWindowTitle("Performance of this computer");
+        dialog.resize(640, 520);
+        QVBoxLayout* inside = new QVBoxLayout(&dialog);
+        QLabel* text = new QLabel(&dialog);
+        text->setTextFormat(Qt::RichText);
+        text->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+        inside->addWidget(text, 1);
+        std::shared_ptr<cluster::SupPerf> meter = std::make_shared<cluster::SupPerf>();
+        const std::function<std::string(const std::string&, double, const std::string&)> bar = [&st](const std::string& label, double ratio, const std::string& value) {
+            ratio = std::clamp(ratio, 0.0, 1.0);
+            const std::string color = ratio > 0.9 ? st.error : ratio > 0.7 ? st.warn : st.ok;
+            return "<tr><td style=\"padding-right:12px\">" + label + "</td><td><table cellspacing=0 cellpadding=0 width=260><tr><td width=" + std::to_string(static_cast<int>(ratio * 260))
+                + " style=\"background:" + color + "\">&nbsp;</td><td style=\"background:" + st.border + "\">&nbsp;</td></tr></table></td><td style=\"padding-left:12px\">" + value + "</td></tr>";
+        };
+        const std::function<void(void)> fill = [&]() {
+            cluster::supervisor_perf(*meter, cluster::supervisor_scan());
+            const cluster::SupPerf& p = *meter;
+            const std::function<std::string(double)> gb = [](const double mb) {
+                std::ostringstream s;
+                s.setf(std::ios::fixed);
+                s.precision(1);
+                s << mb / 1024.0;
+                return s.str();
+            };
+            std::string html = "<b>" + esc_(p.cpu).toStdString() + "</b><br><span style=\"color:" + st.muted + "\">" + std::to_string(p.physical) + " cores · " + std::to_string(p.threads)
+                + " threads" + (p.mhz > 0 ? " · " + std::to_string(p.mhz) + " MHz" : "") + (p.tempC > 0 ? " · " + std::to_string(static_cast<int>(p.tempC)) + " °C" : "") + "</span><table>";
+            html += bar("CPU", p.cpuPercent / 100.0, std::to_string(static_cast<int>(p.cpuPercent)) + " %");
+            html += bar("RAM", p.memTotalMb > 0 ? 1.0 - static_cast<double>(p.memAvailMb) / static_cast<double>(p.memTotalMb) : 0,
+                gb(static_cast<double>(p.memTotalMb - p.memAvailMb)) + " / " + gb(static_cast<double>(p.memTotalMb)) + " GB");
+            if (p.swapTotalMb > 0) html += bar("swap", static_cast<double>(p.swapUsedMb) / static_cast<double>(p.swapTotalMb), gb(static_cast<double>(p.swapUsedMb)) + " / " + gb(static_cast<double>(p.swapTotalMb)) + " GB");
+            for (const cluster::SupGpu& g: p.gpus) {
+                html += "<tr><td colspan=3><b>" + esc_(g.name).toStdString() + "</b></td></tr>";
+                if (g.vramTotalMb > 0) html += bar("VRAM", g.vramUsedMb >= 0 ? static_cast<double>(g.vramUsedMb) / static_cast<double>(g.vramTotalMb) : 0,
+                    (g.vramUsedMb >= 0 ? gb(static_cast<double>(g.vramUsedMb)) : std::string("?")) + " / " + gb(static_cast<double>(g.vramTotalMb)) + " GB");
+                if (g.busy >= 0) html += bar("GPU", g.busy / 100.0, std::to_string(static_cast<int>(g.busy)) + " %");
+            }
+            if (p.diskTotalGb > 0) html += bar("disk", 1.0 - static_cast<double>(p.diskFreeGb) / static_cast<double>(p.diskTotalGb), std::to_string(p.diskTotalGb - p.diskFreeGb) + " / "
+                + std::to_string(p.diskTotalGb) + " GB");
+            html += "</table><br><span style=\"color:" + st.muted + "\">load " + std::to_string(p.load1).substr(0, 4) + " / " + std::to_string(p.load5).substr(0, 4) + " / "
+                + std::to_string(p.load15).substr(0, 4) + " · " + p.power + " · up " + p.uptime + "</span>";
+            for (const auto &[core, mb]: p.cores)
+                html += "<br><span style=\"color:" + st.muted + "\">" + esc_(core).toStdString() + ": " + std::to_string(mb) + " MB</span>";
+            text->setText(q_(html));
+        };
+        QTimer timer;
+        QObject::connect(&timer, &QTimer::timeout, &dialog, fill);
+        fill();
+        timer.start(1500);
+        (void)dialog.exec();
+    };
+    button("Performance (P)", perfDialog);
     button("Details (F2)", [&]() {
         details = !details;
         draw();
     });
-    QShortcut* f2 = new QShortcut(QKeySequence(Qt::Key_F2), &window);
-    QObject::connect(f2, &QShortcut::activated, &window, [&]() {
-        details = !details;
-        draw();
-    });
-    QObject::connect(tree, &QTreeWidget::itemDoubleClicked, &window, [&]() {
-        open = chosen();
-        if (!open.empty()) application.quit();
-    });
+    const std::function<void(void)> help = [&]() {
+        QMessageBox::information(&window, "Keys", "Enter / double click: open (asked first)\nF2: normal / details (the sessions)\nF9: the web access of the supervisor (settings, devices)\n"
+            "P: the performance of the computer\nF1: this help\n\nfaces: >_< working · •_• ! waits for you · >_< ~ background · o_o error · -_- idle · z_z stopped\n"
+            "◆ the main claude-cluster · ◇ an independent instance · ● the agents running outside claude-cluster (their state in colour)\n\n"
+            "Stop and Force are asked again; quitting closes the web access of the supervisor.");
+    };
+    for (const auto &[key, run]: std::vector<std::pair<QKeySequence, std::function<void(void)>>>{{QKeySequence(Qt::Key_F1), help}, {QKeySequence(Qt::Key_F9), webDialog},
+        {QKeySequence(Qt::Key_P), perfDialog}, {QKeySequence(Qt::Key_Return), openChosen}, {QKeySequence(Qt::Key_F2), [&]() {details = !details; draw();}}}) {
+        QShortcut* shortcut = new QShortcut(key, &window);
+        QObject::connect(shortcut, &QShortcut::activated, &window, run);
+    }
+    QObject::connect(tree, &QTreeWidget::itemDoubleClicked, &window, [&]() {openChosen();});
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, &window, draw);
     timer.start(1500);
     draw();
     window.show();
+    if (const char* shot = std::getenv("CLAUDE_CLUSTER_SCREENSHOT"); shot != nullptr && *shot) // Debug: the window saved, then closed
+        QTimer::singleShot(2500, &window, [&window, &application, shot]() {
+            (void)window.grab().save(QString::fromUtf8(shot));
+            application.quit();
+        });
     (void)application.exec();
+    (void)cluster::supervisor_web_close_mine(); // quit: its web access never left open
     return 0;
 }
 

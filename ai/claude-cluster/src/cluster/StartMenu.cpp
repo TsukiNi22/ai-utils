@@ -185,8 +185,7 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
             list.push_back({{cluster::StartChoice::Kind::New, ""}, "n", "Start new", previous > 0 ? "nothing restored: the previous sessions go to the trash" : "nothing to restore: an empty start"});
         list.push_back({{cluster::StartChoice::Kind::Open, "list"}, "i", std::string("Independent instances") + (instances.empty() ? "" : " (" + std::to_string(instances.size()) + ")"),
             instances.empty() ? "start one of its own: its own sessions and global session, nothing shared (no web access)" : "open one of yours, or start a new one"});
-        list.push_back({{cluster::StartChoice::Kind::Supervisor, ""}, "s", "Supervisor", "every claude-cluster of this computer at a glance (the main one, the independent "
-            "ones): their sessions, their version, their update; open, update, stop them"});
+        list.push_back({{cluster::StartChoice::Kind::Supervisor, ""}, "s", "Supervisor", "every claude-cluster of this computer at a glance: sessions, version, update"});
         list.push_back({{cluster::StartChoice::Kind::Quit, ""}, "q", "Quit", "nothing started"});
         return list;
     };
@@ -246,7 +245,8 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
             title = on ? title | ftxui::bold | ftxui::color(ftxui::Color::Black) | ftxui::bgcolor(quit ? ftxui::Color::Red : ftxui::Color::Cyan)
                 : title | ftxui::color(quit ? ftxui::Color::Red : ftxui::Color::White);
             rows.push_back(title);
-            rows.push_back(ftxui::text("       " + entry.detail) | ftxui::dim);
+            // its description wrapped under it (the menu keeps its width: 2-3 lines at most for a long one)
+            rows.push_back(ftxui::hbox({ftxui::text("       "), ftxui::paragraph(entry.detail) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 68)}) | ftxui::dim);
         }
         if (first + visible < count) rows.push_back(ftxui::text("   ↓ " + std::to_string(count - first - visible) + " more") | ftxui::dim);
         rows.push_back(ftxui::text(""));

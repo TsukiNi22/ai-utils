@@ -166,16 +166,46 @@ try:
     term.pump(4)
     shown = term.text()
     check("--supervisor: the view, its version", "claude-cluster supervisor" in shown and "normal (F2)" in shown, shown[-900:])
-    check("... every one listed with its state", "main" in shown and "beta" in shown and "gamma" in shown and "stopped" in shown and "sessions:" in shown, shown[-900:])
+    check("... every one listed with its state, its kind", "main" in shown and "beta" in shown and "gamma" in shown and "stopped" in shown and "sessions ·" in shown
+          and "independent" in shown, shown[-900:])
+    check("... a face per state (-_- idle, z_z stopped)", "-_-" in shown and "z_z" in shown, shown[-900:])
+    check("... the other agents of the computer: a section of their own", "Other agents on this computer" in shown, shown[-900:])
     term.send(b"\x1bOQ")  # F2
     term.pump(1.5)
     shown = term.text()
     check("F2: the details (the sessions of each one)", "details (F2)" in shown and "alpha" in shown and "bravo" in shown, shown[-900:])
     term.send(b"s")
     term.pump(0.5)
-    check("s: asked before stopping", "y / n" in term.text(), term.text()[-500:])
+    check("s: asked again before stopping (Yes / No)", "Sure?" in term.text() and "Yes" in term.text(), term.text()[-500:])
     term.send(b"n")
     term.pump(0.5)
+    term.send(b"\r")
+    term.pump(0.8)
+    shown = term.text()
+    check("Enter: a popup of what to do with it", "Open it" in shown and "Stop it" in shown and "Cancel" in shown, shown[-900:])
+    term.send(b"\x1b")
+    term.pump(0.8)
+    check("... Esc: closed", "Open it (the supervisor closes)" not in term.text(), term.text()[-500:])
+    term.send(b"\x1bOP")  # F1
+    term.pump(0.8)
+    check("F1: the keys", "Keys" in term.text() and "the web access: its settings" in term.text(), term.text()[-900:])
+    term.send(b"x")
+    term.pump(0.5)
+    term.send(b"p")
+    term.pump(4)
+    shown = term.text()
+    check("P: the performance of the computer, live (CPU, RAM)", "Performance of this computer" in shown and "CPU" in shown and "RAM" in shown and "GB" in shown, shown[-1200:])
+    term.send(b"x")
+    term.pump(0.5)
+    term.send(b"\x1b[20~")  # F9
+    term.pump(1)
+    shown = term.text()
+    check("F9: the web access popup, its settings (its port)", "Web access of the supervisor" in shown and "Supervisor port" in shown and str(PORT) in shown, shown[-1200:])
+    term.send(b"\t")
+    term.pump(0.5)
+    check("... Tab: its devices", "[Devices]" in term.text(), term.text()[-900:])
+    term.send(b"\x1b")
+    term.pump(0.8)
     term.send(b"w")  # its web access: a core of its own (.supervisor) on [web] supervisor_port
     term.pump(8)
     check("w: the web access of the supervisor opened, its address told", f":{PORT}" in term.text(), term.text()[-600:])
@@ -192,13 +222,30 @@ try:
         state = http_("/api/state?v=0")
         page = {it["name"] for it in (state.get("supervisor") or {}).get("instances") or []}
         check("the page: /api/state carries the supervisor (every claude-cluster)", page == {"main", "beta", "gamma"}, json.dumps(state)[:300])
+        check("... and the other agents of the computer", "agents" in (state.get("supervisor") or {}), json.dumps(state.get("supervisor"))[:200])
         acted = http_("/api/cmd", {"cmd": "supervisor_act", "name": "nobody", "action": "stop"})
         check("... its actions let through (an unknown one refused by the supervisor itself)", "no claude-cluster named nobody" in json.dumps(acted), json.dumps(acted)[:300])
     except OSError as error:
         check("the page of the supervisor answers", False, str(error))
-    term.send(b"w")
-    term.pump(4)
-    check("w again: closed (its core ended)", "closed" in term.text() and not ask_alive(own), term.text()[-400:])
+    # stopping the main one (Enter, Stop it, Yes): the supervisor stays (it is not one of its interfaces)
+    term.send(b"\r")
+    term.pump(0.8)
+    term.send(b"\x1b[B")  # Open -> Stop
+    term.pump(0.3)
+    term.send(b"\r")
+    term.pump(0.8)
+    check("Stop it: asked again", "Sure?" in term.text() and "Stop main" in term.text(), term.text()[-600:])
+    term.send(b"y")
+    deadline = time.time() + 15
+    while time.time() < deadline and main.poll() is None:
+        term.pump(0.3)
+    term.pump(3)
+    check("the main core stopped", main.poll() is not None)
+    check("... the supervisor still there (never closed with the interfaces of what it stops)", os.waitpid(term.pid, os.WNOHANG)[0] == 0 and "claude-cluster supervisor" in term.text(),
+          term.text()[-500:])
+    term.send(b"\x03")  # Ctrl+C: nothing
+    term.pump(1)
+    check("Ctrl+C never quits it", os.waitpid(term.pid, os.WNOHANG)[0] == 0)
     term.send(b"q")
     began = time.time()
     ended = False
@@ -206,6 +253,10 @@ try:
         term.pump(0.1)
         ended = os.waitpid(term.pid, os.WNOHANG)[0] == term.pid
     check("q: quits at once", ended and time.time() - began < 3, f"{time.time() - began:.1f} s, ended {ended}")
+    deadline = time.time() + 8
+    while time.time() < deadline and ask_alive(own):
+        time.sleep(0.3)
+    check("quit: its web access closed with it (its core ended)", not ask_alive(own))
     term = None
     # the start menu offers it
     menu_env = dict(ENV)

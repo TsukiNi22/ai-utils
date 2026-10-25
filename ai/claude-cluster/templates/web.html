@@ -1132,6 +1132,20 @@ function renderSupervisor(sup) {
         card.append(acts);
         box.append(card);
     }
+    // the agents running on the computer outside claude-cluster (Claude Code, Codex, Ollama...): their state in colour
+    const agents = sup.agents || [];
+    const other = el("div", "sup-card");
+    other.append(el("div", "sup-title", ""));
+    other.firstChild.append(el("b", "", "Other agents on this computer"), el("span", "muted", "  " + (agents.length ? agents.length + " running" : "none running")));
+    for (const a of agents) {
+        const line = el("div", "sup-session");
+        const dot = el("span", "", "● ");
+        dot.style.color = a.state === "working" ? "var(--ok)" : a.state === "question" ? "var(--warn)" : a.state === "background" ? "var(--busy)" : "var(--muted)";
+        line.append(dot, el("b", "", a.agent + "  "), el("span", "", (a.state === "question" ? "waits for you" : a.state === "background" ? "its background runs" : a.state)
+            + " · " + a.cwd + (a.title ? " · " + a.title : "")));
+        other.append(line);
+    }
+    box.append(other);
     if (sup.note) box.append(el("div", "muted", sup.note));
 }
 async function supAct(name, action) {

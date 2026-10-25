@@ -45,7 +45,9 @@ Any phone browser works. On Android the page offers an **app** (`/app.apk`): the
 
 `claude-cluster --supervisor` (or `s` in the start menu) shows every claude-cluster of this computer at a glance: the main one and each independent instance, running or stopped with sessions kept. Each one shows its version, its sessions counted by state (working, idle, waiting for you, background, queued, errors), its web access and its update; `F2` adds the details (every session with its state, queued prompts, agents, ♨, model).
 
-- `Enter` opens one; `u` / `U` its smooth update / every one behind; `f` / `F` force the switch (asked first: turns and background stopped, then continued); `s` / `S` stop (asked first) / start; `w` its web access; `q` quits.
+- `Enter` a popup of what to do with it (open, update, force, stop, start; the risky ones asked again); `u` / `U` update one / all; `f` / `F` force; `s` / `S` stop / start; `w` its web access; `F9` its web settings and devices; `P` the performance of the computer (CPU, RAM, GPU / VRAM, disk); `F1` the keys; `q` quits (`Ctrl+C` never does).
+- Faces like a session's (`>_<` working, `•_• !` waits for you, `-_-` idle, `z_z` stopped), `◆` main / `◇` independent; below, **the other agents of the computer** (Claude Code, Codex, OpenCode, Qwen, Gemini, Aider, Ollama in their own terminals), a coloured dot for their state; Enter opens one in claude-cluster as a copy.
+- A device asking to use its web access pops up at once; its web access closes when the supervisor quits (or crashes); stopping a claude-cluster never closes the supervisor.
 - It runs a newer binary again by itself as soon as it is installed.
 - **Its web access** is a core of its own on `[web] supervisor_port` (8788): the page and the app connected to it show the supervisor (cards, Details, Update / Force / Stop / Start, Update all / Force all) instead of sessions; its actions are accepted from that access only.
 - The window (`--supervisor -g`) shows the same list as a tree with its buttons.

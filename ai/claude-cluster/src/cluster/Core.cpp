@@ -38,7 +38,7 @@ File Description:
 #include <fstream>
 #include <iomanip>
 #include <cstdlib>
-#include <csignal>
+#include <cerrno>
 #include <thread>
 #include <chrono>
 #include <set>
@@ -79,6 +79,7 @@ _cold std::vector<int> cluster::interface_pids(void)
         if (name.empty() || !std::all_of(name.begin(), name.end(), [](const char c) {return std::isdigit(static_cast<unsigned char>(c));})) continue;
         const int pid = std::stoi(name);
         if (pid == ::getpid()) continue;
+        if (std::filesystem::exists(cluster::runtime_dir() / "supervisors" / name, error)) continue; // a supervisor: it watches, it is not one of its interfaces
         std::string exe = std::filesystem::read_symlink(entry.path() / "exe", error).string();
         if (error) continue;
         if (exe.ends_with(" (deleted)")) exe.resize(exe.size() - 10);
@@ -545,6 +546,23 @@ _cold int cluster::Core::ui_(const bool serve)
     if (supervisorCore) {
         app.config.web.enabled = true;
         app.config.web.port = app.config.web.supervisorPort;
+        // its supervisor gone (quit, crash): this core with it, its web access never left open
+        if (const char* owner = std::getenv("CLAUDE_CLUSTER_SUPERVISOR_PID"); owner != nullptr && std::atoi(owner) > 1) {
+            const int pid = std::atoi(owner);
+            std::thread([pid]() {
+                const std::function<bool(void)> alive = [pid]() { // there, and not a zombie waiting for its parent (a crash)
+                    if (::kill(pid, 0) != 0 && errno != EPERM) return false;
+                    std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+                    std::string line;
+                    std::getline(stat, line);
+                    const std::size_t close = line.rfind(')');
+                    return close == std::string::npos || close + 2 >= line.size() || line[close + 2] != 'Z';
+                };
+                while (alive())
+                    std::this_thread::sleep_for(std::chrono::seconds(2));
+                ::kill(::getpid(), SIGTERM);
+            }).detach();
+        }
     }
     cluster::install_icon(); // the menu, the dock and the notifications show it
 
@@ -576,6 +594,15 @@ _cold int cluster::Core::ui_(const bool serve)
         && std::getenv("CLAUDE_CLUSTER_INSTANCE") == nullptr;
     const std::function<bool(void)> supervisor = [&]() {
         ::unsetenv("CLAUDE_CLUSTER_SUPERVISOR"); // what it starts (the cores of the instances) never thinks it is the supervisor
+        // known as a supervisor: a core it stops never closes it with its own interfaces
+        const std::filesystem::path mark = cluster::runtime_dir() / "supervisors" / std::to_string(::getpid());
+        std::error_code marked;
+        std::filesystem::create_directories(mark.parent_path(), marked);
+        std::ofstream(mark) << "supervisor";
+        struct Unmark {
+            std::filesystem::path path;
+            ~Unmark() {std::error_code e; std::filesystem::remove(this->path, e);}
+        } unmark{mark};
         std::string open;
         #ifdef CLUSTER_GUI
             if (frontend == "gui") (void)cluster::supervisor_gui(open);
