@@ -4940,7 +4940,7 @@ class TtyUi {
             ftxui::Elements row = {
                 ftxui::text((busy ? std::string("~") : state_mark_(s.state)) + " ") | ftxui::color(mark),
                 ftxui::text(cluster::one_line(s.spec.name, 16)) | (active ? ftxui::bold : ftxui::nothing) | ftxui::color(this->_theme.text),
-                cluster::keep_warm_on(this->_manager.config(), s.spec) ? ftxui::text(" ♨") | ftxui::color(this->_theme.warn) : ftxui::emptyElement(), // kept warm
+                cluster::keep_warm_on(this->_manager.config(), s) ? ftxui::text(" ♨") | ftxui::color(this->_theme.warn) : ftxui::emptyElement(), // kept warm
                 ftxui::filler(),
                 ftxui::text(cluster::human_tokens(s.metrics.total.total()) + " ") | ftxui::color(this->_theme.muted),
             };

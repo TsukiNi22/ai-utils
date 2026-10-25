@@ -232,7 +232,7 @@ _cold void cluster::Config::load(void)
     this->memoryTotalMb = std::clamp(static_cast<int>(table["sessions"]["memory_total_mb"].value_or(this->memoryTotalMb)), 1, 65536);
     this->memoryEntries = std::max(0, static_cast<int>(table["sessions"]["memory_entries"].value_or(this->memoryEntries)));
     this->keepWarm = table["sessions"]["keep_warm"].value_or(this->keepWarm);
-    if (this->keepWarm != "off" && this->keepWarm != "chosen" && this->keepWarm != "all") this->keepWarm = "off";
+    if (this->keepWarm != "off" && this->keepWarm != "chosen" && this->keepWarm != "all" && this->keepWarm != "background") this->keepWarm = "off";
     this->keepWarmTtl = std::clamp(static_cast<int>(table["sessions"]["keep_warm_ttl"].value_or(this->keepWarmTtl)), 1, 120);
     this->keepWarmMargin = std::clamp(static_cast<int>(table["sessions"]["keep_warm_margin"].value_or(this->keepWarmMargin)), 10, 600);
     this->keepWarmHours = std::clamp(static_cast<int>(table["sessions"]["keep_warm_hours"].value_or(this->keepWarmHours)), 0, 168);
@@ -295,6 +295,7 @@ _cold void cluster::Config::load(void)
     this->web.remote = table["web"]["remote"].value_or(this->web.remote);
     this->web.remoteHost = table["web"]["remote_host"].value_or(this->web.remoteHost);
     this->web.remotePort = table["web"]["remote_port"].value_or(this->web.remotePort);
+    this->web.supervisorPort = std::clamp(static_cast<int>(table["web"]["supervisor_port"].value_or(this->web.supervisorPort)), 1, 65535);
     this->web.shell = table["web"]["shell"].value_or(this->web.shell);
     this->web.settings = strings_(table["web"]["settings"], this->web.settings);
     this->web.ttyPort = table["web"]["tty_port"].value_or(this->web.ttyPort);

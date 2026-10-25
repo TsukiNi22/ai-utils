@@ -104,6 +104,7 @@ struct WebConf {
     std::string remote = "off";     // beyond the LAN: off | tailscale (its network, nothing open) | router (a port of the router, UPnP)
     std::string remoteHost;         // the name the devices use from outside (router: a dynamic DNS name; empty: its public address)
     int remotePort = 0;             // router: the port opened outside (0: the same)
+    int supervisorPort = 8788;      // the web access of the supervisor (its own core: every claude-cluster of this computer)
     bool shell = false;             // !command / :r !command allowed from the page (a shell of this computer: off by default)
     std::vector<std::string> settings;  // the sections of the settings a device of the page may change ("all"; empty: none, read only there)
     int ttyPort = 2222;             // the terminal page (the terminal interface in a browser: its own port; 0: off)

@@ -17,6 +17,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Attachments.hpp"
 #include "cluster/Settings.hpp"
+#include "cluster/Supervisor.hpp"
 #include "cluster/Templates.hpp"
 #include "cluster/Control.hpp"
 #include "cluster/Actions.hpp"
@@ -1511,7 +1512,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
 {
     // The right host, no other site; the page, the code; the browser connected for the API
     static const std::set<std::string> allowed = {"list", "read", "status", "send", "allow", "interrupt", "unqueue", "rewind", "spawn", "close", "rename", "describe", "resume", "apply", "mode",
-        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "older", "keep_warm", "ask", "display_act", "display_get", "pin", "unpin", "settings_get", "simple_words", "settings_suggest", "ask_preview", "settings_search", "settings_set", "ui_state", "delete",
+        "model", "notices", "usage", "task_add", "task_list", "trash", "restore", "external", "import", "fork", "transcript", "older", "keep_warm", "supervisor", "supervisor_act", "ask", "display_act", "display_get", "pin", "unpin", "settings_get", "simple_words", "settings_suggest", "ask_preview", "settings_search", "settings_set", "ui_state", "delete",
         "projects", "agents", "agent_stop", "send_next", "install_package", "failure", "services", "service_act", "showcase", "task_act", "orch_state", "job_status", "job_kill", "job_stop", "job_resume", "job_prio", "schedule_act", "schedule_add", "schedule_list", "todos", "task_cancel", "schedule_cancel", "schedule_edit",
         "plugins", "plugins_set", "plugins_refresh"};
     Conn& conn = *static_cast<Conn*>(connection);
@@ -1694,7 +1695,9 @@ self.addEventListener("notificationclick", (e) => {
         try {
             seen = request.query.contains("v") ? std::stoull(request.query.at("v")) : 0;
         } catch (const std::exception&) {}
-        const std::int64_t end = now_ms_() + 15000;
+        // the supervisor: what it shows is read from the other cores (no version of its own): asked again every 2 s
+        const bool supervising = std::getenv("CLAUDE_CLUSTER_SUPERVISOR") != nullptr;
+        const std::int64_t end = now_ms_() + (supervising ? 2000 : 15000);
         // the version of the cluster and of the question being answered (both only grow)
         const std::function<std::uint64_t(void)> version = [this]() {
             (void)this->_manager.asking().check();
@@ -1742,7 +1745,8 @@ self.addEventListener("notificationclick", (e) => {
         cluster::Json archived = cluster::Json::array();
         for (const cluster::SessionSpec& spec: this->_manager.trash())
             archived.push_back({{"id", spec.id}, {"name", spec.name}, {"category", spec.category}, {"tags", spec.tags}});
-        json_(conn, 200, {{"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted, count)},
+        json_(conn, 200, {{"supervisor", supervising ? cluster::supervisor_json(cluster::supervisor_scan()) : cluster::Json()},
+            {"version", version()}, {"remote", this->_remoteUrl}, {"ask", this->_manager.asking().json()}, {"sessions", sessions}, {"session", session_json_(this->_manager, wanted, count)},
             {"group", this->_manager.ui("group_by_category", config.groupByCategory ? "true" : "false") == "true"},
             {"taxonomy", this->_manager.taxonomyJson()}, {"archived", archived},
             {"tasks_open", open}, {"schedules_waiting", waiting}, {"simple", cluster::simple_json(this->_manager)},

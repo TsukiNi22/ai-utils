@@ -17,6 +17,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/VoiceEngines.hpp"
 #include "cluster/StartMenu.hpp"
+#include "cluster/Supervisor.hpp"
 #include "cluster/Docs.hpp"
 #include "cluster/Web.hpp"
 #include "cluster/Settings.hpp"
@@ -171,6 +172,8 @@ _cold void cluster::Core::setup_(void)
     this->_parser.setFlag("yes", {"y", "", "yes", ""}, {}, "machine sync: no question (the scan accepted)");
     this->_parser.setFlag("rescan", {"", "", "rescan", ""}, {}, "Ask at start to sync the map of this computer (even recent or refused)");
     this->_parser.setFlag("linger", {"", "", "linger", ""}, {}, "serve: the core of the interfaces (started by them): it stops when the last one closes");
+    this->_parser.setFlag("supervisor", {"", "", "supervisor", ""}, {}, "The supervisor: every claude-cluster of this computer at a glance (the main one, the "
+        "independent ones: their sessions, version, update), F2 details; open, update (smooth / forced, one / all), stop, start them; w: its web access");
     this->_parser.setFlag("every", {"", "", "every", ""}, {{"minutes", true, any}}, "schedule add: repeated every N minutes");
     this->_parser.setFlag("notify", {"", "", "notify", ""}, {}, "schedule add: a desktop notification (not a prompt)");
     this->_parser.setFlag("cron", {"", "", "cron", ""}, {{"expr", true, any}}, "schedule add: a cron expression (\"*/15 9-17 * * mon-fri\")");
@@ -537,7 +540,12 @@ _cold int cluster::Core::ui_(const bool serve)
     if (!this->_options.backend.empty()) app.config.backend = this->_options.backend;
     if (!this->_options.global) app.config.globalEnabled = false;
     (void)app.config.currentStyle();
+    const bool supervisorCore = serve && std::getenv("CLAUDE_CLUSTER_SUPERVISOR") != nullptr; // the web access of the supervisor: its own port
     if (std::getenv("CLAUDE_CLUSTER_INSTANCE") != nullptr) app.config.web.enabled = false; // an independent instance: no port taken from the main one
+    if (supervisorCore) {
+        app.config.web.enabled = true;
+        app.config.web.port = app.config.web.supervisorPort;
+    }
     cluster::install_icon(); // the menu, the dock and the notifications show it
 
     // Front-end: forced (fails when impossible) or auto (terminal first, then window)
@@ -563,11 +571,30 @@ _cold int cluster::Core::ui_(const bool serve)
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the terminal interface runs in the foreground only (not with &): "
             "claude-cluster alone; in the background: claude-cluster --gui & or claude-cluster serve &");
 
+    // the supervisor (--supervisor, or chosen in the menu): its view first; an instance chosen there opened as usual after it
+    bool supervise = !serve && (this->_options.values.contains("supervisor") || std::getenv("CLAUDE_CLUSTER_SUPERVISOR") != nullptr)
+        && std::getenv("CLAUDE_CLUSTER_INSTANCE") == nullptr;
+    const std::function<bool(void)> supervisor = [&]() {
+        ::unsetenv("CLAUDE_CLUSTER_SUPERVISOR"); // what it starts (the cores of the instances) never thinks it is the supervisor
+        std::string open;
+        #ifdef CLUSTER_GUI
+            if (frontend == "gui") (void)cluster::supervisor_gui(open);
+            else (void)cluster::supervisor_tty(open);
+        #else
+            (void)cluster::supervisor_tty(open);
+        #endif
+        if (cluster::upgrade_requested() || open.empty()) return false;
+        cluster::supervisor_env(open);
+        app.options = this->_options;
+        return true;
+    };
+    if (supervise && !supervisor()) return 0;
     // the menu of the start (always, in a terminal that is really there): what to open or start; an isolated run (tests, the demo, a web terminal) has none
-    if (!serve && frontend == "tty" && app.config.startMenu && this->_options.restore.empty() && !cluster::demo_enabled() && std::getenv("CLAUDE_CLUSTER_SOCKET") == nullptr
+    if (!supervise && !serve && frontend == "tty" && app.config.startMenu && this->_options.restore.empty() && !cluster::demo_enabled() && std::getenv("CLAUDE_CLUSTER_SOCKET") == nullptr
         && std::getenv("CLAUDE_CLUSTER_WEB_TTY") == nullptr && std::getenv("CLAUDE_CLUSTER_NO_MENU") == nullptr && !this->_options.values.contains("voice")) {
         const cluster::StartChoice choice = cluster::start_menu(CLUSTER_VERSION);
         if (choice.kind == cluster::StartChoice::Kind::Quit) return 0;
+        if (choice.kind == cluster::StartChoice::Kind::Supervisor && !supervisor()) return 0;
         if (choice.kind == cluster::StartChoice::Kind::Restore) this->_options.restore = "always";
         else if (choice.kind == cluster::StartChoice::Kind::New) this->_options.restore = "never";
         else if (choice.kind == cluster::StartChoice::Kind::Independent) cluster::start_instance(choice.instance);
@@ -575,12 +602,13 @@ _cold int cluster::Core::ui_(const bool serve)
     }
     #ifdef CLUSTER_GUI
         // the window: the same choices in its dialog (connect / restore / start new / an independent instance / quit), never opened silently
-        if (!serve && frontend == "gui" && app.config.startMenu && this->_options.restore.empty() && !cluster::demo_enabled() && std::getenv("CLAUDE_CLUSTER_SOCKET") == nullptr
+        if (!supervise && !serve && frontend == "gui" && app.config.startMenu && this->_options.restore.empty() && !cluster::demo_enabled() && std::getenv("CLAUDE_CLUSTER_SOCKET") == nullptr
             && std::getenv("CLAUDE_CLUSTER_NO_MENU") == nullptr && !this->_options.values.contains("voice")) {
             const cluster::StartChoice choice = cluster::start_menu_buttons(CLUSTER_VERSION, [](const std::string& title, const std::string& text, const std::vector<std::string>& buttons) {
                 return cluster::gui_choice(title, text, buttons);
             });
             if (choice.kind == cluster::StartChoice::Kind::Quit) return 0;
+            if (choice.kind == cluster::StartChoice::Kind::Supervisor && !supervisor()) return 0;
             if (choice.kind == cluster::StartChoice::Kind::Restore) this->_options.restore = "always";
             else if (choice.kind == cluster::StartChoice::Kind::New) this->_options.restore = "never";
             else if (choice.kind == cluster::StartChoice::Kind::Independent) cluster::start_instance(choice.instance);

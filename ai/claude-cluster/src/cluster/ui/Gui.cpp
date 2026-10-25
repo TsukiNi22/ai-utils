@@ -34,6 +34,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Cron.hpp"
 #include "cluster/Core.hpp"
+#include "cluster/Supervisor.hpp"
 #include "cluster/Git.hpp"
 #include "cluster/Vt.hpp"
 #include <QAbstractTextDocumentLayout>
@@ -4770,7 +4771,7 @@ class Window: public QMainWindow {
                         : cluster::one_line(s.spec.summary, 400)), Qt::ElideRight, room);
                     row->setText("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>" + span_(dot, "●") + "&nbsp; <b>" + name.toHtmlEscaped() + "</b>&nbsp; "
                         + pill_(face, dot, mix_(st.surface, dot, 0.22))
-                        + (cluster::keep_warm_on(this->manager.config(), s.spec) ? "&nbsp;" + span_(st.warn, "♨") : QString()) // kept warm
+                        + (cluster::keep_warm_on(this->manager.config(), s) ? "&nbsp;" + span_(st.warn, "♨") : QString()) // kept warm
                         + (s.permissions.empty() ? QString() : "&nbsp;" + span_(st.warn, "<b>" + QString::number(s.permissions.size()) + "</b>"))
                         + "</td><td align=\"right\">" + span_(st.muted, "<span style=\"font-family:monospace;font-size:9pt\">" + esc_(cluster::human_tokens(s.metrics.total.total()))
                         + "</span>") + "</td></tr></table>" + span_(st.muted, "<span style=\"font-family:monospace;font-size:8.5pt;white-space:pre\">" + what.toHtmlEscaped()
@@ -7076,6 +7077,136 @@ _cold int cluster::gui_choice(const std::string& title, const std::string& text,
     for (std::size_t i = 0; i < buttons.size(); ++i)
         if (box.clickedButton() == buttons[i]) return static_cast<int>(i);
     return -1;
+}
+
+_cold int cluster::supervisor_gui(std::string& open)
+{
+    // every claude-cluster of this computer in a tree (F2: their sessions under them), read again every 1.5 s; the actions in a
+    // thread (an update waits for its turns), their result under the list; its own update: run again at once
+    int argc = 1;
+    char name[] = "claude-cluster";
+    char* argv[] = {name, nullptr};
+    QApplication::setApplicationName("claude-cluster");
+    QGuiApplication::setDesktopFileName("claude-cluster");
+    QApplication application(argc, argv);
+    QWidget window;
+    window.setWindowTitle("claude-cluster supervisor");
+    window.resize(1040, 600);
+    QVBoxLayout* layout = new QVBoxLayout(&window);
+    QLabel* head = new QLabel(&window);
+    layout->addWidget(head);
+    QTreeWidget* tree = new QTreeWidget(&window);
+    tree->setHeaderLabels({"claude-cluster", "version", "sessions", "update"});
+    tree->setColumnWidth(0, 220);
+    tree->setColumnWidth(1, 90);
+    tree->setColumnWidth(2, 520);
+    layout->addWidget(tree, 1);
+    QLabel* note = new QLabel(&window);
+    note->setWordWrap(true);
+    layout->addWidget(note);
+    QHBoxLayout* row = new QHBoxLayout();
+    layout->addLayout(row);
+    bool details = false;
+    const std::function<std::string(void)> chosen = [tree]() {
+        QTreeWidgetItem* item = tree->currentItem();
+        while (item != nullptr && item->parent() != nullptr)
+            item = item->parent();
+        return item == nullptr ? std::string() : item->data(0, Qt::UserRole).toString().toStdString();
+    };
+    const std::function<void(void)> draw = [&]() {
+        const std::vector<cluster::SupInstance> all = cluster::supervisor_scan();
+        const std::string installed = cluster::supervisor_installed();
+        const std::string keep = chosen();
+        head->setText(q_("<b>claude-cluster supervisor</b> " + std::string(CLUSTER_VERSION) + (installed != CLUSTER_VERSION ? " (installed " + installed + ")" : "")
+            + " · " + std::to_string(all.size()) + " claude-cluster · web " + (cluster::supervisor_web() ? "on" : "off") + " · " + (details ? "details" : "normal") + " (F2)"));
+        tree->clear();
+        for (const cluster::SupInstance& it: all) {
+            const std::string state = !it.alive ? "stopped · " + std::to_string(it.kept) + " session(s) kept" : std::to_string(it.sessions.size()) + " sessions: "
+                + std::to_string(it.working) + " working · " + std::to_string(it.idle) + " idle · " + std::to_string(it.waiting) + " waiting for you · "
+                + std::to_string(it.background) + " background" + (it.queued > 0 ? " · " + std::to_string(it.queued) + " queued" : "") + (it.web ? " · web on" : "");
+            const std::string update = it.upgrading ? "updating" : it.alive && cluster::version_compare(it.version, installed) < 0 ? installed + " to install" : "";
+            QTreeWidgetItem* item = new QTreeWidgetItem(tree, {q_(it.name), q_(it.alive ? it.version : "-"), q_(state), q_(update)});
+            item->setData(0, Qt::UserRole, q_(it.name));
+            item->setForeground(2, QColor(!it.alive ? "#888888" : it.waiting > 0 ? "#d7a32b" : it.errors > 0 ? "#d9534f" : it.working > 0 ? "#3fae6a" : it.background > 0 ? "#a46ad8" : "#9aa0ab"));
+            if (it.name == keep) tree->setCurrentItem(item);
+            if (!details) continue;
+            for (const cluster::Json& s: it.sessions) {
+                std::string line = s.value("asking", 0) > 0 ? std::string("waits for you") : s.value("background", false) ? std::string("idle, its background runs") : s.value("state", std::string());
+                if (s.value("queued", 0) > 0) line += " · " + std::to_string(s.value("queued", 0)) + " queued";
+                if (s.value("agents", 0) > 0) line += " · " + std::to_string(s.value("agents", 0)) + " agent(s)";
+                if (s.value("keep_warm", false)) line += " · ♨";
+                (void)new QTreeWidgetItem(item, {q_(s.value("name", std::string())), q_(s.value("model", std::string())), q_(line), QString()});
+            }
+            item->setExpanded(true);
+        }
+        if (cluster::version_compare(installed, CLUSTER_VERSION) > 0) { // its own update: run again on the new binary
+            ::setenv("CLAUDE_CLUSTER_SUPERVISOR", "1", 1);
+            cluster::upgrade_request(false);
+            application.quit();
+        }
+    };
+    const std::function<void(const std::string&, const std::string&)> act = [&](const std::string& target, const std::string& action) {
+        if (target.empty()) return;
+        note->setText("…");
+        std::thread([&window, note, target, action]() {
+            std::string done;
+            try {
+                done = cluster::supervisor_act(target, action);
+            } catch (const std::exception& e) {
+                done = e.what();
+            }
+            QMetaObject::invokeMethod(&window, [note, done]() {note->setText(q_(done));}, Qt::QueuedConnection);
+        }).detach();
+    };
+    const std::function<void(const QString&, const std::function<void(void)>&)> button = [&](const QString& label, const std::function<void(void)>& run) {
+        QPushButton* b = new QPushButton(label, &window);
+        QObject::connect(b, &QPushButton::clicked, &window, run);
+        row->addWidget(b);
+    };
+    button("Open", [&]() {
+        open = chosen();
+        if (!open.empty()) application.quit();
+    });
+    button("Update", [&]() {act(chosen(), "update");});
+    button("Update all", [&]() {act("*", "update");});
+    button("Force", [&]() {
+        if (QMessageBox::question(&window, "Force the switch?", q_("Force the switch of " + chosen() + ": its turns and its background stopped now, then continued by the new version?")) == QMessageBox::Yes)
+            act(chosen(), "force");
+    });
+    button("Force all", [&]() {
+        if (QMessageBox::question(&window, "Force the switch?", "Force the switch of every claude-cluster that is behind?") == QMessageBox::Yes) act("*", "force");
+    });
+    button("Stop", [&]() {
+        if (QMessageBox::question(&window, "Stop it?", q_("Stop " + chosen() + "? Its terminals / windows closed, its sessions kept.")) == QMessageBox::Yes) act(chosen(), "stop");
+    });
+    button("Start", [&]() {act(chosen(), "start");});
+    button("Web", [&]() {
+        note->setText("…");
+        std::thread([&window, note]() {
+            const std::string done = cluster::supervisor_web_toggle();
+            QMetaObject::invokeMethod(&window, [note, done]() {note->setText(q_(done));}, Qt::QueuedConnection);
+        }).detach();
+    });
+    button("Details (F2)", [&]() {
+        details = !details;
+        draw();
+    });
+    QShortcut* f2 = new QShortcut(QKeySequence(Qt::Key_F2), &window);
+    QObject::connect(f2, &QShortcut::activated, &window, [&]() {
+        details = !details;
+        draw();
+    });
+    QObject::connect(tree, &QTreeWidget::itemDoubleClicked, &window, [&]() {
+        open = chosen();
+        if (!open.empty()) application.quit();
+    });
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, &window, draw);
+    timer.start(1500);
+    draw();
+    window.show();
+    (void)application.exec();
+    return 0;
 }
 
 _cold int cluster::run_gui(cluster::App& app)

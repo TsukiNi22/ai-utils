@@ -131,6 +131,8 @@ struct Hit {
 _cold bool start_core(const std::vector<std::string>& args = {});   // the core in a process of its own (its options), false not started
 // the session kept warm (its prompt cache never let expire): [sessions] keep_warm = all, or chosen and the session marked
 _nodiscard inline bool keep_warm_on(const cluster::Config& c, const cluster::SessionSpec& s) {return c.keepWarm == "all" || (c.keepWarm == "chosen" && s.keepWarm);};
+// the same for a session as it is now: background, only while it waits on its background (shells / agents running, a long compilation)
+_nodiscard inline bool keep_warm_on(const cluster::Config& c, const cluster::Snapshot& s) {return c.keepWarm == "background" ? cluster::background_busy(s) : keep_warm_on(c, s.spec);};
 
 //----------------------------------------------------------------//
 /* CLASS */

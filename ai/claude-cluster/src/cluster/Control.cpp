@@ -23,6 +23,7 @@ File Description:
 #include "cluster/Showcase.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Control.hpp"
+#include "cluster/Supervisor.hpp"
 #include "cluster/Docs.hpp"
 #include "cluster/Actions.hpp"
 #include "cluster/Service.hpp"
@@ -237,7 +238,13 @@ _cold void cluster::Control::client_(const int fd)
 /* client */
 _cold cluster::Json cluster::Control::request(const cluster::Json& request, std::atomic<int>* current)
 {
-    const int fd = connect_(cluster::socket_path());
+    return cluster::Control::requestAt(cluster::socket_path(), request, current);
+}
+
+_cold cluster::Json cluster::Control::requestAt(const std::filesystem::path& socket, const cluster::Json& request, std::atomic<int>* current)
+{
+    // the core on that socket (the supervisor: another claude-cluster than this one)
+    const int fd = connect_(socket);
     if (fd == -1) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning,
         "claude-cluster is not running (start it: claude-cluster)");
     if (current) *current = fd;
@@ -475,7 +482,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         if (cmd != "detach" && request.contains("client") && request["client"].is_string()) manager.clientSeen(request["client"].get<std::string>());
         if (cmd == "hello") {
             // who this core is: an interface of another build asks before attaching
-            return {{"ok", true}, {"data", {{"version", CLUSTER_VERSION}, {"build", cluster::build_id()}, {"pid", ::getpid()}, {"binary", cluster::self_exe().string()}}}};
+            const cluster::UpgradeOffer offer = manager.upgradeOffer(); // the supervisor shows it too: a newer version offered, an update running
+            return {{"ok", true}, {"data", {{"version", CLUSTER_VERSION}, {"build", cluster::build_id()}, {"pid", ::getpid()}, {"binary", cluster::self_exe().string()},
+                {"offered", offer.version}, {"upgrading", offer.started || offer.upgrading}, {"waiting", offer.waiting}}}};
         }
         if (job_command_(cmd)) { // the heavy jobs: the user, the global session, a sub-session (its own jobs); a web device reads unless the settings let it act
             if (manager.orchestrator() == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "the orchestrator is not running here");
@@ -1224,6 +1233,12 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
                     "not allowed: the user did not let the global session fork (settings page > Sessions > Global session can fork)");
             data = {{"id", manager.forkSession(session(), arg_(request, "name"))}};
+        } else if (cmd == "supervisor") { // every claude-cluster of this computer (the supervisor)
+            data = cluster::supervisor_json(cluster::supervisor_scan());
+        } else if (cmd == "supervisor_act") { // one of them (or "*"): update | force | stop | start
+            if (std::getenv("CLAUDE_CLUSTER_SUPERVISOR") == nullptr && from_web)
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the actions of the supervisor: from its own web access only");
+            data = {{"message", cluster::supervisor_act(arg_(request, "name"), arg_(request, "action"))}};
         } else if (cmd == "keep_warm") { // a session kept warm or not: on | off | toggle
             data = {{"message", manager.setKeepWarm(session(), request.value("value", std::string("toggle")))}};
         } else if (cmd == "older") {

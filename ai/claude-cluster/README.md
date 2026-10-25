@@ -710,6 +710,7 @@ run - `CLAUDE_CLUSTER_SOCKET` set -, the demo, the web terminal and a voice star
 | `r` Restore the previous run | none runs, a previous run has sessions (the last use of the global session says how old it is) | they come back, the global conversation goes on |
 | `n` Start new | none runs | nothing restored: the previous sessions go to the trash (an empty start when there were none) |
 | `i` Independent instances (N) | always | the list below |
+| `s` Supervisor | always | every claude-cluster of this computer at a glance (below) |
 | `q` Quit | always | nothing is started |
 
 **Independent instances.** An instance of its own: `<data>/instances/<name>` holds its sessions, its global session, its control socket and its
@@ -721,6 +722,33 @@ an empty one (started and left at once) is removed. A long list scrolls (`PgUp` 
 go for good - the Claude Code conversations stay; a running one must be closed first), `Esc` goes back.
 
 Arrows (or `Tab`) move the choice, `Enter` does it, the letter picks it, `Esc` quits (back in a list).
+
+### The supervisor
+
+`claude-cluster --supervisor` (or `s` in the start menu, the **Supervisor** button of the window's start dialog) shows every claude-cluster of this
+computer - the main one and each independent instance, running or stopped with sessions kept - read on their control sockets every 1.5 s, nothing
+changed by just looking. Each one shows its version (the binary installed too, when it is newer), its sessions counted by state (working, idle,
+waiting for you - a question or a permission -, idle with its background running, queued prompts, errors), its web access and its update (`⬆ 1.4.x
+to install`, `⟳ updating`). `F2` switches to the details: under each one its pid, its address, the version offered, and every session with its state,
+its queued prompts, its agents running, ♨ when kept warm and its model.
+
+| Key | Does |
+|---|---|
+| `↑` / `↓` | choose one |
+| `Enter` | open it (the supervisor closes, the usual interface attaches to it) |
+| `u` / `U` | its smooth update (its turns end first, its interfaces follow) / the same for every one behind the binary installed |
+| `f` / `F` | force its switch (asked first): its turns and background stopped now, then continued by the new version (`handoff.json`) / every one behind |
+| `s` / `S` | stop it (asked first: its terminals and windows close, its sessions are kept) / start a stopped one (its sessions restored) |
+| `w` | its web access on / off |
+| `F2` | normal / details |
+| `q`, `Esc` | quit |
+
+The supervisor updates itself: once a newer binary is installed it runs it again at once (it holds nothing to wait for). Its **web access** (`w`) is a
+core of its own (`<data>/instances/.supervisor`, never listed as an instance) on `[web] supervisor_port` (8788 by default), with its own code and
+devices like the usual one; a browser or the app connected to it shows the supervisor instead of sessions - the same cards, Details (`F2`), Update /
+Force / Stop / Start on each and Update all / Force all - and its actions are only accepted from that access (a session's web access cannot act on the
+other claude-clusters). The control commands `supervisor` (the JSON of every one) and `supervisor_act` (`name`, `action`: update | force | stop |
+start, `*` for every one behind) do the same from a script.
 
 ### Demo mode
 
@@ -1463,10 +1491,12 @@ it again; the window, the web page: its buttons):
 **Limits** (settings > *Sessions*): the prompt history (↑, Ctrl+R: `history.jsonl`) keeps its newest **1000** prompts
 (`history_limit`), each conversation kept here (`logs/<session>.jsonl`, with its pictures and display blocks) its
 newest entries within **25 MB** (`transcript_limit_mb`, checked at its start and every minute); the conversation of the
-agent itself is never touched; 0 = no limit. **Keep warm** (`[sessions] keep_warm`: `off` by default, `chosen`, `all`): an idle
+agent itself is never touched; 0 = no limit. **Keep warm** (`[sessions] keep_warm`: `off` by default, `chosen`, `all`, `background`): an idle
 session is woken up a little before its prompt cache expires (`keep_warm_ttl` 5 min, 60 with a 1 h cache; `keep_warm_margin` 45 s
 before), a tiny turn the agent answers *ok*, so its context is never unloaded; kept so for `keep_warm_hours` (2) after its last real
-prompt, never when it works, asks or runs its background. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
+prompt, never when it works or asks. Its background running (shells / agents), only `background` wakes it: that mode keeps
+warm only the sessions waiting on their background (a long compilation: its context not unloaded then loaded again when it ends),
+and leaves them to cool once it ends. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
 `chosen`); the sessions kept warm show **♨** in every list. **In memory** (what the interfaces show) each transcript keeps its newest entries
 within **1 MB** (`memory_mb`) and all of them together within **100 MB** (`memory_total_mb`: past it, the oldest entries of each
 leave the memory); the size counts, not a number of entries (`memory_entries`, off by default, adds one). Scrolled to its top, a

@@ -356,10 +356,11 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.memoryTotalMb);}},
             {"sessions", "memory_entries", "Transcript in memory (entries)", SettingKind::Int, {}, "also at most this number of entries in memory per "
                 "conversation; 0: off (the size only, the default)", false, [](const cluster::Config& cf) {return std::to_string(cf.memoryEntries);}},
-            {"sessions", "keep_warm", "Keep warm (auto wake-up)", SettingKind::Choice, {"off", "chosen", "all"}, "an idle session woken up a little before its "
+            {"sessions", "keep_warm", "Keep warm (auto wake-up)", SettingKind::Choice, {"off", "chosen", "all", "background"}, "an idle session woken up a little before its "
                 "prompt cache expires, so its context is never unloaded (the next prompt fast and cheap): a tiny turn (the agent answers ok) costing a "
                 "cache read.\n• off: never (the default)\n• chosen: the sessions marked (/keepwarm, the palette: Keep this session warm)\n• all: every "
-                "session\nThe sessions kept warm show ♨", false, [](const cluster::Config& cf) {return cf.keepWarm;}},
+                "session\n• background: only a session waiting on its background (shells / agents running: a long compilation), so its context is not "
+                "unloaded then loaded again when they end\nThe sessions kept warm show ♨", false, [](const cluster::Config& cf) {return cf.keepWarm;}},
             {"sessions", "keep_warm_ttl", "Keep warm: cache life (min)", SettingKind::Int, {}, "how long the prompt cache of the agent lives: 5 (the "
                 "default of Claude Code), 60 with a 1 h cache", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmTtl);}},
             {"sessions", "keep_warm_margin", "Keep warm: margin (s)", SettingKind::Int, {}, "the wake-up this long before the cache expires (10 to 600 s; "
@@ -487,6 +488,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.web.port);}},
             {"web", "remote_port", "Port outside", SettingKind::Int, {}, "router: the port opened on the router (0: the same as here)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.remotePort);}},
+            {"web", "supervisor_port", "Supervisor port", SettingKind::Int, {}, "the web access of the supervisor (claude-cluster --supervisor, w): every "
+                "claude-cluster of this computer at a glance in the page and the app, its own code and devices", true,
+                [](const cluster::Config& cf) {return std::to_string(cf.web.supervisorPort);}},
             {"web", "tty_port", "Terminal page port", SettingKind::Int, {}, "the terminal interface of claude-cluster in a browser (its own port, the same code and "
                 "approval): a real terminal of this computer, its keys, its mouse; the browser only (never the app); 0: off", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.web.ttyPort);}},

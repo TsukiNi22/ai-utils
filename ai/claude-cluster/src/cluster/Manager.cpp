@@ -625,15 +625,16 @@ _cold std::string cluster::Manager::setKeepWarm(const std::string& id, const std
 _cold void cluster::Manager::keepWarm_(void)
 {
     // an idle session kept warm, its last entry close to the end of its prompt cache (ttl - margin): a tiny turn now, the cache read again
-    // (and kept). Never when it works, asks, queues or runs its background; never after the cache expired (the core was down: left to
-    // cool) nor past keep_warm_hours after its last real prompt
+    // (and kept). Never when it works, asks or queues; its background running: only in the background mode (that one waits on it: a long
+    // compilation keeps its context), never otherwise; never after the cache expired (the core was down: left to cool) nor past
+    // keep_warm_hours after its last real prompt
     if (this->_replica || this->_closing || this->_holding || this->_config.keepWarm == "off") return;
     const std::int64_t now = cluster::now();
     const std::int64_t ttl = static_cast<std::int64_t>(this->_config.keepWarmTtl) * 60;
     const std::int64_t margin = std::min<std::int64_t>(this->_config.keepWarmMargin, ttl - 5);
     for (const cluster::Snapshot& s: this->list(true)) {
-        if (!cluster::keep_warm_on(this->_config, s.spec) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0
-            || cluster::background_busy(s) || s.entries.empty())
+        if (!cluster::keep_warm_on(this->_config, s) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0
+            || (cluster::background_busy(s) && this->_config.keepWarm != "background") || s.entries.empty())
             continue;
         const std::int64_t last = s.entries.back().time;
         if (now - last < ttl - margin || now - last > ttl) continue;

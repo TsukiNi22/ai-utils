@@ -3,7 +3,7 @@ title = "Les interfaces"
 summary = "Terminal, fenêtre, page web et téléphone : les mêmes sessions partout, synchronisées."
 section = "guide"
 order = 30
-keywords = "terminal tty fenêtre gui qt page web téléphone android application headless serve cœur partagé hub grille tableau"
+keywords = "supervisor superviseur instances update terminal tty fenêtre gui qt page web téléphone android application headless serve cœur partagé hub grille tableau"
 +++
 
 Chaque interface est une vue d'un seul **cœur** (`claude-cluster serve --linger`, lancé par le premier terminal ou la première fenêtre). Plusieurs terminaux, fenêtres, pages web et téléphones peuvent être ouverts en même temps, synchronisés : mêmes sessions, prompts, questions et notices (`[ui] shared_core`, activé). En fermer une laisse les autres ; la dernière fermée arrête le cœur, sauf si le [service d'arrière-plan](page:settings#service) est le cœur.
@@ -40,6 +40,15 @@ Tout navigateur de téléphone convient. Sur Android la page propose une **appli
 ## Mode simple {#simple}
 
 `claude-cluster --simple` (ou `--ipad-kid`) ouvre une interface plus calme dans chaque interface, en anglais ou en français (`[ui] language`) ; `[ui] mode = "simple"` la garde. L'accueil montre d'abord ce qui vous attend (questions et permissions, à répondre sur place), puis une carte par aide (session) avec ce qu'elle fait en mots simples, son état et son temps ; une carte ouvre sa conversation avec le prompt habituel (`/`, `::`, `@`). Une tuile *Nouvelle tâche* s'adresse à l'assistant, qui décide comment répartir le travail. Ses réglages ont six pages : *Général* (langue, apparence, notifications, retour à l'interface classique), *Compte & fournisseur*, *Assistant* (comment il répartit le travail, quelle intelligence, quoi demander avant, aides en même temps), *Téléphone* (l'accès web et son QR code), *Raccourcis*, *À propos* (version, documentation, tous les réglages). `F10` ouvre les statistiques.
+
+## Superviseur {#supervisor}
+
+`claude-cluster --supervisor` (ou `s` dans le menu de départ) montre d'un coup d'œil chaque claude-cluster de cet ordinateur : le principal et chaque instance indépendante, en marche ou arrêtée avec des sessions gardées. Chacun affiche sa version, ses sessions comptées par état (au travail, inactives, en attente de vous, en arrière-plan, en file, en erreur), son accès web et sa mise à jour ; `F2` ajoute le détail (chaque session avec son état, ses prompts en file, ses agents, ♨, son modèle).
+
+- `Entrée` en ouvre un ; `u` / `U` sa mise à jour en douceur / celle de tous ceux en retard ; `f` / `F` forcent la bascule (demandé avant : tours et arrière-plan arrêtés, puis repris) ; `s` / `S` arrêter (demandé avant) / démarrer ; `w` son accès web ; `q` quitte.
+- Il relance de lui-même un binaire plus récent dès qu'il est installé.
+- **Son accès web** est un cœur à part sur `[web] supervisor_port` (8788) : la page et l'app connectées montrent le superviseur (cartes, Détails, Mettre à jour / Forcer / Arrêter / Démarrer, Tout mettre à jour / Tout forcer) au lieu des sessions ; ses actions ne sont acceptées que depuis cet accès.
+- La fenêtre (`--supervisor -g`) montre la même liste en arbre avec ses boutons.
 
 ## Sans interface {#headless}
 

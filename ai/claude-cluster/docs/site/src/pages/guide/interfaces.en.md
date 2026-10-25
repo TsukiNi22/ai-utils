@@ -3,7 +3,7 @@ title = "The interfaces"
 summary = "Terminal, window, web page and phone: the same sessions everywhere, in sync."
 section = "guide"
 order = 30
-keywords = "terminal tty window gui qt web page phone android app headless serve shared core hub grid board"
+keywords = "supervisor superviseur instances update terminal tty window gui qt web page phone android app headless serve shared core hub grid board"
 +++
 
 Every interface is a view of one **core** (`claude-cluster serve --linger`, started by the first terminal or window). Several terminals, windows, web pages and phones can be open at once, in sync: the same sessions, prompts, questions and notices (`[ui] shared_core`, on). Closing one leaves the others; the last one closed stops the core, unless the [background service](page:settings#service) is the core.
@@ -40,6 +40,15 @@ Any phone browser works. On Android the page offers an **app** (`/app.apk`): the
 ## Simple mode {#simple}
 
 `claude-cluster --simple` (or `--ipad-kid`) opens a calmer interface in every front end, in English or French (`[ui] language`); `[ui] mode = "simple"` keeps it. The home shows what needs you first (questions and permissions answered there), then one card per helper (session) with what it does in plain words, its state and its time; a card opens its conversation with the same prompt as usual (`/`, `::`, `@`). A *New task* tile asks the assistant, which decides how to split the work. Its settings have six pages: *General* (language, look, notifications, back to the classic interface), *Account & provider*, *Assistant* (how it splits the work, how smart, what to ask first, helpers at once), *Phone* (the web access and its QR code), *Shortcuts*, *About* (version, docs, all settings). `F10` opens the statistics.
+
+## Supervisor {#supervisor}
+
+`claude-cluster --supervisor` (or `s` in the start menu) shows every claude-cluster of this computer at a glance: the main one and each independent instance, running or stopped with sessions kept. Each one shows its version, its sessions counted by state (working, idle, waiting for you, background, queued, errors), its web access and its update; `F2` adds the details (every session with its state, queued prompts, agents, ♨, model).
+
+- `Enter` opens one; `u` / `U` its smooth update / every one behind; `f` / `F` force the switch (asked first: turns and background stopped, then continued); `s` / `S` stop (asked first) / start; `w` its web access; `q` quits.
+- It runs a newer binary again by itself as soon as it is installed.
+- **Its web access** is a core of its own on `[web] supervisor_port` (8788): the page and the app connected to it show the supervisor (cards, Details, Update / Force / Stop / Start, Update all / Force all) instead of sessions; its actions are accepted from that access only.
+- The window (`--supervisor -g`) shows the same list as a tree with its buttons.
 
 ## Headless {#headless}
 

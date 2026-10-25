@@ -92,6 +92,16 @@ header .muted { color: var(--muted); font-size: 13px; }
 #picker { display: none; }
 #transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .session .name .warm { color: var(--warn); }
+.supervisor-view { position: fixed; inset: 0; z-index: 60; overflow: auto; padding: 16px; background: var(--bg); color: var(--text); display: flex; flex-direction: column; gap: 10px; }
+.supervisor-view .sup-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 16px; }
+.supervisor-view .sup-head button { margin-left: auto; }
+.supervisor-view .sup-head button + button { margin-left: 0; }
+.supervisor-view .sup-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--surface); }
+.supervisor-view .sup-card.stopped { opacity: .65; }
+.supervisor-view .sup-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.supervisor-view .sup-state { margin: 4px 0; color: var(--muted); font-size: 13px; }
+.supervisor-view .sup-session { font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 1px 0 1px 16px; }
+.supervisor-view .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 #transcript .older-mark { align-self: center; padding: 4px 12px; color: var(--muted); font-style: italic; font-size: 13px; cursor: pointer; }
 #newOutput { align-self: center; position: relative; z-index: 3; margin: -40px 0 12px; padding: 5px 14px; border-radius: 16px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); font-size: 13px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); flex: none; }
 .msg { max-width: 900px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
@@ -1042,6 +1052,7 @@ async function run(id) {
             $("who").textContent = "from " + state.client;
             renderUpdate(state.update);
             if (state.voice) voiceInfo = state.voice;
+            if (state.supervisor) { renderSupervisor(state.supervisor); continue; } // the supervisor: its own view, no session
             render(state);
         } catch (error) {
             if (id !== loop) return;
@@ -1069,6 +1080,67 @@ document.addEventListener("click", async (e) => {
     if (text === null) return;
     try { await cmd({cmd: "describe", session: current, text}); refresh(); } catch (error) { alert(error.message); }
 });
+
+// the supervisor (its own web access): every claude-cluster of this computer - its version, its sessions (working, idle, waiting for
+// you, in the background), its update - in place of the sessions; F2 / Details: the sessions of each one
+let supDetails = false;
+let lastSup = null;
+function renderSupervisor(sup) {
+    lastSup = sup;
+    let box = $("supervisorView");
+    if (!box) { box = el("div", "supervisor-view"); box.id = "supervisorView"; document.body.append(box); }
+    box.textContent = "";
+    const head = el("div", "sup-head");
+    head.append(el("b", "", "claude-cluster supervisor"), el("span", "muted", " " + sup.supervisor + (sup.installed !== sup.supervisor ? " (installed " + sup.installed + ")" : "")));
+    const toggle = el("button", "", supDetails ? "Normal (F2)" : "Details (F2)");
+    toggle.addEventListener("click", () => { supDetails = !supDetails; renderSupervisor(sup); });
+    const all = el("button", "", "Update all");
+    all.addEventListener("click", () => supAct("*", "update"));
+    const forceAll = el("button", "", "Force all");
+    forceAll.addEventListener("click", () => supAct("*", "force"));
+    head.append(toggle, all, forceAll);
+    box.append(head);
+    for (const it of sup.instances || []) {
+        const card = el("div", "sup-card" + (it.alive ? "" : " stopped"));
+        const color = !it.alive ? "var(--muted)" : it.waiting ? "var(--warn)" : it.errors ? "var(--error)" : it.working ? "var(--ok)" : it.background ? "var(--busy)" : "var(--muted)";
+        const title = el("div", "sup-title");
+        const dot = el("span", "sup-dot", "●");
+        dot.style.color = color;
+        title.append(dot, el("b", "", " " + it.name), el("span", "muted", "  " + (it.alive ? it.version : "stopped")));
+        const behind = it.alive && it.version && sup.installed && it.version !== sup.installed;
+        if (it.upgrading) title.append(el("span", "chip ok", "updating"));
+        else if (behind) title.append(el("span", "chip warn", "⬆ " + sup.installed));
+        if (it.web) title.append(el("span", "chip", "web on"));
+        card.append(title);
+        card.append(el("div", "sup-state", !it.alive ? it.kept + " session(s) kept" : (it.sessions || []).length + " sessions: " + it.working + " working · " + it.idle + " idle · "
+            + it.waiting + " waiting for you · " + it.background + " background" + (it.queued ? " · " + it.queued + " queued" : "") + (it.errors ? " · " + it.errors + " error" : "")));
+        if (supDetails && it.alive) {
+            for (const s of it.sessions || []) {
+                const line = el("div", "sup-session");
+                line.textContent = s.name + "  " + (s.asking ? "waits for you" : s.background ? "idle, its background runs" : s.state) + (s.queued ? " · " + s.queued + " queued" : "")
+                    + (s.agents ? " · " + s.agents + " agent(s)" : "") + (s.keep_warm ? " · ♨" : "") + (s.model ? " · " + s.model : "");
+                line.style.color = s.asking ? "var(--warn)" : s.state === "working" ? "var(--ok)" : s.state === "error" ? "var(--error)" : s.background ? "var(--busy)" : "";
+                card.append(line);
+            }
+        }
+        const acts = el("div", "acts");
+        for (const [label, action] of it.alive ? [["Update", "update"], ["Force", "force"], ["Stop", "stop"]] : [["Start", "start"]]) {
+            const b = el("button", "", label);
+            b.addEventListener("click", () => supAct(it.name, action));
+            acts.append(b);
+        }
+        card.append(acts);
+        box.append(card);
+    }
+    if (sup.note) box.append(el("div", "muted", sup.note));
+}
+async function supAct(name, action) {
+    if (action === "stop" && !confirm("Stop " + name + "? Its terminals / windows closed, its sessions kept.")) return;
+    if (action === "force" && !confirm("Force the switch of " + (name === "*" ? "every claude-cluster that is behind" : name) + "? Its turns and its background stopped now, then continued.")) return;
+    try { const done = await cmd({cmd: "supervisor_act", name, action}); if (done && done.message) alert(done.message); } catch (error) { alert(error.message); }
+    refresh();
+}
+document.addEventListener("keydown", (e) => { if (e.key === "F2" && lastSup) { e.preventDefault(); supDetails = !supDetails; renderSupervisor(lastSup); } });
 
 function refresh() {
     version = 0;
@@ -4108,7 +4180,7 @@ function renderHubTree(pane, sessions, graph) {
     const draw = (node) => {
         for (const child of node.children) {
             const x1 = CX(node), y1 = CY(node), x2 = radial ? CX(child) : X(child), y2 = CY(child), xm = (x1 + x2) / 2;
-            const stroke = child.kind === "label" ? chipColor(child.name) : child.it.archived ? "var(--border)" : color(child.it.s);
+            const stroke = child.kind === "label" ? chipColor(child.name) : child.it.archived ? "var(--line)" : color(child.it.s);
             const d = radial ? `M${x1},${y1} Q${(x1 + x2) / 2 + (W / 2 - (x1 + x2) / 2) * 0.15},${(y1 + y2) / 2 + (H / 2 - (y1 + y2) / 2) * 0.15} ${x2},${y2}`
                 : `M${x1},${y1} C${xm},${y1} ${xm},${y2} ${x2},${y2}`;
             edges.append(svgOf("path", {d, fill: "none", stroke, "stroke-width": 1.6, opacity: 0.7,
@@ -4137,7 +4209,7 @@ function renderHubTree(pane, sessions, graph) {
             g.addEventListener("click", () => { if (!drag.moved) setLabelFilter(node.name); });
             if (node.has && !node.top) {
                 const mark = svgOf("g", {transform: `translate(${node.pw + 12},0)`});
-                mark.append(svgOf("circle", {r: 9, fill: "var(--surface)", stroke: "var(--border)"}));
+                mark.append(svgOf("circle", {r: 9, fill: "var(--surface)", stroke: "var(--line)"}));
                 const arrow = svgOf("text", {y: 4, "text-anchor": "middle", "font-size": 11, fill: "var(--text)"});
                 arrow.textContent = collapsed.has(node.name) ? "▸" : "▾";
                 mark.append(arrow);

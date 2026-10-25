@@ -38,7 +38,7 @@ namespace cluster { // namespace start
 /* STRUCT */
 
 struct StartChoice {
-    enum class Kind {Open, Restore, New, Independent, Quit};
+    enum class Kind {Open, Restore, New, Independent, Supervisor, Quit};
     Kind kind = Kind::Open;
     std::string instance;       // Independent: its name (a new one when empty, else the one opened)
 };

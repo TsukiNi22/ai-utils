@@ -142,7 +142,7 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
     std::set<std::string> taken;
     std::error_code error;
     for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(instances_(), error)) {
-        if (!entry.is_directory(error)) continue;
+        if (!entry.is_directory(error) || entry.path().filename().string().starts_with(".")) continue; // .supervisor: its web access, not an instance
         Instance instance{entry.path().filename().string(), look_(entry.path() / "sock"), 0, last_used_(entry.path())};
         taken.insert(instance.name);
         if (!instance.seen.alive) instance.kept = previous_(entry.path());
@@ -185,6 +185,8 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
             list.push_back({{cluster::StartChoice::Kind::New, ""}, "n", "Start new", previous > 0 ? "nothing restored: the previous sessions go to the trash" : "nothing to restore: an empty start"});
         list.push_back({{cluster::StartChoice::Kind::Open, "list"}, "i", std::string("Independent instances") + (instances.empty() ? "" : " (" + std::to_string(instances.size()) + ")"),
             instances.empty() ? "start one of its own: its own sessions and global session, nothing shared (no web access)" : "open one of yours, or start a new one"});
+        list.push_back({{cluster::StartChoice::Kind::Supervisor, ""}, "s", "Supervisor", "every claude-cluster of this computer at a glance (the main one, the independent "
+            "ones): their sessions, their version, their update; open, update, stop them"});
         list.push_back({{cluster::StartChoice::Kind::Quit, ""}, "q", "Quit", "nothing started"});
         return list;
     };
@@ -353,7 +355,7 @@ _cold cluster::StartChoice cluster::start_menu_buttons(const std::string& versio
     std::set<std::string> taken;
     std::error_code error;
     for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(instances_(), error)) {
-        if (!entry.is_directory(error)) continue;
+        if (!entry.is_directory(error) || entry.path().filename().string().starts_with(".")) continue; // .supervisor: its web access, not an instance
         Instance instance{entry.path().filename().string(), look_(entry.path() / "sock"), 0, last_used_(entry.path())};
         taken.insert(instance.name);
         if (!instance.seen.alive) instance.kept = previous_(entry.path());
@@ -380,6 +382,9 @@ _cold cluster::StartChoice cluster::start_menu_buttons(const std::string& versio
     buttons.push_back("Independent…");
     picks.push_back({cluster::StartChoice::Kind::Open, "list"});
     text += "Independent: an instance of its own (its own sessions and global session, nothing shared)\n";
+    buttons.push_back("Supervisor");
+    picks.push_back({cluster::StartChoice::Kind::Supervisor, ""});
+    text += "Supervisor: every claude-cluster of this computer at a glance (their sessions, version, update)\n";
     buttons.push_back("Quit");
     picks.push_back({cluster::StartChoice::Kind::Quit, ""});
     const int chosen = choose("claude-cluster", text, buttons);

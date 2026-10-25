@@ -130,6 +130,7 @@ _cold int vt_test(const std::vector<std::string>& words);   // vt-test <cols> <r
 #ifdef CLUSTER_GUI
     _cold int run_gui(cluster::App& app);
     _cold int gui_choice(const std::string& title, const std::string& text, const std::vector<std::string>& choices); // index, -1: closed
+    _cold int supervisor_gui(std::string& open);   // the supervisor in a window; open: the instance chosen to open ("" none)
 #endif
 
 } // namespace end
