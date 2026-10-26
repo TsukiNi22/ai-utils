@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.7.2 LANGUAGES CXX)
+project(${TARGET} VERSION 1.7.3 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -242,7 +242,7 @@ if(Python3_FOUND AND EXISTS ${DOCS_SITE}/build.py AND EXISTS ${DOCS_HTML_STYLE})
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/generated/cluster
         COMMAND ${Python3_EXECUTABLE} ${DOCS_SITE}/build.py --out ${CMAKE_BINARY_DIR}/docs-site --embed --cpp ${DOCS_CPP}
             --version ${PROJECT_VERSION} --commit ${CLUSTER_COMMIT} --code-root ${CMAKE_SOURCE_DIR}
-        DEPENDS ${DOCS_INPUTS} ${DOCS_HTML_STYLE} ${CMAKE_SOURCE_DIR}/templates/config.toml ${CMAKE_SOURCE_DIR}/src/cluster/Mcp.cpp
+        DEPENDS ${DOCS_INPUTS} ${DOCS_HTML_STYLE} ${CMAKE_SOURCE_DIR}/../../docs/html-style/templates/style.css ${CMAKE_SOURCE_DIR}/templates/config.toml ${CMAKE_SOURCE_DIR}/src/cluster/Mcp.cpp
             ${CMAKE_SOURCE_DIR}/src/cluster/Settings.cpp ${CMAKE_SOURCE_DIR}/src/cluster/Orchestrator-Control.cpp ${CMAKE_SOURCE_DIR}/src/cluster/Orchestrator-Settings.cpp
         COMMENT "claude-cluster: the documentation site (python3)"
         VERBATIM

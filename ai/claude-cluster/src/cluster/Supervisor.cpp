@@ -605,18 +605,24 @@ namespace {
         unsigned long long ticks = 0;   // its CPU time (utime + stime)
     };
 
-    // Claude Code waiting for the user: its last entry a tool asked (a permission, a question) not answered yet
-    bool waiting_(const std::filesystem::path& transcript)
+    // Claude Code from its transcript: its last entry the user's (a prompt, a tool's result): the model answers (working); a tool asked not
+    // answered: working while it runs (a child of its own), else waits for you (a permission, a question); end_turn or interrupted: idle
+    std::string transcript_state_(const std::filesystem::path& transcript, const bool running)
     {
         std::ifstream in(transcript, std::ios::binary);
-        if (!in) return false;
+        if (!in) return "";
         in.seekg(0, std::ios::end);
         const std::streamoff size = in.tellg();
-        in.seekg(std::max<std::streamoff>(0, size - 65536));
+        in.seekg(std::max<std::streamoff>(0, size - 131072));
         std::string last;
         for (std::string line; std::getline(in, line);)
-            if (line.find("\"type\":\"assistant\"") != std::string::npos || line.find("\"type\":\"user\"") != std::string::npos) last = line;
-        return last.find("\"type\":\"assistant\"") != std::string::npos && last.find("\"tool_use\"") != std::string::npos;
+            if (line.find("\"type\":\"assistant\"") != std::string::npos || line.find("\"type\":\"user\"") != std::string::npos
+                || line.find("\"subtype\":\"turn_duration\"") != std::string::npos)
+                last = line;
+        if (last.empty() || last.find("\"subtype\":\"turn_duration\"") != std::string::npos) return "idle"; // its turn ended
+        if (last.find("\"type\":\"user\"") != std::string::npos) return last.find("Request interrupted") != std::string::npos ? "idle" : "working";
+        if (last.find("\"tool_use\"") != std::string::npos) return running ? "working" : "question";
+        return last.find("\"stop_reason\":\"end_turn\"") != std::string::npos ? "idle" : "working";
     }
 
     // the title of a Claude Code conversation (its summary, else its first prompt), read once per transcript
@@ -742,7 +748,26 @@ _cold std::vector<cluster::SupAgent> cluster::supervisor_agents(void)
         // its conversation: the newest one of this agent in its folder
         std::int64_t updated = 0;
         std::filesystem::path transcript;
-        if (a.agent == "claude") { // its folder in ~/.claude/projects (the path, every other character a -): its newest transcript, its title read once
+        std::string status; // Claude Code: its own status (~/.claude/sessions/<pid>.json), the job it parked
+        std::string parked;
+        if (a.agent == "claude") {
+            const std::optional<cluster::Json> own = cluster::read_json(cluster::expand_home("~/.claude/sessions") / (std::to_string(p.pid) + ".json"));
+            if (own && own->is_object()) {
+                status = own->value("status", std::string());
+                parked = own->value("parkedJobId", std::string());
+                const std::string session = own->value("sessionId", std::string());
+                a.title = own->value("name", std::string());
+                for (const std::filesystem::directory_entry& project: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/projects"), error))
+                    if (!session.empty() && std::filesystem::exists(project.path() / (session + ".jsonl"), error)) transcript = project.path() / (session + ".jsonl");
+                if (!transcript.empty()) {
+                    a.id = session;
+                    updated = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::file_clock::to_sys(std::filesystem::last_write_time(transcript, error))
+                        .time_since_epoch()).count();
+                    if (a.title.empty()) a.title = title_(transcript);
+                }
+            }
+        }
+        if (a.agent == "claude" && transcript.empty()) { // no session file: its folder in ~/.claude/projects (the path, every other character a -), its newest transcript
             std::string folder;
             for (const char c: a.cwd)
                 folder += std::isalnum(static_cast<unsigned char>(c)) ? c : '-';
@@ -772,13 +797,35 @@ _cold std::vector<cluster::SupAgent> cluster::supervisor_agents(void)
         }
         a.updated = updated;
         const bool fresh = updated > 0 && cluster::now() - updated < 4;
-        if (a.cpu > 4 || fresh) a.state = "working";
+        const std::string told = a.agent == "claude" && !transcript.empty() ? transcript_state_(transcript, shell || a.cpu > 4) : std::string();
+        if (!parked.empty() && status == "idle") a.state = "idle"; // its work handed to a background job (listed with the jobs)
+        else if (status == "busy" || status == "working" || status == "running" || told == "working" || a.cpu > 4 || fresh) a.state = "working";
+        else if (status == "waiting" || status == "blocked" || told == "question") a.state = "question";
         else if (shell) a.state = "background";
-        else if (updated > 0 && cluster::now() - updated < 600 && a.agent == "claude") a.state = waiting_(transcript) ? "question" : "idle";
         else a.state = "idle";
+        if (!parked.empty()) a.title = (a.title.empty() ? std::string() : a.title + " · ") + "its work in a background job (below)";
         out.push_back(a);
     }
     before = seen;
+    // the background jobs of Claude Code (its daemon): working (tempo active), waiting for you (blocked), a finished one for 2 h
+    std::error_code error;
+    for (const std::filesystem::directory_entry& job: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/jobs"), error)) {
+        const std::optional<cluster::Json> state = cluster::read_json(job.path() / "state.json");
+        if (!state || !state->is_object()) continue;
+        const std::string tempo = state->value("tempo", std::string());
+        const std::string phase = state->value("state", std::string());
+        const std::int64_t at = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::file_clock::to_sys(std::filesystem::last_write_time(job.path() / "state.json", error))
+            .time_since_epoch()).count();
+        if ((phase == "done" || tempo == "idle") && cluster::now() - at > 7200) continue;
+        cluster::SupAgent a;
+        a.agent = "claude job";
+        a.cwd = state->value("cwd", std::string());
+        a.title = state->value("name", std::string()) + (state->value("detail", std::string()).empty() ? std::string() : " · " + cluster::one_line(state->value("detail", std::string()), 80));
+        a.state = tempo == "active" ? "working" : tempo == "blocked" ? "question" : phase == "done" ? "done" : "idle";
+        a.tty = "job " + job.path().filename().string();
+        a.updated = at;
+        out.push_back(a);
+    }
     std::sort(out.begin(), out.end(), [](const cluster::SupAgent& x, const cluster::SupAgent& y) {return x.agent != y.agent ? x.agent < y.agent : x.pid < y.pid;});
     return out;
 }
@@ -1032,9 +1079,9 @@ _cold int cluster::supervisor_tty(std::string& open)
             const ftxui::Color dot = a.state == "working" ? ok : a.state == "question" ? warn : a.state == "background" ? busy : muted;
             const std::string state = a.state == "question" ? "waits for you" : a.state == "background" ? "its background runs" : a.state;
             ftxui::Element row = ftxui::hbox({ftxui::text(selected ? " ▌" : "  ") | ftxui::color(accent), ftxui::text("●  ") | ftxui::color(dot),
-                ftxui::text(a.agent) | ftxui::bold | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 10), ftxui::text(state) | ftxui::color(dot) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 22),
-                ftxui::text(cluster::short_path(a.cwd)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34), ftxui::text(cluster::one_line(a.title, 50)) | ftxui::color(ftxui::Color::RGB(200, 203, 210)),
-                ftxui::filler(), ftxui::text("pid " + std::to_string(a.pid) + (a.tty.empty() ? "" : " · " + a.tty) + " · " + fixed_(a.cpu, 0) + " % ") | ftxui::color(muted)});
+                ftxui::text(a.agent) | ftxui::bold | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 12), ftxui::text(state) | ftxui::color(dot) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 22),
+                ftxui::text(cluster::one_line(cluster::short_path(a.cwd), 32) + "  ") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34), ftxui::text(cluster::one_line(a.title, 70)) | ftxui::color(ftxui::Color::RGB(200, 203, 210)),
+                ftxui::filler(), ftxui::text(a.pid > 0 ? "pid " + std::to_string(a.pid) + (a.tty.empty() ? "" : " · " + a.tty) + " · " + fixed_(a.cpu, 0) + " % " : a.tty + " ") | ftxui::color(muted)});
             rows.push_back(selected ? row | ftxui::bgcolor(lit) : row);
         }
         rows.push_back(ftxui::filler());

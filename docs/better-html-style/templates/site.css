@@ -82,6 +82,7 @@ details.more > div { padding: 0 14px 6px; }
 
 /* ----- responsive ----- */
 @media (max-width: 860px) { .two { grid-template-columns: 1fr; } .hero h1 { font-size: 30px; } .topbar .sbox.small { width: 200px; } }
+@media (max-width: 480px) { .hero .sbox { display: none; } } /* a phone: the search under the top bar only (never two, one in the middle of the home) */
 @media (max-width: 480px) { .tile { padding: 16px; } .hero { padding-top: 12px; } .hero h1 { font-size: 26px; } .sbox input { font-size: 16px; } .sbox kbd.hint { display: none; } }
 @media (pointer: coarse) { .results a { min-height: 44px; align-items: center; } .links a { min-height: 44px; display: inline-flex; align-items: center; } }
 @media print { .topbar, .sidebar, .pager, .feedback, .sbox, .page-meta a.edit { display: none !important; } }

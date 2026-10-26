@@ -68,3 +68,4 @@ main li > ul, main li > ol { margin-top: 4px; }
 @media print { .topbar, .sidebar, .pager, .feedback, .sbox { display: none !important; } }
 .topbar .sbox.small .results { left: auto; right: 0; width: 440px; max-width: 92vw; }
 .topbar .sbox.small.mob .results { left: 12px; right: 12px; width: auto; }
+@media (max-width: 480px) { .hero .sbox { display: none; } } /* a phone: the search under the top bar only (never two, one in the middle of the home) */
