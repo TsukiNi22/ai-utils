@@ -1077,7 +1077,7 @@ _cold int cluster::supervisor_tty(std::string& open)
         // the agents of this computer outside claude-cluster (their own terminals): a coloured dot for their state
         rows.push_back(ftxui::text(""));
         rows.push_back(ftxui::hbox({ftxui::text(" Other agents on this computer ") | ftxui::bold | ftxui::color(accent),
-            ftxui::text(agents.empty() ? "none running" : std::to_string(agents.size()) + " running · Enter: open one in claude-cluster") | ftxui::color(muted)}));
+            ftxui::text(agents.empty() ? "none running" : std::to_string(agents.size()) + " running · Enter: its choices (Cancel first)") | ftxui::color(muted)}));
         // the title of an agent: the room left by the other columns (never squeezing them)
         const int room = std::max(16, ftxui::Terminal::Size().dimx - 2 - 3 - 12 - 22 - 34 - 30);
         for (std::size_t i = 0; i < agents.size(); ++i) {
@@ -1100,8 +1100,11 @@ _cold int cluster::supervisor_tty(std::string& open)
         ftxui::Element over = ftxui::emptyElement();
         if (pop == Pop::Menu && chosenAgent() != nullptr) {
             const cluster::SupAgent& a = *chosenAgent();
-            ftxui::Elements body = {ftxui::text(" " + a.agent + " · " + cluster::short_path(a.cwd) + " · pid " + std::to_string(a.pid)) | ftxui::color(muted),
-                ftxui::text(" " + cluster::one_line(a.title.empty() ? std::string("(no conversation found)") : a.title, 80)), ftxui::text("")};
+            ftxui::Elements body = {ftxui::text(" " + a.agent + " · " + cluster::short_path(a.cwd) + " · " + (a.pid > 0 ? "pid " + std::to_string(a.pid) : a.tty))
+                | ftxui::color(muted),
+                ftxui::text(" " + cluster::one_line(a.title.empty() ? std::string("(no conversation found)") : a.title, 80))};
+            if (!a.needs.empty()) body.push_back(ftxui::paragraph(" needs: " + a.needs) | ftxui::color(warn) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 90));
+            body.push_back(ftxui::text(""));
             for (std::size_t i = 0; i < menu.size(); ++i) {
                 const bool on = static_cast<int>(i) == menuAt;
                 ftxui::Element line = ftxui::text((on ? " ❯ " : "   ") + menu[i].first + " ");
@@ -1356,6 +1359,16 @@ _cold int cluster::supervisor_tty(std::string& open)
                 if (action == "agent_open") {
                     lock.unlock();
                     background([agent]() {return cluster::supervisor_agent_open(agent);});
+                } else if (action == "agent_agents" || action == "agent_terminal") {
+                    const std::string command = action == "agent_agents" ? "claude agents" : "";
+                    const std::string folder = agent.cwd.empty() ? cluster::expand_home("~").string() : agent.cwd;
+                    const std::string opened = command.empty() ? cluster::open_terminal(folder) : cluster::open_terminal_command(folder, command);
+                    note = opened.empty() ? "no terminal emulator found (Interface > Terminal emulator)" : "opened in " + opened + (command.empty() ? "" : ": " + command);
+                } else if (action == "agent_copy") {
+                    const bool desktop = cluster::copy_text(agent.cwd);
+                    const std::string osc = "\x1b]52;c;" + utils::smanip::codec::Base64Codec().encode(agent.cwd) + "\a";
+                    (void)!::write(STDOUT_FILENO, osc.data(), osc.size());
+                    note = agent.cwd + " copied" + (desktop ? "" : " (terminal clipboard)");
                 }
             } else if (event == ftxui::Event::Return && n > 0 && chosen() != nullptr) {
                 const std::string action = menu[static_cast<std::size_t>(menuAt)].second;
@@ -1521,14 +1534,21 @@ _cold int cluster::supervisor_tty(std::string& open)
                 screen.PostEvent(ftxui::Event::Custom);
             }).detach();
         } else if (event == ftxui::Event::Return && chosenAgent() != nullptr) {
-            menu.clear();
-            if (!chosenAgent()->id.empty()) menu.push_back({"Open in claude-cluster (a copy: its terminal keeps the original)", "agent_open"});
-            menu.push_back({"Cancel", "cancel"});
-            menuAt = 0;
+            const cluster::SupAgent& a = *chosenAgent();
+            menu = {{"Cancel", "cancel"}};
+            if (a.agent.starts_with("claude"))
+                menu.push_back({a.agent == "claude job" && a.state == "question" ? "Reply: Claude Code's agents view (a new terminal; Space replies)"
+                    : "Claude Code's agents view (a new terminal)", "agent_agents"});
+            if (!a.id.empty()) menu.push_back({"Open in claude-cluster (a copy: its terminal keeps the original)", "agent_open"});
+            if (!a.cwd.empty()) {
+                menu.push_back({"A terminal in its folder", "agent_terminal"});
+                menu.push_back({"Copy its folder", "agent_copy"});
+            }
+            menuAt = 0; // Cancel: never an action by a stray Enter
             pop = Pop::Menu;
         } else if (event == ftxui::Event::Return && chosen() != nullptr) {
             const cluster::SupInstance& it = *chosen();
-            menu.clear();
+            menu = {{"Cancel", "cancel"}}; // first and focused: never an action by a stray Enter
             if (it.alive) {
                 menu.push_back({"Open it (the supervisor closes)", "open"});
                 if (cluster::version_compare(it.version, installed) < 0) menu.push_back({"Update it to " + installed + " (smooth)", "update"});
@@ -1538,7 +1558,6 @@ _cold int cluster::supervisor_tty(std::string& open)
                 menu.push_back({"Start it (its sessions restored)", "start"});
                 menu.push_back({"Start and open it", "open"});
             }
-            menu.push_back({"Cancel", "cancel"});
             menuAt = 0;
             pop = Pop::Menu;
         } else if (event == ftxui::Event::Character('u') && chosen() != nullptr) {

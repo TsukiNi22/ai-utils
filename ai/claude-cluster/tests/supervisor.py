@@ -237,8 +237,12 @@ try:
     # stopping the main one (Enter, Stop it, Yes): the supervisor stays (it is not one of its interfaces)
     term.send(b"\r")
     term.pump(0.8)
-    term.send(b"\x1b[B")  # Open -> Stop
-    term.pump(0.3)
+    check("Enter: Cancel first and focused (a stray Enter does nothing)", "❯ Cancel" in term.text(), term.text()[-600:])
+    for _ in range(6):  # Cancel -> ... -> Stop it
+        if "❯ Stop it" in term.text():
+            break
+        term.send(b"\x1b[B")
+        term.pump(0.3)
     term.send(b"\r")
     term.pump(0.8)
     check("Stop it: asked again", "Sure?" in term.text() and "Stop main" in term.text(), term.text()[-600:])

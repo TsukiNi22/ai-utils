@@ -7263,11 +7263,29 @@ _cold int cluster::supervisor_gui(std::string& open)
     const std::function<void(void)> openChosen = [&]() {
         if (const QTreeWidgetItem* item = tree->currentItem(); item != nullptr && item->data(0, Qt::UserRole + 1).toInt() > 0) { // an outside agent
             const cluster::SupAgent a = outside[static_cast<std::size_t>(item->data(0, Qt::UserRole + 1).toInt() - 1)];
-            if (a.id.empty()) return note->setText(q_("no conversation of it to open (" + a.agent + ")"));
-            if (!sure("Open it in claude-cluster?", q_("Open the conversation of " + a.agent + " (" + cluster::short_path(a.cwd) + ") in the main claude-cluster, as a copy? Its terminal keeps the original.")))
-                return;
+            // its choices, Cancel the default (Enter / Esc never do an action by mistake)
+            QMessageBox box(QMessageBox::Question, q_(a.agent + " outside claude-cluster"), q_(a.agent + " · " + cluster::short_path(a.cwd) + "\n" + a.title
+                + (a.needs.empty() ? std::string() : "\n\nneeds: " + a.needs)), QMessageBox::NoButton, &window);
+            QPushButton* cancel = box.addButton("Cancel", QMessageBox::RejectRole);
+            QPushButton* agents = a.agent.starts_with("claude") ? box.addButton(a.state == "question" ? "Reply: Claude Code's agents view" : "Claude Code's agents view",
+                QMessageBox::ActionRole) : nullptr;
+            QPushButton* copy = a.id.empty() ? nullptr : box.addButton("Open in claude-cluster (a copy)", QMessageBox::ActionRole);
+            QPushButton* terminal = a.cwd.empty() ? nullptr : box.addButton("A terminal in its folder", QMessageBox::ActionRole);
+            QPushButton* folder = a.cwd.empty() ? nullptr : box.addButton("Copy its folder", QMessageBox::ActionRole);
+            box.setDefaultButton(cancel);
+            box.setEscapeButton(cancel);
+            (void)box.exec();
+            const QAbstractButton* clicked = box.clickedButton();
+            const std::string where = a.cwd.empty() ? cluster::expand_home("~").string() : a.cwd;
             try {
-                note->setText(q_(cluster::supervisor_agent_open(a)));
+                if (clicked == nullptr || clicked == cancel) return;
+                if (clicked == copy) return note->setText(q_(cluster::supervisor_agent_open(a)));
+                if (clicked == folder) {
+                    QGuiApplication::clipboard()->setText(q_(a.cwd));
+                    return note->setText(q_(a.cwd + " copied"));
+                }
+                const std::string opened = clicked == agents ? cluster::open_terminal_command(where, "claude agents") : cluster::open_terminal(where);
+                note->setText(q_(opened.empty() ? "no terminal emulator found (Interface > Terminal emulator)" : "opened in " + opened));
             } catch (const std::exception& e) {
                 note->setText(q_(e.what()));
             }
