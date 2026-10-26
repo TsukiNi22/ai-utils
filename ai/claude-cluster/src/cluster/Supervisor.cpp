@@ -34,6 +34,7 @@ File Description:
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
+#include <ftxui/screen/terminal.hpp>
 #include <sys/stat.h>
 #include <functional>
 #include <algorithm>
@@ -820,7 +821,11 @@ _cold std::vector<cluster::SupAgent> cluster::supervisor_agents(void)
         cluster::SupAgent a;
         a.agent = "claude job";
         a.cwd = state->value("cwd", std::string());
+        // waiting for you: what it needs (its question, the reply it suggests), else its last request
+        const std::string needs = state->value("needs", std::string());
+        const std::string reply = state->value("suggestedReply", std::string());
         a.title = state->value("name", std::string()) + (state->value("detail", std::string()).empty() ? std::string() : " · " + cluster::one_line(state->value("detail", std::string()), 80));
+        if (tempo == "blocked" && !needs.empty()) a.needs = needs + (reply.empty() ? std::string() : "  (suggested reply: " + reply + ")");
         a.state = tempo == "active" ? "working" : tempo == "blocked" ? "question" : phase == "done" ? "done" : "idle";
         a.tty = "job " + job.path().filename().string();
         a.updated = at;
@@ -1073,6 +1078,8 @@ _cold int cluster::supervisor_tty(std::string& open)
         rows.push_back(ftxui::text(""));
         rows.push_back(ftxui::hbox({ftxui::text(" Other agents on this computer ") | ftxui::bold | ftxui::color(accent),
             ftxui::text(agents.empty() ? "none running" : std::to_string(agents.size()) + " running · Enter: open one in claude-cluster") | ftxui::color(muted)}));
+        // the title of an agent: the room left by the other columns (never squeezing them)
+        const int room = std::max(16, ftxui::Terminal::Size().dimx - 2 - 3 - 12 - 22 - 34 - 30);
         for (std::size_t i = 0; i < agents.size(); ++i) {
             const cluster::SupAgent& a = agents[i];
             const bool selected = static_cast<int>(all.size() + i) == focus;
@@ -1080,9 +1087,11 @@ _cold int cluster::supervisor_tty(std::string& open)
             const std::string state = a.state == "question" ? "waits for you" : a.state == "background" ? "its background runs" : a.state;
             ftxui::Element row = ftxui::hbox({ftxui::text(selected ? " ▌" : "  ") | ftxui::color(accent), ftxui::text("●  ") | ftxui::color(dot),
                 ftxui::text(a.agent) | ftxui::bold | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 12), ftxui::text(state) | ftxui::color(dot) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 22),
-                ftxui::text(cluster::one_line(cluster::short_path(a.cwd), 32) + "  ") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34), ftxui::text(cluster::one_line(a.title, 70)) | ftxui::color(ftxui::Color::RGB(200, 203, 210)),
+                ftxui::text(cluster::one_line(cluster::short_path(a.cwd), 32) + "  ") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34), ftxui::text(cluster::one_line(a.title, room)) | ftxui::color(ftxui::Color::RGB(200, 203, 210)),
                 ftxui::filler(), ftxui::text(a.pid > 0 ? "pid " + std::to_string(a.pid) + (a.tty.empty() ? "" : " · " + a.tty) + " · " + fixed_(a.cpu, 0) + " % " : a.tty + " ") | ftxui::color(muted)});
             rows.push_back(selected ? row | ftxui::bgcolor(lit) : row);
+            if (!a.needs.empty()) // what it waits for, in full under it
+                rows.push_back(ftxui::hbox({ftxui::text("      needs: ") | ftxui::color(warn), ftxui::paragraph(a.needs) | ftxui::color(warn) | ftxui::flex}));
         }
         rows.push_back(ftxui::filler());
         if (!note.empty()) rows.push_back(ftxui::text(" " + note) | ftxui::color(teal));

@@ -122,6 +122,7 @@ struct SupAgent {
     std::string tty;                // pts/3
     double cpu = 0;                 // % of one core since the reading before
     std::int64_t updated = 0;       // its transcript written last (unix s)
+    std::string needs;              // a job waiting for you: what it asks (and the reply it suggests)
 };
 
 //----------------------------------------------------------------//
