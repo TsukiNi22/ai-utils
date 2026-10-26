@@ -1594,7 +1594,12 @@ self.addEventListener("notificationclick", (e) => {
         else respond_(conn, 200, "application/x-x509-ca-cert", pem, "Content-Disposition: attachment; filename=\"claude-cluster-ca.crt\"\r\n");
         return;
     }
-    const std::filesystem::path app = cluster::data_dir() / "app";
+    // the app of this computer: built in the data folder of the main claude-cluster, served by every core (an instance, the supervisor too)
+    const std::filesystem::path app = [&]() {
+        if (const char* main = std::getenv("CLAUDE_CLUSTER_MAIN_DATA"); main != nullptr && *main) return std::filesystem::path(main) / "app";
+        if (std::getenv("CLAUDE_CLUSTER_INSTANCE") != nullptr) return cluster::data_dir().parent_path().parent_path() / "app"; // <data>/instances/<name>
+        return cluster::data_dir() / "app";
+    }();
     if (request.method == "GET" && request.path == "/api/version") {
         // the app: a newer one served here (app_version), the oldest one still supported (app_min: its protocol)
         std::ifstream in(app / "version.txt");

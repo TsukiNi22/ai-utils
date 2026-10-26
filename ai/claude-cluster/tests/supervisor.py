@@ -121,6 +121,11 @@ with open(f"{T}/config/claude-cluster/config.toml", "w", encoding="utf-8") as co
     config.write('[global]\nenabled = false\n[ui]\nnotify = false\nmachine_days = 0\n[user]\nname = "t"\nemail = "t@t.t"\n[usage]\naccount = false\n'
                  f'[web]\nsupervisor_port = {PORT}\nhttps = false\napprove = false\n[commands]\nclaude = "{FAKE}"\n')
 os.makedirs(f"{INST}/gamma")
+os.makedirs(f"{T}/share/claude-cluster/app")  # the Android app of the computer, built in the main data folder
+with open(f"{T}/share/claude-cluster/app/version.txt", "w", encoding="utf-8") as built:
+    built.write("9.9.9\n")
+with open(f"{T}/share/claude-cluster/app/claude-cluster.apk", "wb") as apk:
+    apk.write(b"PK-not-a-real-apk")
 with open(f"{INST}/gamma/state.json", "w", encoding="utf-8") as state:
     state.write('{"version": 1, "sessions": [{"id": "s1", "name": "kept", "cwd": "/tmp", "backend": "claude"}]}')
 main = subprocess.Popen([BIN, "serve", "--no-global"], env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -223,6 +228,8 @@ try:
         page = {it["name"] for it in (state.get("supervisor") or {}).get("instances") or []}
         check("the page: /api/state carries the supervisor (every claude-cluster)", page == {"main", "beta", "gamma"}, json.dumps(state)[:300])
         check("... and the other agents of the computer", "agents" in (state.get("supervisor") or {}), json.dumps(state.get("supervisor"))[:200])
+        served = http_("/api/version")
+        check("... the app of the computer served by its web access too (updates of the app)", served.get("app") is True and served.get("app_version") == "9.9.9", json.dumps(served))
         acted = http_("/api/cmd", {"cmd": "supervisor_act", "name": "nobody", "action": "stop"})
         check("... its actions let through (an unknown one refused by the supervisor itself)", "no claude-cluster named nobody" in json.dumps(acted), json.dumps(acted)[:300])
     except OSError as error:

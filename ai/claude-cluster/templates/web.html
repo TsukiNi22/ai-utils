@@ -1052,7 +1052,11 @@ async function run(id) {
             $("who").textContent = "from " + state.client;
             renderUpdate(state.update);
             if (state.voice) voiceInfo = state.voice;
-            if (state.supervisor) { renderSupervisor(state.supervisor); continue; } // the supervisor: its own view, no session
+            if (state.supervisor) { // the supervisor: its own view, no session (the app still told of a newer one)
+                if (window.ClusterApp) checkAppUpdate(state.version_app || state.supervisor.supervisor || "");
+                renderSupervisor(state.supervisor);
+                continue;
+            }
             render(state);
         } catch (error) {
             if (id !== loop) return;

@@ -19,7 +19,8 @@ if [[ -z "$platform" || -z "$tools" || ! -x "$tools/aapt2" ]] || ! command -v ja
 fi
 android="$platform/android.jar"
 IFS=. read -r major minor patch <<< "$version"
-code=$(( major * 10000 + minor * 100 + ${patch:-0} ))
+# its Android versionCode, always growing: up to 999 patches a minor and 999 minors a major (1.4.123 < 1.5.0)
+code=$(( major * 1000000 + minor * 1000 + ${patch:-0} ))
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
