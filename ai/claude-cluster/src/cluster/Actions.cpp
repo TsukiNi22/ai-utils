@@ -193,14 +193,9 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
     for (const cluster::Snapshot& s: manager.list(false)) // the sessions with a category or tags: found by them (#tag, the category)
         if (!s.spec.global && (!s.spec.category.empty() || !s.spec.tags.empty()))
             list.push_back({"focus:" + s.spec.id, "Open " + s.spec.name + " · " + cluster::label_text(s.spec), "", "", false});
-    for (const cluster::SessionSpec& spec: manager.trash()) {
-        list.push_back({"restore:" + spec.id, "Restore " + spec.name + (spec.category.empty() && spec.tags.empty() ? std::string() : " · " + cluster::label_text(spec))
-            + (spec.summary.empty() ? std::string() : " - " + cluster::one_line(spec.summary, 70)) + " ("
-            + cluster::short_path(spec.cwd) + ", closed " + cluster::human_age(spec.deleted) + " ago)", "", "", false});
-        list.push_back({"purge:" + spec.id, "Delete for good " + spec.name + " (trash: conversation and history)", "", "", false});
-    }
-    if (!manager.trash().empty())
-        list.push_back({"purge_all", "Empty the whole trash (" + std::to_string(manager.trash().size()) + " session(s), for good)", "type yes to confirm", "", false});
+    // the archived sessions and the conversations of the other agents: behind their own lists, not one entry each here
+    list.push_back({"trash_view", "Archived sessions… (" + std::to_string(manager.trash().size()) + ": restore, delete for good, empty the trash)", "", "", false});
+    list.push_back({"importer", "Import a session from another agent… (Claude Code, Codex, Qwen Code, opencode)", "", "", false});
     for (const auto &[name, profile]: config.profiles)
         list.push_back({"profile:" + name, "New session from the profile " + name, "", "", false});
     list.push_back({"task_add", "Queue a task: [target |] prompt", "task", "", false});
@@ -246,14 +241,6 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
                 list.push_back({"web_untrust:" + d.id, "Web: trust " + d.name + " no more (the code asked again)", "", "", false});
         }
     }
-    // the conversations of the agents opened outside (Claude Code, Codex, Qwen Code: their files; opencode: claude-cluster external)
-    for (const cluster::Conversation& c: cluster::external_conversations("claude", 12, manager.conversationIds()))
-        list.push_back({"import:" + c.agent + ":" + c.id, "Open a conversation of Claude Code: " + cluster::one_line(c.title, 50) + " · "
-            + cluster::short_path(c.cwd) + " · " + cluster::human_age(c.updated) + " ago", "", "", false});
-    for (const std::string agent: {"codex", "qwen"})
-        for (const cluster::Conversation& c: cluster::external_conversations(agent, 6, manager.conversationIds()))
-            list.push_back({"import:" + c.agent + ":" + c.id, "Open a conversation of " + std::string(agent == "codex" ? "Codex" : "Qwen Code") + ": "
-                + cluster::one_line(c.title, 50) + " · " + cluster::short_path(c.cwd) + " · " + cluster::human_age(c.updated) + " ago", "", "", false});
     list.push_back({"voice_toggle", "Voice: listen / stop (push-to-talk)", "", "", false});
     list.push_back({"voice_confirm", "Voice: send the transcription now", "", "", false});
     list.push_back({"voice_cancel", "Voice: drop the transcription", "", "", false});
@@ -374,6 +361,14 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             const cluster::Json patch = {{field == "when" || field == "text" || field == "every" || field == "cron" ? field : "text", cluster::trim(input)}};
             const cluster::Json done = manager.scheduleEdit(arg.substr(0, colon), patch);
             result.message = "schedule " + arg.substr(0, colon) + " changed: next " + done.value("at", std::string("-"));
+        } else if (base == "trash_view") { // the archived sessions: their list
+            result.ui = "pick:trash:";
+        } else if (base == "trash_item") { // one of them: restore / delete for good
+            result.ui = "pick:trash_item:" + arg;
+        } else if (base == "importer") { // the other agents, by agent
+            result.ui = "pick:importer:";
+        } else if (base == "importer_agent") { // the conversations of one agent
+            result.ui = "pick:importer_agent:" + arg;
         } else if (base == "sched_new") { // 1. to whom (the global session first: the default)
             result.ui = "pick:sched_to:" + manager.resolve(session);
         } else if (base == "sched_pick") { // ... another session: the list
@@ -1513,6 +1508,51 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
             out.push_back({"sched_act:" + id + (w.archived ? ":unarchive" : ":archive"), w.archived ? "Back in the list" : "Archive " + id, "", "", false});
             out.push_back({"sched_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});
         }
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("trash_item:")) {
+        const std::string id = cluster::trim(wanted.substr(11));
+        for (const cluster::SessionSpec& spec: manager.trash())
+            if (spec.id == id) {
+                out.push_back({"cancel", "Cancel", "", "", false});
+                out.push_back({"restore:" + id, "Restore " + spec.name + " (back in the list, its conversation kept)", "", "", false});
+                out.push_back({"purge:" + id, "Delete " + spec.name + " for good (its conversation and history)", "", "", false});
+            }
+        if (out.empty()) out.push_back({"cancel", "No archived session " + id, "", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("trash:")) {
+        // newest first: its name, labels, summary, folder, when it was closed
+        std::vector<cluster::SessionSpec> trashed = manager.trash();
+        std::sort(trashed.begin(), trashed.end(), [](const cluster::SessionSpec& a, const cluster::SessionSpec& b) {return a.deleted > b.deleted;});
+        for (const cluster::SessionSpec& spec: trashed)
+            out.push_back({"trash_item:" + spec.id, spec.name + (spec.category.empty() && spec.tags.empty() ? std::string() : " · " + cluster::label_text(spec))
+                + (spec.summary.empty() ? std::string() : " - " + cluster::one_line(spec.summary, 60)) + "  (" + cluster::short_path(spec.cwd) + ", closed "
+                + cluster::human_age(spec.deleted) + " ago)", "", "", false});
+        if (trashed.empty()) out.push_back({"cancel", "No archived session", "", "", false});
+        else out.push_back({"purge_all", "Empty the whole trash (" + std::to_string(trashed.size()) + " session(s), for good)", "type yes to confirm", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("importer_agent:")) {
+        const std::string agent = cluster::trim(wanted.substr(15));
+        for (const cluster::Conversation& c: cluster::external_conversations(agent, 60, manager.conversationIds()))
+            out.push_back({"import:" + c.agent + ":" + c.id, cluster::one_line(c.title, 60) + "  · " + cluster::short_path(c.cwd) + " · " + cluster::human_age(c.updated)
+                + " ago", "", "", false});
+        if (out.empty()) out.push_back({"cancel", "Nothing to import from " + agent, "", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("importer:")) {
+        // each agent with its conversations not imported yet (its newest first in its own list)
+        static const std::vector<std::pair<std::string, std::string>> agents = {{"claude", "Claude Code"}, {"codex", "Codex"}, {"qwen", "Qwen Code"}, {"opencode", "opencode"}};
+        for (const auto &[agent, name]: agents) {
+            if (agent == "opencode") { // its own command, slow: listed only when opened
+                if (cluster::has_command("opencode")) out.push_back({"importer_agent:opencode", name + "  (its sessions read when opened)", "", "", false});
+                continue;
+            }
+            const std::size_t count = cluster::external_conversations(agent, 40, manager.conversationIds()).size(); // 40 at most read here (40+)
+            if (count > 0) out.push_back({"importer_agent:" + agent, name + "  (" + std::to_string(count) + (count >= 40 ? "+" : "") + " conversation(s))", "", "", false});
+        }
+        if (out.empty()) out.push_back({"cancel", "No conversation of another agent on this computer", "", "", false});
         return out;
     }
     if (cluster::lower(wanted).starts_with("sched_to:")) {

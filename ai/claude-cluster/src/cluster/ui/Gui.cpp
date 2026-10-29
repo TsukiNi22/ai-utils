@@ -2803,7 +2803,7 @@ class Window: public QMainWindow {
         void openRestore(void)
         {
             if (this->manager.trash().empty()) this->message("the trash is empty: no closed session to reopen", false);
-            else this->palette("restore:");
+            else this->palette("trash:"); // the archived sessions: their list (restore / delete for good)
         }
 
         void moveDir(const int dx, const int dy)

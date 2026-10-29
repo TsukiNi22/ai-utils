@@ -1540,7 +1540,7 @@ class TtyUi {
                 this->status_("the trash is empty: no closed session to reopen");
                 return;
             }
-            this->_filter = "restore:";
+            this->_filter = "trash:"; // the archived sessions: their list (restore / delete for good)
             this->_selected = 0;
             this->filter_();
             this->_mode = Mode::Palette;

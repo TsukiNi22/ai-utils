@@ -90,7 +90,7 @@ Headless commands, on the running instance (`--rtk` compact output for an AI, `-
 | `usage [vendor]` | tokens and cost per vendor (anthropic, ollama, openai...) today / last 7 days / lifetime, the 5 h / 7 d limits left |
 | `mode <s> <mode>` | `auto`, `manual` (= `default`), `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions` |
 | `interrupt <s>`, `rename <s> <name>`, `cd <s> <folder>` | stop the turn, rename, move to another project |
-| `close <s>`, `trash`, `restore <s>`, `purge [s\|*]` | to the trash (kept `trash_days`), list, restore, delete for good (one, the expired ones, `*` all; palette: per session / empty the trash) |
+| `close <s>`, `trash`, `restore <s>`, `purge [s\|*]` | to the trash (kept `trash_days`), list, restore, delete for good (one, the expired ones, `*` all; palette: *Archived sessions…* - their list, each one restored or deleted for good, the whole trash emptied) |
 | `task add [--target T] [--after t1,t2] <prompt>`, `task list`, `task cancel <t>` | task queue (every option of `task_add` through the MCP, below) |
 | `schedule add <when> <text> [--target s] [--every N] [--notify]`, `schedule list`, `schedule cancel <w>` | at a time (`+30m`, `+2h`, `HH:MM`, `YYYY-MM-DD HH:MM`), repeated every N minutes or once: a prompt to a session (the global one by default) or a desktop notification |
 | `search <text>`, `export <s> [file]` | full-text search in every history, Markdown export |
@@ -1093,7 +1093,8 @@ page `plugins_set` / `plugins_refresh` need `[web] settings` to allow `plugins`.
 
 The conversations of the agents of this computer opened outside claude-cluster (Claude Code: `~/.claude/projects`,
 Codex: `~/.codex/sessions`, Qwen Code: `~/.qwen/projects`, opencode: `opencode session list`) are offered in the palette
-(*Open a conversation of Claude Code: ...*), the web page (*Open a conversation of another agent*), `claude-cluster
+(*Import a session from another agent…*: the agents with their count, then the conversations of one, imported when picked - not one
+entry each in the palette), the web page (*Open a conversation of another agent*), `claude-cluster
 external` and to the global session (MCP `external_conversations`). Opened, one becomes a session resuming it in its
 folder: its transcript so far shown (the active branch of Claude Code), the same conversation goes on here. A
 conversation of Claude Code used less than 2 minutes ago (maybe still open in a terminal) is opened as a copy
