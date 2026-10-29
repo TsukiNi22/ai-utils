@@ -653,6 +653,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             }
             cluster::SpawnRequest made{arg_(request, "cwd"), arg_(request, "name"), backend, arg_(request, "mode"), arg_(request, "profile"), arg_(request, "prompt"), effort, false, "", false, {}, "", from_global && request.value("reply", true), from_global && request.value("one_shot", false) && manager.config().archiveOneShot};
             made.origin = "mcp";
+            made.context = arg_(request, "context");
             data = {{"id", manager.spawn(made)}};
             if (from_global && manager.methodSpawned()) data["work_method_due"] = "the user enabled the detection of their work method: call work_method (action sample), then propose if their habits differ from the current one";
             if (!wanted.empty() || !wantedEffort.empty()) {
@@ -771,8 +772,16 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "rename") {
             manager.rename(session(), arg_(request, "name"));
         } else if (cmd == "apply") {
-            // a model / mode / effort where asked (here, global, subs, all, new, a session)
-            data = {{"done", manager.applyTo(arg_(request, "kind"), arg_(request, "value"), arg_(request, "scope"), arg_(request, "session", GLOBAL_ID))}};
+            // a model / mode / effort where asked (here, global, subs, all, new, a session); a model on contexts still loaded: asked
+            // first (confirm: what it reads again, the page answers with confirmed)
+            const bool confirmed = request.contains("confirmed") && (request["confirmed"] == true || request["confirmed"] == "true");
+            const std::pair<std::int64_t, int> reload = arg_(request, "kind") == "model" && !confirmed
+                ? cluster::model_reload(manager, arg_(request, "value"), arg_(request, "scope"), arg_(request, "session", GLOBAL_ID)) : std::pair<std::int64_t, int>{0, 0};
+            if (reload.first > 0)
+                data = {{"confirm", "Change to " + arg_(request, "value") + "? Its next turn reads the whole context again: " + cluster::human_tokens(reload.first) + " tokens used by "
+                    + (reload.second > 1 ? std::to_string(reload.second) + " sessions" : std::string("this session")) + ", written to the cache of the new model at full price "
+                    + "(the old model keeps it cached)."}, {"tokens", reload.first}, {"sessions", reload.second}};
+            else data = {{"done", manager.applyTo(arg_(request, "kind"), arg_(request, "value"), arg_(request, "scope"), arg_(request, "session", GLOBAL_ID))}};
         } else if (cmd == "shell_share") {
             data = {{"done", manager.shareShell(session(), arg_(request, "choice"))}};
         } else if (cmd == "shell") {

@@ -108,6 +108,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
     using cluster::SettingKind;
     std::vector<std::string> modes = {""};
     const std::vector<std::string> efforts = {"", "low", "medium", "high", "xhigh", "max", "minimal"}; // claude; codex / opencode: minimal...
+    const std::vector<std::string> contexts = {"auto", "100k", "150k", "200k", "300k", "500k", "1M"};  // the auto-compact window of claude
     for (const auto &[mode, description]: cluster::permission_modes())
         modes.push_back(mode);
     std::vector<std::string> styles;
@@ -311,6 +312,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return cf.globalMode;}},
             {"global", "effort", "Thinking effort", SettingKind::Choice, efforts, "applied at every start (empty: its own, /effort, else the one of [agent])", true,
                 [](const cluster::Config& cf) {return cf.globalEffort;}},
+            {"global", "context", "Context at most", SettingKind::Choice, contexts, "its conversation compacted once it reaches this size (Claude Code: "
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW): a smaller context costs less at every turn and a wake-up after its cache expired reloads less "
+                "(not 1M tokens); auto: the window of the model. 100k to 1M", true, [](const cluster::Config& cf) {return cf.globalContext;}},
             {"global", "cwd", "Folder", SettingKind::Text, {}, "working folder of the global session", true,
                 [](const cluster::Config& cf) {return cf.globalCwd;}},
             {"global", "prompt", "System prompt file", SettingKind::Text, {}, "its own system prompt, added to CLAUDE.md", true,
@@ -357,6 +361,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config& cf) {return std::to_string(cf.memoryTotalMb);}},
             {"sessions", "memory_entries", "Transcript in memory (entries)", SettingKind::Int, {}, "also at most this number of entries in memory per "
                 "conversation; 0: off (the size only, the default)", false, [](const cluster::Config& cf) {return std::to_string(cf.memoryEntries);}},
+            {"sessions", "context", "Context at most", SettingKind::Choice, contexts, "the conversation of every other session compacted once it reaches "
+                "this size, like [global] context (the global session may give a sub-session its own when it starts it: smaller for a small task); "
+                "auto: the window of the model. 100k to 1M", true, [](const cluster::Config& cf) {return cf.sessionsContext;}},
             {"sessions", "keep_warm", "Keep warm (auto wake-up)", SettingKind::Choice, {"off", "chosen", "all", "background"}, "an idle session woken up a little before its "
                 "prompt cache expires, so its context is never unloaded (the next prompt fast and cheap): a tiny turn (the agent answers ok) costing a "
                 "cache read.\n• off: never (the default)\n• chosen: the sessions marked (/keepwarm, the palette: Keep this session warm)\n• all: every "

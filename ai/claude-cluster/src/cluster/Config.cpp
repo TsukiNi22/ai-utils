@@ -93,6 +93,30 @@ _cold std::string cluster::Config::check(const std::string& text)
     return "";
 }
 
+_cold std::optional<std::string> cluster::Config::contextWindow(const std::string& value)
+{
+    // the auto-compact window of claude: between 100k and 1M tokens (a bare number up to 1000: thousands, like claude reads it)
+    std::string text;
+    for (const char c: value)
+        if (!std::isspace(static_cast<unsigned char>(c))) text += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (text.empty() || text == "auto") return "auto";
+    std::size_t end = 0;
+    long double tokens = 0;
+    try {
+        tokens = std::stold(text, &end);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    const std::string unit = text.substr(end);
+    if (unit == "k") tokens *= 1000;
+    else if (unit == "m") tokens *= 1000000;
+    else if (!unit.empty()) return std::nullopt;
+    else if (tokens <= 1000) tokens *= 1000;
+    const long long rounded = std::llround(tokens / 1000) * 1000;
+    if (rounded < 100000 || rounded > 1000000) return std::nullopt;
+    return rounded == 1000000 ? std::string("1M") : std::to_string(rounded / 1000) + "k";
+}
+
 _cold void cluster::Config::load(void)
 {
     std::error_code error;
@@ -207,6 +231,8 @@ _cold void cluster::Config::load(void)
     this->globalModel = table["global"]["model"].value_or(this->globalModel);
     this->globalMode = table["global"]["permission_mode"].value_or(this->globalMode);
     this->globalEffort = table["global"]["effort"].value_or(this->globalEffort);
+    this->globalContext = contextWindow(table["global"]["context"].value_or(std::string("auto"))).value_or("auto");
+    this->sessionsContext = contextWindow(table["sessions"]["context"].value_or(std::string("auto"))).value_or("auto");
     this->globalPrompt = table["global"]["prompt"].value_or((cluster::config_dir() / "global.md").string()); // the config dir of this process (CLAUDE_CLUSTER_CONFIG_DIR), not the one of HOME
     this->remoteName = table["global"]["remote_name"].value_or(this->remoteName);
 

@@ -45,7 +45,7 @@ _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
         {"model", spec.model}, {"mode", spec.mode}, {"effort", spec.effort}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
         {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
         {"summary", spec.summary}, {"summary_auto", spec.summaryAuto}, {"summary_turns", spec.summaryTurns}, {"category", spec.category}, {"tags", spec.tags}, {"turns", spec.turns},
-        {"pin", spec.pin},
+        {"pin", spec.pin}, {"context", spec.context}, {"cached_at", spec.cachedAt}, {"rewound_at", spec.rewoundAt},
     };
 }
 
@@ -78,6 +78,9 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.tags = json.value("tags", std::vector<std::string>());
     spec.turns = json.value("turns", std::int64_t{0});
     spec.pin = json.value("pin", cluster::Json());
+    spec.context = json.value("context", std::string());
+    spec.cachedAt = json.value("cached_at", std::int64_t{0});
+    spec.rewoundAt = json.value("rewound_at", std::int64_t{0});
     return spec;
 }
 
@@ -180,6 +183,10 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
             "`" + launch.command + "` is not installed (backend " + spec.backend + ")");
     if (launch.backend.provider.driver == "claude") {
         launch.extraArgs = this->_config.extraArgs;
+        // its context at most (compacted past it): the one asked at its start, else the setting of its kind; auto: the window of the model
+        const std::string window = cluster::Config::contextWindow(spec.context).value_or("auto") != "auto" ? *cluster::Config::contextWindow(spec.context)
+            : spec.global ? this->_config.globalContext : this->_config.sessionsContext;
+        if (window != "auto") launch.env.push_back({"CLAUDE_CODE_AUTO_COMPACT_WINDOW", window});
         if (!spec.global) {
             const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false, cluster::method_text(this->_config, false), this->_config.orchestration);
             launch.extraArgs.insert(launch.extraArgs.end(), prompt.begin(), prompt.end());
@@ -230,6 +237,11 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
     spec.backend = req.backend.empty() ? this->_config.backend : req.backend;
     spec.mode = req.mode.empty() ? this->_config.mode : req.mode;
     spec.effort = req.effort.empty() ? this->_config.effort : req.effort;
+    if (!req.context.empty()) {
+        const std::optional<std::string> window = cluster::Config::contextWindow(req.context);
+        if (!window) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "context: auto, or 100k to 1M tokens (200k, 500000, 1M)");
+        spec.context = *window;
+    }
     if (req.cheap) { // nothing of these asks for a big model: the smallest one, no thinking to speak of
         const std::string provider = spec.backend.substr(0, spec.backend.find('/'));
         if (this->vendorOf(spec.backend) == "anthropic") {
@@ -624,11 +636,16 @@ _cold std::string cluster::Manager::setKeepWarm(const std::string& id, const std
 
 _nodiscard std::optional<std::int64_t> cluster::cache_left(const cluster::Config& c, const cluster::Snapshot& s)
 {
-    // the cache is written by every turn: its last user / assistant entry (a notice never touches it)
+    // the cache is written by every request of the agent: the last one (kept over a rewind: the entries after the cut are gone, not
+    // the cache of its prefix), else its last user / assistant entry (a notice never touches it)
+    std::int64_t at = s.spec.cachedAt;
     for (auto it = s.entries.rbegin(); it != s.entries.rend(); ++it)
-        if (it->kind == cluster::EntryKind::User || it->kind == cluster::EntryKind::Assistant)
-            return static_cast<std::int64_t>(c.keepWarmTtl) * 60 - (cluster::now() - it->time);
-    return std::nullopt;
+        if (it->kind == cluster::EntryKind::User || it->kind == cluster::EntryKind::Assistant) {
+            at = std::max(at, it->time);
+            break;
+        }
+    if (at == 0) return std::nullopt;
+    return static_cast<std::int64_t>(c.keepWarmTtl) * 60 - (cluster::now() - at);
 }
 
 _nodiscard std::string cluster::cache_text(const cluster::Config& c, const cluster::Snapshot& s)
@@ -652,8 +669,28 @@ _cold bool cluster::Manager::warmExpired(const std::string& id, const std::strin
 _cold std::string cluster::Manager::warmNow(const std::string& id)
 {
     const std::string done = this->setKeepWarm(id, "on");
-    this->send(this->resolve(id), std::string(KEEP_WARM_MARK) + " nothing to do: reply with just: ok]", false, {}, "wake");
+    this->wake_(this->resolve(id));
     return done + " - woken up now: its context read again and cached";
+}
+
+_cold void cluster::Manager::wake_(const std::string& id)
+{
+    // the previous wake-up still the last prompt (nothing real since): taken back first, then the same prompt sent again on the same
+    // cached prefix (read, almost nothing written), so the conversation holds one wake-up at most instead of one more each time (its
+    // context and the cost of every later turn growing with them). Not a session of Claude Code, or that prompt not found in its
+    // transcript (compacted): sent after it as before
+    const std::string prompt = std::string(KEEP_WARM_MARK) + " nothing to do: reply with just: ok]";
+    const std::shared_ptr<cluster::Session> session = this->get_(id);
+    const cluster::Snapshot s = session->snapshot();
+    const std::vector<cluster::Entry>::const_reverse_iterator user = std::find_if(s.entries.rbegin(), s.entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
+    if (user != s.entries.rend() && user->text.starts_with(KEEP_WARM_MARK) && s.state == cluster::State::Idle) {
+        try {
+            (void)session->rewind(1, nullptr, false);
+            this->save();
+            ++this->_version;
+        } catch (const utils::exception::IException&) {}
+    }
+    this->send(id, prompt, false, {}, "wake");
 }
 
 _cold void cluster::Manager::keepWarm_(void)
@@ -670,14 +707,14 @@ _cold void cluster::Manager::keepWarm_(void)
         if (!cluster::keep_warm_on(this->_config, s) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0
             || (cluster::background_busy(s) && this->_config.keepWarm != "background") || s.entries.empty())
             continue;
-        const std::int64_t last = s.entries.back().time;
+        const std::int64_t last = std::max(s.entries.back().time, s.spec.cachedAt); // a rewind cuts the entries, not the cache of its prefix
         if (now - last < ttl - margin || now - last > ttl) continue;
-        std::int64_t real = 0;
-        for (auto it = s.entries.rbegin(); it != s.entries.rend() && real == 0; ++it)
+        std::int64_t real = s.spec.rewoundAt; // a take-back of the user: a real use of the session too
+        for (auto it = s.entries.rbegin(); it != s.entries.rend() && real < it->time; ++it)
             if (it->kind == cluster::EntryKind::User && !it->text.starts_with(KEEP_WARM_MARK)) real = it->time;
         if (this->_config.keepWarmHours > 0 && real > 0 && now - real > static_cast<std::int64_t>(this->_config.keepWarmHours) * 3600) continue;
         try {
-            this->send(s.spec.id, std::string(KEEP_WARM_MARK) + " nothing to do: reply with just: ok]", false, {}, "wake");
+            this->wake_(s.spec.id);
         } catch (const utils::exception::IException&) {}
     }
 }

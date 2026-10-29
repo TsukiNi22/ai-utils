@@ -71,7 +71,9 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"cwd", str_("project folder (~ allowed), or the name of a project of machine.md (its git repositories: the closest by its name)")}, {"name", str_("name of the session (default: the folder name)")}, {"backend", str_("provider[/model], default from the config")},
              {"mode", str_("auto | manual | acceptEdits | plan | dontAsk | bypassPermissions")}, {"profile", str_("profile of the config")}, {"prompt", str_("first prompt")}, {"reply", {{"type", "boolean"}, {"description", "the answer to the first prompt (and later wake-up turns) sent back to you as \"[reply from ...]\" (default true)"}}},
              {"one_shot", {{"type", "boolean"}, {"description", "this session is for ONE precise task, never to be reused: closed to the trash (restorable) once its answer is relayed to you (needs reply, and the setting Archive one-shot sessions on; kept when the user typed in it, looks at it or it waits for them). Never for the session of a project you will talk to again (default false)"}}},
-             {"effort", str_("thinking effort: default | low | medium | high | xhigh | max")}}, {"cwd"}),
+             {"effort", str_("thinking effort: default | low | medium | high | xhigh | max")},
+             {"context", str_("its context at most, compacted past it: 100k to 1M (200k, 500k) or auto (the setting Context at most of the sessions). Size it "
+                 "to the task: a small fix needs far less than a long refactor; every turn and a wake-up after its cache expired cost what it holds")}}, {"cwd"}),
         tool_("session_send", "Send a prompt to a session (queued when it is working). By default (reply: true) its answer comes back to you as a message "
             "\"[reply from <name> (<id>)] ...\" when it is done: go on with something else or end your turn, never poll it with session_read / session_status. "
             "A local command of claude-cluster (/clear, /model <m>, /mode <m>, /rename, /cd, /close, /cost, /context, /export...) runs at once, as typed "

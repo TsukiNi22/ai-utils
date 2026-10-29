@@ -20,6 +20,7 @@ File Description:
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include <filesystem>           // std::filesystem::path, std::filesystem::file_time_type
+    #include <optional>             // std::optional
     #include <string>               // std::string
     #include <vector>               // std::vector
     #include <map>                  // std::map
@@ -296,6 +297,7 @@ class Config {
         std::string globalModel;
         std::string globalMode = "bypassPermissions"; // never asked (empty: the mode of [agent])
         std::string globalEffort;               // empty: the one of [agent]
+        std::string globalContext = "auto";     // its context at most: auto (the window of the model) | 100k..1M, compacted past it (claude: CLAUDE_CODE_AUTO_COMPACT_WINDOW)
         std::string globalPrompt{};              // empty here, <config dir>/global.md when load() finds no [global] prompt (never a path built from HOME)
         std::string remoteName = "claude-cluster";
 
@@ -320,6 +322,7 @@ class Config {
         int memoryMb = 1;                       // each transcript in memory (what the interfaces show): its newest entries within this size, the older ones loaded on demand
         int memoryTotalMb = 100;                // every transcript in memory together: past it, the oldest entries of each dropped (on demand again)
         int memoryEntries = 0;                  // also at most this number of entries in memory per transcript (0: off, the size only)
+        std::string sessionsContext = "auto";   // the context of the other sessions at most (the spawn of the global session may ask its own), like globalContext
         std::string keepWarm = "off";           // off | chosen (the sessions marked, /keepwarm) | all: an idle session woken up before its prompt cache expires
         int keepWarmTtl = 5;                    // minutes the prompt cache of the agent lives (5; 60 with a 1 h cache)
         int keepWarmMargin = 45;                // seconds before it expires: the wake-up then
@@ -367,6 +370,7 @@ class Config {
         _cold _nodiscard bool reload(void);                 // true when the file changed and was loaded again
         _cold _nodiscard const cluster::Style& currentStyle(void) const;
         _cold _nodiscard std::string command(const std::string& driver) const;
+        _cold _nodiscard static std::optional<std::string> contextWindow(const std::string& value); // auto | 100k..1M (200 = 200k, 500000, 1M): "auto" or "<n>k" / "1M"; nullopt: not one
         _cold _nodiscard static std::string check(const std::string& text);   // a config.toml text: its parse error ("" valid)
 
         cluster::OrchConf orch;

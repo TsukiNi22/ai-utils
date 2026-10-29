@@ -378,6 +378,11 @@ Model and thinking effort of a session (the same conversation goes on, the sessi
 *Effort (thinking): ...*), `/model [id]` and `/effort [level]` (completed), `claude-cluster model / effort`, or the
 global session (`session_set_model`). Effort: claude `--effort` (low, medium, high, xhigh, max), codex
 `model_reasoning_effort`, opencode `--variant`; the default of new sessions is `[agent] effort`.
+A model changed while the context is **still loaded** (its prompt cache alive, or a turn running) is **asked first**
+(**Cancel** the default: a stray Enter changes nothing): the cache belongs to a model, so the next turn on the new one
+reads the whole context again, written to its cache at full price; the popup tells how much (*84k tokens used by this
+session*, or by the N sessions of *every session*). The palette, `/model <id>` and the page / app (a Cancel / Change anyway
+popup, Cancel focused) ask it; a cache already expired changes at once (everything is read again anyway).
 
 ## Backends
 
@@ -1525,14 +1530,23 @@ newest entries within **25 MB** (`transcript_limit_mb`, checked at its start and
 agent itself is never touched; 0 = no limit. **Keep warm** (`[sessions] keep_warm`: `off` by default, `chosen`, `all`, `background`): an idle
 session is woken up a little before its prompt cache expires (`keep_warm_ttl` 5 min, 60 with a 1 h cache; `keep_warm_margin` 45 s
 before), a tiny turn the agent answers *ok*, so its context is never unloaded; kept so for `keep_warm_hours` (2) after its last real
-prompt, never when it works or asks. Its background running (shells / agents), only `background` wakes it: that mode keeps
+prompt, never when it works or asks. A wake-up never piles on the previous one: when the last prompt of the session is still a
+wake-up (nothing real since), that one is **taken back** first (a rewind of Claude Code, its backup not kept) and the same prompt sent
+again on the same cached prefix, so the conversation holds one wake-up at most instead of one more every 5 min (its context, and
+the cost of every later turn, never growing with them); a session not of Claude Code, or a compacted one, gets it after as before. Its background running (shells / agents), only `background` wakes it: that mode keeps
 warm only the sessions waiting on their background (a long compilation: its context not unloaded then loaded again when it ends),
 and leaves them to cool once it ends. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
-`chosen`); the sessions kept warm show **♨** in every list. The wake-up counts from the **last turn** of the session, not from when
+`chosen`); the sessions kept warm show **♨** in every list. The wake-up counts from the **last request** of its agent, kept over a take-back (Esc: the entries
+after the cut are gone, not the cache of its prefix, so a session taken back is still kept warm; a take-back counts as a use for
+`keep_warm_hours`), not from when
 the core or the mode started (a core restarted 4 min after the last prompt wakes it 15 s later, not 4 min 15 s). Turned on while its
 cache **already expired**, it asks first (**Cancel** the default): kept warm anyway, one turn runs at once and reads its whole context
 again (cached again, the cost of a new start), then it is kept as usual. The **Cost** panel (terminal, window) and the session line of
-the page / app show its **cache**: `3:42 left` counted down, `in use` during a turn, `expired 12 min ago`. **In memory** (what the interfaces show) each transcript keeps its newest entries
+the page / app show its **cache**: `3:42 left` counted down, `in use` during a turn, `expired 12 min ago`. **Context at most** (`[global] context` for the global session, `[sessions] context` for the
+others: `auto` by default, `100k` to `1M`): the conversation is compacted once it reaches this size (Claude Code:
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, given at every start), so every turn costs less and a wake-up after its cache expired reloads
+200k tokens, not 1M. The global session may give a sub-session its own when it starts it (`session_spawn` `context`: `150k` for a
+small fix, more for a long refactor); kept with the session, out of 100k..1M refused. **In memory** (what the interfaces show) each transcript keeps its newest entries
 within **1 MB** (`memory_mb`) and all of them together within **100 MB** (`memory_total_mb`: past it, the oldest entries of each
 leave the memory); the size counts, not a number of entries (`memory_entries`, off by default, adds one). Scrolled to its top, a
 transcript draws more of its entries, then reads the older ones again from its log (`older`: the core keeps them while they are

@@ -41,7 +41,8 @@ Un **sous-agent** est une fonction *à l'intérieur* d'une session Claude Code :
 - `[sessions] max_parallel` plafonne les sous-sessions qui travaillent en même temps ; les autres tâches attendent dans la file (`task_queue` la borne). Voir [Tâches et planifications](page:tasks-schedules).
 - Les compilations et tests lourds passent par l'[orchestrateur](page:orchestrator), jamais plusieurs à la fois depuis plusieurs sessions.
 - Une session faite pour un travail précis peut être créée `one_shot` : elle part à la corbeille d'elle-même une fois sa réponse relayée. Voir [Sessions à usage unique](page:one-shot).
-- Passer une grande session sur un modèle plus fort relit tout son contexte au nouveau prix : préférez une nouvelle sous-session avec un bref énoncé ([Permissions et modèles](page:permissions-models)).
+- Passer une grande session sur un modèle plus fort relit tout son contexte au nouveau prix (demandé d'abord tant qu'il est chargé) : préférez une nouvelle sous-session avec un bref énoncé ([Permissions et modèles](page:permissions-models#model-change)).
+- Le contexte d'une sous-session est plafonné par `[sessions] context` (`auto`, ou 100k à 1M : compacté au-delà) ; la session globale peut donner le sien à chacune quand elle la démarre (`session_spawn` `context` : `150k` pour un petit correctif), pour que chaque tour et un réveil après l'expiration de son cache coûtent ce dont la tâche a besoin ([Réglages](page:settings#context)).
 
 > [!NOTE]
 > Une sous-session du pilote claude reçoit un petit MCP restreint (`task_*`, `schedule_*`) : elle ne voit et ne gère que les tâches et planifications qu'elle a créées.

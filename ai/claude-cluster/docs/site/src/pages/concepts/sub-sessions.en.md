@@ -41,7 +41,8 @@ A **subagent** is a feature *inside* one Claude Code session: the agent delegate
 - `[sessions] max_parallel` caps the sub-sessions working at once; more tasks wait in the queue (`task_queue` bounds it). See [Tasks and schedules](page:tasks-schedules).
 - Heavy builds and tests go through the [orchestrator](page:orchestrator), never several at once from several sessions.
 - A session made for one precise job can be created `one_shot`: it goes to the trash by itself once its answer was relayed. See [One-shot sessions](page:one-shot).
-- Moving a large session to a stronger model re-reads its whole context at the new price: prefer a new sub-session with a short brief ([Permissions and models](page:permissions-models)).
+- Moving a large session to a stronger model re-reads its whole context at the new price (asked first while it is loaded): prefer a new sub-session with a short brief ([Permissions and models](page:permissions-models#model-change)).
+- The context of a sub-session is capped by `[sessions] context` (`auto`, or 100k to 1M: compacted past it); the global session may give each one its own when it starts it (`session_spawn` `context`: `150k` for a small fix), so every turn and a wake-up after its cache expired cost what the task needs ([Settings](page:settings#context)).
 
 > [!NOTE]
 > A sub-session of the claude driver gets a small scoped MCP (`task_*`, `schedule_*`): it sees and manages only the tasks and schedules it made.

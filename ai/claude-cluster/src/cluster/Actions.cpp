@@ -36,6 +36,7 @@ File Description:
 _cold static std::string session_info_(cluster::Manager& manager, const std::string& id); // everything about a session (a popup)
 _cold static std::string jobs_text_(cluster::Manager& manager);                              // what runs in the background (a popup)
 _cold static std::string jobs_kill_(cluster::Manager& manager, const std::string& which);   // stop one of them by its id
+_cold static std::string model_warn_text_(const std::string& model, const std::pair<std::int64_t, int>& reload); // a model change asked first: why
 
 _cold static cluster::Json sched_rule_(const std::string& kind, const std::string& value);                           // a schedule made by its steps: its rule
 _cold static cluster::Json sched_options_(const std::string& target, const cluster::Json& rule, const std::string& prompt); // ... and its options
@@ -337,8 +338,25 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         } else if (base == "apply") {
             const std::string pending = manager.ui("apply", "");
             if (pending.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "nothing to apply");
-            result.message = manager.applyTo(pending.substr(0, pending.find(':')), pending.substr(pending.find(':') + 1), arg, session);
+            const std::string kind = pending.substr(0, pending.find(':'));
+            const std::string value = pending.substr(pending.find(':') + 1);
+            // a model on loaded contexts: asked first (Cancel the default), their size told
+            const std::pair<std::int64_t, int> reload = kind == "model" ? cluster::model_reload(manager, value, arg, session) : std::pair<std::int64_t, int>{0, 0};
+            if (reload.first > 0) {
+                manager.setUi("model_warn", arg.empty() ? std::string("here") : arg);
+                result.message = model_warn_text_(value, reload);
+                result.ui = "pick:model_warn:" + manager.resolve(session);
+            } else {
+                result.message = manager.applyTo(kind, value, arg, session);
+                manager.setUi("apply", "");
+            }
+        } else if (base == "model_go") { // the model changed anyway: its loaded contexts read again
+            const std::string pending = manager.ui("apply", "");
+            const std::string scope = manager.ui("model_warn", "");
+            if (!pending.starts_with("model:") || scope.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no model change asked");
+            result.message = manager.applyTo("model", pending.substr(6), scope, session);
             manager.setUi("apply", "");
+            manager.setUi("model_warn", "");
         } else if (base == "panel") {
             manager.togglePanel(session, arg);
         } else if (base == "cd") {
@@ -418,6 +436,10 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         } else if (base == "jobs_scan") {
             result.message = manager.jobsCommand("hardware_scan").value("text", std::string("scanned"));
         } else if (base == "cancel") {
+            if (!manager.ui("model_warn", "").empty()) { // a model change cancelled: forgotten (its places to apply no longer offered)
+                manager.setUi("model_warn", "");
+                manager.setUi("apply", "");
+            }
             result.message = "nothing changed";
         } else if (base == "delete_ask") {
             result.ui = "pick:delete:" + arg; // its confirmation (yes / no)
@@ -642,6 +664,37 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         result.error = true;
     }
     return result;
+}
+
+_cold std::pair<std::int64_t, int> cluster::model_reload(cluster::Manager& manager, const std::string& model, const std::string& scope,
+    const std::string& current)
+{
+    // the sessions a model change reaches (the scopes of Manager::applyTo) whose context is loaded (its prompt cache alive, or a turn
+    // running): the cache belongs to a model, the next turn on the new one reads that whole context again (written at full price). A
+    // cache already expired reads it all anyway: nothing more to lose
+    std::vector<std::string> ids;
+    if (scope.empty() || scope == "here") ids.push_back(manager.resolve(current));
+    else if (scope == "global") ids.push_back(GLOBAL_ID);
+    else if (scope == "subs" || scope == "all")
+        for (const cluster::Snapshot& snap: manager.listLight(scope == "all"))
+            ids.push_back(snap.spec.id);
+    else if (scope != "new") ids.push_back(manager.resolve(scope));
+    std::pair<std::int64_t, int> out = {0, 0};
+    for (const std::string& id: ids) {
+        const std::optional<cluster::Snapshot> snap = manager.snapshot(id);
+        if (!snap || snap->metrics.contextUsed <= 0 || snap->spec.model == model) continue;
+        const std::optional<std::int64_t> left = cluster::cache_left(manager.config(), *snap);
+        if (snap->state != cluster::State::Working && (!left || *left <= 0)) continue;
+        out.first += snap->metrics.contextUsed;
+        ++out.second;
+    }
+    return out;
+}
+
+_cold static std::string model_warn_text_(const std::string& model, const std::pair<std::int64_t, int>& reload)
+{
+    return "Change to " + model + "? Its next turn reads the whole context again: " + cluster::human_tokens(reload.first) + " tokens used by "
+        + (reload.second > 1 ? std::to_string(reload.second) + " sessions" : std::string("this session")) + ", written to the cache of the new model at full price";
 }
 
 _cold static std::string session_name_(cluster::Manager& manager, const std::string& session)
@@ -1171,6 +1224,11 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 const cluster::ModelInfo info = cluster::model_info(manager, session);
                 if (!info.models.empty()) result.ui = "pick:model:";
                 else result.message = "model: " + (info.model.empty() ? std::string("default of the provider") : info.model) + " (/model <name> to change)";
+            } else if (const std::pair<std::int64_t, int> reload = cluster::model_reload(manager, arg, "here", session); reload.first > 0) { // its context loaded: asked first (Cancel the default)
+                manager.setUi("apply", "model:" + arg);
+                manager.setUi("model_warn", "here");
+                result.message = model_warn_text_(arg, reload);
+                result.ui = "pick:model_warn:" + manager.resolve(session);
             } else {
                 manager.setModel(session, arg);
                 result.message = "model " + arg + " (same conversation)";
@@ -1587,6 +1645,18 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
         const std::string rest = cluster::trim(wanted.substr(11));
         out.push_back({"sched_make:" + rest, "Write the prompt to send…", "the prompt", "", false});
         out.push_back({"cancel", "Cancel", "", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("model_warn:")) {
+        // a model change on loaded contexts: Cancel first (a stray Enter changes nothing), what it reads again told
+        const std::string id = cluster::trim(wanted.substr(11));
+        const std::string pending = manager.ui("apply", "");
+        const std::string model = pending.starts_with("model:") ? pending.substr(6) : std::string();
+        const std::pair<std::int64_t, int> reload = cluster::model_reload(manager, model, manager.ui("model_warn", "here"), id);
+        const std::string where = reload.second > 1 ? std::to_string(reload.second) + " sessions" : std::string("this session");
+        out.push_back({"cancel", "Cancel: keep the model (the context of " + where + ", " + cluster::human_tokens(reload.first) + " tokens, stays cached)", "", "", false});
+        out.push_back({"model_go", "Change to " + model + " anyway: its next turn reads the whole context again (" + cluster::human_tokens(reload.first)
+            + " tokens used by " + where + "), written to the cache of the new model at full price", "", "", false});
         return out;
     }
     if (cluster::lower(wanted).starts_with("warm:")) {

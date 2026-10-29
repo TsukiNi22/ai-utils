@@ -102,6 +102,8 @@ cwd = ""                   # working folder of the global session; empty: a fold
                            #   claude --bg never runs in the home folder)
 model = ""
 effort = ""                # of the global session at every start (empty: its own /effort, else the one of [agent])
+context = "auto"           # its context at most: compacted once it reaches this size (100k to 1M; auto: the window of the
+                           # model); a smaller one costs less at every turn and reloads less after its cache expired
 permission_mode = "bypassPermissions" # of the global session, applied at every start: it can do anything without
                            # asking (empty: the mode of [agent])
 prompt = "~/.config/claude-cluster/global.md"   # its own system prompt (added to the global CLAUDE.md)
@@ -112,6 +114,13 @@ trash_days = 14            # a closed session stays restorable this many days
 max_parallel = 4           # task queue: sessions working at the same time
 task_result_chars = 6000   # the answer kept in a task (its result, chained with {{tN.result}}): its first characters
 budget_usd = 0.0           # 0 = no budget; reached: the session refuses new prompts (notified)
+context = "auto"           # the context of every other session at most, like [global] context (100k to 1M, auto); the
+                           # global session may give a sub-session its own when it starts it (session_spawn context)
+keep_warm = "off"          # off | chosen (/keepwarm) | all | background: an idle session woken up before its prompt cache
+                           # expires (a tiny turn; the previous wake-up taken back first: one in the conversation at most)
+keep_warm_ttl = 5          # minutes the prompt cache lives (5; 60 with a 1 h cache), counted from the last request
+keep_warm_margin = 45      # the wake-up this many seconds before it expires
+keep_warm_hours = 2        # kept warm so long after the last real prompt or take-back (0: always)
 questions_to_global = true # a question of the agent of a sub-session shown on the global session (its own one greyed);
                            # answered with the keys, the mouse or the voice
 global_answers = false     # the global session is told those questions and may choose their answer

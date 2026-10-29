@@ -22,6 +22,7 @@ File Description:
     #include "Manager.hpp"          // cluster::Manager
     #include "Editor.hpp"           // cluster::CompletionProvider
     #include "Voice.hpp"            // cluster::Voice
+    #include <utility>              // std::pair
     #include <string>               // std::string
     #include <vector>               // std::vector
     #include <set>                  // std::set
@@ -93,6 +94,9 @@ _cold _nodiscard cluster::ActionResult run_action(cluster::Manager& manager, clu
 _cold _nodiscard std::string key_action(const cluster::Config& config, const std::string& key);   // "Ctrl+K" -> "palette"
 _cold _nodiscard cluster::CompletionProvider completion_provider(cluster::Manager& manager, std::function<std::string(void)> session);
 _cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager& manager, const std::string& session, const std::string& line);
+// a model change on scope (here, global, subs, all, a session): the contexts still loaded it reads again (their prompt cache belongs to
+// the old model), in tokens, and how many sessions
+_cold _nodiscard std::pair<std::int64_t, int> model_reload(cluster::Manager& manager, const std::string& model, const std::string& scope, const std::string& current);
 _cold _nodiscard const std::vector<std::pair<std::string, std::string>>& slash_commands(void);  // local /commands <usage, description>
 // the /commands and the skills of a session as they are typed, with where each comes from (local: ours or the user's skills, built-in: the agent,
 // a plugin name, the slug of an imported link); an imported skill is "<slug>:<skill>" (the plain "/<skill>" works too)

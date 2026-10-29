@@ -36,7 +36,11 @@ La session globale tourne sur `[global] model` / `effort` et **fixe le modèle e
 
 Son prompt système porte toujours un **guide de routage** : modèle bon marché et réflexion basse pour les recherches et le travail mécanique, équilibré pour le code ordinaire, premium et réflexion haute seulement pour les problèmes difficiles ; commencer bas et monter sur un vrai échec ; ne jamais passer une grande session sur un modèle plus fort pour une étape (tout son contexte est relu au nouveau prix) mais ouvrir une nouvelle sous-session avec un bref énoncé. L'outil `models_policy` lui donne vos règles en direct : les modèles de son fournisseur avec niveau, prix, s'ils sont coûteux ou autorisés, et ce qu'un tour de chacun vous a vraiment coûté.
 
-Un choix coûteux revient aussitôt en `asked` : la session garde son modèle jusqu'à votre réponse ; Allow l'applique et le dit à la session globale, Deny le garde et dit pourquoi. Ces questions sont les vôtres seules. Un changement que vous faites vous-même (palette, `/model`, `claude-cluster model`) n'est jamais filtré.
+Un choix coûteux revient aussitôt en `asked` : la session garde son modèle jusqu'à votre réponse ; Allow l'applique et le dit à la session globale, Deny le garde et dit pourquoi. Ces questions sont les vôtres seules. Un changement que vous faites vous-même (palette, `/model`, `claude-cluster model`) n'est jamais filtré par la politique.
+
+## Changer le modèle d'une session chargée {#model-change}
+
+Le cache du prompt appartient à un modèle : le tour suivant sur un autre modèle relit **tout le contexte**, écrit dans son cache au prix fort. Un modèle changé pendant que le contexte est encore chargé (son cache vivant, ou un tour en cours) est donc **demandé d'abord**, dans chaque interface : la popup dit combien (*84k tokens utilisés par cette session*, ou le total des *N sessions* de *toutes les sessions*), **Annuler** a le focus (un Entrée par erreur ne change rien), **Changer quand même** l'applique. Un cache déjà expiré change tout de suite : tout est relu de toute façon.
 
 ## Fournisseurs {#backends}
 

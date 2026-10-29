@@ -3,7 +3,7 @@ title = "Settings"
 summary = "The settings page, config.toml, dangerous values, protected settings, the Services tab and searching a setting."
 section = "guide"
 order = 60
-keywords = "profiles profils sync shared partagés settings config.toml f9 dangerous protected services service systemd search profiles providers styles"
+keywords = "profiles profils sync shared partagés settings config.toml f9 dangerous protected services service systemd search profiles providers styles context window compact keep warm wake-up"
 +++
 
 ## The settings page {#page}
@@ -50,6 +50,11 @@ Every claude-cluster of the computer shares `config.toml` and reads it again whe
 ## Plugins and skills {#plugins}
 
 The **Plugins** page (`/plugins`, the palette *Plugins*, in every interface) lists the **sources** first - a repository, a folder, a `.zip` - each with what it offers, has installed and has on, its last sync and its last commit (or its date). A source opened shows its offer as a **checklist**: tick several (or all), then install, remove, turn on or off the ticked ones at once. Each source can be synced now, installed or removed whole, turned off (every item of it off, kept installed) and on again, have its **auto sync** turned off (pulled by hand only), or be dropped. *Sync all* pulls every source; `[plugins] sync_hours` (24) is how often the auto ones are pulled. The settings page keeps only the sources and that period. A source's code runs as you: add only sources you trust.
+
+## Context and keep warm {#context}
+
+- **Context at most** (`[global] context` for the global session, `[sessions] context` for the others; `auto` by default, `100k` to `1M`): the conversation is compacted once it reaches this size (Claude Code `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, given at every start). Every turn costs less, and a wake-up after its cache expired reloads that much, not 1M tokens. The global session may give a sub-session its own when it starts it (`session_spawn` `context`); a value out of 100k..1M is refused.
+- **Keep warm** (`[sessions] keep_warm`: `off`, `chosen`, `all`, `background`): an idle session woken up a little before its prompt cache expires (`keep_warm_ttl`, `keep_warm_margin`), counted from the **last request** of its agent, so a session taken back (Esc) stays warm. A wake-up never piles up: when the last prompt is still a wake-up, it is taken back first and the same prompt sent again on the same cached prefix (one in the conversation at most). Kept warm `keep_warm_hours` after the last real prompt or take-back.
 
 ## Debug and the showcase {#debug}
 

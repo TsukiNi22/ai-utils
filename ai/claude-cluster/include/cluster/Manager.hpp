@@ -109,6 +109,7 @@ struct SpawnRequest {
     bool reply = false;         // its first prompt's answer (and the later wake-up turns) sent back to the global session
     bool oneShot = false;       // a session for one task: closed to the trash once its answer is relayed (sessions.archive_one_shot)
     std::string origin{};       // of its first prompt: mcp | task | schedule (empty: the user)
+    std::string context{};      // its context at most (100k..1M, auto), empty: [sessions] context
 };
 
 struct Notice {
@@ -328,6 +329,7 @@ class Manager {
         _cold void refreshAccount_(void);                   // in a thread: the windows of the account
         _cold void limitMemory_(const std::vector<std::shared_ptr<cluster::Session>>& sessions);
         _cold void restartYoung_(std::set<std::string>& restarted);  // an update: the young safe background items stopped (run again after it), noted
+        _cold void wake_(const std::string& id);                     // a keep-warm wake-up: the previous one taken back first if it is still the last prompt
         _cold void keepWarm_(void);                                  // the idle sessions kept warm woken up before their prompt cache expires // the transcripts in memory: each within its budget, all within the global one
         _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
         void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)

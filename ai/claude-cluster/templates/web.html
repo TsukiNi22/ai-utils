@@ -829,6 +829,30 @@ function toast(text) {
     toast.timer = setTimeout(() => t.classList.add("hidden"), 3500);
 }
 
+// a question with a cost (a model on a loaded context...): Cancel focused (a stray Enter changes nothing), Esc / a click outside cancel too
+function confirmBox(text, label, yes, no) {
+    const veil = el("div", "picker-veil");
+    const card = el("div", "picker");
+    card.style.maxWidth = "min(92vw, 640px)";
+    card.append(Object.assign(el("pre", "info-text"), {textContent: text}));
+    const row = el("div", "row");
+    const cancel = el("button", "primary", "Cancel");
+    const go = el("button", "danger", label);
+    cancel.type = go.type = "button";
+    const done = () => { veil.remove(); document.removeEventListener("keydown", key, true); };
+    const back = () => { done(); if (no) no(); };
+    const key = (event) => { if (event.key === "Escape") { event.preventDefault(); back(); } };
+    cancel.addEventListener("click", back);
+    go.addEventListener("click", () => { done(); yes(); });
+    veil.addEventListener("click", (event) => { if (event.target === veil) back(); });
+    document.addEventListener("keydown", key, true);
+    row.append(cancel, go);
+    card.append(row);
+    veil.append(card);
+    document.body.append(veil);
+    cancel.focus();
+}
+
 // a text of several lines in a popup (the information of a session...): Esc / a click outside closes it
 function infoBox(text) {
     const veil = el("div", "picker-veil");
@@ -2804,6 +2828,14 @@ async function pick(kind, command) {
     if (row) row.scrollIntoView({block: "nearest"});
 }
 
+// a model / mode / effort applied; a model on contexts still loaded: asked first (Cancel focused), what it reads again told
+function applyAsked(request) {
+    act(request).then((d) => {
+        if (d && d.done) toast(d.done);
+        else if (d && d.confirm) confirmBox(d.confirm, "Change anyway", () => act(Object.assign({confirmed: true}, request)).then((r) => { if (r && r.done) toast(r.done); }));
+    });
+}
+
 function scope(kind, value) {
     const subs = (lastState && lastState.sessions || []).filter((s) => s.id !== "g");
     const here = (lastState && lastState.session) || {};
@@ -2818,7 +2850,7 @@ function scope(kind, value) {
     const list = el("div", "picker-list");
     let selected = 0;
     const close = () => { veil.remove(); document.removeEventListener("keydown", keys, true); };
-    const choose = (item) => { close(); act({cmd: "apply", kind, value, scope: item.scope, session: current}).then((d) => { if (d && d.done) toast(d.done); }); };
+    const choose = (item) => { close(); applyAsked({cmd: "apply", kind, value, scope: item.scope, session: current}); };
     const draw = () => [...list.children].forEach((row, i) => row.classList.toggle("selected", i === selected));
     items.forEach((item) => {
         const row = el("div", "picker-row");
@@ -3095,6 +3127,8 @@ async function send(text, picked) {
     if (!text && !files.length) return;
     const alone = /^\/(model|mode|effort|restore)$/.exec(text);
     if (alone && !picked) { pick({model: "model", mode: "mode", effort: "effort", restore: "trash"}[alone[1]], text); return; }
+    const named = /^\/model\s+(\S+)$/.exec(text); // /model <name>: this session, asked first on a loaded context
+    if (named && !files.length) { applyAsked({cmd: "apply", kind: "model", value: named[1], scope: "here", session: current}); return; }
     stopReading();
     jumpToEnd(); // a prompt sent: the end, followed again (like a chat)
     const images = [];

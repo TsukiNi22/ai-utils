@@ -667,6 +667,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
         add_(metrics.current, this->_live);
     } else if (type == "assistant" && event.contains("message")) {
         if (!event.value("parent_tool_use_id", cluster::Json()).is_null()) return; // inside a sub-agent
+        this->_data.spec.cachedAt = cluster::now(); // a request of the agent: its cache written / read now
         if (event.contains("uuid") && event["uuid"].is_string()) this->_data.spec.leaf = event["uuid"].get<std::string>();
         for (const cluster::Json& block: event["message"].value("content", cluster::Json::array())) {
             const std::string kind = block.value("type", std::string());
@@ -1655,7 +1656,7 @@ _cold void cluster::Session::sendNext(void)
     this->touch_();
 }
 
-_cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::string>* dropped)
+_cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::string>* dropped, const bool byUser)
 {
     // like Esc in Claude Code: the `back` last prompts leave the conversation (claude goes on from the message before the
     // oldest of them: --resume-session-at, kept until the next prompt) and the transcript; that prompt comes back to be
@@ -1715,7 +1716,7 @@ _cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::
                 break;
             }
         }
-        {
+        if (byUser) { // a keep-warm wake-up taken back: nothing worth keeping (the backups of the user's rewinds not pushed out)
             std::error_code error;
             const std::filesystem::path folder = cluster::data_dir() / "rewind";
             std::filesystem::create_directories(folder, error);
@@ -1741,6 +1742,7 @@ _cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::
         this->_log.open(this->_launch.log, std::ios::app);
         this->_data.spec.leaf = *point;
         this->_data.spec.resumeAt = *point;
+        if (byUser) this->_data.spec.rewoundAt = cluster::now(); // the user went back: the session is in use (a keep-warm wake-up taken back is not)
         if (point->empty()) this->_data.spec.claudeId.clear(); // its first prompt: a new conversation
         this->_lastPrompt = {};
     }

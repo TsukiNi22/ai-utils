@@ -185,7 +185,7 @@ class Session {
         _cold void limitMemory(const std::uintmax_t bytes, const std::size_t entries); // the memory budget of its entries (the settings of the moment)
         _cold _nodiscard std::uintmax_t memoryUsed(void) const; // the size of its entries in memory
         _cold void trimTo(const std::uintmax_t bytes);     // its oldest entries in memory dropped down to this size (the global budget)
-        _cold _nodiscard cluster::Queued rewind(const int back = 1, std::vector<std::string>* dropped = nullptr);      // claude: the last `back` prompts removed from the conversation, the oldest of them returned (dropped: the prompts after it)
+        _cold _nodiscard cluster::Queued rewind(const int back = 1, std::vector<std::string>* dropped = nullptr, const bool byUser = true); // claude: the last `back` prompts removed from the conversation, the oldest of them returned (dropped: the prompts after it; byUser: a take-back of the user, what was removed kept in rewind/; false: a keep-warm wake-up)
         _nodiscard cluster::Snapshot snapshot(void) const;
         _nodiscard cluster::Snapshot snapshotLight(void) const; // without its entries (never copied): its name, labels, state, metrics
         _nodiscard cluster::SessionSpec spec(void) const;

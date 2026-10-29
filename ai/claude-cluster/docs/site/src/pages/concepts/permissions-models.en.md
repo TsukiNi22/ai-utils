@@ -36,7 +36,11 @@ The global session runs on `[global] model` / `effort` and **sets the model and 
 
 Its system prompt always carries a **routing guide**: cheap model and low thinking for lookups and mechanical work, balanced for ordinary coding, premium and high thinking only for hard problems; start low and escalate on a real failure; never move a large session to a stronger model for one step (its whole context is re-read at the new price) but open a new sub-session with a short brief. The tool `models_policy` gives it your rules live: the models of its provider with tier, price, whether they are costly or allowed, and what a turn of each really cost you.
 
-A costly choice returns at once as `asked`: the session keeps its model until you answer; Allow applies it and tells the global session, Deny keeps it and says why. These questions are yours alone. A change you make yourself (palette, `/model`, `claude-cluster model`) is never gated.
+A costly choice returns at once as `asked`: the session keeps its model until you answer; Allow applies it and tells the global session, Deny keeps it and says why. These questions are yours alone. A change you make yourself (palette, `/model`, `claude-cluster model`) is never gated by the policy.
+
+## Changing the model of a loaded session {#model-change}
+
+The prompt cache belongs to a model: the next turn on another model reads the **whole context again**, written to its cache at full price. So a model changed while the context is still loaded (its cache alive, or a turn running) is **asked first**, in every interface: the popup tells how much (*84k tokens used by this session*, or the total of the *N sessions* of *every session*), **Cancel** is focused (a stray Enter changes nothing), **Change anyway** applies it. A cache already expired changes at once: everything is read again anyway.
 
 ## Backends {#backends}
 

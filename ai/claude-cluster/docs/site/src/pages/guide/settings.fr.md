@@ -3,7 +3,7 @@ title = "Réglages"
 summary = "La page de réglages, config.toml, valeurs dangereuses, réglages protégés, l'onglet Services et la recherche d'un réglage."
 section = "guide"
 order = 60
-keywords = "profiles profils sync shared partagés réglages config.toml f9 dangereux protégés services service systemd recherche profils fournisseurs styles"
+keywords = "profiles profils sync shared partagés réglages config.toml f9 dangereux protégés services service systemd recherche profils fournisseurs styles contexte fenêtre compactage maintien au chaud réveil keep warm"
 +++
 
 ## La page de réglages {#page}
@@ -50,6 +50,11 @@ Chaque claude-cluster de l'ordinateur partage `config.toml` et le relit quand il
 ## Plugins et skills {#plugins}
 
 La page **Plugins** (`/plugins`, la palette *Plugins*, dans chaque interface) liste d'abord les **sources** - un dépôt, un dossier, un `.zip` - chacune avec ce qu'elle propose, a installé et a activé, sa dernière synchronisation et son dernier commit (ou sa date). Une source ouverte montre son offre en **liste à cocher** : cochez-en plusieurs (ou toutes), puis installez, retirez, activez ou désactivez les cochées d'un coup. Chaque source peut être synchronisée tout de suite, installée ou retirée en entier, désactivée (tout ce qu'elle a désactivé, gardé installé) puis réactivée, voir sa **synchro auto** coupée (tirée à la main seulement), ou être retirée. *Sync all* tire toutes les sources ; `[plugins] sync_hours` (24) fixe la fréquence des sources en auto. La page de réglages ne garde que les sources et cette fréquence. Le code d'une source s'exécute en votre nom : n'ajoutez que des sources de confiance.
+
+## Contexte et maintien au chaud {#context}
+
+- **Contexte maximum** (`[global] context` pour la session globale, `[sessions] context` pour les autres ; `auto` par défaut, `100k` à `1M`) : la conversation est compactée dès qu'elle atteint cette taille (Claude Code `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, donné à chaque démarrage). Chaque tour coûte moins, et un réveil après l'expiration de son cache recharge cette taille, pas 1M de tokens. La session globale peut donner le sien à une sous-session quand elle la démarre (`session_spawn` `context`) ; une valeur hors de 100k..1M est refusée.
+- **Maintien au chaud** (`[sessions] keep_warm` : `off`, `chosen`, `all`, `background`) : une session inactive réveillée un peu avant que son cache expire (`keep_warm_ttl`, `keep_warm_margin`), compté depuis la **dernière requête** de son agent, donc une session reprise en arrière (Échap) reste au chaud. Un réveil ne s'empile jamais : quand le dernier prompt est encore un réveil, il est d'abord repris et le même prompt renvoyé sur le même préfixe en cache (un seul dans la conversation au plus). Gardée au chaud `keep_warm_hours` après le dernier vrai prompt ou la dernière reprise.
 
 ## Debug et la vitrine {#debug}
 
