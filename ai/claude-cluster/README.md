@@ -1527,7 +1527,11 @@ before), a tiny turn the agent answers *ok*, so its context is never unloaded; k
 prompt, never when it works or asks. Its background running (shells / agents), only `background` wakes it: that mode keeps
 warm only the sessions waiting on their background (a long compilation: its context not unloaded then loaded again when it ends),
 and leaves them to cool once it ends. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
-`chosen`); the sessions kept warm show **♨** in every list. **In memory** (what the interfaces show) each transcript keeps its newest entries
+`chosen`); the sessions kept warm show **♨** in every list. The wake-up counts from the **last turn** of the session, not from when
+the core or the mode started (a core restarted 4 min after the last prompt wakes it 15 s later, not 4 min 15 s). Turned on while its
+cache **already expired**, it asks first (**Cancel** the default): kept warm anyway, one turn runs at once and reads its whole context
+again (cached again, the cost of a new start), then it is kept as usual. The **Cost** panel (terminal, window) and the session line of
+the page / app show its **cache**: `3:42 left` counted down, `in use` during a turn, `expired 12 min ago`. **In memory** (what the interfaces show) each transcript keeps its newest entries
 within **1 MB** (`memory_mb`) and all of them together within **100 MB** (`memory_total_mb`: past it, the oldest entries of each
 leave the memory); the size counts, not a number of entries (`memory_entries`, off by default, adds one). Scrolled to its top, a
 transcript draws more of its entries, then reads the older ones again from its log (`older`: the core keeps them while they are

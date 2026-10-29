@@ -34,6 +34,17 @@ The answer is kept in the task (`result`, up to `[sessions] task_result_chars`) 
 
 ## Schedules {#schedules}
 
+**Schedule a prompt by hand**, like the scheduled tasks of claude.ai: the palette's *Schedule a prompt…* or `/schedule` in any
+session asks, step by step in a popup (the same in the terminal, the window, the page and the app):
+
+1. **to whom**: the global session (the default, first), this session, another one, or a **new session** started then in a folder;
+2. **when**: once in some time (`2h`) or at a time (`18:00`, `2026-11-02 09:00`), every N (`30m`, `2h`, `1d`), every day at, every
+   weekday (Monday to Friday) at, every week at (`fri 17:00`), or a cron rule;
+3. **the prompt** to send.
+
+A wrong time is refused at its step, before the prompt is typed. The schedule is then listed in the Tasks session (pause, edit, run now,
+cancel) like any other.
+
 `claude-cluster schedule add <when> <text> [--target s] [--every N] [--notify]`, `schedule list`, `schedule cancel`, or `schedule_add`, `schedule_list`, `schedule_edit`, `schedule_act`.
 
 | `schedule_add` option | What it does |

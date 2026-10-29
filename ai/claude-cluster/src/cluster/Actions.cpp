@@ -17,13 +17,14 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Display.hpp"
 #include "cluster/Actions.hpp"
-#include "cluster/Docs.hpp"
 #include "cluster/Machine.hpp"
 #include "cluster/Plugins.hpp"
 #include "cluster/Models.hpp"
 #include "cluster/Stats.hpp"
 #include "cluster/Match.hpp"
 #include "cluster/Tools.hpp"
+#include "cluster/Docs.hpp"
+#include "cluster/Cron.hpp"
 #include "cluster/Web.hpp"
 #include <filesystem>
 #include <algorithm>
@@ -35,6 +36,9 @@ File Description:
 _cold static std::string session_info_(cluster::Manager& manager, const std::string& id); // everything about a session (a popup)
 _cold static std::string jobs_text_(cluster::Manager& manager);                              // what runs in the background (a popup)
 _cold static std::string jobs_kill_(cluster::Manager& manager, const std::string& which);   // stop one of them by its id
+
+_cold static cluster::Json sched_rule_(const std::string& kind, const std::string& value);                           // a schedule made by its steps: its rule
+_cold static cluster::Json sched_options_(const std::string& target, const cluster::Json& rule, const std::string& prompt); // ... and its options
 
 /* actions */
 _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, const std::string& session)
@@ -80,6 +84,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"new_session", "New session: folder [backend]", "folder [backend]", ".", false},
         {"new_project", "New session on a project of this computer (search it by its name)", "", "", true},
         {"tasks_view", "Tasks: the todo lists of the sessions, the task queue, the schedules", "", "", false},
+        {"sched_new", "Schedule a prompt… (at a time or repeated: to the global session, this one, another or a new one)", "", "", false},
         {"send", "Send a prompt to the session", "prompt", "", false},
     };
 
@@ -369,6 +374,34 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             const cluster::Json patch = {{field == "when" || field == "text" || field == "every" || field == "cron" ? field : "text", cluster::trim(input)}};
             const cluster::Json done = manager.scheduleEdit(arg.substr(0, colon), patch);
             result.message = "schedule " + arg.substr(0, colon) + " changed: next " + done.value("at", std::string("-"));
+        } else if (base == "sched_new") { // 1. to whom (the global session first: the default)
+            result.ui = "pick:sched_to:" + manager.resolve(session);
+        } else if (base == "sched_pick") { // ... another session: the list
+            result.ui = "pick:sched_session:";
+        } else if (base == "sched_when") { // 2. when; a new session: its folder checked now
+            std::string target = arg;
+            if (target == "new") {
+                if (cluster::trim(input).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "the folder of the new session");
+                target = "new=" + cluster::resolve_folder(cluster::trim(input)).string();
+            }
+            result.ui = "pick:sched_how:" + target;
+        } else if (base == "sched_text") { // 3. its time checked, then the prompt
+            const cluster::Json rule = sched_rule_(arg.substr(arg.find('|') + 1), cluster::trim(input));
+            (void)manager.addScheduleJson(sched_options_(arg.substr(0, arg.find('|')), rule, "check"), "", true); // refused now, not after the prompt
+            result.ui = "pick:sched_make:" + arg + "|" + cluster::trim(input);
+        } else if (base == "sched_make") { // 4. made
+            const std::vector<std::string> parts = cluster::split(arg, '|');
+            if (parts.size() < 3 || cluster::trim(input).empty())
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "the prompt to send is empty");
+            std::string value = parts[2];
+            for (std::size_t i = 3; i < parts.size(); ++i)
+                value += "|" + parts[i];
+            const cluster::Json made = manager.addScheduleJson(sched_options_(parts[0], sched_rule_(parts[1], value), cluster::trim(input)));
+            std::string rule = "-";
+            for (const cluster::Schedule& w: manager.schedules())
+                if (w.id == made.value("id", std::string())) rule = cluster::schedule_rule(w);
+            result.message = "schedule " + made.value("id", std::string()) + " made: " + rule + " · next " + made.value("next", std::string("-"))
+                + " (Tasks: its list, pause, edit, cancel)";
         } else if (base == "task_menu") {
             result.ui = "pick:task:" + arg;
         } else if (base == "sched_menu") {
@@ -496,7 +529,12 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             result.message = session_info_(manager, session);
             result.ui = "message"; // a popup in every interface
         } else if (base == "keep_warm") {
-            result.message = manager.setKeepWarm(session, "toggle");
+            if (manager.warmExpired(session, "toggle")) {
+                result.message = "its prompt cache already expired: keep it warm anyway?";
+                result.ui = "pick:warm:" + manager.resolve(session); // Cancel first
+            } else result.message = manager.setKeepWarm(session, "toggle");
+        } else if (base == "keep_warm_force") { // kept warm anyway: its cache expired, one wake-up now
+            result.message = manager.warmNow(arg.empty() ? session : arg);
         } else if (base == "upgrade") { // the update by hand: its progress popup (waiting for the turns, saving, starting the new version) in every interface
             result.message = manager.upgradeAct("update");
         } else if (base == "pin_display" || base == "pin_entry" || base == "pin_last") {
@@ -672,6 +710,7 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"mcp", "the MCP servers given to the sessions: a popup"},
         {"plugins", "the plugins browser: sources (repositories, folders, .zip), install / remove, on / off, their files"},
         {"update", "the newer claude-cluster installed: updated now (the turns end first, the sessions kept), an ignored one too; 'check': asked again in its popup"},
+        {"schedule", "a prompt sent at a time or repeated (every N, every day / weekday / week at, a cron) to the global session, this one, another or a new one"},
         {"keepwarm", "[on|off]: this session kept warm - woken up a little before its prompt cache expires (its context never unloaded); ♨ on it"},
         {"rewind", "go back in the conversation: the chooser of its prompts (= Esc on an empty prompt)"},
         {"exit", "close the session (= /close)"},
@@ -738,6 +777,55 @@ _cold std::string cluster::source_color(const std::string& source)
     return palette[hash % palette.size()];
 }
 
+// a schedule made by its steps: its rule from the kind picked (in, at, every, daily, weekdays, weekly, cron) and the value typed
+_cold static cluster::Json sched_rule_(const std::string& kind, const std::string& value)
+{
+    const std::function<void(const std::string&)> bad = [](const std::string& why) {
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, why);
+    };
+    const std::function<std::string(const std::string&)> clock = [&bad](const std::string& text) { // "09:00" -> "0 9" (min hour of a cron)
+        std::smatch m;
+        if (!std::regex_match(text, m, std::regex(R"((\d{1,2}):(\d{2}))")) || std::stoi(m[1]) > 23 || std::stoi(m[2]) > 59) bad("a time HH:MM, not '" + text + "'");
+        return std::to_string(std::stoi(m[2])) + " " + std::to_string(std::stoi(m[1]));
+    };
+    const std::string v = cluster::trim(value);
+    if (kind == "in") return {{"when", v.starts_with("+") ? v : "+" + v}};
+    if (kind == "at") return {{"when", v}};
+    if (kind == "every") {
+        std::smatch m;
+        if (!std::regex_match(v, m, std::regex(R"(\+?(\d+)\s*([mhd]))")) || std::stoll(m[1]) <= 0) bad("how often: 30m, 2h, 1d - not '" + v + "'");
+        static const std::map<std::string, std::int64_t> minutes = {{"m", 1}, {"h", 60}, {"d", 1440}};
+        return {{"every", std::stoll(m[1]) * minutes.at(m[2])}};
+    }
+    if (kind == "daily") return {{"cron", clock(v) + " * * *"}};
+    if (kind == "weekdays") return {{"cron", clock(v) + " * * 1-5"}};
+    if (kind == "weekly") {
+        static const std::map<std::string, int> days = {{"sun", 0}, {"mon", 1}, {"tue", 2}, {"wed", 3}, {"thu", 4}, {"fri", 5}, {"sat", 6}};
+        const std::size_t space = v.find(' ');
+        const std::string day = cluster::lower(v.substr(0, std::min<std::size_t>(space, 3)));
+        if (space == std::string::npos || !days.contains(day)) bad("a day and a time: mon 09:00 - not '" + v + "'");
+        return {{"cron", clock(cluster::trim(v.substr(space + 1))) + " * * " + std::to_string(days.at(day))}};
+    }
+    if (kind == "cron") return {{"cron", v}};
+    bad("unknown kind of time " + kind);
+    return {};
+}
+
+// its options: a prompt to a session (g: the global one), or a new session started then (new=<folder>) with the prompt
+_cold static cluster::Json sched_options_(const std::string& target, const cluster::Json& rule, const std::string& prompt)
+{
+    cluster::Json options = rule;
+    options["text"] = prompt;
+    if (target.starts_with("new=")) {
+        options["action"] = "spawn";
+        options["cwd"] = target.substr(4);
+    } else {
+        options["action"] = "prompt";
+        options["session"] = target;
+    }
+    return options;
+}
+
 _cold std::set<std::string> cluster::slash_known(cluster::Manager& manager, const std::string& session)
 {
     std::set<std::string> known;
@@ -760,7 +848,10 @@ _cold std::vector<cluster::PromptMark> cluster::prompt_marks(const std::string& 
             ++at;
             continue;
         }
-        const std::size_t end = std::min(text.find_first_of(" \n", at), text.size());
+        std::size_t end = std::min(text.find_first_of(" \n", at), text.size());
+        if (text[at] == '@') // a path: "\ " is a space of its name (Rail\ Empire/), the mark goes on
+            while (end < text.size() && text[end] == ' ' && text[end - 1] == '\\')
+                end = std::min(text.find_first_of(" \n", end + 1), text.size());
         if (text[at] == '@') marks.push_back({at, end, cluster::MarkKind::File});
         else if (text.compare(at, 2, "::") == 0) marks.push_back({at, end, cluster::MarkKind::Session});
         else if (text[at] == '/' && end - at > 1) {
@@ -1187,9 +1278,14 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
             result.ui = "message";
         } else if (name == "plugins") {
             result.ui = "plugins";
+        } else if (name == "schedule") { // /schedule: a prompt at a time or repeated (its steps in a popup)
+            result.ui = "pick:sched_to:" + manager.resolve(session);
         } else if (name == "keepwarm") { // /keepwarm [on|off]: this session kept warm (toggled without a word)
             const std::string value = cluster::trim(arg) == "on" || cluster::trim(arg) == "off" ? cluster::trim(arg) : std::string("toggle");
-            result.message = manager.setKeepWarm(session, value);
+            if (manager.warmExpired(session, value)) {
+                result.message = "its prompt cache already expired: keep it warm anyway?";
+                result.ui = "pick:warm:" + manager.resolve(session);
+            } else result.message = manager.setKeepWarm(session, value);
         } else if (name == "update") { // /update: the update now; /update check: its popup again (an ignored version too), or up to date
             result.message = manager.upgradeAct(cluster::trim(arg) == "check" ? "offer" : "update");
         } else if (name == "agents") {
@@ -1417,6 +1513,49 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
             out.push_back({"sched_act:" + id + (w.archived ? ":unarchive" : ":archive"), w.archived ? "Back in the list" : "Archive " + id, "", "", false});
             out.push_back({"sched_act:" + id + ":delete", "Delete " + id + " for good", told, "", false});
         }
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("sched_to:")) {
+        const std::string current = cluster::trim(wanted.substr(9));
+        if (manager.snapshot(GLOBAL_ID)) out.push_back({"sched_when:" + std::string(GLOBAL_ID), "To the global session (default)", "", "", false});
+        if (const std::optional<cluster::Snapshot> here = manager.snapshot(current); here && current != GLOBAL_ID && current != TASKS_ID)
+            out.push_back({"sched_when:" + current, "To this session (" + here->spec.name + ")", "", "", false});
+        out.push_back({"sched_pick", "To another session…", "", "", false});
+        out.push_back({"sched_when:new", "To a new session (started then, in a folder)", "its folder (~/..., /..., or a mapped project)", "", false});
+        out.push_back({"cancel", "Cancel", "", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("sched_session:")) {
+        for (const cluster::Snapshot& s: manager.list(true))
+            if (s.spec.id != GLOBAL_ID && s.spec.id != TASKS_ID) out.push_back({"sched_when:" + s.spec.id, s.spec.name + "  · " + cluster::short_path(s.spec.cwd), "", "", false});
+        if (out.empty()) out.push_back({"cancel", "No other session", "", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("sched_how:")) {
+        const std::string target = cluster::trim(wanted.substr(10));
+        out.push_back({"sched_text:" + target + "|in", "Once, in some time…", "how long: 30m, 2h, 1d", "1h", false});
+        out.push_back({"sched_text:" + target + "|at", "Once, at a time…", "HH:MM (today, else tomorrow) or YYYY-MM-DD HH:MM", "09:00", false});
+        out.push_back({"sched_text:" + target + "|every", "Every…", "how often: 30m, 2h, 1d (the first after that much)", "1h", false});
+        out.push_back({"sched_text:" + target + "|daily", "Every day at…", "HH:MM", "09:00", false});
+        out.push_back({"sched_text:" + target + "|weekdays", "Every weekday (Monday to Friday) at…", "HH:MM", "09:00", false});
+        out.push_back({"sched_text:" + target + "|weekly", "Every week at…", "a day and a time: mon 09:00", "mon 09:00", false});
+        out.push_back({"sched_text:" + target + "|cron", "A cron rule…", "min hour day month weekday (0 9 * * 1-5)", "0 9 * * 1-5", false});
+        out.push_back({"cancel", "Cancel", "", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("sched_make:")) {
+        const std::string rest = cluster::trim(wanted.substr(11));
+        out.push_back({"sched_make:" + rest, "Write the prompt to send…", "the prompt", "", false});
+        out.push_back({"cancel", "Cancel", "", "", false});
+        return out;
+    }
+    if (cluster::lower(wanted).starts_with("warm:")) {
+        // keep warm while its cache already expired: Cancel first (a stray Enter keeps it cold)
+        const std::string id = cluster::trim(wanted.substr(5));
+        const std::optional<cluster::Snapshot> snap = manager.snapshot(id);
+        if (!snap) return out;
+        out.push_back({"cancel", "Cancel: leave " + snap->spec.name + " cold (its cache " + cluster::cache_text(manager.config(), *snap) + ")", "", "", false});
+        out.push_back({"keep_warm_force:" + id, "Keep it warm anyway: one turn now reads its whole context again (cached again: the cost of a new start)", "", "", false});
         return out;
     }
     if (cluster::lower(wanted).starts_with("archive:")) {

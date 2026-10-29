@@ -622,6 +622,40 @@ _cold std::string cluster::Manager::setKeepWarm(const std::string& id, const std
         + "; woken up " + std::to_string(this->_config.keepWarmMargin) + " s before its " + std::to_string(this->_config.keepWarmTtl) + " min cache expires)";
 }
 
+_nodiscard std::optional<std::int64_t> cluster::cache_left(const cluster::Config& c, const cluster::Snapshot& s)
+{
+    // the cache is written by every turn: its last user / assistant entry (a notice never touches it)
+    for (auto it = s.entries.rbegin(); it != s.entries.rend(); ++it)
+        if (it->kind == cluster::EntryKind::User || it->kind == cluster::EntryKind::Assistant)
+            return static_cast<std::int64_t>(c.keepWarmTtl) * 60 - (cluster::now() - it->time);
+    return std::nullopt;
+}
+
+_nodiscard std::string cluster::cache_text(const cluster::Config& c, const cluster::Snapshot& s)
+{
+    if (s.state == cluster::State::Working) return "in use";
+    const std::optional<std::int64_t> left = cluster::cache_left(c, s);
+    if (!left) return "-";
+    if (*left > 0) return std::to_string(*left / 60) + ":" + (*left % 60 < 10 ? "0" : "") + std::to_string(*left % 60) + " left";
+    return -*left < 60 ? "expired just now" : -*left < 7200 ? "expired " + std::to_string(-*left / 60) + " min ago" : "expired " + std::to_string(-*left / 3600) + " h ago";
+}
+
+_cold bool cluster::Manager::warmExpired(const std::string& id, const std::string& value)
+{
+    // on (or a toggle to on) while its last turn is older than the cache: left to cool unless the user wants it anyway
+    const std::optional<cluster::Snapshot> s = this->snapshot(this->resolve(id));
+    if (!s || value == "off" || (value == "toggle" && s->spec.keepWarm) || s->state == cluster::State::Working) return false;
+    const std::optional<std::int64_t> left = cluster::cache_left(this->_config, *s);
+    return left && *left <= 0;
+}
+
+_cold std::string cluster::Manager::warmNow(const std::string& id)
+{
+    const std::string done = this->setKeepWarm(id, "on");
+    this->send(this->resolve(id), std::string(KEEP_WARM_MARK) + " nothing to do: reply with just: ok]", false, {}, "wake");
+    return done + " - woken up now: its context read again and cached";
+}
+
 _cold void cluster::Manager::keepWarm_(void)
 {
     // an idle session kept warm, its last entry close to the end of its prompt cache (ttl - margin): a tiny turn now, the cache read again

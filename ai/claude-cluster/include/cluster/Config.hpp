@@ -372,8 +372,8 @@ class Config {
         cluster::OrchConf orch;
         // ---------- Function -------- //
         _nodiscard inline const std::filesystem::path& path(void) const {return this->_path;};
-        _nodiscard inline const std::string& error(void) const {return this->_error;};   // last parse error (the previous values are kept)
-        _nodiscard inline bool mcpTool(const std::string& tool) const {return !this->mcpTools.contains(tool) || this->mcpTools.at(tool);};  // on for the global session
+        _nodiscard inline const std::string& error(void) const          {return this->_error;};   // last parse error (the previous values are kept)
+        _nodiscard inline bool mcpTool(const std::string& tool) const   {return !this->mcpTools.contains(tool) || this->mcpTools.at(tool);};  // on for the global session
 
         // ---------- Constructor -------- //
         _cold Config(void);

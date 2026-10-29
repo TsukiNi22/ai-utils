@@ -133,6 +133,10 @@ _cold bool start_core(const std::vector<std::string>& args = {});   // the core 
 _nodiscard inline bool keep_warm_on(const cluster::Config& c, const cluster::SessionSpec& s) {return c.keepWarm == "all" || (c.keepWarm == "chosen" && s.keepWarm);};
 // the same for a session as it is now: background, only while it waits on its background (shells / agents running, a long compilation)
 _nodiscard inline bool keep_warm_on(const cluster::Config& c, const cluster::Snapshot& s) {return c.keepWarm == "background" ? cluster::background_busy(s) : keep_warm_on(c, s.spec);};
+// the prompt cache of a session: seconds left before it expires ([sessions] keep_warm_ttl after its last turn; <= 0: expired that long ago),
+// none before its first turn
+_nodiscard std::optional<std::int64_t> cache_left(const cluster::Config& c, const cluster::Snapshot& s);
+_nodiscard std::string cache_text(const cluster::Config& c, const cluster::Snapshot& s); // "3:42 left", "in use", "expired 12 min ago", "-"
 
 //----------------------------------------------------------------//
 /* CLASS */
@@ -428,6 +432,8 @@ class Manager {
         _cold void togglePanel(const std::string& id, const std::string& panel);
         _cold cluster::Json loadOlder(const std::string& id, const std::size_t count); // older entries of its transcript loaded again from its log ({loaded, older})
         _cold std::string setKeepWarm(const std::string& id, const std::string& value); // on | off | toggle: the session kept warm (the mode chosen if off)
+        _cold _nodiscard bool warmExpired(const std::string& id, const std::string& value);  // turned on by it while its prompt cache already expired (asked first)
+        _cold std::string warmNow(const std::string& id);                                    // kept warm anyway: one wake-up now, its context cached again
         _cold void setRemote(const bool on);
 
         /* tasks (Manager-Tasks.cpp) */
@@ -564,29 +570,29 @@ class Manager {
         _nodiscard std::vector<cluster::Json> statsEvents(const std::int64_t since) const;                  // the events since (unix s)
 
         // ---------- Function -------- //
-        _nodiscard inline bool replica(void) const {return this->_replica != nullptr;};
-        _nodiscard inline bool hadClients(void) const {return this->_hadClients;};
-        _nodiscard inline bool background(void) const {return this->_background;};
-        _nodiscard inline std::int64_t backgroundSince(void) const {return this->_background ? this->_backgroundSince : 0;};
-        inline void askRestoreLater(void) {this->_restoreAsk = true;};   // its first interface asks the previous run
-        inline void setVoice(cluster::Voice* voice) {this->_voice = voice;};
-        _nodiscard inline cluster::Voice* voice(void) const {return this->_voice;};
-        _nodiscard inline std::int64_t startedAt(void) const {return this->_startedAt;};   // the start of this run (unix s)
-        _cold _nodiscard inline bool progressActive(void) const {return !this->progressQueue_().empty();}; // one running or its result shown (the interfaces redraw)
+        _nodiscard inline bool replica(void) const                                                              {return this->_replica != nullptr;};
+        _nodiscard inline bool hadClients(void) const                                                           {return this->_hadClients;};
+        _nodiscard inline bool background(void) const                                                           {return this->_background;};
+        _nodiscard inline std::int64_t backgroundSince(void) const                                              {return this->_background ? this->_backgroundSince : 0;};
+        inline void askRestoreLater(void)                                                                       {this->_restoreAsk = true;};   // its first interface asks the previous run
+        inline void setVoice(cluster::Voice* voice)                                                             {this->_voice = voice;};
+        _nodiscard inline cluster::Voice* voice(void) const                                                     {return this->_voice;};
+        _nodiscard inline std::int64_t startedAt(void) const                                                    {return this->_startedAt;};   // the start of this run (unix s)
+        _cold _nodiscard inline bool progressActive(void) const                                                 {return !this->progressQueue_().empty();}; // one running or its result shown (the interfaces redraw)
         _cold inline void notice(const std::string& session, const std::string& text, const bool error = false) {this->notice_(session, text, error);}; // the notices of the interfaces
-        inline void requestMachineSync(void) {++this->_machineRequest; ++this->_version;};  // the interfaces ask the user (its popup)
-        inline void restartGlobalAfterTurn(void) {this->_restartAfterTurn = true;};          // after the turn running (it asked it)
-        inline void machineLater(void) {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
-        inline void machineDecline(void) {this->setUi("machine", "no");};
-        inline void requestRaise(const std::string& token = "") {{std::lock_guard<std::mutex> lock(this->_mutex); this->_raiseToken = token;} ++this->_raiseVersion; ++this->_version;};
-        _nodiscard inline std::string active(void) const {return this->_active;};
-        _nodiscard inline cluster::Auth& auth(void) {return this->_auth;};
-        _nodiscard inline cluster::Config& config(void) {return this->_config;};
-        _nodiscard inline bool remote(void) const {return this->ui("remote", "false") == "true";}; // Remote Control of the global session
-        inline void setWeb(cluster::Web* web) {this->_web = web;};
-        _nodiscard inline cluster::Asking& asking(void) {return *this->_asking;};
-        _nodiscard inline cluster::Web* web(void) const {return this->_web;};
-        _nodiscard inline std::uint64_t pushSeq(void) const {return this->_pushSeq.load();};   // the last notification published to the app
+        inline void requestMachineSync(void)                                                                    {++this->_machineRequest; ++this->_version;};  // the interfaces ask the user (its popup)
+        inline void restartGlobalAfterTurn(void)                                                                {this->_restartAfterTurn = true;};          // after the turn running (it asked it)
+        inline void machineLater(void)                                                                          {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
+        inline void machineDecline(void)                                                                        {this->setUi("machine", "no");};
+        inline void requestRaise(const std::string& token = "")                                                 {{std::lock_guard<std::mutex> lock(this->_mutex); this->_raiseToken = token;} ++this->_raiseVersion; ++this->_version;};
+        _nodiscard inline std::string active(void) const                                                        {return this->_active;};
+        _nodiscard inline cluster::Auth& auth(void)                                                             {return this->_auth;};
+        _nodiscard inline cluster::Config& config(void)                                                         {return this->_config;};
+        _nodiscard inline bool remote(void) const                                                               {return this->ui("remote", "false") == "true";}; // Remote Control of the global session
+        inline void setWeb(cluster::Web* web)                                                                   {this->_web = web;};
+        _nodiscard inline cluster::Asking& asking(void)                                                         {return *this->_asking;};
+        _nodiscard inline cluster::Web* web(void) const                                                         {return this->_web;};
+        _nodiscard inline std::uint64_t pushSeq(void) const                                                     {return this->_pushSeq.load();};   // the last notification published to the app
 
         // ---------- Constructor -------- //
         _cold Manager(cluster::Config& config);

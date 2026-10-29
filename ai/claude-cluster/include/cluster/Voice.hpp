@@ -111,12 +111,12 @@ class Voice {
 
         // ---------- Function -------- //
         // an interface of the core: the state of the voice of its core
-        _nodiscard inline bool ready(void) const {return this->_manager.replica() ? this->remote_().value("ready", false) : this->_ready.load();};
-        _nodiscard inline bool running(void) const {return this->_manager.replica() ? this->remote_().value("running", false) : this->_listening.load();};
-        _nodiscard inline bool speaking(void) const {return this->_manager.replica() ? this->remote_().value("speaking", false) : this->_sayPid > 0;};
+        _nodiscard inline bool ready(void) const            {return this->_manager.replica() ? this->remote_().value("ready", false) : this->_ready.load();};
+        _nodiscard inline bool running(void) const          {return this->_manager.replica() ? this->remote_().value("running", false) : this->_listening.load();};
+        _nodiscard inline bool speaking(void) const         {return this->_manager.replica() ? this->remote_().value("speaking", false) : this->_sayPid > 0;};
         _nodiscard inline std::uint64_t version(void) const {return this->_manager.replica() ? this->remote_().value("version", std::uint64_t{0}) : this->_version.load();};
         _cold _nodiscard inline std::string correct(const std::string& text) {return cluster::vocabulary_correct(text, this->terms_());}; // the proper names written back
-        _cold _nodiscard inline std::vector<std::string> setup(void) const {return cluster::voice_missing(this->_manager.config());}; // what is missing
+        _cold _nodiscard inline std::vector<std::string> setup(void) const   {return cluster::voice_missing(this->_manager.config());}; // what is missing
 
         // ---------- Constructor -------- //
         _cold Voice(cluster::Manager& manager);

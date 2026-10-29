@@ -34,6 +34,18 @@ La réponse est gardée dans la tâche (`result`, jusqu'à `[sessions] task_resu
 
 ## Planifications {#schedules}
 
+**Planifier un prompt à la main**, comme les tâches planifiées de claude.ai : *Schedule a prompt…* dans la palette ou `/schedule` dans
+n'importe quelle session demande, étape par étape dans une popup (pareil dans le terminal, la fenêtre, la page et l'app) :
+
+1. **à qui** : la session globale (par défaut, en premier), cette session, une autre, ou une **nouvelle session** lancée à ce moment-là
+   dans un dossier ;
+2. **quand** : une fois dans un délai (`2h`) ou à une heure (`18:00`, `2026-11-02 09:00`), toutes les N (`30m`, `2h`, `1d`), tous les
+   jours à, chaque jour de semaine (lundi au vendredi) à, chaque semaine à (`fri 17:00`), ou une règle cron ;
+3. **le prompt** à envoyer.
+
+Une heure invalide est refusée à son étape, avant d'écrire le prompt. La planification apparaît ensuite dans la session Tasks (pause,
+modifier, lancer maintenant, annuler) comme les autres.
+
 `claude-cluster schedule add <quand> <texte> [--target s] [--every N] [--notify]`, `schedule list`, `schedule cancel`, ou `schedule_add`, `schedule_list`, `schedule_edit`, `schedule_act`.
 
 | Option de `schedule_add` | Effet |

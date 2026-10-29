@@ -31,10 +31,10 @@ File Description:
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
+#include <ftxui/screen/terminal.hpp>
+#include <ftxui/screen/screen.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
-#include <ftxui/screen/screen.hpp>
-#include <ftxui/screen/terminal.hpp>
 #include <sys/stat.h>
 #include <functional>
 #include <algorithm>
@@ -55,9 +55,9 @@ File Description:
 
 namespace {
     // a selection of the mouse drawn on what is under it (its cells inverted)
-    class Selected : public ftxui::Node {
+    class Selected: public ftxui::Node {
         public:
-            Selected(ftxui::Element child, std::function<bool(int, int)> in, std::string* text) : ftxui::Node({std::move(child)}), _in(std::move(in)), _text(text) {}
+            Selected(ftxui::Element child, std::function<bool(int, int)> in, std::string* text): ftxui::Node({std::move(child)}), _in(std::move(in)), _text(text) {}
 
             void ComputeRequirement(void) override
             {

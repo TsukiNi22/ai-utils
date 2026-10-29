@@ -93,11 +93,11 @@ class LineEditor {
 
         // ---------- Function -------- //
         _nodiscard inline const std::string& text(void) const {return this->_editor.text();};
-        _nodiscard inline std::size_t cursor(void) const {return this->_editor.cursor();};
-        _nodiscard inline cluster::Editor& editor(void) {return this->_editor;};
-        _nodiscard inline bool multiline(void) const {return this->_multiline;};
-        _cold inline void insert(const std::string& text) {this->_editor.insert(text);};
-        _cold inline void setMultiline(const bool on) {this->_multiline = on;};
+        _nodiscard inline std::size_t cursor(void) const      {return this->_editor.cursor();};
+        _nodiscard inline cluster::Editor& editor(void)       {return this->_editor;};
+        _nodiscard inline bool multiline(void) const          {return this->_multiline;};
+        _cold inline void insert(const std::string& text)     {this->_editor.insert(text);};
+        _cold inline void setMultiline(const bool on)         {this->_multiline = on;};
 
         // ---------- Constructor -------- //
         LineEditor(void) = default;

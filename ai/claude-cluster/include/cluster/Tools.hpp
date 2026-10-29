@@ -76,7 +76,7 @@ _nodiscard std::string content_hash(const std::string& bytes);   // FNV-1a 64, h
 _nodiscard inline std::int64_t now(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
 // a paste between its two invisible marks (tag characters): told to the agent only, the user sees the text alone
 _nodiscard inline std::string paste_mark(const std::string& text) {return text.empty() ? text : slash_tag("paste{") + text + slash_tag("}paste");};
-_nodiscard inline std::int64_t now_ms(void) {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
+_nodiscard inline std::int64_t now_ms(void)                       {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();};
 // seconds this computer was awake (a monotonic clock: a sleep / suspend never counts, unlike now())
 _nodiscard inline std::int64_t awake_s(void) {return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();};
 // a program run, each line of its output (and its errors) given as it comes; its exit code (-1: not run)
@@ -150,7 +150,7 @@ _cold _nodiscard bool debug_on(const std::string& topic);                       
 _cold void debug(const std::string& topic, const std::string& text);                // one line, only when its topic is on
 _cold _nodiscard std::string platform_summary(void);                                // OS, session (wayland / x11), desktop, terminal
 _cold _nodiscard inline std::filesystem::path debug_log_path(void) {return cluster::data_dir() / "debug.log";};
-_cold inline void ignore_hangup(void) {(void)std::signal(SIGHUP, SIG_IGN);}; // the terminal closed leaves the process running (the core kept in background)
+_cold inline void ignore_hangup(void)                              {(void)std::signal(SIGHUP, SIG_IGN);}; // the terminal closed leaves the process running (the core kept in background)
 _cold void catch_quit_signals(void);    // SIGINT, SIGTERM, SIGHUP (terminal closed), SIGQUIT: quit_requested() (reset by exec)
 _cold void set_program_args(const int argc, char** argv);   // the arguments of this run (an update runs them again)
 _cold void upgrade_request(const bool restore);             // after the quit: the binary on disk run again, its arguments (+ --restore)

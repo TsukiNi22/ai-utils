@@ -50,8 +50,8 @@ _cold _nodiscard std::vector<cluster::ServiceLine> service_lines(const std::stri
 _cold _nodiscard std::vector<std::pair<std::string, std::string>> service_buttons(const std::string& name, const cluster::Json& all);
 _cold _nodiscard inline bool service_risky(const std::string& name, const std::string& action) {return (name == "core" && (action == "restart" || action == "stop")) || (name == "service" && action == "remove") || (name.starts_with("profile:") && (action == "apply" || action == "save_over" || action == "purge"));};
 // a button that asks a text first: "ask:<action>:<question>" (the interface asks it, then sends <action>:<text>)
-_nodiscard inline bool service_asks(const std::string& action) {return action.starts_with("ask:");};
-_nodiscard inline std::string service_ask_action(const std::string& action) {return action.substr(4, action.find(':', 4) - 4);};
+_nodiscard inline bool service_asks(const std::string& action)                {return action.starts_with("ask:");};
+_nodiscard inline std::string service_ask_action(const std::string& action)   {return action.substr(4, action.find(':', 4) - 4);};
 _nodiscard inline std::string service_ask_question(const std::string& action) {return action.find(':', 4) == std::string::npos ? std::string("Text") : action.substr(action.find(':', 4) + 1);};
 
 } // namespace end

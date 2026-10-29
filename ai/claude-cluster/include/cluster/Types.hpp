@@ -72,7 +72,7 @@ struct Usage {
     std::int64_t cacheCreation1h = 0;   // the part kept 1 h (priced 2x, the 5 min one 1.25x)
     std::int64_t thinking = 0;          // of the output
 
-    _nodiscard std::int64_t total(void) const {return input + output + cacheRead + cacheCreation;};
+    _nodiscard std::int64_t total(void) const   {return input + output + cacheRead + cacheCreation;};
     _nodiscard std::int64_t context(void) const {return input + cacheRead + cacheCreation + output;};
 };
 
@@ -474,7 +474,7 @@ _nodiscard inline bool background_busy(const cluster::Snapshot& s) {return s.sta
 
 // The labels of a session: "a b c" (the tags, to edit) and "bugfix · #a #b" (its category and tags, to show)
 _nodiscard inline std::string join_labels(const std::vector<std::string>& tags) {std::string out; for (const std::string& tag: tags) out += (out.empty() ? "" : " ") + tag; return out;};
-_nodiscard inline std::string label_text(const cluster::SessionSpec& spec) {std::string out = spec.category; for (const std::string& tag: spec.tags) out += (out.empty() ? "#" : " #") + tag; return out;};
+_nodiscard inline std::string label_text(const cluster::SessionSpec& spec)      {std::string out = spec.category; for (const std::string& tag: spec.tags) out += (out.empty() ? "#" : " #") + tag; return out;};
 
 // Permission modes of Claude Code (2.1): <mode, description>; "default" is the old name of "manual"
 _nodiscard inline const std::vector<std::pair<std::string, std::string>>& permission_modes(void) {static const std::vector<std::pair<std::string, std::string>> modes = {{"auto", "the classifier allows the safe actions (default of claude-cluster)"}, {"manual", "asks for every sensitive tool"}, {"default", "same as manual"}, {"acceptEdits", "file edits allowed, the rest asked"}, {"plan", "read only, plans"}, {"dontAsk", "never asks: what is not allowed is refused"}, {"bypassPermissions", "everything allowed"}}; return modes;};

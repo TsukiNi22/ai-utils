@@ -86,8 +86,8 @@ class StashPopup {
 
         // ---------- Function -------- //
         _nodiscard inline bool active(void) const {return this->_open;};
-        _cold inline void select(const int row) {this->_selected = row;};
-        _cold inline void close(void) {this->_open = false; this->_ask = cluster::StashAsk::None;};
+        _cold inline void select(const int row)   {this->_selected = row;};
+        _cold inline void close(void)             {this->_open = false; this->_ask = cluster::StashAsk::None;};
 
         // ---------- Constructor -------- //
         StashPopup(void) = default;

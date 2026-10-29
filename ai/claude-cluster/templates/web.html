@@ -59,6 +59,7 @@ header .muted { color: var(--muted); font-size: 13px; }
 #settings .note { color: var(--muted); font-size: 12px; }
 #docs { width: min(920px, 100vw); } #docs .panel-head a { color: var(--accent); font-size: 13px; text-decoration: none; }
 #docsFrame { flex: 1; border: 0; width: 100%; background: var(--bg); }
+.cache-left.cold { color: var(--warn); }
 button.help { padding: 0 7px; margin-left: 8px; font-size: 12px; border-radius: 50%; line-height: 20px; height: 22px; min-width: 22px; vertical-align: middle; }
 #login .docs-link { display: block; margin-top: 14px; font-size: 13px; color: var(--muted); }
 #side { border-right: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; min-width: 0; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
@@ -1338,6 +1339,9 @@ function render(state) {
     }
     $("sessionName").textContent = s.id === "g" ? "global" : s.name || s.id;
     $("sessionInfo").textContent = [s.warning ? "⚠ " + s.warning : "", s.state, s.model_label || s.model, s.auth, s.effort_label || (s.effort ? "think " + s.effort : ""), s.mode, s.queued ? s.queued + " queued" : ""].filter(Boolean).join(" · ");
+    // its prompt cache: counted down here (the time it unloads), "in use" during a turn
+    cacheOf = typeof s.cache_left === "number" ? {left: s.cache_left, at: Date.now(), running: s.state === "working", warm: !!s.keep_warm} : null;
+    showCache();
     // a prompt queued: sent now (the running turn interrupted)
     $("sendNext").classList.toggle("hidden", !s.queued);
     // retry now (an API error retried later) / continue (stopped: interrupted, an error)
@@ -3161,6 +3165,10 @@ function highlight() {
         if (at !== 0 && text[at - 1] !== " " && text[at - 1] !== "\n") { at++; continue; }
         let end = text.slice(at).search(/[ \n]/);
         end = end < 0 ? text.length : at + end;
+        while (text[at] === "@" && text[end] === " " && text[end - 1] === "\\") { // "\ " a space of the path's name: the mark goes on
+            const next = text.slice(end + 1).search(/[ \n]/);
+            end = next < 0 ? text.length : end + 1 + next;
+        }
         let kind = "";
         if (text[at] === "@" || text.startsWith("::", at)) kind = "mark";
         else if (text[at] === "/" && end - at > 1) {
@@ -3175,6 +3183,18 @@ function highlight() {
     $("promptHl").scrollTop = $("prompt").scrollTop;
 }
 $("prompt").addEventListener("scroll", () => { $("promptHl").scrollTop = $("prompt").scrollTop; });
+let cacheOf = null; // the prompt cache of the open session: seconds left when its state came, counted down every second
+function showCache() {
+    let span = $("cacheLeft");
+    if (!span) { span = el("span", "cache-left", ""); span.id = "cacheLeft"; span.title = "its prompt cache: unloaded when it reaches 0 (Settings > Sessions > Keep warm)"; }
+    if (span.parentNode !== $("sessionInfo")) $("sessionInfo").append(span);
+    if (!cacheOf) { span.textContent = ""; return; }
+    const left = cacheOf.left - Math.floor((Date.now() - cacheOf.at) / 1000);
+    span.textContent = " · cache" + (cacheOf.warm ? " ♨ " : " ") + (cacheOf.running ? "in use" : left > 0 ? Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0") + " left"
+        : -left < 60 ? "expired just now" : "expired " + Math.floor(-left / 60) + " min ago");
+    span.classList.toggle("cold", !cacheOf.running && left <= 0);
+}
+setInterval(showCache, 1000);
 
 $("interrupt").addEventListener("click", () => { stopReading(); act({cmd: "interrupt", session: current}); });
 $("resume").addEventListener("click", () => act({cmd: "resume", session: current}).then((d) => { if (d && d.done) toast(d.done); }));

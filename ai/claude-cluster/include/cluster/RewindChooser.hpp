@@ -54,8 +54,8 @@ class RewindChooser {
 
         // ---------- Function -------- //
         _nodiscard inline bool active(void) const {return this->_open;};
-        _cold inline void select(const int row) {this->_selected = row;};
-        _cold inline void close(void) {this->_open = false;};
+        _cold inline void select(const int row)   {this->_selected = row;};
+        _cold inline void close(void)             {this->_open = false;};
 
         // ---------- Constructor -------- //
         RewindChooser(void) = default;

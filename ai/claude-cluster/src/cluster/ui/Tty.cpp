@@ -1379,7 +1379,7 @@ class TtyUi {
         std::int64_t _statusTime = 0;
 
         // ---------- Pre-Function -------- //
-        _nodiscard bool grouped_(void) const {return this->_manager.ui("group_by_category", this->_manager.config().groupByCategory ? "true" : "false") == "true";};
+        _nodiscard bool grouped_(void) const                            {return this->_manager.ui("group_by_category", this->_manager.config().groupByCategory ? "true" : "false") == "true";};
         _nodiscard std::vector<cluster::Snapshot> sessions_(void) const {return this->_manager.shown();};
 
         // a chip of a label: a color made from its text (the same label, the same color everywhere)
@@ -6005,7 +6005,8 @@ class TtyUi {
             }
             if (s.spec.panels.contains("cost")) {
                 ftxui::Elements body = {line("session", m.costKnown ? cluster::human_cost(m.cost) : "local / unknown"),
-                    line("last turn", m.costKnown ? cluster::human_cost(m.lastCost) : "-")};
+                    line("last turn", m.costKnown ? cluster::human_cost(m.lastCost) : "-"),
+                    line(cluster::keep_warm_on(this->_manager.config(), s) ? "cache ♨" : "cache", cluster::cache_text(this->_manager.config(), s))}; // before it unloads
                 if (this->_manager.config().budget > 0) body.push_back(line("budget", cluster::human_cost(this->_manager.config().budget)));
                 if (m.limit5h >= 0) body.push_back(line("5h limit", std::to_string(static_cast<int>(m.limit5h * 100)) + "%"));
                 if (m.limit7d >= 0) body.push_back(line("7d limit", std::to_string(static_cast<int>(m.limit7d * 100)) + "%"));
@@ -7247,7 +7248,8 @@ class TtyUi {
                 }
                 lines.push_back(ftxui::text(""));
                 const bool lastOne = a.index + 1 >= a.questions.size();
-                lines.push_back(ftxui::hbox({ftxui::text(" ↑↓ move · 1-9 "), ftxui::text(multi ? "tick · " : "choose · "),
+                // the keys: wrapped between two hints (never cut at the border of the popup)
+                lines.push_back(ftxui::flexbox({ftxui::text(" ↑↓ move · "), ftxui::text(multi ? "1-9 tick · " : "1-9 choose · "),
                     multi ? ftxui::hbox({press(ftxui::text("Enter / Space tick"), ftxui::Event::Return), ftxui::text(" · ")}) : press(ftxui::text("Enter validates · "), ftxui::Event::Return),
                     a.index > 0 ? press(ftxui::text("← / Shift+Tab back · "), ftxui::Event::ArrowLeft) : ftxui::emptyElement(),
                     a.questions.size() > 1 || multi ? press(ftxui::text(lastOne ? (a.questions.size() > 1 ? "→ / Tab review · " : "→ / Tab send · ") : "→ / Tab next (the answer kept) · "), ftxui::Event::ArrowRight)

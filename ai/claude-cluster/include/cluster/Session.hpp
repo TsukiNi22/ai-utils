@@ -193,7 +193,7 @@ class Session {
 
         // ---------- Function -------- //
         _nodiscard inline std::uint64_t version(void) const {return this->_version;};
-        _nodiscard inline bool persistent(void) const {return this->_launch.backend.provider.driver == "claude";};   // claude driver: one process for the whole session
+        _nodiscard inline bool persistent(void) const       {return this->_launch.backend.provider.driver == "claude";};   // claude driver: one process for the whole session
         _nodiscard inline const std::string& id(void) const {return this->_launch.spec.id;};
 
         // ------------ Operator ---------- //

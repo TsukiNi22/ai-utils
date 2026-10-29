@@ -351,12 +351,12 @@ class PromptEdit: public QPlainTextEdit {
         void keyPressEvent(QKeyEvent* event) override;
         void insertFromMimeData(const QMimeData* source) override;  // a long text pasted: one [Pasted text #N]; files / images dropped or pasted: attached
         bool canInsertFromMimeData(const QMimeData* source) const override {return source->hasUrls() || source->hasImage() || QPlainTextEdit::canInsertFromMimeData(source);};
-        bool focusNextPrevChild(bool) override {return false;}; // Tab completes, never leaves the prompt
+        bool focusNextPrevChild(bool) override                             {return false;}; // Tab completes, never leaves the prompt
 
     public:
         QString text(void) const {return this->toPlainText();};
         void setText(const QString& text);  // put here (history, stash...): no completion opened by it
-        int cursorPosition(void) const {return this->textCursor().position();};
+        int cursorPosition(void) const   {return this->textCursor().position();};
         bool hasSelectedText(void) const {return this->textCursor().hasSelection();};
         void insert(const QString& text) {this->textCursor().insertText(text);};
         void setSelection(const int start, const int length)
@@ -387,8 +387,8 @@ class PromptEdit: public QPlainTextEdit {
         void attachBytes(const std::string& name, const std::string& bytes);   // a picture of the clipboard / a drop: copied
         void attachOne(const cluster::Attachment& item);                       // in the prompt: [Image #N] or @path
         void reset(void);
-        _nodiscard std::string raw(void) const {return this->completion.atomize(this->text().toStdString());}; // labels -> atoms
-        _nodiscard std::string plain(void) const {return this->completion.expand(this->raw());};               // to send / stash
+        _nodiscard std::string raw(void) const      {return this->completion.atomize(this->text().toStdString());}; // labels -> atoms
+        _nodiscard std::string plain(void) const    {return this->completion.expand(this->raw());};               // to send / stash
         _nodiscard cluster::Draft draft(void) const {return this->completion.draftOf(this->raw());};          // + its images and pastes
         void loadDraft(const cluster::Draft& draft);                                                         // a prompt back, blocks again
         _nodiscard std::optional<std::pair<int, int>> atomNear(const int pos, const int where) const;           // -1 before, 1 after, 0 inside
@@ -7001,7 +7001,8 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
     }
     if (s.spec.panels.contains("cost")) {
         p += title("Cost") + "<table width=\"100%\">" + line("session", m.costKnown ? cluster::human_cost(m.cost) : "local / unknown")
-            + line("last turn", m.costKnown ? cluster::human_cost(m.lastCost) : "-");
+            + line("last turn", m.costKnown ? cluster::human_cost(m.lastCost) : "-")
+            + line(cluster::keep_warm_on(manager.config(), s) ? "cache ♨" : "cache", cluster::cache_text(manager.config(), s)); // before it unloads
         if (manager.config().budget > 0) p += line("budget", cluster::human_cost(manager.config().budget));
         if (m.limit5h >= 0) p += line("5h limit", std::to_string(static_cast<int>(m.limit5h * 100)) + "%");
         if (m.limit7d >= 0) p += line("7d limit", std::to_string(static_cast<int>(m.limit7d * 100)) + "%");
@@ -7284,6 +7285,7 @@ _cold int cluster::supervisor_gui(std::string& open)
                     QGuiApplication::clipboard()->setText(q_(a.cwd));
                     return note->setText(q_(a.cwd + " copied"));
                 }
+                if (clicked != agents && clicked != terminal) return;
                 const std::string opened = clicked == agents ? cluster::open_terminal_command(where, "claude agents") : cluster::open_terminal(where);
                 note->setText(q_(opened.empty() ? "no terminal emulator found (Interface > Terminal emulator)" : "opened in " + opened));
             } catch (const std::exception& e) {

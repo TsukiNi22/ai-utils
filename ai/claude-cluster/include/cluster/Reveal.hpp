@@ -62,7 +62,7 @@ class Reveal {
 
         // ---------- Function -------- //
         _nodiscard inline bool active(void) const {return this->_active;};    // a text is being typed: draw often
-        inline void frameStart(void) {this->_active = false;};               // before the sessions of a drawing
+        inline void frameStart(void)              {this->_active = false;};               // before the sessions of a drawing
 
         // ---------- Constructor -------- //
         Reveal(void) = default;

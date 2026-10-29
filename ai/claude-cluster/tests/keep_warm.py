@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Keep-warm: off by default (nothing woken up); /keepwarm marks a session (the mode becomes chosen, the session listed keep_warm, ♨);
 # idle, it is woken up a little before its prompt cache expires (cache life 1 min, margin 10 s here: ~50 s after its last entry), then
-# again; unmarked: left to cool.
+# again; unmarked: left to cool; turned on while its cache already expired: asked first, kept warm anyway: one wake-up at once.
 # Usage: tests/keep_warm.py [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster)
 """Sessions kept warm before their prompt cache expires."""
 import json
@@ -68,14 +68,21 @@ try:
     time.sleep(70)
     check("off by default: never woken up", wakes() == 0, str(wakes()))
     check("not listed kept warm", listed(sid).get("keep_warm") is False, json.dumps(listed(sid))[:200])
+    check("its cache counted from its last turn (expired: negative)", (listed(sid).get("cache_left") or 0) < 0, json.dumps(listed(sid).get("cache_left")))
     got = ask({"cmd": "slash", "session": sid, "text": "/keepwarm"})
-    check("/keepwarm: kept warm, the mode chosen", "kept warm" in json.dumps(got) and "chosen" in json.dumps(got), json.dumps(got)[:300])
-    check("listed kept warm (♨)", listed(sid).get("keep_warm") is True, json.dumps(listed(sid))[:200])
+    check("/keepwarm, its cache already expired: asked first (Cancel the default)", (got.get("data") or {}).get("ui") == f"pick:warm:{sid}" and wakes() == 0
+          and listed(sid).get("keep_warm") is False, json.dumps(got)[:300])
+    got = ask({"cmd": "action", "id": f"keep_warm_force:{sid}", "session": sid})
+    deadline = time.time() + 20
+    while time.time() < deadline and wakes() == 0:
+        time.sleep(0.5)
+    check("... kept warm anyway: the mode chosen, one wake-up at once", "chosen" in json.dumps(got) and wakes() == 1, json.dumps(got)[:300] + f" wakes {wakes()}")
+    check("listed kept warm (♨), its cache fresh again", listed(sid).get("keep_warm") is True and (listed(sid).get("cache_left") or 0) > 30, json.dumps(listed(sid))[:300])
     ask({"cmd": "send", "session": sid, "text": "a real prompt"})
     deadline = time.time() + 90
-    while time.time() < deadline and wakes() == 0:
+    while time.time() < deadline and wakes() == 1:
         time.sleep(1)
-    check("woken up before its cache expires", wakes() >= 1, str(wakes()))
+    check("woken up before its cache expires", wakes() >= 2, str(wakes()))
     first = wakes()
     deadline = time.time() + 90
     while time.time() < deadline and wakes() == first:

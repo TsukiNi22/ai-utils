@@ -38,7 +38,7 @@ struct ServiceOptions {
 //----------------------------------------------------------------//
 /* FUNCTION */
 
-_cold _nodiscard inline std::filesystem::path service_unit(void) {return cluster::expand_home("~/.config/systemd/user") / "claude-cluster.service";};
+_cold _nodiscard inline std::filesystem::path service_unit(void)   {return cluster::expand_home("~/.config/systemd/user") / "claude-cluster.service";};
 _cold _nodiscard inline std::filesystem::path service_script(void) {return cluster::data_dir() / "wake.py";}; // the detector (from the binary)
 
 // claude-cluster service setup | enable | disable | start | stop | restart | status | remove | logs | run [--verbose] [--debug]

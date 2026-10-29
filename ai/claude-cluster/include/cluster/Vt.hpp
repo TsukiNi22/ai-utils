@@ -86,15 +86,15 @@ class Vt {
         _cold _nodiscard static int width(const std::string& ch);     // 0, 1 or 2 cells (combining, plain, wide)
 
         // ---------- Function -------- //
-        _nodiscard inline int cols(void) const {return this->_cols;};
-        _nodiscard inline int rows(void) const {return this->_rows;};
-        _nodiscard inline int cursorX(void) const {return this->_x;};
-        _nodiscard inline int cursorY(void) const {return this->_y;};
-        _nodiscard inline bool cursorShown(void) const {return this->_cursor;};
-        _nodiscard inline bool mouse(void) const {return this->_mouse;};
-        _nodiscard inline bool bracketedPaste(void) const {return this->_paste;};
-        _nodiscard inline bool synchronizing(void) const {return this->_sync;};
-        _nodiscard inline std::uint64_t changes(void) const {return this->_changes;};
+        _nodiscard inline int cols(void) const                                              {return this->_cols;};
+        _nodiscard inline int rows(void) const                                              {return this->_rows;};
+        _nodiscard inline int cursorX(void) const                                           {return this->_x;};
+        _nodiscard inline int cursorY(void) const                                           {return this->_y;};
+        _nodiscard inline bool cursorShown(void) const                                      {return this->_cursor;};
+        _nodiscard inline bool mouse(void) const                                            {return this->_mouse;};
+        _nodiscard inline bool bracketedPaste(void) const                                   {return this->_paste;};
+        _nodiscard inline bool synchronizing(void) const                                    {return this->_sync;};
+        _nodiscard inline std::uint64_t changes(void) const                                 {return this->_changes;};
         _nodiscard inline const std::vector<std::vector<cluster::VtCell>>& grid(void) const {return this->_grid;};
 };
 
