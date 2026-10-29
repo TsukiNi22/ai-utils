@@ -1463,13 +1463,27 @@ std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) con
     return snapshots;
 }
 
+std::vector<cluster::Snapshot> cluster::Manager::listLight(const bool withGlobal) const
+{
+    // the sessions without their entries: what reads only their names, labels, states (the actions, the menus) never copies them
+    if (this->_replica) return this->replicaLight_(withGlobal);
+    std::vector<cluster::Snapshot> out;
+    std::vector<std::shared_ptr<cluster::Session>> sessions;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto global = this->_sessions.find(GLOBAL_ID);
+        if (withGlobal && global != this->_sessions.end()) sessions.push_back(global->second);
+        for (const std::string& id: this->_order)
+            sessions.push_back(this->_sessions.at(id));
+    }
+    for (const std::shared_ptr<cluster::Session>& session: sessions)
+        out.push_back(session->snapshotLight());
+    return out;
+}
+
 std::optional<cluster::Snapshot> cluster::Manager::snapshot(const std::string& id) const
 {
-    if (this->_replica) {
-        for (const cluster::Snapshot& snap: this->replicaSessions_())
-            if (snap.spec.id == id || snap.spec.name == id) return snap;
-        return std::nullopt;
-    }
+    if (this->_replica) return this->replicaFind_(id); // never every session copied to find one
     try {
         return this->get_(id)->snapshot();
     } catch (const utils::exception::IException&) {
@@ -1998,8 +2012,7 @@ std::vector<cluster::Notice> cluster::Manager::notices(const std::size_t max) co
 std::string cluster::Manager::resolve(const std::string& idOrName) const
 {
     if (this->_replica) {
-        for (const cluster::Snapshot& snap: this->replicaSessions_())
-            if (snap.spec.id == idOrName || snap.spec.name == idOrName) return snap.spec.id;
+        if (const std::string found = this->replicaResolve_(idOrName); !found.empty()) return found;
         if (idOrName.empty() || idOrName == GLOBAL_ID || idOrName == "global") return GLOBAL_ID;
         throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no session '" + idOrName + "'");
     }

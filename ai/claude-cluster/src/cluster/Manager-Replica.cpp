@@ -65,16 +65,21 @@ _cold static void sync_once_(const std::shared_ptr<cluster::ReplicaState>& repli
         throw utils::exception::ErrorException(utils::exception::InternalCode::Communication, response.value("error", std::string("sync")));
     }
     cluster::Json data = response.value("data", cluster::Json::object());
+    // the sessions sent again converted before the lock (big transcripts): the interface never waits on it meanwhile
+    std::vector<std::pair<std::string, std::optional<cluster::Snapshot>>> order;
+    for (const cluster::Json& item: data.value("sessions", cluster::Json::array()))
+        order.emplace_back(item.value("id", std::string()), item.contains("snapshot") ? std::optional<cluster::Snapshot>(item["snapshot"].get<cluster::Snapshot>())
+            : std::nullopt);
     std::lock_guard<std::mutex> lock(replica->mutex);
     std::vector<cluster::Snapshot> sessions;
-    for (const cluster::Json& item: data.value("sessions", cluster::Json::array())) {
-        const std::string id = item.value("id", std::string());
-        if (item.contains("snapshot")) {
-            sessions.push_back(item["snapshot"].get<cluster::Snapshot>());
+    for (auto &[id, sent]: order) {
+        if (sent) {
+            sessions.push_back(std::move(*sent));
             continue;
         }
+        // unchanged: moved from the old list (it is replaced), never copied with all its entries
         auto it = std::find_if(replica->sessions.begin(), replica->sessions.end(), [&id](const cluster::Snapshot& s) {return s.spec.id == id;});
-        if (it != replica->sessions.end()) sessions.push_back(*it);
+        if (it != replica->sessions.end()) sessions.push_back(std::move(*it));
     }
     replica->sessions = std::move(sessions);
     data.erase("sessions");
@@ -225,6 +230,37 @@ _cold std::vector<cluster::Snapshot> cluster::Manager::replicaSessions_(void) co
 {
     std::lock_guard<std::mutex> lock(this->_replica->mutex);
     return this->_replica->sessions;
+}
+
+_cold std::optional<cluster::Snapshot> cluster::Manager::replicaFind_(const std::string& idOrName) const
+{
+    std::lock_guard<std::mutex> lock(this->_replica->mutex);
+    for (const cluster::Snapshot& snap: this->_replica->sessions)
+        if (snap.spec.id == idOrName || snap.spec.name == idOrName) return snap;
+    return std::nullopt;
+}
+
+_cold std::vector<cluster::Snapshot> cluster::Manager::replicaLight_(const bool withGlobal) const
+{
+    // its entries set aside while the rest is copied (under the lock), then put back: never copied
+    std::vector<cluster::Snapshot> out;
+    std::lock_guard<std::mutex> lock(this->_replica->mutex);
+    for (cluster::Snapshot& snap: this->_replica->sessions) {
+        if (!withGlobal && snap.spec.global) continue;
+        std::vector<cluster::Entry> aside;
+        aside.swap(snap.entries);
+        out.push_back(snap);
+        snap.entries.swap(aside);
+    }
+    return out;
+}
+
+_cold std::string cluster::Manager::replicaResolve_(const std::string& idOrName) const
+{
+    std::lock_guard<std::mutex> lock(this->_replica->mutex);
+    for (const cluster::Snapshot& snap: this->_replica->sessions)
+        if (snap.spec.id == idOrName || snap.spec.name == idOrName) return snap.spec.id;
+    return "";
 }
 
 _cold std::uint64_t cluster::Manager::replicaVersion_(void) const

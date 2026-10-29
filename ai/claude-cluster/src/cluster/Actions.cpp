@@ -130,7 +130,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         // a model / mode / effort picked: where it applies (this session first: Enter at once)
         if (const std::string pending = manager.ui("apply", ""); !pending.empty()) {
             const std::string what = pending.substr(0, pending.find(':')) + " " + pending.substr(pending.find(':') + 1);
-            const std::vector<cluster::Snapshot> subs = manager.list(false);
+            const std::vector<cluster::Snapshot> subs = manager.listLight(false);
             list.push_back({"apply:here", "Apply " + what + " to this session (" + snap->spec.name + ")", "", "", false});
             if (!snap->spec.global) list.push_back({"apply:global", "Apply " + what + " to the global session", "", "", false});
             list.push_back({"apply:subs", "Apply " + what + " to every sub-session (" + std::to_string(subs.size()) + ")", "", "", false});
@@ -190,7 +190,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
             if (type == "audio") list.push_back({"display_play:" + id, "Play: " + title, "", "", false});
         }
     }
-    for (const cluster::Snapshot& s: manager.list(false)) // the sessions with a category or tags: found by them (#tag, the category)
+    for (const cluster::Snapshot& s: manager.listLight(false)) // the sessions with a category or tags: found by them (#tag, the category)
         if (!s.spec.global && (!s.spec.category.empty() || !s.spec.tags.empty()))
             list.push_back({"focus:" + s.spec.id, "Open " + s.spec.name + " · " + cluster::label_text(s.spec), "", "", false});
     // the archived sessions and the conversations of the other agents: behind their own lists, not one entry each here
@@ -619,7 +619,7 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             for (const cluster::Task& task: manager.tasks())
                 if (task.status == "queued") manager.cancelTask(task.id);
             std::size_t closed = 0;
-            for (const cluster::Snapshot& snap: manager.list(false)) {
+            for (const cluster::Snapshot& snap: manager.listLight(false)) {
                 manager.close(snap.spec.id);
                 ++closed;
             }
@@ -962,7 +962,7 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
                 const std::function<std::string(const cluster::SessionSpec&)> handle = [](const cluster::SessionSpec& spec) {
                     return spec.name.find_first_of(" \t") == std::string::npos && !spec.name.empty() ? spec.name : spec.id;
                 };
-                for (const cluster::Snapshot& s: manager.list(false))
+                for (const cluster::Snapshot& s: manager.listLight(false))
                     if (!s.spec.global) add(handle(s.spec), std::string("open · ") + cluster::state_name(s.state) + " · " + cluster::short_path(s.spec.cwd)
                         + (s.spec.category.empty() && s.spec.tags.empty() ? std::string() : " · " + cluster::label_text(s.spec))
                         + (s.spec.summary.empty() ? std::string() : " · " + cluster::one_line(s.spec.summary, 60)));
@@ -1021,7 +1021,7 @@ _cold static std::string jobs_text_(cluster::Manager& manager)
         ++count;
         out += "\n" + t.id + "  task  " + t.status + (t.session.empty() ? "" : " in " + t.session) + "  " + cluster::one_line(t.prompt, 70);
     }
-    for (const cluster::Snapshot& s: manager.list(true))
+    for (const cluster::Snapshot& s: manager.listLight(true))
         if (s.state == cluster::State::Working) {
             ++count;
             out += "\n" + s.spec.id + "  session  working  " + s.spec.name + " (Ctrl+C in it stops the turn)";
@@ -1566,7 +1566,7 @@ _cold static std::vector<cluster::Action> generated_(cluster::Manager& manager, 
         return out;
     }
     if (cluster::lower(wanted).starts_with("sched_session:")) {
-        for (const cluster::Snapshot& s: manager.list(true))
+        for (const cluster::Snapshot& s: manager.listLight(true))
             if (s.spec.id != GLOBAL_ID && s.spec.id != TASKS_ID) out.push_back({"sched_when:" + s.spec.id, s.spec.name + "  · " + cluster::short_path(s.spec.cwd), "", "", false});
         if (out.empty()) out.push_back({"cancel", "No other session", "", "", false});
         return out;

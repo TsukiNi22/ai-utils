@@ -455,6 +455,34 @@ _cold std::string code_slice_(const std::string& raw, const int from, const int 
     return out;
 }
 
+// a markdown line in plain text: its **, __ and ` out, [text](url) -> text (url); no regex (drawn at every frame, every line)
+_cold std::string plain_md_(const std::string& line)
+{
+    if (line.find_first_of("*_`[") == std::string::npos) return line;
+    std::string out;
+    out.reserve(line.size());
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        if (line.compare(i, 2, "**") == 0 || line.compare(i, 2, "__") == 0) {
+            ++i;
+            continue;
+        }
+        if (line[i] == '`') continue;
+        if (line[i] == '[') {
+            const std::size_t close = line.find(']', i + 1);
+            const std::size_t end = close == std::string::npos || close + 1 >= line.size() || line[close + 1] != '(' ? std::string::npos : line.find(')', close + 2);
+            if (end != std::string::npos && close > i + 1 && end > close + 2) {
+                out += plain_md_(line.substr(i + 1, close - i - 1)) + " (" + line.substr(close + 2, end - close - 2) + ")";
+                i = end;
+                continue;
+            }
+        }
+        out.push_back(line[i]);
+    }
+    return out;
+}
+
+constexpr std::size_t PALETTE_TEXT = 74; // the columns of a title inside Ctrl+K (its box of 80, borders and margins out)
+
 _cold std::string cut_(const std::string& line, const std::size_t columns)
 {
     // a line cut to its first columns, its spaces kept (an indentation, an alignment), … when cut
@@ -1325,6 +1353,12 @@ class TtyUi {
         std::string _message;
         bool _messageError = false;
         int _selected = 0;
+        int _paletteShift = 0;                  // Ctrl+K: the columns the selected title is scrolled by (← / →)
+        mutable std::vector<cluster::Snapshot> _shown;  // the sessions of the lists (sessions_): their copy of this version
+        mutable std::uint64_t _shownVersion = 0;
+        mutable std::string _shownGrouped;
+        mutable bool _shownSet = false;
+        int _shownDepth = 0;                    // a frame / a key running: never refreshed under it
         std::int64_t _prefixUntil = 0;              // Ctrl+B pressed: unix ms until which an arrow moves between sessions
         int _taskSel = 0;                           // the Tasks session: its item chosen by the keys
         cluster::Json _services;                    // the Services tab of the settings: its state (read by the worker)
@@ -1364,6 +1398,8 @@ class TtyUi {
         std::vector<cluster::Action> _actionBase;       // the palette: every action, made once per opening
         std::string _actionBaseFor;                     // the session it was made for
         std::int64_t _actionBaseAt = 0;                 // when (ms)
+        std::uint64_t _actionBaseVersion = 0;           // the core's version then (changed: made again in the background)
+        bool _actionFetching = false;                   // being made again in the background
         bool _suggestOpen = false;                      // the settings: the suggestions of the value typed, one chosen with the arrows
         int _suggest = 0;                               // the one chosen
         std::string _edit;
@@ -1380,7 +1416,43 @@ class TtyUi {
 
         // ---------- Pre-Function -------- //
         _nodiscard bool grouped_(void) const                            {return this->_manager.ui("group_by_category", this->_manager.config().groupByCategory ? "true" : "false") == "true";};
-        _nodiscard std::vector<cluster::Snapshot> sessions_(void) const {return this->_manager.shown();};
+        // the sessions in the order of the lists: copied from the core's state once per version (not at each call: their
+        // transcripts are big), refreshed at the start of a frame or of a key only (never under a loop walking them)
+        _nodiscard const std::vector<cluster::Snapshot>& sessions_(void) const
+        {
+            if (!this->_shownSet) this->shownRefresh_();
+            return this->_shown;
+        };
+        void shownRefresh_(void) const
+        {
+            if (this->_shownDepth > 0) return;
+            const std::string grouped = this->_manager.ui("group_by_category", "");
+            if (this->_shownSet && this->_manager.version() == this->_shownVersion && grouped == this->_shownGrouped) return;
+            this->_shown = this->_manager.shown();
+            this->_shownVersion = this->_manager.version();
+            this->_shownGrouped = grouped;
+            this->_shownSet = true;
+        };
+        struct SlowLog { // a frame / a key over 30 ms: its time in the debug log (topic render), to find what is slow
+            const char* what;
+            std::string detail;
+            std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+            SlowLog(const char* w, std::string d): what(w), detail(std::move(d)) {};
+            ~SlowLog()
+            {
+                const long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - this->began).count();
+                if (ms > 30 && cluster::debug_on("render")) cluster::debug("render", std::string(this->what) + this->detail + " " + std::to_string(ms) + " ms");
+            };
+            SlowLog(const SlowLog&) = delete;
+            SlowLog& operator=(const SlowLog&) = delete;
+        };
+        struct ShownHold { // a frame / a key running: the list stays the same under it
+            int& depth;
+            explicit ShownHold(int& d): depth(d) {++this->depth;};
+            ~ShownHold() {--this->depth;};
+            ShownHold(const ShownHold&) = delete;
+            ShownHold& operator=(const ShownHold&) = delete;
+        };
 
         // a chip of a label: a color made from its text (the same label, the same color everywhere)
         _nodiscard static ftxui::Color chip_color_(const std::string& label)
@@ -1469,7 +1541,7 @@ class TtyUi {
         void moveDir_(const int dx, const int dy)
         {
             // Session on the left / right / above / below in the current layout (grid: rows and columns; list: previous / next)
-            const std::vector<cluster::Snapshot> list = this->sessions_();
+            const std::vector<cluster::Snapshot>& list = this->sessions_();
             const int count = static_cast<int>(list.size());
             const std::string layout = this->_manager.ui("layout", this->_manager.config().layout);
             const int columns = layout == "grid" && count >= 1 ? this->_gridColumns : 1;
@@ -1512,7 +1584,7 @@ class TtyUi {
                 this->moveDir_(action == "session_left" ? -1 : action == "session_right" ? 1 : 0, action == "session_up" ? -1 : action == "session_down" ? 1 : 0);
                 return;
             }
-            const std::vector<cluster::Snapshot> list = this->sessions_();
+            const std::vector<cluster::Snapshot>& list = this->sessions_();
             if (list.empty()) return;
             const int count = static_cast<int>(list.size());
             const bool grid = this->_manager.ui("layout", this->_manager.config().layout) == "grid" && count >= 1;
@@ -1531,6 +1603,7 @@ class TtyUi {
             this->filter_();
             for (std::size_t i = 0; i < this->_actions.size(); ++i)
                 if (this->_actions[i].title.find("(current)") != std::string::npos) this->_selected = static_cast<int>(i);
+            this->_paletteShift = 0;
             this->_mode = Mode::Palette;
         }
 
@@ -1543,6 +1616,7 @@ class TtyUi {
             this->_filter = "trash:"; // the archived sessions: their list (restore / delete for good)
             this->_selected = 0;
             this->filter_();
+            this->_paletteShift = 0;
             this->_mode = Mode::Palette;
         }
 
@@ -2628,11 +2702,34 @@ class TtyUi {
         void filter_(void)
         {
             const std::string wanted = cluster::lower(this->_filter);
-            // the list of every action (the models, the trash, the projects...) is long to make: made when the palette opens, then only filtered at each letter
-            if (wanted.empty() || this->_actionBase.empty() || this->_actionBaseFor != this->_active || now_ms_() - this->_actionBaseAt > 8000) {
+            // the list of every action (the models, the trash, the projects...) is long to make (the core builds it): made once, then
+            // only filtered at each letter; past 8 s or for another session, made again in the background (the old one shown meanwhile)
+            if (this->_actionBase.empty()) {
                 this->_actionBase = cluster::actions(this->_manager, this->_active);
                 this->_actionBaseFor = this->_active;
                 this->_actionBaseAt = now_ms_();
+                this->_actionBaseVersion = this->_manager.version();
+            } else if ((this->_actionBaseFor != this->_active || now_ms_() - this->_actionBaseAt > 8000 || this->_manager.version() != this->_actionBaseVersion)
+                && !this->_actionFetching) {
+                this->_actionFetching = true;
+                const std::string session = this->_active;
+                const std::uint64_t version = this->_manager.version();
+                this->_worker.push([this, session, version]() {
+                    std::vector<cluster::Action> made;
+                    try {
+                        made = cluster::actions(this->_manager, session);
+                    } catch (const std::exception&) {}
+                    this->_screen.Post([this, session, version, made]() {
+                        this->_actionFetching = false;
+                        if (made.empty()) return;
+                        this->_actionBase = made;
+                        this->_actionBaseFor = session;
+                        this->_actionBaseAt = now_ms_();
+                        this->_actionBaseVersion = version;
+                        if (this->_mode == Mode::Palette) this->filter_(); // the new list under the same search
+                    });
+                    this->_screen.PostEvent(ftxui::Event::Custom);
+                });
             }
             this->_actions = cluster::filter_actions(this->_actionBase, wanted, &this->_manager); // the closest first
             std::erase_if(this->_actions, [](const cluster::Action& action) {return action.id == "layout:tabs";}); // no tabs in the terminal
@@ -3388,6 +3485,7 @@ class TtyUi {
                 this->_filter.clear();
                 this->_selected = 0;
                 this->filter_();
+                this->_paletteShift = 0;
                 this->_mode = Mode::Palette;
             } else if (action.starts_with("session_")) {
                 this->sessionMove_(action);
@@ -5577,7 +5675,7 @@ class TtyUi {
                     if (t.ends_with("|")) t.pop_back();
                     std::vector<std::string> out;
                     for (const std::string& c: cluster::split(t, '|'))
-                        out.push_back(std::regex_replace(cluster::trim(c), std::regex(R"(\*\*|__|`)"), ""));
+                        out.push_back(plain_md_(cluster::trim(c)));
                     return out;
                 };
                 for (std::size_t k = 0; k < all.size(); ++k) {
@@ -5603,8 +5701,7 @@ class TtyUi {
                         k = j - 1;
                         continue;
                     }
-                    const std::string plain = std::regex_replace(std::regex_replace(all[k], std::regex(R"(\*\*|__|`)"), ""),
-                        std::regex(R"(\[([^\]]+)\]\(([^)]+)\))"), "$1 ($2)");
+                    const std::string plain = plain_md_(all[k]);
                     const std::string p = cluster::trim(plain);
                     if (p.starts_with("#") && p.find_first_not_of('#') != std::string::npos && p[p.find_first_not_of('#')] == ' ') {
                         add(cluster::trim(p.substr(p.find_first_not_of('#'))), lead(), "  ", ftxui::color(this->_theme.accent) | ftxui::bold | mark);
@@ -6623,7 +6720,7 @@ class TtyUi {
         {
             this->_listBox = ftxui::Box{0, -1, 0, -1};   // drawn again below when the layout shows them
             this->_gridBox = ftxui::Box{0, -1, 0, -1};
-            const std::vector<cluster::Snapshot> list = this->sessions_();
+            const std::vector<cluster::Snapshot>& list = this->sessions_();
             const bool tasksShown = this->_active == TASKS_ID; // the Tasks session: its view in place of a transcript
             if (list.empty() && tasksShown) return this->tasksView_(width, height); // no session yet: its tasks, its schedules still
             if (list.empty()) return ftxui::text("no session: " + this->_manager.config().keys.at("new_session") + " to start one") | ftxui::center | ftxui::flex;
@@ -6838,8 +6935,13 @@ class TtyUi {
             if (this->_mode == Mode::Palette) {
                 ftxui::Elements items;
                 const int start = std::max(0, this->_selected - 12);
+                bool cut = false; // the selected title wider than the palette: ← / → told
                 for (int i = start; i < static_cast<int>(this->_actions.size()) && i < start + 24; ++i) {
-                    ftxui::Element item = ftxui::text(" " + this->_actions[static_cast<std::size_t>(i)].title + " ");
+                    const std::string& title = this->_actions[static_cast<std::size_t>(i)].title;
+                    std::string shown = title;
+                    if (i == this->_selected && this->_paletteShift > 0) shown = "…" + title.substr(byte_at_(title, this->_paletteShift + 1));
+                    if (i == this->_selected) cut = width_(title) > PALETTE_TEXT;
+                    ftxui::Element item = ftxui::text(" " + cut_(shown, PALETTE_TEXT) + " ");
                     items.push_back(this->tap_(i == this->_selected ? item | ftxui::bold | ftxui::color(this->_theme.bg) | ftxui::bgcolor(this->_theme.accent)
                         : item | ftxui::color(this->_theme.text), 1, [this, i]() {
                             this->_selected = i;
@@ -6847,6 +6949,7 @@ class TtyUi {
                         }));
                 }
                 if (items.empty()) items.push_back(ftxui::text(" nothing matches") | ftxui::color(this->_theme.muted));
+                if (cut) items.push_back(ftxui::text(" ← / → the rest of the selected line") | ftxui::color(this->_theme.muted) | ftxui::dim);
                 return box(ftxui::vbox({ftxui::hbox({ftxui::text(" > ") | ftxui::color(this->_theme.accent), this->fieldView_(this->_filter, 72)}),
                     ftxui::separatorLight(), ftxui::vbox(std::move(items))}), 80);
             }
@@ -7544,6 +7647,9 @@ class TtyUi {
 
         _nodiscard ftxui::Element render_(void)
         {
+            const SlowLog slow("frame", this->_mode == Mode::Palette ? " (palette)" : "");
+            this->shownRefresh_();
+            const ShownHold hold(this->_shownDepth);
             if (this->_manager.config().reload()) this->theme_();
             if (!this->_restoreAsked && this->_mode == Mode::Normal && this->_manager.replica() && this->_manager.restorable()) {
                 this->_restoreAsked = true; // the core waits for this answer (asked after the first sync): never a global session loading forever
@@ -7721,6 +7827,9 @@ class TtyUi {
         /* events */
         bool event_(ftxui::Event event)
         {
+            const SlowLog slow("key", event == ftxui::Event::Custom ? " (refresh)" : this->_mode == Mode::Palette ? " (palette)" : "");
+            this->shownRefresh_();
+            const ShownHold hold(this->_shownDepth);
             if (event != ftxui::Event::Custom && !event.is_mouse() && this->upgradeShown_()) {
                 // a newer claude-cluster installed: u / Enter update, i ignore it, q quit everything, Esc later
                 static const std::array<const char*, 3> choices = {"update", "ignore", "quit"};
@@ -8173,13 +8282,20 @@ class TtyUi {
                 }
                 case Mode::Palette:
                     if (event == ftxui::Event::Escape) this->_mode = Mode::Normal;
-                    else if (event == ftxui::Event::ArrowDown) this->_selected = std::min(this->_selected + 1, std::max(0, static_cast<int>(this->_actions.size()) - 1));
-                    else if (event == ftxui::Event::ArrowUp) this->_selected = std::max(0, this->_selected - 1);
-                    else if (event == ftxui::Event::Return) this->choose_();
+                    else if (event == ftxui::Event::ArrowDown || event == ftxui::Event::ArrowUp) {
+                        this->_selected = event == ftxui::Event::ArrowDown ? std::min(this->_selected + 1, std::max(0, static_cast<int>(this->_actions.size()) - 1))
+                            : std::max(0, this->_selected - 1);
+                        this->_paletteShift = 0;
+                    } else if ((event == ftxui::Event::ArrowRight || event == ftxui::Event::ArrowLeft) && !this->_actions.empty()) {
+                        // the rest of a title wider than the palette (the cursor of the search: Home / End)
+                        const int hidden = std::max(0, static_cast<int>(width_(this->_actions[static_cast<std::size_t>(this->_selected)].title)) - static_cast<int>(PALETTE_TEXT));
+                        this->_paletteShift = std::clamp(this->_paletteShift + (event == ftxui::Event::ArrowRight ? 8 : -8), 0, hidden);
+                    } else if (event == ftxui::Event::Return) this->choose_();
                     else {
                         const std::string before = this->_filter;
                         if (this->fieldKey_(this->_filter, event) && this->_filter != before) {
                             this->_selected = 0;
+                            this->_paletteShift = 0;
                             this->filter_();
                         }
                     }
@@ -8362,7 +8478,7 @@ class TtyUi {
                 return true;
             }
             if (key.size() == 5 && key.starts_with("Alt+") && key[4] >= '1' && key[4] <= '9') {
-                const std::vector<cluster::Snapshot> list = this->sessions_();
+                const std::vector<cluster::Snapshot>& list = this->sessions_();
                 const std::size_t index = static_cast<std::size_t>(key[4] - '1');
                 if (index < list.size()) this->_active = list[index].spec.id;
                 return true;

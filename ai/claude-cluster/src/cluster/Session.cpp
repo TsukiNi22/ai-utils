@@ -2015,6 +2015,19 @@ cluster::Snapshot cluster::Session::snapshot(void) const
     return copy;
 }
 
+cluster::Snapshot cluster::Session::snapshotLight(void) const
+{
+    // its entries set aside while the rest is copied (under its lock), then put back: never copied
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    std::vector<cluster::Entry>& entries = const_cast<std::vector<cluster::Entry>&>(this->_data.entries);
+    std::vector<cluster::Entry> aside;
+    aside.swap(entries);
+    cluster::Snapshot copy = this->_data;
+    entries.swap(aside);
+    copy.version = this->_version;
+    return copy;
+}
+
 cluster::SessionSpec cluster::Session::spec(void) const
 {
     std::lock_guard<std::mutex> lock(this->_mutex);

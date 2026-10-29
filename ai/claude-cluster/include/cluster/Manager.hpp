@@ -285,6 +285,9 @@ class Manager {
         _cold void turnCounted_(const std::string& id, const bool failed);
         _cold void describeMissing_(void);
         _cold _nodiscard std::vector<cluster::Snapshot> replicaSessions_(void) const;
+        _cold _nodiscard std::optional<cluster::Snapshot> replicaFind_(const std::string& idOrName) const; // one session, the others not copied
+        _cold _nodiscard std::string replicaResolve_(const std::string& idOrName) const;
+        _cold _nodiscard std::vector<cluster::Snapshot> replicaLight_(const bool withGlobal) const;          // its sessions, their entries not copied                  // its id (empty: none), nothing copied
         _cold _nodiscard std::uint64_t replicaVersion_(void) const;
         _cold void notice_(const std::string& session, const std::string& text, const bool error = false);
         _cold void progressNotice_(const cluster::Notice& notice);   // an operation running: the notice under it
@@ -491,6 +494,7 @@ class Manager {
 
         /* state */
         _nodiscard std::vector<cluster::Snapshot> list(const bool withGlobal = true) const;
+        _nodiscard std::vector<cluster::Snapshot> listLight(const bool withGlobal = true) const; // the same, their entries not copied
         _nodiscard std::vector<cluster::Snapshot> shown(void) const;    // list(), in the order of the interfaces (grouped by category when asked)
         // the taxonomy of the categories / tags (Manager-Taxonomy.cpp): categories and tags form a forest under the root "global"; replicated
         _cold _nodiscard cluster::Taxonomy taxonomy(void) const;

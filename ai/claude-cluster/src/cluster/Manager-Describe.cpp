@@ -182,7 +182,7 @@ _cold std::vector<cluster::Snapshot> cluster::Manager::shown(void) const
     });
     std::vector<cluster::Snapshot> sorted;
     for (const std::size_t i: order)
-        sorted.push_back(all[i]);
+        sorted.push_back(std::move(all[i])); // moved: a session's entries never copied twice
     return sorted;
 }
 

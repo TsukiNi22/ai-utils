@@ -187,6 +187,7 @@ class Session {
         _cold void trimTo(const std::uintmax_t bytes);     // its oldest entries in memory dropped down to this size (the global budget)
         _cold _nodiscard cluster::Queued rewind(const int back = 1, std::vector<std::string>* dropped = nullptr);      // claude: the last `back` prompts removed from the conversation, the oldest of them returned (dropped: the prompts after it)
         _nodiscard cluster::Snapshot snapshot(void) const;
+        _nodiscard cluster::Snapshot snapshotLight(void) const; // without its entries (never copied): its name, labels, state, metrics
         _nodiscard cluster::SessionSpec spec(void) const;
         _nodiscard cluster::State state(void) const;
         _nodiscard std::tuple<cluster::State, std::size_t, bool> brief(void) const; // state, permissions waiting, one of them a safety check
