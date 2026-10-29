@@ -68,6 +68,7 @@ _cold const std::vector<xstyle::Rule>& xstyle::rules(void)
         {"CPP-MACRO-NAME",     xstyle::Severity::Minor,        xstyle::FixMode::Manual, "cpp,c",        "Macro not in UPPER_SNAKE (or _lower for attribute / section macros)"},
         {"CPP-ONE-LINER",      xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp",          "One-liner body not written {statement}; (an empty one: { /* Nothing */ };)"},
         {"CPP-EMPTY-BODY",     xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "cpp",          "Empty constructor / destructor / operator of a class on several lines (one line: sig: init { /* Nothing */ }; // comment)"},
+        {"CPP-ONELINER-ALIGN", xstyle::Severity::Negligible,   xstyle::FixMode::Auto,   "cpp",          "One-liner functions of a group not aligned tight: their { right after the longest signature + 1 (lengths far apart: one column per level of 2+ lines)"},
         {"CPP-INIT-COLON",     xstyle::Severity::Minor,        xstyle::FixMode::Auto,   "cpp",          "Init list on the line of its constructor: its : glued to the ) (Name(int a): _a{a})"},
         {"CPP-ACCESS-ORDER",   xstyle::Severity::Negligible,   xstyle::FixMode::Manual, "cpp",          "public before private / protected in a class"},
         {"CPP-SINGLE-STATEMENT", xstyle::Severity::Minor,      xstyle::FixMode::Manual, "cpp",          "Single statement function defined in the .cpp, define it inline in the header"},

@@ -16,6 +16,7 @@ File Description:
 #include "xstyle/Tools.hpp"
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 #include <algorithm>
 #include <cctype>
 #include <regex>
@@ -1044,6 +1045,92 @@ _hot static void doxygen_(const xstyle::SourceFile& file, xstyle::check::Issues&
     }
 }
 
+// The one-liner functions of a group (consecutive lines, one indent, outside a function): their { right after the longest signature
+// + one space; lengths far apart: levels of 2+ lines (a lone one joins the closest level), each on its own column
+_hot static void oneliners_(const xstyle::SourceFile& file, xstyle::check::Issues& issues)
+{
+    static const std::regex control(R"(\s*(if|for|while|switch|catch|else|do|return)\b.*)");
+    static const std::regex tail(R"(.*\)[\w\s&*:<>,-]*)"); // after its last ): qualifiers only (const, override, noexcept, -> type)
+    constexpr std::size_t LEVEL_GAP = 12;                  // columns between two lengths starting a new level
+    const std::vector<std::string>& lines = file.getLines();
+    const std::vector<std::string>& code = file.getCode();
+    const std::vector<xstyle::LineInfo>& info = file.getInfo();
+    // its signature's width and the column of its { (NO_INDEX: not a one-liner)
+    const std::function<std::pair<std::size_t, std::size_t>(const std::size_t)> oneliner = [&](const std::size_t i) {
+        const std::pair<std::size_t, std::size_t> none = {NO_INDEX, NO_INDEX};
+        const std::string& c = code[i];
+        const std::size_t open = c.find('{');
+        if (info[i].preprocessor || info[i].inComment || info[i].inFunction || open == std::string::npos || std::regex_match(c, control)) return none;
+        std::size_t width = open;
+        while (width > 0 && c[width - 1] == ' ')
+            --width;
+        const std::string head = c.substr(0, width);
+        if (width == open || head.find('(') == std::string::npos || head.find(';') != std::string::npos || !std::regex_match(head, tail)) return none;
+        std::size_t depth = 0;
+        std::size_t close = open;
+        for (; close < c.size(); ++close) {
+            if (c[close] == '{') ++depth;
+            else if (c[close] == '}' && --depth == 0) break;
+        }
+        if (close >= c.size() || (xstyle::trim(c.substr(close + 1)) != ";" && !xstyle::trim(c.substr(close + 1)).empty())) return none;
+        return std::pair<std::size_t, std::size_t>{width, open};
+    };
+
+    for (std::size_t i = 0; i < lines.size();) {
+        if (oneliner(i).first == NO_INDEX) {
+            ++i;
+            continue;
+        }
+        const std::size_t indent = lines[i].find_first_not_of(' ');
+        std::size_t end = i;
+        std::vector<std::pair<std::size_t, std::size_t>> group; // {width, open} of each line
+        for (; end < lines.size() && oneliner(end).first != NO_INDEX && lines[end].find_first_not_of(' ') == indent; ++end)
+            group.push_back(oneliner(end));
+        if (group.size() < 2) {
+            i = end;
+            continue;
+        }
+        // its levels: the widths sorted, a new one past a gap; a level of one line joins the closest
+        std::vector<std::size_t> sorted;
+        for (const auto &[width, open]: group)
+            sorted.push_back(width);
+        std::sort(sorted.begin(), sorted.end());
+        std::vector<std::vector<std::size_t>> levels = {{sorted.front()}};
+        for (std::size_t k = 1; k < sorted.size(); ++k) {
+            if (sorted[k] - sorted[k - 1] > LEVEL_GAP) levels.emplace_back();
+            levels.back().push_back(sorted[k]);
+        }
+        for (bool merged = true; merged && levels.size() > 1;) {
+            merged = false;
+            for (std::size_t k = 0; k < levels.size() && !merged; ++k) {
+                if (levels[k].size() > 1) continue;
+                const std::size_t into = k == 0 ? 1 : k + 1 == levels.size() ? k - 1
+                    : levels[k].front() - levels[k - 1].back() <= levels[k + 1].front() - levels[k].front() ? k - 1 : k + 1;
+                levels[into].push_back(levels[k].front());
+                std::sort(levels[into].begin(), levels[into].end());
+                levels.erase(levels.begin() + static_cast<std::ptrdiff_t>(k));
+                merged = true;
+            }
+        }
+        const std::function<std::size_t(const std::size_t)> column = [&levels](const std::size_t width) {
+            for (const std::vector<std::size_t>& level: levels)
+                if (width >= level.front() && width <= level.back()) return level.back() + 1;
+            return width + 1;
+        };
+        bool aligned = true;
+        for (const auto &[width, open]: group)
+            aligned = aligned && open == column(width);
+        if (!aligned) {
+            std::vector<std::string> fixed;
+            for (std::size_t k = 0; k < group.size(); ++k)
+                fixed.push_back(lines[i + k].substr(0, group[k].first) + std::string(column(group[k].first) - group[k].first, ' ') + lines[i + k].substr(group[k].second));
+            issues.push_back(xstyle::check::make_issue(file, i, 0, "CPP-ONELINER-ALIGN", "One-liners of a group not aligned tight",
+                "their { right after the longest signature + 1 (one column per level of lengths)", xstyle::check::replace_lines(i, end - i, fixed)));
+        }
+        i = end;
+    }
+}
+
 /* checks */
 _hot void xstyle::check::cpp(const xstyle::SourceFile& file, const xstyle::ProjectInfo& project, xstyle::check::Issues& issues)
 {
@@ -1053,6 +1140,7 @@ _hot void xstyle::check::cpp(const xstyle::SourceFile& file, const xstyle::Proje
     spacing_(file, issues);
     functions_(file, project, issues);
     if (file.getLanguage() == xstyle::Language::Cpp) casts_(file, issues);
+    if (file.getLanguage() == xstyle::Language::Cpp) oneliners_(file, issues);
     header_(file, issues);
     if (file.isHeader()) guard_(file, issues);
     preprocessor_(file, issues);

@@ -35,8 +35,8 @@ _hot _nodiscard std::string lower(std::string s);
 _hot _nodiscard bool glob_match(std::string_view pattern, std::string_view text); // * and ? jokers
 _hot _nodiscard inline std::string indentation(const std::string& line) {return line.substr(0, std::min(line.find_first_not_of(" \t"), line.size()));}; // leading whitespace
 _hot _nodiscard inline bool is_blank(const std::string& s)              {return s.find_first_not_of(" \t") == std::string::npos;};
-_hot _nodiscard inline bool is_word(const char c)                        {return std::isalnum(static_cast<unsigned char>(c)) || c == '_';};
-_hot _nodiscard inline bool is_space(const char c)                       {return std::isspace(static_cast<unsigned char>(c));};
+_hot _nodiscard inline bool is_word(const char c)                       {return std::isalnum(static_cast<unsigned char>(c)) || c == '_';};
+_hot _nodiscard inline bool is_space(const char c)                      {return std::isspace(static_cast<unsigned char>(c));};
 
 } // namespace end
 #endif /* TOOLS_H */

@@ -106,16 +106,16 @@ class SourceFile {
 
         // ------------ Function ---------- //
         /* getter */
-        _cold _nodiscard inline const std::filesystem::path& getPath(void) const          {return this->_path;};
-        _cold _nodiscard inline const std::string& getDisplay(void) const                 {return this->_display;};
-        _cold _nodiscard inline xstyle::Language getLanguage(void) const                  {return this->_language;};
-        _cold _nodiscard inline const std::vector<std::string>& getLines(void) const      {return this->_lines;};
-        _cold _nodiscard inline const std::vector<std::string>& getCode(void) const       {return this->_code;};
-        _cold _nodiscard inline const std::vector<std::string>& getComments(void) const   {return this->_comments;};
-        _cold _nodiscard inline const std::vector<xstyle::LineInfo>& getInfo(void) const  {return this->_info;};
-        _cold _nodiscard inline const std::vector<xstyle::Brace>& getBraces(void) const   {return this->_braces;};
-        _cold _nodiscard inline bool hasFinalNewline(void) const                          {return this->_finalNewline;};
-        _cold _nodiscard inline bool hasCrlf(void) const                                  {return this->_crlf;};
+        _cold _nodiscard inline const std::filesystem::path& getPath(void) const         {return this->_path;};
+        _cold _nodiscard inline const std::string& getDisplay(void) const                {return this->_display;};
+        _cold _nodiscard inline xstyle::Language getLanguage(void) const                 {return this->_language;};
+        _cold _nodiscard inline const std::vector<std::string>& getLines(void) const     {return this->_lines;};
+        _cold _nodiscard inline const std::vector<std::string>& getCode(void) const      {return this->_code;};
+        _cold _nodiscard inline const std::vector<std::string>& getComments(void) const  {return this->_comments;};
+        _cold _nodiscard inline const std::vector<xstyle::LineInfo>& getInfo(void) const {return this->_info;};
+        _cold _nodiscard inline const std::vector<xstyle::Brace>& getBraces(void) const  {return this->_braces;};
+        _cold _nodiscard inline bool hasFinalNewline(void) const                         {return this->_finalNewline;};
+        _cold _nodiscard inline bool hasCrlf(void) const                                 {return this->_crlf;};
         /* tools */
         _hot _nodiscard inline bool isCLike(void) const {return this->_language == xstyle::Language::Cpp || this->_language == xstyle::Language::C;};
 

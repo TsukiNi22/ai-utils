@@ -136,9 +136,29 @@ Getters `getX(void) const`, setters `setX(...)`, boolean queries `isX` / `hasX`,
   - A group is a run of consecutive lines of the **same category** (`/* setter */`, `/* getter */`, the overloads
     of one name, one `enum`'s `case`s): a blank line or a `/* label */` starts a new column; the setters are never
     aligned on the getters.
-  - **Not when the spread is too wide**: when one signature is much longer than the rest (the column would push
-    the whole group far right, 30+ columns of spaces on the short lines), leave the long one unaligned or split
-    the group, rather than pad every other line to it. No space is ever "for later".
+  - **Count it, never guess it**: the column is the length of the longest signature (its indent included) + 1;
+    every other line gets exactly `column - its length` spaces. A space too many or too few is wrong (two spaces
+    before `{` on the longest line, a shorter line padded past the column, a group left on an old column after a
+    line was added or renamed). xstyle checks it (`CPP-ONELINER-ALIGN`) and fixes it (`--fix CPP-ONELINER-ALIGN`).
+  - **Lengths far apart: levels.** When the signatures of the lines to align fall in clearly separate lengths
+    (a jump of more than ~12 columns between them), align by **level** instead of one column for all: the short
+    ones together on their own tight column, the long ones together on theirs, the levels one after the other
+    (short first) with no blank line between them, even if that mixes setters and getters:
+    ```cpp
+    _cold inline void setToggle(const bool toggle)    {this->_toggle = toggle;};
+    _cold _nodiscard inline bool isToggle(void) const {return this->_toggle;};
+    _cold inline void setRepeat(const std::chrono::milliseconds delay)      {this->_repeat = delay;};
+    _cold _nodiscard inline std::chrono::milliseconds getRepeat(void) const {return this->_repeat;};
+    ```
+    A level needs **two lines or more**: a single short (or long) one never stands alone, it joins the closest
+    level and takes its column:
+    ```cpp
+    _cold _nodiscard inline bool isToggle(void) const                       {return this->_toggle;};
+    _cold inline void setRepeat(const std::chrono::milliseconds delay)      {this->_repeat = delay;};
+    _cold _nodiscard inline std::chrono::milliseconds getRepeat(void) const {return this->_repeat;};
+    ```
+    Lengths close together (the usual `/* setter */` and `/* getter */` groups): one column per group, as above.
+    No space is ever "for later".
   - The trailing comment of a one-liner is **glued**: one space after `};`, never a second column of comments:
     `_cold inline void seed(const brain::IType seed) {this->_seed = seed;}; // seed of the random generator`.
   Include comments keep their own alignment (see `cpp-comments`), this rule is only for functions.

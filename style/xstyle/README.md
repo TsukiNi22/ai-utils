@@ -242,6 +242,7 @@ Languages: `*` = every file checked.
 | `CPP-MACRO-NAME` | minor | - | cpp,c | Macro not in UPPER_SNAKE (or _lower for attribute / section macros) |
 | `CPP-ONE-LINER` | negligible | auto | cpp | One-liner body not written {statement}; (an empty one: { /* Nothing */ };) |
 | `CPP-EMPTY-BODY` | minor | auto | cpp | Empty constructor / destructor / operator of a class on several lines (one line: sig: init { /* Nothing */ }; // comment) |
+| `CPP-ONELINER-ALIGN` | negligible | auto | cpp | One-liner functions of a group not aligned tight: their { right after the longest signature + 1 (lengths far apart: one column per level of 2+ lines) |
 | `CPP-INIT-COLON` | minor | auto | cpp | Init list on the line of its constructor: its : glued to the ) (Name(int a): _a{a}) |
 | `CPP-ACCESS-ORDER` | negligible | - | cpp | public before private / protected in a class |
 | `CPP-SINGLE-STATEMENT` | minor | - | cpp | Single statement function defined in the .cpp, define it inline in the header |
