@@ -46,6 +46,9 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | request unclear / ambiguous / incomplete, "clarifie", "vérifie que tu as compris", ask before acting | `clarify` (uses `interactive-questions`) | - |
 | ideas, recommendations, an opinion on ideas, variants ("des idées ?", "ton avis", "améliore cette idée", brainstorm) | `ideation` (uses `interactive-questions`) | - |
 | hand the work over to another session / machine / model ("export", "passation", "handoff", PASSATION.md) | `export` (uses `rtk`) | - |
+| set up the context before working ("setup le contexte", read the repo and the old / archived sessions, load the useful skills / MCP) | `setup-context` (uses `onboard` when installed, `interactive-questions`) | - |
+| no interruption until the end ("ne pose aucune question", "fais tout d'une traite", "pose tes questions à la fin") | `ask-at-end` (asks at the end with `interactive-questions` / `ideation`) | - |
+| write in the user's own voice ("écris comme moi", "avec mes mots", a message / note / prompt in his style) | `write-like-me` | - |
 | set up the context of a project / folder before working on it (read the repo, its git history, the earlier sessions that touched it: "setup le contexte", "onboard", "lis tout le repo") | `onboard` (uses `rtk`) | - |
 | set up a whole new project (architecture + tests + license + git + CI/CD + README) | the steps of `setup-project` (its table, skills loaded in that order) | `setup-project` |
 | several / all audits of the project at once | follow the `audit` router (checklist of audits + format) | `audit` |
