@@ -29,7 +29,7 @@ searchable for free. Self-contained, offline, `file://`.
 | changelog | `<ul class="cl"><li><b>1.2.0</b><span>what changed</span></li></ul>` |
 | row of links | `<div class="links"><a href>FAQ</a>…</div>` |
 | sidebar groups | `<div class="grp">Section</div><a href class="cur" aria-current="page">Page</a>`, `<hr>` between contents and groups |
-| page meta | `<div class="page-meta"><span>Updated 2026-10-24</span><a class="edit" href>Edit this page</a></div>` in the header |
+| page meta | `<div class="page-meta"><span>Updated 2026-10-24</span></div>` (an `<a class="edit" href="<real URL>">Edit this page</a>` only when the user asks for it, never an empty link) in the header |
 | collapsed block | `<details class="more"><summary>Every option</summary><div>…</div></details>` |
 | keys | `<kbd>Ctrl</kbd>+<kbd>K</kbd>` |
 | pill / kind | `<span class="pill">beta</span>`, `<span class="kind docs">docs</span>` (`docs`, `page`, `settings`, `config`, `tools`, `api`, `message`, `keys`, `explain`) |

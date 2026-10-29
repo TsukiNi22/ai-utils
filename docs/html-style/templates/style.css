@@ -1,19 +1,19 @@
 /* Visual system of the user's HTML pages (source: html-doc/templates/technical.html, R-Type doc colors +
    context-forge layout). Inlined in each page by scripts/new_page.py: pages stay self-contained. */
 :root {
-  --bg: #f7f7f5;
-  --surface: #ffffff;
+  --bg: #efede8;
+  --surface: #f7f5f0;
   --text: #1d1f23;
   --muted: #5d636e;
-  --border: #dfe1e5;
+  --border: #dad6cd;
   --accent: #2f5bd3;
   --accent-soft: #e6ecfb;
   --warn: #a8540a;
   --warn-soft: #fbefe3;
   --ok: #1f7a4a;
   --ok-soft: #e3f4ea;
-  --code-bg: #f1f2f4;
-  --node: #ffffff;
+  --code-bg: #e9e6df;
+  --node: #f7f5f0;
   --node-alt: #eef1f8;
   --line: #8a909b;
 }
@@ -124,12 +124,15 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: upp
 figure { margin: 20px 0; }
 figure svg { width: 100%; height: auto; display: block; }
 figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+:where(figure, .stepper, .diagram) svg text { fill: var(--text); } /* any text of a drawing: the theme's colour, no weight (every class below wins) */
 svg .box { fill: var(--node); stroke: var(--line); stroke-width: 1.2; }
 svg .box-alt { fill: var(--node-alt); stroke: var(--accent); stroke-width: 1.2; }
 svg .group { fill: none; stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 5 4; }
 svg .lbl { fill: var(--text); font: 13px system-ui, sans-serif; }
 svg .small { fill: var(--muted); font: 11.5px system-ui, sans-serif; }
 svg .title { fill: var(--muted); font: 600 12px system-ui, sans-serif; letter-spacing: .05em; }
+svg .mono { fill: var(--text); font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; } /* values, code, file content */
+svg .mono-s { fill: var(--text); font: 11.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 svg .edge { stroke: var(--line); stroke-width: 1.4; fill: none; }
 svg .edge-accent { stroke: var(--accent); stroke-width: 1.6; fill: none; }
 svg .dash { stroke-dasharray: 4 4; }

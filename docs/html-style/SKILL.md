@@ -26,16 +26,16 @@ them the same brand and shared top bar controls (GitHub link, EN / FR switch), r
 ## 2. Tokens (never a raw color in a component: always `var(--x)`)
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--bg` | `#f7f7f5` | `#15171b` | page background |
-| `--surface` | `#ffffff` | `#1d2025` | cards, top bar, buttons |
+| `--bg` | `#efede8` | `#15171b` | page background (light: warm grey, never pure white - easier on the eyes) |
+| `--surface` | `#f7f5f0` | `#1d2025` | cards, top bar, buttons |
 | `--text` | `#1d1f23` | `#e6e7ea` | text |
 | `--muted` | `#5d636e` | `#9aa0ab` | secondary text, captions, table heads |
-| `--border` | `#dfe1e5` | `#30343b` | borders, separators |
+| `--border` | `#dad6cd` | `#30343b` | borders, separators |
 | `--accent` / `--accent-soft` | `#2f5bd3` / `#e6ecfb` | `#7d9cf0` / `#232c45` | links, current tab, highlights / their background |
 | `--warn` / `--warn-soft` | `#a8540a` / `#fbefe3` | `#f0a868` / `#3a2a1b` | limits, risks |
 | `--ok` / `--ok-soft` | `#1f7a4a` / `#e3f4ea` | `#6fcf97` / `#1b3326` | validated, good practice |
-| `--code-bg` | `#f1f2f4` | `#24272d` | inline code, code blocks, hover |
-| `--node` / `--node-alt` / `--line` | `#ffffff` / `#eef1f8` / `#8a909b` | `#23262c` / `#283043` / `#747a85` | SVG boxes / highlighted box / edges |
+| `--code-bg` | `#e9e6df` | `#24272d` | inline code, code blocks, hover |
+| `--node` / `--node-alt` / `--line` | `#f7f5f0` / `#eef1f8` / `#8a909b` | `#23262c` / `#283043` / `#747a85` | SVG boxes / highlighted box / edges |
 
 Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {...} }`
 **and** `:root[data-theme="dark"] {...}` (the switch forces one or the other). A new token is added in the 3 blocks.
@@ -90,8 +90,11 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
   to nothing on purpose).
 - Text: inside the drawing (`viewBox`), either fully inside a box or fully outside (never across its border),
   `text-anchor="middle"` for centered labels.
-- SVG classes: `box`, `box-alt` (accent border), `group` (dashed frame), `lbl`, `small`, `title`, `edge`,
-  `edge-accent`, `dash`, `arrow`, `arrow-accent` (markers once in `<defs>`). They follow the theme by themselves.
+- SVG classes: `box`, `box-alt` (accent border), `group` (dashed frame), `lbl`, `small`, `title`, `mono` / `mono-s`
+  (values, code, file content in monospace), `edge`, `edge-accent`, `dash`, `arrow`, `arrow-accent` (markers once in
+  `<defs>`, their `fill` by `arrow` / `arrow-accent`, never left black). They follow the theme by themselves; **only these
+  classes** on texts and shapes (an invented one has no colour of its own), never a hard-coded `fill` / `stroke` colour -
+  check the drawing in both themes.
 - Choices shared by the site: the theme, language and level are saved under `<data-storage-key>-theme|lang|level`
   (one key for the site, set by `sync_nav.py`) **and** carried by the links between the pages (`?lang=fr&theme=dark
   &level=technical`, read on arrival): a choice made on one page applies to all of them, also from `file://`

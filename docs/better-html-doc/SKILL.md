@@ -1,6 +1,6 @@
 ---
 name: better-html-doc
-description: A whole documentation site in the better-html-style (the look and engine of the claude-cluster docs) generated from Markdown - site.toml (name, languages EN / FR / both, sections with icons, home, kinds of pages, contextual help map), one Markdown file per page and language with TOML front matter, optional gen/*.py generators reading the code, a home with hero search, section tiles and changelog, numbered section cards, a sidebar by section, previous / next, updated date and edit link, a typo-tolerant search over every page and section (/ or Ctrl+K), sitemap, --split mode, explanation and protocol pages in the same site, checks (links, anchors, both languages, html-style rules) and a search test; responsive. Use whenever the user wants a better / searchable / multi-page documentation site, "une doc comme celle de claude-cluster", docs with search, or to move a project's docs to that style; a single page: better-html-style; the older single-page technical doc: html-doc.
+description: A whole documentation site in the better-html-style (the look and engine of the claude-cluster docs) generated from Markdown - site.toml (name, languages EN / FR / both, sections with icons, home, kinds of pages, contextual help map), one Markdown file per page and language with TOML front matter, optional gen/*.py generators reading the code, a home with hero search, section tiles and changelog, numbered section cards, a sidebar by section, previous / next, updated date, a typo-tolerant search over every page and section (/ or Ctrl+K), sitemap, --split mode, explanation and protocol pages in the same site, checks (links, anchors, both languages, html-style rules) and a search test; responsive. Use whenever the user wants a better / searchable / multi-page documentation site, "une doc comme celle de claude-cluster", docs with search, or to move a project's docs to that style; a single page: better-html-style; the older single-page technical doc: html-doc.
 ---
 
 # Documentation site (better-html-doc)
@@ -33,7 +33,7 @@ node SKILL_DIR/scripts/test_search.js docs/site/out [cases.json]   # every page 
 ## 3. site.toml
 | Table | Keys |
 |---|---|
-| `[site]` | `name`, `langs` (`["en","fr"]` / `["en"]` / `["fr"]`), `repo` (code icon), `edit_url` (`…/edit/main/docs/site/{path}`: "Edit this page"), `pages_url` (sitemap), `storage_key`, `logo` (SVG), `version`, `footer`, `css` / `js` (project additions, tokens only), `copy` (files copied next to the pages), `search_endpoint` (a server search) |
+| `[site]` | `name`, `langs` (`["en","fr"]` / `["en"]` / `["fr"]`), `repo` (code icon), `edit_url` (empty: no "Edit this page" link - set it, `…/edit/main/docs/site/{path}`, only when the user asks for that link), `pages_url` (sitemap), `storage_key`, `logo` (SVG), `version`, `footer`, `css` / `js` (project additions, tokens only), `copy` (files copied next to the pages), `search_endpoint` (a server search) |
 | `[home]` | `title`, `tagline`, `changelog` (a Keep a Changelog file: its last 5 versions), `links` (`{href, text}`) |
 | `[[sections]]` | `id`, `title`, `desc`, `icon` (the inside of a 24x24 stroke SVG) - in reading order |
 | `[kinds.<name>]` | `css`, `js`, `actions`, `attrs`, `label` - a kind of page with its own assets (`explain`, `protocol` are built in) |
