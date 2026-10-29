@@ -252,6 +252,15 @@ namespace {
         });
     }
 
+    // what a core answered it did: {data: {done: "..."}} (or a plain text), never thrown on an unexpected shape
+    std::string told_(const cluster::Json& answer, const std::string& fallback)
+    {
+        const cluster::Json data = answer.value("data", cluster::Json());
+        if (data.is_string()) return data.get<std::string>();
+        if (data.is_object() && data.contains("done") && data["done"].is_string()) return data["done"].get<std::string>();
+        return fallback;
+    }
+
     std::string update_(const cluster::SupInstance& it)
     {
         // the smooth update of that one (its turns end first, its interfaces follow it); an ignored version offered again first
@@ -261,7 +270,7 @@ namespace {
             (void)ask_(it.socket, {{"cmd", "service_act"}, {"service", "update"}, {"action", "offer"}});
             answer = ask_(it.socket, {{"cmd", "upgrade"}, {"action", "update"}});
         }
-        return it.name + ": " + (answer.value("ok", false) ? answer.value("data", std::string("updating")) : answer.value("error", std::string("not updated")));
+        return it.name + ": " + (answer.value("ok", false) ? told_(answer, "updating") : answer.value("error", std::string("not updated")));
     }
 
     std::string force_(const cluster::SupInstance& it)
@@ -363,8 +372,15 @@ _cold std::string cluster::supervisor_act(const std::string& name, const std::st
         const std::string installed = cluster::supervisor_installed();
         std::string done;
         for (const cluster::SupInstance& it: cluster::supervisor_scan())
-            if (it.alive && cluster::version_compare(it.version, installed) < 0)
-                done += (done.empty() ? "" : "\n") + (action == "force" ? force_(it) : update_(it));
+            if (it.alive && cluster::version_compare(it.version, installed) < 0) {
+                std::string one; // each one asked even when another failed
+                try {
+                    one = action == "force" ? force_(it) : update_(it);
+                } catch (const std::exception& e) {
+                    one = it.name + ": " + e.what();
+                }
+                done += (done.empty() ? "" : "\n") + one;
+            }
         return done.empty() ? "every claude-cluster runs " + installed + " already" : done;
     }
     const cluster::SupInstance it = find_(name);
