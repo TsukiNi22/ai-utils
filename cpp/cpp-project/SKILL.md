@@ -9,7 +9,7 @@ The base is always **`cpp_project_template`** and **its own `setup.sh`** (local 
 `~/personal_delivery/cpp/cpp_project_template`, otherwise `https://github.com/TsukiNi22/cpp_project_template.git`): it
 renames, adapts the copy to the kind, writes the README, the CHANGELOG, the docs and the gh-pages branch. This skill
 drives it without git actions, then completes what it does not do (libutils freshness, no-libutils, `.gitignore`, the
-custom CI/CD, the checks). Skill synced with the template at `7fa7c9f` (2026-10-24: Arch Linux packages, xstyle pre-commit hook, setup workflow fixes; before: Windows build, one CMake for
+custom CI/CD, the checks). Skill synced with the template at `d3fd2a1` (2026-10-30: the packages `setup.sh` only registers the mirror, `--install` installs; before: Arch Linux packages, xstyle pre-commit hook, setup workflow fixes; before: Windows build, one CMake for
 every kind, `SRC` / `SRC_SHARED`, workflows dispatch / unit-tests / build / build-packages / release / docs, gh-pages,
 `install.sh`, CHANGELOG written by `setup.sh`, libutils `>= 4.1.0`): when its `HEAD` is newer
 (`git -C <clone> log --oneline 7fa7c9f..HEAD`, and `origin/main` after a `git fetch`), read its README (*Quick Setup*,
@@ -60,8 +60,8 @@ repository. What `setup.sh` does (template README, *Quick Setup*):
   rewritten;
 - writes `README.md` (dependencies, packages, setup, usage, workflows), `CHANGELOG.md` (first entry `## v1.0.0 - <date>`,
   the `git-conventions` format read by the release workflow) and `docs/` (technical page placeholder + the project graph);
-- gh-pages: the packages setup script as root `setup.sh` (from `install.sh`: mirror + GPG key + install, `--pre`,
-  `--windows`, `--no-install`, `--no-sudo`), keeps `docs.yml` and the publication job, `git init -b main` when needed and
+- gh-pages: the packages setup script as root `setup.sh` (from `install.sh`: mirror + GPG key only, `--install` to also
+  install the package, `--pre`, `--windows`, `--no-sudo`), keeps `docs.yml` and the publication job, `git init -b main` when needed and
   creates the `gh-pages` branch (seed `<name>.repo`, `RPM-GPG-KEY-tsukini`, `Sync Packages (CD)`, `docs/`) **without
   touching the working tree nor committing `main`**; without: `install.sh` and `docs.yml` removed.
 
