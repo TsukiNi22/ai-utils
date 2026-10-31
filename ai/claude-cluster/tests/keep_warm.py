@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Keep-warm: off by default (nothing woken up); /keepwarm marks a session (the mode becomes chosen, the session listed keep_warm, ♨);
-# idle, it is woken up a little before its prompt cache expires (cache life 1 min, margin 10 s here: ~50 s after its last entry), then
-# again, the previous wake-up taken back first (one in the conversation, not one more each time); unmarked: left to cool; turned on while its cache already expired: asked first, kept warm anyway: one wake-up at once.
+# idle, it is woken up a little before its prompt cache expires (cache life 1 min, margin 16 s at least: ~44 s after its last request), then
+# again, the previous wake-up taken back first (one in the conversation, not one more each time), a wake-up silent (no notice, notification, sound or face; listed warming); unmarked: left to cool; turned on while its cache already expired: asked first, kept warm anyway: one wake-up at once.
 # Usage: tests/keep_warm.py [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster)
 """Sessions kept warm before their prompt cache expires."""
 import glob
@@ -52,12 +52,17 @@ def listed(sid: str) -> dict:
     return next((s for s in ask({"cmd": "list"}).get("data") or [] if s.get("id") == sid), {})
 
 
+def told(sid: str) -> list:
+    # the notices of the session (what the desktop, the page and the app are told: no notice, no notification / sound / face)
+    return [n.get("text", "") for n in ask({"cmd": "notices"}).get("data") or [] if n.get("session") == sid]
+
+
 for folder in ("cfg", "data", "run", "cache", "home", "work"):
     os.makedirs(f"{T}/{folder}")
 open(f"{T}/fake.log", "w", encoding="utf-8").close()
 with open(f"{T}/cfg/config.toml", "w", encoding="utf-8") as config:
     config.write('[global]\nenabled = false\n[ui]\nnotify = false\nmachine_days = 0\n[user]\nname = "t"\nemail = "t@t.t"\n[usage]\naccount = false\n'
-                 f'[sessions]\nkeep_warm_ttl = 1\nkeep_warm_margin = 10\n[commands]\nclaude = "{FAKE}"\n')
+                 f'[sessions]\nkeep_warm_ttl = 1\nkeep_warm_margin = 16\n[commands]\nclaude = "{FAKE}"\n')
 core = subprocess.Popen([BIN, "serve", "--no-global"], env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
     for _ in range(100):
@@ -73,6 +78,7 @@ try:
     got = ask({"cmd": "slash", "session": sid, "text": "/keepwarm"})
     check("/keepwarm, its cache already expired: asked first (Cancel the default)", (got.get("data") or {}).get("ui") == f"pick:warm:{sid}" and wakes() == 0
           and listed(sid).get("keep_warm") is False, json.dumps(got)[:300])
+    before = sum("done:" in t for t in told(sid))
     got = ask({"cmd": "action", "id": f"keep_warm_force:{sid}", "session": sid})
     deadline = time.time() + 20
     while time.time() < deadline and wakes() == 0:
@@ -89,6 +95,12 @@ try:
     while time.time() < deadline and wakes() == first:
         time.sleep(1)
     check("and again (kept warm)", wakes() > first, str(wakes()))
+    time.sleep(3)  # its "ok" received
+    after = sum("done:" in t for t in told(sid))
+    # since the forced wake-up: the real prompt only told - none of the wake-ups (the forced one ran while the real one was queued)
+    check("a wake-up tells nothing (no notice, so no notification / sound / face either)", after == before + 1
+          and not any("keep-warm" in t for t in told(sid)) and listed(sid).get("warming") is True,
+          json.dumps(told(sid))[:300] + f" done before {before}, after {after}, warming {listed(sid).get('warming')}")
     kept = "".join(open(path, encoding="utf-8").read() for path in glob.glob(f"{T}/data/logs/{sid}*.jsonl"))
     with open(f"{T}/fake.log", encoding="utf-8") as log:
         resumed = log.read().count("--resume-session-at")

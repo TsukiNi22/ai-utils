@@ -371,7 +371,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "unloaded then loaded again when they end\nThe sessions kept warm show ♨", false, [](const cluster::Config& cf) {return cf.keepWarm;}},
             {"sessions", "keep_warm_ttl", "Keep warm: cache life (min)", SettingKind::Int, {}, "how long the prompt cache of the agent lives: 5 (the "
                 "default of Claude Code), 60 with a 1 h cache", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmTtl);}},
-            {"sessions", "keep_warm_margin", "Keep warm: margin (s)", SettingKind::Int, {}, "the wake-up this long before the cache expires (10 to 600 s; "
+            {"sessions", "keep_warm_margin", "Keep warm: margin (s)", SettingKind::Int, {}, "the wake-up this long before the cache expires (16 to 600 s: checked every 15 s; "
                 "45: room for a slow start)", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmMargin);}},
             {"sessions", "keep_warm_hours", "Keep warm: for (hours)", SettingKind::Int, {}, "kept warm so long after its last real prompt, then left to "
                 "cool (0: always)", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmHours);}},

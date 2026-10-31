@@ -128,11 +128,17 @@
   (function () { // phone: the small search moves under the top bar (sticky), else it lives in the top bar
     var sb = document.querySelector('.sbox.small'); if (!sb) return;
     var home = sb.parentNode, mq = window.matchMedia('(max-width: 480px)');
-    function place() {
-      if (mq.matches) { sb.classList.add('mob'); document.querySelector('.topbar').after(sb); }
-      else { sb.classList.remove('mob'); home.insertBefore(sb, home.firstChild); }
+    var bar = document.querySelector('.topbar');
+    function stick() { // stuck right under the top bar as it is drawn (56 px, 48 px sideways; hidden in the embedded copy: the very top)
+      if (!sb.classList.contains('mob')) { sb.style.top = ''; return; }
+      sb.style.top = (bar && bar.offsetParent !== null ? Math.round(bar.getBoundingClientRect().height) : 0) + 'px';
     }
-    place(); mq.addEventListener('change', place);
+    function place() {
+      if (mq.matches) { sb.classList.add('mob'); bar.after(sb); }
+      else { sb.classList.remove('mob'); home.insertBefore(sb, home.firstChild); }
+      stick();
+    }
+    place(); mq.addEventListener('change', place); window.addEventListener('resize', stick);
   })();
   document.addEventListener('keydown', function (ev) {
     if ((ev.key === '/' || (ev.ctrlKey && ev.key.toLowerCase() === 'k')) && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {

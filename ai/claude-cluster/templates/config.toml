@@ -119,7 +119,7 @@ context = "auto"           # the context of every other session at most, like [g
 keep_warm = "off"          # off | chosen (/keepwarm) | all | background: an idle session woken up before its prompt cache
                            # expires (a tiny turn; the previous wake-up taken back first: one in the conversation at most)
 keep_warm_ttl = 5          # minutes the prompt cache lives (5; 60 with a 1 h cache), counted from the last request
-keep_warm_margin = 45      # the wake-up this many seconds before it expires
+keep_warm_margin = 45      # the wake-up this many seconds before it expires (16 to 600: checked every 15 s)
 keep_warm_hours = 2        # kept warm so long after the last real prompt or take-back (0: always)
 questions_to_global = true # a question of the agent of a sub-session shown on the global session (its own one greyed);
                            # answered with the keys, the mouse or the voice

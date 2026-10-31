@@ -47,7 +47,6 @@ File Description:
 
     #define GLOBAL_ID "g" // id of the global session
     #define TASKS_ID "tasks" // the Tasks session of the interfaces (its todo lists, the task queue, the schedules): not a session
-    #define KEEP_WARM_MARK "[claude-cluster keep-warm:" // the start of a keep-warm prompt (never a real prompt of the user)
 
 namespace cluster { // namespace start
 class Web;

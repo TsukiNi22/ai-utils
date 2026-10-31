@@ -36,6 +36,11 @@ File Description:
     #include <deque>                // std::deque
     #include <set>                  // std::set
 
+    //----------------------------------------------------------------//
+    /* DEFINE */
+
+    #define KEEP_WARM_MARK "[claude-cluster keep-warm:" // the start of a keep-warm prompt (never a real prompt of the user)
+
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
 /* STRUCT */
@@ -48,6 +53,7 @@ struct Event {
     bool error = false;
     bool interrupted = false;   // TurnDone: stopped by an interrupt (not an error, nothing to notify)
     bool spontaneous = false;   // TurnDone: no prompt started it (a background task or a Monitor woke the agent up)
+    bool warm = false;          // TurnDone: a keep-warm wake-up (no notification, sound, face, notice nor reply)
 };
 
 struct Queued {

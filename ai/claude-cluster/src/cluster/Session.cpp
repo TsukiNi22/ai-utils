@@ -1369,7 +1369,7 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
 
 _cold void cluster::Session::emit_(const cluster::Event::Kind kind, const std::string& text, const bool error, const bool interrupted, const bool spontaneous)
 {
-    pending_events_.push_back({kind, this->_data.spec.id, text, error, interrupted, spontaneous});
+    pending_events_.push_back({kind, this->_data.spec.id, text, error, interrupted, spontaneous, this->_data.warming});
 }
 
 /* actions */
@@ -1450,6 +1450,7 @@ _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
     this->_sent.insert(uuid);
     this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
     this->_prompted = prompt.origin != "wake"; // a wake-up: a turn of its own, like the ones claude starts by itself
+    this->_data.warming = prompt.text.starts_with(KEEP_WARM_MARK); // a keep-warm wake-up: nothing to tell of this turn
     this->_data.state = cluster::State::Working;
     this->_turn = {};
     this->turnStart_();
@@ -1486,6 +1487,7 @@ _cold void cluster::Session::giveQueued(const int delayMs)
         }
         queued.given = true;
         this->_prompted = this->_prompted || queued.origin != "wake";
+        this->_data.warming = this->_data.warming && queued.text.starts_with(KEEP_WARM_MARK); // a real prompt given during it: a real turn
         this->_lastPrompt = queued;
         this->entry_(cluster::EntryKind::User, prepared.shown, "", queued.origin);
         changed = true;

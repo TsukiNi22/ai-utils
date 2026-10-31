@@ -690,7 +690,9 @@ _cold void cluster::Manager::wake_(const std::string& id)
             ++this->_version;
         } catch (const utils::exception::IException&) {}
     }
+    const std::string origin = this->origin(id); // a prompt of a device: still its device that is told of the next real turn
     this->send(id, prompt, false, {}, "wake");
+    this->setOrigin(id, origin);
 }
 
 _cold void cluster::Manager::keepWarm_(void)
@@ -702,7 +704,8 @@ _cold void cluster::Manager::keepWarm_(void)
     if (this->_replica || this->_closing || this->_holding || this->_config.keepWarm == "off") return;
     const std::int64_t now = cluster::now();
     const std::int64_t ttl = static_cast<std::int64_t>(this->_config.keepWarmTtl) * 60;
-    const std::int64_t margin = std::min<std::int64_t>(this->_config.keepWarmMargin, ttl - 5);
+    // checked every 15 s: a window under 16 s could fall between two checks (the cache then lost, the session left to cool)
+    const std::int64_t margin = std::clamp<std::int64_t>(this->_config.keepWarmMargin, 16, ttl - 5);
     for (const cluster::Snapshot& s: this->list(true)) {
         if (!cluster::keep_warm_on(this->_config, s) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0
             || (cluster::background_busy(s) && this->_config.keepWarm != "background") || s.entries.empty())
@@ -1001,6 +1004,12 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             break;
         case cluster::Event::Kind::TurnDone:
             this->recordUsage_(event.session);
+            if (event.warm) {
+                // a keep-warm wake-up over (its "ok"): nothing to tell - no notification (desktop, app, page), sound, face, notice,
+                // reply to the global session nor failure popup; a failed one only noted
+                if (event.error && !event.interrupted) this->notice_(event.session, name + ": keep-warm wake-up failed: " + cluster::one_line(event.text, 120), true);
+                break;
+            }
             if (event.error) {
                 std::string lowered = event.text;
                 std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});

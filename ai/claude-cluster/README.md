@@ -1528,12 +1528,12 @@ it again; the window, the web page: its buttons):
 (`history_limit`), each conversation kept here (`logs/<session>.jsonl`, with its pictures and display blocks) its
 newest entries within **25 MB** (`transcript_limit_mb`, checked at its start and every minute); the conversation of the
 agent itself is never touched; 0 = no limit. **Keep warm** (`[sessions] keep_warm`: `off` by default, `chosen`, `all`, `background`): an idle
-session is woken up a little before its prompt cache expires (`keep_warm_ttl` 5 min, 60 with a 1 h cache; `keep_warm_margin` 45 s
+session is woken up a little before its prompt cache expires (`keep_warm_ttl` 5 min, 60 with a 1 h cache; `keep_warm_margin` 45 s, 16 at least: checked every 15 s
 before), a tiny turn the agent answers *ok*, so its context is never unloaded; kept so for `keep_warm_hours` (2) after its last real
 prompt, never when it works or asks. A wake-up never piles on the previous one: when the last prompt of the session is still a
 wake-up (nothing real since), that one is **taken back** first (a rewind of Claude Code, its backup not kept) and the same prompt sent
 again on the same cached prefix, so the conversation holds one wake-up at most instead of one more every 5 min (its context, and
-the cost of every later turn, never growing with them); a session not of Claude Code, or a compacted one, gets it after as before. Its background running (shells / agents), only `background` wakes it: that mode keeps
+the cost of every later turn, never growing with them); a session not of Claude Code, or a compacted one, gets it after as before. A wake-up is **silent**: no notification (desktop, page, app), sound, face, notice nor reply to the global session, and the device that sent the last real prompt is still the one told of the next turn. Its background running (shells / agents), only `background` wakes it: that mode keeps
 warm only the sessions waiting on their background (a long compilation: its context not unloaded then loaded again when it ends),
 and leaves them to cool once it ends. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
 `chosen`); the sessions kept warm show **♨** in every list. The wake-up counts from the **last request** of its agent, kept over a take-back (Esc: the entries

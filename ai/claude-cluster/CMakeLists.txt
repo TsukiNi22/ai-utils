@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.9.0 LANGUAGES CXX)
+project(${TARGET} VERSION 1.9.1 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard

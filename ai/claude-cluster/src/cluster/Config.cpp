@@ -260,7 +260,7 @@ _cold void cluster::Config::load(void)
     this->keepWarm = table["sessions"]["keep_warm"].value_or(this->keepWarm);
     if (this->keepWarm != "off" && this->keepWarm != "chosen" && this->keepWarm != "all" && this->keepWarm != "background") this->keepWarm = "off";
     this->keepWarmTtl = std::clamp(static_cast<int>(table["sessions"]["keep_warm_ttl"].value_or(this->keepWarmTtl)), 1, 120);
-    this->keepWarmMargin = std::clamp(static_cast<int>(table["sessions"]["keep_warm_margin"].value_or(this->keepWarmMargin)), 10, 600);
+    this->keepWarmMargin = std::clamp(static_cast<int>(table["sessions"]["keep_warm_margin"].value_or(this->keepWarmMargin)), 16, 600); // 16 at least: checked every 15 s
     this->keepWarmHours = std::clamp(static_cast<int>(table["sessions"]["keep_warm_hours"].value_or(this->keepWarmHours)), 0, 168);
     this->queueGiven = table["sessions"]["queue_given"].value_or(this->queueGiven);
     this->budget = table["sessions"]["budget_usd"].value_or(this->budget);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Keep-warm in the background mode: an idle session waiting on its background (an agent running: a long compilation) is woken up a
-# little before its prompt cache expires (cache life 1 min, margin 10 s here) and listed kept warm (♨); its background stopped, it is
+# little before its prompt cache expires (cache life 1 min, margin 16 s here) and listed kept warm (♨); its background stopped, it is
 # left to cool (no more wake-up, no ♨).
 # Usage: tests/keep_warm_background.py [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster)
 """Sessions kept warm only while their background runs."""
@@ -54,7 +54,7 @@ for folder in ("cfg", "data", "run", "cache", "home", "work", "out"):
 open(f"{T}/fake.log", "w", encoding="utf-8").close()
 with open(f"{T}/cfg/config.toml", "w", encoding="utf-8") as config:
     config.write('[global]\nenabled = false\n[ui]\nnotify = false\nmachine_days = 0\n[user]\nname = "t"\nemail = "t@t.t"\n[usage]\naccount = false\n'
-                 f'[sessions]\nkeep_warm = "background"\nkeep_warm_ttl = 1\nkeep_warm_margin = 10\n[commands]\nclaude = "{FAKE}"\n')
+                 f'[sessions]\nkeep_warm = "background"\nkeep_warm_ttl = 1\nkeep_warm_margin = 16\n[commands]\nclaude = "{FAKE}"\n')
 core = subprocess.Popen([BIN, "serve", "--no-global"], env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
     for _ in range(100):

@@ -47,6 +47,8 @@
 @media (max-width: 860px) { .two { grid-template-columns: 1fr; } .hero h1 { font-size: 30px; } }
 @media (max-width: 480px) { .tile { padding: 16px; } }
 .sbox.small.mob { position: sticky; top: 56px; z-index: 19; width: auto; margin: 0; padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.embed .sbox.small.mob { top: 0; } /* the embedded copy (web page, app): no top bar, the search at the very top (the script sets the real height too) */
+@media (max-height: 480px) and (orientation: landscape) { .sbox.small.mob { top: 48px; } .embed .sbox.small.mob { top: 0; } }
 .sbox.small.mob > svg { left: 22px; top: 17px; }
 .sbox.small.mob .results { left: 12px; right: 12px; }
 /* docs site - additions */
