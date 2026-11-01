@@ -1533,9 +1533,9 @@ before), a tiny turn the agent answers *ok*, so its context is never unloaded; k
 prompt, never when it works or asks. A wake-up never piles on the previous one: when the last prompt of the session is still a
 wake-up (nothing real since), that one is **taken back** first (a rewind of Claude Code, its backup not kept) and the same prompt sent
 again on the same cached prefix, so the conversation holds one wake-up at most instead of one more every 5 min (its context, and
-the cost of every later turn, never growing with them); a session not of Claude Code, or a compacted one, gets it after as before. A wake-up is **silent**: no notification (desktop, page, app), sound, face, notice nor reply to the global session, and the device that sent the last real prompt is still the one told of the next turn. Its background running (shells / agents), only `background` wakes it: that mode keeps
-warm only the sessions waiting on their background (a long compilation: its context not unloaded then loaded again when it ends),
-and leaves them to cool once it ends. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
+the cost of every later turn, never growing with them); a session not of Claude Code, or a compacted one, gets it after as before. A wake-up is **silent**: no notification (desktop, page, app), sound, face, notice nor reply to the global session, and the device that sent the last real prompt is still the one told of the next turn. Its background running (shells / agents) changes nothing: an idle session waiting on a long compilation is woken up like any other
+(its context not unloaded then loaded again when it ends); the `background` mode keeps warm only those sessions, and leaves them to cool
+once it ends. `/keepwarm [on|off]` (or the palette) marks a session (the mode becomes
 `chosen`); the sessions kept warm show **♨** in every list. The wake-up counts from the **last request** of its agent, kept over a take-back (Esc: the entries
 after the cut are gone, not the cache of its prefix, so a session taken back is still kept warm; a take-back counts as a use for
 `keep_warm_hours`), not from when
