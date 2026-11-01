@@ -455,7 +455,7 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
             ++this->_version;
             return;
         }
-        // from now on nothing starts a turn: the prompts, the queued ones, the tasks, the schedules and the wake-ups are held (held.json) and
+        // from now on nothing starts a turn: the prompts, the queued ones, the tasks and the schedules are held (not the keep-warm wake-ups: a session would cool while the update waits) (held.json) and
         // sent by the new version; only the turns running are waited for (before: their queue started new ones, the update never came)
         this->_holding = true;
         this->holdQueues_();

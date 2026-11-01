@@ -46,6 +46,7 @@ _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
         {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
         {"summary", spec.summary}, {"summary_auto", spec.summaryAuto}, {"summary_turns", spec.summaryTurns}, {"category", spec.category}, {"tags", spec.tags}, {"turns", spec.turns},
         {"pin", spec.pin}, {"context", spec.context}, {"cached_at", spec.cachedAt}, {"rewound_at", spec.rewoundAt},
+        {"keep_warm", spec.keepWarm}, // chosen (/keepwarm): kept over a restart or an update
     };
 }
 
@@ -81,6 +82,7 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.context = json.value("context", std::string());
     spec.cachedAt = json.value("cached_at", std::int64_t{0});
     spec.rewoundAt = json.value("rewound_at", std::int64_t{0});
+    spec.keepWarm = json.value("keep_warm", false);
     return spec;
 }
 
@@ -303,7 +305,9 @@ _cold void cluster::Manager::send(const std::string& id, const std::string& tagg
         return;
     }
     const std::shared_ptr<cluster::Session> session = this->get_(id);
-    if (this->hold_(session->id(), text, images, origin)) return; // an update switching: sent by the new version, never a new turn now
+    // an update switching: sent by the new version, never a new turn now - but a keep-warm wake-up, a tiny turn that must not wait (the update
+    // waits for it, as for any turn running): the sessions would cool for as long as the update waits on the agents of another
+    if (!text.starts_with(KEEP_WARM_MARK) && this->hold_(session->id(), text, images, origin)) return;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_origin[session->id()] = "host"; // a web device marks it after (Web: setOrigin)
@@ -701,10 +705,10 @@ _cold void cluster::Manager::keepWarm_(void)
     // (and kept), its background running or not (an idle session waiting on a long compilation loses its context as any other). Never
     // when it works, asks or queues; never after the cache expired (the core was down: left to cool) nor past keep_warm_hours after its
     // last real prompt
-    if (this->_replica || this->_closing || this->_holding || this->_config.keepWarm == "off") return;
+    if (this->_replica || this->_closing || this->_config.keepWarm == "off") return; // an update switching too: it can wait an hour on the agents of a session, the others cooling
     const std::int64_t now = cluster::now();
     const std::int64_t ttl = static_cast<std::int64_t>(this->_config.keepWarmTtl) * 60;
-    // checked every 15 s: a window under 16 s could fall between two checks (the cache then lost, the session left to cool)
+    // checked every 10 s: a window under 16 s could fall between two checks (the cache then lost, the session left to cool)
     const std::int64_t margin = std::clamp<std::int64_t>(this->_config.keepWarmMargin, 16, ttl - 5);
     for (const cluster::Snapshot& s: this->list(true)) {
         if (!cluster::keep_warm_on(this->_config, s) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0 || s.entries.empty())
@@ -1460,7 +1464,11 @@ _cold void cluster::Manager::tick(void)
             if (seconds % 60 == 17 && this->_config.transcriptLimitMb > 0) session->limitLog(static_cast<std::uintmax_t>(this->_config.transcriptLimitMb) * 1024 * 1024);
         }
         if (seconds % 60 == 19) this->limitMemory_(sessions);
-        if (seconds % 15 == 7) this->keepWarm_();
+        static std::int64_t warmAt = 0; // by time, not by the second of the tick: a slow tick would skip its second and a narrow window with it
+        if (cluster::now() - warmAt >= 10) {
+            warmAt = cluster::now();
+            this->keepWarm_();
+        }
     }
     if (seconds % 60 == 2) this->scanTranscripts_();        // the transcripts of Claude Code: what grew
     if (seconds % 30 == 3) this->refreshAccount_();         // the windows of the account (read from the shared copy, fetched once too old)
