@@ -638,16 +638,27 @@ _cold std::string cluster::Manager::setKeepWarm(const std::string& id, const std
         + "; woken up " + std::to_string(this->_config.keepWarmMargin) + " s before its " + std::to_string(this->_config.keepWarmTtl) + " min cache expires)";
 }
 
-_nodiscard std::optional<std::int64_t> cluster::cache_left(const cluster::Config& c, const cluster::Snapshot& s)
+/* the prompt cache */
+_nodiscard static std::int64_t cache_at_(const cluster::Snapshot& s)
 {
-    // the cache is written by every request of the agent: the last one (kept over a rewind: the entries after the cut are gone, not
-    // the cache of its prefix), else its last user / assistant entry (a notice never touches it)
+    // the last request of the agent that was answered: its last message got back (cachedAt, kept over a rewind: the entries after the cut
+    // are gone, not the cache of its prefix) or its last answer shown. A prompt sent and never answered (a wake-up that failed, an error, a
+    // process that died) wrote nothing: it does not count, until the session has no answer at all (then its last prompt stands for it)
     std::int64_t at = s.spec.cachedAt;
     for (auto it = s.entries.rbegin(); it != s.entries.rend(); ++it)
-        if (it->kind == cluster::EntryKind::User || it->kind == cluster::EntryKind::Assistant) {
+        if (it->kind == cluster::EntryKind::Assistant) {
             at = std::max(at, it->time);
             break;
         }
+    if (at > 0) return at;
+    for (auto it = s.entries.rbegin(); it != s.entries.rend(); ++it)
+        if (it->kind == cluster::EntryKind::User) return it->time;
+    return 0;
+}
+
+_nodiscard std::optional<std::int64_t> cluster::cache_left(const cluster::Config& c, const cluster::Snapshot& s)
+{
+    const std::int64_t at = cache_at_(s);
     if (at == 0) return std::nullopt;
     return static_cast<std::int64_t>(c.keepWarmTtl) * 60 - (cluster::now() - at);
 }
@@ -713,15 +724,30 @@ _cold void cluster::Manager::keepWarm_(void)
     for (const cluster::Snapshot& s: this->list(true)) {
         if (!cluster::keep_warm_on(this->_config, s) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0 || s.entries.empty())
             continue;
-        const std::int64_t last = std::max(s.entries.back().time, s.spec.cachedAt); // a rewind cuts the entries, not the cache of its prefix
-        if (now - last < ttl - margin || now - last > ttl) continue;
+        const std::int64_t last = cache_at_(s); // answered requests only: a wake-up sent and failed is tried again until the cache expires
+        if (now - last < ttl - margin) continue;
+        if (now - last > ttl) { // the window missed (the core down, a wake-up failed): told once when it just happened, left to cool
+            if (now - last - ttl < 120 && this->_warmMissed.insert(s.spec.id + ":" + std::to_string(last)).second) {
+                cluster::debug("keepwarm", s.spec.name + ": cache expired " + std::to_string(now - last - ttl) + " s ago, no wake-up (left to cool)");
+                this->notice_(s.spec.id, "keep warm: its prompt cache expired before a wake-up could run (left to cool; a prompt or /keepwarm warms it again)", true);
+            }
+            continue;
+        }
         std::int64_t real = s.spec.rewoundAt; // a take-back of the user: a real use of the session too
         for (auto it = s.entries.rbegin(); it != s.entries.rend() && real < it->time; ++it)
             if (it->kind == cluster::EntryKind::User && !it->text.starts_with(KEEP_WARM_MARK)) real = it->time;
-        if (this->_config.keepWarmHours > 0 && real > 0 && now - real > static_cast<std::int64_t>(this->_config.keepWarmHours) * 3600) continue;
+        if (this->_config.keepWarmHours > 0 && real > 0 && now - real > static_cast<std::int64_t>(this->_config.keepWarmHours) * 3600) {
+            if (this->_warmMissed.insert(s.spec.id + ":" + std::to_string(real)).second)
+                this->notice_(s.spec.id, "keep warm: stopped, no prompt for " + std::to_string(this->_config.keepWarmHours) + " h (keep_warm_hours); a prompt warms it again", false);
+            continue;
+        }
         try {
+            cluster::debug("keepwarm", s.spec.name + ": wake-up, cache " + std::to_string(ttl - (now - last)) + " s left");
             this->wake_(s.spec.id);
-        } catch (const utils::exception::IException&) {}
+        } catch (const utils::exception::IException& e) {
+            cluster::debug("keepwarm", s.spec.name + ": wake-up refused: " + e.what());
+            this->notice_(s.spec.id, std::string("keep warm: the wake-up was refused (") + e.what() + "), tried again until the cache expires", true);
+        }
     }
 }
 

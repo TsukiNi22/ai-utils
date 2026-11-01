@@ -329,6 +329,7 @@ class Manager {
         _cold void limitMemory_(const std::vector<std::shared_ptr<cluster::Session>>& sessions);
         _cold void restartYoung_(std::set<std::string>& restarted);  // an update: the young safe background items stopped (run again after it), noted
         _cold void wake_(const std::string& id);                     // a keep-warm wake-up: the previous one taken back first if it is still the last prompt
+        std::set<std::string> _warmMissed;                           // the keep-warm stops already told (session:time): once each
         _cold void keepWarm_(void);                                  // the idle sessions kept warm woken up before their prompt cache expires // the transcripts in memory: each within its budget, all within the global one
         _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
         void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)
