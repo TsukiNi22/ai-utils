@@ -23,6 +23,38 @@
     b.addEventListener('click', function () { setLevel(b.dataset.setLevel, true); });
   });
 
+  // ---------- Blocks that scroll: drawings and formulas ----------
+  // Under 860px a drawing scrolls in a box of its own instead of shrinking until its labels cannot be read: its smallest size is
+  // 560px, never above its viewBox (a small drawing is not blown up).
+  var DRAWN_MIN = 560;
+  function drawingBox(svg) {
+    var view = document.createElement('div');
+    view.className = 'view';
+    svg.replaceWith(view);
+    view.appendChild(svg);
+    var width = svg.viewBox && svg.viewBox.baseVal ? svg.viewBox.baseVal.width : 0;
+    if (width) svg.style.setProperty('--drawn-min', Math.min(DRAWN_MIN, width) + 'px');
+    return view;
+  }
+  // A block that really scrolls is reached and scrolled with the keyboard (RGAA 7.3), one that fits is not a stop of the tab order
+  var SCROLL_BOXES = '.formula, .stepper .view, figure > .view';
+  function reachable() {
+    document.querySelectorAll(SCROLL_BOXES).forEach(function (box) {
+      if (!box.clientWidth) return; // hidden (the other level, a closed tab): done when it is shown
+      var scrolls = box.scrollWidth > box.clientWidth + 1;
+      if (scrolls && !box.hasAttribute('tabindex')) {
+        var label = box.querySelector('svg[aria-label]');
+        box.setAttribute('tabindex', '0');
+        box.setAttribute('role', 'region');
+        box.setAttribute('aria-label', label ? label.getAttribute('aria-label') : tr(box.classList.contains('formula') ? 'Formula' : 'Drawing'));
+      } else if (!scrolls && box.hasAttribute('tabindex')) {
+        box.removeAttribute('tabindex');
+        box.removeAttribute('role');
+        box.removeAttribute('aria-label');
+      }
+    });
+  }
+
   // ---------- Steppers: <figure class="stepper" data-steps="N"> ----------
   // In the SVG:
   // - data-show="2" (only step 2), "2-" (from 2), "1-3", "1,3": visible at those steps (short fade in / out);
@@ -53,12 +85,14 @@
   // French of the UI of the explanation pages (merged into the dictionary of the page)
   var FR = { "Level": "Niveau", "Simple": "Simple", "Technical": "Technique", "Explanation": "Explication", "Play": "Lecture",
     "Pause": "Pause", "First step": "Première étape", "Previous step (←)": "Étape précédente (←)", "Next step (→)": "Étape suivante (→)",
-    "Previous step": "Étape précédente", "Next step": "Étape suivante", "Contents": "Sommaire" };
+    "Previous step": "Étape précédente", "Next step": "Étape suivante", "Contents": "Sommaire", "Formula": "Formule", "Drawing": "Dessin" };
   window.DOC_FR = window.DOC_FR || {};
   Object.keys(FR).forEach(function (k) { if (!(k in window.DOC_FR)) window.DOC_FR[k] = FR[k]; });
   var tr = function (s) { return window.docI18n ? window.docI18n.tr(s) : s; };
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var FADE = 160; // ms of each half of a fade (out, then in)
+  var TALL = 480; // a drawing higher than that is not fitted in the 400px of a stepper: its labels could not be read
+  var HEAD_MAX = 0.45; // part of the window a head that follows the scroll may hide
   // Icons of the controls: same 16x16 grid, filled with currentColor
   var svg16 = function (d) { return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="' + d + '"/></svg>'; };
   var ICON = {
@@ -115,10 +149,8 @@
       '<button type="button" data-a="next" aria-label="Next step" title="Next step (→)" data-i18n-aria-label data-i18n-title>' + ICON.next + '</button>' +
       '<span class="progress"><i></i></span><span class="count"></span>';
     var svg = fig.querySelector('svg');
-    var view = document.createElement('div');
-    view.className = 'view';
-    svg.replaceWith(view);
-    view.appendChild(svg);
+    var view = drawingBox(svg);
+    if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.height > TALL) svg.style.maxHeight = 'none'; // drawn at its size: the head follows the scroll
     // Controls + explanation above the drawing: what happens is read while the drawing changes
     var head = document.createElement('div');
     head.className = 'step-head';
@@ -126,13 +158,24 @@
     if (list) { list.setAttribute('aria-live', 'polite'); head.appendChild(list); }
     view.insertAdjacentElement('beforebegin', head);
     var play = controls.querySelector('[data-a="play"]');
-    // Sticky head only for a figure taller than the visible area (under the 56px top bar): a figure that fits
-    // the screen keeps its controls in place
-    function fit() { fig.classList.toggle('tall', fig.getBoundingClientRect().height > window.innerHeight - 72); }
+    // Sticky head only for a figure taller than the visible area (under the 56px top bar) and a head that leaves the drawing some
+    // room: a figure that fits the screen keeps its controls in place, a long caption on a phone never covers the drawing
+    function fit() {
+      var high = window.innerHeight;
+      fig.classList.toggle('tall', fig.getBoundingClientRect().height > high - 72 && head.getBoundingClientRect().height < high * HEAD_MAX);
+    }
     fit();
     window.addEventListener('resize', fit);
     if (window.docI18n) window.docI18n.onChange(fit);
     levelListeners.push(function () { setTimeout(fit, 0); });
+    // A drawing that scrolls (a phone): what this step lights stays in the box
+    function follow() {
+      if (view.scrollWidth <= view.clientWidth + 1) return;
+      var lit = svg.querySelector('.hl, .hl-warn');
+      if (!lit) return;
+      var box = lit.getBoundingClientRect(), frame = view.getBoundingClientRect();
+      if (box.left < frame.left || box.right > frame.right) view.scrollLeft += box.left + box.width / 2 - (frame.left + frame.width / 2);
+    }
     function render(animate) {
       svg.querySelectorAll('[data-show]').forEach(function (el) { el.classList.toggle('off', !inRange(el.dataset.show, step)); });
       svg.querySelectorAll('[data-hl]').forEach(function (el) { el.classList.toggle('hl', inRange(el.dataset.hl, step)); });
@@ -142,6 +185,7 @@
       captions.forEach(function (li, i) { li.classList.toggle('on', i === step); li.setAttribute('aria-hidden', i === step ? 'false' : 'true'); });
       controls.querySelector('.count').textContent = (step + 1) + ' / ' + total;
       controls.querySelector('.progress i').style.width = (100 * step / Math.max(1, total - 1)) + '%';
+      follow();
     }
     function playLabel() { var k = timer ? 'Pause' : 'Play'; play.innerHTML = (timer ? ICON.pause : ICON.play) + '<span>' + tr(k) + '</span>'; play.setAttribute('aria-label', tr(k)); }
     if (window.docI18n) window.docI18n.onChange(playLabel);
@@ -165,14 +209,25 @@
     });
     fig.tabIndex = 0;
     fig.addEventListener('keydown', function (e) {
+      if (e.target === view) return; // the box of a drawing that scrolls: the arrows scroll it
       if (e.key === 'ArrowRight') { stop(); go(step + 1); e.preventDefault(); }
       if (e.key === 'ArrowLeft') { stop(); go(step - 1); e.preventDefault(); }
     });
+    // On paper: the whole drawing (its last state), the captions under each other (explain.css)
+    var before = 0;
+    window.addEventListener('beforeprint', function () { before = step; stop(); step = total - 1; render(false); });
+    window.addEventListener('afterprint', function () { step = before; render(false); });
     // First state drawn without transitions (no flash of every step at load)
     fig.classList.add('init');
     render(false);
     requestAnimationFrame(function () { requestAnimationFrame(function () { fig.classList.remove('init'); }); });
   });
+  document.querySelectorAll('figure:not(.stepper) svg[viewBox]').forEach(drawingBox);
+  reachable();
+  if ('ResizeObserver' in window) { // the width of the screen, a level or a tab shown
+    var boxWatch = new ResizeObserver(reachable);
+    document.querySelectorAll(SCROLL_BOXES).forEach(function (box) { boxWatch.observe(box); });
+  } else window.addEventListener('resize', reachable);
 
   if (window.docI18n && window.docI18n.apply) window.docI18n.apply(); // labels of the controls created above
 
@@ -212,6 +267,58 @@
     onLevel: function (f) { levelListeners.push(f); }
   };
 
-  // ---------- Glossary terms reachable with the keyboard ----------
-  document.querySelectorAll('dfn[data-def]').forEach(function (d) { d.tabIndex = 0; d.setAttribute('aria-label', d.textContent + ': ' + d.dataset.def); });
+  // ---------- Glossary terms: hover, focus or tap opens the definition, Escape closes it ----------
+  // One box in <body>, fixed on the screen: no scrolling block clips it, it is put inside the screen (above the term when there is
+  // no room under it) and a long definition scrolls in it. It stays open while the pointer is on it, or when it was tapped.
+  var pop = null, popTerm = null, popTimer = null;
+  var POP_GAP = 6, POP_EDGE = 8, POP_DELAY = 150;
+  function popHide() {
+    clearTimeout(popTimer);
+    if (pop) pop.hidden = true;
+    popTerm = null;
+  }
+  function popPlace() {
+    if (!popTerm) return;
+    var lines = popTerm.getClientRects();
+    if (!lines.length || lines[0].bottom < 0 || lines[lines.length - 1].top > window.innerHeight) { popHide(); return; }
+    var first = lines[0], last = lines[lines.length - 1], high = pop.offsetHeight, wide = pop.offsetWidth;
+    var below = last.bottom + POP_GAP;
+    pop.style.left = Math.max(POP_EDGE, Math.min(last.left, root.clientWidth - wide - POP_EDGE)) + 'px';
+    pop.style.top = (below + high <= window.innerHeight - POP_EDGE ? below : Math.max(POP_EDGE, first.top - POP_GAP - high)) + 'px';
+  }
+  function popShow(term) {
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.className = 'dfn-pop';
+      pop.setAttribute('role', 'tooltip');
+      pop.tabIndex = -1;
+      document.body.appendChild(pop);
+      pop.addEventListener('pointerenter', function () { clearTimeout(popTimer); });
+      pop.addEventListener('pointerleave', popLater);
+      pop.addEventListener('focusout', function (e) { if (e.relatedTarget !== popTerm) popHide(); });
+    }
+    clearTimeout(popTimer);
+    popTerm = term;
+    pop.textContent = term.dataset.def;
+    pop.scrollTop = 0;
+    pop.hidden = false;
+    popPlace();
+  }
+  function popLater() {
+    clearTimeout(popTimer);
+    popTimer = setTimeout(function () { if (document.activeElement !== popTerm && document.activeElement !== pop) popHide(); }, POP_DELAY);
+  }
+  document.querySelectorAll('dfn[data-def]').forEach(function (d) {
+    d.tabIndex = 0;
+    d.setAttribute('aria-label', d.textContent + ': ' + d.dataset.def);
+    d.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') popShow(d); });
+    d.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') popLater(); });
+    d.addEventListener('focus', function () { popShow(d); });
+    d.addEventListener('click', function () { popShow(d); }); // a tap that gives no focus (iOS)
+    d.addEventListener('blur', function (e) { if (e.relatedTarget !== pop) popHide(); });
+  });
+  document.addEventListener('pointerdown', function (e) { if (popTerm && e.target !== popTerm && !pop.contains(e.target)) popHide(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') popHide(); });
+  window.addEventListener('scroll', function (e) { if (e.target !== pop) popPlace(); }, true);
+  window.addEventListener('resize', popPlace);
 })();

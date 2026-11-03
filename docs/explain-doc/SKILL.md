@@ -74,10 +74,10 @@ playground, quiz, glossary): keep its structure and components, replace its cont
 | Need | Markup |
 |---|---|
 | animation of a process | `<figure class="stepper" data-steps="N"><svg>` + `<ol class="captions"><li>` per step (shown **above** the drawing with the controls, cross-faded); in the SVG `data-show="2"`, `"2-"`, `"1-3"`, `"1,3"` (fade in / out), `data-hl` / `data-warn="3,5"` (highlight), `data-at="0:0,0;3:85,0"` (moves: slide, or fade out / in for a long or wrap-around move; `data-fade` / `data-slide` to force), `data-text="0:19;2:d4"` (value per step: cross-fade + pulse on change) |
-| formula | `<div class="formula"><math display="block">…</math><span class="num">(1)</span></div>` + `table.where` of the symbols (MathML is native in every current browser: no KaTeX / MathJax CDN) |
-| interactive example | `<div class="playground" data-play="name">` with `[data-in="x"]` inputs and `[data-out="y"]` outputs; script `explain.play('name', function (v, el) { return { y: ... }; })` (run at load and on input) |
+| formula | `<div class="formula"><math display="block">…</math><span class="num">(1)</span></div>` + a table of the symbols (MathML is native in every current browser: no KaTeX / MathJax CDN); a long one scrolls in its box, from its start |
+| interactive example | `<div class="playground" data-play="name">` with `[data-in="x"]` inputs and `[data-out="y"]` outputs; script `explain.play('name', function (v, el) { return { y: ... }; })` (run at load and on input). Inputs in `<div class="inputs">`: `<label>Text = <output data-out="y"></output><input ...></label>` (the text and its value on one line, the field under them; a box or a radio in front of its text), the result boxes in `<div class="outputs"><div class="out"><span>Label</span><b data-out="y"></b></div>` (as wide as their longest word: a value is not cut) |
 | chart | inline `<svg>` drawn by the playground script with the classes `axis`, `grid`, `curve`, `curve-2`, `dot`, `dot-2`, `mark` |
-| term | `<dfn data-def="definition">term</dfn>` (tooltip on hover / focus) |
+| term | `<dfn data-def="definition">term</dfn>` (a box on hover, focus or tap, placed inside the screen by `explain.js`, above the term when there is no room under it; a long definition scrolls in it, Escape closes it, no scrolling block clips it) |
 | one-sentence summary | `<p class="tldr" data-level="...">` |
 | side by side | `<div class="compare"><div><h4>…</h4>…</div>…</div>` |
 | question | `<details class="quiz"><summary>Question</summary><p>Answer</p></details>` |
@@ -102,13 +102,20 @@ playground, quiz, glossary): keep its structure and components, replace its cont
   template: computed from the shapes, they always touch them; `check_style.py` rejects a typed arrow that
   misses its shape.
 - Size: `viewBox="0 0 760 H"` with H <= ~360, cells / boxes 36-48px, labels 12-14px (the stepper caps the drawing
-  at 400px high); bigger drawings are split into several figures.
+  at 400px high); bigger drawings are split into several figures (over `H` = 480 the drawing is not fitted, its labels would be
+  unreadable: it is drawn at its size and the head follows the scroll).
+- A bilingual drawing: one `<text data-lang="en">` / `<text data-lang="fr">` per language, the longest one inside its box; never a
+  `<span>` in a `<text>` (the browser leaves the drawing there: all that follows falls out of it). A select: one
+  `<option data-lang="...">` per language (an option holds text only), a term: one `<dfn data-lang="..." data-def="...">` per language.
 
 ### Phones and touch
 Pages follow the responsive rules of `html-style` (viewport, safe areas, 44px targets, no hover-only content). Here:
-steppers keep readable labels (the drawing scrolls horizontally under 860px instead of shrinking), the controls and
-the progress bar wrap on a phone, sliders are full width with 16px fields, a `<dfn>` shows its definition on **tap**
-(focus), nothing relies on hover or the keyboard alone, and the print style drops the controls.
+every drawing keeps readable labels: steppers, static figures and charts scroll in their box under 860px instead of shrinking
+(560px at least, never above their `viewBox`: `explain.js` wraps them in a `.view`), and a step brings what it lights into that box; a
+block that really scrolls gets `tabindex` / `role="region"`; the controls and the progress bar wrap on a phone, sliders are full
+width with 16px fields, a `<dfn>` shows its definition on **tap**, nothing relies on hover or the keyboard alone, the top bar holds
+the level switch, the EN / FR switch and the theme down to 320px (the brand gives way), the sticky head of a stepper never takes more
+than 45 % of the screen. On paper: no control, each stepper at its last state with all its captions, the light theme.
 
 ## 6. Accuracy
 - Every number of the page is computed, never written from memory: the playground formulas are the same functions
@@ -120,8 +127,10 @@ the progress bar wrap on a phone, sliders are full width with 16px fields, a `<d
 
 ## 7. Check
 - `python3 ../html-style/scripts/check_style.py <page>`: 0 error.
+- `python3 ../html-style/scripts/check_render.py <page> [--shots DIR]`: 0 error. It measures both levels, both themes, each language
+  and width, but only the **first step** of a stepper, with the definitions closed: the other steps and the longest definitions are looked at.
 - Screenshots at both levels (`?level=simple`, `?level=technical`), light / dark, 1280px and 390px
   (`firefox --headless --screenshot out.png --window-size 1280,1600 "file://<page>?level=technical"`; a running
-  Firefox needs `--profile $(mktemp -d)`): no overflow, every step of each stepper readable, playground outputs
+  Firefox needs `--profile $(mktemp -d)`): every step of each stepper readable, playground outputs
   filled (no empty `[data-out]`), no console error.
 - Read each level alone: the Simple version must be understandable without the Technical one.

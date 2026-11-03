@@ -2,7 +2,7 @@
 """
 Build one self-contained page in the better-html-style: the html-style page (style.css + base.js) with the site layer of this
 skill (templates/site.css + site.js) and the search box in the top bar - with no site index, it searches the sections of the
-page itself (typo tolerant, / or Ctrl+K).
+page itself (typo tolerant, / or Ctrl+K). A body without a sidebar gets the whole column (.layout.wide), never the one of the sidebar.
 
 Usage:
     new_page.py <body.html> -o <out.html> [--css extra.css ...] [--js extra.js ...] [--actions actions.html] [--no-search]
@@ -12,6 +12,7 @@ Every option but --no-search goes to html-style/scripts/new_page.py (a sibling s
 """
 
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -51,9 +52,13 @@ def main() -> int:
     if a.set:
         cmd += ["--set", *a.set]
     try:
-        return subprocess.run(cmd).returncode
+        code = subprocess.run(cmd).returncode
     finally:
         Path(tmp.name).unlink()
+    if code == 0 and not re.search(r"<aside\b[^>]*\bclass=[\"'][^\"']*\bsidebar\b", Path(a.body).read_text(encoding="utf-8")):
+        out = Path(a.out)
+        out.write_text(out.read_text(encoding="utf-8").replace('<div class="layout" id="top">', '<div class="layout wide" id="top">', 1), encoding="utf-8")
+    return code
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # =============================================================================
 # check_site.py - checks of a built better-html-doc site
-#   check_site.py <site dir> [--no-style] [--allow-placeholder PAGE ...]
+#   check_site.py <site dir> [--no-style] [--allow-placeholder PAGE ...] [--render] [--render-pages PAGE ...]
 #   - every page passes check_style.py of html-style (self-contained, contrast, tokens, responsive rules)
 #   - every local link (href / src) points to a file of the site, every #fragment to an id of its page
 #   - a bilingual site: every page has as many EN as FR blocks; no placeholder text ({{X}}, a to-do mark, lorem ipsum...)
 #   - docs-map.json (contextual help): every screen points to a page / id that exists
 #   - the search index lists every page
+#   - --render: the pages really drawn (check_render.py of html-style: contrast, what sticks out, words cut, both themes, 3 widths), all of them or --render-pages
 # exit 1 when something is wrong
 # =============================================================================
 
@@ -20,6 +21,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 CHECK_STYLE = Path(__file__).resolve().parents[2] / "html-style" / "scripts" / "check_style.py"
+CHECK_RENDER = CHECK_STYLE.with_name("check_render.py")
 PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}|\b(?:(?i:lorem ipsum)|TODO|FIXME|TBD|XXX)\b")
 
 class Page(HTMLParser):
@@ -99,6 +101,8 @@ def main() -> int:
     ap.add_argument("site")
     ap.add_argument("--no-style", action="store_true")
     ap.add_argument("--allow-placeholder", nargs="*", default=["changelog.html"], help="pages whose text may hold TODO / TBD (a changelog)")
+    ap.add_argument("--render", action="store_true", help="also draw the pages in a browser (check_render.py, needs firefox)")
+    ap.add_argument("--render-pages", nargs="*", default=[], help="with --render: only these pages (a big site: the home, a page with big tables)")
     args = ap.parse_args()
     site = Path(args.site)
     pages = sorted(site.glob("*.html"))
@@ -120,7 +124,7 @@ def main() -> int:
         if found:
             errors.append("%s: placeholder text %r" % (name, found.group(0)))
         for link in p.links:
-            if re.match(r"^(https?:|mailto:|data:|javascript:)", link) or link.startswith("/"):
+            if re.match(r"^(https?:|ftp:|tel:|mailto:|data:|javascript:)", link) or link.startswith("/"):
                 continue
             target, _, frag = link.partition("#")
             target = target.split("?")[0]
@@ -162,6 +166,18 @@ def main() -> int:
                     if run.returncode != 0:
                         lines = [x for x in run.stdout.splitlines() if x.strip()]
                         errors.append("%s: check_style: %s" % (path.name, "; ".join(lines[-6:]) if lines else run.stderr.strip()))
+    if args.render:
+        chosen = [site / name for name in args.render_pages] or pages
+        run = subprocess.run([sys.executable, str(CHECK_RENDER), *[str(path) for path in chosen]], capture_output=True, text=True)
+        where = ""
+        for line in run.stdout.splitlines():
+            head = re.match(r"^== (?:.*/)?([^/]+?): (.*?): \d+ error", line)
+            if head:
+                where = "%s (%s)" % (head.group(1), head.group(2))
+            elif line.startswith("  error: "):
+                errors.append("%s: check_render: %s" % (where, line[9:]))
+        if run.returncode == 2:
+            errors.append("check_render: no result: " + run.stderr.strip())
     for e in sorted(set(errors), key=errors.index):
         print("ERROR " + e)
     print("%d pages checked, %d error(s)" % (len(pages), len(set(errors))))

@@ -35,7 +35,7 @@ them the same brand and shared top bar controls (GitHub link, EN / FR switch), r
 | `--warn` / `--warn-soft` | `#a8540a` / `#fbefe3` | `#f0a868` / `#3a2a1b` | limits, risks |
 | `--ok` / `--ok-soft` | `#1f7a4a` / `#e3f4ea` | `#6fcf97` / `#1b3326` | validated, good practice |
 | `--code-bg` | `#e9e6df` | `#24272d` | inline code, code blocks, hover |
-| `--node` / `--node-alt` / `--line` | `#f7f5f0` / `#eef1f8` / `#8a909b` | `#23262c` / `#283043` / `#747a85` | SVG boxes / highlighted box / edges |
+| `--node` / `--node-alt` / `--line` | `#f7f5f0` / `#eef1f8` / `#868c97` | `#23262c` / `#283043` / `#747a85` | SVG boxes / highlighted box / edges |
 
 Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {...} }`
 **and** `:root[data-theme="dark"] {...}` (the switch forces one or the other). A new token is added in the 3 blocks.
@@ -71,7 +71,8 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
 | card per topic | `<section id="x"><h2>N. Title</h2>...</section>` (anchor `#` added on hover) |
 | page header | `<header><div class="page-eyebrow">Kind</div><h1>...</h1><p class="lead">...</p></header>` |
 | remark / limit / validated | `<div class="callout">`, `.callout.warn`, `.callout.ok` |
-| table | `<div class="table-wrap"><table><thead>...` (muted uppercase heads, row lines) |
+| table | `<div class="table-wrap"><table><thead>...` (muted uppercase heads, row lines); `base.js` adds the box when it is missing, keeps the short cells on one line (never three words on three lines) as long as the table fits, lets a word over 32 characters break, and the table scrolls in its box when nothing else fits (`.no-fit` on a table to leave it alone; a table added later: `docTables.watch(table)`) |
+| anything else | `h4`-`h6`, `hr`, `blockquote`, `kbd`, `mark`, `samp`, `abbr`, `small`, `details` / `summary`, `dl`, `caption`, `fieldset` / `legend`, fields and plain buttons are styled by the template (`:where()` rules: any rule of a component wins); fields and scrollbars follow the theme by `color-scheme` |
 | code | `<code>` inline; `<pre data-title="File"><code>` block (1px `--border` outline so it shows on the page, title bar, **Copy** button; `data-nocopy` to remove) |
 | alternatives | `<div class="ctabs" data-tabs="g"><button data-tab="a">` + `<div class="ctab-panel" data-tabs="g" data-tab="a">` |
 | contents list | `<aside class="sidebar" id="sidebar"><p>Contents</p><a href="#x">1. ...</a>` (visible section highlighted) |
@@ -149,9 +150,10 @@ Dark theme: the same tokens in `@media (prefers-color-scheme: dark) { :root:not(
    default.
 
 ## 7. Check before delivering
-- `check_style.py` on the page: 0 error.
-- Open the page (or a headless screenshot, `firefox --headless --screenshot out.png --window-size 1280,900 file://...`)
-  in light and dark, at 1280px, 768px and 375px (also landscape 667x375): no horizontal scroll, every text readable, tap targets
-  usable, switches and the menu working (`check_style.py` checks the viewport meta, the `max-width` media queries, hover-only
-  effects, fixed widths).
+- `check_style.py` on the page: 0 error (the sources: tokens, contrast of the tokens, a `var()` defined nowhere, an invalid colour, a tag or a class nothing styles, the viewport, fixed widths).
+- `check_render.py <page.html[?query]> [--widths 1280,768,375] [--themes light,dark] [--click SELECTOR ...] [--shots DIR]`: 0 error (`--click` measures again after a click: a menu, a popover, the next step; `?q=word` gives the page its state: a search open, an embed mode). Headless Firefox measures what is really drawn, in both themes, at each width, in each
+  language and level the page offers, tab panels and `<details>` opened: every text against what is really behind it (black on black, a chip in a banner, an SVG text on its box), the page
+  scrolling sideways, what sticks out or starts off the left of the screen, a text past the edge of its card or cell, a word cut by a column too narrow, three words of a cell on three lines in a column under 150 px; as warnings a sentence squeezed in a column, a column twice too wide, an SVG text drawn under 8 px.
+- Look at it: `--shots DIR` writes a screenshot per theme and width: every text readable, tap targets usable, switches and the menu working. A long or crowded content is worth a try: a table
+  of 20 columns, a word of 100 characters, a very long title, a long project name.
 - No `{{...}}` left (`new_page.py` reports them).

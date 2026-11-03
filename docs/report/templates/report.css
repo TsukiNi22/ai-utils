@@ -10,31 +10,41 @@
         color: #6b7280;
     }
 }
+/* A table too wide for a portrait page (md2pdf.py: fit_tables): a landscape page of its own */
+@page wide {
+    size: A4 landscape;
+}
 :root {
     --navy: #1a3d7c;
     --link: #24508f;
     --text: #1d1d1f;
     --body: #333333;
-    --muted: #6a81aa;
+    --muted: #566b92;
     --border: #d5dbe6;
     --rule: #c9d3e6;
     --callout: #f6f8fc;
     --zebra: #f3f6fb;
     --code: #eef1f6;
 }
-html { font-family: "Noto Sans", "Adwaita Sans", sans-serif; font-size: 9pt; line-height: 1.37; color: var(--body); }
+/* A word longer than its line breaks, wherever it is: nothing ever runs out of the page or of its box */
+/* Noto Emoji (one colour) before any fallback: the colour emoji font (COLR) crashes WeasyPrint at random (a segfault in hb_vector_paint) */
+html { font-family: "Noto Sans", "Adwaita Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Emoji", sans-serif; font-size: 9pt; line-height: 1.37; color: var(--body); overflow-wrap: anywhere; }
 body { margin: 0; }
 h1, h2, h3, h4 { color: var(--navy); font-weight: 700; line-height: 1.3; page-break-after: avoid; break-after: avoid; }
 h1 { font-size: 19pt; margin: 0 0 10pt; padding-bottom: 5pt; border-bottom: 2.4pt solid var(--navy); string-set: doctitle content(); }
 h2 { font-size: 14pt; margin: 18pt 0 9pt; padding-bottom: 3pt; border-bottom: 1px solid var(--rule); }
 h3 { font-size: 11pt; margin: 14pt 0 6pt; }
 h4 { font-size: 9.5pt; margin: 10pt 0 4pt; }
+h5, h6 { color: var(--navy); font-weight: 700; line-height: 1.3; margin: 8pt 0 3pt; break-after: avoid; }
+h5 { font-size: 9pt; }
+h6 { font-size: 8.5pt; color: var(--muted); }
 h2.page { break-before: page; }
 p { margin: 0 0 7pt; }
 strong { color: var(--text); }
 a { color: var(--link); text-decoration: none; }
 ul, ol { margin: 0 0 7pt; padding-left: 16pt; }
 li { margin: 0 0 1.5pt; }
+li.task { list-style: none; margin-left: -10pt; }
 ul ul { list-style: circle; }
 hr { border: 0; border-top: 1px solid var(--rule); margin: 12pt 0; }
 
@@ -47,20 +57,30 @@ blockquote {
     color: var(--body);
     break-inside: avoid;
 }
-blockquote > p:first-child strong:only-child { display: block; color: var(--text); }
+blockquote > p:last-child { margin-bottom: 2pt; }
 blockquote.warn { border-left-color: #a8540a; background: #fbf4ec; }
 blockquote.ok { border-left-color: #1f7a4a; background: #eef7f1; }
 
 /* Code */
 code {
-    font-family: "Noto Sans Mono", monospace;
+    font-family: "Noto Sans Mono", "Noto Sans Symbols", "Noto Emoji", monospace;
     font-size: 0.86em;
     background: var(--code);
     padding: 0.5pt 3pt;
     border-radius: 2pt;
+    box-decoration-break: clone; /* cut over two lines: its chip on each one */
+}
+kbd {
+    font-family: "Noto Sans Mono", "Noto Sans Symbols", "Noto Emoji", monospace;
+    font-size: 0.82em;
+    background: #ffffff;
+    border: 0.6pt solid var(--border);
+    border-bottom-width: 1.2pt;
+    border-radius: 2pt;
+    padding: 0 2.5pt;
 }
 pre {
-    font-family: "Noto Sans Mono", monospace;
+    font-family: "Noto Sans Mono", "Noto Sans Symbols", "Noto Emoji", monospace;
     font-size: 7.5pt;
     line-height: 1.4;
     background: var(--code);
@@ -74,6 +94,13 @@ pre code { background: none; padding: 0; font-size: 1em; }
 
 /* Tables: navy head, zebra rows, thin borders */
 table { width: 100%; border-collapse: collapse; margin: 6pt 0 12pt; font-size: 7.5pt; line-height: 1.35; }
+table.fit { table-layout: fixed; }
+table.dense { font-size: 6.5pt; }
+table.wide, .wide-page { page: wide; }
+table.wide { font-size: 7pt; }
+table.wide.dense { font-size: 5.5pt; }
+table.dense th, table.dense td { padding: 2.5pt 3pt; }
+caption { caption-side: top; text-align: left; font-size: 7.5pt; font-weight: 700; color: var(--navy); padding-bottom: 3pt; }
 thead { display: table-header-group; }
 tr { break-inside: avoid; }
 th {
@@ -94,5 +121,10 @@ td strong { color: var(--text); }
 /* Meta line under the title: **Date** : ... · **Sources** : ... */
 h1 + p { color: var(--body); }
 .small, figcaption { font-size: 7.5pt; color: var(--muted); }
-img { max-width: 100%; }
+img, svg, video, canvas { max-width: 100%; height: auto; }
+details { margin: 0 0 7pt; }
+summary { font-weight: 700; color: var(--text); }
+dl { margin: 0 0 7pt; }
+dt { font-weight: 700; color: var(--text); break-after: avoid; }
+dd { margin: 0 0 4pt 12pt; }
 figure { margin: 8pt 0; text-align: center; }

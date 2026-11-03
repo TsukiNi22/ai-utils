@@ -45,7 +45,7 @@ The answers are kept for the rest of the conversation (a later update of the sam
    then the **types table** `| Byte (hexa) | Type |`: `` SYN (`0x16`) `` and a link to the section of the type.
 4. One `###` per message type: its grammar in a code block (repetition `*(ETB <data>)`, optional `[...]`,
    alternatives `a | b`), one bullet per field (encoding, size, meaning), its code table when it has codes
-   (`| Code (0-127) | Error |`, `| Code (0-127) | Event | Informations send |`, `| Code (0-127) | Command |` with links
+   (`| Code (0-127) | Error |`, `| Code (0-127) | Event | Data sent |`, `| Code (0-127) | Command |` with links
    to the command sections), the reserved / internal codes (`127`) said.
 5. `### Different Payload Type Resume`: every frame of the protocol in one code block, aligned, one comment per line
    (`/* Connection    */ ENQ <tag> ETB SYN EOT`).
@@ -74,7 +74,8 @@ The answers are kept for the rest of the conversation (a later update of the sam
 
 ## 5. Outputs
 - **Markdown**: `templates/PROTOCOL.md` filled (GitHub callouts `> [!NOTE]`, tables, code blocks; `readme-style`
-  rules for the rest); the README links to it (`## Documentation` line) when it is a separate file.
+  rules for the rest; an empty line before every table: the PDF shows raw pipes without it); the README links to it
+  (`## Documentation` line) when it is a separate file.
 - **PDF**: from that Markdown, `python3 <report>/scripts/md2pdf.py PROTOCOL.md --format both -o PROTOCOL.pdf
   --footer "<Project> — <NAME> protocol"` (style of `report`, GitHub callouts rendered: note / tip blue, warning
   orange); `pdftoppm -r 60 -png -f 1 -l 2` to look at it (no line wider than the page, tables whole).
@@ -83,15 +84,24 @@ The answers are kept for the rest of the conversation (a later update of the sam
   `##` of the Markdown: Protocol, Handshake, Commands, Storage), their links added to the sidebar, every text in
   both languages; the frames in `<pre data-title="...">`, the types / codes in `table-wrap` tables, the notes in
   `callout` / `callout warn`, the handshake as the SVG sequence diagram of the template (activation boxes on the
-  lifelines, arrows computed with `data-from` / `data-to`, never typed). Then
-  `python3 <html-style>/scripts/check_style.py docs/*.html` (0 error) and `python3 <html-style>/scripts/sync_nav.py docs`.
+  lifelines, arrows computed with `data-from` / `data-to`, never typed; drawn at its size on every screen, in a box that
+  scrolls on a phone, each frame starting next to the client: read without scrolling. A longer frame: widen its `viewBox` and
+  its width together). Every bracket of a frame is written `&lt;tag&gt;` (a raw `<tag>` is hidden by the browser); a text of a
+  drawing per language is one `<text data-lang>`, never a `<span>` (the browser leaves the drawing there). A table too wide for a
+  phone scrolls in its box: `style="min-width:14em"` on the `th` of a column of sentences, `style="min-width:18ch"` on one of
+  long names, never a word per line. Then `python3 <html-style>/scripts/check_style.py docs/*.html` (0 error),
+  `python3 <html-style>/scripts/check_render.py docs/technical.html` (0 error, both languages and themes, on a phone too) and
+  `python3 <html-style>/scripts/sync_nav.py docs`.
   No `docs/` yet: create the technical page with `html-doc` first (ask its questions: logo...).
 
 ## 6. Check
 ```bash
-python3 SKILL_DIR/scripts/check_protocol.py PROTOCOL.md [docs/technical.html]
+python3 SKILL_DIR/scripts/check_protocol.py PROTOCOL.md [docs/technical.html] [--fr]
 ```
 It checks the anchors of the contents and of the tables (every link reaches a heading / an `id`), that every row of
 the types table and of the command table has its section, the codes unique in each table, the frames of the summary
-matching the grammar of their section (same type byte), no `{{...}}` placeholder and no typo of the reference left.
+matching the grammar of their section (same type byte), no `{{...}}` placeholder and no typo of the reference left
+(`--fr`: a document in French, `informations` and `transfert` are right there; the French of a bilingual page is skipped). What would not
+show as written too: a table without an empty line before it, a code line over 110 characters (wider than a page of the PDF: one
+field per line), a raw `<tag>` of a frame in the HTML, an HTML element inside a drawing.
 Then report: the files written, the sections, what was marked **TBD** or differs from the code.

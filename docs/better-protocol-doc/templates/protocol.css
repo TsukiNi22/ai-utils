@@ -2,18 +2,20 @@
    (one cell per field, as wide as its size) and the table of its fields; sequences of frames; phone layout */
 figure.message { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 figure.message > figcaption { margin: 0 0 10px; font-size: 15px; }
-figure.message > figcaption b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+figure.message > figcaption b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 figure.message .table-wrap { margin-bottom: 0; }
-.frame { display: flex; flex-wrap: wrap; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font: 13px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.frame > span { flex-basis: 0; min-width: 86px; padding: 8px 10px; border-right: 1px solid var(--border); background: var(--bg); }
+/* the lines between the cells are the gap (the --border behind them): right at any place the cells wrap */
+.frame { display: flex; flex-wrap: wrap; gap: 1px; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--border); font: 13px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* a cell as wide as its name and type (a name never cut in two while it fits the layout), the room left shared by the size of the field (its flex-grow) */
+.frame > span { flex-basis: auto; min-width: 86px; max-width: 100%; padding: 8px 10px; background: var(--bg); }
 .frame > span:nth-child(even) { background: var(--code-bg); }
-.frame > span:last-child { border-right: 0; }
 .frame > span b { display: block; color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
-.frame > span small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.frame > span small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .seq { margin: 16px 0; padding: 0; list-style: none; counter-reset: seq; }
-.seq li { display: grid; grid-template-columns: 2.2em 1fr; gap: 4px 10px; padding: 8px 0; border-top: 1px solid var(--border); counter-increment: seq; }
+.seq li { display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 4px 10px; max-width: none; padding: 8px 0; border-top: 1px solid var(--border); counter-increment: seq; }
 .seq li:first-child { border-top: 0; }
 .seq li::before { content: counter(seq); font-weight: 600; color: var(--accent); }
+.seq li > div { max-width: 75ch; overflow-wrap: anywhere; }
 .seq .dir { font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); }
 .results .kind.protocol, .results .kind.message { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
 @media (max-width: 600px) { .frame > span { min-width: 72px; padding: 6px 8px; } figure.message { padding: 12px; } }

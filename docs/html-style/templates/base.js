@@ -95,6 +95,28 @@ document.querySelectorAll('figure svg[viewBox]').forEach(function (svg) {
   if (w && !svg.style.maxWidth) { svg.style.maxWidth = w + 'px'; svg.style.marginInline = 'auto'; }
 });
 
+// A drawing on a small screen: never under 72 % of its size (labels of 13 px stay readable), it scrolls in a box of its own, its caption stays.
+// Pages drawing their figures themselves are left alone (explain-doc: data-page="explain", protocol-doc: a min-width of their own)
+if (document.documentElement.getAttribute('data-page') !== 'explain') document.querySelectorAll('figure > svg[viewBox]').forEach(function (svg) {
+  var width = +svg.getAttribute('viewBox').split(/[\s,]+/)[2];
+  if (!(width > 400) || svg.style.minWidth) return;
+  var box = document.createElement('div');
+  box.className = 'figure-scroll';
+  svg.parentNode.insertBefore(box, svg);
+  box.appendChild(svg);
+  svg.style.minWidth = Math.round(width * 0.72) + 'px';
+  function mark() { // a block that scrolls is reached and scrolled with the keyboard
+    if (box.scrollWidth > box.clientWidth + 1) {
+      box.setAttribute('tabindex', '0');
+      box.setAttribute('role', 'region');
+      box.setAttribute('aria-label', svg.getAttribute('aria-label') || 'Figure');
+    } else ['tabindex', 'role', 'aria-label'].forEach(function (name) { box.removeAttribute(name); });
+  }
+  mark();
+  if ('ResizeObserver' in window) new ResizeObserver(mark).observe(box);
+  else window.addEventListener('resize', mark);
+});
+
 // Diagram links: an arrow is computed from the shapes it joins instead of typed coordinates, so it always touches
 // them. <path class="edge" data-from="a" data-to="b" marker-end="url(#arr)"/>: a / b = id of a rect, circle, ellipse
 // (or a <g> holding one). Options: data-from="a:right" (side: top, bottom, left, right), data-bend="0.2" (curve, +/-
@@ -198,6 +220,83 @@ window.docDiagram = (function () {
   }
   document.querySelectorAll('svg').forEach(layout);
   return { layout: layout };
+})();
+
+// Tables: each one in a box of its own (it scrolls there, never the page); a short cell stays on one line next to a long sentence
+// (never a word per line) as long as the table fits, a word too long for any column may break. Measured again when its box changes
+// (the width of the screen, a tab or a <details> opened) and with the language.
+window.docTables = (function () {
+  var LIMITS = [40, 28, 20, 14], WORD_KEPT = 32, CELLS_MAX = 3000;
+  var tables = [];
+  function crushed(item) { // a cell of three words or more, one word per line
+    if (item.size === Infinity) return false;
+    var words = (item.cell.innerText || '').trim().split(/\s+/).length;
+    if (words < 3 || item.cell.offsetWidth >= 150) return false; // wider: long names, one a line, nothing to pair them
+    var range = document.createRange(), lines = 0, last = -1e9;
+    range.selectNodeContents(item.cell);
+    Array.prototype.slice.call(range.getClientRects()).sort(function (a, b) { return a.top - b.top; }).forEach(function (rect) {
+      var middle = (rect.top + rect.bottom) / 2;
+      if (middle - last > Math.max(4, rect.height * 0.6)) { lines++; last = middle; }
+    });
+    return lines >= words || (lines >= 10 && words / lines < 3); // or a sentence squeezed: better a table that scrolls
+  }
+  function fit(table) {
+    var box = table.closest('.table-wrap');
+    if (!box || !box.clientWidth) return; // hidden: done when it is shown
+    var cells = table.querySelectorAll('th, td');
+    if (cells.length > CELLS_MAX) return;
+    var items = [];
+    cells.forEach(function (cell) {
+      var blocks = cell.querySelector('p, ul, ol, pre, table, div, dl, blockquote');
+      var text = (cell.innerText || '').trim();
+      var longest = text.split(/\s+/).reduce(function (most, word) { return Math.max(most, word.length); }, 0);
+      cell.style.overflowWrap = longest > WORD_KEPT ? 'anywhere' : '';
+      cell.style.minWidth = longest > WORD_KEPT ? '18ch' : ''; // broken where it must, not four letters a line
+      items.push({ cell: cell, size: blocks || text.indexOf('\n') >= 0 ? Infinity : text.length });
+    });
+    var keep = function (limit) { items.forEach(function (item) { item.cell.style.whiteSpace = item.size <= limit ? 'nowrap' : ''; }); };
+    var fits = false;
+    for (var at = 0; at < LIMITS.length && !fits; at++) {
+      keep(LIMITS[at]);
+      fits = table.offsetWidth <= box.clientWidth + 1 && !items.some(crushed); // three words on three lines is not fitting
+    }
+    if (!fits) { // it scrolls whatever is done: its short cells on one line, its sentences with some width
+      keep(LIMITS[1]);
+      items.forEach(function (item) { if (item.size > LIMITS[1]) item.cell.style.minWidth = '16em'; });
+    }
+    var scrolls = box.scrollWidth > box.clientWidth + 1;
+    if (scrolls && !box.hasAttribute('tabindex')) { // reached and scrolled with the keyboard
+      box.setAttribute('tabindex', '0');
+      box.setAttribute('role', 'region');
+      if (!box.getAttribute('aria-label')) box.setAttribute('aria-label', (table.caption && table.caption.textContent.trim()) || 'Table');
+    }
+  }
+  function fitAll() { tables.forEach(fit); }
+  function watch(table) {
+    if (table.closest('pre, svg, .no-fit')) return;
+    var box = table.closest('.table-wrap');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'table-wrap';
+      table.parentNode.insertBefore(box, table);
+      box.appendChild(table);
+    }
+    tables.push(table);
+    if ('ResizeObserver' in window) {
+      var width = -1;
+      new ResizeObserver(function () {
+        if (box.clientWidth === width) return;
+        width = box.clientWidth;
+        fit(table);
+      }).observe(box);
+    }
+  }
+  document.querySelectorAll('main table').forEach(watch);
+  fitAll();
+  if (!('ResizeObserver' in window)) window.addEventListener('resize', fitAll);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
+  if (window.docI18n) window.docI18n.onChange(fitAll);
+  return { fit: fitAll, watch: function (table) { watch(table); fit(table); } };
 })();
 
 // Sidebar (mobile) + visible section, copy buttons, heading anchors, content tabs

@@ -31,6 +31,7 @@ ENQ <tag> ETB <payload> EOT
  - payload = message content ({{PAYLOAD_ENCODING}})
 
 The first byte of the payload defines its type:
+
 | Byte (hexa)  | Type                            |
 | ------------ | ------------------------------- |
 | SYN (`0x16`) | [Connection](#connection)       |

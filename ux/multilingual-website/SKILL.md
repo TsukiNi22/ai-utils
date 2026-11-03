@@ -35,6 +35,14 @@ Load **`multilingual-project` first** (its questions and common rules apply as t
   **no flags** for languages (a flag is a country).
 - **Layout**: CSS logical properties (`margin-inline-start`, `padding-inline`, `inset-inline-end`, `text-align: start`)
   so RTL works, `:dir(rtl)` for mirrored icons, fonts per script (`unicode-range` / `font-family` stacks, self-hosted).
+- **A longer language stays readable and inside its box** (German, Finnish, French: +30-50 %, a short label up to 3 times): no fixed
+  `width` / `height` around a text (`min-height`, padding, `max-width`), a button, a tab, a badge, a table head or a menu grows or wraps; a row of
+  them `flex-wrap`; `overflow-wrap: break-word` on the text column, `hyphens: auto` with the right `lang` on running text only (`p`, `li`: in a table or a
+  button it squeezes the columns and cuts the words); no `white-space: nowrap` on a sentence, no `overflow: hidden` without `text-overflow`; a top bar that holds its controls at 375px in the longest language (the
+  brand gives way first); tables scroll in their own box, never the page.
+- **What a translation switch does not reach**: the attributes (`title`, `aria-label`, `placeholder`, `alt`, a button `value`), `<title>`; an `<option>` holds
+  text only (one per language, or filled by the script); in an SVG, one `<text lang="...">` per language with the longest one checked inside its box, never
+  an HTML element (`<span>` in a `<text>`: the browser leaves the drawing there, all that follows falls out of it).
 - **Server and cache**: server-side rendering per language, `Vary: Accept-Language` only where the response depends on
   it (better: the language in the URL), CDN cache keys per language, catalogs split and lazy-loaded per route /
   language, the default language bundled.
@@ -48,4 +56,9 @@ Load **`multilingual-project` first** (its questions and common rules apply as t
 - Every route reachable in every language, no key or blank shown (fallback chain), hreflang validated (reciprocal,
   `x-default`), `lang` / `dir` right, RTL screens checked, the switcher keeps the page, Lighthouse SEO + an
   accessibility pass on two languages, the CI check of `multilingual-project` (missing / unused keys, placeholders).
+- What is really drawn in each language: `html-style/scripts/check_render.py <page.html> [--shots DIR]`, 0 error (a text past its box, the page
+  scrolling sideways, a word per line, at 1280, 768 and 375px, in both themes): one file per language passed together
+  (`check_render.py en/page.html de/page.html`; with `--shots` one run and one folder per language, a screenshot takes the name of its file), a
+  page with the EN / FR switch of `html-style` measured in both by itself; the longest language looked at on a phone, the pseudo-locale of
+  `multilingual-project` when a translation is not there yet.
 - Recap as in `multilingual-project` + the URL map per language.

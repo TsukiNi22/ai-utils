@@ -1,0 +1,16 @@
+/* better-html-doc - what mdlib.py and the generator write and the style skills do not know: on top of better-html-style, tokens only */
+/* a task item: the box where the bullet would be, its text aligned like any item, the state readable in both themes (a disabled box of the browser is pale) */
+main li.task { position: relative; list-style: none; }
+main li.task > input { appearance: none; position: absolute; left: -1.45em; top: .3em; width: 1em; height: 1em; margin: 0; border: 1.5px solid var(--muted); border-radius: 3px; background: var(--surface); }
+main li.task > input:checked { border-color: var(--accent); background: var(--accent); }
+main li.task > input:checked::after { content: ""; position: absolute; left: 30%; top: 8%; width: 28%; height: 56%; border: solid var(--surface); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+/* an item with blocks: its paragraphs without the margin that would push its first line under its bullet */
+main li > p:first-child { margin-top: 0; }
+main li > p:last-child { margin-bottom: 0; }
+main del { color: var(--muted); }
+/* raw HTML of a page: a frame never wider than its card (the other media are in html-style) */
+main iframe, main embed, main object, main audio { max-width: 100%; }
+/* the title of the previous / next page: every language in its span, the same as the bare text of a site of one language (only the label is small) */
+.pager a > span + span { font-size: inherit; color: inherit; }
+/* on paper a table has the width of the page: what its columns keep (a min-width on its first row) is for a screen, where it can scroll */
+@media print { main th, main td { min-width: 0 !important; } }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Build the graph explorer: the graph page of the skill without embedded project, which asks the user for a public
-// GitHub / GitLab repository (remembered until Ctrl + Shift + F3, or ?repo=owner/name) and builds its graph in the browser.
+// GitHub / GitLab repository (remembered until Ctrl + Shift + R, or ?repo=owner/name) and builds its graph in the browser.
 //
 // Usage: node build_explorer.mjs [--out graph.html] [--home https://github.com/TsukiNi22/ai-utils] [--template <html>]
 // Published on the gh-pages branch of the ai-utils repository (graph.html + index.html redirecting to it).

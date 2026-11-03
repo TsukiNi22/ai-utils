@@ -16,7 +16,12 @@ Checks (each file):
 - responsive (HTML pages): viewport meta `width=device-width`, a `max-width` media query, no fixed `width` > 360px
   on a block without `max-width` (horizontal scroll on a phone), `hover:` effects with a `(hover: none)` fallback
   for what only shows on hover, `<img>` / `<svg>` / `<table>` that can overflow (warnings for the last ones);
-- self-contained: no external script / stylesheet / @import / url(http...), no web font, no gradient.
+- self-contained: no external script / stylesheet / @import / url(http...), no web font, no gradient;
+- colours a browser drops without a word: a var(--x) defined nowhere, an invalid colour (#12345, an unknown name, rgb(300...)), a
+  colour and a background of one rule without contrast (in each theme), a raw colour in a component (warning);
+- what looks like the browser default: a tag used that no rule styles (kbd, mark, details, dl, caption, h4...), a class used that no
+  rule styles and no script reads (warnings), an SVG text or shape with neither a class nor a colour (black on a dark page).
+How it really renders (real contrast, text out of its box, a word per line, the page scrolling sideways): check_render.py.
 --compare: lists the tokens whose value differs from the reference (the style source is html-style/templates/style.css).
 Exit 1 when an error is found (warnings don't fail).
 """
@@ -35,6 +40,23 @@ TEXT_PAIRS = [  # (foreground, background, minimum ratio)
     ("text", "node-alt", 4.5), ("muted", "code-bg", 4.5),
 ]
 INLINE = r"(code|kbd|mark|samp|var|dfn|abbr|\.badge|\.tag|\.chip|\.pill)"
+NAMED = set("""aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral
+cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon
+darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro
+ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan
+lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen
+magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream
+mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue
+purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal
+thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen""".split())
+KEYWORDS = {"transparent", "currentcolor", "inherit", "initial", "unset", "revert", "revert-layer", "none", "canvas", "canvastext", "linktext", "visitedtext", "activetext",
+            "buttonface", "buttontext", "buttonborder", "field", "fieldtext", "highlight", "highlighttext", "selecteditem", "selecteditemtext", "mark", "marktext", "graytext",
+            "accentcolor", "accentcolortext", "context-fill", "context-stroke"}
+COLOUR_PROPERTIES = {"color", "background-color", "border-color", "border-left-color", "border-right-color", "border-top-color", "border-bottom-color", "outline-color", "fill", "stroke",
+                     "accent-color", "caret-color", "text-decoration-color", "column-rule-color"}
+SCRIPT_HOOKS = {"repo-version", "prev"}  # read by sync_nav.py and set_logo.py, or styled through their parent (.pager a)
+STYLED_TAGS = {"kbd", "mark", "details", "summary", "dl", "dt", "dd", "caption", "blockquote", "h4", "h5", "h6", "hr", "fieldset", "legend", "input", "select", "textarea", "button",
+               "progress", "meter", "abbr", "samp"}
 
 def css_of(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
@@ -80,6 +102,76 @@ def resolve(value: str, tokens: dict) -> tuple[int, int, int] | None:
     if m:
         value = tokens.get(m.group(1), "")
     return rgb(value)
+
+def colour_problem(value: str) -> str:
+    """Why a colour value is dropped by a browser (empty: it is fine, or it cannot be told here)."""
+    v = value.replace("!important", "").strip().lower()
+    if not v or v.startswith(("var(", "color-mix(", "url(", "light-dark(", "calc(", "attr(", "oklch(", "oklab(", "lab(", "lch(", "hwb(", "color(", "env(")):
+        return ""
+    if v.startswith("#"):
+        return "" if re.fullmatch(r"#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})", v) else "an invalid hex colour"
+    m = re.fullmatch(r"rgba?\(\s*(-?[\d.]+)%?[\s,]+(-?[\d.]+)%?[\s,]+(-?[\d.]+)%?.*\)", v)
+    if m:
+        return "" if all(0 <= float(part) <= 255 for part in m.groups()) else "a channel out of 0-255"
+    if v.startswith(("rgb(", "rgba(", "hsl(", "hsla(")):
+        return ""
+    if re.fullmatch(r"[a-z-]+", v) and v not in NAMED and v not in KEYWORDS:
+        return "an unknown colour name"
+    return ""
+
+def check_colours(css: str, themes: list[tuple[str, dict]]) -> tuple[list[str], list[str]]:
+    """Colours a browser drops without a word, a rule that sets its colour and background without contrast."""
+    errors, warnings = [], []
+    defined = set(re.findall(r"(--[\w-]+)\s*:", css))
+    for name in sorted(set(re.findall(r"var\(\s*(--[\w-]+)\s*\)", css)) - defined):
+        errors.append(f"var({name}) is defined nowhere: the property is dropped (black on black, a transparent box)")
+    seen = set()
+    for selector, body in re.findall(r"([^{}@]+)\{([^{}]*)\}", css):
+        selector = selector.strip()
+        for prop, value in re.findall(r"(?:^|;)\s*([\w-]+)\s*:\s*([^;]+)", body):
+            prop = prop.lower()
+            if prop in COLOUR_PROPERTIES:
+                why = colour_problem(value)
+                if why and (selector, value) not in seen:
+                    seen.add((selector, value))
+                    errors.append(f"{selector}: {prop}: {value.strip()} is {why}: the property is dropped")
+                if rgb(value) and not selector.startswith((":root", "@", "html")) and prop in ("color", "background-color") and "#" in value and "svg" not in selector and "switch" not in selector:
+                    warnings.append(f"{selector}: raw colour {value.strip()} in a component (a token follows the theme)")
+    for theme, tokens in themes:
+        for sel, decl in rules(css):
+            if "color" not in decl or ("background" not in decl and "background-color" not in decl):
+                continue
+            fg, bg = resolve(decl["color"], tokens), resolve(decl.get("background-color", decl.get("background", "")), tokens)
+            if fg and bg and contrast(fg, bg) < 4.5:
+                msg = f"{theme}: {sel}: its colour on its background = {contrast(fg, bg):.2f}:1 (< 4.5)"
+                if msg not in errors:
+                    errors.append(msg)
+    return errors, warnings
+
+def check_unstyled(html_text: str, css: str) -> list[str]:
+    """What keeps the look of the browser: a tag no rule styles, a class no rule styles and no script reads."""
+    warnings = []
+    body = re.sub(r"<(script|style)\b.*?</\1>", "", html_text, flags=re.S)
+    selectors = " ".join(s for s, _ in re.findall(r"([^{}@]+)\{([^{}]*)\}", css))
+    scripts = " ".join(re.findall(r"<script[^>]*>(.*?)</script>", html_text, re.S))
+    for tag in sorted(STYLED_TAGS):
+        if re.search(rf"<{tag}[\s>]", body) and not re.search(rf"(^|[\s,>+~(]){tag}\b", selectors):
+            warnings.append(f"<{tag}> is used and no rule styles it: the look of the browser")
+    used = set()
+    for classes in re.findall(r"\bclass=[\"']([^\"']*)[\"']", body):
+        used.update(classes.split())
+    for name in sorted(used):
+        if "{{" in name or name in SCRIPT_HOOKS or name.startswith("language-") or re.search(rf"\.{re.escape(name)}(?![\w-])", selectors) or re.search(rf"['\".\s]{re.escape(name)}['\"\s.]", scripts):
+            continue
+        warnings.append(f"class \"{name}\" is used and no rule styles it")
+    for svg in re.finditer(r"<svg\b([^>]*)>(.*?)</svg>", body, re.S):
+        if "fill=" in svg.group(1) or re.search(r"<g\b[^>]*fill=", svg.group(2)):
+            continue  # its shapes take the colour of the drawing
+        texts_coloured = re.search(r"svg\s+text\s*\{[^}]*fill", css) is not None  # the theme's colour for any text of a drawing
+        for m in re.finditer(r"<(rect|circle|ellipse|polygon)\b([^>]*)>" if texts_coloured else r"<(text|rect|circle|ellipse|polygon)\b([^>]*)>", svg.group(2)):
+            if "class=" not in m.group(2) and "fill=" not in m.group(2) and "style=" not in m.group(2):
+                warnings.append(f"<{m.group(1)}{m.group(2)[:40]}> of a drawing with no class nor colour: black on a dark page")
+    return warnings
 
 def rules(css: str) -> list[tuple[str, dict]]:
     """Flat (selector, declarations) list, @media blocks included (their condition is ignored)."""
@@ -306,6 +398,10 @@ def check(path: Path, reference: dict | None) -> int:
                     if msg not in errors:
                         errors.append(msg)
 
+    e, w = check_colours(css, themes)
+    errors += e
+    warnings += w
+
     # Self-contained, no gradient / web font
     html = path.read_text(encoding="utf-8")
     for pattern, what, text in ((r"<script[^>]+src=[\"']https?:", "external script", html),
@@ -322,6 +418,7 @@ def check(path: Path, reference: dict | None) -> int:
         e, w = check_diagrams(html)
         errors += e
         warnings += w
+        warnings += check_unstyled(html, css)
 
     if reference is not None:
         for k, v in sorted(light.items()):

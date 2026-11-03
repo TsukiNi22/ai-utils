@@ -28,8 +28,8 @@ This skill writes it as page(s) of a `better-html-doc` site (`../better-html-doc
   The rules of this message (when it is sent, what the other side answers, what makes it fail).
   :::
   ```
-  → the name and its code, the **byte layout** (one cell per field, its width from its size; `var` = a variable length),
-  the table, the text after it. Columns `field | type | size | description` (French headers `champ | type | taille |
+  → the name and its code, the **byte layout** (one cell per field: as wide as its name and type, the room left shared by its size; `var` = a
+  variable length; the cells wrap as lines of a table, only what is longer than the layout wraps in its cell), the table, the text after it. Columns `field | type | size | description` (French headers `champ | type | taille |
   description` work too); `#msg-<name>` is its anchor (link it from the summary table: `[HELLO](#msg-hello)`).
 - Handshake / exchange: a numbered sequence in `:::html`: `<ol class="seq"><li><div><span class="dir">client → server</span>
   <br><code>HELLO</code> …</div></li></ol>` (one exchange per item, the exact frames); a timing diagram, when it helps, as an
@@ -39,5 +39,5 @@ This skill writes it as page(s) of a `better-html-doc` site (`../better-html-doc
 
 ## 3. Build and check
 The commands of `better-html-doc`, then `python3 ../protocol-doc/scripts/check_protocol.py` on the Markdown sources when it
-applies (codes unique, every message of the summary documented), and the screenshots at 1280 and 390 px (the layout of a
-message wraps, never scrolls the page sideways).
+applies (codes unique, every message of the summary documented), `check_render.py` of `html-style` on the built page (0 error) and
+the screenshots at 1280 and 390 px (the layout of a message wraps, never scrolls the page sideways).

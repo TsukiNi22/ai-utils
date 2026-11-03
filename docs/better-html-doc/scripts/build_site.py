@@ -31,6 +31,7 @@ import mdlib  # noqa: E402
 
 NEW_PAGE = SKILLS / "html-style" / "scripts" / "new_page.py"
 STYLE = SKILLS / "better-html-style" / "templates"
+MARKDOWN_CSS = HERE.parent / "templates" / "markdown.css"  # what mdlib.py writes and the style skills do not know (a task item, the title of the pager)
 KNOWN_LANGS = ("en", "fr")
 # the kinds of page the sibling skills bring (a [kinds.<name>] table of site.toml adds / overrides one)
 BUILTIN_KINDS = {
@@ -150,12 +151,13 @@ def load_generated_pages(ctx: Context) -> tuple[dict[str, dict], list[dict]]:
     return pages, extra
 
 def split_sections(blocks_: list[dict]) -> tuple[list[str], list[dict]]:
-    """The blocks before the first h2 (intro) and the h2 sections (id, title, raw, html)."""
+    """The blocks before the first section (intro) and the sections (id, title, raw, html): a ## line, or a # line (the page has one h1, its title)."""
     intro: list[str] = []
     sections: list[dict] = []
     for b in blocks_:
-        if b.get("h") == 2:
-            sections.append({"id": b["id"], "title": b["title"], "raw": b["raw"], "html": [], "level": b.get("level", "")})
+        if b.get("h") in (1, 2):
+            number = len(sections) + 1
+            sections.append({"id": b["id"], "title": mdlib.unnumbered(b["title"], number), "raw": mdlib.unnumbered(b["raw"], number), "html": [], "level": b.get("level", "")})
         elif b.get("h"):
             level = ' data-level="%s"' % b["level"] if b.get("level") else ""
             html_b = '<h%d id="%s"%s>%s</h%d>' % (b["h"], b["id"], level, b["title"], b["h"])
@@ -169,8 +171,9 @@ def parse_page(ctx: Context, page: dict) -> None:
         if lang not in page:
             raise SystemExit("page %s: the %s version is missing" % (page["slug"], lang))
         d = page[lang]
-        d["intro"], d["sections"] = split_sections(ctx.renderer[lang].render(d["md"]))
-        parts = re.split(r"^## .*$", d["md"], flags=re.M)  # the text of each section, for the search index
+        markdown = mdlib.without_title(d["md"], d["title"])
+        d["intro"], d["sections"] = split_sections(ctx.renderer[lang].render(markdown))
+        parts = mdlib.section_texts(markdown)  # the text of each section, for the search index
         for n, s in enumerate(d["sections"]):
             s["text"] = mdlib.plain_text(parts[n + 1] if n + 1 < len(parts) else "")
         d["lead_text"] = mdlib.plain_text(parts[0])
@@ -264,7 +267,8 @@ def changelog(ctx: Context) -> list[dict]:
         if m.group(1).lower() == "unreleased":
             continue
         line = next((re.sub(r"^[-*]\s+|^###\s+", "", x).strip() for x in m.group(2).splitlines() if x.strip() and not x.startswith("###")), "")
-        out.append({"version": m.group(1), "text": mdlib.plain_text(line)[:160]})
+        text = mdlib.plain_text(line)
+        out.append({"version": m.group(1), "text": text if len(text) <= 160 else text[:159].rstrip() + "…"})
     return out
 
 def home_body(ctx: Context, all_pages: list[dict]) -> str:
@@ -308,15 +312,15 @@ def make_page(ctx: Context, body: str, out: Path, title: str, kind: str = "", le
         actions += REPO_LINK % esc(site["repo"])
     with tempfile.TemporaryDirectory() as folder:
         tmp_body, tmp_actions = Path(folder) / "body.html", Path(folder) / "actions.html"
-        tmp_body.write_text(body, encoding="utf-8")
+        tmp_body.write_text(re.sub(r"\{\{(?=[A-Z_]+\}\})(?!(?:PROJECT|VERSION)\}\})", "&#123;&#123;", body), encoding="utf-8")  # what a page says of {{NAME}} is text
         tmp_actions.write_text(actions, encoding="utf-8")
-        footer = site.get("footer", "") or " · ".join(x for x in (ctx.name + (" " + ctx.version if ctx.version else ""), ctx.commit, "docs") if x)
+        footer = site.get("footer", "") or " · ".join(esc(x) for x in (ctx.name + (" " + ctx.version if ctx.version else ""), ctx.commit, "docs") if x)
         cmd = [sys.executable, str(NEW_PAGE), str(tmp_body), "-o", str(out), "--force",
-               "--css", str(STYLE / "site.css"), *[str(resolve(ctx, c)) for c in site.get("css", [])],
+               "--css", str(STYLE / "site.css"), str(MARKDOWN_CSS), *[str(resolve(ctx, c)) for c in site.get("css", [])],
                "--js", str(STYLE / "site.js"), *[str(resolve(ctx, j)) for j in site.get("js", [])],
                "--actions", str(tmp_actions),
-               "--set", "PROJECT=%s" % ctx.name, "TITLE=%s" % title, "STORAGE_KEY=%s" % site.get("storage_key", re.sub(r"\W+", "-", ctx.name.lower()) + "-docs"),
-               "FOOTER=%s" % footer, "VERSION=%s" % ctx.version]
+               "--set", "PROJECT=%s" % esc(ctx.name), "TITLE=%s" % esc(title), "STORAGE_KEY=%s" % esc(site.get("storage_key", re.sub(r"\W+", "-", ctx.name.lower()) + "-docs")),
+               "FOOTER=%s" % footer, "VERSION=%s" % esc(ctx.version)]
         if len(ctx.langs) > 1:
             cmd.append("--lang-switch")
         attrs = ["%s=%s" % (n, v) for n, v in k.get("attrs", {}).items()]
@@ -328,6 +332,7 @@ def make_page(ctx: Context, body: str, out: Path, title: str, kind: str = "", le
         if run.returncode != 0:
             raise SystemExit("%s: new_page.py failed: %s%s" % (out.name, run.stdout, run.stderr))
     text = out.read_text(encoding="utf-8")
+    text = re.sub(r'(<html\b[^>]*\blang=")[^"]*"', lambda m: m.group(1) + ctx.langs[0] + '"', text, count=1)  # RGAA 8.3, and the words of the page in that language
     logo = site.get("logo", "")
     if logo:
         svg = resolve(ctx, logo).read_text(encoding="utf-8")

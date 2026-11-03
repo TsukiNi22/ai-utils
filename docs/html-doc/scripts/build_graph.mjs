@@ -41,7 +41,7 @@ for (const [file, re] of [["CMakeLists.txt", /project\([^)]*VERSION\s+([0-9.]+)/
     ["pom.xml", /<\/parent>[\s\S]*?<version>([^<]+)<\/version>|^\s*<version>([^<]+)<\/version>/m], ["build.gradle", /^\s*version\s*=?\s*["']([^"']+)/m],
     ["composer.json", /"version"\s*:\s*"([^"]+)"/], ["setup.py", /\bversion\s*=\s*["']([^"']+)/]]) {
     if (version) break;
-    try { const m = re.exec(execFileSync("git", ["-C", repo, "show", sha + ":" + file], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]})); if (m && (m[1] || m[2])) version = "v" + (m[1] || m[2]).replace(/^v/, ""); } catch { /* no such file */ }
+    try { const m = re.exec(execFileSync("git", ["-C", repo, "show", sha + ":./" + file], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]})); if (m && (m[1] || m[2])) version = "v" + (m[1] || m[2]).replace(/^v/, ""); } catch { /* no such file */ }
 }
 if (!version) try { version = execFileSync("git", ["-C", repo, "describe", "--tags", "--abbrev=0", sha], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim(); } catch { /* no tag */ }
 const project = opt("project", github ? github.split("/")[1] : repo.split("/").pop());
@@ -63,7 +63,7 @@ const extractGraph = new Function(html.slice(s, e) + "; return extractGraph;")()
 
 // Sources at the commit (same filter as the page: extractGraph.wanted)
 const paths = git("ls-tree", "-r", "-l", sha).split("\n").map(l => /^\S+ blob \S+\s+(\d+)\t(.+)$/.exec(l)).filter(m => m && +m[1] < 600000 && extractGraph.wanted(m[2])).map(m => m[2]).slice(0, 2500);
-const files = paths.map(path => ({path, text: git("show", sha + ":" + path)}));
+const files = paths.map(path => ({path, text: git("show", sha + ":./" + path)})); // ./: --repo may be a folder of the repository
 const graph = extractGraph(files);
 graph.meta = {sha, date, source: "snapshot", files: files.length, generated: new Date().toISOString()};
 

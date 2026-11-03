@@ -53,6 +53,8 @@ model, vocabulary, comparison
   yourself, glossary and sources), 6-9 of them.
 
 ## 3. Build and check
-The commands of `better-html-doc` (build_site.py, check_site.py, test_search.js), then look at the page: both levels, the
-stepper played to its end, a playground moved, at 1280 and 390 px, light and dark. The level switch sits in the top bar
-(`?level=technical` in a link opens that level; the choice is shared with the other explanation pages of the site).
+The commands of `better-html-doc` (build_site.py, check_site.py, test_search.js), `check_render.py` of `html-style` on the built
+page (0 error: both levels, both languages, both themes), then look at the page: the stepper played to its end, a playground
+moved, at 1280 and 390 px, light and dark. The level switch sits in the top bar (`?level=technical` in a link opens that level; the
+choice is shared with the other explanation pages of the site); under 640px the search takes a row under the bar, under 400px a
+bilingual page gives the place of the logo to the two switches.

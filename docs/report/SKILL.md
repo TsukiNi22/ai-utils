@@ -44,6 +44,7 @@ python3 SKILL_DIR/scripts/md2pdf.py <report.md> --format both|pdf|md [-o report.
   rendered too (titled, warning / caution orange, tip green): a README or a `protocol-doc` Markdown converts as is.
 
 ## 6. Check
+- `md2pdf.py` fits every table by itself (a width per column from its words, smaller, or a landscape page when it is too wide) and tells on stderr a word past the edge of a page: never a width set by hand, never ignored.
 - Convert a page to an image (`pdftoppm -r 60 -png -f 1 -l 2 report.pdf /tmp/p`) and look at it: title rule present,
   no table overflowing, lists rendered as lists, footer present.
 - Give the user the path(s) and the page count (`pdfinfo`).

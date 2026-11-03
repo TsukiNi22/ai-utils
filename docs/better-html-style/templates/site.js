@@ -14,6 +14,8 @@
   }
   if (EMBED) {
     root.classList.add('embed');
+    var levels = document.querySelector('.topbar .level-switch'), pageHead = document.querySelector('main > header');
+    if (levels && pageHead) pageHead.appendChild(levels); // no top bar: the level switch of an explanation page stays reachable, in the header of the page
     document.querySelectorAll('a[href]').forEach(function (a) {
       var h = a.getAttribute('href');
       if (h && !/^(#|https?:|mailto:|[\w.-]+\.(pdf|rpm|deb|apk|zip|gz|sh|json)(\?|#|$))/.test(h) && h.indexOf('embed=') < 0) a.setAttribute('href', h + (h.indexOf('?') < 0 ? '?' : '&') + 'embed=1');
@@ -33,7 +35,8 @@
     var out = [], title = document.querySelector('main h1');
     function text(el) {
       var c = el.cloneNode(true);
-      c.querySelectorAll('[data-lang]:not([data-lang="' + l + '"]), script, style, svg, .copy-btn').forEach(function (x) { x.remove(); });
+      c.querySelectorAll('[data-lang]:not([data-lang="' + l + '"]), script, style, svg, .copy, .anchor').forEach(function (x) { x.remove(); });
+      c.querySelectorAll('th, td, li, p, div, pre, dt, dd, summary, caption, figcaption, h3, h4, h5, h6').forEach(function (x) { x.append(' '); }); // two cells or blocks never glued in a result
       return c.textContent.replace(/\s+/g, ' ').trim();
     }
     document.querySelectorAll('main section[id]').forEach(function (s) {
@@ -90,6 +93,7 @@
   }
   function entryScore(words, e) {
     var total = 0;
+    if ((e.t || '').toLowerCase().replace(/\s+/g, ' ').trim() === words.join(' ')) return 1e6; // its whole title: that page first, not a section of it
     for (var n = 0; n < words.length; n++) {
       var w = words[n], best = Math.max(wscore(w, e.t), wscore(w, e.d) - 400, wscore(w, e.x) - 800);
       if (best < 0) return -1;
@@ -99,13 +103,10 @@
   }
   function queryWords(q) { return q.toLowerCase().split(/\s+/).filter(Boolean); }
   function esc(x) { return String(x).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
-  function mark(q, s) {
-    var out = esc(s);
-    queryWords(q).forEach(function (w) {
-      var re = new RegExp('(' + esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
-      out = out.replace(re, '<mark>$1</mark>');
-    });
-    return out;
+  function mark(q, s) { // one pass on the raw text: a word of the query never matches inside a <mark> or an &amp; written before it
+    var words = queryWords(q).map(function (w) { return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).sort(function (a, b) { return b.length - a.length; });
+    if (!words.length) return esc(s);
+    return String(s).split(new RegExp('(' + words.join('|') + ')', 'ig')).map(function (part, n) { return n % 2 ? '<mark>' + esc(part) + '</mark>' : esc(part); }).join('');
   }
   function localSearch(q) {
     var l = lang(), words = queryWords(q);
@@ -126,7 +127,7 @@
       ul.innerHTML = cur.length ? cur.map(function (e, n) {
         var u = e.u;
         if (EMBED && u.charAt(0) !== '#') u = u.indexOf('#') >= 0 ? u.replace('#', (u.indexOf('?') < 0 ? '?' : '&') + 'embed=1#') : u + (u.indexOf('?') < 0 ? '?' : '&') + 'embed=1';
-        return '<li class="' + (n ? '' : 'sel') + '"><a href="' + esc(u) + '"><span class="t">' + mark(q, e.t) + '<span class="d">' + esc(e.d || '') + '</span></span><span class="kind ' + esc(e.k) + '">' + esc(e.k) + '</span></a></li>';
+        return '<li class="' + (n ? '' : 'sel') + '"><a href="' + esc(u) + '"><span class="t">' + mark(q, e.t) + '<span class="d">' + esc(e.d || '') + '</span></span>' + (e.k ? '<span class="kind ' + esc(e.k) + '">' + esc(e.k) + '</span>' : '') + '</a></li>';
       }).join('') : '<li class="none">' + (lang() === 'fr' ? 'Aucun résultat' : 'No result') + '</li>';
       ul.hidden = false;
     }
@@ -154,10 +155,12 @@
   document.querySelectorAll('.sbox input').forEach(bind);
   if (Q.get('q')) window.addEventListener('load', function () { var qi = document.querySelector('.sbox input'); if (qi) { qi.value = Q.get('q'); qi.dispatchEvent(new Event('input')); } }); // ?q=text opens the results
 
+  var menuBtn = document.querySelector('#menuBtn');
+  if (menuBtn && !document.querySelector('#sidebar')) menuBtn.style.display = 'none'; // a page without sidebar: nothing for the menu to open
   (function () { // phone: the small search moves under the top bar (sticky), else it lives in the top bar
     var sb = document.querySelector('.topbar .sbox.small'), bar = document.querySelector('.topbar'); if (!sb || !bar) return;
-    var home = sb.parentNode, mq = window.matchMedia('(max-width: 480px)');
-    if (document.querySelector('.hero .sbox')) sb.classList.add('on-home'); // the home has its big search: the small one stays in the bar
+    // a bar that also holds a level switch (explanation pages) has no room for it sooner
+    var home = sb.parentNode, mq = window.matchMedia(bar.querySelector('.level-switch') ? '(max-width: 640px)' : '(max-width: 480px)');
     function place() {
       if (mq.matches) { sb.classList.add('mob'); bar.after(sb); }
       else { sb.classList.remove('mob'); home.insertBefore(sb, home.firstChild); }
@@ -179,7 +182,8 @@
   })();
   document.addEventListener('keydown', function (ev) { // / (unless turned off) or Ctrl+K: the search
     if (((ev.key === '/' && slash()) || ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k')) && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
-      var i = document.querySelector('.hero .sbox input') || document.querySelector('.sbox input'); if (i) { ev.preventDefault(); i.focus(); i.select(); }
+      var big = document.querySelector('.hero .sbox input'), i = big && big.offsetParent ? big : document.querySelector('.sbox.small input') || big; // the big one when it is shown
+      if (i) { ev.preventDefault(); i.focus(); i.select(); }
     }
   });
   function ph() { var fr = lang() === 'fr'; document.querySelectorAll('input[data-ph-fr]').forEach(function (i) { if (!i.dataset.ph) i.dataset.ph = i.placeholder; i.placeholder = fr ? i.dataset.phFr : i.dataset.ph; }); own = {}; }

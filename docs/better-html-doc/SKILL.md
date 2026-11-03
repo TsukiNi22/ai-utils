@@ -47,11 +47,20 @@ name of the page (`<slug>.html`). Front matter (`+++` TOML `+++`):
 `kind` (`explain` / `protocol` / a kind of site.toml), `level` (default level of an explanation page). The FR file needs only
 the translated `title` / `summary` / `keywords`; the sections must have **the same ids** in every language (`## Title {#id}`).
 
-Markdown (`scripts/mdlib.py`): `#`-`####` headings (`{#id}`), paragraphs, lists (one nested level), tables, fences
-(` ```lang "File title" ` → title bar + Copy), `>` quotes and callouts `> [!NOTE]` `[!WARN]` `[!OK]` `[!PLANNED]` `[!SOON]`,
-`---`, inline `code`, **bold**, *italic*, links `[text](url)` and `[text](page:slug#id)` (checked), `<kbd>`;
-blocks closed by `:::`: `:::html` (raw HTML: figures, SVG, steppers), `:::details Title` (collapsed), `:::simple` /
-`:::technical` [`tldr`] (explanation levels), `:::message NAME code` (a protocol message).
+Markdown (`scripts/mdlib.py`): `#`-`######` headings (`{#id}`; `#` is a section like `##`, the page has one h1, its title: a first `# Title` equal
+to it is dropped, a number typed in a title is dropped when it is the number of the section), paragraphs (two spaces at the end of a line: a break),
+lists (`-` `*` `+` `1.` `1)`, any depth, blocks inside an item: a fence, a table, a callout, tasks `- [ ]` `- [x]`), tables (`:---:` aligned, outer pipes
+optional, `| | |` = no head row), fences ` ``` ` `~~~` (` ```lang "File title" ` → title bar + Copy), indented code, `>` quotes and callouts `> [!NOTE]`
+`[!TIP]` `[!IMPORTANT]` `[!WARNING]` `[!CAUTION]` `[!WARN]` `[!OK]` `[!PLANNED]` `[!SOON]` (or `{: .warn}` / `{: .ok}` under a quote; two kinds in a row are
+two callouts), `---`, raw HTML (a line opening a block tag: `<details>`, `<figure>`, `<table>`, `<svg>`...; closed by its end tag), `<!-- comments -->`;
+inline `code` (``` ``a`b`` ```), **bold**, *italic*, `~~deleted~~`, links `[text](url "title")` and `[text](page:slug#id)` (checked), images
+`![alt](src "title")`, `<https://autolink>`, `\*` escapes, `&entities;`, `<kbd>` `<mark>` `<abbr title>` `<small>` `<sub>`... (a tag without its end tag is shown
+as text); blocks closed by `:::`: `:::html` (raw HTML: figures, SVG, steppers), `:::details Title` (collapsed), `:::simple` / `:::technical` [`tldr`]
+(explanation levels), `:::message NAME code` (a protocol message).
+- A table keeps what its columns need (`min-width` on its first row, from its text: words whole, a phrase up to 20 characters on one line, never a word per line). One that
+  can fit a phone stays on it; else it scrolls in its box there and a long text gets a column it reads well in; one too wide even for a tablet lets its long words break at a
+  `/` or a `-`. The words are never squeezed, and on paper the table takes the width of the page.
+- What this Markdown writes and the style skills do not know (a task item, the title of the pager...) is in `templates/markdown.css`, added to every page after `site.css`.
 - Structure of a page: the lead says what the page gives; 2-8 `##` sections, each a card numbered in the sidebar; a section
   answers one question; tables for anything with columns; one example per notion; links to the other pages instead of
   repeating them.
@@ -83,6 +92,9 @@ page written as raw `:::html` must follow the same rules (a `th` has its `scope`
   in the index, `docs-map.json` targets, and `check_style.py` of html-style on every page (contrast, tokens, responsive) -
   0 error.
 - `test_search.js`: 0 FAIL.
-- Screenshots (`html-style` §7): the home and a page at 1280 / 768 / 390 px, light and dark; the search opened with a typo.
+- `check_site.py --render` (or `check_render.py` of html-style on the pages): every page really drawn, both themes, 1280 / 768 / 375 px, both languages: 0 error. It runs
+  Firefox on every page: on a big site, first on the home, a page with big tables and a phone width (`--render-pages index.html a.html`).
+- Screenshots (`check_render.py --shots DIR`): the home and a page, light and dark, desktop and phone, looked at; the search opened with a typo. A long or crowded content is
+  worth a try: a table of 20 columns, a word of 100 characters, a very long title or project name.
 - The site of claude-cluster (`ai/claude-cluster/docs/site` of the ai-utils repository) is the reference of what a finished
   site looks like (generated pages, contextual help, embedded in a binary).

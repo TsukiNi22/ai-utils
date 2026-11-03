@@ -1,10 +1,24 @@
 /* better-explain-doc - an explanation page inside a better-html-doc site: the level switch next to the search, the level shown on
    the page header, the stepper / playground cards at the width of the site column; phone layout */
-.topbar .level-switch { margin-right: 4px; }
+.topbar .level-switch { flex: none; margin-right: 4px; }
 main > header .level-note { display: inline-block; margin-top: 10px; font-size: 13px; color: var(--muted); }
 :root[data-level="simple"] .level-note .technical, :root[data-level="technical"] .level-note .simple { display: none; }
 main section > div[data-level] > :first-child { margin-top: 0; }
 .results .kind.explain { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.embed .stepper.tall .step-head { top: 8px; } /* no top bar in the embedded copy */
+main > header > .level-switch { margin: 0 0 24px; } /* the level switch of the embedded copy: site.js moves it there */
+/* Phone: on these pages the search takes its row under the bar from 640px (site.js): what sticks, or is reached by a link, stays visible under it */
+@media (max-width: 640px) {
+  .top-actions .divider { display: none; }
+  main, main [id] { scroll-margin-top: 128px; }
+  .stepper.tall .step-head { top: 116px; }
+  .embed main, .embed main [id] { scroll-margin-top: 72px; }
+  .embed .stepper.tall .step-head { top: 60px; }
+}
 @media (max-width: 600px) { .topbar .level-switch button { padding: 4px 8px; font-size: 12.5px; } }
-@media (max-width: 480px) { .topbar .level-switch button { padding: 3px 6px; font-size: 12px; } }
+@media (max-width: 480px) {
+  .topbar .level-switch button { padding: 3px 6px; font-size: 12px; }
+  .topbar .top-actions { margin-left: auto; }
+}
+@media (max-width: 400px) { .topbar .level-switch { margin-right: 0; } }
 @media print { .level-switch { display: none !important; } }

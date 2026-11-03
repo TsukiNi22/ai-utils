@@ -7,6 +7,8 @@
 <style>
 
 :root {
+  color-scheme: light; /* the fields, the scrollbars and the rest drawn by the browser follow the theme */
+  accent-color: var(--accent);
   --bg: #efede8;
   --surface: #f7f5f0;
   --text: #1d1f23;
@@ -21,10 +23,11 @@
   --code-bg: #e9e6df;
   --node: #f7f5f0;
   --node-alt: #eef1f8;
-  --line: #8a909b;
+  --line: #868c97;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #15171b;
     --surface: #1d2025;
     --text: #e6e7ea;
@@ -43,6 +46,7 @@
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #15171b;
   --surface: #1d2025;
   --text: #e6e7ea;
@@ -102,6 +106,11 @@ body {
 .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .icon-btn svg { width: 18px; height: 18px; }
 body { overflow: hidden; }
+code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.panel, .details, .helpcard, .node-tip, .tip { overflow-wrap: break-word; }
+input { text-overflow: ellipsis; }
+input::placeholder { color: var(--muted); opacity: 1; }
+input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .graph-shell {
   display: grid;
   grid-template-columns: 330px minmax(0, 1fr);
@@ -123,7 +132,7 @@ body { overflow: hidden; }
 .ps h4 {
   margin: 0 0 8px; font-size: 12px; color: var(--muted);
   text-transform: uppercase; letter-spacing: .06em;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
 }
 .ps h4 .count { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .ps h4 .mini-group { margin-left: auto; display: inline-flex; gap: 4px; }
@@ -169,7 +178,7 @@ select { width: auto; }
 }
 .chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .chip .n { color: var(--muted); font-size: 11.5px; }
-.chip.off { opacity: .42; }
+.chip.off { color: var(--muted); border-color: color-mix(in srgb, var(--border) 55%, transparent); }
 .chip.off .dot { background: transparent !important; outline: 1.5px solid var(--line); }
 .chip:hover { border-color: var(--accent); }
 .opt { display: flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; }
@@ -192,7 +201,7 @@ select { width: auto; }
 .repo-bar[hidden] { display: none; }
 .repo-bar input { flex: 1; min-width: 0; }
 .repo-card input { width: 100%; margin: 6px 0 8px; }
-.repo-err { color: var(--warn, #d9822b); font-size: 13px; margin-bottom: 6px; }
+.repo-err { color: var(--warn); font-size: 13px; margin-bottom: 6px; }
 .repo-err[hidden] { display: none; }
 .repo-ex { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .repo-ex button { border: 1px solid var(--border); background: var(--code-bg); color: var(--text); border-radius: 6px; padding: 2px 8px; font: inherit; cursor: pointer; }
@@ -209,7 +218,7 @@ select { width: auto; }
 .controls-btn:hover { border-color: var(--accent); color: var(--accent); }
 .helpcard.wide { width: min(620px, 100%); }
 .ctl-list { display: grid; gap: 6px; margin-top: 6px; }
-.ctl { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--code-bg); }
+.ctl { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--code-bg); }
 .ctl svg { width: 64px; height: 44px; margin: 0; background: none; border: 0; }
 .ctl b { display: block; font-size: 13.5px; }
 .ctl span { color: var(--muted); font-size: 13px; }
@@ -217,37 +226,41 @@ select { width: auto; }
 .style3d[hidden] { display: none; }
 @media (max-width: 760px) { .hint { bottom: 60px; max-width: calc(100% - 32px); } }
 .details {
-  position: absolute; top: 14px; right: 14px; width: 340px; max-height: calc(100% - 28px); overflow-y: auto;
+  position: absolute; z-index: 3; top: var(--details-top, 14px); right: 14px; width: min(340px, calc(100% - 28px)); max-height: calc(100% - var(--details-top, 14px) - 14px); overflow-y: auto; /* over the buttons of the stage, it closes by its own; under the bar of the diagrams when it would cover it */
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px 18px; font-size: 13.5px; box-shadow: 0 8px 28px rgba(0, 0, 0, .14);
 }
-.details h3 { margin: 4px 0 8px; font-size: 17px; word-break: break-word; }
+.details h3 { margin: 4px 0 8px; padding-right: 22px; font-size: 17px; overflow-wrap: anywhere; }
 .details .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; color: var(--muted); font-size: 22px; cursor: pointer; }
 .details .kind { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.details dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0 0 10px; }
+.details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0 0 10px; }
 .details dt { color: var(--muted); }
-.details dd { margin: 0; word-break: break-all; }
+.details dd { margin: 0; overflow-wrap: anywhere; }
 .details h5 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .details ul { list-style: none; padding: 0; margin: 0; }
-.details li a { display: flex; align-items: center; gap: 6px; padding: 2px 0; color: var(--text); text-decoration: none; cursor: pointer; }
+.details li a { display: flex; align-items: center; gap: 6px; padding: 2px 0; color: var(--text); text-decoration: none; cursor: pointer; overflow-wrap: anywhere; }
 .details li a:hover { color: var(--accent); }
 .details li .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; white-space: nowrap; }
 .brand .logo { width: 26px; height: 26px; flex: none; color: var(--accent); object-fit: contain; }
+.brand { min-width: 0; }
+.brand .repo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .brand .ver { font-size: 12px; color: var(--muted); font-weight: 500; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; }
 .page-eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); margin-bottom: 4px; }
 /* Legends: 2 columns, swatch (dot for nodes / groups, line for relations), count on the right, off = faded */
-.legend { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
+.legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: row dense; gap: 2px 8px; }
 .legend .lg {
   display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 3px 5px;
   border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 12.5px;
   text-align: left; cursor: pointer; user-select: none;
 }
 .legend .lg:hover { background: var(--code-bg); }
-.legend .lg.off { opacity: .42; }
+.legend .lg.off { color: var(--muted); }
+.legend .lg.off .sw { opacity: .3; }
 .legend .lg .sw { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 11px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15); }
 .legend .lg .sw.line { width: 16px; height: 3px; flex-basis: 16px; border-radius: 2px; box-shadow: none; }
-.legend .lg .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend .lg .t { min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.legend .lg.wide { grid-column: 1 / -1; }
 .legend .lg .n { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 /* Hover card of a node: kind (colour of the node), name, path */
 .node-tip {
@@ -257,10 +270,10 @@ select { width: auto; }
 }
 .node-tip[hidden] { display: none; }
 .node-tip .k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-.node-tip .t { font-weight: 600; color: var(--text); word-break: break-word; }
-.node-tip .p { color: var(--muted); font-size: 12px; word-break: break-all; }
+.node-tip .t { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.node-tip .p { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .tip {
-  position: fixed; z-index: 30; max-width: 280px; pointer-events: none;
+  position: fixed; z-index: 30; max-width: min(280px, calc(100vw - 16px)); pointer-events: none;
   background: var(--text); color: var(--bg);
   border-radius: 6px; padding: 6px 9px; font-size: 12.5px; line-height: 1.4;
   box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
@@ -269,24 +282,27 @@ select { width: auto; }
 .helpcard-back { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0, 0, 0, .35); padding: 16px; }
 .helpcard-back[hidden] { display: none; }
 .helpcard {
-  position: relative; width: min(440px, 100%); max-height: calc(100vh - 32px); overflow-y: auto;
+  position: relative; width: min(440px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto;
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px;
   box-shadow: 0 14px 40px rgba(0, 0, 0, .25); font-size: 14px;
 }
-.helpcard h3 { margin: 4px 0 8px; font-size: 18px; }
+.helpcard h3 { margin: 4px 0 8px; padding-right: 22px; font-size: 18px; }
 .helpcard p { margin: 0 0 8px; }
 .helpcard .kind { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .helpcard .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; color: var(--muted); font-size: 22px; cursor: pointer; }
 .helpcard svg { width: 100%; height: auto; display: block; margin-top: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.helpcard .ctl svg { margin: 0; } /* centered on its row */
 .helpcard svg .n-lbl { fill: var(--text); font: 11px system-ui, sans-serif; }
-.helpcard svg .e-lbl { fill: var(--muted); font: 10.5px system-ui, sans-serif; }
+.helpcard svg .e-lbl { fill: var(--muted); font: 10.5px system-ui, sans-serif; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
 [data-help] { user-select: none; -webkit-user-select: none; }
 button[data-help], .chip[data-help], .lg[data-help], label[data-help], select[data-help] { cursor: pointer; }
 input[type="search"][data-help] { cursor: text; user-select: text; -webkit-user-select: text; }
 /* Diagram mode: the filters of the 2D / 3D graph don't apply, they are greyed */
 .in-flow .graph-only { opacity: .38; filter: grayscale(.7); pointer-events: none; }
 .panel-toggle { display: none; position: absolute; top: 12px; left: 12px; z-index: 5; }
+.panel-close { display: none; position: sticky; top: 0; z-index: 1; float: right; width: 34px; height: 34px; padding: 0; place-items: center; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text); font: 20px/1 system-ui, sans-serif; cursor: pointer; }
+.panel-close:hover { border-color: var(--accent); color: var(--accent); }
 .help p { font-size: 12.5px; color: var(--muted); }
 @media (max-width: 860px) {
   .topbar { gap: 10px; padding: 0 12px; }
@@ -296,6 +312,8 @@ input[type="search"][data-help] { cursor: text; user-select: text; -webkit-user-
   .panel:not(.open) { box-shadow: none; }
   .panel.open { transform: none; }
   .panel-toggle { display: inline-flex; }
+  .panel-close { display: grid; }
+  .flowbar { top: 60px; }
   .details { left: 12px; right: 12px; width: auto; top: auto; bottom: 12px; max-height: 50%; }
 }
 /* Language switch (EN / FR pill) */
@@ -341,10 +359,11 @@ input[type="search"][data-help] { cursor: text; user-select: text; -webkit-user-
 /* Bilingual content: only the active language is shown */
 :root[lang="en"] [data-lang="fr"], :root[lang="fr"] [data-lang="en"] { display: none !important; }
 .topbar .icon-btn, .topbar .lang-switch, .topbar .theme-switch { flex: none; }
-.topbar .tabs { min-width: 0; }
+.topbar .tabs { min-width: 0; scrollbar-width: none; }
+.topbar .top-actions { margin-left: auto; } /* on the right even when no tab or spacer pushes them (a single page on a small screen) */
 @media (max-width: 860px) {
   .topbar .spacer { display: none; }
-  .topbar .tabs { flex: 1 1 auto; }
+  .topbar .tabs { flex: 1 1 0; min-width: 72px; }
   .topbar .icon-btn { width: 32px; height: 32px; }
 }
 @media (max-width: 480px) {
@@ -372,10 +391,10 @@ html, body { overscroll-behavior: none; }
 /* Responsive: notches, touch targets, short screens */
 @supports (padding: max(0px)) { .topbar { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); } }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-@media (hover: none) { .hint { display: none; } }
 @media (pointer: coarse) {
   .icon-btn { width: 44px; height: 44px; }
   .btn, .seg button, .chip, .legend .lg, .mini { min-height: 40px; }
+  .controls-btn, .panel-close { width: 44px; height: 44px; }
   .details .close, .helpcard .close { width: 44px; height: 44px; font-size: 26px; }
   input, select, textarea { font-size: 16px; } /* no zoom of the page on focus (iOS) */
 }
@@ -388,8 +407,23 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .panel { width: 100vw; }
   .topbar .icon-btn[href] { display: none; }
 }
-@media (max-height: 480px) and (orientation: landscape) { .topbar { height: 48px; } .panel { top: 48px; } }
+@media (max-height: 480px) and (orientation: landscape) { .topbar { height: 48px; } .panel { top: 48px; } .graph-shell { height: calc(100vh - 48px); height: calc(100dvh - 48px); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+@media (forced-colors: active) {
+  .theme-switch, .lang-switch, .icon-btn { border: 1px solid ButtonText; }
+  .tabs a.current, .seg button.active, .lang-switch button.on { outline: 2px solid Highlight; }
+  .legend .lg .sw, .chip .dot, .details .dot, .node-tip .k { forced-color-adjust: none; } /* a colour that means something */
+}
+@media print {
+  :root, :root[data-theme="dark"], :root:not([data-theme="light"]) {
+    color-scheme: light;
+    --bg: #ffffff; --surface: #ffffff; --text: #1d1f23; --muted: #5d636e; --border: #dad6cd; --accent: #2f5bd3; --accent-soft: #e6ecfb;
+    --warn: #a8540a; --warn-soft: #fbefe3; --ok: #1f7a4a; --ok-soft: #e3f4ea; --code-bg: #e9e6df; --node: #f7f5f0; --node-alt: #eef1f8; --line: #868c97;
+  }
+  .topbar, .panel, .panel-toggle, .controls-btn, .flowbar, .style3d, .hint { display: none !important; }
+  .graph-shell { display: block; }
+  .stage { height: 100%; }
+}
 </style>
 </head>
 <body>
@@ -423,6 +457,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 <div class="graph-shell">
   <aside class="panel" id="panel" aria-label="Graph controls" data-i18n-aria-label>
+    <button class="panel-close" id="panelClose" type="button" aria-label="Hide the controls" data-i18n-aria-label>×</button>
     <div class="page-eyebrow" data-i18n>Architecture</div>
     <h1 data-i18n>Project graph</h1>
     <p class="muted small" data-i18n>Files, classes, functions, tests, build targets (CMake, packages) and external dependencies of <code class="repo-name">{{PROJECT}}</code>, extracted from the sources. Click a node to inspect it, drag to move, scroll to zoom.</p>
@@ -587,6 +622,7 @@ window.DOC_FR = {
   "Help · double click": "Aide · double-clic",
   "Search a node… (e.g. Server, parse, .hpp)": "Rechercher un nœud… (ex : Server, parse, .hpp)",
   "Show the controls": "Afficher les contrôles",
+  "Hide the controls": "Masquer les contrôles",
   "Graph controls": "Contrôles du graphe",
   "Interactive project graph": "Graphe interactif du projet",
   "Close": "Fermer",
@@ -1980,7 +2016,8 @@ extractGraph.wanted = function (p) {
     }
     function legendItem(label, color, count, on, onclick, help, line, hover) {
         const b = document.createElement("button");
-        b.type = "button"; b.className = "lg" + (on ? "" : " off");
+        const longest = Math.max(...String(label).split(/[\s/_.-]+/).map(w => w.length));
+        b.type = "button"; b.className = "lg" + (on ? "" : " off") + (String(label).length > 26 || longest > 12 ? " wide" : ""); // a column holds ~13 characters: never a word cut or a word per line
         if (help) b.dataset.help = help;
         b.innerHTML = '<span class="sw' + (line ? " line" : "") + '"></span><span class="t"></span><span class="n"></span>';
         b.querySelector(".sw").style.background = color;
@@ -2024,6 +2061,8 @@ extractGraph.wanted = function (p) {
         return (KINDS[n.kind] || KINDS.external)[0];
     }
     const NODE_2D = 1.25; // size factor of the nodes in 2D
+    const LABEL_MAX = 48; // characters of a name drawn on the canvas: the whole name is in the hover card and the details
+    const clipLabel = (s) => { s = String(s); return s.length > LABEL_MAX ? s.slice(0, LABEL_MAX - 1) + "…" : s; };
     // Layout density: node size, length of the relations, repulsion (bigger + closer nodes, like a 3d-force-graph)
     const LAYOUT = {size: 1.3, link: 34, linkShort: 18, repulsion: 150, gap: 3};
     function radiusOf(n) {
@@ -2353,7 +2392,7 @@ extractGraph.wanted = function (p) {
         if (BCACHE.v === state.layoutV && BCACHE.vis === nodes && BCACHE.b) return BCACHE.b;
         const lo = {x: Infinity, y: Infinity, z: Infinity}, hi = {x: -Infinity, y: -Infinity, z: -Infinity};
         for (const n of nodes) { const p = state.pos.get(n.id); for (const a of ["x", "y", "z"]) { lo[a] = Math.min(lo[a], p[a]); hi[a] = Math.max(hi[a], p[a]); } }
-        const size = Math.max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, 100), M = Math.max(300, size * 1.3); // the fitted camera is inside
+        const size = Math.max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, 100), M = Math.max(300, size * 1.3 * Math.max(1, 700 / Math.min(state.w, state.h))); // the fitted camera is inside (further on a narrow screen, see fit())
         BCACHE.b = {lo: {x: lo.x - M, y: lo.y - M, z: lo.z - M}, hi: {x: hi.x + M, y: hi.y + 40 - 6, z: hi.z + M}, M, raw: {lo, hi}}; // bottom: just above the floor
         if (BCACHE.v !== state.layoutV || BCACHE.vis !== nodes) BCACHE.f = null;
         BCACHE.v = state.layoutV; BCACHE.vis = nodes;
@@ -2445,6 +2484,7 @@ extractGraph.wanted = function (p) {
             ctx.strokeStyle = a.c; ctx.fillStyle = a.c;
             ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ex, ey); ctx.stroke();
             ctx.beginPath(); ctx.arc(ex, ey, back ? 2 : 3, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = back ? 0.75 : 1; ctx.fillStyle = C.text;
             ctx.fillText(a.l, ox + a.d.x * (len + 8), oy + a.d.y * (len + 8) + 3.5);
         }
         ctx.globalAlpha = 1;
@@ -2643,7 +2683,7 @@ extractGraph.wanted = function (p) {
                 ctx.globalAlpha = 1;
                 ctx.fillStyle = C.text;
                 ctx.globalAlpha = 1 - 0.55 * depth(p.z);
-                ctx.fillText(n.label, p.x, p.y + r + 11);
+                ctx.fillText(clipLabel(n.label), p.x, p.y + r + 11);
             }
         }
         ctx.globalAlpha = 1;
@@ -2852,7 +2892,14 @@ extractGraph.wanted = function (p) {
         state.w = r.width; state.h = r.height;
         canvas.width = Math.round(r.width * state.dpr); canvas.height = Math.round(r.height * state.dpr);
         state.dirty = true;
+        placeDetails();
     }
+    // The details of a narrow stage start under the bar of the diagrams: its views stay reachable
+    function placeDetails() {
+        const bar = $("flowBar"), stage = canvas.parentElement, room = stage.clientWidth - 14 - Math.min(340, stage.clientWidth - 28);
+        stage.style.setProperty("--details-top", (!bar.hidden && bar.offsetLeft + bar.offsetWidth > room ? bar.offsetTop + bar.offsetHeight + 8 : 14) + "px");
+    }
+    if ("ResizeObserver" in window) new ResizeObserver(placeDetails).observe($("flowBar")); // shown, hidden, on one or two rows
 
     // ---------- Interaction ---------- //
     function pick(mx, my) {
@@ -2919,7 +2966,7 @@ extractGraph.wanted = function (p) {
         if (!n) { tip.hidden = true; return; }
         const ext = /\.[\w]+$/.exec(n.path || ""), file = /^(header|source|test-file)$/.test(n.kind);
         tip.querySelector(".k").textContent = tr((KINDS[n.kind] || ["", n.kind])[1]) + (file && ext ? " (" + ext[0] + ")" : "");
-        tip.querySelector(".k").style.color = colorOf(n);
+        tip.querySelector(".k").style.color = "color-mix(in srgb, " + colorOf(n) + " 50%, var(--text))"; // the colour of the node, readable on the card in both themes
         tip.querySelector(".t").textContent = n.label;
         tip.querySelector(".p").textContent = n.path || [n.ns, n.group].filter(Boolean).join(" · ");
         tip.hidden = false;
@@ -3090,7 +3137,7 @@ extractGraph.wanted = function (p) {
             (m[k].length > 60 ? '<li class="muted">… ' + (m[k].length - 60) + " " + tr("more") + "</li>" : "") + "</ul>").join("");
         const meta = [["Group", n.group], ["Path", n.path], ["Namespace", n.ns], ["Lines", n.loc], ["Access", n.access], ["Overloads", n.overloads > 1 ? n.overloads : ""], ["Pure virtual", n.pure ? tr("yes") : ""], ["Relations", n.degree]].map(x => [tr(x[0]), x[1]])
             .filter(x => x[1] !== undefined && x[1] !== "").map(x => "<dt>" + x[0] + "</dt><dd>" + esc(x[1]) + "</dd>").join("");
-        box.innerHTML = '<button class="close" type="button" aria-label="Fermer">×</button><div class="kind"><span class="dot" style="width:9px;height:9px;border-radius:50%;background:' + colorOf(n) + '"></span>' +
+        box.innerHTML = '<button class="close" type="button" aria-label="' + esc(tr("Close")) + '">×</button><div class="kind"><span class="dot" style="width:9px;height:9px;border-radius:50%;background:' + colorOf(n) + '"></span>' +
             esc(tr((KINDS[n.kind] || ["", n.kind])[1])) + "</div><h3>" + esc(n.label) + "</h3><dl>" + meta + "</dl>" + list(tr("Outgoing"), out) + list(tr("Incoming"), inc);
         box.hidden = false;
         box.querySelector(".close").addEventListener("click", () => select(null));
@@ -3257,8 +3304,8 @@ extractGraph.wanted = function (p) {
     function measure(text, font) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.font = font; const w = ctx.measureText(text).width; ctx.restore(); return w; }
     const FONT = {t: "600 12px system-ui, sans-serif", s: "11px system-ui, sans-serif"};
     function makeBox(n, extra) {
-        const label = n.label, sub = flowSub(n);
-        return Object.assign({id: n.id, n, label, sub, w: Math.max(measure(label, FONT.t), sub ? measure(sub, FONT.s) : 0) + 22, h: sub ? 40 : 28}, extra || {});
+        const whole = flowSub(n), label = clipLabel(n.label), sub = clipLabel(whole);
+        return Object.assign({id: n.id, n, label, sub, owner: whole, w: Math.max(measure(label, FONT.t), sub ? measure(sub, FONT.s) : 0) + 22, h: sub ? 40 : 28}, extra || {});
     }
     function layered(layers, parentsOf, groupKey) { // order the layers (barycenter of the parents, boxes of a group side by side), then place them
         const pos = new Map();
@@ -3298,7 +3345,7 @@ extractGraph.wanted = function (p) {
         sel.textContent = "";
         const opts = roots.slice(0, 60);
         if (state.flowRoot && !opts.some(n => n.id === state.flowRoot)) opts.unshift(state.byId.get(state.flowRoot));
-        for (const n of opts) { const o = document.createElement("option"); o.value = n.id; const s = flowSub(n); o.textContent = n.label + (n.kind === "method" && s ? " · " + s : ""); sel.appendChild(o); }
+        for (const n of opts) { const o = document.createElement("option"); o.value = n.id; const s = flowSub(n); o.textContent = clipLabel(n.label) + (n.kind === "method" && s ? " · " + clipLabel(s) : ""); sel.appendChild(o); }
         sel.value = state.flowRoot || "";
         sel.hidden = view === "inherit" || !opts.length;
         let boxes = [], edges = [], groups = [], empty = "";
@@ -3311,11 +3358,11 @@ extractGraph.wanted = function (p) {
                 for (const [id, d] of depth) { (layers[d] = layers[d] || []).push(makeBox(state.byId.get(id))); }
                 const parents = new Map();
                 for (const [a, list] of out) if (depth.has(a)) for (const b of list) if (depth.has(b)) { edges.push({a, b}); if (!parents.has(b)) parents.set(b, []); parents.get(b).push(a); }
-                layered(layers, id => parents.get(id) || [], b => b.n.kind === "method" ? b.sub : b.id);
+                layered(layers, id => parents.get(id) || [], b => b.n.kind === "method" ? b.owner : b.id);
                 boxes = layers.flat();
                 for (const L of layers) { // dashed containers around the methods of the same class in a layer
                     let i = 0;
-                    while (i < L.length) { let j = i; while (j + 1 < L.length && L[j + 1].n.kind === "method" && L[i].n.kind === "method" && L[j + 1].sub === L[i].sub) j++; if (j > i) groups.push({label: L[i].sub, boxes: L.slice(i, j + 1)}); i = j + 1; }
+                    while (i < L.length) { let j = i; while (j + 1 < L.length && L[j + 1].n.kind === "method" && L[i].n.kind === "method" && L[j + 1].owner === L[i].owner) j++; if (j > i) groups.push({label: L[i].sub, boxes: L.slice(i, j + 1)}); i = j + 1; }
                 }
             }
         } else if (view === "inherit") {
@@ -3369,16 +3416,25 @@ extractGraph.wanted = function (p) {
         const F = state.flow, c = state.cam, k = c.k;
         if (!F) return;
         const S = (x, y) => [state.w / 2 + (x - c.x) * k, state.h / 2 + (y - c.y) * k];
-        if (F.empty) { ctx.fillStyle = C.muted; ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(tr(F.empty), state.w / 2, state.h / 2); return; }
+        if (F.empty) { // the message on the lines the width of the screen allows
+            ctx.fillStyle = C.muted; ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center";
+            const lines = [""];
+            for (const word of tr(F.empty).split(" ")) {
+                const line = lines[lines.length - 1] + (lines[lines.length - 1] ? " " : "") + word;
+                if (ctx.measureText(line).width > state.w - 40 && lines[lines.length - 1]) lines.push(word); else lines[lines.length - 1] = line;
+            }
+            lines.forEach((line, i) => ctx.fillText(line, state.w / 2, state.h / 2 + (i - (lines.length - 1) / 2) * 18));
+            return;
+        }
         const focus = state.hover || state.selected;
         const q = state.search.trim().toLowerCase(); // search: matching boxes outlined, the others faded
-        const hit = q ? new Set(F.boxes.filter(b => (b.label + " " + b.sub + " " + (b.n.path || "")).toLowerCase().includes(q)).map(b => b)) : null;
+        const hit = q ? new Set(F.boxes.filter(b => (b.n.label + " " + (b.owner || b.sub) + " " + (b.n.path || "")).toLowerCase().includes(q)).map(b => b)) : null;
         // containers (classes) of the execution flow
         ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
         for (const g of F.groups) {
             const r = bboxOf(g.boxes), [x, y] = S(r.x0 - 10, r.y0 - 18);
             ctx.strokeStyle = C.muted; ctx.globalAlpha = 0.5; roundRect(x, y, (r.x1 - r.x0 + 20) * k, (r.y1 - r.y0 + 28) * k, 8 * k); ctx.stroke();
-            if (k > 0.45) { ctx.globalAlpha = 0.8; ctx.fillStyle = C.muted; ctx.font = Math.round(10.5 * k) + "px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.fillText(g.label, x + 8 * k, y + 12 * k); }
+            if (k > 0.45) { ctx.globalAlpha = 1; ctx.fillStyle = C.muted; ctx.font = Math.round(10.5 * k) + "px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.fillText(g.label, x + 8 * k, y + 12 * k); }
         }
         ctx.setLineDash([]); ctx.globalAlpha = 1;
         // relations
@@ -3406,7 +3462,7 @@ extractGraph.wanted = function (p) {
             ctx.globalAlpha = dim ? 0.35 : 1;
             roundRect(x, y, w, h, (b.flame || b.anc !== undefined ? 3 : 8) * k);
             ctx.fillStyle = C.surface; ctx.fill();
-            ctx.globalAlpha *= b.flame ? 0.55 : b.anc !== undefined ? 0.25 : 0.2; ctx.fillStyle = col; ctx.fill();
+            ctx.globalAlpha *= b.flame ? 0.45 : b.anc !== undefined ? 0.25 : 0.16; ctx.fillStyle = col; ctx.fill();
             ctx.globalAlpha = dim ? 0.35 : 1; ctx.lineWidth = on ? 2 : 1; ctx.strokeStyle = on ? C.accent : col; ctx.stroke();
             const fs = 12 * k;
             if (fs < 6 || w < 18) continue;
@@ -3499,6 +3555,7 @@ extractGraph.wanted = function (p) {
         $("style3d").hidden = m !== "3d";
         $("flowBar").hidden = m !== "flow";
         $("panel").classList.toggle("in-flow", m === "flow");
+        $("panel").querySelectorAll(".graph-only").forEach(el => { if (m === "flow") el.setAttribute("aria-disabled", "true"); else el.removeAttribute("aria-disabled"); }); // no effect on the diagrams
         $("controlsBtn").style.left = m === "3d" ? "96px" : "14px"; // right of the axes in 3D
         $("mode2d").classList.toggle("active", m === "2d"); $("mode3d").classList.toggle("active", m === "3d"); $("modeFlow").classList.toggle("active", m === "flow");
         if (m === "flow") { buildFlow(); if (state.cams.flow) Object.assign(state.cam, state.cams.flow); else fitFlow(); refilter(false); state.dirty = true; return; }
@@ -3537,7 +3594,12 @@ extractGraph.wanted = function (p) {
     $("particles").addEventListener("change", (e) => { state.particles = e.target.checked; state.dirty = true; });
     $("isolate").addEventListener("change", (e) => { state.isolate = e.target.checked; refilter(true); state.dirty = true; });
     $("update").addEventListener("click", () => update(true));
+    // Drawer of the small screens: its button, the button of its own, a touch on the graph, Escape (it may cover the whole screen)
+    const closePanel = () => $("panel").classList.remove("open");
     $("panelToggle").addEventListener("click", () => $("panel").classList.toggle("open"));
+    $("panelClose").addEventListener("click", closePanel);
+    canvas.addEventListener("pointerdown", closePanel);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
     for (const b of $("presets").children) b.addEventListener("click", () => {
         const p = PRESETS[b.dataset.preset];
         // Fill the sets in place: the legend entries keep a reference to them (a new Set would cut them off)
@@ -3554,6 +3616,7 @@ extractGraph.wanted = function (p) {
             for (const k of src) set.add(k);
         }
         refilter(true);
+        state.dirty = true; // nothing left to simulate: the drawing is not refreshed by the layout
     }));
 
     // ---------- Help: tooltip (hover) + card with a visual example (double click) ---------- //
@@ -3567,21 +3630,34 @@ extractGraph.wanted = function (p) {
         const kinds = [...new Set(edges.map(e => e[2]))];
         for (const k of kinds) s += '<marker id="hm-' + k + '" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="' + L(k) + '"/></marker>';
         s += "</defs>";
+        let names = "";
+        // The name of a relation where nothing is: on its line, else above or below it (the nodes, their names, the other names of relations)
+        const placed = [], fontE = "10.5px system-ui, sans-serif", fontN = "11px system-ui, sans-serif";
+        const blocked = (x, y, w) => placed.some(p => Math.abs(x - p[0]) < (w + p[2]) / 2 + 2 && Math.abs(y - p[1]) < 12) || nodes.some(n => {
+            const r = n[4] || 9, over = (cx, half, top, bottom) => Math.abs(x - cx) < w / 2 + half + 5 && y + 2 > top && y - 9 < bottom;
+            return over(n[2], r, n[3] - r, n[3] + r) || over(n[2], measure(n[0], fontN) / 2 + 2, n[3] + 10, n[3] + 28);
+        });
+        const nameAt = (x, y, w) => {
+            for (const dy of [-5, -12, -19, -26, 13, 20, 27, -33, 34]) if (y + dy - 9 >= 0 && y + dy + 2 <= H && !blocked(x, y + dy, w)) return y + dy;
+            return y - 5;
+        };
         edges.forEach((e, i) => {
             const a = nodes[e[0]], b = nodes[e[1]];
             const dx = b[2] - a[2], dy = b[3] - a[3], d = Math.hypot(dx, dy) || 1;
             const x1 = a[2] + dx / d * 11, y1 = a[3] + dy / d * 11, x2 = b[2] - dx / d * 13, y2 = b[3] - dy / d * 13;
             s += '<path id="he' + i + '" d="M' + x1 + " " + y1 + "L" + x2 + " " + y2 + '" stroke="' + L(e[2]) + '" stroke-width="1.6" fill="none" marker-end="url(#hm-' + e[2] + ')"' + (opts.dim && opts.dim.includes(i) ? ' opacity=".15"' : "") + "/>";
-            s += '<text class="e-lbl" x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 5) + '" text-anchor="middle">' + esc(tr((LINKS[e[2]] || ["", e[2]])[1])) + "</text>";
+            const name = tr((LINKS[e[2]] || ["", e[2]])[1]), nameW = measure(name, fontE), nameX = Math.max(nameW / 2 + 2, Math.min(W - nameW / 2 - 2, (x1 + x2) / 2)), nameY = nameAt(nameX, (y1 + y2) / 2, nameW);
+            placed.push([nameX, nameY, nameW]);
+            if (!(opts.dim && opts.dim.includes(i))) names += '<text class="e-lbl" x="' + nameX + '" y="' + nameY + '" text-anchor="middle">' + esc(name) + "</text>"; // a faded relation: no name to squint at
             if (opts.particles !== false) for (let k = 0; k < 2; k++)
                 s += '<circle r="2.6" fill="' + L(e[2]) + '"><animateMotion dur="2.4s" begin="' + (k * 1.2) + 's" repeatCount="indefinite"><mpath href="#he' + i + '"/></animateMotion></circle>';
         });
         nodes.forEach((n, i) => {
             const faded = opts.dimNodes && opts.dimNodes.includes(i);
             s += '<circle cx="' + n[2] + '" cy="' + n[3] + '" r="' + (n[4] || 9) + '" fill="' + (n[5] || K(n[1])) + '"' + (faded ? ' opacity=".2"' : "") + (opts.ring === i ? ' stroke="' + state.colors.accent + '" stroke-width="2.5"' : "") + "/>";
-            s += '<text class="n-lbl" x="' + n[2] + '" y="' + (n[3] + 22) + '" text-anchor="middle"' + (faded ? ' opacity=".3"' : "") + ">" + esc(n[0]) + "</text>";
+            if (!faded) s += '<text class="n-lbl" x="' + n[2] + '" y="' + (n[3] + 22) + '" text-anchor="middle">' + esc(n[0]) + "</text>";
         });
-        return s + "</svg>";
+        return s + names + "</svg>";
     }
     const EX = {
         header: () => diagram([["Server.cpp", "source", 50, 45], ["Server.hpp", "header", 160, 45], ["Server", "class", 270, 45]], [[0, 1, "includes"], [1, 2, "defines"]]),
@@ -3598,11 +3674,11 @@ extractGraph.wanted = function (p) {
         lib: () => diagram([["Core.cpp", "source", 45, 45], ["libcore", "library", 160, 45], ["openssl", "external", 275, 45]], [[0, 1, "compiled-into"], [1, 2, "links"]]),
         ext: () => diagram([["Forge.hpp", "header", 50, 45], ["app", "executable", 50, 95], ["libconfig", "external", 250, 70]], [[0, 2, "includes"], [1, 2, "links"]], {h: 125}),
         link: (k, a, b) => diagram([[a[0], a[1], 70, 45], [b[0], b[1], 250, 45]], [[0, 1, k]]),
-        overview: () => diagram([["main.cpp", "source", 40, 30], ["Core.hpp", "header", 150, 30], ["Core", "class", 270, 30], ["app", "executable", 90, 95], ["utils", "external", 230, 95]], [[0, 1, "includes"], [1, 2, "defines"], [0, 3, "compiled-into"], [3, 4, "links"]], {h: 125}),
+        overview: () => diagram([["main.cpp", "source", 40, 30], ["Core.hpp", "header", 150, 30], ["Core", "class", 270, 30], ["app", "executable", 130, 95], ["utils", "external", 265, 95]], [[0, 1, "includes"], [1, 2, "defines"], [0, 3, "compiled-into"], [3, 4, "links"]], {h: 125}),
         groups: () => diagram([["Server", "class", 60, 40, 9, "hsl(210 55% 55%)"], ["Client", "class", 110, 85, 9, "hsl(210 55% 55%)"], ["IdHandler", "class", 230, 40, 9, "hsl(30 55% 55%)"], ["Scheduler", "class", 275, 90, 9, "hsl(30 55% 55%)"]], [[0, 1, "includes"], [3, 2, "includes"]], {h: 125}),
-        isolate: () => diagram([["Server", "class", 160, 60], ["Client", "class", 50, 25], ["ISocket", "interface", 270, 25], ["Matrix", "class", 50, 100], ["Vector2", "class", 270, 100]], [[1, 0, "includes"], [0, 2, "inherits"], [3, 4, "includes"]], {h: 125, ring: 0, dim: [2], dimNodes: [3, 4]}),
-        flat: () => diagram([["A", "class", 60, 45], ["B", "header", 160, 45], ["C", "source", 260, 45]], [[2, 1, "includes"], [1, 0, "defines"]], {particles: false}),
-        persp: () => diagram([["A", "class", 70, 35, 13], ["B", "header", 165, 60, 9], ["C", "source", 250, 80, 6]], [[2, 1, "includes"], [1, 0, "defines"]], {particles: false})
+        isolate: () => diagram([["Server", "class", 175, 62], ["Client", "class", 40, 22], ["ISocket", "interface", 285, 22], ["Matrix", "class", 40, 100], ["Vector2", "class", 285, 100]], [[1, 0, "includes"], [0, 2, "inherits"], [3, 4, "includes"]], {h: 125, ring: 0, dim: [2], dimNodes: [3, 4]}),
+        flat: () => diagram([["A", "class", 40, 45], ["B", "header", 160, 45], ["C", "source", 280, 45]], [[2, 1, "includes"], [1, 0, "defines"]], {particles: false}),
+        persp: () => diagram([["A", "class", 45, 35, 13], ["B", "header", 160, 60, 9], ["C", "source", 285, 80, 6]], [[2, 1, "includes"], [1, 0, "defines"]], {particles: false})
     };
     const HELP = {
         update: ["Update", "Fetches the last version of the GitHub repository and rebuilds the graph.", "Asks the GitHub API for the last commit of the branch. If it is newer than the graph shown, the sources are downloaded and the graph is rebuilt in the browser (and cached). Run once automatically at load. Offline, private repository or API limit: the embedded graph stays and the status says why.", "overview"],
@@ -3781,7 +3857,8 @@ extractGraph.wanted = function (p) {
         },
         keys(list) { // key caps on one or two rows
             const rows = Array.isArray(list[0]) ? list : [list], w = (k) => Math.max(14, 7 * k.length + 7);
-            let s = '<svg viewBox="0 0 64 44" aria-hidden="true">';
+            const wide = Math.max(64, ...rows.map(r => r.reduce((a, k) => a + w(k) + 2, 2)));
+            let s = '<svg viewBox="' + (32 - wide / 2) + " 0 " + wide + ' 44" aria-hidden="true">';
             rows.forEach((r, ri) => {
                 const total = r.reduce((a, k) => a + w(k) + 2, -2);
                 let x = 32 - total / 2;
@@ -3871,6 +3948,10 @@ extractGraph.wanted = function (p) {
         readColors(); state.dirty = true;
     });
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); state.dirty = true; });
+    // Print: the drawing in the colours of the light theme (the white text of a dark page on white paper)
+    let themeBeforePrint = null;
+    window.addEventListener("beforeprint", () => { themeBeforePrint = root.getAttribute("data-theme"); root.setAttribute("data-theme", "light"); readColors(); draw(); });
+    window.addEventListener("afterprint", () => { if (themeBeforePrint) root.setAttribute("data-theme", themeBeforePrint); else root.removeAttribute("data-theme"); readColors(); state.dirty = true; });
 
     // ---------- Language ---------- //
     if (window.docI18n) window.docI18n.onChange(() => {
@@ -3967,9 +4048,14 @@ extractGraph.wanted = function (p) {
 (function () {
   var nav = document.querySelector('nav.tabs');
   if (!nav) return;
+  function showCurrent() { // a narrow bar scrolls its tabs: the current one in sight
+    var current = nav.querySelector('a.current');
+    if (current) nav.scrollLeft = current.offsetLeft - nav.offsetLeft;
+  }
   function done(a, ok) {
     if (!ok) a.remove();
     if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
+    showCurrent();
   }
   nav.querySelectorAll('a:not(.current)').forEach(function (a) {
     if (/^https?:$/.test(location.protocol)) {
@@ -3985,6 +4071,7 @@ extractGraph.wanted = function (p) {
     document.head.appendChild(s);
   });
   if (nav.querySelectorAll('a').length < 2) nav.hidden = true;
+  showCurrent();
 })();
 </script>
 <script>
