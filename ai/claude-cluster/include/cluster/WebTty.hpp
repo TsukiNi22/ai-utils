@@ -72,6 +72,7 @@ class WebTty {
             std::vector<int> watchers;      // eventfds told at each output (the WebSockets of the page)
         };
         std::map<std::string, std::shared_ptr<Session>> _sessions;  // by device id (shared: a long poll keeps its session alive)
+        std::map<int, std::shared_ptr<Session>> _watched;           // the eventfds given (watch): the terminal each one is in the list of
         std::mutex _mutex;
 
         // ---------- Pre-Function -------- //
@@ -93,6 +94,7 @@ class WebTty {
         _cold void resize(const std::string& device, const int cols, const int rows);
         _cold void close(const std::string& device);
         _cold void expire(void);                // the ones not read for 2 min: closed
+        _cold void touch(const std::string& device);    // a WebSocket of the page still open on it: read, its screen quiet or not
         // the WebSocket of the page: an eventfd told at each output of its terminal (-1: none), given back by unwatch
         _cold _nodiscard int watch(const std::string& device);
         _cold void unwatch(const std::string& device, const int fd);

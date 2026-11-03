@@ -108,6 +108,7 @@ class Voice {
         _cold _nodiscard cluster::Json json(void) const;   // its state for the interfaces of the core (their sync)
         // push mode: F5 pressed; other modes: voice-listen runs (an interface: the voice of its core)
         _nodiscard bool listening(void) const;
+        _cold void halt(void);          // the quit: nothing listens or speaks any more (the object stays, a request of the page may still ask it)
 
         // ---------- Function -------- //
         // an interface of the core: the state of the voice of its core

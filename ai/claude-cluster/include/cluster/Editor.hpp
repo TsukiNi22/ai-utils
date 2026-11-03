@@ -115,6 +115,8 @@ class Editor {
 
         // ---------- Pre-Function -------- //
         _cold void save_(const bool typing = false);
+        _cold void put_(const std::string& text);   // at the cursor, as it is (its atom characters too)
+        _nodiscard std::string ownAtoms_(const std::string& text) const;    // a text from outside: without the atom characters that are not of the prompt being written
         _cold void erase_(const std::size_t from, const std::size_t to);
         _cold void refresh_(void);
         _cold void replaceWord_(const cluster::Candidate& candidate, const bool final);
@@ -129,7 +131,6 @@ class Editor {
 
     public:
         // ---------- Pre-Function -------- //
-        _cold void insert(const std::string& text);
         _cold void backspace(void);
         _cold void erase(void);                     // Delete key
         _cold void wordLeft(const bool select);
@@ -168,7 +169,7 @@ class Editor {
         _nodiscard std::string selected(void) const;
         _nodiscard std::optional<std::size_t> atomAt(const std::string& text, const std::size_t at) const; // index of the atom there
         _nodiscard std::string shown(const std::string& text) const;    // atoms -> labels (display, window)
-        _nodiscard std::string atomize(const std::string& text) const;  // labels of the known atoms -> atoms
+        _nodiscard std::string atomize(const std::string& text) const;  // labels of the atoms of the prompt being written -> atoms
         _nodiscard std::string collapse(const std::string& text) const; // + the unchanged pasted texts -> their atom again
         _nodiscard std::vector<std::size_t> promptAtoms(void) const;    // atoms of the current prompt (chips)
         _nodiscard std::string expand(const std::string& text) const;   // to send: images -> labels, pastes -> their text
@@ -196,6 +197,7 @@ class Editor {
         _nodiscard inline const std::string& vimPending(void) const                {return this->_pending;};
         _cold _nodiscard inline std::size_t prev_(const std::size_t at) const      {return cluster::cell_prev(this->_text, at);};    // previous cell (a character and its marks)
         _cold _nodiscard inline std::size_t next_(const std::size_t at) const      {return cluster::cell_next(this->_text, at);};
+        _cold inline void insert(const std::string& text)                          {this->put_(this->ownAtoms_(text));};           // typed, pasted: at the cursor, the selection replaced
         _cold inline void yank(void)                                               {if (!this->_killed.empty()) this->insert(this->_killed);};   // the kill ring put back at the cursor
         _cold inline void left(const bool select)                                  {this->move_(this->prev_(this->_cursor), select);};
         _cold inline void right(const bool select)                                 {this->move_(this->next_(this->_cursor), select);};

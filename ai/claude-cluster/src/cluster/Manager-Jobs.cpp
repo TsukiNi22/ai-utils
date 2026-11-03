@@ -45,7 +45,7 @@ _cold void cluster::Manager::startOrchestrator_(void)
         return out;
     };
     hooks.changed = [this]() {++this->_version;};
-    this->_orch = std::make_unique<cluster::Orchestrator>(this->_config, std::move(hooks));
+    this->_orch = std::make_unique<cluster::Orchestrator>(this->config(), std::move(hooks));
     this->_orch->start();
 }
 
@@ -77,7 +77,7 @@ _cold cluster::Json cluster::Manager::jobsState(void) const
 _cold cluster::Json cluster::Manager::runHeavy_(const std::string& command, const std::string& cwd, const int timeout, const std::string& session)
 {
     // a command of a schedule: a heavy one waits its turn in the orchestrator (null: not heavy / no orchestrator: the caller runs it)
-    if (this->_replica || !this->_orch || !this->_config.orch.enabled || cluster::job_class(command, {}, this->_config.orch.patterns).empty()) return nullptr;
+    if (this->_replica || !this->_orch || !this->config().orch.enabled || cluster::job_class(command, {}, this->config().orch.patterns).empty()) return nullptr;
     const std::string owner = session.empty() ? std::string() : session;
     cluster::Json made = this->_orch->handle("job_add", {{"command", command}, {"cwd", cwd}, {"callback", false}, {"session", owner}, {"name", cluster::one_line(command, 40)},
         {"timeout_minutes", std::max(1, timeout / 60)}}, {});

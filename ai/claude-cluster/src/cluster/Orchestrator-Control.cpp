@@ -257,7 +257,7 @@ _cold std::vector<std::string> cluster::orchestrator_sub_tools(const cluster::Or
 _cold bool cluster::Orchestrator::mine_(const cluster::Job& job, const cluster::Orchestrator::Caller& caller) const
 {
     if (caller.kind != "sub") return true;
-    return job.session == caller.session || this->_config.orch.subSeeOthers;
+    return job.session == caller.session || this->_config.current().orch.subSeeOthers;
 }
 
 /* what a job tells */
@@ -376,7 +376,7 @@ _cold cluster::Json cluster::Orchestrator::add_(const cluster::Json& request, co
                 job.command += (job.command.empty() ? "" : " ") + word;
     }
     if (job.command.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "give the command to run");
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     if (caller.kind == "sub" && !c.subAdd) refuse_("not allowed: a sub-session may not queue heavy jobs ([orchestrator] sub_add in the settings): ask the user");
     job.origin = str_(request, "origin", "run") == "wrap" ? "wrap" : "run";   // only the wrapper connection says "wrap": the "origin" of the callers (mcp / sub / web) is not the one of the job
     job.cls = str_(request, "class");
@@ -407,7 +407,7 @@ _cold cluster::Json cluster::Orchestrator::add_(const cluster::Json& request, co
 
 _cold cluster::Json cluster::Orchestrator::waitFor_(const std::string& id, const int seconds, const cluster::Orchestrator::Caller& caller)
 {
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now() + std::chrono::seconds(std::clamp(seconds, 1, 110));
     std::unique_lock<std::mutex> lock(this->_mutex);
     for (;;) {
@@ -425,7 +425,7 @@ _cold cluster::Json cluster::Orchestrator::waitFor_(const std::string& id, const
 
 _cold cluster::Json cluster::Orchestrator::list_(const cluster::Json& request, const cluster::Orchestrator::Caller& caller) const
 {
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     const std::string state = cluster::lower(str_(request, "state", "active"));
     const std::string session = str_(request, "session");
     cluster::Json jobs = cluster::Json::array();
@@ -463,8 +463,8 @@ _cold cluster::Json cluster::Orchestrator::config_(const cluster::Json& request,
     if (action == "set") {
         if (key.empty() || key == "proc_dir" || key == "sys_dir") refuse_("give a key of [orchestrator] (orchestrator_config get lists them)");
         if (caller.kind == "global" && cluster::setting_protected("orchestrator", key)) refuse_("not allowed: orchestrator." + key + " is changed by the user only, in the settings page of claude-cluster: ask them");
-        (void)cluster::settings_set(this->_config, "orchestrator", key, value);
-        (void)this->_config.reload();
+        (void)cluster::settings_set(this->_config.current(), "orchestrator", key, value);
+        (void)this->_config.current().reload();
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
             this->touch_();
@@ -472,9 +472,9 @@ _cold cluster::Json cluster::Orchestrator::config_(const cluster::Json& request,
         this->flush_();
     }
     cluster::Json settings = cluster::Json::array();
-    for (const cluster::SettingsPage& page: cluster::settings_pages(this->_config))
+    for (const cluster::SettingsPage& page: cluster::settings_pages(this->_config.current()))
         for (const cluster::Setting& setting: page.settings)
-            if (setting.section == "orchestrator") settings.push_back({{"key", setting.key}, {"label", setting.label}, {"value", setting.value(this->_config)}, {"help", setting.description}});
+            if (setting.section == "orchestrator") settings.push_back({{"key", setting.key}, {"label", setting.label}, {"value", setting.value(this->_config.current())}, {"help", setting.description}});
     cluster::Json out = this->state();
     out["settings"] = settings;
     if (action == "set") out["changed"] = {{"key", key}, {"value", value}};
@@ -483,7 +483,7 @@ _cold cluster::Json cluster::Orchestrator::config_(const cluster::Json& request,
 
 _cold cluster::Json cluster::Orchestrator::handle(const std::string& cmd, const cluster::Json& request, const cluster::Orchestrator::Caller& caller)
 {
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     cluster::Json request2 = request;
     request2["cmd"] = cmd;
     const std::string id = str_(request, "id");
@@ -558,7 +558,7 @@ _cold cluster::Json cluster::Orchestrator::handle(const std::string& cmd, const 
 /* what the interfaces show */
 _cold cluster::Json cluster::Orchestrator::state(void) const
 {
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     std::lock_guard<std::mutex> lock(this->_mutex);
     cluster::Json jobs = cluster::Json::array();
     cluster::Json sessions = cluster::Json::object();
@@ -631,7 +631,7 @@ _cold void cluster::Orchestrator::serve(const int fd, const cluster::Json& reque
         }
         return true;
     };
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     if (!c.enabled) { // nothing queued: it runs as it is
         (void)send({{"ok", true}, {"event", "go"}, {"unmanaged", true}, {"threads", 0}});
         return;
@@ -710,7 +710,7 @@ _cold void cluster::Orchestrator::serve(const int fd, const cluster::Json& reque
         while ((nl = buffer.find('\n')) != std::string::npos) {
             cluster::Json message;
             try {
-                message = cluster::Json::parse(buffer.substr(0, nl));
+                message = cluster::json_parse(buffer.substr(0, nl));
             } catch (const cluster::Json::exception&) {
                 message = cluster::Json::object();
             }

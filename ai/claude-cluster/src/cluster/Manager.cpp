@@ -19,6 +19,7 @@ File Description:
 #include "cluster/Settings.hpp"
 #include "cluster/Plugins.hpp"
 #include "cluster/Manager.hpp"
+#include "cluster/Showcase.hpp"
 #include "cluster/Stats.hpp"
 
 #include "cluster/Machine.hpp"
@@ -29,13 +30,18 @@ File Description:
 #include "cluster/Mcp.hpp"
 #include <filesystem>
 #include <algorithm>
+#include <sys/prctl.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <csignal>
 #include <fstream>
 #include <sstream>
 #include <cstdio>
 #include <thread>
 #include <chrono>
 #include <regex>
+#include <cmath>
 
 /* tools */
 _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
@@ -43,9 +49,9 @@ _cold static cluster::Json spec_to_json_(const cluster::SessionSpec& spec)
     return {
         {"id", spec.id}, {"name", spec.name}, {"cwd", spec.cwd}, {"backend", spec.backend}, {"claude_id", spec.claudeId}, {"leaf", spec.leaf}, {"resume_at", spec.resumeAt}, {"fork", spec.fork},
         {"model", spec.model}, {"mode", spec.mode}, {"effort", spec.effort}, {"profile", spec.profile}, {"extra_args", spec.extraArgs},
-        {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", spec.cost}, {"tokens", spec.tokens},
+        {"panels", spec.panels}, {"global", spec.global}, {"created", spec.created}, {"deleted", spec.deleted}, {"cost", std::isfinite(spec.cost) ? spec.cost : 0.0}, {"tokens", spec.tokens},
         {"summary", spec.summary}, {"summary_auto", spec.summaryAuto}, {"summary_turns", spec.summaryTurns}, {"category", spec.category}, {"tags", spec.tags}, {"turns", spec.turns},
-        {"pin", spec.pin}, {"context", spec.context}, {"cached_at", spec.cachedAt}, {"rewound_at", spec.rewoundAt},
+        {"pin", spec.pin}, {"context", spec.context}, {"cached_at", spec.cachedAt}, {"used_at", spec.usedAt},
         {"keep_warm", spec.keepWarm}, // chosen (/keepwarm): kept over a restart or an update
     };
 }
@@ -70,7 +76,7 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.global = json.value("global", false);
     spec.created = json.value("created", std::int64_t{0});
     spec.deleted = json.value("deleted", std::int64_t{0});
-    spec.cost = json.value("cost", 0.0);
+    spec.cost = json.contains("cost") && json["cost"].is_number() ? json["cost"].get<double>() : 0.0; // an infinite one was written as null: never a reason to lose the session
     spec.tokens = json.value("tokens", std::int64_t{0});
     spec.summary = json.value("summary", std::string());
     spec.summaryAuto = json.value("summary_auto", true);
@@ -81,7 +87,7 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
     spec.pin = json.value("pin", cluster::Json());
     spec.context = json.value("context", std::string());
     spec.cachedAt = json.value("cached_at", std::int64_t{0});
-    spec.rewoundAt = json.value("rewound_at", std::int64_t{0});
+    spec.usedAt = std::max(json.value("used_at", std::int64_t{0}), json.value("rewound_at", std::int64_t{0}));
     spec.keepWarm = json.value("keep_warm", false);
     return spec;
 }
@@ -89,6 +95,18 @@ _cold static cluster::SessionSpec spec_from_json_(const cluster::Json& json)
 _cold static std::filesystem::path state_file_(void)
 {
     return cluster::data_dir() / "state.json";
+}
+
+_cold static std::string why_(const std::exception& e)
+{
+    const utils::exception::IException* detail = dynamic_cast<const utils::exception::IException*>(&e);
+    return detail != nullptr ? detail->info() : e.what();
+}
+
+_cold static void next_past_(int& next, const std::string& id, const char kind)
+{
+    if (id.size() < 2 || id.size() > 9 || id[0] != kind || !std::all_of(id.begin() + 1, id.end(), [](const unsigned char c) {return std::isdigit(c) != 0;})) return;
+    next = std::max(next, std::stoi(id.substr(1)) + 1);
 }
 
 _cold static std::filesystem::path log_file_(const std::string& id)
@@ -127,7 +145,19 @@ _cold static std::string orchestration_text_(const std::string& mode)
             "independent and large enough to pay for a new context; use a sub-global rarely (a big multi-session job), and tell the user when you do.\n";
 }
 
-_cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global, const std::string& method, const std::string& orchestration)
+_cold static std::string workflow_text_(const bool allowed)
+{
+    // [agent] workflow: the multi-agent workflows of the model itself, told to every session
+    if (allowed)
+        return "## Workflows of the model: asked\n"
+                "The user allows and asks your own multi-agent workflows when you have them (Claude Code: the Workflow tool, ultracode): this setting is their opt-in. On a big task "
+                "that gains from them (many files, independent parts, several passes), use them, without asking; a small task stays a small task.\n";
+    return "## Workflows of the model: not allowed\n"
+            "The user does not allow your own multi-agent workflows (Claude Code: the Workflow tool, ultracode): never start one, even for a big task. Use your usual tools; "
+            "they turn it on in Settings > Agent > Workflows of the model.\n";
+}
+
+_cold static std::vector<std::string> prompt_args_(const std::string& file, const bool global, const std::string& method, const std::string& orchestration, const bool workflow)
 {
     // a system prompt file added to the one of claude (CLAUDE.md kept), then how the answers are drawn (always, from
     // the binary: the files of the user are copies never refreshed); the display blocks for the global session only
@@ -138,6 +168,7 @@ _cold static std::vector<std::string> prompt_args_(const std::string& file, cons
     const std::size_t mark = rendering.find("<!-- global -->");
     if (mark != std::string::npos) rendering = global ? rendering.erase(mark, 15) : rendering.substr(0, mark);
     if (global) rendering += std::string("\n") + std::string(cluster::templates::ROUTING) + "\n" + orchestration_text_(orchestration); // how to choose the model and the thinking of the sub-sessions, how readily to split
+    rendering += std::string("\n") + workflow_text_(workflow);
     if (!method.empty()) rendering += std::string("\n") + method; // the work method of the user (short)
     const std::string text = cluster::trim(prompt.str()).empty() ? rendering : prompt.str() + "\n" + rendering;
     return {"--append-system-prompt", text};
@@ -159,7 +190,11 @@ _cold cluster::Manager::~Manager()
     this->_usageStop = true; // the threads of the usage (a scan, a read of the account) end before anything of this manager goes
     if (this->_scanThread.joinable()) this->_scanThread.join();
     if (this->_accountThread.joinable()) this->_accountThread.join();
-    if (this->_notifyMonitor.joinable()) this->_notifyMonitor.detach(); // gdbus monitor dies with this process (its pipe closed): never waited for
+    // gdbus monitor stopped: a closed pipe would only stop it at its next line, and a signal of the daemon may never come (one process left behind per core);
+    // its read ends, its thread with it, before anything it uses goes
+    this->_notifyMonitorStop = true;
+    if (const pid_t monitor = this->_notifyMonitorPid.load(); monitor > 0) (void)::kill(monitor, SIGKILL);
+    if (this->_notifyMonitor.joinable()) this->_notifyMonitor.join();
 }
 
 /* sessions */
@@ -173,24 +208,26 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::get_(const std::string
 
 _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::SessionSpec spec)
 {
+    const cluster::Config& config = this->config();
     cluster::Launch launch;
     launch.backend = this->_auth.resolve(spec.backend);
     launch.env = this->_auth.env(launch.backend);
     for (const auto &[name, value]: this->jobEnv_(spec.id)) // cluster-run: its session, the socket, its folder first in the PATH
         launch.env.push_back({name, value});
-    launch.command = this->_config.command(launch.backend.provider.driver);
-    launch.allowBypass = this->_config.allowBypass;
+    launch.command = config.command(launch.backend.provider.driver);
+    launch.allowBypass = config.allowBypass;
     if (!cluster::has_command(launch.command))
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument,
             "`" + launch.command + "` is not installed (backend " + spec.backend + ")");
     if (launch.backend.provider.driver == "claude") {
-        launch.extraArgs = this->_config.extraArgs;
+        launch.extraArgs = config.extraArgs;
+        if (!config.workflow) launch.extraArgs.insert(launch.extraArgs.end(), {"--disallowedTools", "Workflow"}); // [agent] workflow off: its multi-agent workflows taken away from it
         // its context at most (compacted past it): the one asked at its start, else the setting of its kind; auto: the window of the model
         const std::string window = cluster::Config::contextWindow(spec.context).value_or("auto") != "auto" ? *cluster::Config::contextWindow(spec.context)
-            : spec.global ? this->_config.globalContext : this->_config.sessionsContext;
+            : spec.global ? config.globalContext : config.sessionsContext;
         if (window != "auto") launch.env.push_back({"CLAUDE_CODE_AUTO_COMPACT_WINDOW", window});
         if (!spec.global) {
-            const std::vector<std::string> prompt = prompt_args_(this->_config.sessionsPrompt, false, cluster::method_text(this->_config, false), this->_config.orchestration);
+            const std::vector<std::string> prompt = prompt_args_(config.sessionsPrompt, false, cluster::method_text(config, false), config.orchestration, config.workflow);
             launch.extraArgs.insert(launch.extraArgs.end(), prompt.begin(), prompt.end());
             const std::vector<std::string> mcp = this->subArgs_(spec.id);
             launch.extraArgs.insert(launch.extraArgs.end(), mcp.begin(), mcp.end());
@@ -199,24 +236,25 @@ _cold std::shared_ptr<cluster::Session> cluster::Manager::make_(cluster::Session
     if (spec.global) {
         const std::vector<std::string> global = this->globalArgs_();
         launch.extraArgs.insert(launch.extraArgs.end(), global.begin(), global.end());
-        if (this->remote() && launch.backend.provider.driver == "claude") launch.remoteName = this->_config.remoteName; // on again
+        if (this->remote() && launch.backend.provider.driver == "claude") launch.remoteName = config.remoteName; // on again
     }
     spec.model = launch.backend.model;
     launch.spec = spec;
     launch.log = log_file_(spec.id);
-    launch.transcriptLimitMb = this->_config.transcriptLimitMb;
-    launch.memoryBytes = static_cast<std::uintmax_t>(std::max(1, this->_config.memoryMb)) * 1024 * 1024;
-    launch.memoryEntries = static_cast<std::size_t>(std::max(0, this->_config.memoryEntries));
+    launch.transcriptLimitMb = config.transcriptLimitMb;
+    launch.memoryBytes = static_cast<std::uintmax_t>(std::max(1, config.memoryMb)) * 1024 * 1024;
+    launch.memoryEntries = static_cast<std::size_t>(std::max(0, config.memoryEntries));
     launch.listener = [this](const cluster::Event& event) {this->event_(event);};
     return std::make_shared<cluster::Session>(std::move(launch));
 }
 
 _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
 {
+    const cluster::Config& config = this->config();
     cluster::SpawnRequest req = request;
     if (!req.profile.empty()) {
-        auto it = this->_config.profiles.find(req.profile);
-        if (it == this->_config.profiles.end()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no profile '" + req.profile + "'");
+        auto it = config.profiles.find(req.profile);
+        if (it == config.profiles.end()) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no profile '" + req.profile + "'");
         const cluster::Profile& profile = it->second;
         if (req.cwd.empty()) req.cwd = profile.cwd;
         if (req.backend.empty()) req.backend = profile.backend;
@@ -236,9 +274,9 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
         spec.name = name;
     }
     spec.cwd = cwd.string();
-    spec.backend = req.backend.empty() ? this->_config.backend : req.backend;
-    spec.mode = req.mode.empty() ? this->_config.mode : req.mode;
-    spec.effort = req.effort.empty() ? this->_config.effort : req.effort;
+    spec.backend = req.backend.empty() ? config.backend : req.backend;
+    spec.mode = req.mode.empty() ? config.mode : req.mode;
+    spec.effort = req.effort.empty() ? config.effort : req.effort;
     if (!req.context.empty()) {
         const std::optional<std::string> window = cluster::Config::contextWindow(req.context);
         if (!window) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "context: auto, or 100k to 1M tokens (200k, 500000, 1M)");
@@ -254,11 +292,11 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
         if (!levels.empty()) spec.effort = levels.front();
     }
     spec.profile = req.profile;
-    spec.panels = std::set<std::string>(this->_config.panels.begin(), this->_config.panels.end());
+    spec.panels = std::set<std::string>(config.panels.begin(), config.panels.end());
     spec.created = cluster::now();
     spec.claudeId = req.resume;     // a conversation resumed (another agent's, a fork of a session)
     spec.fork = req.fork && !req.resume.empty();
-    if (!req.profile.empty()) spec.extraArgs = this->_config.profiles.at(req.profile).extraArgs;
+    if (!req.profile.empty()) spec.extraArgs = config.profiles.at(req.profile).extraArgs;
 
     const std::shared_ptr<cluster::Session> session = this->make_(spec);
     {
@@ -275,7 +313,7 @@ _cold std::string cluster::Manager::spawn(const cluster::SpawnRequest& request)
             std::lock_guard<std::mutex> lock(this->_mutex);
             this->_oneShot.insert(spec.id);
         }
-        if (!this->hold_(spec.id, req.prompt, {}, req.origin)) session->send(req.prompt, {}, req.origin);
+        if (!this->hold_(spec.id, req.prompt, {}, req.origin)) this->deliver_(session, req.prompt, {}, req.origin);
     }
     this->notice_(spec.id, "new session " + spec.name + " (" + spec.backend + ") in " + cluster::short_path(spec.cwd));
     this->save();
@@ -304,53 +342,138 @@ _cold void cluster::Manager::send(const std::string& id, const std::string& tagg
         (void)this->call({{"cmd", "send"}, {"session", id}, {"text", text}, {"force", force}, {"images", images}, {"prompt_origin", origin}, {"raw", true}});
         return;
     }
+    if (this->_closing) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "claude-cluster is quitting"); // a session stopped would start again: an agent left behind
     const std::shared_ptr<cluster::Session> session = this->get_(id);
-    // an update switching: sent by the new version, never a new turn now - but a keep-warm wake-up, a tiny turn that must not wait (the update
-    // waits for it, as for any turn running): the sessions would cool for as long as the update waits on the agents of another
-    if (!text.starts_with(KEEP_WARM_MARK) && this->hold_(session->id(), text, images, origin)) return;
+    if (this->hold_(session->id(), text, images, origin)) return; // an update switching: sent by the new version, never a new turn now
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_origin[session->id()] = "host"; // a web device marks it after (Web: setOrigin)
     }
-    const cluster::Snapshot snap = session->snapshot();
+    if (!force) this->refuseOver_(id, session->snapshotLight());
+    this->deliver_(session, text, images, origin);
+}
 
-    if (!force && this->_config.limits.block) {
+_cold void cluster::Manager::refuseOver_(const std::string& id, const cluster::Snapshot& snap)
+{
+    const cluster::Config& config = this->config();
+    if (config.limits.block) {
         if (const std::string why = this->limitReached(); !why.empty()) {
             this->notice_(id, why + ": prompt refused", true);
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, why + " (force it, or raise it in Settings > Accounts & limits)");
         }
     }
-    if (!force && this->_config.budget > 0 && snap.metrics.costKnown && snap.metrics.cost >= this->_config.budget) {
+    if (config.budget > 0 && snap.metrics.costKnown && snap.metrics.cost >= config.budget) {
         this->notice_(id, "budget reached (" + cluster::human_cost(snap.metrics.cost) + "): prompt refused", true);
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction,
-            "budget of " + cluster::human_cost(this->_config.budget) + " reached for " + snap.spec.name + " (force it, or raise sessions.budget_usd)");
+            "budget of " + cluster::human_cost(config.budget) + " reached for " + snap.spec.name + " (force it, or raise sessions.budget_usd)");
     }
-    session->send(text, images, origin);
+}
+
+_cold void cluster::Manager::deliver_(std::shared_ptr<cluster::Session> session, const std::string& text, const std::vector<std::string>& images, const std::string& origin)
+{
+    // the object of a session refuses what is sent once it is replaced (a model, a folder, /clear, a quit): kept for the new one (never answered ok and lost,
+    // never waited for here: the reader of the old object, joined by the replacement, may be the one sending), or the new one once it is there
+    const std::string id = session->id();
+    for (int tries = 0; tries < 3; ++tries) { // a replacement that has just ended: the object of the moment
+        if (session->send(text, images, origin)) return;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (const auto replacing = this->_replacing.find(id); replacing != this->_replacing.end()) {
+                cluster::Queued kept{text, images, {}};
+                kept.at = cluster::now_ms();
+                kept.origin = origin;
+                replacing->second.push_back(std::move(kept));
+                return;
+            }
+        }
+        session = this->get_(id);
+    }
+    throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "session " + id + " is closing");
+}
+
+_cold void cluster::Manager::giveBack_(const std::shared_ptr<cluster::Session>& session, const cluster::Queued& queued)
+{
+    try {
+        if (!this->hold_(session->id(), queued.text, queued.images, queued.origin) && !session->send(queued.text, queued.images, queued.origin))
+            this->notice_(session->id(), "a prompt not given, the session closing: " + cluster::one_line(queued.text, 120), true);
+    } catch (const std::exception& e) { // its agent not started again: the others still given, the user told
+        this->notice_(session->id(), "a prompt not given (" + why_(e) + "): " + cluster::one_line(queued.text, 120), true);
+    }
+}
+
+_cold std::shared_ptr<cluster::Session> cluster::Manager::replace_(const std::string& id, const std::function<void(cluster::SessionSpec&)>& change, const bool resend)
+{
+    // one at a time for a session; from here its old object refuses what is sent (kept in _replacing): before it, its queue or its running turn are read below
+    {
+        std::unique_lock<std::mutex> lock(this->_mutex);
+        this->_replaced.wait(lock, [this, &id]() {return !this->_replacing.contains(id);});
+        this->_replacing[id];
+    }
+    std::shared_ptr<cluster::Session> old;
+    std::shared_ptr<cluster::Session> session;
+    std::vector<cluster::Queued> unfinished;
+    std::exception_ptr failed;
+    try {
+        old = this->get_(id);
+        old->retire(true);
+        if (resend) unfinished = old->unfinished();
+        old->stop();
+        cluster::SessionSpec spec = old->spec();
+        change(spec);
+        const std::shared_ptr<cluster::Session> made = this->make_(spec);
+        made->loadHistory();
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (!this->_sessions.contains(id)) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "session '" + id + "' closed meanwhile");
+            this->_sessions[id] = made;
+        }
+        session = made;
+        session->start();
+    } catch (...) { // what waits still goes somewhere (not replaced: its old object, its agent started again), the caller told after
+        failed = std::current_exception();
+    }
+    if (!session && old) {
+        old->retire(false);
+        session = old;
+    }
+    if (session)
+        for (const cluster::Queued& queued: unfinished)
+            this->giveBack_(session, queued);
+    for (;;) { // in their order; a prompt sent while they are given goes after them
+        std::vector<cluster::Queued> kept;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            const auto replacing = this->_replacing.find(id);
+            if (replacing->second.empty()) {
+                this->_replacing.erase(replacing);
+                break;
+            }
+            kept.swap(replacing->second);
+        }
+        if (session)
+            for (const cluster::Queued& queued: kept)
+                this->giveBack_(session, queued);
+    }
+    this->_replaced.notify_all();
+    if (failed) std::rethrow_exception(failed);
+    return session;
 }
 
 _cold void cluster::Manager::clear(const std::string& id)
 {
     // a new conversation (like /clear of Claude Code): the session again without --resume, an empty transcript (the old
     // one archived: found by the search, not shown)
-    const std::shared_ptr<cluster::Session> old = this->get_(id);
-    old->stop();
-    cluster::busy_step("its transcript archived (found by the search)");
-    cluster::SessionSpec spec = old->spec();
-    spec.claudeId.clear();
-    spec.leaf.clear();
-    spec.resumeAt.clear();
-    this->archive_(id);
-    spec.pin = nullptr; // the pinned item belonged to the old transcript
-    spec.cost = 0.0;   // the figures of the list follow the conversation (the usage ledger keeps the spent ones): zero BEFORE the new session reads them
-    spec.tokens = 0;
-    const std::shared_ptr<cluster::Session> session = this->make_(spec);
-    session->loadHistory();
-    {
-        std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_sessions[id] = session;
-    }
-    session->start();
-    this->notice_(id, spec.name + ": new conversation (the transcript before archived)");
+    const std::shared_ptr<cluster::Session> session = this->replace_(id, [this, &id](cluster::SessionSpec& spec) {
+        cluster::busy_step("its transcript archived (found by the search)");
+        spec.claudeId.clear();
+        spec.leaf.clear();
+        spec.resumeAt.clear();
+        this->archive_(id);
+        spec.pin = nullptr; // the pinned item belonged to the old transcript
+        spec.cost = 0.0;   // the figures of the list follow the conversation (the usage ledger keeps the spent ones): zero BEFORE the new session reads them
+        spec.tokens = 0;
+    }, false);
+    this->notice_(id, session->spec().name + ": new conversation (the transcript before archived)");
     this->save();
 }
 
@@ -361,18 +484,20 @@ _cold void cluster::Manager::setBackend(const std::string& id, const std::string
     const std::string model = spec.backend.find('/') != std::string::npos ? spec.backend.substr(spec.backend.find('/') + 1) : spec.model;
     (void)this->_auth.resolve(provider + (model.empty() ? "" : "/" + model)); // an unknown provider: refused here
     spec.backend = provider + (model.empty() ? "" : "/" + model);
-    this->relaunch_(id, spec);
+    (void)this->replace_(id, [&spec](cluster::SessionSpec& now) {now.backend = spec.backend;}, true);
+    this->save();
     this->notice_(id, spec.name + ": billing " + (this->authKind(spec.backend) == "api" ? "api (an API key)" : "auth (the login)"));
 }
 
 _cold void cluster::Manager::setModel(const std::string& id, const std::string& model)
 {
     // the same conversation (--resume) on another model: the session started again
-    cluster::SessionSpec spec = this->get_(id)->spec();
-    spec.backend = spec.backend.substr(0, spec.backend.find('/')) + "/" + model;
-    spec.model = model;
-    this->relaunch_(id, spec);
-    this->notice_(id, spec.name + ": model " + model);
+    const std::shared_ptr<cluster::Session> session = this->replace_(id, [&model](cluster::SessionSpec& spec) {
+        spec.backend = spec.backend.substr(0, spec.backend.find('/')) + "/" + model;
+        spec.model = model;
+    }, true);
+    this->save();
+    this->notice_(id, session->spec().name + ": model " + model);
 }
 
 _cold void cluster::Manager::setEffort(const std::string& id, const std::string& effort)
@@ -388,8 +513,8 @@ _cold void cluster::Manager::setEffort(const std::string& id, const std::string&
             list += ", " + level;
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "effort '" + effort + "': " + list);
     }
-    spec.effort = effort;
-    this->relaunch_(id, spec);
+    (void)this->replace_(id, [&effort](cluster::SessionSpec& now) {now.effort = effort;}, true);
+    this->save();
     this->notice_(id, spec.name + ": effort " + effort);
 }
 
@@ -397,18 +522,7 @@ _cold void cluster::Manager::relaunch_(const std::string& id, const cluster::Ses
 {
     // the session started again with this spec (its conversation: --resume), its transcript kept
     // a turn running or prompts queued: not lost, sent again to the new one (the change applies to them)
-    const std::shared_ptr<cluster::Session> old = this->get_(id);
-    const std::vector<cluster::Queued> unfinished = old->unfinished();
-    old->stop();
-    const std::shared_ptr<cluster::Session> session = this->make_(spec);
-    session->loadHistory();
-    {
-        std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_sessions[id] = session;
-    }
-    session->start();
-    for (const cluster::Queued& queued: unfinished)
-        if (!this->hold_(id, queued.text, queued.images, queued.origin)) session->send(queued.text, queued.images, queued.origin);
+    (void)this->replace_(id, [&spec](cluster::SessionSpec& now) {now = spec;}, true);
     this->save();
 }
 
@@ -441,7 +555,7 @@ _cold void cluster::Manager::close(const std::string& id)
     }
     // never left waiting for an answer that will not come
     const std::string closed = "[closed: " + spec.name + " (" + id + ")]\nclosed before it answered: no reply will come from it (restorable from the trash)";
-    if (owed) std::thread([this, closed]() {
+    if (owed) cluster::guarded([this, closed]() {
         try {
             this->send(GLOBAL_ID, closed, true, {}, "mcp");
         } catch (const utils::exception::IException&) {}
@@ -449,10 +563,11 @@ _cold void cluster::Manager::close(const std::string& id)
     for (const std::string& by: waiting)
         if (by != id) this->tell_(by, closed);
     ++this->_version;
+    session->retire(true); // a prompt being sent: refused (no such session), never an agent started again on the object going away
     session->stop();
     this->dropFor_(id, false, spec.name); // its tasks and schedules: cancelled (closed)
     if (this->_orch) this->_orch->sessionGone(id, false); // its heavy jobs: removed (queued) or killed (running)
-    this->notice_(id, spec.name + " closed (restorable " + std::to_string(this->_config.trashDays) + " days)");
+    this->notice_(id, spec.name + " closed (restorable " + std::to_string(this->config().trashDays) + " days)");
     this->save();
 }
 
@@ -466,8 +581,17 @@ _cold std::string cluster::Manager::restore(const std::string& id)
         spec = *it;
         this->_trash.erase(it);
     }
+    const std::int64_t deleted = spec.deleted;
     spec.deleted = 0;
-    const std::shared_ptr<cluster::Session> session = this->make_(spec);
+    std::shared_ptr<cluster::Session> session;
+    try {
+        session = this->make_(spec);
+    } catch (const std::exception&) { // its agent not there any more: still in the trash, never lost
+        spec.deleted = deleted;
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_trash.push_back(spec);
+        throw;
+    }
     session->loadHistory();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -486,7 +610,7 @@ _cold void cluster::Manager::purge(const std::string& id)
     std::map<std::string, std::string> names; // <id, name>: its tasks / schedules found by either
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        const std::int64_t limit = cluster::now() - static_cast<std::int64_t>(this->_config.trashDays) * 86400;
+        const std::int64_t limit = cluster::now() - static_cast<std::int64_t>(this->config().trashDays) * 86400;
         std::erase_if(this->_trash, [&](const cluster::SessionSpec& spec) {
             const bool gone = id == "*" || (id.empty() ? spec.deleted < limit : (spec.id == id || spec.name == id));
             if (gone) removed.push_back(spec.id);
@@ -503,7 +627,7 @@ _cold void cluster::Manager::purge(const std::string& id)
     std::error_code error;
     for (const std::string& gone: removed) {
         std::filesystem::remove(log_file_(gone), error);
-        cluster::attach_purge(this->_config, gone); // its attachments
+        cluster::attach_purge(this->config(), gone); // its attachments
         for (const std::filesystem::directory_entry& file: std::filesystem::directory_iterator(log_file_(gone).parent_path() / "archive", error))
             if (file.path().stem().string().starts_with(gone + "-")) std::filesystem::remove(file.path(), error); // its old conversations
     }
@@ -517,16 +641,15 @@ _cold std::string cluster::Manager::applyTo(const std::string& kind, const std::
     if (cluster::trim(value).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no value");
     if (scope == "new") {
         // the next new sub-sessions: the default of [agent] (a model: on the provider of the session shown)
-        std::string key = kind == "mode" ? "permission_mode" : kind == "effort" ? "effort" : "default";
+        std::string key = kind == "mode" ? "permission_mode" : kind == "effort" ? "effort" : "provider";
         std::string setting = value;
         if (kind == "model") {
             const std::optional<cluster::Snapshot> snap = this->snapshot(this->resolve(current));
             const std::string provider = snap ? snap->spec.backend.substr(0, snap->spec.backend.find('/')) : std::string("claude");
             setting = value.find('/') == std::string::npos ? provider + "/" + value : value;
         }
-        if (!cluster::settings_set(this->_config, "agent", key, setting))
-            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "[agent] " + key + " not set to " + setting);
-        (void)this->_config.reload();
+        (void)cluster::settings_set(this->config(), "agent", key, setting); // what it answers: applied at the next start or not, never a failure (that one throws)
+        (void)this->config().reload();
         return kind + " " + setting + " for the next new sub-sessions";
     }
     std::vector<std::string> ids;
@@ -558,7 +681,7 @@ _cold std::string cluster::Manager::resume(const std::string& id)
     const bool running = snap.state == cluster::State::Working || snap.state == cluster::State::Starting;
     if (running) this->interrupt(snap.spec.id);
     if (this->hold_(snap.spec.id, "continue", {}, "")) return "held: continued by the new version (an update is switching)";
-    session->send("continue", {});
+    this->deliver_(session, "continue", {}, "");
     this->notice_(snap.spec.id, snap.spec.name + (running ? ": retried now" : ": continued"));
     return running ? "retried now" : "continued";
 }
@@ -603,12 +726,13 @@ _cold void cluster::Manager::limitMemory_(const std::vector<std::shared_ptr<clus
 {
     // the settings of the moment for each transcript, then all of them together: past the global budget, each keeps its share
     // (its newest entries), the older ones stay in its log (loaded again when its top is reached)
-    const std::uintmax_t own = static_cast<std::uintmax_t>(std::max(1, this->_config.memoryMb)) * 1024 * 1024;
-    const std::uintmax_t total = static_cast<std::uintmax_t>(std::max(1, this->_config.memoryTotalMb)) * 1024 * 1024;
+    const cluster::Config& config = this->config();
+    const std::uintmax_t own = static_cast<std::uintmax_t>(std::max(1, config.memoryMb)) * 1024 * 1024;
+    const std::uintmax_t total = static_cast<std::uintmax_t>(std::max(1, config.memoryTotalMb)) * 1024 * 1024;
     std::uintmax_t used = 0;
     std::vector<std::uintmax_t> each;
     for (const std::shared_ptr<cluster::Session>& session: sessions) {
-        session->limitMemory(own, static_cast<std::size_t>(std::max(0, this->_config.memoryEntries)));
+        session->limitMemory(own, static_cast<std::size_t>(std::max(0, config.memoryEntries)));
         each.push_back(session->memoryUsed());
         used += each.back();
     }
@@ -624,36 +748,35 @@ _cold std::string cluster::Manager::setKeepWarm(const std::string& id, const std
     if (this->_replica) return this->call({{"cmd", "keep_warm"}, {"session", id}, {"value", value}}).value("message", std::string());
     const std::string session = this->resolve(id);
     const std::shared_ptr<cluster::Session> target = this->get_(session);
-    const bool on = value == "on" || (value != "off" && !target->snapshot().spec.keepWarm);
+    const bool on = value == "on" || (value != "off" && !cluster::keep_warm_on(this->config(), target->snapshotLight())); // past keep_warm_hours: not warm any more, on again
     target->setKeepWarm(on);
-    std::string mode = this->_config.keepWarm;
+    std::string mode = this->config().keepWarm;
     if (on && mode == "off") {
-        (void)cluster::settings_set(this->_config, "sessions", "keep_warm", "chosen");
-        (void)this->_config.reload();
+        (void)cluster::settings_set(this->config(), "sessions", "keep_warm", "chosen");
+        (void)this->config().reload();
         mode = "chosen";
     }
     this->save();
     ++this->_version;
     return std::string(on ? "kept warm ♨" : "no longer kept warm") + " (mode " + mode + (mode == "all" ? ": every session is kept warm whatever its mark" : "")
-        + "; woken up " + std::to_string(this->_config.keepWarmMargin) + " s before its " + std::to_string(this->_config.keepWarmTtl) + " min cache expires)";
+        + "; woken up " + std::to_string(this->config().keepWarmMargin) + " s before its " + std::to_string(this->config().keepWarmTtl) + " min cache expires)";
 }
 
 /* the prompt cache */
 _nodiscard static std::int64_t cache_at_(const cluster::Snapshot& s)
 {
-    // the last request of the agent that was answered: its last message got back (cachedAt, kept over a rewind: the entries after the cut
-    // are gone, not the cache of its prefix) or its last answer shown. A prompt sent and never answered (a wake-up that failed, an error, a
-    // process that died) wrote nothing: it does not count, until the session has no answer at all (then its last prompt stands for it)
-    std::int64_t at = s.spec.cachedAt;
-    for (auto it = s.entries.rbegin(); it != s.entries.rend(); ++it)
-        if (it->kind == cluster::EntryKind::Assistant) {
-            at = std::max(at, it->time);
-            break;
-        }
-    if (at > 0) return at;
+    // the last request of the agent that was answered: its last message got back (kept over a rewind: the entries after the cut are gone, not
+    // the cache of its prefix). A prompt sent and never answered (a wake-up that failed, an error, a process that died) wrote nothing: it does
+    // not count, until the session has no answer at all (then its last prompt stands for it)
+    if (s.spec.cachedAt > 0) return s.spec.cachedAt;
     for (auto it = s.entries.rbegin(); it != s.entries.rend(); ++it)
         if (it->kind == cluster::EntryKind::User) return it->time;
     return 0;
+}
+
+_nodiscard bool cluster::keep_warm_on(const cluster::Config& c, const cluster::Snapshot& s)
+{
+    return cluster::keep_warm_asked(c, s) && (c.keepWarmHours <= 0 || s.spec.usedAt <= 0 || cluster::now() - s.spec.usedAt <= static_cast<std::int64_t>(c.keepWarmHours) * 3600);
 }
 
 _nodiscard std::optional<std::int64_t> cluster::cache_left(const cluster::Config& c, const cluster::Snapshot& s)
@@ -676,8 +799,8 @@ _cold bool cluster::Manager::warmExpired(const std::string& id, const std::strin
 {
     // on (or a toggle to on) while its last turn is older than the cache: left to cool unless the user wants it anyway
     const std::optional<cluster::Snapshot> s = this->snapshot(this->resolve(id));
-    if (!s || value == "off" || (value == "toggle" && s->spec.keepWarm) || s->state == cluster::State::Working) return false;
-    const std::optional<std::int64_t> left = cluster::cache_left(this->_config, *s);
+    if (!s || value == "off" || (value == "toggle" && cluster::keep_warm_on(this->config(), *s)) || s->state == cluster::State::Working) return false;
+    const std::optional<std::int64_t> left = cluster::cache_left(this->config(), *s);
     return left && *left <= 0;
 }
 
@@ -690,63 +813,91 @@ _cold std::string cluster::Manager::warmNow(const std::string& id)
 
 _cold void cluster::Manager::wake_(const std::string& id)
 {
-    // the previous wake-up still the last prompt (nothing real since): taken back first, then the same prompt sent again on the same
-    // cached prefix (read, almost nothing written), so the conversation holds one wake-up at most instead of one more each time (its
-    // context and the cost of every later turn growing with them). Not a session of Claude Code, or that prompt not found in its
-    // transcript (compacted): sent after it as before
-    const std::string prompt = std::string(KEEP_WARM_MARK) + " nothing to do: reply with just: ok]";
+    // the previous wake-up still the last prompt (nothing real since, its background not running: stopping the agent would stop it): taken back
+    // first, then the same prompt sent again on the same cached prefix (read, almost nothing written), so the conversation holds one wake-up at
+    // most instead of one more each time (its context and the cost of every later turn growing with them). Not a session of Claude Code, its
+    // background running, or that prompt not found in its transcript (compacted): sent after it as before.
+    // Given to the session directly (Session::wake), never by send: known as a wake-up by this path only, whatever anyone writes as a prompt; never held by an
+    // update, a tiny turn that must not wait (the update waits for it, as for any turn running: the sessions would cool for as long as it waits on the agents of another);
+    // the device of the last real prompt stays the one told of the next turn
+    if (this->_closing) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "claude-cluster is quitting");
     const std::shared_ptr<cluster::Session> session = this->get_(id);
-    const cluster::Snapshot s = session->snapshot();
-    const std::vector<cluster::Entry>::const_reverse_iterator user = std::find_if(s.entries.rbegin(), s.entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
-    if (user != s.entries.rend() && user->text.starts_with(KEEP_WARM_MARK) && s.state == cluster::State::Idle) {
-        try {
-            (void)session->rewind(1, nullptr, false);
+    try {
+        if (session->takeBackWake()) {
             this->save();
             ++this->_version;
-        } catch (const utils::exception::IException&) {}
+        }
+    } catch (const utils::exception::IException& e) {
+        cluster::debug("keepwarm", id + ": the last wake-up not taken back: " + e.info());
     }
-    const std::string origin = this->origin(id); // a prompt of a device: still its device that is told of the next real turn
-    this->send(id, prompt, false, {}, "wake");
-    this->setOrigin(id, origin);
+    if (session->state() != cluster::State::Idle) return; // a real prompt came meanwhile: its turn keeps the cache
+    this->refuseOver_(id, session->snapshotLight());
+    (void)session->wake();
 }
 
 _cold void cluster::Manager::keepWarm_(void)
 {
-    // an idle session kept warm, its last entry close to the end of its prompt cache (ttl - margin): a tiny turn now, the cache read again
-    // (and kept), its background running or not (an idle session waiting on a long compilation loses its context as any other). Never
-    // when it works, asks or queues; never after the cache expired (the core was down: left to cool) nor past keep_warm_hours after its
-    // last real prompt
-    if (this->_replica || this->_closing || this->_config.keepWarm == "off") return; // an update switching too: it can wait an hour on the agents of a session, the others cooling
+    // an idle session kept warm, its last answered request close to the end of its prompt cache (ttl - margin): a tiny turn now, the cache read
+    // again (and kept), its background running or not (an idle session waiting on a long compilation loses its context as any other). Never when
+    // it works, asks or queues; never after the cache expired (the core was down: left to cool) nor past keep_warm_hours after its last real use
+    const cluster::Config& config = this->config();
+    if (this->_replica || this->_closing || config.keepWarm == "off") return; // an update switching too: it can wait an hour on the agents of a session, the others cooling
     const std::int64_t now = cluster::now();
-    const std::int64_t ttl = static_cast<std::int64_t>(this->_config.keepWarmTtl) * 60;
+    const std::int64_t ttl = static_cast<std::int64_t>(config.keepWarmTtl) * 60;
     // checked every 10 s: a window under 16 s could fall between two checks (the cache then lost, the session left to cool)
-    const std::int64_t margin = std::clamp<std::int64_t>(this->_config.keepWarmMargin, 16, ttl - 5);
-    for (const cluster::Snapshot& s: this->list(true)) {
-        if (!cluster::keep_warm_on(this->_config, s) || s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0 || s.entries.empty())
+    const std::int64_t margin = std::clamp<std::int64_t>(config.keepWarmMargin, 16, ttl - 5);
+    const std::function<bool(const std::string&)> first = [this](const std::string& key) { // told once (its wake-ups, in their threads, too)
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (this->_warmMissed.size() > 2000) this->_warmMissed.clear();
+        return this->_warmMissed.insert(key).second;
+    };
+    for (const cluster::Snapshot& s: this->listLight(true)) { // without their entries: nothing copied every 10 s
+        if (!cluster::keep_warm_asked(config, s) || s.spec.cachedAt <= 0) continue;
+        if (!cluster::keep_warm_on(config, s)) { // the mark stays, the ♨ goes: told once, a prompt or /keepwarm warms it again
+            if (first(s.spec.id + ":hours:" + std::to_string(s.spec.usedAt)))
+                this->notice_(s.spec.id, "keep warm: stopped, no prompt for " + std::to_string(config.keepWarmHours) + " h (keep_warm_hours, 0: never stops); a prompt or /keepwarm warms it again");
             continue;
-        const std::int64_t last = cache_at_(s); // answered requests only: a wake-up sent and failed is tried again until the cache expires
+        }
+        if (s.state != cluster::State::Idle || !s.permissions.empty() || s.queued > 0) continue;
+        const std::int64_t last = s.spec.cachedAt; // answered requests only: a wake-up sent and failed is tried again until the cache expires
         if (now - last < ttl - margin) continue;
         if (now - last > ttl) { // the window missed (the core down, a wake-up failed): told once when it just happened, left to cool
-            if (now - last - ttl < 120 && this->_warmMissed.insert(s.spec.id + ":" + std::to_string(last)).second) {
+            if (now - last - ttl < 120 && first(s.spec.id + ":" + std::to_string(last))) {
                 cluster::debug("keepwarm", s.spec.name + ": cache expired " + std::to_string(now - last - ttl) + " s ago, no wake-up (left to cool)");
                 this->notice_(s.spec.id, "keep warm: its prompt cache expired before a wake-up could run (left to cool; a prompt or /keepwarm warms it again)", true);
             }
             continue;
         }
-        std::int64_t real = s.spec.rewoundAt; // a take-back of the user: a real use of the session too
-        for (auto it = s.entries.rbegin(); it != s.entries.rend() && real < it->time; ++it)
-            if (it->kind == cluster::EntryKind::User && !it->text.starts_with(KEEP_WARM_MARK)) real = it->time;
-        if (this->_config.keepWarmHours > 0 && real > 0 && now - real > static_cast<std::int64_t>(this->_config.keepWarmHours) * 3600) {
-            if (this->_warmMissed.insert(s.spec.id + ":" + std::to_string(real)).second)
-                this->notice_(s.spec.id, "keep warm: stopped, no prompt for " + std::to_string(this->_config.keepWarmHours) + " h (keep_warm_hours); a prompt warms it again", false);
-            continue;
+        const std::string id = s.spec.id;
+        const std::string name = s.spec.name;
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (!this->_waking.insert(id).second) continue; // the one before still running
         }
+        // out of the tick: a take-back reads its transcript and starts its agent again (seconds), the tick of every session never waits for it
+        const std::function<void(void)> wake = [this, id, name, last, ttl, now]() {
+            try {
+                cluster::debug("keepwarm", name + ": wake-up, cache " + std::to_string(ttl - (now - last)) + " s left");
+                this->wake_(id);
+            } catch (const std::exception& e) {
+                const std::string why = why_(e);
+                cluster::debug("keepwarm", name + ": wake-up refused: " + why);
+                bool told = false;
+                {
+                    std::lock_guard<std::mutex> lock(this->_mutex);
+                    told = !this->_warmMissed.insert(id + ":refused:" + std::to_string(last)).second;
+                }
+                try {
+                    if (!told) this->notice_(id, "keep warm: the wake-up was refused (" + why + "), tried again until the cache expires", true);
+                } catch (const std::exception&) {} // whatever happens: the next wake-up of this session stays possible
+            }
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_waking.erase(id);
+        };
         try {
-            cluster::debug("keepwarm", s.spec.name + ": wake-up, cache " + std::to_string(ttl - (now - last)) + " s left");
-            this->wake_(s.spec.id);
-        } catch (const utils::exception::IException& e) {
-            cluster::debug("keepwarm", s.spec.name + ": wake-up refused: " + e.what());
-            this->notice_(s.spec.id, std::string("keep warm: the wake-up was refused (") + e.what() + "), tried again until the cache expires", true);
+            cluster::guarded(wake).detach();
+        } catch (const std::system_error&) { // no thread left: here
+            wake();
         }
     }
 }
@@ -763,19 +914,11 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
     const std::filesystem::path path = cluster::resolve_folder(cwd); // a folder, or a project of the map by its name
 
     // A conversation belongs to its project: the session starts a new one in the new folder (same id / name / log)
-    const std::shared_ptr<cluster::Session> old = this->get_(id);
-    old->stop();
-    cluster::SessionSpec spec = old->spec();
-    spec.cwd = path.string();
-    spec.claudeId.clear();
-    const std::shared_ptr<cluster::Session> session = this->make_(spec);
-    session->loadHistory();
-    {
-        std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_sessions[id] = session;
-    }
-    session->start();
-    this->notice_(id, spec.name + " moved to " + cluster::short_path(spec.cwd));
+    const std::shared_ptr<cluster::Session> session = this->replace_(id, [&path](cluster::SessionSpec& spec) {
+        spec.cwd = path.string();
+        spec.claudeId.clear();
+    }, false);
+    this->notice_(id, session->spec().name + " moved to " + cluster::short_path(path.string()));
     this->save();
 }
 
@@ -783,14 +926,14 @@ _cold void cluster::Manager::cd(const std::string& id, const std::string& cwd)
 _cold std::vector<std::string> cluster::Manager::globalArgs_(void) const
 {
     std::vector<std::string> args = {"--mcp-config", cluster::mcp_config_path().string(), "--allowedTools", "mcp__claude-cluster"};
-    const std::vector<std::string> prompt = prompt_args_(this->_config.globalPrompt, true, cluster::method_text(this->_config, true), this->_config.orchestration);
+    const std::vector<std::string> prompt = prompt_args_(this->config().globalPrompt, true, cluster::method_text(this->config(), true), this->config().orchestration, this->config().workflow);
     args.insert(args.end(), prompt.begin(), prompt.end());
     return args;
 }
 
 _cold void cluster::Manager::writeMcpConfig_(void) const
 {
-    cluster::Json config = {{"mcpServers", cluster::mcp_servers(this->_config.mcpServers)}}; // the custom ones ([mcp] servers)
+    cluster::Json config = {{"mcpServers", cluster::mcp_servers(this->config().mcpServers)}}; // the custom ones ([mcp] servers)
     config["mcpServers"]["claude-cluster"] = {
         {"type", "stdio"}, {"command", cluster::self_exe().string()}, {"args", {"mcp"}},
         {"env", {{"CLAUDE_CLUSTER_SOCKET", cluster::socket_path().string()}}},
@@ -800,50 +943,79 @@ _cold void cluster::Manager::writeMcpConfig_(void) const
 
 _cold void cluster::Manager::startGlobal(void)
 {
-    if (!this->_config.globalEnabled) return;
-    this->writeMcpConfig_();
+    this->_startDecided = true;
+    const cluster::Config& config = this->config();
+    if (!config.globalEnabled) return;
+    // one at a time (the answer to the previous-run question, the tick, its retry), never over a session that runs: only the first one gets its saved
+    // conversation, a second one would replace it by a new one - and drop the session under the lock, its reader waiting for that lock
+    if (this->_globalStarting.exchange(true)) return;
+    struct Starting {
+        std::atomic<bool>& flag;
+        explicit Starting(std::atomic<bool>& f): flag(f) {};
+        Starting(const Starting&) = delete;
+        Starting& operator=(const Starting&) = delete;
+        ~Starting() {this->flag = false;};
+    } starting(this->_globalStarting);
     cluster::SessionSpec spec;
+    bool saved = false;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
+        if (this->_sessions.contains(GLOBAL_ID)) return;
         auto it = std::find_if(this->_previous.begin(), this->_previous.end(), [](const cluster::SessionSpec& s) {return s.global;});
         if (it != this->_previous.end()) {
             spec = *it;
+            saved = true;
             this->_previous.erase(it);
         }
     }
-    spec.id = GLOBAL_ID;
-    spec.name = "global";
-    spec.global = true;
-    const std::string cwd = this->globalDir_().string();
-    if (!spec.cwd.empty() && spec.cwd != cwd) spec.claudeId.clear(); // its conversation is kept by claude in the other folder
-    spec.cwd = cwd;
-    spec.backend = this->_config.globalBackend + (this->_config.globalModel.empty() ? "" : "/" + this->_config.globalModel);
-    if (spec.created == 0) spec.created = cluster::now();
-    if (spec.panels.empty()) spec.panels = {"tokens", "context", "cost", "usage"};
-    spec.mode = !this->_config.globalMode.empty() ? this->_config.globalMode : spec.mode.empty() ? this->_config.mode : spec.mode;
-    if (!this->_config.globalEffort.empty()) spec.effort = this->_config.globalEffort; // else its own (/effort), first: [agent]
-    else if (spec.effort.empty()) spec.effort = this->_config.effort;
-    if (this->_auth.resolve(spec.backend).provider.driver != "claude") {
-        this->notice_(GLOBAL_ID, "[agent] provider must use the claude driver (MCP control): '" + spec.backend + "' replaced by claude", true);
-        spec.backend = "claude";
-        spec.claudeId.clear();
-    }
-    // a background claude of the old Remote Control (claude --bg) still has the conversation: stopped (its conversation
-    // kept), Remote Control goes on in the session itself
-    if (!spec.claudeId.empty() && this->_auth.resolve(spec.backend).provider.driver == "claude") {
-        const std::string claude = this->_config.command("claude");
-        const cluster::Captured agents = cluster::capture({claude, "agents", "--json"}, "", 15);
-        const cluster::Json list = cluster::Json::parse(agents.out, nullptr, false);
-        if (list.is_array()) {
-            for (const cluster::Json& agent: list) {
-                if (!agent.is_object() || agent.value("sessionId", std::string()) != spec.claudeId || agent.value("id", std::string()).empty()) continue;
-                (void)cluster::capture({claude, "stop", agent.value("id", std::string())}, "", 30);
-                this->setUi("remote", "true");
-                this->notice_(GLOBAL_ID, "the background Remote Control session was stopped: Remote Control goes on in the global session itself");
+    const cluster::SessionSpec taken = spec;
+    bool listed = false;
+    const std::function<void(const std::string&)> failed = [&](const std::string& why) {
+        if (saved && !listed) { // its conversation for the next try, never a new one (a failed start, an agent not installed yet)
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_previous.push_back(taken);
+        }
+        this->notice_(GLOBAL_ID, "global session: " + why, true);
+        this->retryGlobal_();
+    };
+    try {
+        this->writeMcpConfig_();
+        spec.id = GLOBAL_ID;
+        spec.name = "global";
+        spec.global = true;
+        const std::string cwd = this->globalDir_().string();
+        if (!spec.cwd.empty() && spec.cwd != cwd) spec.claudeId.clear(); // its conversation is kept by claude in the other folder
+        spec.cwd = cwd;
+        spec.backend = config.globalBackend + (config.globalModel.empty() ? "" : "/" + config.globalModel);
+        if (spec.created == 0) spec.created = cluster::now();
+        if (spec.panels.empty()) spec.panels = {"tokens", "context", "cost", "usage"};
+        spec.mode = !config.globalMode.empty() ? config.globalMode : spec.mode.empty() ? config.mode : spec.mode;
+        if (!config.globalEffort.empty()) spec.effort = config.globalEffort; // else its own (/effort), first: [agent]
+        else if (spec.effort.empty()) spec.effort = config.effort;
+        if (this->_auth.resolve(spec.backend).provider.driver != "claude") {
+            this->notice_(GLOBAL_ID, "[agent] provider must use the claude driver (MCP control): '" + spec.backend + "' replaced by claude", true);
+            spec.backend = "claude";
+            spec.claudeId.clear();
+        }
+        // a background claude of the old Remote Control (claude --bg) still has the conversation: stopped (its conversation
+        // kept), Remote Control goes on in the session itself
+        if (!spec.claudeId.empty() && this->_auth.resolve(spec.backend).provider.driver == "claude") {
+            const std::string claude = config.command("claude");
+            const cluster::Captured agents = cluster::capture({claude, "agents", "--json"}, "", 15);
+            const cluster::Json list = cluster::json_parse(agents.out, nullptr, false);
+            if (list.is_array()) {
+                for (const cluster::Json& agent: list) {
+                    if (!agent.is_object()) continue;
+                    const cluster::Json conversation = agent.value("sessionId", cluster::Json());
+                    const cluster::Json id = agent.value("id", cluster::Json());
+                    // the output of another tool: a field of another kind (null) is not this conversation
+                    if (!conversation.is_string() || !id.is_string() || conversation.get<std::string>() != spec.claudeId || id.get<std::string>().empty()) continue;
+                    (void)cluster::capture({claude, "stop", id.get<std::string>()}, "", 30);
+                    this->setUi("remote", "true");
+                    this->notice_(GLOBAL_ID, "the background Remote Control session was stopped: Remote Control goes on in the global session itself");
+                }
             }
         }
-    }
-    try {
         if (this->_globalNew) { // "start new": its transcript archived, the new conversation shown alone
             this->_globalNew = false;
             this->archive_(GLOBAL_ID);
@@ -854,13 +1026,12 @@ _cold void cluster::Manager::startGlobal(void)
             std::lock_guard<std::mutex> lock(this->_mutex);
             this->_sessions[GLOBAL_ID] = session;
         }
+        listed = true;
         session->start();
     } catch (const utils::exception::IException& e) {
-        this->notice_(GLOBAL_ID, std::string("global session: ") + e.what() + ": " + e.info(), true);
-        this->retryGlobal_();
+        failed(std::string(e.what()) + ": " + e.info());
     } catch (const std::exception& e) { // a bad conversation file (JSON...) must not leave the cluster without its global session
-        this->notice_(GLOBAL_ID, std::string("global session: ") + e.what(), true);
-        this->retryGlobal_();
+        failed(e.what());
     }
 }
 
@@ -868,15 +1039,19 @@ _cold void cluster::Manager::ensureGlobal_(void)
 {
     // the global session must always be there: missing (and its start not waiting for the answer of the previous-run question), it is started
     // again, at most every 10 s, out of the tick (the start may wait for claude)
-    if (!this->_config.globalEnabled || this->_restoreAsk || this->_closing || this->_globalRetrying.load()) return;
+    if (!this->config().globalEnabled || this->_restoreAsk || !this->_startDecided || this->_closing || this->_globalRetrying.load() || this->_globalStarting.load()) return;
     if (this->snapshot(GLOBAL_ID)) return;
     const std::int64_t now = cluster::now();
     if (now - this->_globalEnsured < 10) return;
     this->_globalEnsured = now;
     if (this->_globalRetrying.exchange(true)) return;
-    std::thread([this]() {
-        this->notice_(GLOBAL_ID, "the global session was missing: started again", true);
-        this->startGlobal();
+    cluster::guarded([this]() {
+        try {
+            this->notice_(GLOBAL_ID, "the global session was missing: started again", true);
+            this->startGlobal();
+        } catch (const std::exception& e) { // tried again in 10 s
+            cluster::debug("core", std::string("the global session not started: ") + e.what());
+        }
         this->_globalRetrying = false;
     }).detach();
 }
@@ -885,7 +1060,7 @@ _cold void cluster::Manager::retryGlobal_(void)
 {
     // the global session must always exist: started again every 15 s until its process runs
     if (this->_globalRetrying.exchange(true)) return;
-    std::thread([this]() {
+    cluster::guarded([this]() {
         for (int attempt = 0; attempt < 240; ++attempt) {
             std::this_thread::sleep_for(std::chrono::seconds(15));
             const std::optional<cluster::Snapshot> snap = this->snapshot(GLOBAL_ID);
@@ -901,7 +1076,7 @@ _cold void cluster::Manager::retryGlobal_(void)
 
 _cold std::filesystem::path cluster::Manager::globalDir_(void) const
 {
-    if (!this->_config.globalCwd.empty()) return cluster::expand_home(this->_config.globalCwd);
+    if (!this->config().globalCwd.empty()) return cluster::expand_home(this->config().globalCwd);
     const std::filesystem::path dir = cluster::data_dir() / "global";
     std::error_code error;
     std::filesystem::create_directories(dir, error);
@@ -917,19 +1092,14 @@ _cold void trust_folder_(const std::filesystem::path& folder)
     const std::filesystem::path file = cluster::expand_home("~/.claude.json");
     std::ifstream in(file);
     if (!in) return;
-    cluster::Json data = cluster::Json::parse(in, nullptr, false);
+    cluster::Json data = cluster::json_parse(in, nullptr, false);
     if (data.is_discarded() || !data.is_object()) return;
     cluster::Json& project = data["projects"][folder.string()];
     if (project.is_object() && project.value("hasTrustDialogAccepted", false)) return;
     project["hasTrustDialogAccepted"] = true;
-    const std::filesystem::path temporary = file.string() + ".claude-cluster";
-    {
-        std::ofstream out(temporary);
-        out << data.dump(2, ' ', false, cluster::JSON_LENIENT);
-        if (!out) return;
-    }
-    std::error_code error;
-    std::filesystem::rename(temporary, file, error);
+    try {
+        cluster::write_text(file, data.dump(2, ' ', false, cluster::JSON_LENIENT)); // its mode kept (its account in it: never more readable than it was)
+    } catch (const utils::exception::IException&) {}
 }
 
 } // namespace
@@ -938,8 +1108,8 @@ _cold void cluster::Manager::setRemote(const bool on)
 {
     // the global session itself on claude.ai (live both ways), on again at every start until it is turned off
     const std::shared_ptr<cluster::Session> session = this->get_(GLOBAL_ID);
-    if (on && this->_config.globalCwd.empty()) trust_folder_(session->spec().cwd);
-    session->remoteControl(on, this->_config.remoteName);
+    if (on && this->config().globalCwd.empty()) trust_folder_(session->spec().cwd);
+    session->remoteControl(on, this->config().remoteName);
     this->setUi("remote", on ? "true" : "false");
     this->notice_(GLOBAL_ID, on ? "Remote Control: connecting (its claude.ai link in the global session)" : "Remote Control off");
     ++this->_version;
@@ -960,7 +1130,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             if (event.session == GLOBAL_ID && !this->_readyTold.exchange(true)) {
                 const std::string took = std::to_string(cluster::now() - this->_startedAt) + " s";
                 this->notice_(GLOBAL_ID, "claude-cluster ready (" + took + ")");
-                std::thread([this, took]() {
+                cluster::guarded([this, took]() {
                     (void)this->notify({"ready", "claude-cluster is ready", "its global session started (" + took + ")", cluster::Face::Happy, false, "service-login"}, "ready");
                 }).detach();
             }
@@ -977,18 +1147,23 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                     cluster::Notification n{event.session, name + " · question", event.text.substr(17), cluster::Face::Attentive, true, "message-new-instant"};
                     const std::optional<cluster::Snapshot> asked = this->snapshot(event.session);
                     if (asked && !asked->permissions.empty()) {
-                        const cluster::Json questions = asked->permissions.back().input.value("questions", cluster::Json::array());
+                        const cluster::Json& input = asked->permissions.back().input;
+                        const cluster::Json questions = input.is_object() && input.contains("questions") ? input["questions"] : cluster::Json::array();
                         n.requestId = asked->permissions.back().requestId;
-                        if (questions.size() == 1 && !questions[0].value("multiSelect", false))
-                            for (std::size_t i = 0; i < questions[0].value("options", cluster::Json::array()).size() && i < 3; ++i)
-                                n.actions.emplace_back("opt" + std::to_string(i), cluster::one_line(questions[0]["options"][i].value("label", std::string()), 24));
+                        // its options as buttons: a question of the shape expected only (as an agent wrote it: any shape, its notification still told)
+                        if (questions.is_array() && questions.size() == 1 && questions[0].is_object() && questions[0].contains("options") && questions[0]["options"].is_array()
+                            && !(questions[0].contains("multiSelect") && questions[0]["multiSelect"] != false))
+                            for (std::size_t i = 0; i < questions[0]["options"].size() && i < 3; ++i) {
+                                const cluster::Json& option = questions[0]["options"][i];
+                                if (option.is_object() && option.contains("label") && option["label"].is_string()) n.actions.emplace_back("opt" + std::to_string(i), cluster::one_line(option["label"].get<std::string>(), 24));
+                            }
                     }
                     if (event.session != GLOBAL_ID && this->snapshot(GLOBAL_ID)) n.actions.emplace_back("global", "Global answers");
                     n.actions.emplace_back("open", "Open");
                     (void)this->notify(n, "question");
                 }
                 const std::optional<cluster::Snapshot> snap = this->snapshot(event.session);
-                if (this->_config.globalAnswers && event.session != GLOBAL_ID && snap && !snap->permissions.empty() && this->snapshot(GLOBAL_ID)) {
+                if (this->config().globalAnswers && event.session != GLOBAL_ID && snap && !snap->permissions.empty() && this->snapshot(GLOBAL_ID)) {
                     // the global session may choose the answer (the user may answer it first: its popup)
                     const cluster::Permission& p = snap->permissions.back();
                     try {
@@ -1011,7 +1186,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
                     : std::vector<std::pair<std::string, std::string>>{{"allow", "Allow"}, {"deny", "Deny"}, {"open", "Open"}};
                 (void)this->notify(n, safety ? "error" : "permission");
             }
-            if (event.session != GLOBAL_ID && this->_config.bypassToGlobal) {
+            if (event.session != GLOBAL_ID && this->config().bypassToGlobal) {
                 // a sub-session in a mode that never asks the user (bypassPermissions, auto, dontAsk): what it still asks - the safety check of
                 // Claude Code too - decided by the global session (the user can still answer it)
                 const std::optional<cluster::Snapshot> snap = this->snapshot(event.session);
@@ -1049,7 +1224,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             if (event.session != GLOBAL_ID) this->turnCounted_(event.session, event.error || event.interrupted);
             if (event.session == GLOBAL_ID && this->_restartAfterTurn.exchange(false)) {
                 // it changed its own system prompt: started again on it, the same conversation, once its turn is over
-                std::thread([this]() {
+                cluster::guarded([this]() {
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     try {
                         this->restartGlobal();
@@ -1097,7 +1272,7 @@ _cold void cluster::Manager::event_(const cluster::Event& event)
             if (event.session == GLOBAL_ID && now - this->_globalRestart > 60) {
                 this->_globalRestart = now;
                 this->notice_(GLOBAL_ID, "global session: its process ended (" + event.text + "), started again");
-                std::thread([this]() {
+                cluster::guarded([this]() {
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     try {
                         this->get_(GLOBAL_ID)->restart();
@@ -1152,7 +1327,7 @@ _cold cluster::Json cluster::Manager::pluginsJson(void)
 {
     // every source: its settings (auto sync, paused), its dates (last sync, last commit), its counts (offered / installed / on), its items
     if (this->_replica) return this->call({{"cmd", "plugins"}});
-    const cluster::Config& c = this->_config;
+    const cluster::Config& c = this->config();
     const std::function<bool(const std::map<std::string, bool>&, const std::string&)> on = [](const std::map<std::string, bool>& table, const std::string& key) {
         const auto it = table.find(key);
         return it != table.end() && it->second;
@@ -1218,8 +1393,8 @@ _cold void cluster::Manager::pluginsSet(const cluster::Json& changes)
     }
     if (changes.contains("sync_hours")) put("plugins", "sync_hours", cluster::SettingKind::Int, std::to_string(std::max(0, changes.value("sync_hours", 24))));
     if (writes.empty()) return;
-    cluster::settings_write(this->_config, writes);
-    (void)this->_config.reload();
+    cluster::settings_write(this->config(), writes);
+    (void)this->config().reload();
     ++this->_version;
 }
 
@@ -1227,40 +1402,41 @@ _cold void cluster::Manager::pluginsSync_(void)
 {
     // the repositories changed (or the first tick): cloned / pulled and listed, then the ticks applied; the ticks only: applied
     // a source asked (pulled now), the auto ones every sync_hours (and at the start of the core), a new one cloned
+    const cluster::Config& config = this->config();
     const std::int64_t now = cluster::now();
-    const int hours = this->_config.pluginSyncHours;
+    const int hours = config.pluginSyncHours;
     const bool due = hours > 0 && this->_pluginSyncAt > 0 && now - this->_pluginSyncAt >= static_cast<std::int64_t>(hours) * 3600;
     bool asked = false;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         asked = !this->_pluginPull.empty();
     }
-    const bool repos = !this->_pluginsSeen || this->_config.pluginRepos != this->_pluginRepos || asked || due;
-    const bool select = this->_config.pluginSelect != this->_pluginSelect || this->_config.pluginOff != this->_pluginOff || this->_config.pluginPaused != this->_pluginPaused;
+    const bool repos = !this->_pluginsSeen || config.pluginRepos != this->_pluginRepos || asked || due;
+    const bool select = config.pluginSelect != this->_pluginSelect || config.pluginOff != this->_pluginOff || config.pluginPaused != this->_pluginPaused;
     if (!repos && !select) return;
     if (this->_pluginsBusy.exchange(true)) return; // the next tick again
     const bool first = !this->_pluginsSeen;
     this->_pluginsSeen = true;
-    this->_pluginRepos = this->_config.pluginRepos;
-    this->_pluginSelect = this->_config.pluginSelect;
-    this->_pluginOff = this->_config.pluginOff;
-    this->_pluginPaused = this->_config.pluginPaused;
+    this->_pluginRepos = config.pluginRepos;
+    this->_pluginSelect = config.pluginSelect;
+    this->_pluginOff = config.pluginOff;
+    this->_pluginPaused = config.pluginPaused;
     std::set<std::string> pull;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         pull.swap(this->_pluginPull);
     }
     if (first || due) { // the ones synced by themselves
-        for (const std::string& url: this->_config.pluginRepos)
-            if (cluster::plugin_auto(this->_config.pluginAuto, cluster::plugin_slug(url))) pull.insert(cluster::plugin_slug(url));
+        for (const std::string& url: config.pluginRepos)
+            if (cluster::plugin_auto(config.pluginAuto, cluster::plugin_slug(url))) pull.insert(cluster::plugin_slug(url));
         this->_pluginSyncAt = now;
     }
-    const cluster::PluginSetup setup{this->_config.pluginRepos, this->_config.pluginSelect, this->_config.pluginOff, this->_config.pluginPaused, this->_config.command("claude")};
+    const cluster::PluginSetup setup{config.pluginRepos, config.pluginSelect, config.pluginOff, config.pluginPaused, config.command("claude")};
     if (first && setup.repos.empty() && setup.select.empty()) {
         this->_pluginsBusy = false;
         return;
     }
-    std::thread([this, setup, repos, pull]() {
+    cluster::guarded([this, setup, repos, pull]() {
         try {
             if (repos) {
                 std::size_t count = 0;
@@ -1287,10 +1463,11 @@ _cold void cluster::Manager::adoptProvider_(cluster::SessionSpec& spec) const
     // [agent] provider is the one of every session: a session of the last run moves to it (its model too, the models differ
     // between providers); the ones of another driver keep theirs (their conversation can only be resumed by their own driver)
     try {
-        const cluster::Backend wanted = this->_auth.resolve(this->_config.provider);
+        const std::string provider = this->config().provider;
+        const cluster::Backend wanted = this->_auth.resolve(provider);
         const cluster::Backend current = this->_auth.resolve(spec.backend);
         if (wanted.provider.name == current.provider.name || wanted.provider.driver != current.provider.driver) return;
-        spec.backend = this->_config.provider;
+        spec.backend = provider;
         spec.model = wanted.model;
     } catch (const utils::exception::IException&) {} // an unknown provider: left as it was, told when it starts
 }
@@ -1299,37 +1476,65 @@ _cold void cluster::Manager::load(void)
 {
     this->startOrchestrator_(); // the heavy jobs of the sessions: queued, limited (its saved jobs settled)
     this->loadTaxonomy_();      // the forest of the categories / tags
-    if (this->_config.historyLimit > 0) // the prompt history kept to its limit at the start
-        (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->_config.historyLimit), 0);
+    if (this->config().historyLimit > 0) // the prompt history kept to its limit at the start
+        (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->config().historyLimit), 0);
     const std::optional<cluster::Json> state = cluster::read_json(state_file_());
-    if (!state) return;
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    this->_next = state->value("next", 1);
-    this->_nextTask = state->value("next_task", 1);
-    this->_nextSchedule = state->value("next_schedule", 1);
-    for (const cluster::Json& w: state->value("schedules", cluster::Json::array()))
-        this->_schedules.push_back(w.get<cluster::Schedule>());
-    for (const cluster::Json& spec: state->value("sessions", cluster::Json::array())) {
-        this->_previous.push_back(spec_from_json_(spec));
-        if (!this->_previous.back().global) this->adoptProvider_(this->_previous.back());
+    if (!state || !state->is_object()) return;
+    // one item of another shape (edited by hand, an infinite number written as null by a version before) is left out, told: never the end of the core, every session unreachable
+    std::vector<std::string> bad;
+    const std::function<void(const std::string&, const std::function<void(void)>&)> read = [&bad](const std::string& what, const std::function<void(void)>& item) {
+        try {
+            item();
+        } catch (const std::exception& e) {
+            bad.push_back(what + ": " + e.what());
+        }
+    };
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        read("next", [&]() {this->_next = state->value("next", 1);});
+        read("next_task", [&]() {this->_nextTask = state->value("next_task", 1);});
+        read("next_schedule", [&]() {this->_nextSchedule = state->value("next_schedule", 1);});
+        for (const cluster::Json& w: state->value("schedules", cluster::Json::array()))
+            read("a schedule", [&]() {this->_schedules.push_back(w.get<cluster::Schedule>());});
+        for (const cluster::Json& spec: state->value("sessions", cluster::Json::array()))
+            read("a session", [&]() {
+                this->_previous.push_back(spec_from_json_(spec));
+                if (!this->_previous.back().global) this->adoptProvider_(this->_previous.back());
+            });
+        for (const cluster::Json& spec: state->value("trash", cluster::Json::array()))
+            read("a session of the trash", [&]() {this->_trash.push_back(spec_from_json_(spec));});
+        for (const cluster::Json& t: state->value("tasks", cluster::Json::array()))
+            read("a task", [&]() {
+                cluster::Task task = t.get<cluster::Task>();
+                if (task.status == "running") task.status = "queued"; // interrupted by the end of the previous run
+                this->_tasks.push_back(task);
+            });
+        read("ui", [&]() {this->_ui = state->value("ui", std::map<std::string, std::string>());});
+        read("replies", [&]() {this->_replies = state->value("replies", std::map<std::string, int>());});
+        read("followed", [&]() {this->_followed = state->value("followed", std::map<std::string, std::set<std::string>>());});
+        read("one_shot", [&]() {this->_oneShot = state->value("one_shot", std::set<std::string>());});
+        if (state->contains("queued") && (*state)["queued"].is_object() && !(*state)["queued"].empty()) // sent again once their session runs (handoff_)
+            this->_handoff = {{"turns", cluster::Json::array()}, {"queued", (*state)["queued"]}, {"at", cluster::now()}};
+        // a counter left out: the next ids still never one of a session, a task or a schedule kept
+        for (const std::vector<cluster::SessionSpec>* specs: {&this->_previous, &this->_trash})
+            for (const cluster::SessionSpec& spec: *specs)
+                next_past_(this->_next, spec.id, 's');
+        for (const cluster::Task& task: this->_tasks)
+            next_past_(this->_nextTask, task.id, 't');
+        for (const cluster::Schedule& w: this->_schedules)
+            next_past_(this->_nextSchedule, w.id, 'w');
     }
-    for (const cluster::Json& spec: state->value("trash", cluster::Json::array()))
-        this->_trash.push_back(spec_from_json_(spec));
-    for (const cluster::Json& t: state->value("tasks", cluster::Json::array())) {
-        cluster::Task task = t.get<cluster::Task>();
-        if (task.status == "running") task.status = "queued"; // interrupted by the end of the previous run
-        this->_tasks.push_back(task);
-    }
-    this->_ui = state->value("ui", std::map<std::string, std::string>());
-    this->_replies = state->value("replies", std::map<std::string, int>());
-    this->_followed = state->value("followed", std::map<std::string, std::set<std::string>>());
-    this->_oneShot = state->value("one_shot", std::set<std::string>());
-    if (state->contains("queued") && (*state)["queued"].is_object() && !(*state)["queued"].empty()) // sent again once their session runs (handoff_)
-        this->_handoff = {{"turns", cluster::Json::array()}, {"queued", (*state)["queued"]}, {"at", cluster::now()}};
+    if (bad.empty()) return;
+    std::error_code error;
+    std::filesystem::copy_file(state_file_(), cluster::data_dir() / "state.json.bad", std::filesystem::copy_options::overwrite_existing, error); // the next save drops them: kept once
+    for (const std::string& what: bad)
+        cluster::debug("core", "state.json, left out: " + what);
+    this->notice_("", std::to_string(bad.size()) + " item(s) of state.json not read, left out (" + bad.front() + "); a copy in state.json.bad", true);
 }
 
 _cold void cluster::Manager::save(void) const
 {
+    const std::lock_guard<std::mutex> saving(this->_saveMutex); // called from every thread: the last state written last
     cluster::Json state = {{"version", 1}};
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -1367,7 +1572,9 @@ _cold void cluster::Manager::save(void) const
     }
     try {
         cluster::write_json(state_file_(), state);
-    } catch (const utils::exception::IException&) {} // the state is saved again at the next change
+    } catch (const utils::exception::IException& e) { // the state is saved again at the next change
+        cluster::debug("core", std::string("the state not saved: ") + e.info());
+    }
 }
 
 _cold void cluster::Manager::restorePrevious(const bool restore)
@@ -1399,9 +1606,10 @@ _cold void cluster::Manager::restorePrevious(const bool restore)
             }
             session->start();
             if (shown != 0) this->progressLog(shown, "✓ " + spec.name + " · " + spec.backend);
-        } catch (const utils::exception::IException& e) {
-            this->notice_(spec.id, spec.name + " not restored: " + e.info(), true);
-            if (shown != 0) this->progressLog(shown, "✗ " + spec.name + ": " + e.info());
+        } catch (const std::exception& e) { // one session: never the others, never the start of the core
+            const std::string why = why_(e);
+            this->notice_(spec.id, spec.name + " not restored: " + why, true);
+            if (shown != 0) this->progressLog(shown, "✗ " + spec.name + ": " + why);
         }
     }
     if (shown != 0) this->progressEnd(shown, true, std::to_string(previous.size()) + " session(s) restored", false);
@@ -1435,8 +1643,10 @@ _cold void cluster::Manager::shutdown(void)
         }
     }
     this->save();
-    for (const std::shared_ptr<cluster::Session>& session: sessions)
+    for (const std::shared_ptr<cluster::Session>& session: sessions) {
+        session->retire(true); // a prompt being sent: refused, never an agent left behind
         session->stop();
+    }
 }
 
 _cold void cluster::Manager::tick(void)
@@ -1454,25 +1664,36 @@ _cold void cluster::Manager::tick(void)
         this->statsRecord("up");
         (void)cluster::stats_refresh(*this);
     }
-    if (this->_config.reload()) {
-        if (this->_config.error().empty()) this->notice_("", "config reloaded");
-        else this->notice_("", "config error (previous values kept): " + this->_config.error(), true);
+    if (this->config().reload()) {
+        if (this->config().error().empty()) this->notice_("", "config reloaded");
+        else this->notice_("", "config error (previous values kept): " + this->config().error(), true);
     }
     this->pluginsSync_();
-    if (!this->_holding) { // an update switching: no task, group or schedule starts a turn (they go on with the new version)
+    // the previous run not decided yet (its question waits, its answer runs): the sessions they name are not back, a task would fail on them, a schedule be consumed
+    const bool waiting = this->_restoreAsk || !this->_startDecided;
+    if (!this->_holding && !waiting) { // an update switching: no task, group or schedule starts a turn (they go on with the new version)
         this->schedule_();
         this->groupsTick_();
         this->fireSchedules_();
+        std::vector<std::shared_ptr<cluster::Session>> sessions; // the ends of tasks no turn took
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            for (const auto &[id, session]: this->_sessions)
+                sessions.push_back(session);
+        }
+        for (const std::shared_ptr<cluster::Session>& session: sessions)
+            session->lateWakes();
     }
-    if (!this->_heldReleased && !this->_holding && !this->_restoreAsk && seconds >= 3) { // the prompts the version before held: sent once its sessions are back
+    if (!this->_heldReleased && !this->_holding && !waiting && seconds >= 3) { // the prompts the version before held: sent once its sessions are back
         this->_heldReleased = true;
         this->releaseHeld_();
     }
     if (++seconds % 300 == 1) this->purge();
     if (seconds % 3 == 0) this->upgradeCheck_();
     if (seconds % 5 == 0) cluster::accounts_status_set(this->accountsJson());
-    if (seconds % 5 == 2 && this->_config.keepAwake != "off") { // the computer kept from sleeping by itself (the idle suspend only)
-        bool working = this->_config.keepAwake == "always";
+    const cluster::Config& config = this->config();
+    if (seconds % 5 == 2 && config.keepAwake != "off") { // the computer kept from sleeping by itself (the idle suspend only)
+        bool working = config.keepAwake == "always";
         for (const cluster::Snapshot& s: this->list(true))
             working = working || s.state == cluster::State::Working || s.queued > 0;
         cluster::keep_awake(working);
@@ -1486,8 +1707,8 @@ _cold void cluster::Manager::tick(void)
                 sessions.push_back(session);
         }
         for (const std::shared_ptr<cluster::Session>& session: sessions) {
-            session->giveQueued(this->_config.queueGiven == "end" ? -1 : 1500);
-            if (seconds % 60 == 17 && this->_config.transcriptLimitMb > 0) session->limitLog(static_cast<std::uintmax_t>(this->_config.transcriptLimitMb) * 1024 * 1024);
+            session->giveQueued(config.queueGiven == "end" ? -1 : 1500);
+            if (seconds % 60 == 17 && config.transcriptLimitMb > 0) session->limitLog(static_cast<std::uintmax_t>(config.transcriptLimitMb) * 1024 * 1024);
         }
         if (seconds % 60 == 19) this->limitMemory_(sessions);
         static std::int64_t warmAt = 0; // by time, not by the second of the tick: a slow tick would skip its second and a narrow window with it
@@ -1520,14 +1741,14 @@ std::vector<cluster::Snapshot> cluster::Manager::list(const bool withGlobal) con
     for (const std::shared_ptr<cluster::Session>& session: sessions) {
         snapshots.push_back(session->snapshot());
     }
-    if (withGlobal && this->_config.globalEnabled && (snapshots.empty() || !snapshots.front().spec.global)) {
+    if (withGlobal && this->config().globalEnabled && (snapshots.empty() || !snapshots.front().spec.global)) {
         // the global session is always in the list: not there yet (loading, waiting for the answer to the previous-run question, started
         // again after a crash), a placeholder says what it is doing - never an empty interface, never sessions without it
         cluster::Snapshot placeholder;
         placeholder.spec.id = GLOBAL_ID;
         placeholder.spec.name = "global";
         placeholder.spec.global = true;
-        placeholder.spec.backend = this->_config.globalBackend;
+        placeholder.spec.backend = this->config().globalBackend;
         placeholder.spec.cwd = this->globalDir_().string();
         placeholder.spec.panels = {"tokens", "context", "cost", "usage"};
         const bool crashed = this->_globalRetrying.load() || this->_globalEnsured.load() > 0;
@@ -1593,7 +1814,7 @@ _cold void cluster::Manager::scanMachine(void)
         this->_scan->id = id;
         this->_scanEnd = 0;
     }
-    std::thread([this]() {
+    cluster::guarded([this]() {
         const std::function<void(const cluster::MachineProgress&)> report = [this](const cluster::MachineProgress& progress) {
             {
                 std::lock_guard<std::mutex> lock(this->_mutex);
@@ -1605,7 +1826,7 @@ _cold void cluster::Manager::scanMachine(void)
             ++this->_version;
         };
         try {
-            const std::size_t repos = cluster::machine_scan(this->_config, report);
+            const std::size_t repos = cluster::machine_scan(this->config(), report);
             this->notice_(GLOBAL_ID, "map of this computer written: " + std::to_string(repos) + " repositories (" + cluster::short_path(cluster::machine_file().string()) + ")");
             (void)this->notify({"map", "the map of this computer is written", std::to_string(repos) + " repositories: the global session knows them",
                 cluster::Face::Happy, false, "complete"}, "ready");
@@ -1636,9 +1857,13 @@ int cluster::Manager::machineAsk(void) const
     if (this->_replica) return this->replicaState("machine_ask").is_number() ? this->replicaState("machine_ask").get<int>() : 0;
     const int days = cluster::machine_days_old();
     if (days < 0) return this->ui("machine", "") != "no" ? 1 : 0;
-    if (this->_config.machineDays <= 0 || days < this->_config.machineDays) return 0;
-    const std::string later = this->ui("machine_later", "0");
-    return cluster::now() - std::stoll(later.empty() ? "0" : later) > static_cast<std::int64_t>(this->_config.machineDays) * 86400 ? 2 : 0;
+    const int every = this->config().machineDays;
+    if (every <= 0 || days < every) return 0;
+    std::int64_t later = 0;
+    try {
+        later = std::stoll(this->ui("machine_later", "0"));
+    } catch (const std::exception&) {} // a value of another shape in state.json: never answered
+    return cluster::now() - later > static_cast<std::int64_t>(every) * 86400 ? 2 : 0;
 }
 
 _cold void cluster::Manager::restartGlobal(void)
@@ -1647,15 +1872,7 @@ _cold void cluster::Manager::restartGlobal(void)
         (void)this->call({{"cmd", "restart_global"}});
         return;
     }
-    const std::shared_ptr<cluster::Session> old = this->get_(GLOBAL_ID);
-    old->stop();
-    const std::shared_ptr<cluster::Session> session = this->make_(old->spec());
-    session->loadHistory();
-    {
-        std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_sessions[GLOBAL_ID] = session;
-    }
-    session->start();
+    (void)this->replace_(GLOBAL_ID, [](cluster::SessionSpec&) {}, false);
     this->notice_(GLOBAL_ID, "global session started again: its system prompt read again (same conversation)");
 }
 
@@ -1673,6 +1890,44 @@ _cold static std::string markup_(const std::string& text)
     return out;
 }
 
+_cold static bool play_sound_(const std::string& sound)
+{
+    // a sound of the desktop theme: by what the desktop plays them with, else its file by the sound server; false: nothing here can play it
+    if (cluster::has_command("canberra-gtk-play")) {
+        cluster::detach({"canberra-gtk-play", "-i", sound});
+        return true;
+    }
+    const std::string file = "/usr/share/sounds/freedesktop/stereo/" + sound + ".oga";
+    if (!std::filesystem::exists(file)) return false;
+    const std::string player = cluster::has_command("pw-play") ? "pw-play" : "paplay";
+    if (!cluster::has_command(player)) return false;
+    cluster::detach({player, file});
+    return true;
+}
+
+_cold std::string cluster::Manager::playSound(const std::string& name)
+{
+    if (this->_replica) return this->call({{"cmd", "play_sound"}, {"sound", name}}).value("message", std::string());
+    static constexpr const char* NOTHING = "nothing here can play it: canberra-gtk-play (libcanberra-gtk3), or pw-play / paplay and the sounds of the desktop (sound-theme-freedesktop)";
+    if (name == "all") {
+        if (!play_sound_(cluster::notify_sounds().front().first))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, NOTHING);
+        cluster::guarded([]() {
+            for (std::size_t at = 1; at < cluster::notify_sounds().size(); ++at) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+                (void)play_sound_(cluster::notify_sounds()[at].first);
+            }
+        }).detach();
+        return "every sound, one after the other, on this computer";
+    }
+    for (const auto &[sound, when]: cluster::notify_sounds())
+        if (sound == name) {
+            if (!play_sound_(sound)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, NOTHING);
+            return "played on this computer: " + sound + " (" + when + ")";
+        }
+    throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no sound '" + name + "'");
+}
+
 bool cluster::Manager::notify(const cluster::Notification& n, const std::string& kind)
 {
     // failsafe: no notification daemon, no desktop... nothing said; by DBus (gdbus) when it is there - its clicks come
@@ -1680,8 +1935,8 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     if (n.face == cluster::Face::Grin || n.face == cluster::Face::Happy) this->_moment = {n.face, cluster::now()};
     this->pushNotice_(n, kind);
     const bool demo = kind == "showcase"; // the Debug page: shown whatever the settings (what a notification looks like)
-    if (!this->_config.notify && !demo) return false;
-    const cluster::Config& c = this->_config;
+    const cluster::Config& c = this->config();
+    if (!c.notify && !demo) return false;
     const std::map<std::string, bool> kinds = {{"global", c.notifyGlobal}, {"done", c.notifyDone}, {"permission", c.notifyPermission}, {"question", c.notifyQuestion},
         {"error", c.notifyError}, {"limit", c.notifyLimits}, {"web", c.notifyWeb}, {"task", c.notifyTasks}, {"reminder", c.notifyReminders},
         {"ready", c.notifyReady}};
@@ -1690,14 +1945,7 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     if (kind != "web" && kind != "ready" && !n.session.empty() && this->origin(n.session).starts_with("web:")) return false;
     if (c.notifyWhen != "always" && this->_focused == 1 && !demo) return false; // in front of the user: its popups there
     const std::string key = n.session.empty() ? "-" : n.session;
-    if (this->_config.notifySound && !n.sound.empty()) {
-        if (cluster::has_command("canberra-gtk-play")) {
-            cluster::detach({"canberra-gtk-play", "-i", n.sound});
-        } else {
-            const std::string file = "/usr/share/sounds/freedesktop/stereo/" + n.sound + ".oga";
-            if (std::filesystem::exists(file)) cluster::detach({cluster::has_command("pw-play") ? "pw-play" : "paplay", file});
-        }
-    }
+    if (c.notifySound && !n.sound.empty()) (void)play_sound_(n.sound);
     static const bool dbus = cluster::has_command("gdbus");
     if (dbus) {
         // org.freedesktop.Notifications.Notify: the one of this session replaced, the body clickable (default), its buttons
@@ -1718,7 +1966,7 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
         actions += "]";
         const std::string hints = "{'desktop-entry': <'claude-cluster'>, 'urgency': <byte " + std::string(n.urgent ? "2" : "1") + ">}";
         const cluster::Captured got = cluster::capture({"gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications",
-            "--method", "org.freedesktop.Notifications.Notify", "--", "claude-cluster", replaces, cluster::face_file(n.face).string(), n.title, cluster::one_line(n.body, 400),
+            "--method", "org.freedesktop.Notifications.Notify", "--", "claude-cluster", replaces, cluster::face_file(n.face).string(), n.title, markup_(cluster::one_line(n.body, 400)),
             actions, hints, n.urgent ? "0" : "-1"}, "", 10); // "--": the -1 (the default timeout) is an argument, never read as an option
         std::string id;
         for (const char ch: got.out)
@@ -1731,7 +1979,10 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
             this->_notifyShown[id] = {n, ""};
             if (this->_notifyShown.size() > 50) this->_notifyShown.erase(this->_notifyShown.begin());
         }
-        if (!this->_notifyMonitorUp.exchange(true)) this->_notifyMonitor = std::thread(&cluster::Manager::notifyMonitor_, this);
+        if (!this->_notifyMonitorUp.exchange(true)) {
+            if (this->_notifyMonitor.joinable()) this->_notifyMonitor.join(); // gdbus monitor ended (the session bus restarted...): that thread has just ended; assigned over it: std::terminate
+            this->_notifyMonitor = cluster::guarded(&cluster::Manager::notifyMonitor_, this);
+        }
         return true;
     }
     std::vector<std::string> args = {"notify-send", "-a", "claude-cluster", "-i", cluster::face_file(n.face).string(), "-h", "string:desktop-entry:claude-cluster",
@@ -1746,7 +1997,7 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
     args.push_back("--"); // a title / body starting with "-" (a list of questions) is text, never an option
     args.push_back(n.title);
     args.push_back(markup_(cluster::one_line(n.body, 400)));
-    std::thread([this, args, n, key]() {
+    cluster::guarded([this, args, n, key]() {
         const cluster::Captured out = cluster::capture(args, "", 3600); // its buttons (and its body): waited for
         std::string chosen;
         for (const std::string& raw: cluster::split(out.out, '\n')) {
@@ -1766,13 +2017,30 @@ bool cluster::Manager::notify(const cluster::Notification& n, const std::string&
 _cold void cluster::Manager::notifyMonitor_(void)
 {
     // the signals of the daemon, for the life of the core: ActivationToken (id, token) just before ActionInvoked (id, key)
-    FILE* pipe = ::popen("gdbus monitor --session --dest org.freedesktop.Notifications 2>/dev/null", "r");
-    if (pipe == nullptr) {
+    int ends[2] = {-1, -1};
+    if (::pipe2(ends, O_CLOEXEC) != 0) { // xstyle: ignore LU-SYSCALL (a child that dies with this process: prctl between its fork and its exec)
         this->_notifyMonitorUp = false;
         return;
     }
-    // read on the descriptor, not with fgets: a thread blocked in fgets holds the lock of the FILE, and exit() (flushing every FILE) never returned
-    const int fd = ::fileno(pipe);
+    const pid_t child = ::fork(); // xstyle: ignore LU-SYSCALL (as above)
+    if (child < 0) {
+        (void)::close(ends[0]);
+        (void)::close(ends[1]);
+        this->_notifyMonitorUp = false;
+        return;
+    }
+    if (child == 0) {
+        (void)::prctl(PR_SET_PDEATHSIG, SIGKILL); // whatever ends this process, even a crash: never left behind
+        (void)::dup2(ends[1], STDOUT_FILENO); // xstyle: ignore LU-SYSCALL (as above)
+        const int nothing = ::open("/dev/null", O_WRONLY);
+        if (nothing >= 0) (void)::dup2(nothing, STDERR_FILENO); // xstyle: ignore LU-SYSCALL (as above)
+        (void)::execlp("gdbus", "gdbus", "monitor", "--session", "--dest", "org.freedesktop.Notifications", static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+    (void)::close(ends[1]);
+    this->_notifyMonitorPid = child;
+    if (this->_notifyMonitorStop) (void)::kill(child, SIGKILL); // the manager going while this one started
+    const int fd = ends[0];
     std::array<char, 4096> buffer{};
     std::string pending;
     for (;;) {
@@ -1815,7 +2083,9 @@ _cold void cluster::Manager::notifyMonitor_(void)
             this->_notifyShown.erase(id);
         }
     }
-    (void)::pclose(pipe);
+    (void)::close(fd);
+    this->_notifyMonitorPid = 0;
+    (void)::waitpid(child, nullptr, 0);
     this->_notifyMonitorUp = false;
 }
 
@@ -1942,7 +2212,8 @@ void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string&
         std::lock_guard<std::mutex> lock(this->_mutex);
         auto it = this->_replies.find(event.session);
         const auto followers = this->_followed.find(event.session);
-        if (it != this->_replies.end() && it->second > 0) {
+        // the callback owed goes with the turn it is for: a turn of the user ending while the prompt of the global session waits in the queue is not its answer
+        if (it != this->_replies.end() && it->second > 0 && (event.kind == cluster::Event::Kind::Exited || event.asked || !event.askedLater)) {
             reply = true;
             owed = true;
             if (all || --it->second == 0) this->_replies.erase(it);
@@ -1959,7 +2230,7 @@ void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string&
     const bool waiting = snap && cluster::background_busy(*snap); // its result not there yet: said, so nobody polls it
     const char* kind = event.kind == cluster::Event::Kind::Exited ? "[stopped: " : event.error ? "[error from " : event.interrupted ? "[interrupted: " : "[reply from ";
     const std::string text = std::string(kind) + name + " (" + event.session + ")]\n"
-        + (event.spontaneous ? "(a turn woken up by its background task / Monitor done: its result)\n" : "")
+        + (event.spontaneous && event.kind != cluster::Event::Kind::Exited ? "(a turn woken up by its background task / Monitor done: its result)\n" : "")
         + (waiting && event.kind != cluster::Event::Kind::Exited ? "(its background still runs: its result comes back to you by itself as another [reply from ...] when it is done - no need to poll it)\n" : "")
         + cluster::head_utf8(event.text, 6000);
     for (const std::string& by: subs)
@@ -1967,12 +2238,19 @@ void cluster::Manager::replyEnd_(const cluster::Event& event, const std::string&
     if (!reply) return;
     const bool finished = !event.error && !event.interrupted; // a one-shot session closed after it (never while its background runs)
     const std::string id = event.session;
-    std::thread([this, text, id, finished]() {
-        try {
-            this->send(GLOBAL_ID, text, true, {}, "mcp");
-        } catch (const utils::exception::IException& e) {
-            this->notice_(GLOBAL_ID, std::string("reply not given to the global session: ") + e.info(), true);
-            return;
+    cluster::guarded([this, text, id, finished]() {
+        for (int tries = 0;; ++tries) {
+            try {
+                this->send(GLOBAL_ID, text, true, {}, "mcp");
+                break;
+            } catch (const utils::exception::IException& e) {
+                // the global session not there right now (starting, restarting, its agent stopped): a callback is not dropped for that, 2 minutes for it to come back
+                if (tries >= 24 || this->_closing) {
+                    this->notice_(GLOBAL_ID, std::string("reply not given to the global session: ") + e.info(), true);
+                    return;
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            }
         }
         if (!finished) return;
         std::this_thread::sleep_for(std::chrono::seconds(2)); // the state settles, a prompt typed just after the answer is seen
@@ -1986,9 +2264,9 @@ void cluster::Manager::archiveOneShot_(const std::string& id)
     // waits, the agent asks something, the user typed in it or shows it right now
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        if (!this->_oneShot.contains(id) || this->_replies.contains(id) || (this->_active == id && this->_focused != 0)) return;
+        if (!this->_oneShot.contains(id) || this->_replies.contains(id) || (this->active() == id && this->_focused != 0)) return;
     }
-    if (!this->_config.archiveOneShot) return;
+    if (!this->config().archiveOneShot) return;
     const std::optional<cluster::Snapshot> snap = this->snapshot(id);
     if (!snap || snap->state != cluster::State::Idle || snap->queued > 0 || !snap->permissions.empty() || cluster::background_busy(*snap)) return; // its background
                                                                                      // still runs: its result to come (woken)
@@ -2025,7 +2303,7 @@ _cold cluster::Queued cluster::Manager::rewind(const std::string& id, const int 
     if (this->_replica) return this->call({{"cmd", "rewind"}, {"session", id}, {"back", back}}).get<cluster::Queued>();
     std::vector<std::string> dropped;
     const cluster::Queued prompt = this->get_(id)->rewind(back, &dropped);
-    if (this->_config.stashRewound) // [ui] stash_rewound: the prompts after the one taken back are not lost
+    if (this->config().stashRewound) // [ui] stash_rewound: the prompts after the one taken back are not lost
         for (const std::string& text: dropped)
             (void)this->stashPush({text, {}, {}}, id, true);
     this->save(); // the cut is kept over a restart (until the next prompt)
@@ -2046,23 +2324,32 @@ _cold void cluster::Manager::answerRestore(const bool restore)
         (void)this->call({{"cmd", "restore_answer"}, {"restore", restore}});
         return;
     }
-    this->_restoreAsk = false;
-    // "start clean": the sessions to the trash, the global session on a new conversation (its transcript archived)
-    this->restorePrevious(restore);
-    if (!restore) {
-        std::lock_guard<std::mutex> lock(this->_mutex);
-        for (cluster::SessionSpec& spec: this->_previous) {
-            if (!spec.global) continue;
-            spec.claudeId.clear();
-            spec.leaf.clear();
-            spec.resumeAt.clear();
-            spec.cost = 0.0;
-            spec.tokens = 0;
-            spec.pin = nullptr;
+    // once: every interface shows the question, each may answer it. _restoreAsk stays on until its answer is done: the tick starts nothing of its own meanwhile
+    // (a second global session on a blank spec, a task or a schedule failing on a session not back yet)
+    if (this->_restoreAnswered.exchange(true)) return;
+    try {
+        // "start clean": the sessions to the trash, the global session on a new conversation (its transcript archived)
+        this->restorePrevious(restore);
+        if (!restore) {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            for (cluster::SessionSpec& spec: this->_previous) {
+                if (!spec.global) continue;
+                spec.claudeId.clear();
+                spec.leaf.clear();
+                spec.resumeAt.clear();
+                spec.cost = 0.0;
+                spec.tokens = 0;
+                spec.pin = nullptr;
+            }
+            this->_globalNew = true;
         }
-        this->_globalNew = true;
+        this->startGlobal();
+    } catch (...) {
+        this->_startDecided = true;
+        this->_restoreAsk = false;
+        throw;
     }
-    this->startGlobal();
+    this->_restoreAsk = false;
 }
 
 std::vector<cluster::SessionSpec> cluster::Manager::previous(void) const

@@ -42,7 +42,7 @@ check() { # <what> <pattern> <file>
 check "the text file arrives as @path in the folder of the session" "attachments/${ID}/" "${WORK}/log"
 check "the text file keeps its name" "-note.txt" "${WORK}/log"
 check "the picture arrives as an image block" '"type": "image"' "${WORK}/log"
-check "the picture is stored with the extension of its content" ".png" "${WORK}/log"
+if compgen -G "${WORK}/data/attachments/${ID}/*-pic.png" > /dev/null; then echo "ok   the picture is stored with the extension of its content"; else echo "FAIL the picture is stored with the extension of its content"; fail=1; fi
 if grep -qF 'leak' "${WORK}/log"; then echo "FAIL a file outside the project folder / home was attached"; fail=1; else echo "ok   a file outside the project folder / home is refused"; fi
 if grep -qF 'home of the user only' <<< "${OUT}"; then echo "ok   the refusal says why"; else echo "FAIL the refusal says why"; fail=1; fi
 if [[ "$(find "${WORK}/data/attachments/${ID}" -type l | wc -l)" == 2 ]]; then echo "ok   linked: two symlinks, nothing copied"; else echo "FAIL two symlinks expected"; fail=1; fi

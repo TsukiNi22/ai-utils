@@ -27,6 +27,7 @@ File Description:
 #include <algorithm>
 #include <unistd.h>
 #include <signal.h>
+#include <poll.h>
 #include <fstream>
 #include <sstream>
 #include <fcntl.h>
@@ -35,6 +36,7 @@ File Description:
 #include <regex>
 #include <tuple>
 #include <array>
+#include <cmath>
 #include <map>
 
 /* tools */
@@ -84,7 +86,7 @@ _cold static std::string tool_summary_(const std::string& name, const cluster::J
     if (name == "AskUserQuestion" && input.contains("questions") && input["questions"].is_array()) {
         std::string questions;
         for (const cluster::Json& q: input["questions"])
-            if (q.is_object()) questions += (questions.empty() ? "" : " / ") + q.value("question", std::string());
+            if (q.is_object() && q.contains("question") && q["question"].is_string()) questions += (questions.empty() ? "" : " / ") + q["question"].get<std::string>(); // as an agent wrote it: any shape
         return cluster::one_line(questions, 160);
     }
     for (const char* key: {"command", "file_path", "filePath", "notebook_path", "path", "pattern", "url", "query", "skill", "description", "prompt"})
@@ -149,9 +151,9 @@ _cold static Prepared prepare_(const cluster::Queued& queued, const bool blocks)
     for (std::size_t i = 0; i < queued.images.size(); ++i) {
         const std::string& path = queued.images[i];
         const std::string token = "[Image #" + std::to_string(i + 1) + "]";
-        for (std::size_t at = out.shown.find(token); at != std::string::npos; at = out.shown.find(token))
+        for (std::size_t at = out.shown.find(token); at != std::string::npos; at = out.shown.find(token, at + path.size() + 9)) // after what it put (a path holding the token: never read again)
             out.shown.replace(at, token.size(), "[Image: " + path + "]");
-        for (std::size_t at = out.prompt.find(token); at != std::string::npos; at = out.prompt.find(token))
+        for (std::size_t at = out.prompt.find(token); at != std::string::npos; at = out.prompt.find(token, at + path.size() + 1))
             out.prompt.replace(at, token.size(), "@" + path);
         if (!blocks) continue;
         std::ifstream file(path, std::ios::binary);
@@ -180,38 +182,80 @@ _cold static std::string task_output_(const std::string& claudeId, const std::st
     return std::string();
 }
 
-_cold static std::optional<std::string> rewind_point_(const std::string& claudeId, const std::string& leaf, int back = 1)
+_cold static bool wake_content_(const cluster::Json& content)
+{
+    // a keep-warm wake-up as claude keeps it (a text, or blocks of text): the prompt alone, its whole text
+    std::string text;
+    if (content.is_string()) text = content.get<std::string>();
+    else if (content.is_array())
+        for (const cluster::Json& block: content)
+            if (block.is_object() && block.contains("text") && block["text"].is_string()) text += block["text"].get<std::string>();
+    return cluster::trim(text) == KEEP_WARM_PROMPT;
+}
+
+static constexpr std::int64_t LATE_WAKE_MS = 8000; // the end of a task never seen starting: a moment for claude to start a turn by itself
+
+_nodiscard static bool own_turn_(const cluster::Queued& prompt)
+{
+    // no one waits at the other end of this prompt: the background done, a [job] / [tasks] told, a schedule: the end of its turn goes to whoever follows the session
+    return prompt.origin == "wake" || prompt.origin == "schedule";
+}
+
+_nodiscard static bool asked_(const cluster::Queued& prompt)
+{
+    // a prompt whose answer someone waits for: the global session, a task (the user's, a wake-up, a schedule: nobody)
+    return prompt.origin == "mcp" || prompt.origin == "task";
+}
+
+_cold static std::optional<std::string> rewind_point_(const std::string& claudeId, const std::string& leaf, int back, const bool wake)
 {
     // the transcript of claude (~/.claude/projects/<folder>/<id>.jsonl): from the leaf of the conversation up its
-    // parents to the last prompt of the user (the `back`-th one from the end); the message before it is the cut ("": the start
-    // of the conversation)
+    // parents to the last prompt of the user (the `back`-th one from the end, the wake-ups not counted); the message before it is the cut ("": the start
+    // of the conversation). wake: a keep-warm wake-up taken back, the first prompt found must be it: not read by the agent yet, the leaf is still on the
+    // answer before it and that prompt is a real one, never cut (no take-back: the next wake-up goes after)
     std::error_code error;
     std::filesystem::path transcript;
     for (const std::filesystem::directory_entry& folder: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/projects"), error))
         if (std::filesystem::exists(folder.path() / (claudeId + ".jsonl"), error)) transcript = folder.path() / (claudeId + ".jsonl");
     if (transcript.empty()) return std::nullopt;
-    std::map<std::string, cluster::Json> messages;
+    // what is needed of each message only (a long conversation: hundreds of MB once parsed, every wake-up); its parents followed once each
+    struct Message {
+        std::string parent;
+        bool hasParent = false;
+        bool compact = false;
+        bool prompt = false;
+        bool wake = false;
+    };
+    std::map<std::string, Message> messages;
     std::string last;
     std::ifstream file(transcript);
     std::string line;
     while (std::getline(file, line)) {
-        const cluster::Json json = cluster::Json::parse(line, nullptr, false);
-        if (json.is_discarded() || !json.contains("uuid") || !json["uuid"].is_string() || json.value("isSidechain", false)) continue;
-        last = json["uuid"].get<std::string>();
-        messages[last] = json;
+        const cluster::Json json = cluster::json_parse(line, nullptr, false);
+        if (json.is_discarded() || !json.is_object() || !json.contains("uuid") || !json["uuid"].is_string()) continue;
+        try {
+            if (json.value("isSidechain", false)) continue;
+            const cluster::Json parent = json.value("parentUuid", cluster::Json());
+            const cluster::Json content = json.contains("message") && json["message"].is_object() ? json["message"].value("content", cluster::Json()) : cluster::Json();
+            Message message;
+            message.hasParent = parent.is_string();
+            if (message.hasParent) message.parent = parent.get<std::string>();
+            message.compact = json.value("isCompactSummary", false);
+            message.prompt = json.value("type", std::string()) == "user" && !json.value("isMeta", false) && (content.is_string()
+                || (content.is_array() && std::none_of(content.begin(), content.end(), [](const cluster::Json& b) {return b.is_object() && b.value("type", std::string()) == "tool_result";})));
+            message.wake = message.prompt && wake_content_(content);
+            last = json["uuid"].get<std::string>();
+            messages[last] = std::move(message);
+        } catch (const cluster::Json::exception&) {} // a line of an unexpected shape: left out
     }
     std::string at = messages.contains(leaf) ? leaf : last;
-    while (messages.contains(at)) {
-        const cluster::Json& message = messages.at(at);
-        const cluster::Json parent = message.value("parentUuid", cluster::Json());
-        if (message.value("isCompactSummary", false)) return std::nullopt; // not before a compaction
-        const cluster::Json content = message.contains("message") ? message["message"].value("content", cluster::Json()) : cluster::Json();
-        const bool prompt = message.value("type", std::string()) == "user" && !message.value("isMeta", false) && (content.is_string()
-            || (content.is_array() && std::none_of(content.begin(), content.end(), [](const cluster::Json& b) {return b.value("type", std::string()) == "tool_result";})));
-        if (prompt && --back <= 0) return parent.is_string() ? parent.get<std::string>() : std::string();
-        if (prompt && !parent.is_string()) return std::nullopt;
-        if (!parent.is_string()) return std::nullopt;
-        at = parent.get<std::string>();
+    for (std::size_t steps = 0; steps <= messages.size() && messages.contains(at); ++steps) {
+        const Message& message = messages.at(at);
+        if (message.compact) return std::nullopt; // not before a compaction
+        if (wake && message.prompt && !message.wake) return std::nullopt;
+        if (message.prompt && (wake || (!message.wake && --back <= 0))) return message.hasParent ? message.parent : std::string();
+        if (!message.hasParent) return std::nullopt;
+        at = message.parent;
     }
     return std::nullopt;
 }
@@ -335,22 +379,23 @@ _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const 
         cloexec_(fd);
     if (!input) in.closeWrite();
 
-    this->_process = std::make_unique<utils::encapsulation::Process>();
+    std::unique_ptr<utils::encapsulation::Process> process = std::make_unique<utils::encapsulation::Process>();
     utils::encapsulation::Dup toIn(in.getRead(), STDIN_FILENO);
     utils::encapsulation::Dup toOut(out.getWrite(), STDOUT_FILENO);
     utils::encapsulation::Dup toErr(err.getWrite(), STDERR_FILENO);
     utils::encapsulation::Dup toEnv(environment.getRead(), 3);
-    this->_process->dup(toIn);
-    this->_process->dup(toOut);
-    this->_process->dup(toErr);
-    this->_process->dup(toEnv);
+    process->dup(toIn);
+    process->dup(toOut);
+    process->dup(toErr);
+    process->dup(toEnv);
     // a session of its own (setsid, same pid: exec without a fork): the signals of the terminal (its tab closed: SIGHUP)
     // never reach the agent, claude-cluster stops it itself
+    int pid = -1;
     if (cluster::has_command("setsid")) {
         envArgs.insert(envArgs.begin(), "sh");
-        this->_data.pid = static_cast<int>(this->_process->spawn("setsid", envArgs));
+        pid = static_cast<int>(process->spawn("setsid", envArgs));
     } else {
-        this->_data.pid = static_cast<int>(this->_process->spawn("sh", envArgs));
+        pid = static_cast<int>(process->spawn("sh", envArgs));
     }
     environment.closeRead();
 
@@ -358,13 +403,18 @@ _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const 
     in.closeRead();
     out.closeWrite();
     err.closeWrite();
-    this->_in = input ? in.getWrite() : -1;
+    if (input) (void)::fcntl(in.getWrite(), F_SETFL, ::fcntl(in.getWrite(), F_GETFL) | O_NONBLOCK); // a full stdin never holds the lock for long (write_)
     this->_outFd = out.getRead();
     this->_errFd = err.getRead();
+    const int stdinFd = input ? in.getWrite() : -1;
     in.setWrite(-1);
     out.setRead(-1);
     err.setRead(-1);
     std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_process = std::move(process); // under the lock: an interrupt reads it
+    this->_in = stdinFd;
+    this->_data.pid = pid;
+    this->_running = pid;
     this->_data.lastError.clear();
     this->_stderr.clear();
     this->_costBase = this->_data.metrics.cost;
@@ -374,6 +424,7 @@ _cold void cluster::Session::spawn_(const std::vector<std::string>& args, const 
 _cold void cluster::Session::read_(void)
 {
     // stdout / stderr of the process read in the worker until both are closed, then the end of the process
+    this->_workerId = std::this_thread::get_id();
     const int outFd = this->_outFd;
     const int errFd = this->_errFd;
     utils::encapsulation::Poll poll;
@@ -395,6 +446,7 @@ _cold void cluster::Session::read_(void)
             }
             std::string& buffer = fd == outFd ? outBuffer : errBuffer;
             buffer.append(chunk.data(), static_cast<std::size_t>(size));
+            if (buffer.size() > 512U * 1024U * 1024U) buffer.clear(); // no line without end (an agent gone wrong): never the memory of the computer
             for (std::size_t nl = buffer.find('\n'); nl != std::string::npos; nl = buffer.find('\n')) {
                 const std::string line = buffer.substr(0, nl);
                 buffer.erase(0, nl + 1);
@@ -407,16 +459,27 @@ _cold void cluster::Session::read_(void)
             }
         }
     }
-    const utils::encapsulation::Status status = this->_process->wait();
-    if (this->_in != -1) {
-        ::close(this->_in);
-        this->_in = -1;
+    int code = -1;
+    try {
+        const utils::encapsulation::Status status = this->_process->wait();
+        code = status.exited ? status.code : 128 + status.sig;
+    } catch (const std::exception& e) { // reaped elsewhere: it ended all the same
+        cluster::debug("session", this->_data.spec.name + ": the end of its agent not read: " + e.what());
     }
-    this->finished_(status.exited ? status.code : 128 + status.sig);
+    this->_running = -1;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex); // a prompt being written never sees this descriptor closed, or given to something else
+        if (this->_in != -1) {
+            ::close(this->_in);
+            this->_in = -1;
+        }
+    }
+    this->finished_(code);
 }
 
 _cold void cluster::Session::start(void)
 {
+    const std::lock_guard<std::recursive_mutex> life(this->_life);
     if (!this->persistent() || this->_worker.joinable()) return;
     this->_stopping = false;
     {
@@ -445,18 +508,48 @@ _cold void cluster::Session::start(void)
             this->write_({{"type", "control_request"}, {"request_id", "rc-on-" + std::to_string(cluster::now())},
                 {"request", {{"subtype", "remote_control"}, {"enabled", true}, {"name", this->_launch.remoteName}}}});
     }
-    this->_worker = std::thread(&cluster::Session::read_, this);
+    this->_worker = cluster::guarded([this]() {
+        try {
+            this->read_();
+        } catch (const std::exception& e) { // whatever happens to one session, never the end of every other one
+            cluster::debug("session", this->_data.spec.name + ": its reader stopped: " + e.what());
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_data.state = cluster::State::Error;
+            this->_data.lastError = std::string("its reader stopped: ") + e.what();
+        }
+        this->_workerId = std::thread::id(); // ended: once joined, the next thread made may have this id (a prompt it serves is no self-join)
+    });
 }
 
 _cold void cluster::Session::restart(void)
 {
-    // not from the reader thread: it is joined here
+    // not from the reader thread: it is joined here. Only when still down: a prompt may have started its agent again meanwhile, its reader lives as long
+    // as that agent, joined under _life nothing could ever stop it (stop() takes _life first)
+    const std::lock_guard<std::recursive_mutex> life(this->_life);
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (this->_retired) return;
+    }
+    if (!this->down_()) return;
     if (this->_worker.joinable()) this->_worker.join();
     this->start();
 }
 
+_cold bool cluster::Session::down_(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    return this->_in == -1 || this->_data.state == cluster::State::Stopped || this->_data.state == cluster::State::Error;
+}
+
+_cold void cluster::Session::retire(const bool on)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    this->_retired = on;
+}
+
 _cold void cluster::Session::runTurns_(void)
 {
+    this->_workerId = std::this_thread::get_id();
     while (!this->_stopping) {
         std::string prompt;
         {
@@ -468,6 +561,8 @@ _cold void cluster::Session::runTurns_(void)
             const Prepared prepared = prepare_(this->_pending.front(), false);
             prompt = prepared.prompt;
             this->entry_(cluster::EntryKind::User, prepared.shown, "", this->_pending.front().origin);
+            this->_data.warming = this->_pending.front().warm; // a keep-warm wake-up: nothing to tell of this turn
+            this->_turnAsked = asked_(this->_pending.front());
             this->_pending.pop_front();
             this->queue_();
             this->_data.state = cluster::State::Working;
@@ -484,8 +579,13 @@ _cold void cluster::Session::runTurns_(void)
             std::lock_guard<std::mutex> lock(this->_mutex);
             this->_data.state = cluster::State::Error;
             this->_data.lastError = std::string(e.what()) + ": " + e.info();
+        } catch (const std::exception& e) {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            this->_data.state = cluster::State::Error;
+            this->_data.lastError = e.what();
         }
     }
+    this->_workerId = std::thread::id();
     this->_busy = false;
 }
 
@@ -495,11 +595,22 @@ _cold void cluster::Session::finished_(int code)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::string error = cluster::trim(this->_stderr);
+        // the process that told the state of its background is gone: nothing can end them any more ("running" for ever: never a take-back again, an update waiting an hour)
+        std::string lost;
+        for (cluster::SubAgent& agent: this->_data.agents)
+            if (agent.status == "running") {
+                agent.status = "stopped";
+                agent.ended = cluster::now_ms();
+                agent.stopping = false;
+                if (agent.background || agent.kind == "shell") lost += (lost.empty() ? "" : ", ") + cluster::one_line(agent.description, 60);
+            }
+        if (!lost.empty()) this->entry_(cluster::EntryKind::System, "stopped with its agent: " + lost);
         if (this->persistent()) {
             this->_data.state = this->_stopping ? cluster::State::Stopped : cluster::State::Error;
             if (!this->_stopping) {
                 this->_data.lastError = "agent exited (" + std::to_string(code) + ")" + (error.empty() ? "" : ": " + cluster::one_line(error, 300));
-                events.push_back({cluster::Event::Kind::Exited, this->_data.spec.id, this->_data.lastError, true});
+                // what ran in the background ends here, its result will never come: told to whoever follows it (spontaneous), even with no callback owed any more
+                events.push_back({cluster::Event::Kind::Exited, this->_data.spec.id, this->_data.lastError + (lost.empty() ? std::string() : " (stopped with it: " + lost + ")"), true, false, !lost.empty()});
             }
         } else {
             // per-turn driver: the end of the process is the end of the turn
@@ -516,12 +627,25 @@ _cold void cluster::Session::finished_(int code)
                 this->_data.entries.push_back(entry);
             }
             this->_data.stopped = failed || interrupted; // to continue (Continue / F4)
-            events.push_back({cluster::Event::Kind::TurnDone, this->_data.spec.id, failed ? this->_data.lastError : this->_lastText, failed, interrupted});
+            const bool askedTurn = std::exchange(this->_turnAsked, false);
+            const bool askedNext = std::any_of(this->_pending.begin(), this->_pending.end(), [](const cluster::Queued& q) {return asked_(q);});
+            events.push_back({cluster::Event::Kind::TurnDone, this->_data.spec.id, failed ? this->_data.lastError : this->_lastText, failed, interrupted, false, this->_data.warming, askedTurn, askedNext});
         }
     }
     this->touch_();
-    for (const cluster::Event& event: events)
-        if (this->_launch.listener) this->_launch.listener(event);
+    this->tell_(events);
+}
+
+_cold void cluster::Session::tell_(const std::vector<cluster::Event>& events)
+{
+    // what a listener throws (an event of an unexpected shape) stays here: this thread reads the agent, its end would be the end of the core
+    for (const cluster::Event& event: events) {
+        try {
+            if (this->_launch.listener) this->_launch.listener(event);
+        } catch (const std::exception& e) {
+            cluster::debug("session", this->_data.spec.name + ": an event not handled: " + e.what());
+        }
+    }
 }
 
 /* parsing */
@@ -530,7 +654,7 @@ _cold void cluster::Session::line_(const std::string& line)
     if (cluster::trim(line).empty()) return;
     cluster::Json event;
     try {
-        event = cluster::Json::parse(line);
+        event = cluster::json_parse(line);
     } catch (const cluster::Json::exception&) {
         return; // not a json line (banner, warning): ignored
     }
@@ -541,16 +665,16 @@ _cold void cluster::Session::line_(const std::string& line)
             if (driver == "opencode") this->opencode_(event);
             else if (driver == "codex") this->codex_(event);
             else this->claude_(event);
-        } catch (const cluster::Json::exception& e) {
-            // an event of an unexpected shape (a null where a text was, a new field type): left out, never the end of claude-cluster
+        } catch (const std::exception& e) {
+            // an event of an unexpected shape (a null where a text was, a new field type), a prompt not written to an agent ending: left
+            // out, never the end of claude-cluster
             this->_stderr += std::string("event left out (") + e.what() + "): " + cluster::one_line(line, 200) + "\n";
         }
     }
     this->touch_();
     std::vector<cluster::Event> events;
     events.swap(pending_events_);
-    for (const cluster::Event& e: events)
-        if (this->_launch.listener) this->_launch.listener(e);
+    this->tell_(events);
 }
 
 _cold void cluster::Session::claude_(const cluster::Json& event)
@@ -685,6 +809,8 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 this->_inputs[block.value("id", std::string())] = {{"name", block.value("name", std::string())}, {"input", block.value("input", cluster::Json::object())}};
             }
         }
+        // idle until now: a turn no prompt of ours started (a Monitor, a background task): real, told, never taken for the wake-up before it
+        if (this->persistent() && this->_data.state == cluster::State::Idle) this->_data.warming = false;
         if (this->persistent() && this->_data.state != cluster::State::Waiting) this->_data.state = cluster::State::Working;
         // per-turn drivers (qwen) don't stream: the usage of the message is the one of the turn so far
         if (!this->persistent()) {
@@ -709,6 +835,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             if (!tool && !cluster::trim(text).empty() && !cluster::trim(text).starts_with("<") && text.find("[Request interrupted") == std::string::npos) {
                 this->entry_(cluster::EntryKind::User, text);
                 this->_data.state = cluster::State::Working;
+                this->_data.warming = false; // a real prompt, even during a wake-up: told
                 this->_turn = {};
                 this->turnStart_();
                 this->_prompted = true;
@@ -756,7 +883,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
                 permission.input = tool.value("input", cluster::Json::object());
                 permission.description = "stopped by the safety check of Claude Code: " + tool_summary_(permission.tool, permission.input);
                 const std::size_t flagged = text.find("What was flagged:");
-                permission.reason = flagged == std::string::npos ? "only a person may approve it" : cluster::one_line(text.substr(flagged + 18), 240);
+                permission.reason = flagged == std::string::npos ? "only a person may approve it" : cluster::one_line(text.substr(flagged + 17), 240);
                 permission.time = cluster::now();
                 permission.safety = true;
                 this->_data.permissions.push_back(permission);
@@ -862,10 +989,11 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             this->_approved.clear();
         }
         // total_cost_usd is cumulative over the life of the process (a restart begins again at 0)
-        const double cost = event.value("total_cost_usd", 0.0);
+        const double told = event.value("total_cost_usd", 0.0);
+        const double cost = std::isfinite(told) ? told : this->_processCost;
         metrics.lastCost = std::max(0.0, cost - this->_processCost);
         this->_processCost = cost;
-        metrics.cost = this->_costBase + cost;
+        if (std::isfinite(this->_costBase + cost)) metrics.cost = this->_costBase + cost; // never infinite: written as null, state.json no longer read
         if (event.contains("modelUsage") && event["modelUsage"].is_object())
             for (const auto &[model, data]: event["modelUsage"].items())
                 metrics.contextWindow = std::max<std::int64_t>(data.value("contextWindow", std::int64_t{0}), 1000);
@@ -884,12 +1012,7 @@ _cold void cluster::Session::claude_(const cluster::Json& event)
             this->_data.stopped = error || interrupted; // to continue (Continue / F4)
             this->emit_(cluster::Event::Kind::TurnDone, text, error, interrupted, !std::exchange(this->_prompted, false));
             if (std::erase_if(this->_pending, [](const cluster::Queued& q) {return q.given;}) > 0) this->queue_(); // given: claude has them
-            if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) {
-                const cluster::Queued next = this->_pending.front();
-                this->_pending.pop_front();
-                this->queue_();
-                this->dispatch_(next);
-            }
+            if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) this->dispatchNext_();
         } else {
             this->_lastText = text;
         }
@@ -932,8 +1055,8 @@ _cold void cluster::Session::opencode_(const cluster::Json& event)
         fit_window_(this->_data.metrics);
         const double cost = part.value("cost", 0.0);
         if (cost > 0) this->_data.metrics.costKnown = true; // a paid provider of opencode gives its real cost
-        this->_data.metrics.cost += cost;
-        this->_data.metrics.lastCost += cost;
+        if (std::isfinite(this->_data.metrics.cost + cost)) this->_data.metrics.cost += cost; // never infinite: written as null, state.json no longer read
+        if (std::isfinite(this->_data.metrics.lastCost + cost)) this->_data.metrics.lastCost += cost;
     } else if (type == "error") {
         const cluster::Json error = event.value("error", cluster::Json::object());
         const std::string message = error.contains("data") ? error["data"].value("message", error.dump(-1, ' ', false, cluster::JSON_LENIENT)) : error.dump(-1, ' ', false, cluster::JSON_LENIENT);
@@ -1073,8 +1196,21 @@ _cold void cluster::Session::agentTask_(const std::string& subtype, const cluste
     const std::string kind = event.value("task_type", std::string());
     const bool agentLike = event.value("subagent_type", cluster::Json()).is_string() || kind.find("agent") != std::string::npos;
     const bool shellLike = kind.find("bash") != std::string::npos || kind.find("shell") != std::string::npos;
-    if (known == this->_data.agents.end() && !(subtype == "task_started" && (agentLike || shellLike))) return;
+    // its end, even for a task not seen starting (a kind not known here, a core started since): its callback would be lost with it
+    const cluster::Json endPatch = event.value("patch", cluster::Json::object());
+    const std::string endStatus = subtype == "task_notification" ? event.value("status", std::string("completed"))
+        : subtype == "task_updated" && endPatch.is_object() && endPatch.value("status", cluster::Json()).is_string() ? endPatch["status"].get<std::string>() : std::string();
+    const bool ending = !endStatus.empty() && agent_status_(endStatus) != "running";
+    if (known == this->_data.agents.end() && !(subtype == "task_started" && (agentLike || shellLike)) && !ending) return;
+    const bool unseen = known == this->_data.agents.end() && subtype != "task_started";
     cluster::SubAgent& agent = this->agent_(call, task);
+    if (unseen) {
+        agent.kind = shellLike && !agentLike ? "shell" : "agent";
+        agent.type = agent.kind == "shell" ? "shell" : kind;
+        agent.background = true;
+        if (event.value("summary", cluster::Json()).is_string()) agent.description = clip_(event["summary"].get<std::string>(), 80);
+        if (agent.description.empty()) agent.description = task;
+    }
     if (subtype == "task_started" && shellLike && !agentLike) {
         agent.kind = "shell";
         agent.type = "shell";
@@ -1105,22 +1241,71 @@ _cold void cluster::Session::agentTask_(const std::string& subtype, const cluste
     } else if (subtype == "task_notification") {
         agent.status = agent_status_(event.value("status", std::string("completed")));
         if (event.value("reason", cluster::Json()).is_string() && agent.status != "done") agent.error = clip_(event["reason"].get<std::string>(), 600);
-        // its callback: the session idle (no turn to take it), woken with the notification, like Claude Code does; a turn running
-        // gets it from claude itself
-        const bool idle = this->_data.state != cluster::State::Working && this->_data.state != cluster::State::Waiting && this->_data.state != cluster::State::Starting;
-        if (idle && this->persistent() && this->_in != -1 && agent.status != "running") {
-            cluster::Queued wake{"<task-notification>\n<task-id>" + task + "</task-id>\n<status>" + event.value("status", std::string("completed")) + "</status>\n<summary>"
-                + (agent.kind == "shell" ? "Background command \"" : "Agent \"") + agent.description + "\" " + agent.status
-                + (agent.summary.empty() ? std::string() : ": " + agent.summary) + "</summary>"
-                + (agent.outputFile.empty() ? std::string() : "\n<output-file>" + agent.outputFile + "</output-file>") + "\n</task-notification>", {}, {}};
-            wake.at = cluster::now_ms();
-            wake.origin = "wake"; // a turn of its own (not asked by a prompt): its end goes to whoever follows the session
-            this->dispatch_(wake);
-        }
     }
     if (agent.status != "running") {
-        if (agent.ended == 0) agent.ended = cluster::now_ms();
+        const bool first = agent.ended == 0; // task_updated then task_notification: told once
+        if (first) agent.ended = cluster::now_ms();
         agent.stopping = false;
+        if (first) this->agentEnded_(agent, endStatus.empty() ? std::string("completed") : endStatus, unseen);
+    }
+}
+
+_cold void cluster::Session::agentEnded_(cluster::SubAgent& agent, const std::string& status, const bool unseen)
+{
+    // (locked) a shell or an agent of the background over. Its output kept for its log (claude removes its file with its session); its end a line of the conversation,
+    // whatever the model does with it; then its callback: the session idle (no turn to take it) woken with the notification, like Claude Code does; a turn running (the
+    // user's, a keep-warm wake-up) gets it from claude itself, and its end now is that result: told to whoever follows this session, never taken back
+    const bool background = agent.background || agent.kind == "shell";
+    const std::string told = agent.summary; // what claude says of it, for its prompt: the text of a process never given to the model as words of the user (it reads its file: a tool result)
+    if (agent.kind == "shell" && agent.summary.empty() && !agent.outputFile.empty()) agent.summary = clip_(cluster::trim(cluster::clean_utf8(cluster::read_end(agent.outputFile, 1500))), 600);
+    if (background) {
+        const std::string what = (agent.kind == "shell" ? "background shell \"" : "background agent \"") + cluster::one_line(agent.description, 80) + "\" " + agent.status;
+        const std::string why = !agent.error.empty() ? agent.error : agent.summary;
+        this->entry_(cluster::EntryKind::System, what + (why.empty() ? std::string() : ": " + cluster::one_line(why, 200)));
+    }
+    if (!this->persistent() || this->_in == -1) return;
+    const bool running = this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting;
+    if (running) {
+        if (background) {
+            this->_prompted = false;
+            this->_data.warming = false;
+        }
+        return;
+    }
+    if (this->_data.state == cluster::State::Starting) return;
+    cluster::Queued wake{"<task-notification>\n<task-id>" + (agent.taskId.empty() ? agent.toolUseId : agent.taskId) + "</task-id>\n<status>" + status + "</status>\n<summary>"
+        + (agent.kind == "shell" ? "Background command \"" : "Agent \"") + agent.description + "\" " + agent.status
+        + (told.empty() ? std::string() : ": " + told) + "</summary>"
+        + (agent.outputFile.empty() ? std::string() : "\n<output-file>" + agent.outputFile + "</output-file>") + "\n</task-notification>", {}, {}};
+    wake.at = cluster::now_ms();
+    wake.origin = "wake"; // a turn of its own (not asked by a prompt): its end goes to whoever follows the session
+    if (unseen) { // never seen starting: a Monitor, for which claude starts its own turn; woken only if it does not (twice would be a turn paid for nothing)
+        this->_lateWakes.push_back({wake, cluster::now_ms() + LATE_WAKE_MS, this->_data.metrics.turns});
+        return;
+    }
+    try {
+        this->dispatch_(wake);
+    } catch (const utils::exception::IException&) { // its stdin full, the agent ending: waits in the queue, never lost with this event
+        this->_pending.push_back(wake);
+        this->queue_();
+    }
+}
+
+_cold void cluster::Session::lateWakes(void)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    const std::int64_t now = cluster::now_ms();
+    while (!this->_lateWakes.empty() && this->_lateWakes.front().due <= now) {
+        const LateWake late = this->_lateWakes.front();
+        this->_lateWakes.erase(this->_lateWakes.begin());
+        // a turn came since, or runs: it had the notification
+        if (late.turns != this->_data.metrics.turns || this->_data.state != cluster::State::Idle || this->_in == -1) continue;
+        try {
+            this->dispatch_(late.prompt);
+        } catch (const utils::exception::IException&) {
+            this->_pending.push_back(late.prompt);
+            this->queue_();
+        }
     }
 }
 
@@ -1314,17 +1499,21 @@ _cold void cluster::Session::updateDisplay(const std::string& displayId, const s
     in.close();
     for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
         if (it->find(mark) == std::string::npos) continue;
-        cluster::Json json = cluster::Json::parse(*it, nullptr, false);
+        cluster::Json json = cluster::json_parse(*it, nullptr, false);
         if (!json.is_object() || json.value("kind", 0) != static_cast<int>(cluster::EntryKind::Display)) continue;
         json["text"] = text;
         *it = json.dump(-1, ' ', false, cluster::JSON_LENIENT);
         break;
     }
-    this->_log.close();
-    std::ofstream out(this->_launch.log, std::ios::trunc);
+    std::string whole;
     for (const std::string& kept: lines)
-        out << kept << "\n";
-    out.close();
+        whole += kept + "\n";
+    this->_log.close();
+    try {
+        cluster::write_text(this->_launch.log, whole); // whole or not at all (a crash here never loses the transcript)
+    } catch (const utils::exception::IException& e) {
+        cluster::debug("session", this->_data.spec.name + ": its log not written again: " + e.info());
+    }
     this->_log.open(this->_launch.log, std::ios::app);
     this->touch_();
 }
@@ -1351,6 +1540,8 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
     if (text.empty() && kind != cluster::EntryKind::Tool) return;
     cluster::Entry entry{kind, text, tool, cluster::now(), origin};
     this->_data.entries.push_back(entry);
+    if (kind == cluster::EntryKind::User && text != KEEP_WARM_PROMPT) this->_data.spec.usedAt = entry.time; // a real prompt: a use (keep_warm_hours)
+    if (kind == cluster::EntryKind::Assistant) this->_data.spec.cachedAt = std::max(this->_data.spec.cachedAt, entry.time); // answered: its cache written / read
     if (kind == cluster::EntryKind::Assistant) { // the files it names: their card under it (open, download)
         const std::vector<std::string> files = files_named_(text, this->_data.spec.cwd);
         if (!files.empty()) {
@@ -1370,6 +1561,10 @@ _cold void cluster::Session::entry_(const cluster::EntryKind kind, const std::st
 _cold void cluster::Session::emit_(const cluster::Event::Kind kind, const std::string& text, const bool error, const bool interrupted, const bool spontaneous)
 {
     pending_events_.push_back({kind, this->_data.spec.id, text, error, interrupted, spontaneous, this->_data.warming});
+    if (kind == cluster::Event::Kind::TurnDone) {
+        pending_events_.back().asked = std::exchange(this->_turnAsked, false);
+        pending_events_.back().askedLater = std::any_of(this->_pending.begin(), this->_pending.end(), [](const cluster::Queued& q) {return !q.given && asked_(q);});
+    }
 }
 
 /* actions */
@@ -1377,35 +1572,76 @@ _cold void cluster::Session::write_(const cluster::Json& message)
 {
     if (this->_in == -1) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "session " + this->_data.spec.id + " is not running");
     const std::string line = message.dump(-1, ' ', false, cluster::JSON_LENIENT) + "\n";
+    // non-blocking, under the lock: an agent that no longer reads (its stdin full) is waited for 30 s at most, then stopped - half a message
+    // can't be taken back, and every interface reading this session would hang on this lock
+    const std::int64_t end = cluster::now_ms() + 30000;
     std::size_t written = 0;
     while (written < line.size()) {
         const ssize_t size = ::write(this->_in, line.data() + written, line.size() - written);
-        if (size <= 0) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, "stdin of session " + this->_data.spec.id);
-        written += static_cast<std::size_t>(size);
+        if (size > 0) {
+            written += static_cast<std::size_t>(size);
+            continue;
+        }
+        if (size < 0 && errno == EINTR) continue;
+        if (size < 0 && errno == EAGAIN && cluster::now_ms() < end) {
+            pollfd room{this->_in, POLLOUT, 0};
+            (void)::poll(&room, 1, 100);
+            continue;
+        }
+        if (size < 0 && errno == EAGAIN && this->_running > 0) (void)::kill(this->_running, SIGKILL);
+        throw utils::exception::ErrorException(utils::exception::InternalCode::Write, "stdin of session " + this->_data.spec.id);
     }
 }
 
-_cold void cluster::Session::send(const std::string& text, const std::vector<std::string>& images, const std::string& origin)
+_cold bool cluster::Session::send(const std::string& text, const std::vector<std::string>& images, const std::string& origin)
 {
-    // the !commands run since the last prompt: given with it (like Claude Code)
-    std::string context;
-    {
-        std::lock_guard<std::mutex> lock(this->_mutex);
-        context.swap(this->_context);
-    }
-    cluster::Queued prompt{cluster::unprefix_skill(text), images, context}; // "/<link>:<skill>": the skill alone, the only name of the agent
+    cluster::Queued prompt{cluster::unprefix_skill(text), images, {}}; // "/<link>:<skill>": the skill alone, the only name of the agent
     prompt.at = cluster::now_ms();
     prompt.origin = origin;
+    return this->give_(prompt);
+}
+
+_cold bool cluster::Session::wake(void)
+{
+    // known by this flag, set only here (reached by Manager::wake_ alone): a prompt written the same way by anyone else stays a prompt, told and kept
+    cluster::Queued prompt{KEEP_WARM_PROMPT, {}, {}};
+    prompt.at = cluster::now_ms();
+    prompt.origin = "wake";
+    prompt.warm = true;
+    return this->give_(prompt);
+}
+
+_cold bool cluster::Session::give_(cluster::Queued prompt)
+{
+    // the !commands run since the last prompt: given with it (like Claude Code), never with a wake-up (taken back, they would be lost for the agent)
+    const std::function<void(void)> context = [this, &prompt]() {
+        if (!prompt.warm) prompt.context.swap(this->_context);
+    };
     if (this->persistent()) {
-        if (!this->_worker.joinable() || this->_data.state == cluster::State::Stopped || this->_data.state == cluster::State::Error) {
-            if (this->_worker.joinable()) this->_worker.join();
-            this->start();
-            for (int i = 0; i < 100 && this->_in == -1; ++i)
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (this->_retired) return false;
+        }
+        if (this->down_()) {
+            // its reader itself never joins itself (and never waits for what is joining it)
+            if (std::this_thread::get_id() == this->_workerId.load()) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "session " + this->_data.spec.id + " just stopped");
+            const std::lock_guard<std::recursive_mutex> life(this->_life);
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                if (this->_retired) return false; // a replacement ran meanwhile: never an agent started on the old object
+            }
+            if (this->down_()) { // again: a stop or a take-back was running, it has ended
+                if (this->_worker.joinable()) this->_worker.join();
+                this->start();
+            }
         }
         std::lock_guard<std::mutex> lock(this->_mutex);
-        // a turn runs: kept here (editable) until its end, then written
-        if (this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting) {
+        if (this->_retired) return false;
+        const bool running = this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting || this->_takingBack;
+        if (prompt.warm && running) return true; // its turn keeps the cache
+        context();
+        // a turn runs (or a wake-up is being taken back): kept here (editable) until its end, then written
+        if (running) {
             this->_pending.push_back(prompt);
             this->queue_();
         } else {
@@ -1414,24 +1650,31 @@ _cold void cluster::Session::send(const std::string& text, const std::vector<std
     } else {
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
+            if (this->_retired) return false;
+            if (prompt.warm && this->_data.state == cluster::State::Working) return true; // its turn keeps the cache
+            context();
             this->_pending.push_back(prompt);
             this->queue_();
             if (this->_data.state != cluster::State::Working) this->_data.state = cluster::State::Working;
         }
-        if (!this->_busy) {
-            if (this->_worker.joinable()) this->_worker.join();
-            this->_busy = true;
-            this->_stopping = false;
-            this->_worker = std::thread(&cluster::Session::runTurns_, this);
+        if (!this->_busy) { // (its turns running, what they tell sending a prompt: never waiting for a stop that joins them)
+            const std::lock_guard<std::recursive_mutex> life(this->_life);
+            if (!this->_busy) {
+                if (this->_worker.joinable()) this->_worker.join();
+                this->_busy = true;
+                this->_stopping = false;
+                this->_worker = cluster::guarded(&cluster::Session::runTurns_, this);
+            }
         }
     }
     this->touch_();
+    return true;
 }
 
 _cold static std::string uuid_(void)
 {
-    // a random uuid (version 4): the id of a prompt written here, carried by its replay
-    static std::mt19937_64 random{std::random_device{}()};
+    // a random uuid (version 4): the id of a prompt written here, carried by its replay; a generator per thread (the sessions write side by side)
+    thread_local std::mt19937_64 random{std::random_device{}()};
     const std::uint64_t high = random();
     const std::uint64_t low = random();
     char out[37] = {};
@@ -1443,17 +1686,27 @@ _cold static std::string uuid_(void)
 _cold void cluster::Session::dispatch_(const cluster::Queued& prompt)
 {
     const Prepared prepared = prepare_(prompt, true);
-    this->_lastPrompt = prompt;
+    const std::string uuid = uuid_();
+    // written first: refused (the agent gone, its stdin full), nothing of it recorded as sent, the caller still has it
+    this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
+    this->_sent.insert(uuid);
+    if (!prompt.warm) this->_lastPrompt = prompt; // the one Esc takes back, the one a change of model sends again: never a wake-up
     this->_data.spec.resumeAt.clear(); // the conversation goes on from the cut: its new messages are the latest
     this->entry_(cluster::EntryKind::User, prepared.shown, "", prompt.origin);
-    const std::string uuid = uuid_();
-    this->_sent.insert(uuid);
-    this->write_({{"type", "user"}, {"uuid", uuid}, {"message", {{"role", "user"}, {"content", prepared.content.empty() ? cluster::Json(prepared.prompt) : prepared.content}}}});
-    this->_prompted = prompt.origin != "wake"; // a wake-up: a turn of its own, like the ones claude starts by itself
-    this->_data.warming = prompt.text.starts_with(KEEP_WARM_MARK); // a keep-warm wake-up: nothing to tell of this turn
+    this->_prompted = !own_turn_(prompt); // a wake-up: a turn of its own, like the ones claude starts by itself
+    this->_data.warming = prompt.warm; // a keep-warm wake-up: nothing to tell of this turn
+    this->_turnAsked = asked_(prompt);
     this->_data.state = cluster::State::Working;
     this->_turn = {};
     this->turnStart_();
+}
+
+_cold void cluster::Session::dispatchNext_(void)
+{
+    const cluster::Queued next = this->_pending.front();
+    this->dispatch_(next); // not written: still queued
+    this->_pending.pop_front();
+    this->queue_();
 }
 
 _cold void cluster::Session::queue_(void)
@@ -1486,8 +1739,9 @@ _cold void cluster::Session::giveQueued(const int delayMs)
             return; // not written: kept, sent at the end of the turn
         }
         queued.given = true;
-        this->_prompted = this->_prompted || queued.origin != "wake";
-        this->_data.warming = this->_data.warming && queued.text.starts_with(KEEP_WARM_MARK); // a real prompt given during it: a real turn
+        this->_prompted = this->_prompted || !own_turn_(queued);
+        this->_turnAsked = this->_turnAsked || asked_(queued);
+        this->_data.warming = false; // a real prompt given during a wake-up: a real turn
         this->_lastPrompt = queued;
         this->entry_(cluster::EntryKind::User, prepared.shown, "", queued.origin);
         changed = true;
@@ -1501,7 +1755,7 @@ _cold void cluster::Session::giveQueued(const int delayMs)
 _cold std::optional<cluster::Queued> cluster::Session::unqueue(void)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
-    if (this->_pending.empty() || this->_pending.back().given) return std::nullopt; // given to the agent: no longer here to edit
+    if (this->_pending.empty() || this->_pending.back().given || this->_pending.back().warm) return std::nullopt; // given to the agent: no longer here to edit
     const cluster::Queued last = this->_pending.back();
     this->_pending.pop_back();
     this->queue_();
@@ -1538,7 +1792,7 @@ _cold void cluster::Session::answer(const std::string& requestId, const std::str
         this->touch_();
         lock.unlock();
         const std::string command = stopped.input.contains("command") ? stopped.input.value("command", std::string()) : stopped.input.dump(-1, ' ', false, cluster::JSON_LENIENT);
-        this->send("I approve, myself, the command the safety check stopped (I am the person it asked for). Run it again now, exactly unchanged: "
+        (void)this->send("I approve, myself, the command the safety check stopped (I am the person it asked for). Run it again now, exactly unchanged: "
             "it goes through a permission prompt that I accept.\n" + command);
         return;
     }
@@ -1626,7 +1880,7 @@ _cold void cluster::Session::interrupt(void)
             this->write_({{"type", "control_request"}, {"request_id", "int-" + std::to_string(cluster::now())}, {"request", {{"subtype", "interrupt"}}}});
     } else {
         this->_pending.clear();
-        if (this->_process && this->_process->is()) ::kill(this->_process->getPid(), SIGINT);
+        if (this->_running > 0) ::kill(this->_running, SIGINT);
     }
     if (this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting) this->_interrupted = true;
     this->entry_(cluster::EntryKind::System, "interrupted");
@@ -1636,26 +1890,54 @@ _cold void cluster::Session::interrupt(void)
 _cold void cluster::Session::sendNext(void)
 {
     // the turn stopped, the next queued prompt sent at once (a persistent agent: the end of the interrupted turn sends it;
-    // one process per turn: the next one starts with it); not running: sent now
+    // one process per turn: the next one starts with it); not running: sent now, its agent started again first (the queue untouched until it is written)
+    if (this->persistent() && this->down_()) {
+        if (std::this_thread::get_id() == this->_workerId.load()) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "session " + this->_data.spec.id + " just stopped");
+        const std::lock_guard<std::recursive_mutex> life(this->_life);
+        {
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            if (this->_pending.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "nothing queued in " + this->_data.spec.name);
+            if (this->_retired) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "session " + this->_data.spec.id + " is being replaced");
+        }
+        if (this->down_()) {
+            if (this->_worker.joinable()) this->_worker.join();
+            this->start();
+        }
+    }
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (this->_pending.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "nothing queued in " + this->_data.spec.name);
+    if (this->_takingBack) return; // a wake-up being taken back: it goes out right after
     const bool running = this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting;
     if (this->persistent()) {
         if (!running) {
-            const cluster::Queued next = this->_pending.front();
-            this->_pending.pop_front();
-            this->queue_();
-            this->dispatch_(next);
+            this->dispatchNext_();
         } else if (this->_in != -1) {
             this->write_({{"type", "control_request"}, {"request_id", "int-" + std::to_string(cluster::now())}, {"request", {{"subtype", "interrupt"}}}});
             this->_interrupted = true;
         }
-    } else if (running && this->_process && this->_process->is()) {
-        ::kill(this->_process->getPid(), SIGINT); // its queue kept: the next turn takes it
+    } else if (running && this->_running > 0) {
+        ::kill(this->_running, SIGINT); // its queue kept: the next turn takes it
         this->_interrupted = true;
     }
     this->entry_(cluster::EntryKind::System, "interrupted: the next queued prompt sent now");
     this->touch_();
+}
+
+_cold static std::size_t taken_back_(const std::vector<cluster::Entry>& entries, const int back, const bool byUser, int* real)
+{
+    // the entry of the prompt taken back (entries.size(): none): the `back`-th from the end; by the user, never a wake-up: not a prompt of theirs, cut with the real one
+    // before it. real: how many prompts from it on are not wake-ups
+    int seen = 0;
+    int reals = 0;
+    for (std::size_t i = entries.size(); i-- > 0;) {
+        if (entries[i].kind != cluster::EntryKind::User) continue;
+        const bool wake = entries[i].text == KEEP_WARM_PROMPT;
+        reals += wake ? 0 : 1;
+        if (++seen < back || (byUser && wake)) continue;
+        if (real != nullptr) *real = reals;
+        return i;
+    }
+    return entries.size();
 }
 
 _cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::string>* dropped, const bool byUser)
@@ -1664,38 +1946,54 @@ _cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::
     // oldest of them: --resume-session-at, kept until the next prompt) and the transcript; that prompt comes back to be
     // edited. What was removed is kept in rewind/ of the data folder (claude keeps its own transcript whole: its old leaf
     // is there to go back to)
+    const std::lock_guard<std::recursive_mutex> life(this->_life);
     const int count = std::max(1, back);
     std::string claudeId;
     std::string leaf;
     cluster::Queued prompt;
+    int real = 0;   // of the prompts taken back, the ones that are not wake-ups
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (this->_launch.backend.provider.driver != "claude" || !this->persistent())
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: only for the sessions of Claude Code");
-        const auto users = std::count_if(this->_data.entries.begin(), this->_data.entries.end(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
-        if (users < count || this->_data.spec.claudeId.empty())
+        if (this->_retired) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: the session is being replaced");
+        const std::size_t at = taken_back_(this->_data.entries, count, byUser, &real);
+        if (at == this->_data.entries.size() || this->_data.spec.claudeId.empty())
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: no prompt to take back");
         claudeId = this->_data.spec.claudeId;
         leaf = this->_data.spec.leaf;
-        auto user = this->_data.entries.rbegin();
-        for (int seen = 0; user != this->_data.entries.rend(); ++user)
-            if (user->kind == cluster::EntryKind::User && ++seen == count) break;
-        prompt = count == 1 && !this->_lastPrompt.text.empty() ? this->_lastPrompt : cluster::Queued{user->text, {}};
+        prompt = real == 1 && !this->_lastPrompt.text.empty() ? this->_lastPrompt : cluster::Queued{this->_data.entries[at].text, {}};
     }
-    const std::optional<std::string> point = rewind_point_(claudeId, leaf, count);
+    const std::optional<std::string> point = rewind_point_(claudeId, leaf, real, !byUser);
     if (!point) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: that prompt is not in the transcript of claude (compacted?)");
+    if (!byUser) {
+        // the transcript was read without the lock (seconds on a long one): a prompt may have come meanwhile. Checked again; from here what is
+        // sent waits, kept (a real prompt never stopped, its entry never taken for the wake-up)
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (!this->wakeLast_()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "rewind: no longer a wake-up");
+        this->_takingBack = true;
+    }
+    struct Release { // whatever happens below: the prompts sent are never held for ever
+        cluster::Session& session;
+        explicit Release(cluster::Session& s): session(s) {};
+        Release(const Release&) = delete;
+        Release& operator=(const Release&) = delete;
+        ~Release()
+        {
+            std::lock_guard<std::mutex> lock(this->session._mutex);
+            this->session._takingBack = false;
+        };
+    } release(*this);
     this->stop();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         // the entries from that prompt on, removed
-        auto user = this->_data.entries.rbegin();
-        for (int seen = 0; user != this->_data.entries.rend(); ++user)
-            if (user->kind == cluster::EntryKind::User && ++seen == count) break;
+        const std::size_t at = taken_back_(this->_data.entries, count, byUser, nullptr);
         std::vector<std::string> later;    // the prompts after the one taken back
-        if (user != this->_data.entries.rend()) {
-            for (auto it = std::next(user).base() + 1; it != this->_data.entries.end(); ++it)
-                if (it->kind == cluster::EntryKind::User) later.push_back(it->text);
-            this->_data.entries.erase(std::next(user).base(), this->_data.entries.end());
+        if (at < this->_data.entries.size()) {
+            for (std::size_t i = at + 1; i < this->_data.entries.size(); ++i)
+                if (this->_data.entries[i].kind == cluster::EntryKind::User && this->_data.entries[i].text != KEEP_WARM_PROMPT) later.push_back(this->_data.entries[i].text);
+            this->_data.entries.erase(this->_data.entries.begin() + static_cast<std::ptrdiff_t>(at), this->_data.entries.end());
         }
         if (dropped != nullptr) *dropped = later;
         this->_data.partial.clear();
@@ -1712,8 +2010,9 @@ _cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::
         std::size_t keep = lines.size();
         int seen = 0;
         for (std::size_t i = lines.size(); i-- > 0;) {
-            const cluster::Json json = cluster::Json::parse(lines[i], nullptr, false);
-            if (!json.is_discarded() && json.value("kind", -1) == static_cast<int>(cluster::EntryKind::User) && ++seen == count) {
+            const cluster::Json json = cluster::json_parse(lines[i], nullptr, false);
+            if (!json.is_object() || json.value("kind", cluster::Json(-1)) != cluster::Json(static_cast<int>(cluster::EntryKind::User))) continue;
+            if (++seen >= count && (!byUser || !wake_content_(json.value("text", cluster::Json())))) {
                 keep = i;
                 break;
             }
@@ -1736,27 +2035,68 @@ _cold cluster::Queued cluster::Session::rewind(const int back, std::vector<std::
             for (std::size_t i = 20; i < files.size(); ++i)
                 std::filesystem::remove(files[i], error);
         }
-        {
-            std::ofstream out(this->_launch.log, std::ios::trunc);
-            for (std::size_t i = 0; i < keep; ++i)
-                out << lines[i] << "\n";
+        std::string kept;
+        for (std::size_t i = 0; i < keep; ++i)
+            kept += lines[i] + "\n";
+        try {
+            cluster::write_text(this->_launch.log, kept); // whole or not at all (a crash here never loses the transcript)
+        } catch (const utils::exception::IException& e) {
+            cluster::debug("session", this->_data.spec.name + ": its log not cut: " + e.info());
         }
         this->_log.open(this->_launch.log, std::ios::app);
         this->_data.spec.leaf = *point;
         this->_data.spec.resumeAt = *point;
-        if (byUser) this->_data.spec.rewoundAt = cluster::now(); // the user went back: the session is in use (a keep-warm wake-up taken back is not)
+        this->_data.warming = false;
+        if (byUser) {
+            this->_data.spec.usedAt = cluster::now(); // the user went back: the session is in use (a keep-warm wake-up taken back is not)
+            this->_lastPrompt = {};
+        }
         if (point->empty()) this->_data.spec.claudeId.clear(); // its first prompt: a new conversation
-        this->_lastPrompt = {};
     }
     this->start();
+    if (!byUser) { // what came meanwhile: sent now, in its order
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_takingBack = false;
+        if (!this->_pending.empty() && this->_data.state == cluster::State::Idle) this->dispatchNext_();
+    }
     return prompt;
+}
+
+_cold bool cluster::Session::wakeLast_(void) const
+{
+    // (under the lock) nothing but a keep-warm wake-up over: idle, nothing waits, its background not running (stopping the agent stops it), its last turn that wake-up
+    // (warming: what the agent did by itself after it, a prompt from claude.ai, is real), its last prompt that wake-up and after it nothing but its answer.
+    // Unsure: no take-back, the next wake-up goes after
+    if (this->_retired || !this->_data.warming || this->_data.state != cluster::State::Idle || !this->_pending.empty() || !this->_data.permissions.empty() || this->_takingBack
+        || std::any_of(this->_data.agents.begin(), this->_data.agents.end(), [](const cluster::SubAgent& a) {return a.status == "running";})) return false;
+    const auto user = std::find_if(this->_data.entries.rbegin(), this->_data.entries.rend(), [](const cluster::Entry& e) {return e.kind == cluster::EntryKind::User;});
+    if (user == this->_data.entries.rend() || user->text != KEEP_WARM_PROMPT) return false;
+    int answers = 0;
+    for (auto it = this->_data.entries.rbegin(); it != user; ++it) {
+        if (it->kind == cluster::EntryKind::Assistant) ++answers;
+        else if (it->kind != cluster::EntryKind::Thinking && it->kind != cluster::EntryKind::System) return false;
+    }
+    return answers <= 1;
+}
+
+_cold bool cluster::Session::takeBackWake(void)
+{
+    if (this->_launch.backend.provider.driver != "claude" || !this->persistent()) return false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (!this->wakeLast_()) return false;
+    }
+    (void)this->rewind(1, nullptr, false);
+    return true;
 }
 
 _cold std::vector<cluster::Queued> cluster::Session::waiting(void) const
 {
     // given to the agent during its turn too: a turn stopped by a quit has not taken them yet (they leave the queue once it ends)
     std::lock_guard<std::mutex> lock(this->_mutex);
-    std::vector<cluster::Queued> out(this->_pending.begin(), this->_pending.end());
+    std::vector<cluster::Queued> out;
+    for (const cluster::Queued& queued: this->_pending)
+        if (!queued.warm) out.push_back(queued); // a wake-up never outlives its moment
     for (cluster::Queued& queued: out)
         queued.given = false;
     return out;
@@ -1766,30 +2106,31 @@ _cold std::vector<cluster::Queued> cluster::Session::unfinished(void) const
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
     std::vector<cluster::Queued> out;
-    if ((this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting) && !this->_lastPrompt.text.empty()) out.push_back(this->_lastPrompt);
+    if ((this->_data.state == cluster::State::Working || this->_data.state == cluster::State::Waiting) && !this->_data.warming && !this->_lastPrompt.text.empty()) out.push_back(this->_lastPrompt);
     for (const cluster::Queued& queued: this->_pending)
-        if (!queued.given) out.push_back(queued);
+        if (!queued.given && !queued.warm) out.push_back(queued);
     return out;
 }
 
 _cold void cluster::Session::stop(void)
 {
     cluster::busy_step("stopping " + this->_data.spec.name + " (its agent)");
+    const std::lock_guard<std::recursive_mutex> life(this->_life);
     this->_stopping = true;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_pending.clear();
+        if (!this->_takingBack) this->_pending.clear(); // a wake-up taken back: what was sent meanwhile goes out after it
         if (this->_in != -1) {
             ::close(this->_in);
             this->_in = -1;
         }
-        if (this->_process && this->_process->is()) ::kill(this->_process->getPid(), SIGTERM);
+        if (this->_running > 0) ::kill(this->_running, SIGTERM);
     }
     if (this->_worker.joinable()) {
         // a stubborn agent is killed after 3 s
-        for (int i = 0; i < 30 && this->_process && this->_process->is(); ++i)
+        for (int i = 0; i < 30 && this->_running > 0; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        if (this->_process && this->_process->is()) ::kill(this->_process->getPid(), SIGKILL);
+        if (this->_running > 0) ::kill(this->_running, SIGKILL);
         this->_worker.join();
     }
     std::lock_guard<std::mutex> lock(this->_mutex);
@@ -1905,6 +2246,7 @@ _cold void cluster::Session::setKeepWarm(const bool on)
 {
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_data.spec.keepWarm = on;
+    if (on) this->_data.spec.usedAt = cluster::now(); // asked now: a use (keep_warm_hours counts from here, never a mark that stops at once)
     this->touch_();
 }
 
@@ -1929,7 +2271,7 @@ _cold static std::vector<cluster::Entry> read_log_(const std::filesystem::path& 
 
     while (std::getline(file, line)) {
         try {
-            const cluster::Json json = cluster::Json::parse(line);
+            const cluster::Json json = cluster::json_parse(line);
             entries.push_back({static_cast<cluster::EntryKind>(json.value("kind", 0)), json.value("text", std::string()), json.value("tool", std::string()), json.value("time", std::int64_t{0}), json.value("origin", std::string())});
         } catch (const cluster::Json::exception&) {}
     }
@@ -1942,6 +2284,17 @@ _cold void cluster::Session::loadHistory(void)
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->_data.entries = std::move(entries);
     this->_data.older = 0;
+    // its last real prompt, its last answer: a state saved before they were kept (kept_warm_hours, the cache) knows them from here
+    for (auto it = this->_data.entries.rbegin(); it != this->_data.entries.rend(); ++it)
+        if (it->kind == cluster::EntryKind::User && it->text != KEEP_WARM_PROMPT) {
+            this->_data.spec.usedAt = std::max(this->_data.spec.usedAt, it->time);
+            break;
+        }
+    for (auto it = this->_data.entries.rbegin(); it != this->_data.entries.rend(); ++it)
+        if (it->kind == cluster::EntryKind::Assistant) {
+            this->_data.spec.cachedAt = std::max(this->_data.spec.cachedAt, it->time);
+            break;
+        }
     this->trim_(); // its newest ones within the budget, the others counted in older
     this->touch_();
 }

@@ -54,7 +54,7 @@ _cold cluster::Json cluster::Manager::methodJson(void)
 {
     std::lock_guard<std::mutex> lock(method_mutex_);
     const cluster::Json state = method_state_();
-    const cluster::Config& config = this->_config;
+    const cluster::Config& config = this->config();
     const cluster::MethodPreset* preset = cluster::method_preset(config.workMethod);
     const bool pending = state.contains("pending");
     cluster::Json json = {{"method", preset != nullptr ? preset->id : std::string("free")}, {"label", preset != nullptr ? preset->label : std::string("Free (no method)")},
@@ -71,19 +71,19 @@ _cold cluster::Json cluster::Manager::methodJson(void)
 _cold bool cluster::Manager::methodSpawned(void)
 {
     // a session started by the global session: counted; true when the detection is due (the global session is told by the spawn)
-    if (!this->_config.workMethodDetect || this->_config.workMethodEvery <= 0) return false;
+    if (!this->config().workMethodDetect || this->config().workMethodEvery <= 0) return false;
     std::lock_guard<std::mutex> lock(method_mutex_);
     cluster::Json state = method_state_();
     const int spawned = state.value("spawned", 0) + 1;
     state["spawned"] = spawned;
     cluster::write_json(method_file_(), state);
-    return !state.contains("pending") && spawned >= this->_config.workMethodEvery;
+    return !state.contains("pending") && spawned >= this->config().workMethodEvery;
 }
 
 _cold cluster::Json cluster::Manager::methodSample(const std::size_t max)
 {
     // a small sample of how the user phrases requests, read from the transcripts (no model): counts over their last prompts and a few of them
-    if (!this->_config.workMethodDetect)
+    if (!this->config().workMethodDetect)
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the detection of the work method is off: the user turns it on in the settings (Agent > Detect the work method)");
     std::vector<std::filesystem::path> files;
     std::error_code error;
@@ -100,7 +100,7 @@ _cold cluster::Json cluster::Manager::methodSample(const std::size_t max)
         std::string line;
         while (std::getline(in, line)) {
             if (line.find("\"kind\":0") == std::string::npos) continue;   // a user prompt
-            const cluster::Json json = cluster::Json::parse(line, nullptr, false);
+            const cluster::Json json = cluster::json_parse(line, nullptr, false);
             if (!json.is_object() || json.value("kind", -1) != static_cast<int>(cluster::EntryKind::User)) continue;
             std::string text = cluster::trim(json.value("text", std::string()));
             if (text.starts_with("[voice]")) text = cluster::trim(text.substr(7));
@@ -132,14 +132,14 @@ _cold cluster::Json cluster::Manager::methodSample(const std::size_t max)
     for (std::size_t i = 0; i < wanted && pool > 0; ++i)
         sample.push_back(cluster::one_line(prompts[i * pool / wanted].second, 220));
     return {{"prompts_read", prompts.size()}, {"with_task_lists", lists}, {"asking_a_review", reviews}, {"asking_a_plan", plans}, {"short_one_liners", shorts},
-        {"sample", sample}, {"current", this->_config.workMethod},
+        {"sample", sample}, {"current", this->config().workMethod},
         {"next", "if the habits clearly differ from the current method: work_method action propose (preset, text, reason in one sentence); else do nothing"}};
 }
 
 _cold std::string cluster::Manager::methodPropose(const std::string& preset, const std::string& text, const std::string& reason)
 {
     // a proposal of the global session: the user answers Allow / Deny in their interface, only then is the setting written
-    if (!this->_config.workMethodDetect)
+    if (!this->config().workMethodDetect)
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the detection of the work method is off: the user turns it on in the settings (Agent > Detect the work method)");
     const cluster::MethodPreset* chosen = cluster::method_preset(preset);
     if (chosen == nullptr) {
@@ -150,7 +150,7 @@ _cold std::string cluster::Manager::methodPropose(const std::string& preset, con
     }
     const std::string own = cluster::one_line(cluster::trim(text), 400);
     const std::string why = cluster::one_line(cluster::trim(reason), 300);
-    if (chosen->id == this->_config.workMethod && own == this->_config.workMethodText)
+    if (chosen->id == this->config().workMethod && own == this->config().workMethodText)
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "this is already the method of the user");
     if (chosen->id == "custom" && own.empty())
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "custom needs a text");
@@ -178,9 +178,9 @@ _cold std::string cluster::Manager::methodPropose(const std::string& preset, con
             }
             if (answer == "Allow") {
                 try {
-                    (void)cluster::settings_set(this->_config, "agent", "work_method", id);
-                    (void)cluster::settings_set(this->_config, "agent", "work_method_text", own);
-                    (void)this->_config.reload();
+                    (void)cluster::settings_set(this->config(), "agent", "work_method", id);
+                    (void)cluster::settings_set(this->config(), "agent", "work_method_text", own);
+                    (void)this->config().reload();
                     said = "[reply] the user allowed the work method \"" + label + "\": applied (the sub-sessions take it at their next start, you at yours); split the requests accordingly";
                 } catch (const utils::exception::IException& e) {
                     said = "[reply] the user allowed the work method \"" + label + "\" but it was not written: " + e.info();

@@ -208,7 +208,7 @@ _cold static QString preview_html_(const std::string& source, const cluster::Sty
     const std::function<QString(const std::string&)> picture = [&](const std::string& raw) {
         return "<p><img src=\"" + QString::fromStdString(cluster::expand_home(cluster::trim(raw)).string()).toHtmlEscaped() + "\" width=\"420\"></p>";
     };
-    const cluster::Json block = text.starts_with("{") ? cluster::Json::parse(text, nullptr, false) : cluster::Json();
+    const cluster::Json block = text.starts_with("{") ? cluster::json_parse(text, nullptr, false) : cluster::Json();
     if (block.is_object() && block.contains("type")) {
         const std::string type = block.value("type", std::string());
         if (type == "image" && isPicture(block.value("path", std::string()))) return picture(block.value("path", std::string()));
@@ -235,7 +235,7 @@ _cold static QString preview_html_(const std::string& source, const cluster::Sty
             html += "<table cellspacing=\"2\">";
             for (std::size_t i = 0; i < values.size(); ++i) {
                 const double v = values[i].is_number() ? values[i].get<double>() : 0.0;
-                const int bar = biggest > 0 ? static_cast<int>(v / biggest * 260) : 0;
+                const int bar = biggest > 0 ? static_cast<int>(cluster::between(v, 0.0, biggest) * 260) : 0;
                 html += "<tr><td>" + escape(i < labels.size() && labels[i].is_string() ? labels[i].get<std::string>() : std::to_string(i + 1)) + "</td><td><table cellspacing=\"0\"><tr><td width=\""
                     + QString::number(std::max(1, bar)) + "\" bgcolor=\"" + q_(st.accent) + "\">&nbsp;</td></tr></table></td><td>" + QString::number(v) + "</td></tr>";
             }
@@ -384,7 +384,9 @@ class PromptEdit: public QPlainTextEdit {
         void apply(const bool final);
         bool addImage(const std::string& path, const bool insert = true); // false: this image was already in the prompt
         void attachFiles(const QStringList& paths, const int mode = 0);   // files of this computer: mode 0 asks link / copy, 1 copy, 2 link
-        void attachBytes(const std::string& name, const std::string& bytes);   // a picture of the clipboard / a drop: copied
+        void attachBytes(const std::string& name, std::string bytes);          // a picture of the clipboard / a drop: copied
+        void attachJob(const std::string& name, std::function<cluster::Attachment(const std::string&)> make); // in the worker: its popup, its result back in the prompt
+        _nodiscard bool attachPicture(const QMimeData* mime, const std::string& name);                        // the picture of a clipboard / a drop; false: none
         void attachOne(const cluster::Attachment& item);                       // in the prompt: [Image #N] or @path
         void reset(void);
         _nodiscard std::string raw(void) const      {return this->completion.atomize(this->text().toStdString());}; // labels -> atoms
@@ -408,7 +410,7 @@ class AtomHighlighter: public QSyntaxHighlighter {
             QColor back = this->_edit->palette().color(QPalette::Highlight);
             back.setAlpha(45);
             format.setBackground(back);
-            for (std::size_t i = 0; i < this->_edit->completion.atomCount(); ++i) {
+            for (const std::size_t i: this->_edit->completion.promptAtoms()) { // the ones of this prompt: the label of an earlier one is a plain text now
                 const QString label = QString::fromStdString(this->_edit->completion.atom(i).label);
                 for (int at = text.indexOf(label); at >= 0; at = text.indexOf(label, at + 1))
                     this->setFormat(at, static_cast<int>(label.size()), format);
@@ -716,7 +718,7 @@ class TermView: public QWidget {
             this->setCursor(Qt::IBeamCursor);
             this->setAttribute(Qt::WA_OpaquePaintEvent);
             this->_pty = cluster::pty_spawn(this->_vt.cols(), this->_vt.rows(), false);
-            this->_reader = std::thread([this]() {
+            this->_reader = cluster::guarded([this]() {
                 std::array<char, 16384> chunk{};
                 while (true) {
                     const ssize_t size = ::read(this->_pty.fd, chunk.data(), chunk.size());
@@ -1517,7 +1519,8 @@ class Window: public QMainWindow {
                 }
             }
             this->quitDecided = true;
-            if (this->input) this->manager.draftSave("gui", this->input->draft()); // what is typed and not sent: kept for the next start
+            this->worker.stop(); // the running job ends first
+            if (this->input) this->manager.draftSave("gui", this->input->draft()); // what is typed and not sent: kept for the next start (after it: its last word)
             QMainWindow::closeEvent(event);
         }
 
@@ -1790,6 +1793,10 @@ class Window: public QMainWindow {
             QString html = "<b>" + span_(p->done ? (p->ok ? st.ok : st.error) : st.accent, q_(mark)) + "&nbsp; " + esc_(p->title) + "</b> &nbsp;"
                 + span_(st.muted, QString::number(((p->done ? p->ended : now) - p->started) / 1000) + "s") + "<br>";
             if (!p->now.empty()) html += span_(p->done ? (p->ok ? st.ok : st.error) : st.text, esc_(p->now)) + "<br>";
+            if (!p->done && p->percent >= 0) { // a bar of its text: nothing to lay out again 8 times a second
+                html += span_(st.accent, QString(p->percent / 4, QChar(0x2588))) + span_(st.border, QString(25 - p->percent / 4, QChar(0x2591))) + " "
+                    + span_(st.muted, QString::number(p->percent) + "%") + "<br>";
+            }
             for (const std::string& line: p->log)
                 html += "<span style=\"color:" + q_(st.muted) + ";font-family:monospace;font-size:9pt\">" + esc_(cluster::one_line(line, 110)) + "</span><br>";
             this->progressLabel->setText(html);
@@ -4577,7 +4584,9 @@ class Window: public QMainWindow {
                 QTimer* keep = new QTimer(this);
                 keep->setSingleShot(true);
                 keep->setInterval(700);
-                QObject::connect(keep, &QTimer::timeout, this, [this]() {this->manager.draftSave("gui", this->input->draft());});
+                QObject::connect(keep, &QTimer::timeout, this, [this]() { // a big paste in it: never the window waiting
+                    this->worker.push([this, draft = this->input->draft()]() {this->manager.draftSave("gui", draft);});
+                });
                 QObject::connect(this->input, &QPlainTextEdit::textChanged, keep, [keep]() {keep->start();});
                 QTimer::singleShot(0, this, [this]() { // once the prompt and its chips exist
                     if (!this->input->toPlainText().trimmed().isEmpty()) return;
@@ -4981,8 +4990,16 @@ class Window: public QMainWindow {
                 else this->run({"auth_login:" + name, "", "", "", false}, "");
                 return;
             }
+            if (key.starts_with("sound_")) { // the soundboard of the Debug page: at once, the settings stay open
+                try {
+                    this->message(this->manager.playSound(key.substr(6)), false);
+                } catch (const utils::exception::IException& e) {
+                    this->message(e.info(), true);
+                }
+                return;
+            }
             if (key.starts_with("showcase_")) {
-                std::thread([this, what = key.substr(9)]() {
+                cluster::guarded([this, what = key.substr(9)]() {
                     std::string done;
                     bool error = false;
                     try {
@@ -5230,7 +5247,8 @@ class Window: public QMainWindow {
                     }
                     if (k == now->index) {
                         if (now->cursor == count && (now->index != lastIndex || now->cursor != lastCursor)) rows[k].other->setChecked(true);
-                        if (rows[k].text->text().toStdString() != now->other) rows[k].text->setText(q_(now->other));
+                        // never over what is being written here, nor wiped: its text only when another way gave one (the voice, the page)
+                        if (!rows[k].text->hasFocus() && !now->other.empty() && rows[k].text->text().toStdString() != now->other) rows[k].text->setText(q_(now->other));
                     }
                 }
                 lastIndex = now->index;
@@ -5535,13 +5553,54 @@ void PromptEdit::attachOne(const cluster::Attachment& item)
     else this->insert(q_("@" + item.path + " "));
 }
 
-void PromptEdit::attachBytes(const std::string& name, const std::string& bytes)
+void PromptEdit::attachJob(const std::string& name, std::function<cluster::Attachment(const std::string&)> make)
 {
-    try {
-        this->attachOne(cluster::attach_store(this->window->manager.config(), this->window->active, name, bytes));
-    } catch (const utils::exception::IException& e) {
-        this->window->message(std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info()), true);
+    // in the worker: a big file, a big picture (its conversion takes seconds) never stops the window; its popup when it takes time, its result back here
+    const std::string session = this->window->active;
+    this->window->worker.push([this, name, make = std::move(make), session]() {
+        cluster::Busy busy(this->window->manager, "Importing " + name, session);
+        try {
+            const cluster::Attachment item = make(session);
+            busy.end(true, "imported (" + cluster::size_text(item.size) + ")");
+            QMetaObject::invokeMethod(this, [this, item]() {this->attachOne(item);});
+        } catch (const std::exception& e) {
+            const utils::exception::IException* detail = dynamic_cast<const utils::exception::IException*>(&e);
+            const std::string why = detail != nullptr && !std::string(detail->info()).empty() ? std::string(detail->info()) : std::string(e.what());
+            busy.end(false, why);
+            QMetaObject::invokeMethod(this, [this, why]() {this->window->message(why, true);});
+        }
+    });
+}
+
+void PromptEdit::attachBytes(const std::string& name, std::string bytes)
+{
+    this->attachJob(name, [this, name, bytes = std::move(bytes)](const std::string& session) {
+        return cluster::attach_store(this->window->manager.config(), session, name, bytes);
+    });
+}
+
+bool PromptEdit::attachPicture(const QMimeData* mime, const std::string& name)
+{
+    // as its source gives it when it is a file format (never decoded to be coded again: seconds on a big picture), else coded in the worker
+    for (const auto &[format, extension]: std::array<std::pair<const char*, const char*>, 4>{{{"image/png", ".png"}, {"image/jpeg", ".jpg"}, {"image/webp", ".webp"}, {"image/gif", ".gif"}}}) {
+        if (!mime->hasFormat(format)) continue;
+        const QByteArray bytes = mime->data(format);
+        if (bytes.isEmpty()) continue;
+        this->attachBytes(name + extension, bytes.toStdString());
+        return true;
     }
+    if (!mime->hasImage()) return false;
+    const QImage image = qvariant_cast<QImage>(mime->imageData());
+    if (image.isNull()) return false;
+    this->attachJob(name + ".png", [this, image, name](const std::string& session) {
+        cluster::busy_step("Coding the picture (" + std::to_string(image.width()) + " x " + std::to_string(image.height()) + ")");
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        if (!image.save(&buffer, "PNG")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "this picture could not be coded");
+        return cluster::attach_store(this->window->manager.config(), session, name + ".png", bytes.toStdString());
+    });
+    return true;
 }
 
 void PromptEdit::attachFiles(const QStringList& paths, const int mode)
@@ -5571,18 +5630,13 @@ void PromptEdit::attachFiles(const QStringList& paths, const int mode)
             this->window->message("at most " + std::to_string(config.attach.maxFiles) + " files per prompt (settings: Attachments)", true);
             break;
         }
-        try {
-            if (link) {
-                this->attachOne(cluster::attach_link(config, this->window->active, path.toStdString(), cluster::AttachScope::User));
-            } else {
-                std::ifstream file(path.toStdString(), std::ios::binary);
-                const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-                this->attachOne(cluster::attach_store(config, this->window->active, QFileInfo(path).fileName().toStdString(), bytes));
-            }
-            ++count;
-        } catch (const utils::exception::IException& e) {
-            this->window->message(std::string(e.info()).empty() ? std::string(e.what()) : std::string(e.info()), true);
-        }
+        // one after the other, in the worker: each its popup when it takes time (its percent)
+        const std::string file = path.toStdString();
+        this->attachJob(QFileInfo(path).fileName().toStdString(), [this, file, link](const std::string& session) {
+            const cluster::Config& settings = this->window->manager.config();
+            return link ? cluster::attach_link(settings, session, file, cluster::AttachScope::User) : cluster::attach_file(settings, session, file);
+        });
+        ++count;
     }
 }
 
@@ -5597,16 +5651,7 @@ void PromptEdit::insertFromMimeData(const QMimeData* source)
             return;
         }
     }
-    if (source->hasImage() && !source->hasText()) { // a picture dragged from a browser / an editor
-        const QImage image = qvariant_cast<QImage>(source->imageData());
-        QByteArray bytes;
-        QBuffer buffer(&bytes);
-        buffer.open(QIODevice::WriteOnly);
-        if (!image.isNull() && image.save(&buffer, "PNG")) {
-            this->attachBytes("image.png", bytes.toStdString());
-            return;
-        }
-    }
+    if (source->hasImage() && !source->hasText() && this->attachPicture(source, "image")) return; // a picture dragged from a browser / an editor
     if (source->hasText() && !source->hasImage()) {
         this->insertPlainText(QString::fromStdString(this->completion.shown(this->completion.newPaste(source->text().toStdString()))));
         return;
@@ -5870,16 +5915,7 @@ void PromptEdit::keyPressEvent(QKeyEvent* event)
     if (event->matches(QKeySequence::Paste)) {
         // an image of the clipboard: saved, [Image #N] in the prompt, previewed on hover of its chip
         const QMimeData* mime = QApplication::clipboard()->mimeData();
-        if (mime && mime->hasImage()) {
-            const QImage image = qvariant_cast<QImage>(mime->imageData());
-            QByteArray bytes;
-            QBuffer buffer(&bytes);
-            buffer.open(QIODevice::WriteOnly);
-            if (!image.isNull() && image.save(&buffer, "PNG")) {
-                this->attachBytes("clipboard.png", bytes.toStdString()); // stored with the attachments of the session (caps, EXIF, purge)
-                return;
-            }
-        }
+        if (mime && mime->hasImage() && this->attachPicture(mime, "clipboard")) return; // stored with the attachments of the session (caps, EXIF, purge)
     }
     QPlainTextEdit::keyPressEvent(event);
 }
@@ -5968,11 +6004,15 @@ _cold static QImage chart_(const cluster::Json& d, const cluster::Style& st)
     return image;
 }
 
+constexpr int PICTURE_MAX = 2000;               // a heatmap drawn here, its pixels each way
+constexpr std::size_t TIMELINE_TASKS = 300;     // a timeline drawn here, its tasks
+
 _cold static QImage timeline_(const cluster::Json& d, const cluster::Style& st)
 {
-    // a Gantt: a bar per task on the span of all of them, its name on its left, its dates on its right
+    // a Gantt: a bar per task on the span of all of them, its name on its left, its dates on its right; a few hundred at most (26 pixels each, kept with the view)
     const cluster::Json& tasks = d["tasks"];
-    QImage image(680, 30 + static_cast<int>(tasks.size()) * 26, QImage::Format_ARGB32_Premultiplied);
+    const std::size_t shown = std::min(tasks.size(), TIMELINE_TASKS);
+    QImage image(680, 30 + static_cast<int>(shown) * 26 + (shown < tasks.size() ? 20 : 0), QImage::Format_ARGB32_Premultiplied);
     image.fill(QColor(q_(st.surface)));
     QPainter p(&image);
     p.setRenderHint(QPainter::Antialiasing);
@@ -5984,11 +6024,15 @@ _cold static QImage timeline_(const cluster::Json& d, const cluster::Style& st)
         high = std::max(high, task.value("to", 0.0));
     }
     const double span = std::max(1e-9, high - low);
-    const QRectF area(150, 10, 420, static_cast<double>(tasks.size()) * 26);
+    const QRectF area(150, 10, 420, static_cast<double>(shown) * 26);
     QFont font = p.font();
     font.setPointSize(8);
     p.setFont(font);
-    for (std::size_t k = 0; k < tasks.size(); ++k) {
+    if (shown < tasks.size()) {
+        p.setPen(QColor(q_(st.muted)));
+        p.drawText(QPointF(4, area.bottom() + 24), "… " + QString::number(tasks.size() - shown) + " more tasks");
+    }
+    for (std::size_t k = 0; k < shown; ++k) {
         const double y = area.top() + static_cast<double>(k) * 26;
         const double a = area.left() + (tasks[k].value("from", 0.0) - low) / span * area.width();
         const double b = area.left() + (tasks[k].value("to", 0.0) - low) / span * area.width();
@@ -6006,7 +6050,8 @@ _cold static QImage timeline_(const cluster::Json& d, const cluster::Style& st)
 
 _cold static QImage heatmap_(const cluster::Json& d, const cluster::Style& st)
 {
-    // a cell per value, from the surface to the accent; its labels
+    // a cell per value, from the surface to the accent; its labels. PICTURE_MAX pixels each way at most, whatever the JSON says (1800 empty rows under 1800 empty cells: 17 KB
+    // for a picture of a gigabyte): the cells get smaller, 2 pixels at least, then what does not fit is cut (told under it)
     const cluster::Json& rows = d["rows"];
     std::size_t columns = 0;
     double high = 0.0;
@@ -6015,8 +6060,15 @@ _cold static QImage heatmap_(const cluster::Json& d, const cluster::Style& st)
         for (const cluster::Json& v: row)
             if (v.is_number()) high = std::max(high, v.get<double>());
     }
-    const int size = std::clamp(600 / static_cast<int>(std::max<std::size_t>(1, columns)), 8, 28);
-    QImage image(50 + static_cast<int>(columns) * size + 10, 24 + static_cast<int>(rows.size()) * size + 10, QImage::Format_ARGB32_Premultiplied);
+    const int roomX = PICTURE_MAX - 60;
+    const int roomY = PICTURE_MAX - 50;
+    const int wide = static_cast<int>(std::clamp<std::size_t>(columns, 1, PICTURE_MAX));
+    const int tall = static_cast<int>(std::clamp<std::size_t>(rows.size(), 1, PICTURE_MAX));
+    const int size = std::max(2, std::min({std::clamp(600 / wide, 8, 28), roomX / wide, roomY / tall}));
+    const std::size_t shownColumns = std::min(columns, static_cast<std::size_t>(roomX / size));
+    const std::size_t shownRows = std::min(rows.size(), static_cast<std::size_t>(roomY / size));
+    const bool cut = shownColumns < columns || shownRows < rows.size();
+    QImage image(50 + static_cast<int>(shownColumns) * size + 10, 24 + static_cast<int>(shownRows) * size + 10 + (cut ? 16 : 0), QImage::Format_ARGB32_Premultiplied);
     image.fill(QColor(q_(st.surface)));
     QPainter p(&image);
     QFont font = p.font();
@@ -6026,20 +6078,23 @@ _cold static QImage heatmap_(const cluster::Json& d, const cluster::Style& st)
     const QColor top(q_(st.accent));
     const cluster::Json ylabels = d.value("ylabels", cluster::Json::array());
     const cluster::Json xlabels = d.value("xlabels", cluster::Json::array());
-    for (std::size_t r = 0; r < rows.size(); ++r) {
+    const int gap = size > 4 ? 2 : 0; // the smallest cells touch each other
+    const bool labeled = size >= 8;   // a text in a smaller one: a smudge
+    for (std::size_t r = 0; r < shownRows; ++r) {
         p.setPen(QColor(q_(st.muted)));
-        if (r < ylabels.size() && ylabels[r].is_string()) p.drawText(QRectF(2, 20 + static_cast<double>(r) * size, 44, size), Qt::AlignVCenter | Qt::AlignRight, q_(ylabels[r].get<std::string>()));
-        for (std::size_t c = 0; c < rows[r].size(); ++c) {
+        if (labeled && r < ylabels.size() && ylabels[r].is_string()) p.drawText(QRectF(2, 20 + static_cast<double>(r) * size, 44, size), Qt::AlignVCenter | Qt::AlignRight, q_(ylabels[r].get<std::string>()));
+        for (std::size_t c = 0; c < rows[r].size() && c < shownColumns; ++c) {
             const cluster::Json& v = rows[r][c];
-            const double ratio = v.is_number() && high > 0 ? v.get<double>() / high : 0.0;
+            const double ratio = v.is_number() && high > 0 ? cluster::between(v.get<double>(), 0.0, high) : 0.0;
             const QColor color = !v.is_number() ? QColor(q_(st.surface)).darker(110) : QColor::fromRgbF(low.redF() + (top.redF() - low.redF()) * static_cast<float>(ratio),
                 low.greenF() + (top.greenF() - low.greenF()) * static_cast<float>(ratio), low.blueF() + (top.blueF() - low.blueF()) * static_cast<float>(ratio));
-            p.fillRect(QRectF(50 + static_cast<double>(c) * size, 20 + static_cast<double>(r) * size, size - 2, size - 2), color);
+            p.fillRect(QRectF(50 + static_cast<double>(c) * size, 20 + static_cast<double>(r) * size, size - gap, size - gap), color);
         }
     }
     p.setPen(QColor(q_(st.muted)));
-    for (std::size_t c = 0; c < xlabels.size() && c < columns; ++c)
+    for (std::size_t c = 0; labeled && c < xlabels.size() && c < shownColumns; ++c)
         if (xlabels[c].is_string()) p.drawText(QPointF(50 + static_cast<double>(c) * size, 14), q_(xlabels[c].get<std::string>()));
+    if (cut) p.drawText(QPointF(4, image.height() - 6), "… cut: " + QString::number(shownColumns) + " x " + QString::number(shownRows) + " of " + QString::number(columns) + " x " + QString::number(rows.size()));
     return image;
 }
 
@@ -6353,9 +6408,7 @@ _cold static void agent_window_(Window* window, const std::string& session, cons
             text += e.kind == cluster::EntryKind::Tool ? "▸ " + e.tool + " " + e.text + "\n" : e.kind == cluster::EntryKind::ToolResult || e.kind == cluster::EntryKind::Error ? "  " + e.text + "\n" : e.text + "\n\n";
         }
         if (!a->outputFile.empty()) {
-            std::string out = cluster::read_small(a->outputFile);
-            if (out.size() > 8000) out = out.substr(out.size() - 8000);
-            text += cluster::clean_utf8(out);
+            text += cluster::clean_utf8(cluster::read_end(a->outputFile, 8000));
         }
         if (!a->summary.empty()) text += "\n⤷ " + a->summary;
         if (text == *last) return;
@@ -6424,7 +6477,7 @@ _cold static void agents_dialog_(Window* window, const std::string& session)
             const cluster::SubAgent& a = (*shown)[static_cast<std::size_t>(row)];
             const bool shell = a.kind == "shell";
             const std::string tag = a.label.empty() ? std::string() : a.label == "dangerous" ? " · ⚠ dangerous" : " · safe"; // an update stops a young safe one
-            const std::vector<std::string> cells = {agent_state_(a), a.description.empty() ? a.type : a.description, (shell ? std::string("$ shell") : a.type + (a.background ? " · background" : "")) + tag,
+            const std::vector<std::string> cells = {agent_state_(a), a.description.empty() ? a.type : a.description, (shell ? std::string("$ shell") : a.type + (a.background ? " · background" : " · foreground")) + tag,
                 shell ? std::string("-") : a.model.empty() ? std::string("not seen yet") : a.model, shell ? std::string("-") : (a.effort.empty() ? effort : "think " + a.effort) + " (its session)",
                 agent_time_(a), a.tokens > 0 ? cluster::human_tokens(a.tokens) : std::string("-"), std::to_string(a.toolUses), a.lastTool};
             for (int col = 0; col < static_cast<int>(cells.size()); ++col) {
@@ -6832,10 +6885,15 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                 case cluster::EntryKind::System: html += "<div style=\"margin-top:10px\">" + entryAnchor(i) + span_(st.muted, "· " + esc_(text)) + "</div>"; break;
                 case cluster::EntryKind::Error: html += "<div style=\"margin-top:10px\">" + entryAnchor(i) + span_(st.error, "✗ " + esc_(text)) + "</div>"; break;
                 case cluster::EntryKind::Display: {
-                    const cluster::Json d = cluster::Json::parse(e.text, nullptr, false);
+                    const cluster::Json d = cluster::json_parse(e.text, nullptr, false);
                     if (d.is_object()) {
-                        QString block = this->displayHtml(d, s.spec.id + "-" + std::to_string(e.time) + "-" + std::to_string(i), st, expanded);
-                        html += block.left(block.indexOf('>') + 1) + entryAnchor(i) + block.mid(block.indexOf('>') + 1);   // its anchor inside its first element
+                        // of an unexpected shape (an agent wrote it, it stays in the log): said in its place, never the end of this window at each drawing
+                        try {
+                            QString block = this->displayHtml(d, s.spec.id + "-" + std::to_string(e.time) + "-" + std::to_string(i), st, expanded);
+                            html += block.left(block.indexOf('>') + 1) + entryAnchor(i) + block.mid(block.indexOf('>') + 1);   // its anchor inside its first element
+                        } catch (const std::exception&) {
+                            html += "<div>" + entryAnchor(i) + span_(st.muted, "· (a display of an unexpected shape)") + "</div>";
+                        }
                     }
                     break;
                 }
@@ -6926,7 +6984,7 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
                 this->olderAsked = cluster::now_ms();
                 this->shownEntries += 400;
                 this->lastKey.clear();
-                std::thread([m = &manager, id = s.spec.id]() {
+                cluster::guarded([m = &manager, id = s.spec.id]() {
                     try {
                         (void)m->loadOlder(id, 400);
                     } catch (const std::exception&) {} // the core gone: asked again at the top
@@ -7004,8 +7062,13 @@ void SessionView::update(const cluster::Snapshot& s, const cluster::Style& st, c
             + line("last turn", m.costKnown ? cluster::human_cost(m.lastCost) : "-")
             + line(cluster::keep_warm_on(manager.config(), s) ? "cache ♨" : "cache", cluster::cache_text(manager.config(), s)); // before it unloads
         if (manager.config().budget > 0) p += line("budget", cluster::human_cost(manager.config().budget));
-        if (m.limit5h >= 0) p += line("5h limit", std::to_string(static_cast<int>(m.limit5h * 100)) + "%");
-        if (m.limit7d >= 0) p += line("7d limit", std::to_string(static_cast<int>(m.limit7d * 100)) + "%");
+        // its reset: how long before it
+        const std::function<std::string(const char*, std::int64_t)> limit = [](const char* name, const std::int64_t reset) {
+            const std::string left = cluster::left_time(reset);
+            return std::string(name) + (left.empty() ? "" : " (" + left + ")");
+        };
+        if (m.limit5h >= 0) p += line(limit("5h limit", m.reset5h), std::to_string(static_cast<int>(m.limit5h * 100)) + "%");
+        if (m.limit7d >= 0) p += line(limit("7d limit", m.reset7d), std::to_string(static_cast<int>(m.limit7d * 100)) + "%");
         p += "</table>";
     }
     if (s.spec.panels.contains("usage")) {
@@ -7242,7 +7305,7 @@ _cold int cluster::supervisor_gui(std::string& open)
     const std::function<void(const std::string&, const std::string&)> act = [&](const std::string& target, const std::string& action) {
         if (target.empty()) return;
         note->setText("…");
-        std::thread([&window, note, target, action]() {
+        cluster::guarded([&window, note, target, action]() {
             std::string done;
             try {
                 done = cluster::supervisor_act(target, action);
@@ -7313,7 +7376,7 @@ _cold int cluster::supervisor_gui(std::string& open)
     button("Start", [&]() {act(chosen(), "start");});
     button("Web on / off", [&]() {
         note->setText("…");
-        std::thread([&window, note]() {
+        cluster::guarded([&window, note]() {
             const std::string done = cluster::supervisor_web_toggle();
             QMetaObject::invokeMethod(&window, [note, done]() {note->setText(q_(done));}, Qt::QueuedConnection);
         }).detach();
@@ -7517,6 +7580,22 @@ _cold int cluster::supervisor_gui(std::string& open)
     return 0;
 }
 
+// what a handler of the window throws: in the debug log, the window goes on (through the loop of Qt: std::terminate, its prompt lost)
+class GuardedApplication: public QApplication {
+    public:
+        using QApplication::QApplication;
+
+        bool notify(QObject* receiver, QEvent* event) override
+        {
+            try {
+                return QApplication::notify(receiver, event);
+            } catch (const std::exception& e) {
+                cluster::debug("render", std::string("a handler of the window failed: ") + e.what());
+            }
+            return false;
+        }
+};
+
 _cold int cluster::run_gui(cluster::App& app)
 {
     int argc = 1;
@@ -7526,7 +7605,7 @@ _cold int cluster::run_gui(cluster::App& app)
     // registration refused, "Connection already associated with an application ID")
     QApplication::setApplicationName("claude-cluster");
     QGuiApplication::setDesktopFileName("claude-cluster"); // the dock: its .desktop and its icon
-    QApplication application(argc, argv);
+    GuardedApplication application(argc, argv);
     cluster::debug("render", "window: Qt " + std::string(qVersion()) + " on " + QGuiApplication::platformName().toStdString() + ", scale "
         + std::to_string(application.devicePixelRatio()).substr(0, 4) + ", " + (app.options.values.contains("ttymode") || app.config.guiMode == "tty" ? "terminal mode" : "gui mode"));
     if (app.options.values.contains("ttymode") || app.config.guiMode == "tty") {

@@ -68,18 +68,23 @@ _cold static std::int64_t iso_time_(const std::string& text)
     return static_cast<std::int64_t>(::timegm(&tm));
 }
 
+_cold static std::int64_t count_of_(const cluster::Json& object, const char* key)
+{
+    // a number of a file of another tool: of another kind or out of any real count, nothing (value() throws on a text, a huge one would overflow the sums)
+    if (!object.is_object() || !object.contains(key) || !object[key].is_number()) return 0;
+    const double value = object[key].get<double>();
+    return value >= 0.0 && value < 1e15 ? static_cast<std::int64_t>(value) : 0;
+}
+
 _cold static cluster::Usage usage_of_(const cluster::Json& usage)
 {
     cluster::Usage result;
-    if (!usage.is_object()) return result;
-    result.input = usage.value("input_tokens", std::int64_t{0});
-    result.output = usage.value("output_tokens", std::int64_t{0});
-    result.cacheRead = usage.value("cache_read_input_tokens", std::int64_t{0});
-    result.cacheCreation = usage.value("cache_creation_input_tokens", std::int64_t{0});
-    if (usage.contains("cache_creation") && usage["cache_creation"].is_object())
-        result.cacheCreation1h = usage["cache_creation"].value("ephemeral_1h_input_tokens", std::int64_t{0});
-    if (usage.contains("output_tokens_details") && usage["output_tokens_details"].is_object())
-        result.thinking = usage["output_tokens_details"].value("thinking_tokens", std::int64_t{0});
+    result.input = count_of_(usage, "input_tokens");
+    result.output = count_of_(usage, "output_tokens");
+    result.cacheRead = count_of_(usage, "cache_read_input_tokens");
+    result.cacheCreation = count_of_(usage, "cache_creation_input_tokens");
+    if (usage.is_object() && usage.contains("cache_creation")) result.cacheCreation1h = count_of_(usage["cache_creation"], "ephemeral_1h_input_tokens");
+    if (usage.is_object() && usage.contains("output_tokens_details")) result.thinking = count_of_(usage["output_tokens_details"], "thinking_tokens");
     return result;
 }
 
@@ -201,8 +206,9 @@ _cold std::optional<cluster::Json> cluster::account_usage(void)
     const std::optional<cluster::Json> credentials = cluster::read_json(cluster::expand_home("~/.claude/.credentials.json"));
     if (!credentials || !credentials->is_object() || !credentials->contains("claudeAiOauth") || !(*credentials)["claudeAiOauth"].is_object()) return std::nullopt;
     const cluster::Json& oauth = (*credentials)["claudeAiOauth"];
-    const std::string token = oauth.value("accessToken", std::string());
-    const std::int64_t expires = oauth.value("expiresAt", std::int64_t{0});
+    // a file of another tool (a change of Claude Code): a field of another kind is no token, no date (value() throws on it, in the middle of the thread that reads the account)
+    const std::string token = oauth.contains("accessToken") && oauth["accessToken"].is_string() ? oauth["accessToken"].get<std::string>() : std::string();
+    const std::int64_t expires = count_of_(oauth, "expiresAt");
     if (token.empty() || token.size() > 4096 || (expires > 0 && expires / 1000 < cluster::now())) return std::nullopt;
     for (const char c: token)
         if (c < 0x21 || c > 0x7e) return std::nullopt; // a header: printable ASCII only
@@ -227,7 +233,7 @@ _cold std::optional<cluster::Json> cluster::account_usage(void)
     std::error_code ignored;
     std::filesystem::remove(headers, ignored);
     if (got.code != 0 || got.out.empty()) return std::nullopt;
-    const cluster::Json json = cluster::Json::parse(got.out, nullptr, false);
+    const cluster::Json json = cluster::json_parse(got.out, nullptr, false);
     if (!json.is_object() || !json.contains("five_hour")) return std::nullopt;
     return json;
 }
@@ -250,24 +256,28 @@ _cold std::optional<cluster::Json> cluster::account_usage_shared(const int maxAg
     };
     const std::function<std::optional<cluster::Json>(const std::optional<cluster::Json>&)> answer = [at](const std::optional<cluster::Json>& copy) -> std::optional<cluster::Json> {
         if (!copy || !copy->contains("usage") || !(*copy)["usage"].is_object()) return std::nullopt;
-        if (at != nullptr) *at = copy->value("at", std::int64_t{0});
+        if (at != nullptr) *at = count_of_(*copy, "at");
         return (*copy)["usage"];
     };
     // a failed read counts too (tried): the account asked again only once maxAge has passed, never at every tick
     const std::function<bool(const std::optional<cluster::Json>&)> fresh = [maxAge](const std::optional<cluster::Json>& copy) {
-        return copy && cluster::now() - std::max(copy->value("at", std::int64_t{0}), copy->value("tried", std::int64_t{0})) < maxAge;
+        return copy && cluster::now() - std::max(count_of_(*copy, "at"), count_of_(*copy, "tried")) < maxAge;
     };
     std::optional<cluster::Json> copy = read();
     if (fresh(copy)) return answer(copy);
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
     const std::filesystem::path lockPath = path.string() + ".lock";
-    const int lock = ::open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
-    if (lock < 0) return answer(copy);
-    if (::flock(lock, LOCK_EX | LOCK_NB) != 0) { // another core reads the account now: its copy at the next tick
-        ::close(lock);
-        return answer(copy);
-    }
+    // held as long as this read of the account, whatever ends it: an exception must not keep the other cores of the user waiting for good
+    struct Lock {
+        const int fd;
+        ~Lock()
+        {
+            if (this->fd >= 0) ::close(this->fd); // its flock with it
+        }
+    };
+    const Lock lock{::open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600)};
+    if (lock.fd < 0 || ::flock(lock.fd, LOCK_EX | LOCK_NB) != 0) return answer(copy); // another core reads the account now: its copy at the next tick
     copy = read(); // written meanwhile by the core that held the lock
     if (!fresh(copy)) {
         cluster::Json next = copy ? *copy : cluster::Json::object();
@@ -282,8 +292,6 @@ _cold std::optional<cluster::Json> cluster::account_usage_shared(const int maxAg
         } catch (const utils::exception::IException&) {} // not kept: this core asks again past maxAge
         copy = next;
     }
-    ::flock(lock, LOCK_UN);
-    ::close(lock);
     return answer(copy);
 }
 
@@ -352,31 +360,35 @@ _cold void cluster::Transcripts::read_(const std::filesystem::path& path, File& 
             if (end > 0 && at + line.size() >= end) break;
         }
         at += line.size() + 1;
+        file.offset = at; // up to here whatever comes next: a line never counted twice
         if (line.find("\"usage\"") == std::string::npos || line.find("\"assistant\"") == std::string::npos) continue;
-        const cluster::Json json = cluster::Json::parse(line, nullptr, false);
-        if (!json.is_object() || json.value("type", std::string()) != "assistant" || !json.contains("message") || !json["message"].is_object()) continue;
-        const cluster::Json& message = json["message"];
-        if (!message.contains("usage") || !message["usage"].is_object()) continue;
-        const std::string model = message.value("model", std::string());
-        if (cluster::vendor_of_model(model).empty()) continue;
-        const std::string key = message.value("id", std::string()) + "|" + json.value("requestId", std::string());
-        const std::int64_t time = iso_time_(json.value("timestamp", std::string()));
-        const std::string day = cluster::day_of(time > 0 ? time : cluster::now());
-        if (key != "|" && recent.contains(key)) continue;
-        recent[key] = day;
-        const cluster::Usage usage = usage_of_(message["usage"]);
-        cluster::UsageSum& sum = file.days[day][model];
-        sum.input += usage.input;
-        sum.cacheWrite += usage.cacheCreation;
-        sum.cacheWrite1h += usage.cacheCreation1h;
-        sum.cacheRead += usage.cacheRead;
-        sum.output += usage.output;
-        sum.thinking += usage.thinking;
-        sum.tokens += usage.input + usage.cacheCreation + usage.output;
-        sum.cache += usage.cacheRead;
-        ++sum.turns;
+        try { // a line of another shape (a file of another tool): that line skipped, the numbers of every other one kept
+            const cluster::Json json = cluster::json_parse(line, nullptr, false);
+            if (!json.is_object() || json.value("type", std::string()) != "assistant" || !json.contains("message") || !json["message"].is_object()) continue;
+            const cluster::Json& message = json["message"];
+            if (!message.contains("usage") || !message["usage"].is_object()) continue;
+            const std::string model = message.value("model", std::string());
+            if (cluster::vendor_of_model(model).empty()) continue;
+            const std::string key = message.value("id", std::string()) + "|" + json.value("requestId", std::string());
+            const std::int64_t time = iso_time_(json.value("timestamp", std::string()));
+            const std::string day = cluster::day_of(time > 0 ? time : cluster::now());
+            if (key != "|" && recent.contains(key)) continue;
+            recent[key] = day;
+            const cluster::Usage usage = usage_of_(message["usage"]);
+            cluster::UsageSum& sum = file.days[day][model];
+            sum.input += usage.input;
+            sum.cacheWrite += usage.cacheCreation;
+            sum.cacheWrite1h += usage.cacheCreation1h;
+            sum.cacheRead += usage.cacheRead;
+            sum.output += usage.output;
+            sum.thinking += usage.thinking;
+            sum.tokens += usage.input + usage.cacheCreation + usage.output;
+            sum.cache += usage.cacheRead;
+            ++sum.turns;
+        } catch (const cluster::Json::exception& e) {
+            cluster::debug("usage", path.string() + ": a line skipped: " + e.what());
+        }
     }
-    file.offset = at;
 }
 
 _cold void cluster::Transcripts::scan(const std::atomic<bool>& stop)
@@ -392,26 +404,34 @@ _cold void cluster::Transcripts::scan(const std::atomic<bool>& stop)
         recent = this->_recent;
     }
     bool changed = false;
+    bool whole = true; // every folder walked to its end
     std::set<std::string> seen;
     for (const std::filesystem::path& root: this->_roots) {
-        std::error_code error;
-        if (!std::filesystem::is_directory(root, error)) continue;
-        for (const std::filesystem::directory_entry& entry: std::filesystem::recursive_directory_iterator(root, std::filesystem::directory_options::skip_permission_denied, error)) {
-            if (error || stop) break;
+        std::error_code walk; // of the walk itself: its error alone ends it, not the one of a file in it (a dangling link)
+        if (!std::filesystem::is_directory(root, walk)) continue;
+        for (std::filesystem::recursive_directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, walk), end; it != end && !stop; it.increment(walk)) {
+            const std::filesystem::directory_entry& entry = *it;
+            std::error_code error;
             if (!entry.is_regular_file(error) || entry.path().extension() != ".jsonl") continue;
             const std::string path = entry.path().string();
             seen.insert(path);
             const std::uintmax_t size = entry.file_size(error);
+            if (error) continue; // gone meanwhile
             File& file = files[path];
             if (size < file.offset) file = File(); // written again from its start: read again
             if (size == file.size && size == file.offset) continue;
             file.size = size;
-            cluster::Transcripts::read_(entry.path(), file, recent);
             changed = true;
+            try { // what it could not read waits for the next scan: never the numbers of the others lost for it
+                cluster::Transcripts::read_(entry.path(), file, recent);
+            } catch (const std::exception& e) {
+                cluster::debug("usage", path + " not read: " + e.what());
+            }
         }
+        if (walk) whole = false;
     }
     if (stop) return;
-    for (auto it = files.begin(); it != files.end();) { // a transcript gone: its numbers too
+    for (auto it = files.begin(); it != files.end() && whole;) { // a transcript gone: its numbers too (not seen after a walk cut short: not gone)
         if (seen.contains(it->first)) ++it;
         else {
             it = files.erase(it);

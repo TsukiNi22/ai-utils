@@ -175,6 +175,7 @@ button.help { padding: 0 7px; margin-left: 8px; font-size: 12px; border-radius: 
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
 .progress-card .head { display: flex; gap: 8px; align-items: baseline; } .progress-card .mark { color: var(--accent); font-weight: 700; }
 .progress-card .mark.ok, .progress-card .now.ok { color: var(--ok, #3fb950); } .progress-card .mark.bad, .progress-card .now.bad { color: var(--error); }
+.progress-card progress { display: block; width: 100%; height: 8px; margin: 2px 0 6px; accent-color: var(--accent); } .progress-card button { margin-top: 4px; }
 .progress-card .now { margin: 6px 0 4px; } .progress-card .log { color: var(--muted); font-family: var(--mono, monospace); font-size: 12px; opacity: .8;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tasks-view { padding: 4px 6px 20px; } .tasks-view h3 { color: var(--accent); margin: 18px 0 2px; font-size: 15px; } .tasks-view .muted { color: var(--muted); font-size: 12px; }
@@ -1016,6 +1017,26 @@ async function saveFile(path, name, button) {
 }
 $("caDownload").addEventListener("click", (e) => saveFile("/ca.crt", "claude-cluster-ca.crt", e.target));
 
+// Open, a file of a display in a tab: a blob has the origin of this page and none of the headers of /api/file (attachment, sandbox), so only what holds no page of an agent goes as it is
+// (a picture, a PDF, a sound, a video): the type of its blob; an HTML, an SVG, an XML opened that way would be a page of this origin, its forms posting as this device: its text; the rest: ""
+function fileOpening(mime) {
+    const type = String(mime || "").split(";")[0].trim().toLowerCase();
+    if (/^(image\/(png|jpeg|gif|webp|avif|bmp)|application\/pdf|audio\/(mpeg|wav|ogg|flac)|video\/(mp4|webm))$/.test(type)) return type;
+    return /^text\/|[\/+](json|xml)$/.test(type) ? "text/plain;charset=utf-8" : "";
+}
+
+async function openFile(url, f, button) {
+    const type = fileOpening(f.mime);
+    // an archive, an app...: nothing a tab shows, saved under its name; the app shows no blob at all (its links go to the browser, which has none of them): saved in its Download
+    if (!type || (window.ClusterApp && window.ClusterApp.save)) { await saveFile(url, f.name, button); return; }
+    const response = await fetch(url, {cache: "no-store"});
+    if (!response.ok) throw new Error(response.status === 404 ? "not on this computer" : response.statusText);
+    const blob = new Blob([await response.blob()], {type}); // the type chosen here, never the one the answer tells
+    const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), target: "_blank", rel: "noopener"});
+    document.body.append(a); a.click(); a.remove();
+    if (/html|svg|xml/i.test(f.mime)) toast(f.name + ": shown as text, a page of an agent never runs here (Download, then open the file)");
+}
+
 // the service worker: the notifications of Chrome on Android, a click on one opens its session
 let worker = null;
 if ("serviceWorker" in navigator && window.isSecureContext && !window.ClusterApp) {
@@ -1396,8 +1417,22 @@ function render(state) {
 let progressList = [];   // the queue of the computer (running, results < 1.5 s), its clock
 let progressNow = 0;
 let progressAt = 0;
+const importing = [];    // what this page imports (a file being sent, a big text): its popup like theirs, on the clock of this device
+function importBegin(title) {
+    const p = {title, now: "", percent: -1, log: [], done: false, ok: true, started: Date.now(), ended: 0, local: true};
+    importing.push(p);
+    return p;
+}
+function importEnd(p, ok, text) {
+    Object.assign(p, {done: true, ok, now: text, percent: -1, ended: Date.now()});
+    renderProgress();
+}
 function progressFirst() {
     // the first one visible: running for 0.4 s, or its result (1.5 s; when it ran 0.4 s)
+    const here = Date.now();
+    for (let i = importing.length - 1; i >= 0; i--) if (importing[i].done && here - importing[i].ended >= 1500) importing.splice(i, 1);
+    const mine = importing.find((p) => !p.done ? here - p.started >= 400 : p.ended - p.started >= 400 && here - p.ended < 1500);
+    if (mine) return mine;
     const now = progressNow + (Date.now() - progressAt);
     return progressList.find((p) => !p.done ? now - p.started >= 400 : p.ended - p.started >= 400 && now - p.ended < 1500) || null;
 }
@@ -1411,7 +1446,7 @@ function renderProgress(list, now) {
     let card = $("progressCard");
     if (!p) { if (card) card.remove(); return; }
     if (!card) { card = el("div", "progress-card"); card.id = "progressCard"; document.body.append(card); }
-    const clock = progressNow + (Date.now() - progressAt);
+    const clock = p.local ? Date.now() : progressNow + (Date.now() - progressAt);
     const mark = p.done ? (p.ok ? "✓" : "✗") : "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[Math.floor(Date.now() / 90) % 10];
     card.textContent = "";
     const head = el("div", "head");
@@ -1419,9 +1454,16 @@ function renderProgress(list, now) {
         el("span", "muted", " " + Math.floor(((p.done ? p.ended : clock) - p.started) / 1000) + "s"));
     card.append(head);
     if (p.now) card.append(el("div", "now" + (p.done ? (p.ok ? " ok" : " bad") : ""), p.now));
+    if (!p.done && p.percent >= 0) { const bar = el("progress"); bar.max = 100; bar.value = p.percent; card.append(bar); }
     for (const line of p.log || []) card.append(el("div", "log", line));
+    if (!p.done && p.cancel) { // on the press: this card is drawn again 8 times a second, a click would lose its button between its press and its release
+        const cancel = el("button", "", "Cancel");
+        cancel.type = "button";
+        cancel.addEventListener("pointerdown", (e) => { e.preventDefault(); p.cancel(); });
+        card.append(cancel);
+    }
 }
-setInterval(() => { if (progressList.length) { renderProgress(); renderFailure(); } }, 120); // its popup at 0.4 s, its end, then the failure
+setInterval(() => { if (progressList.length || importing.length) { renderProgress(); renderFailure(); } }, 120); // its popup at 0.4 s, its end, then the failure
 
 // ---- what failed of what the user did (here or elsewhere): its card, OK (the default) / Retry ----
 let failureLocal = null;             // a request of this page failed: {action, source, error, retry, request}
@@ -1785,10 +1827,11 @@ function renderText(container, text) {
 const displays = new Map();     // session:index:time -> the display whole (its picture asked once)
 
 function inlineMarkdown(text) {
-    // escaped, then **bold**, *italic*, `code`, [text](http...)
+    // escaped, then **bold**, *italic*, `code`, [text](http...); a text of a link has no "[", its address stops at the next "](": each try ends there, never the
+    // rest of the line again for each "[" (a line of them written by an agent: the page frozen for minutes at each draw)
     const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     return esc.replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/\*([^*]+)\*/g, "<i>$1</i>")
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"'<>]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+        .replace(/\[([^\[\]]+)\]\((https?:\/\/(?:(?!\]\()[^)\s"'<>])+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
 }
 
 function markdown(text) {
@@ -1883,6 +1926,11 @@ function picture(d) {
     else img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(d.svg || "")));
     img.alt = d.alt || d.type;
     return img;
+}
+
+function drawDisplayKept(div, d) {
+    // of an unexpected shape (an agent wrote it): said in its place, the rest of the conversation drawn
+    try { drawDisplay(div, d); } catch (e) { div.textContent = "(a display of an unexpected shape)"; }
 }
 
 function drawDisplay(div, d) {
@@ -2234,13 +2282,7 @@ const more = {
             const get = Object.assign(document.createElement("button"), {className: "primary", textContent: "Download", type: "button"});
             get.addEventListener("click", () => saveFile(url, f.name, get));
             const open = Object.assign(document.createElement("button"), {textContent: "Open", type: "button"});
-            open.addEventListener("click", async () => {
-                try {
-                    const blob = await (await fetch(url, {cache: "no-store"})).blob();
-                    const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), target: "_blank", rel: "noopener"});
-                    document.body.append(a); a.click(); a.remove();
-                } catch (e) { toast(e.message); }
-            });
+            open.addEventListener("click", () => openFile(url, f, open).catch((e) => toast(e.message)));
             const row = document.createElement("div");
             row.className = "filebuttons";
             row.append(get, open);
@@ -2257,11 +2299,11 @@ function renderDisplay(div, m) {
     let d;
     try { d = JSON.parse(m.text); } catch (error) { div.textContent = "[display]"; return; }
     const key = current + ":" + m.index + ":" + m.time;
-    if (!d.heavy) { drawDisplay(div, d); return; }
-    if (displays.has(key)) { drawDisplay(div, displays.get(key)); return; }
+    if (!d.heavy) { drawDisplayKept(div, d); return; }
+    if (displays.has(key)) { drawDisplayKept(div, displays.get(key)); return; }
     div.textContent = "…";
     fetch(`/api/display?session=${encodeURIComponent(current)}&index=${m.index}`, {credentials: "same-origin"})
-        .then((r) => r.json()).then((full) => { displays.set(key, full); drawDisplay(div, full); })
+        .then((r) => r.json()).then((full) => { displays.set(key, full); drawDisplayKept(div, full); })
         .catch(() => { div.textContent = "[" + d.type + " not loaded]"; });
 }
 
@@ -2520,10 +2562,29 @@ function renderTranscript(messages, error, s) {
     }
 }
 
+function leftOf(at) {
+    // what is left before a reset, its two biggest units (as the terminal and the window): 3d5h, 4h40m, 40m12s, 12s; followed by " · "
+    const left = Math.floor(at - Date.now() / 1000);
+    if (left <= 0) return "";
+    const text = left >= 86400 ? Math.floor(left / 86400) + "d" + Math.floor(left % 86400 / 3600) + "h" : left >= 3600 ? Math.floor(left / 3600) + "h" + Math.floor(left % 3600 / 60) + "m"
+        : left >= 60 ? Math.floor(left / 60) + "m" + left % 60 + "s" : left + "s";
+    return text + " · ";
+}
+
+const askTyped = {};    // what is written in a question, by question, validated or not: never lost by the page drawn again
+let askOtherTimer = 0;
+let askDrawn = "";      // the question as it was last drawn
 function renderQuestion(a) {
     // the question of an agent (one at a time, shared with the computer and its voice): choose, Other, next / answer, back, decline
     const box = $("ask");
     shownAsk = "";
+    // the same as it is drawn: left alone (a field being written, its place in a list); changed: drawn again, the field being written still written in
+    const drawn = JSON.stringify(a) + "|" + current;
+    if (drawn === askDrawn && box.firstChild && !box.classList.contains("hidden")) return;
+    askDrawn = drawn;
+    const focused = document.activeElement;
+    const focusKind = focused && focused.dataset ? focused.dataset.askField : "";
+    const caret = focusKind ? [focused.selectionStart, focused.selectionEnd] : null;
     box.textContent = "";
     box.classList.remove("hidden");
     if (a.review) {
@@ -2585,8 +2646,16 @@ function renderQuestion(a) {
     });
     const other = document.createElement("input");
     other.placeholder = "Other (typed)";
-    other.value = a.other || "";
-    other.addEventListener("change", () => act({cmd: "ask", action: "other", text: other.value}));
+    const otherKey = a.request_id + ":" + a.index;
+    other.value = askTyped[otherKey] !== undefined ? askTyped[otherKey] : a.other || "";
+    other.dataset.askField = "other";
+    // kept as it is written, Enter or not: here (the page drawn again) and on the computer (its other interfaces, this question left and back)
+    other.addEventListener("input", () => {
+        askTyped[otherKey] = other.value;
+        clearTimeout(askOtherTimer);
+        askOtherTimer = setTimeout(() => { cmd({cmd: "ask", action: "other", text: other.value}).catch(() => {}); }, 300);
+    });
+    other.addEventListener("change", () => { clearTimeout(askOtherTimer); act({cmd: "ask", action: "other", text: other.value}); });
     box.append(other);
     const row = document.createElement("div");
     row.className = "row";
@@ -2615,11 +2684,16 @@ function renderQuestion(a) {
     if (a.chatting) chat.append(el("div", "ask-chat-assistant", "✻ …"));
     const chatInput = document.createElement("input");
     chatInput.placeholder = "Chat about this (Enter)";
+    const chatKey = a.request_id + ":chat";
+    chatInput.value = askTyped[chatKey] || "";
+    chatInput.dataset.askField = "chat";
+    chatInput.addEventListener("input", () => { askTyped[chatKey] = chatInput.value; });
     chatInput.addEventListener("keydown", (e) => {
         if (e.key !== "Enter" || !chatInput.value.trim()) return;
         e.preventDefault();
         const text = chatInput.value;
         chatInput.value = "";
+        askTyped[chatKey] = "";
         act({cmd: "ask", action: "chat", text}).then((d) => { if (d && d.done) toast(d.done); });
     });
     chat.append(chatInput);
@@ -2627,6 +2701,12 @@ function renderQuestion(a) {
     hint.textContent = (multi ? "tick the options, then Next · " : "a click or Validate records the answer, Next keeps it as it is · ") + "voice: a number or an option · valide / suivant · retour · autre <answer> · la globale · annule";
     hint.style.color = "var(--muted)";
     box.append(row, chat, hint);
+    // the field being written still has its keyboard, its cursor where it was
+    const back = focusKind === "other" ? other : focusKind === "chat" ? chatInput : null;
+    if (back) {
+        back.focus();
+        if (back.setSelectionRange && caret[0] !== null) back.setSelectionRange(caret[0], caret[1]);
+    }
 }
 
 // the preview of an option: markdown (headings, bullets, tables, fenced code, a diff in green / red), a picture (a path, ![](path)), a display block
@@ -2681,7 +2761,7 @@ function renderPreview(pane, source, question, option) {
         if (line.startsWith("```")) { fenced = !fenced; language = fenced ? line.slice(3).trim() : ""; continue; }
         if (wholeDiff || (fenced && (language === "diff" || language === "patch"))) diff(line);
         else if (fenced) pane.append(el("div", "code", line || " "));
-        else if (/^!\[.*\]\(.+\)$/.test(line.trim()) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(line.trim())) { if (/^[^ ]+\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(line.trim()) || line.trim().startsWith("![")) picture(); else pane.append(el("div", "", line)); }
+        else if (/^!\[[^\]]*\]\(.+\)$/.test(line.trim()) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(line.trim())) { if (/^[^ ]+\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(line.trim()) || line.trim().startsWith("![")) picture(); else pane.append(el("div", "", line)); }
         else if (line.startsWith("|")) {
             const rows = [];
             for (; i < lines.length && lines[i].startsWith("|"); i++) {
@@ -2977,6 +3057,21 @@ function drawChips() {
     }
 }
 
+function sendFile(file, session, name, told) {
+    // a file sent, what is sent told as it goes (a fetch tells nothing of it); {status, statusText, text, abort} when it ends, abort() given to told at once
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/attach?session=" + encodeURIComponent(session) + "&name=" + encodeURIComponent(name));
+        xhr.upload.addEventListener("progress", (e) => { if (e.lengthComputable) told(e.loaded, e.total); });
+        xhr.upload.addEventListener("load", () => told(-1, 0));
+        xhr.addEventListener("load", () => resolve({status: xhr.status, statusText: xhr.statusText, text: xhr.responseText}));
+        xhr.addEventListener("error", () => reject(new Error("the connection was lost")));
+        xhr.addEventListener("abort", () => { const e = new Error("cancelled"); e.cancelled = true; reject(e); });
+        told(0, file.size, () => xhr.abort());
+        xhr.send(file);
+    });
+}
+
 async function addFiles(files) {
     const info = attachInfo();
     if (!info.enabled) { toast("Attachments are off (settings)"); return; }
@@ -2988,13 +3083,27 @@ async function addFiles(files) {
         list.push(f);
         drawChips();
         if (file.size > info.max_mb * 1048576) { f.state = "error"; f.error = "over " + info.max_mb + " MB"; drawChips(); continue; }
+        // a big one: its popup after 0.4 s, what is sent, its percent, Cancel
+        const job = importBegin("Importing " + f.name);
         try {
-            const r = await fetch("/api/attach?session=" + encodeURIComponent(session) + "&name=" + encodeURIComponent(f.name), {method: "POST", credentials: "same-origin", body: file});
+            const r = await sendFile(file, session, f.name, (sent, total, abort) => {
+                if (abort) { job.cancel = abort; f.abort = abort; }
+                job.percent = sent < 0 || !total ? -1 : Math.floor(sent * 100 / total);
+                job.now = sent < 0 ? "Sent, the computer stores it" : sizeText(sent) + " / " + sizeText(total);
+                if (sent < 0) { job.cancel = null; f.abort = null; }
+            });
             if (r.status === 401) { reconnect(); throw new Error("not connected"); }
-            const d = await r.json().catch(() => ({ok: false, error: r.statusText}));
+            let d;
+            try { d = JSON.parse(r.text); } catch (error) { d = {ok: false, error: r.statusText}; }
             if (!d.ok) throw new Error(d.error || "refused");
             Object.assign(f, d.attachment, {state: "ready", name: d.attachment.name});
-        } catch (error) { f.state = "error"; f.error = error.message; }
+            importEnd(job, true, "Imported (" + sizeText(f.size) + ")");
+        } catch (error) {
+            f.state = "error"; f.error = error.message;
+            if (error.cancelled) { const at = list.indexOf(f); if (at >= 0) list.splice(at, 1); }
+            importEnd(job, false, error.message);
+        }
+        f.abort = null;
         if (session === current) drawChips();
     }
 }
@@ -3012,6 +3121,8 @@ async function linkFile() {
 
 function removeAttachment(f) {
     const list = attachList();
+    if (f.abort) f.abort(); // still being sent: stopped
+    if (list.indexOf(f) < 0) { drawChips(); return; }
     list.splice(list.indexOf(f), 1);
     if (f.id) api("/api/attach/remove", {session: current, id: f.id}).catch(() => {});
     drawChips();
@@ -3043,14 +3154,19 @@ for (const id of ["attachFiles", "attachPhotos", "attachCamera"])
 // a text pasted carries two invisible marks (tag characters, the same as the core's): the agent gets it between <pasted> and </pasted>
 const tagOf = (s) => Array.from(s, (c) => String.fromCodePoint(0xE0000 + c.charCodeAt(0))).join("") + String.fromCodePoint(0xE007F);
 const PASTE_OPEN = tagOf("paste{"), PASTE_CLOSE = tagOf("}paste");
+const PASTE_FILE = 200 * 1024, PROMPT_MAX = 900 * 1000; // a pasted text over this: attached as a file (a prompt so long stops the page); a request takes 1 MB at most
 $("prompt").addEventListener("paste", (e) => {
     const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
     if (!files.length) {
         const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
         if (!text) return;
         e.preventDefault();
+        if (text.length > PASTE_FILE && attachInfo().enabled) { addFiles([new File([text], "pasted-text.txt", {type: "text/plain"})]); return; }
+        if (text.length > PROMPT_MAX) { toast("This text is too long for a prompt (" + sizeText(text.length) + "): turn the attachments on to import it as a file"); return; }
         const p = $("prompt");
-        p.setRangeText(PASTE_OPEN + text + PASTE_CLOSE, p.selectionStart, p.selectionEnd, "end");
+        // at the start of an empty prompt a command keeps its mode, seen as it is; anything else is told as pasted, and never run
+        const command = !p.value.trim() && /^[!\/:]/.test(text);
+        p.setRangeText(command ? text : PASTE_OPEN + text + PASTE_CLOSE, p.selectionStart, p.selectionEnd, "end");
         p.dispatchEvent(new Event("input"));
         return;
     }
@@ -3094,7 +3210,7 @@ function renderUser(div, text) {
     const root = attachInfo().root ? attachInfo().root + "/" + current + "/" : null;
     if (!root) { renderText(div, text); return; }
     let last = 0;
-    const re = /\[Image: (\/[^\]]+)\]|@(\/\S+)/g;
+    const re = /\[Image: (\/[^\[\]]+)\]|@(\/\S+)/g;
     for (let m; (m = re.exec(text));) {
         const path = m[1] || m[2];
         if (!path.startsWith(root)) continue;
@@ -3289,12 +3405,24 @@ $("sessionName").addEventListener("click", () => $("side").classList.toggle("ope
 // ---- completion: @file, /command, the argument of /cd /new /mode /model /effort /restore, the folder of a new session ----
 const completion = {box: null, items: [], selected: 0, input: null, start: 0, end: 0, kind: "", timer: 0, seq: 0};
 
+function lastWord(before) {
+    // the word the cursor ends (a space after a backslash is in it), read back from the cursor: at each key, a long word earlier in the prompt costs nothing (a regex tried it from each of its letters)
+    let at = before.length;
+    while (at > 0) {
+        const c = before[at - 1];
+        if (c === " " && before[at - 2] === "\\") at -= 2;
+        else if (/\s/.test(c)) break;
+        else at -= 1;
+    }
+    return before.slice(at);
+}
+
 function context(input) {
     const text = input.value;
     const cursor = input.selectionStart;
     if (input.id === "newCwd") return {kind: "folder", query: text.slice(0, cursor), start: 0, end: cursor, session: ""};
     const before = text.slice(0, cursor);
-    const word = before.match(/(?:\\ |[^\s])*$/)[0];
+    const word = lastWord(before);
     const start = cursor - word.length;
     const head = before.slice(0, start).trim();
     if (word.startsWith("::")) return {kind: "session", query: word.slice(2), start: start + 2, end: cursor, session: current};
@@ -4772,6 +4900,17 @@ function drawDrawer() {
         body.append(el("div", "readonly-note", "Read only from this page: the computer allows it in its settings (Web › Settings from the page)."));
     for (const s of settingsData.filter((x) => x.page === settingsTab)) {
         if (settingsTab === "Profiles" && s.key.startsWith("svc_")) continue; // drawn as cards below
+        if (s.kind === "action" && s.key.startsWith("sound_")) {
+            // the soundboard of the Debug page: played on the computer, this panel stays open
+            const row = el("div", "setting");
+            const go = el("button", "", "▶ " + s.label.trim());
+            go.type = "button";
+            go.title = s.help || "";
+            go.addEventListener("click", () => act({cmd: "play_sound", sound: s.key.slice(6)}));
+            row.append(go, el("div", "setting-help", s.help || ""));
+            body.append(row);
+            continue;
+        }
         if (s.kind === "action" && s.key.startsWith("showcase_")) {
             // the Debug page: everything claude-cluster can show, shown here (this page or the app)
             const row = el("div", "setting");
@@ -5617,7 +5756,7 @@ async function simpleStats() {
             const i = el("i");
             i.style.width = left + "%";
             meter.append(i);
-            k.append(el("span", "", sw(word) + " · " + v.vendor), el("b", "", left + "%"), meter, el("span", "", v[field].resets_at ? sw("st_resets", {when: new Date(v[field].resets_at * 1000).toLocaleString(simpleLang === "fr" ? "fr-FR" : "en-GB",
+            k.append(el("span", "", sw(word) + " · " + v.vendor), el("b", "", left + "%"), meter, el("span", "", v[field].resets_at ? leftOf(v[field].resets_at) + sw("st_resets", {when: new Date(v[field].resets_at * 1000).toLocaleString(simpleLang === "fr" ? "fr-FR" : "en-GB",
                 {weekday: "short", hour: "2-digit", minute: "2-digit"})}) : ""));
             kpis.append(k);
         }
@@ -5723,7 +5862,7 @@ function agentMeta(a, effort) {
     const shell = a.kind === "shell";
     return [shell ? "$ shell in the background" : a.type, shell ? "" : a.model || "model: not seen yet", shell ? "" : effort + " (its session)",
         "⏱ " + agentUptime(a, Date.now()), a.tokens ? fmtTokens(a.tokens) + " tokens" : "", a.toolUses ? a.toolUses + " tool" + (a.toolUses > 1 ? "s" : "") : "",
-        a.lastTool ? "last " + a.lastTool : "", a.background ? "background" : ""].filter(Boolean).join(" · ");
+        a.lastTool ? "last " + a.lastTool : "", shell ? "" : a.background ? "background" : "foreground"].filter(Boolean).join(" · ");
 }
 function agentTick() {
     // the time of each agent, live (once a second while it is shown)

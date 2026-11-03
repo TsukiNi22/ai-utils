@@ -63,6 +63,8 @@ _cold static sockaddr_un address_(const std::filesystem::path& path)
 
 _cold static int connect_(const std::filesystem::path& path)
 {
+    struct stat info{};
+    if (::stat(path.c_str(), &info) != 0 || info.st_uid != ::getuid()) return -1; // a socket of another user is not a claude-cluster of this one (never told our prompts)
     const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0); // xstyle: ignore LU-SOCKET (unix socket: libutils only has TCP)
     if (fd == -1) return -1;
     const sockaddr_un addr = address_(path);
@@ -103,16 +105,18 @@ _cold static std::optional<std::string> read_line_(const int fd, std::string& bu
     poll.link(fd, EPOLLIN);
     std::array<char, 8192> chunk{};
     closed = false;
-    while (buffer.find('\n') == std::string::npos) {
+    std::size_t nl = buffer.find('\n');
+    while (nl == std::string::npos) {
         if (poll.wait(timeout).empty()) return std::nullopt;
         const ssize_t size = ::recv(fd, chunk.data(), chunk.size(), 0);
         if (size <= 0) {
             closed = true;
             return std::nullopt;
         }
+        const std::size_t before = buffer.size();
         buffer.append(chunk.data(), static_cast<std::size_t>(size));
+        nl = buffer.find('\n', before); // what came only (a prompt of megabytes: never its start read again for each piece)
     }
-    const std::size_t nl = buffer.find('\n');
     std::string line = buffer.substr(0, nl);
     buffer.erase(0, nl + 1);
     return line;
@@ -126,6 +130,82 @@ _cold static std::string arg_(const cluster::Json& request, const char* key, con
 
 #define WEB_READ_ONLY "read only from the web page: the computer allows it in its settings (Web > Settings from the page)"
 
+_cold static bool carries_command_(const cluster::Json& json)
+{
+    // a local command somewhere in a task or a schedule (action command, command, if.command, on_event {type: command}): a shell of this computer. As the
+    // core reads them: action and type lower-cased; a command of any type (what is no text is given as its JSON, and /bin/sh runs that JSON: {"a": "$(x)"})
+    if (json.is_array()) return std::any_of(json.begin(), json.end(), [](const cluster::Json& item) {return carries_command_(item);});
+    if (!json.is_object()) return false;
+    for (const auto &[key, value]: json.items()) {
+        if (key == "command" && !value.is_null() && value != "") return true;
+        if ((key == "action" || key == "type") && value.is_string() && cluster::lower(value.get<std::string>()) == "command") return true;
+        if (carries_command_(value)) return true;
+    }
+    return false;
+}
+
+_cold static bool command_shaped_(const cluster::Json& json)
+{
+    // a command given as anything but a text, somewhere in a task or a schedule: never run, whoever asks
+    if (json.is_array()) return std::any_of(json.begin(), json.end(), [](const cluster::Json& item) {return command_shaped_(item);});
+    if (!json.is_object()) return false;
+    for (const auto &[key, value]: json.items()) {
+        if (key == "command" && !value.is_null() && !value.is_string()) return true;
+        if (command_shaped_(value)) return true;
+    }
+    return false;
+}
+
+_cold static bool spawns_(const cluster::Json& options)
+{
+    // a task that starts its own session, as the core reads it: a spawn without a folder is none (the task then goes to any idle session)
+    return options.is_object() && options.contains("spawn") && options["spawn"].is_object() && !arg_(options["spawn"], "cwd").empty();
+}
+
+_cold static std::string web_action_refused_(const cluster::Config& config, const std::string& id, const std::string& input)
+{
+    // a key of the terminal page (the palette, a click): what the API of the page lets a device do (Web.cpp), under the same gates, and the moves of its interface.
+    // Never the web access itself, the voice, the keys of the providers, the desktop of this computer, an update, the trash emptied. Why, "" allowed
+    static const std::set<std::string> open = {"new_session", "new", "profile", "send", "close_session", "delete_ask", "delete_session", "restore", "rename", "describe", "category", "tags", "cd", "fork",
+        "resume", "send_next", "interrupt", "allow", "always", "deny", "mode", "model", "effort", "apply", "model_go", "share", "export", "keep_warm", "keep_warm_force",
+        "task_add", "task_act", "task_menu", "sched_new", "sched_pick", "sched_when", "sched_text", "sched_make", "sched_act", "sched_edit", "sched_menu", "job_act",
+        "display_tick", "display_click", "display_form", "display_play", "pin_display", "pin_entry", "pin_last", "unpin", "import", "importer", "importer_agent",
+        "focus", "tasks_view", "cancel", "trash_view", "trash_item", "panel", "stats", "jobs", "shells", "info", "group", "vim"};
+    const std::size_t colon = id.find(':');
+    const std::string base = id.substr(0, colon);
+    if (!open.contains(base)) return "the palette is the user's (its keys, its web access): on the computer only";
+    if (base == "send" || base == "export") return cluster::prompt_refused(config, base == "send" ? input : "/export " + input, true, false);
+    const bool warm = (base == "keep_warm" || base == "keep_warm_force") && config.keepWarm == "off";
+    const bool newOnes = base == "apply" && colon != std::string::npos && id.substr(colon + 1) == "new";
+    return (warm && !cluster::web_may(config, "sessions")) || (newOnes && !cluster::web_may(config, "agent")) || (base == "job_act" && !cluster::web_may(config, "orchestrator")) ? WEB_READ_ONLY : "";
+}
+
+_cold static bool web_action_listed_(const cluster::Config& config, const std::string& id)
+{
+    // the palette a device sees: what it may run, and what its terminal does by itself; never the rest (the title of web_show holds the code)
+    static const std::set<std::string> own = {"settings", "settings_search", "setting", "plugins", "graph", "agents", "restore_menu", "new_project", "layout", "style", "transcript_top", "transcript_bottom", "quit"};
+    return own.contains(id.substr(0, id.find(':'))) || web_action_refused_(config, id, "").empty();
+}
+
+_cold static std::string hidden_in_(const cluster::Json& json)
+{
+    // a hidden file named somewhere in a display (path, paths, files [{path}]): the one found, "" none
+    if (json.is_array()) {
+        for (const cluster::Json& item: json)
+            if (std::string found = hidden_in_(item); !found.empty()) return found;
+        return "";
+    }
+    if (!json.is_object()) return "";
+    for (const auto &[key, value]: json.items()) {
+        if (key == "path" && value.is_string() && cluster::hidden_path(value.get_ref<const std::string&>())) return value.get<std::string>();
+        if (key == "paths" && value.is_array())
+            for (const cluster::Json& path: value)
+                if (path.is_string() && cluster::hidden_path(path.get_ref<const std::string&>())) return path.get<std::string>();
+        if (std::string found = hidden_in_(value); !found.empty()) return found;
+    }
+    return "";
+}
+
 /* the heavy jobs (Orchestrator.hpp): the commands, and the wrapper cluster-run whose connection is its job's until it ends */
 _cold static bool job_command_(const std::string& cmd)
 {
@@ -136,7 +216,7 @@ _cold static bool job_serve_(cluster::Manager& manager, const int fd, const std:
 {
     cluster::Json request;
     try {
-        request = cluster::Json::parse(line);
+        request = cluster::json_parse(line);
     } catch (const cluster::Json::exception&) {
         return false;
     }
@@ -174,6 +254,10 @@ _cold void cluster::Control::start(void)
     std::error_code error;
     std::filesystem::create_directories(this->_path.parent_path(), error);
     ::chmod(this->_path.parent_path().c_str(), S_IRWXU);
+    // its folder: this user's (/tmp/claude-cluster-<uid>, without a runtime folder: made before by someone else, a socket there would be theirs to read)
+    struct stat folder{};
+    if (::stat(this->_path.parent_path().c_str(), &folder) != 0 || !S_ISDIR(folder.st_mode) || folder.st_uid != ::getuid())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::SocketInit, "the folder of the socket is not yours: " + this->_path.parent_path().string());
     if (cluster::Control::alive())
         throw utils::exception::ErrorException(utils::exception::InternalCode::AlreadyRunning,
             "claude-cluster is already running (" + this->_path.string() + "): use the headless commands (claude-cluster list...)");
@@ -190,7 +274,7 @@ _cold void cluster::Control::start(void)
     }
     ::chmod(this->_path.c_str(), S_IRUSR | S_IWUSR);
     this->_running = true;
-    this->_thread = std::thread(&cluster::Control::serve_, this);
+    this->_thread = cluster::guarded(&cluster::Control::serve_, this);
 }
 
 _cold void cluster::Control::stop(void)
@@ -211,8 +295,15 @@ _cold void cluster::Control::serve_(void)
     while (this->_running) {
         if (poll.wait(300).empty()) continue;
         const int client = ::accept4(this->_fd, nullptr, nullptr, SOCK_CLOEXEC);
-        if (client == -1) continue;
-        std::thread(&cluster::Control::client_, this, client).detach();
+        if (client == -1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50)); // no descriptor left: never a loop at full speed
+            continue;
+        }
+        try {
+            cluster::guarded(&cluster::Control::client_, this, client).detach();
+        } catch (const std::system_error&) { // no thread left: this connection refused, never the end of the core
+            ::close(client);
+        }
     }
 }
 
@@ -222,16 +313,21 @@ _cold void cluster::Control::client_(const int fd)
     std::string buffer;
     bool closed = false;
     while (this->_running && !closed) {
-        const std::optional<std::string> line = read_line_(fd, buffer, 500, closed);
-        if (!line) continue;
-        if (job_serve_(this->_manager, fd, *line)) break; // a cluster-run: this connection is its job until it ends
-        cluster::Json response;
         try {
-            response = cluster::Control::handle(this->_manager, cluster::Json::parse(*line));
-        } catch (const std::exception& e) { // not JSON, or anything a request may throw: told, the core goes on
-            response = {{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
+            const std::optional<std::string> line = read_line_(fd, buffer, 500, closed);
+            if (!line) continue;
+            if (!this->_running) break;
+            if (job_serve_(this->_manager, fd, *line)) break; // a cluster-run: this connection is its job until it ends
+            cluster::Json response;
+            try {
+                response = cluster::Control::handle(this->_manager, cluster::json_parse(*line));
+            } catch (const std::exception& e) { // not JSON, or anything a request may throw: told, the core goes on
+                response = {{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
+            }
+            if (!send_line_(fd, response.dump(-1, ' ', false, cluster::JSON_LENIENT))) break;
+        } catch (const std::exception&) { // a job that failed, a poll refused: this connection ended, never the core
+            break;
         }
-        if (!send_line_(fd, response.dump(-1, ' ', false, cluster::JSON_LENIENT))) break;
     }
     ::close(fd);
 }
@@ -256,7 +352,7 @@ _cold cluster::Json cluster::Control::requestAt(const std::filesystem::path& soc
     if (current) *current = -1;
     ::close(fd);
     if (!line) throw utils::exception::ErrorException(utils::exception::InternalCode::Communication, "no answer from claude-cluster");
-    return cluster::Json::parse(*line);
+    return cluster::json_parse(*line);
 }
 
 /* editable files */
@@ -292,6 +388,21 @@ _cold static ConfigFile config_file_(cluster::Manager& manager, const std::strin
         if (file.name == name) return file;
     throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId,
         "no file '" + name + "' (global_prompt, sessions_prompt, vocabulary, voice_words, config, machine_map)");
+}
+
+_cold static void config_file_gate_(const ConfigFile& file)
+{
+    // the global session and a device: these paths come from settings (voice.words, global.prompt...), never a way to any file (~/.bashrc, ~/.ssh/id_rsa, config.toml under another
+    // name): a .md / .txt of the folder of the config, or out of the hidden folders
+    if (file.name == "config") return;
+    std::error_code error;
+    const std::string real = std::filesystem::weakly_canonical(file.path, error).string();
+    std::error_code noFolder;
+    const std::string folder = std::filesystem::weakly_canonical(cluster::config_dir(), noFolder).string();
+    const bool own = !error && !noFolder && !folder.empty() && real.starts_with(folder + "/");
+    if (!(real.ends_with(".md") || real.ends_with(".txt")) || (!own && cluster::hidden_path(file.path.string())))
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: " + file.name + " is at " + file.path.string()
+            + ": the global session and the page reach a .md / .txt of the folder of the config or out of the hidden folders only: the user edits it");
 }
 
 /* everything about this claude-cluster */
@@ -399,7 +510,7 @@ _cold static void ensure_schedule_(cluster::Manager& manager, const std::string&
 // the tools a sub-session gets (the settings [agent] sub_*), and what they may do
 _cold static cluster::Json sub_tools_(const cluster::Config& config)
 {
-    cluster::Json tools = cluster::Json::array();
+    cluster::Json tools = cluster::Json::array({"report_status"});
     if (config.subRead) {
         tools.push_back("task_list");
         tools.push_back("schedule_list");
@@ -425,7 +536,25 @@ _cold static cluster::Json sub_tools_(const cluster::Config& config)
     return {{"tools", tools}, {"spawn", config.subSpawn}, {"schedules", config.subSchedules}};
 }
 
-// a sub-session asks: allowed only what the settings open, never a local command, never a prompt into another session
+// what a schedule of a sub-session wakes: itself, whatever it left out (no session: the global session; a task without a target: any idle session), a session of
+// its own for a task that starts one. On an edit: what it runs after this edit
+_cold static cluster::Json sub_schedule_(cluster::Manager& manager, const cluster::Json& request, const std::string& owner)
+{
+    cluster::Json options = request;
+    options["session"] = owner;
+    std::string action = cluster::lower(arg_(request, "action"));
+    cluster::Json given = request.contains("options") && request["options"].is_object() ? request["options"] : cluster::Json();
+    if (arg_(request, "cmd") == "schedule_edit")
+        for (const cluster::Schedule& w: manager.schedules())
+            if (w.id == arg_(request, "id")) {
+                if (action.empty()) action = w.action;
+                if (given.is_null()) given = w.options;
+            }
+    if (action == "task" && !spawns_(given)) options["target"] = owner;
+    return options;
+}
+
+// a sub-session asks: allowed only what the settings open, never a local command, never a prompt into another session (gated on what will run: its options too, any case)
 _cold static void subGate_(cluster::Manager& manager, const std::string& owner, const cluster::Json& request)
 {
     const std::function<void(const std::string&)> refuse = [](const std::string& why) {
@@ -441,22 +570,18 @@ _cold static void subGate_(cluster::Manager& manager, const std::string& owner, 
             + std::string(tool == "heavy_run" || tool == "jobs_add" ? "[orchestrator] sub_add: its permissions are not asked on this path; in a shell, cluster-run works as usual" : "[agent] sub_read / sub_tasks / sub_schedules")
             + " in the settings): ask the user");
     const bool spawn = manager.config().subSpawn;
-    const std::function<bool(const cluster::Json&)> spawns = [&](const cluster::Json& o) {return o.contains("spawn") && o["spawn"].is_object() && !arg_(o["spawn"], "cwd").empty();};
-    const std::function<bool(const cluster::Json&)> local = [&](const cluster::Json& on) {return on.is_object() && arg_(on, "type") == "command";};
+    const cluster::Json options = request.contains("options") && request["options"].is_object() ? request["options"] : cluster::Json::object();
     if (tool == "task_add") {
-        if (spawns(request) && !spawn) refuse("not allowed: a task that starts a session is off for the sub-sessions ([agent] sub_spawn)");
-        if (local(request.value("on_event", cluster::Json())))
-            refuse("not allowed: a sub-session waits for session_idle / git_push / file events; a local command is the user's");
+        if (spawns_(request) && !spawn) refuse("not allowed: a task that starts a session is off for the sub-sessions ([agent] sub_spawn)");
+        if (carries_command_(request)) refuse("not allowed: a sub-session waits for session_idle / git_push / file events; a local command is the user's");
         const std::string target = arg_(request, "target");
         if (!target.empty() && manager.resolve(target) != owner) refuse("not allowed: a sub-session queues tasks for itself (or for a session of its own, spawn)");
     } else if (tool == "schedule_add" || tool == "schedule_edit") {
         if (!arg_(request, "session").empty() && manager.resolve(arg_(request, "session")) != owner) refuse("not allowed: a schedule of a sub-session wakes that sub-session only");
-        const std::string action = arg_(request, "action", tool == "schedule_edit" ? "" : "prompt");
-        if (action == "command" || (request.contains("if") && request["if"].is_object() && !arg_(request["if"], "command").empty()))
-            refuse("not allowed: a schedule that runs a local command is the user's");
-        if ((action == "spawn" || spawns(request)) && !spawn) refuse("not allowed: a schedule that starts sessions is off for the sub-sessions ([agent] sub_spawn)");
-        if (local(request.value("on_event", cluster::Json()))) refuse("not allowed: a local command is the user's");
-        if (action == "task" && !arg_(request, "target").empty() && manager.resolve(arg_(request, "target")) != owner) refuse("not allowed: a sub-session queues tasks for itself");
+        if (carries_command_(request)) refuse("not allowed: a schedule that runs a local command is the user's");
+        if ((cluster::lower(arg_(request, "action")) == "spawn" || spawns_(request) || spawns_(options)) && !spawn) refuse("not allowed: a schedule that starts sessions is off for the sub-sessions ([agent] sub_spawn)");
+        for (const cluster::Json* where: {&request, &options})
+            if (!arg_(*where, "target").empty() && manager.resolve(arg_(*where, "target")) != owner) refuse("not allowed: a sub-session queues tasks for itself");
     } else if (tool == "task_act" && arg_(request, "action") == "force") {
         refuse("not allowed: the limit of parallel sessions is not for a sub-session to lift");
     }
@@ -478,6 +603,15 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the tool " + request.value("tool", std::string())
                 + " is off in the settings of claude-cluster (MCP page): tell the user, they turn it on there if they want");
         if (from_sub) subGate_(manager, owner, request);
+        // through a prompt (both ways of sending one): what the page or the global session may not run
+        if ((cmd == "send" || cmd == "slash") && (from_web || from_global))
+            if (const std::string why = cluster::prompt_refused(manager.config(), arg_(request, "text", arg_(request, "prompt")), from_web, from_global); !why.empty())
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, why);
+        // a task or a schedule that runs a local command, from the page: a shell of this computer too
+        if (from_web && !manager.config().web.shell && (cmd == "task_add" || cmd == "schedule_add" || cmd == "schedule_edit" || (cmd == "task_act" && arg_(request, "action") == "set")) && carries_command_(request))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page)");
+        if ((cmd == "task_add" || cmd == "schedule_add" || cmd == "schedule_edit") && command_shaped_(request))
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "command: the text of the command, nothing else");
         // an interface of another process: seen alive (the core stops when none is left)
         // (its detach never: an interface closing is not one coming back, which would end the background of the core)
         if (cmd != "detach" && request.contains("client") && request["client"].is_string()) manager.clientSeen(request["client"].get<std::string>());
@@ -559,8 +693,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             }
             data = {{"listening", voice->listening()}};
         } else if (cmd == "action") {
-            // the palette of an interface of another process, run here (its voice, its web access, its sessions)
-            if (from_global || from_web) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the palette is the user's (its keys, its web access)");
+            // the palette of an interface of another process, run here (its voice, its web access, its sessions); the terminal of the page: what its device may do
+            if (from_global) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the palette is the user's (its keys, its web access)");
+            if (const std::string why = from_web ? web_action_refused_(manager.config(), arg_(request, "id"), request.value("input", std::string())) : std::string(); !why.empty())
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, why);
             if (manager.voice() == nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::NotRunning, "no core here");
             const cluster::ActionResult result = cluster::run_action(manager, *manager.voice(), arg_(request, "id"), arg_(request, "session", GLOBAL_ID),
                 request.value("input", std::string()));
@@ -568,7 +704,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "actions") {
             data = cluster::Json::array();
             for (const cluster::Action& action: cluster::actions(manager, arg_(request, "session", GLOBAL_ID)))
-                data.push_back({{"id", action.id}, {"title", action.title}, {"input", action.input}, {"fill", action.fill}, {"ui", action.ui}});
+                if (!from_web || web_action_listed_(manager.config(), action.id))
+                    data.push_back({{"id", action.id}, {"title", action.title}, {"input", action.input}, {"fill", action.fill}, {"ui", action.ui}});
         } else if (cmd == "slash") {
             const std::optional<cluster::ActionResult> local = cluster::run_slash(manager, arg_(request, "session", GLOBAL_ID), arg_(request, "text"));
             data = local ? cluster::Json{{"local", true}, {"message", local->message}, {"error", local->error}, {"focus", local->focus}, {"ui", local->ui},
@@ -673,10 +810,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const std::string text = arg_(request, "text", arg_(request, "prompt")); // "prompt": the name used by session_spawn
             if (cluster::trim(text).empty() && request.value("images", std::vector<std::string>()).empty())
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "empty prompt: give the text to send in 'text'");
-            if (const std::string typed = cluster::trim(text); from_web && !manager.config().web.shell && (typed.starts_with("!")
-                || (typed.starts_with(":") && typed.find('!') != std::string::npos))) // the page and its terminal: the shell only when the computer allows it
-                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page)");
-            if (request.value("raw", false)) { // an interface of another process: its /commands already run, its images
+            if (request.value("raw", false) && !from_global && !from_sub) { // an interface of another process (the terminal of the page too, origin web: the page itself cannot ask it): its /commands already run, its images
                 manager.noteSender(id, arg_(request, "client"));
                 if (!from_global) manager.userTouched(id);
                 manager.send(id, text, request.value("force", false), request.value("images", std::vector<std::string>()), request.value("prompt_origin", std::string()));
@@ -721,7 +855,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                     if (path.is_string()) linked.push_back(cluster::attach_link(manager.config(), manager.resolve(id), path.get<std::string>(), cluster::AttachScope::Global, target ? target->spec.cwd : ""));
                 sent = cluster::attach_prompt(text, linked, images);
             }
-            manager.send(id, global ? "[from the global session] " + sent : sent, request.value("force", false), images, from_global ? "mcp" : "");   // typed by the user (CLI, page): no origin
+            manager.send(id, global ? "[from the global session] " + sent : sent, request.value("force", false) && !from_global, images, from_global ? "mcp" : "");   // typed by the user (CLI, page): no origin; the limits of the user never lifted by the global session
             data = {{"id", id}, {"queued", true}, {"reply", reply ? "its answer comes back to you as a message [reply from ...] when done: no need to poll it" : "no"}};
         } else if (cmd == "wait") {
             // until the session is done (idle, nothing queued) or the time is over: its last answer only, not its context
@@ -774,6 +908,8 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "apply") {
             // a model / mode / effort where asked (here, global, subs, all, new, a session); a model on contexts still loaded: asked
             // first (confirm: what it reads again, the page answers with confirmed)
+            if (from_web && arg_(request, "scope") == "new" && !cluster::web_may(manager.config(), "agent")) // the default of the next sessions: a setting of this computer
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             const bool confirmed = request.contains("confirmed") && (request["confirmed"] == true || request["confirmed"] == "true");
             const std::pair<std::int64_t, int> reload = arg_(request, "kind") == "model" && !confirmed
                 ? cluster::model_reload(manager, arg_(request, "value"), arg_(request, "scope"), arg_(request, "session", GLOBAL_ID)) : std::pair<std::int64_t, int>{0, 0};
@@ -800,8 +936,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                     item["session_name"] = s.spec.global ? std::string("global") : s.spec.name;
                     if (id.empty()) item.erase("entries");
                     if (!id.empty() && !a.outputFile.empty()) { // a shell: the end of its output
-                        const std::string out = cluster::read_small(a.outputFile);
-                        item["output"] = cluster::clean_utf8(out.size() > 6000 ? out.substr(out.size() - 6000) : out);
+                        item["output"] = cluster::clean_utf8(cluster::read_end(a.outputFile, 6000));
                     }
                     data.push_back(item);
                 }
@@ -889,6 +1024,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "config_read") {
             if (from_web && !cluster::web_may(manager.config(), "config")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             const ConfigFile file = config_file_(manager, arg_(request, "name"));
+            if (from_global || from_web) config_file_gate_(file);
             std::ifstream in(file.path);
             std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             if (content.size() > 200000) content = cluster::head_utf8(content, 200000);
@@ -897,6 +1033,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // the whole file replaced (read it first); config.toml checked before; the global prompt: started again after the turn
             if (from_web && !cluster::web_may(manager.config(), "config")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
             const ConfigFile file = config_file_(manager, arg_(request, "name"));
+            if (from_global || from_web) config_file_gate_(file);
             if (!file.editable) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, file.name + " is read only (" + file.what + ")");
             if (from_global && !file.globalMay)
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the user did not let the global session rewrite "
@@ -920,9 +1057,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                     }
                 }
             }
-            std::error_code error;
-            std::filesystem::create_directories(file.path.parent_path(), error);
-            std::ofstream(file.path) << content;
+            cluster::write_text(file.path, content); // whole or not at all (a config read half written: its defaults)
             if (file.name == "global_prompt") manager.restartGlobalAfterTurn();
             manager.notice(GLOBAL_ID, cluster::short_path(file.path.string()) + " written by the global session");
             data = {{"name", file.name}, {"path", file.path.string()}, {"applied", file.applied}};
@@ -946,7 +1081,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "task_add") {
             const std::string by = from_sub ? owner : request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by"); // a sub-session, the global session (MCP), else you
             cluster::Json options = request;
-            if (from_sub && arg_(request, "target").empty() && !(request.contains("spawn") && request["spawn"].is_object())) options["target"] = owner; // for itself: after its turn
+            if (from_sub && arg_(request, "target").empty() && !spawns_(request)) options["target"] = owner; // for itself: after its turn
             data = {{"id", manager.addTaskJson(options, by)}};
         } else if (cmd == "fanout") {
             data = manager.fanout(request);
@@ -972,9 +1107,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             if (!sent) data["note"] = "desktop notifications are off ([ui] notify)";
         } else if (cmd == "schedule_add") {
             const std::string by = from_sub ? owner : request.value("origin", std::string()) == "mcp" ? std::string(GLOBAL_ID) : arg_(request, "by");
-            cluster::Json options = request;
-            if (from_sub && (arg_(request, "action", "prompt") == "prompt" || arg_(request, "action") == "command")) options["session"] = owner; // wakes itself only
-            data = manager.addScheduleJson(options, by, request.value("dry_run", false));
+            data = manager.addScheduleJson(from_sub ? sub_schedule_(manager, request, owner) : request, by, request.value("dry_run", false));
         } else if (cmd == "schedule_list") {
             data = cluster::Json::array();
             const bool all = request.value("archived", false);
@@ -982,7 +1115,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 if ((all || !w.archived) && schedule_mine_(w, owner, from_sub) && (arg_(request, "id").empty() || w.id == arg_(request, "id"))) data.push_back(manager.scheduleJson(w));
         } else if (cmd == "schedule_edit") {
             ensure_schedule_(manager, arg_(request, "id"), owner, from_sub);
-            data = manager.scheduleEdit(arg_(request, "id"), request);
+            data = manager.scheduleEdit(arg_(request, "id"), from_sub ? sub_schedule_(manager, request, owner) : request);
         } else if (cmd == "schedule_cancel") {
             ensure_schedule_(manager, arg_(request, "id"), owner, from_sub);
             data = {{"done", manager.scheduleAct(arg_(request, "id"), "cancel", arg_(request, "reason"))}};
@@ -1055,12 +1188,20 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
         } else if (cmd == "stats") {
             // the Stats session: built / refreshed, shown on request
             data = {{"id", cluster::stats_open(manager, request.value("focus", false))}};
+        } else if (cmd == "report_status") {
+            // a sub-session tells whoever follows it now (its gate: subGate_, its own name only)
+            if (!from_sub) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "report_status: a sub-session only");
+            data = {{"done", manager.reportStatus(owner, arg_(request, "text"))}};
+        } else if (cmd == "play_sound") {
+            // the soundboard of the Debug page: a sound of the notifications, on this computer
+            data = {{"message", manager.playSound(arg_(request, "sound", "all"))}};
         } else if (cmd == "showcase") {
             // the Debug page: everything claude-cluster can show, on the interface asking (its platform)
             data = {{"message", cluster::showcase(manager, arg_(request, "what", "all"), arg_(request, "platform"))}};
         } else if (cmd == "services") {
             // its state, and the card of each one made here (the web page draws them as they are)
             data = cluster::services(manager);
+            if (from_web && data.contains("web")) data["web"]["pin"] = ""; // the code of the web access: on the computer (a device that reads it lets a second one in)
             std::vector<std::string> names = {"service", "web", "core", "voice", "mcp", "outside", "processes", "profiles"};
             for (const cluster::Json& p: data["profiles"].value("profiles", cluster::Json::array()))
                 names.push_back("profile:" + p.value("name", std::string()));
@@ -1152,16 +1293,17 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             cluster::Json display = request.contains("display") && request["display"].is_object() ? request["display"]
                 : cluster::Json{{"type", "markdown"}, {"text", arg_(request, "text")}};
             if (request.contains("title") && !display.contains("title")) display["title"] = arg_(request, "title");
-            if ((from_global || from_web) && display.contains("files") && display["files"].is_array()) // never a hidden file offered to the page
-                for (const cluster::Json& f: display["files"])
-                    if (f.is_object() && cluster::hidden_path(f.value("path", std::string())))
-                        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never offered to download ("
-                            + f.value("path", std::string()) + ")");
+            if (from_global || from_web) // never a hidden file read or offered to the page (files to download, a picture read here, a folder listed...)
+                if (const std::string hidden = hidden_in_(display); !hidden.empty())
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never shown nor offered to download (" + hidden + ")");
             data = {{"id", manager.display(session(), display)}};
         } else if (cmd == "display_update") {
             // a display replaced (the steps of a long work, a progress, a checklist...), its id kept
             if (!request.contains("display") || !request["display"].is_object())
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display_update: session, id, display {type, ...}");
+            if (from_global || from_web)
+                if (const std::string hidden = hidden_in_(request["display"]); !hidden.empty())
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never shown nor offered to download (" + hidden + ")");
             manager.displayUpdate(session(), arg_(request, "id"), request["display"]);
             data = {{"id", arg_(request, "id")}};
         } else if (cmd == "upgrade") {
@@ -1201,9 +1343,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const int at = request.value("option", -1);
             if (at < 0 || at >= static_cast<int>(options.size())) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no such option");
             std::string source = cluster::trim(options[static_cast<std::size_t>(at)].value("preview", std::string()));
-            const cluster::Json block = source.starts_with("{") ? cluster::Json::parse(source, nullptr, false) : cluster::Json();
+            const cluster::Json block = source.starts_with("{") ? cluster::json_parse(source, nullptr, false) : cluster::Json();
             if (block.is_object() && block.contains("path")) source = block.value("path", std::string());
             else if (source.starts_with("![") && source.find("](") != std::string::npos) source = source.substr(source.find("](") + 2, source.rfind(')') - source.find("](") - 2);
+            if ((from_web || from_global) && cluster::hidden_path(cluster::trim(source)))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never shown");
             const cluster::Json prepared = cluster::display_prepare({{"type", "image"}, {"path", cluster::trim(source)}});
             data = {{"mime", prepared.value("mime", std::string())}, {"data", prepared.value("data", std::string())}};
         } else if (cmd == "ask") {
@@ -1260,7 +1404,11 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the actions of the supervisor: from its own web access only");
             data = {{"message", cluster::supervisor_act(arg_(request, "name"), arg_(request, "action"))}};
         } else if (cmd == "keep_warm") { // a session kept warm or not: on | off | toggle
-            data = {{"message", manager.setKeepWarm(session(), request.value("value", std::string("toggle")))}};
+            const std::string value = request.value("value", std::string("toggle"));
+            // marked while the mode is off: the mode is written in [sessions] of this computer (and tiny turns billed); the mark alone stays open to a device once the mode is on
+            if (from_web && value != "off" && manager.config().keepWarm == "off" && !cluster::web_may(manager.config(), "sessions"))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, WEB_READ_ONLY);
+            data = {{"message", manager.setKeepWarm(session(), value)}};
         } else if (cmd == "older") {
             // scrolled to the top of a transcript: its older entries read again from its log
             data = manager.loadOlder(session(), static_cast<std::size_t>(std::clamp(request.value("count", 300), 1, 5000)));
@@ -1268,8 +1416,9 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             data = manager.transcript(session(), request.value("from", -50L), static_cast<std::size_t>(std::clamp(request.value("count", 50), 1, 500)));
         } else if (cmd == "context") {
             // the global session: never a hidden file (keys, credentials, configs) given to a session (and to its API)
-            if (const std::string source = arg_(request, "source"); (from_global || from_web) && !source.starts_with("session:") && (source.starts_with("/") || source.starts_with("~")
-                || source.starts_with(".") || source.find(':') == std::string::npos) && cluster::hidden_path(source))
+            // (what loadContext reads as a file: everything but a session and a conversation of an agent)
+            if (const std::string source = arg_(request, "source"); (from_global || from_web) && !source.starts_with("session:") && !source.starts_with("claude:") && !source.starts_with("codex:")
+                && !source.starts_with("qwen:") && !source.starts_with("opencode:") && cluster::hidden_path(source))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never given as a context (" + source + ")");
             manager.loadContext(session(), arg_(request, "source"));
             data = {{"sent", true}};
@@ -1287,6 +1436,12 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             // devices: approve <id> allow | trust | deny, kick [ids], untrust [ids] (ids: separated by commas, none: all)
             static const std::set<std::string> actions = {"", "on", "off", "kick", "pin", "devices", "approve", "untrust", "ban", "unban"};
             const std::string action = arg_(request, "action");
+            // a device (the terminal of the page): its list read, the code blanked below; who else comes in, its trust and its bans are decided on the computer
+            if (from_web && !action.empty() && action != "devices")
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the web access is managed on the computer only (its code, its devices, their trust)");
+            // the global session: what its tool offers (web_access); the approval of a device is the user's, never of a model
+            if (from_global && (action == "approve" || action == "untrust" || action == "ban" || action == "unban"))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: the devices of the web access are the user's, in an interface of this computer");
             if (!actions.contains(action))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "unknown action '" + action
                     + "' (web [on|off|pin|devices|kick [ids]|approve <id> allow|trust|deny|untrust [ids]|ban <ids>|unban [ids]])");
@@ -1312,7 +1467,7 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
                         {"since", d.since / 1000}, {"seen", d.seen / 1000}, {"ping", d.ping}});
                 return out;
             };
-            data = {{"on", status.on}, {"url", status.url}, {"pin", status.pin}, {"client", status.client}, {"error", status.error},
+            data = {{"on", status.on}, {"url", status.url}, {"pin", from_web ? std::string() : status.pin}, {"client", status.client}, {"error", status.error},
                 {"https", status.https}, {"tty_port", status.ttyPort}, {"fingerprint", status.fingerprint}, {"certificate", status.certificate}, {"certificate_why", status.certificateWhy}, {"remote_url", status.remoteUrl}, {"remote", status.remoteState}, {"remote_ok", status.remoteOk},
                 {"action", action}, {"kicked", kicked}, {"devices", list(status.devices)},
                 {"trusted", list(status.trusted)}, {"banned", list(status.banned)}, {"ping", status.ping}};
@@ -1349,6 +1504,10 @@ _cold cluster::Json cluster::Control::handle(cluster::Manager& manager, const cl
             const bool bySub = request.value("origin", std::string()) == "sub";   // the MCP of a sub-session: its own view only
             const std::string target = bySub ? manager.resolve(arg_(request, "owner")) : session();
             const std::string by = from_global ? "global" : bySub ? "sub" : "user";
+            // a display block given with the pin: read and shown like any display, the same gate (audio: the file itself, in base64)
+            if (cmd == "pin" && (from_global || from_web) && request.contains("display"))
+                if (const std::string hidden = hidden_in_(request["display"]); !hidden.empty())
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is never shown nor offered to download (" + hidden + ")");
             if (cmd == "pin") data = manager.pin(target, request, by);
             else if (cmd == "unpin") manager.unpin(target, by);
             else data = manager.pinOf(target);

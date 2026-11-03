@@ -139,7 +139,7 @@ class Web {
         std::string _certWhy;                       // the certificate of the tailnet not got: why
         std::thread _certThread;                    // getting it (tailscale cert: seconds, a minute): never the web waiting
         std::atomic<bool> _certBusy{false};
-        std::int64_t _sniAt = 0;                    // unix s it was got (renewed every day)
+        std::atomic<std::int64_t> _sniAt{0};        // unix s it was got (renewed every day)
         cluster::WebSniView _sniView;               // what its TLS callback reads
         bool _httpsWanted = false;      // [web] https when it was opened
         std::string _fingerprint;
@@ -157,6 +157,8 @@ class Web {
         // ---------- Pre-Function -------- //
         _cold void open_(const int port);
         _cold void close_(void);
+        _cold void certWhy_(const std::string& why);         // why the certificate of the tailnet was not got (under _mutex: two threads)
+        _cold _nodiscard std::string certWhy_(void) const;
         _cold void serve_(void);
         _cold void found_(void);        // the app searching this network: this computer told to it
         _cold void client_(const int fd, const std::string& peer, const bool tty);
@@ -183,6 +185,7 @@ class Web {
     public:
         // ---------- Pre-Function -------- //
         _cold void tick(void);              // the port follows [web] enabled / web on|off, [web] port
+        _cold void stop(void);              // the quit: the port closed, nothing listens any more (the object stays until the end of the process)
         _cold void setOn(const bool on);    // for this run
         _cold void kick(const std::vector<std::string>& ids = {});     // these devices out (none: all of them, a new code)
         _cold void approve(const std::string& id, const std::string& answer); // a device waiting: allow | trust | deny

@@ -72,6 +72,8 @@ taxonomy_edit = true       # the global session may edit the taxonomy of the cat
 #   free (nothing) | list-review (a task list, then a review, repeated until good) | one-task (one task at a time)
 #   | plan-first (a plan, then the work) | custom (only the text below)
 orchestration = "hybrid"  # compact | hybrid | ultra: how readily the global session splits work into sub-sessions (compact: the fewest, one per project, asks before splitting)
+workflow = false           # the multi-agent workflows of the model itself, when it has them (Claude Code: its Workflow tool, ultracode: dozens of agents, a lot of tokens):
+                           # true: allowed and asked (it uses them on a big task); false: never, the tool taken away from it (the sessions started from now)
 work_method = "free"
 work_method_text = ""      # your own words, added to the preset (400 characters at most)
 work_method_detect = false # the global session may PROPOSE a method from how you phrase requests (a small sample of your prompts, no model):
@@ -120,7 +122,7 @@ keep_warm = "off"          # off | chosen (/keepwarm) | all | background: an idl
                            # expires (a tiny turn; the previous wake-up taken back first: one in the conversation at most)
 keep_warm_ttl = 5          # minutes the prompt cache lives (5; 60 with a 1 h cache), counted from the last request
 keep_warm_margin = 45      # the wake-up this many seconds before it expires (16 to 600: checked every 10 s)
-keep_warm_hours = 2        # kept warm so long after the last real prompt or take-back (0: always)
+keep_warm_hours = 2        # kept warm so long after the last real use: a prompt, a take-back, /keepwarm (0: never stops); past it its ♨ goes
 questions_to_global = true # a question of the agent of a sub-session shown on the global session (its own one greyed);
                            # answered with the keys, the mouse or the voice
 global_answers = false     # the global session is told those questions and may choose their answer

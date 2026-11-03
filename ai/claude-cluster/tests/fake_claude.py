@@ -33,6 +33,8 @@ print(json.dumps({"type": "system", "subtype": "init", "session_id": "00000000-0
 for line in sys.stdin:
     try: msg = json.loads(line)
     except ValueError: continue
+    if msg.get("type") == "control_request" and msg.get("request", {}).get("subtype") == "initialize":  # never a turn for a real agent: answered as a prompt, it was an "ok" nobody asked at each start (told as a real turn)
+        continue
     content = msg.get("message", {}).get("content", "")
     log.write("PROMPT " + json.dumps(content) + "\n"); log.flush()
     if transcript:

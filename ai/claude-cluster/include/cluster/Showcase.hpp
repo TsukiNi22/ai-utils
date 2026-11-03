@@ -29,6 +29,8 @@ File Description:
 
     /* type */
     #include <string>                       // std::string
+    #include <utility>                      // std::pair
+    #include <vector>                       // std::vector
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
@@ -38,6 +40,9 @@ class Manager;
 
 //----------------------------------------------------------------//
 /* FUNCTION */
+
+// The sounds of the notifications (the soundboard of the Debug page): the name of each one in the desktop theme, when it is heard
+_nodiscard const std::vector<std::pair<std::string, std::string>>& notify_sounds(void);
 
 // The showcase of the Debug page: what = all | displays | questions | permission | states | progress | failure | notify;
 // platform = terminal | window | web | app | web terminal (what it says about each element); run by the core, in its

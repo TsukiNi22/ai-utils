@@ -20,9 +20,12 @@ File Description:
 #include "cluster/Tools.hpp"
 #include "cluster/Demo.hpp"
 #include <toml++/toml.hpp>
+#include <type_traits>
 #include <algorithm>
 #include <optional>
 #include <fstream>
+#include <memory>
+#include <mutex>
 
 /* tools */
 // Built-in styles: html-style (light / dark tokens of the docs) and a few classic palettes
@@ -213,6 +216,7 @@ _cold void cluster::Config::load(void)
     this->allowBypass = table["agent"]["allow_bypass"].value_or(this->allowBypass);
     this->orchestration = table["agent"]["orchestration"].value_or(this->orchestration);
     if (this->orchestration != "compact" && this->orchestration != "ultra") this->orchestration = "hybrid";
+    this->workflow = table["agent"]["workflow"].value_or(this->workflow);
     this->keepAwake = table["service"]["keep_awake"].value_or(this->keepAwake);
     if (this->keepAwake != "off" && this->keepAwake != "always") this->keepAwake = "working";
     this->workMethod = table["agent"]["work_method"].value_or(this->workMethod);
@@ -526,23 +530,46 @@ _cold void cluster::Config::load(void)
 
 _cold bool cluster::Config::reload(void)
 {
+    // every thread reads the settings without a lock, some keeping references into them: never changed in place, this first object either once anything runs (every
+    // reader goes through current()). A new version parsed aside from the one of the moment (what is in memory only stays as it does in a file without its key),
+    // then published; the file unchanged: nothing, its content unchanged: no new version. One at a time (the tick, every request that wrote a setting)
+    static std::mutex writing;
+    static std::vector<std::unique_ptr<cluster::Config>>* const versions = new std::vector<std::unique_ptr<cluster::Config>>(); // never freed: read until the end of the process
+    const std::lock_guard<std::mutex> lock(writing);
+    cluster::Config& first = this->_published.first != nullptr ? *this->_published.first : *this;
+    cluster::Config& now = first.current();
     std::error_code error;
-    const std::filesystem::file_time_type mtime = std::filesystem::last_write_time(this->_path, error);
-    if (error || mtime == this->_mtime) return false;
-    this->load();
+    const std::filesystem::file_time_type mtime = std::filesystem::last_write_time(now._path, error);
+    if (error || mtime == now._mtime) return false;
+    std::unique_ptr<cluster::Config> next = std::make_unique<cluster::Config>(now);
+    next->_published.first = &first;
+    next->load();
+    now._mtime = next->_mtime; // the date of what it read, under this lock: nothing else reads it
+    if (*next == now) return true;
+    first._published.version.store(next.get(), std::memory_order_release);
+    versions->push_back(std::move(next));
     return true;
+}
+
+_nodiscard cluster::Config& cluster::Config::current(void) const
+{
+    cluster::Config* const first = this->_published.first != nullptr ? this->_published.first : const_cast<cluster::Config*>(this);
+    cluster::Config* const version = first->_published.version.load(std::memory_order_acquire);
+    return version != nullptr ? *version : *first;
 }
 
 _cold const cluster::Style& cluster::Config::currentStyle(void) const
 {
-    auto it = this->styles.find(this->style);
-    return it != this->styles.end() ? it->second : this->styles.at("html-dark");
+    const cluster::Config& now = this->current();
+    auto it = now.styles.find(now.style);
+    return it != now.styles.end() ? it->second : now.styles.at("html-dark");
 }
 
 _cold std::string cluster::Config::command(const std::string& driver) const
 {
     // the demo: claude is the fake agent (its config), every other agent (codex, qwen, opencode...) a command that fails at once - never a real model, never a token
     if (cluster::demo_enabled() && driver != "claude") return "false";
-    auto it = this->commands.find(driver);
-    return it != this->commands.end() ? it->second : driver;
+    const cluster::Config& now = this->current();
+    auto it = now.commands.find(driver);
+    return it != now.commands.end() ? it->second : driver;
 }

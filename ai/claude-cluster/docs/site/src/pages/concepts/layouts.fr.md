@@ -10,7 +10,7 @@ keywords = "disposition layout liste grille onglets hub tableau arbre f2 panneau
 
 ## Liste {#list}
 
-La liste des sessions à gauche avec la conversation active et ses **panneaux** à droite : tokens (dernier prompt, courant, total), contexte (utilisé / fenêtre), coût (session, dernier tour, budget, limites 5 h / 7 j), usage (le fournisseur : aujourd'hui, 7 jours, total, les fenêtres du compte), skills, git (branche, graphe), diff, outils (chronologie), fichiers (modifiés). `[ui] panels` fixe ceux par défaut d'une nouvelle session ; chacun s'active par session depuis la palette. La liste défile (`↑ n more / ↓ n more`) et garde l'entrée **Tasks** en haut.
+La liste des sessions à gauche avec la conversation active et ses **panneaux** à droite : tokens (dernier prompt, courant, total), contexte (utilisé / fenêtre), coût (session, dernier tour, budget, limites 5 h / 7 j avec le temps restant avant leur remise à zéro : `5h limit (4h40m)`, `7d limit (3d5h)`, `(40m12s)` sous une heure), usage (le fournisseur : aujourd'hui, 7 jours, total, les fenêtres du compte), skills, git (branche, graphe), diff, outils (chronologie), fichiers (modifiés). `[ui] panels` fixe ceux par défaut d'une nouvelle session ; chacun s'active par session depuis la palette. La liste défile (`↑ n more / ↓ n more`) et garde l'entrée **Tasks** en haut.
 
 ## Grille {#grid}
 

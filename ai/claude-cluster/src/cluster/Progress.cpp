@@ -55,10 +55,13 @@ _cold std::uint64_t cluster::Manager::progressBegin(const std::string& title, co
     return p.id;
 }
 
-_cold void cluster::Manager::progressStep(const std::uint64_t id, const std::string& now)
+_cold void cluster::Manager::progressStep(const std::uint64_t id, const std::string& now, const int percent)
 {
     std::lock_guard<std::mutex> lock(this->_progressMutex);
-    if (cluster::Progress* p = progress_find_(this->_progresses, id)) p->now = now;
+    if (cluster::Progress* p = progress_find_(this->_progresses, id)) {
+        p->now = now;
+        p->percent = std::clamp(percent, -1, 100);
+    }
     ++this->_version;
 }
 
@@ -71,6 +74,7 @@ _cold void cluster::Manager::progressAdvance(const std::uint64_t id, const std::
     if (!p->now.empty()) p->log.push_back("✓ " + p->now);
     if (p->log.size() > 8) p->log.erase(p->log.begin());
     p->now = now;
+    p->percent = -1;
     ++this->_version;
 }
 
@@ -96,6 +100,7 @@ _cold void cluster::Manager::progressEnd(const std::uint64_t id, const bool ok, 
         p->done = true;
         p->ok = ok;
         p->now = text;
+        p->percent = -1;
         p->ended = cluster::now_ms();
     }
     if (notice) this->notice_("", text, !ok);
@@ -231,7 +236,7 @@ _cold void cluster::Manager::failureAnswer(const std::string& id, const std::str
         return;
     }
     if (answer == "other" && other) {
-        std::thread([this, f = found->first, other]() {
+        cluster::guarded([this, f = found->first, other]() {
             try {
                 other();
             } catch (const utils::exception::IException& e) {
@@ -241,7 +246,7 @@ _cold void cluster::Manager::failureAnswer(const std::string& id, const std::str
         return;
     }
     if (answer != "retry" || !found->second) return;
-    std::thread([this, f = found->first, again = found->second]() {
+    cluster::guarded([this, f = found->first, again = found->second]() {
         try {
             again();
         } catch (const utils::exception::IException& e) {
@@ -292,6 +297,11 @@ void cluster::Busy::drop(void)
 _cold void cluster::busy_step(const std::string& text) // xstyle: ignore CPP-SINGLE-STATEMENT (its thread state lives here)
 {
     if (busy_manager_ != nullptr) busy_manager_->progressAdvance(busy_id_, text);
+}
+
+_cold void cluster::busy_update(const std::string& text, const int percent) // xstyle: ignore CPP-SINGLE-STATEMENT (its thread state lives here)
+{
+    if (busy_manager_ != nullptr) busy_manager_->progressStep(busy_id_, text, percent);
 }
 
 _cold void cluster::busy_log(const std::string& line) // xstyle: ignore CPP-SINGLE-STATEMENT (its thread state lives here)

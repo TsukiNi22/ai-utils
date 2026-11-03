@@ -299,7 +299,11 @@ function sendKeys(text) {
         for (let at = 0; at < bytes.length; at += 512 * 1024) ws.send(bytes.subarray(at, at + 512 * 1024));
         return;
     }
-    writes = writes.then(() => api("/api/tty/write", encoder.encode(text), true)).catch(() => {}); // in order, never two at once
+    const bytes = encoder.encode(text);
+    for (let at = 0; at < bytes.length; at += 512 * 1024) { // a request takes 1 MB at most (a big paste)
+        const part = bytes.subarray(at, at + 512 * 1024);
+        writes = writes.then(() => api("/api/tty/write", part, true)).catch(() => {}); // in order, never two at once
+    }
 }
 function sendResize(cols, rows) {
     if (mode === "ws" && ws && ws.readyState === 1) ws.send(JSON.stringify({t: "resize", cols, rows}));
@@ -441,7 +445,8 @@ $("term").addEventListener("keydown", (e) => {
     sendKeys(bytes);
 });
 $("term").addEventListener("paste", (e) => {
-    const text = (e.clipboardData || window.clipboardData).getData("text");
+    // what a terminal does: never an escape of the text (its own end of paste would make the rest of it keys, a prompt sent)
+    const text = (e.clipboardData || window.clipboardData).getData("text").replace(/[\x1b\x9b]/g, "");
     if (!text) return;
     e.preventDefault();
     sendKeys(view && view.paste ? "\x1b[200~" + text + "\x1b[201~" : text);

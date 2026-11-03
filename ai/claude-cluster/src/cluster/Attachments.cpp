@@ -21,6 +21,7 @@ File Description:
 #include <algorithm>
 #include <unistd.h>
 #include <fstream>
+#include <vector>
 #include <random>
 #include <cstdio>
 
@@ -53,7 +54,7 @@ _cold static std::string safe_name_(const std::string& name)
 
 _cold static std::string new_id_(void)
 {
-    static std::mt19937_64 engine{std::random_device{}()};
+    thread_local std::mt19937_64 engine{std::random_device{}()}; // one per thread: uploads run side by side
     static const char* digits = "0123456789abcdef";
     std::string id;
     for (int i = 0; i < 8; ++i) id += digits[engine() % 16];
@@ -188,8 +189,10 @@ _cold cluster::Attachment cluster::attach_store(const cluster::Config& config, c
         // magick: oriented (the EXIF rotation applied), stripped, bounded; kept as it is when magick is missing / fails
         const std::filesystem::path source = dir / ("." + id + "-in" + extension);
         const std::filesystem::path result = dir / ("." + id + "-out" + extension);
+        cluster::busy_step("Preparing the image (" + cluster::size_text(bytes.size()) + ")");
         std::ofstream(source, std::ios::binary).write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-        std::vector<std::string> args = {"magick", source.string(), "-auto-orient"};
+        // bounded: the pixels of a small file (a bomb from a device of the page) fail it, the file kept as it is
+        std::vector<std::string> args = {"magick", "-limit", "memory", "1GiB", "-limit", "map", "2GiB", "-limit", "disk", "4GiB", source.string(), "-auto-orient"};
         if (config.attach.maxPixels > 0) args.insert(args.end(), {"-resize", std::to_string(config.attach.maxPixels) + "x" + std::to_string(config.attach.maxPixels) + ">"});
         if (config.attach.stripExif) args.push_back("-strip");
         if (mime == "image/jpeg") args.insert(args.end(), {"-quality", "92"});
@@ -204,6 +207,7 @@ _cold cluster::Attachment cluster::attach_store(const cluster::Config& config, c
         std::filesystem::remove(source, error);
         std::filesystem::remove(result, error);
     }
+    cluster::busy_step("Storing it (" + cluster::size_text(data.size()) + ")");
     {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file.write(data.data(), static_cast<std::streamsize>(data.size()));
@@ -215,6 +219,30 @@ _cold cluster::Attachment cluster::attach_store(const cluster::Config& config, c
     out.name = safe;
     out.stripped = stripped;
     return out;
+}
+
+_cold cluster::Attachment cluster::attach_file(const cluster::Config& config, const std::string& session, const std::string& path)
+{
+    if (!config.attach.enabled) refuse_("attachments are off (settings: Attachments)");
+    std::error_code error;
+    const std::string name = std::filesystem::path(path).filename().string();
+    if (!std::filesystem::is_regular_file(path, error)) refuse_("not a file: " + path);
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    if (error) refuse_("not readable: " + path);
+    if (size > cap_(config)) refuse_(name + " is too big (" + std::to_string(size / 1048576) + " MB, the limit is " + std::to_string(config.attach.maxMb) + " MB)");
+    std::ifstream file(path, std::ios::binary);
+    if (!file) refuse_("not readable: " + path);
+    std::string bytes;
+    bytes.reserve(static_cast<std::size_t>(size));
+    std::vector<char> piece(1024 * 1024);
+    cluster::busy_step("Reading it");
+    while (file) {
+        file.read(piece.data(), static_cast<std::streamsize>(piece.size()));
+        bytes.append(piece.data(), static_cast<std::size_t>(file.gcount()));
+        if (bytes.size() > cap_(config)) refuse_(name + " is too big (the limit is " + std::to_string(config.attach.maxMb) + " MB)"); // grown since
+        cluster::busy_update(cluster::size_text(bytes.size()) + " / " + cluster::size_text(size), size == 0 ? -1 : static_cast<int>(bytes.size() * 100 / size));
+    }
+    return cluster::attach_store(config, session, name, bytes);
 }
 
 _cold cluster::Attachment cluster::attach_link(const cluster::Config& config, const std::string& session, const std::string& path,
@@ -237,14 +265,11 @@ _cold cluster::Attachment cluster::attach_link(const cluster::Config& config, co
             refuse_("a file of claude-cluster itself is not attached: " + path);
     }
     if (scope == cluster::AttachScope::Global) {
+        // a hidden file (.ssh, .gnupg, .aws, .config...) never, whatever its folder: a session in the home has ~/.ssh/id_rsa in its project folder, and the global session chooses the folder of a session
+        if (cluster::hidden_path(target.string())) refuse_("the global session never attaches a hidden file (settings: Attachments): " + path);
         const std::filesystem::path home = std::filesystem::weakly_canonical(cluster::expand_home("~"), error);
         const std::filesystem::path project = cwd.empty() ? std::filesystem::path() : std::filesystem::weakly_canonical(cluster::expand_home(cwd), error);
-        const bool inProject = !project.empty() && within_(target, project);
-        bool inHome = within_(target, home);
-        if (inHome && !inProject) // the hidden folders of the home (.ssh, .gnupg, .aws, .config...) never
-            for (auto it = std::next(target.begin(), static_cast<std::ptrdiff_t>(std::distance(home.begin(), home.end()))); it != target.end(); ++it)
-                if (it->string().starts_with(".")) inHome = false;
-        if (!inProject && !inHome) refuse_("the global session attaches the files of the project folder or of the home of the user only (settings: Attachments): " + path);
+        if (!(!project.empty() && within_(target, project)) && !within_(target, home)) refuse_("the global session attaches the files of the project folder or of the home of the user only (settings: Attachments): " + path);
     }
     const std::filesystem::path dir = cluster::attach_dir(config, session);
     std::filesystem::create_directories(dir, error);

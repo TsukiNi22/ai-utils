@@ -206,6 +206,8 @@ _cold cluster::Json cluster::mcp_tools(void)
             {{"id", str_("schedule id")}, {"action", str_("pause | resume | snooze | ack | trigger | cancel | delete | archive | unarchive")}, {"minutes", int_("snooze")}, {"reason", str_("why (optional)")}}, {"id", "action"}),
         tool_("notify", "A desktop notification to the user now (something done, something needing them); off when the user turned them off.",
             {{"text", str_("the message")}, {"title", str_("its title (default: claude-cluster)")}, {"urgent", {{"type", "boolean"}, {"description", "stays on screen"}}}}, {"text"}),
+        tool_("report_status", "A sub-session tells whoever follows it (the global session, the session whose task it runs) something now, without ending its turn: \"[status from <name> (<id>)] text\". "
+            "Your final message reaches them by itself: this is only for what cannot wait for it. One every 30 s, each one costs them a turn.", {{"text", str_("the status, compact")}}, {"text"}),
         tool_("schedule_cancel", "Cancel a schedule.", {{"id", str_("schedule id (w1...)")}}, {"id"}),
         tool_("task_cancel", "Cancel a task.", {{"id", str_("task id (t1...)")}}, {"id"}),
         tool_("search", "Full-text search in the history of every session, and in their categories and tags (\"#bugfix\": the sessions with that category or tag only).", {{"text", str_("text to find")}}, {"text"}),
@@ -335,7 +337,7 @@ _cold cluster::Json cluster::mcp_call(const std::string& name, const cluster::Js
         {"session_list", "list"}, {"session_status", "status"}, {"session_read", "read"}, {"session_spawn", "spawn"}, {"session_send", "send"}, {"session_wait", "wait"},
         {"session_allow", "allow"}, {"session_set_mode", "mode"}, {"session_set_model", "model"}, {"models_policy", "models_policy"}, {"work_method", "work_method"}, {"usage", "usage"}, {"cluster_info", "cluster_info"}, {"config_files", "config_files"}, {"config_read", "config_read"}, {"config_write", "config_write"}, {"machine_sync", "machine_sync"}, {"session_interrupt", "interrupt"}, {"session_close", "close"},
         {"session_restore", "restore"}, {"session_trash", "trash"}, {"session_purge", "purge"}, {"session_rename", "rename"}, {"session_describe", "describe"}, {"taxonomy", "taxonomy"}, {"session_continue", "resume"}, {"session_fanout", "fanout"}, {"group_status", "group_status"}, {"group_cancel", "group_cancel"}, {"session_cd", "cd"},
-        {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_edit", "schedule_edit"}, {"schedule_act", "schedule_act"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
+        {"report_status", "report_status"}, {"task_add", "task_add"}, {"task_list", "task_list"}, {"schedule_add", "schedule_add"}, {"schedule_list", "schedule_list"}, {"schedule_edit", "schedule_edit"}, {"schedule_act", "schedule_act"}, {"schedule_cancel", "schedule_cancel"}, {"notify", "notify"}, {"task_cancel", "task_cancel"}, {"task_act", "task_act"}, {"search", "search"}, {"export", "export"},
         {"providers", "providers"}, {"voice_engines", "voice_engines"}, {"docs", "docs"}, {"web_access", "web"},
         {"session_display", "display"}, {"session_display_update", "display_update"}, {"session_display_get", "display_get"}, {"session_pin", "pin"}, {"session_unpin", "unpin"}, {"session_pin_get", "pin_get"}, {"external_conversations", "external"}, {"session_import", "import"}, {"session_fork", "fork"}, {"session_transcript", "transcript"},
         {"session_context", "context"}, {"session_messages", "messages"}, {"session_edit", "edit"}, {"remote_control", "remote"}, {"ui_state", "ui_state"}, {"ui_focus", "ui_focus"}, {"ui_layout", "ui_layout"},
@@ -434,7 +436,7 @@ _cold int cluster::mcp_serve(void)
     while (std::getline(std::cin, line)) {
         cluster::Json message;
         try {
-            message = cluster::Json::parse(line);
+            message = cluster::json_parse(line);
         } catch (const cluster::Json::exception&) {
             continue;
         }
@@ -455,6 +457,7 @@ _cold int cluster::mcp_serve(void)
         } else if (method == "tools/list") {
             // the ones off in the settings (MCP page) left out
             cluster::Json tools = cluster::mcp_tools();
+            tools.erase(std::remove_if(tools.begin(), tools.end(), [](const cluster::Json& tool) {return tool.value("name", std::string()) == "report_status";}), tools.end()); // a sub-session's
             try {
                 const cluster::Json off = cluster::Control::request({{"cmd", "mcp_off"}}).value("data", cluster::Json::array());
                 cluster::Json kept = cluster::Json::array();

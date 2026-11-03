@@ -72,7 +72,7 @@ _cold std::vector<cluster::Candidate> cluster::shell_commands(const std::string&
         std::lock_guard<std::mutex> lock(shell_mutex_);
         if (!shell_read_) {
             shell_read_ = true;
-            std::thread([]() {
+            cluster::guarded([]() {
                 std::vector<cluster::Candidate> all = shell_scan_();
                 std::lock_guard<std::mutex> hold(shell_mutex_);
                 shell_commands_ = std::move(all);
@@ -142,9 +142,7 @@ _cold static cluster::ActionResult substitute_(cluster::Manager& manager, const 
         for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && history.empty(); ++it)
             if (it->kind == cluster::EntryKind::User) history.push_back(it->text);
     if (history.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "no prompt sent in this session yet");
-    const std::regex pattern(parts[0], flags.find('i') != std::string::npos ? std::regex::ECMAScript | std::regex::icase : std::regex::ECMAScript);
-    const std::string changed = std::regex_replace(history.front(), pattern, parts[1],
-        flags.find('g') != std::string::npos || s == 1 ? std::regex_constants::format_default : std::regex_constants::format_first_only);
+    const std::string changed = cluster::regex_changed(parts[0], history.front(), parts[1], flags.find('i') != std::string::npos, flags.find('g') != std::string::npos || s == 1);
     if (changed == history.front()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "nothing matches " + parts[0] + " in your last prompt");
     result.fill = changed;
     result.ui = "fill";
@@ -177,8 +175,9 @@ _cold static cluster::ActionResult ex_(cluster::Manager& manager, const std::str
             const std::filesystem::path file = arg.starts_with("/") || arg.starts_with("~") ? cluster::expand_home(arg) : std::filesystem::path(cwd) / arg;
             std::ifstream in(file, std::ios::binary);
             if (!in) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no file " + file.string());
-            result.fill.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-            if (result.fill.size() > 200000) result.fill.resize(200000);
+            result.fill.resize(200000); // no more read (a device, a huge file: never the whole of it in memory first)
+            in.read(result.fill.data(), static_cast<std::streamsize>(result.fill.size()));
+            result.fill.resize(static_cast<std::size_t>(in.gcount()));
         }
         result.ui = "fill";
         result.message = std::to_string(std::count(result.fill.begin(), result.fill.end(), '\n') + 1) + " line(s) in the prompt";
@@ -231,6 +230,44 @@ _cold static cluster::ActionResult ex_(cluster::Manager& manager, const std::str
     if (std::any_of(local.begin(), local.end(), [&name](const std::pair<std::string, std::string>& c) {return c.first == name;}))
         return slash("/" + command);
     throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no :" + name + " (:help)");
+}
+
+_cold std::string cluster::prompt_refused(const cluster::Config& config, const std::string& tagged, const bool web, const bool global)
+{
+    // what a device of the page (its terminal too) or the global session may not run through a prompt: a shell of this computer, the settings that
+    // protect it, a file written anywhere; why, "" allowed. Read as run_slash will read it: without its hidden characters, whatever it looks like first
+    if (cluster::pasted_first(tagged)) return ""; // what is pasted is a prompt, whatever it starts with: never run (run_slash)
+    const std::string line = cluster::trim(cluster::slash_untag(cluster::trim(tagged)));
+    const bool shell = line.starts_with("!");
+    const bool ex = line.starts_with(":") && !line.starts_with("::");
+    if (!shell && !ex && !line.starts_with("/")) return "";
+    // its word as it will be read: ": set" is ":set"
+    const std::string words = cluster::trim(line.substr(1));
+    const std::size_t space = words.find_first_of(" \t\n");
+    const std::string name = shell ? std::string() : words.substr(0, space);
+    const std::string arg = space == std::string::npos ? std::string() : cluster::unescape_path(cluster::trim(words.substr(space + 1)));
+    if (global && (shell || ex)) return "not allowed: the !commands and the :commands of a prompt are the user's (the global session: its tools, the /commands)";
+    if (name == "update") return "the update is chosen by the user, in a terminal or a window of claude-cluster"; // (:update: a /command of the same name)
+    if (web && !config.web.shell) {
+        if (shell || (ex && line.find('!') != std::string::npos) || (ex && (name == "r" || name == "read")))
+            return "the shell from the page is off (settings of the computer: Web > Shell from the page)";
+    }
+    // a session kept warm while the mode is off: the mode written in [sessions] of this computer, past [web] settings (the mark alone stays open once the mode is on)
+    if (web && name == "keepwarm" && config.keepWarm == "off" && arg != "off" && !cluster::web_may(config, "sessions"))
+        return "read only from the web page: the computer allows it in its settings (Web > Settings from the page)";
+    if (web && ex && (name == "set" || name == "se" || name == "set!" || name == "se!")) {
+        // key=value, alone or with its section, as :set finds it: the section open to the page ([web] settings), never the list of those sections
+        const std::size_t equal = arg.find('=');
+        const std::string key = cluster::trim(arg.substr(0, equal));
+        for (const cluster::SettingsPage& page: cluster::settings_pages(config))
+            for (const cluster::Setting& setting: page.settings)
+                if ((setting.key == key || setting.section + "." + setting.key == key) && (!cluster::web_may(config, setting.section) || (setting.section == "web" && setting.key == "settings")))
+                    return "read only from the web page: the computer allows it in its settings (Web > Settings from the page)";
+    }
+    // the conversation written to a file: a .md / .txt out of the hidden folders only (never ~/.bashrc, ~/.ssh/authorized_keys...), like the command export
+    if (((ex && (name == "w" || name == "write")) || name == "export") && !arg.empty() && (cluster::hidden_path(arg) || !(arg.ends_with(".md") || arg.ends_with(".txt"))))
+        return "not allowed: the global session and the page write .md / .txt files out of the hidden folders only (" + arg + ")";
+    return "";
 }
 
 _cold cluster::ActionResult cluster::run_shell(cluster::Manager& manager, const std::string& session, const std::string& command)

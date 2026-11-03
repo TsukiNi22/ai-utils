@@ -145,10 +145,10 @@ _cold void cluster::Orchestrator::start(void)
     this->rescan();
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        this->_host = cluster::host_sample(this->_config.orch.procDir);
+        this->_host = cluster::host_sample(this->_config.current().orch.procDir);
     }
     this->_running = true;
-    this->_thread = std::thread(&cluster::Orchestrator::loop_, this);
+    this->_thread = cluster::guarded(&cluster::Orchestrator::loop_, this);
 }
 
 _cold void cluster::Orchestrator::stop(void)
@@ -159,7 +159,7 @@ _cold void cluster::Orchestrator::stop(void)
 
 _cold void cluster::Orchestrator::rescan(void)
 {
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     const cluster::Hardware hardware = cluster::hardware_scan(c.procDir, c.sysDir);
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -265,7 +265,7 @@ _cold void cluster::Orchestrator::touch_(void)
 /* the second: sample, pressure, schedule, save */
 _cold void cluster::Orchestrator::second_(void)
 {
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     if (this->_hooks.active) this->_active = this->_hooks.active();
     const bool scan = cluster::now_ms() - this->_lastScan >= 5000;
     if (scan && this->_hooks.sessions) this->_agents = this->_hooks.sessions();
@@ -277,9 +277,9 @@ _cold void cluster::Orchestrator::second_(void)
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_host = host;
         const std::int64_t now = cluster::now_ms();
-        for (cluster::Job& job: this->_jobs) // a timeout
+        for (cluster::Job& job: this->_jobs) // a timeout: the time it ran, not the stop it is in now (stoppedMs: its past stops only)
             if ((job.state == "running" || job.state == "stopped") && job.timeoutSeconds > 0 && job.started > 0
-                && now - job.started - job.stoppedMs > static_cast<std::int64_t>(job.timeoutSeconds) * 1000)
+                && now - job.started - job.stoppedMs - (job.state == "stopped" && job.stoppedAt > 0 ? now - job.stoppedAt : 0) > static_cast<std::int64_t>(job.timeoutSeconds) * 1000)
                 this->kill_(job, "timeout", "ran past its timeout of " + std::to_string(job.timeoutSeconds) + " s");
         if (scan) this->processes_(c);
         if (c.memoryGuard && host.memTotalMb > 0 && host.memAvailMb < floor) this->guard_(c);
@@ -667,7 +667,7 @@ _cold std::string cluster::Orchestrator::blocked_(const cluster::OrchConf& c, co
 /* the schedule */
 _cold void cluster::Orchestrator::schedule_(void)
 {
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     const std::int64_t now = cluster::now_ms();
     std::vector<cluster::Job*> waiting;
     int active = 0;
@@ -718,9 +718,7 @@ _cold bool cluster::Orchestrator::spawn_(cluster::Job& job, const cluster::OrchC
 {
     int out[2];
     if (::pipe2(out, O_CLOEXEC) != 0) { // xstyle: ignore LU-SYSCALL (posix_spawn: a group of its own, signals reset)
-        job.state = "failed";
-        job.reason = std::string("no pipe: ") + std::strerror(errno);
-        job.ended = cluster::now_ms();
+        this->finish_(job, "failed", 126, "", std::string("no pipe: ") + std::strerror(errno)); // finish_ sets its state: an ended job is never told to its owner
         return false;
     }
     posix_spawn_file_actions_t actions;
@@ -782,10 +780,7 @@ _cold bool cluster::Orchestrator::spawn_(cluster::Job& job, const cluster::OrchC
     ::close(out[1]);
     if (code != 0) {
         ::close(out[0]);
-        job.state = "failed";
-        job.reason = std::string("not started: ") + std::strerror(code);
-        job.ended = cluster::now_ms();
-        this->finish_(job, "failed", 127, "", job.reason);
+        this->finish_(job, "failed", 127, "", std::string("not started: ") + std::strerror(code)); // (as above: its owner told, it ended its turn on that)
         return false;
     }
     ::fcntl(out[0], F_SETFL, ::fcntl(out[0], F_GETFL) | O_NONBLOCK);
@@ -865,7 +860,7 @@ _cold void cluster::Orchestrator::finish_(cluster::Job& job, const std::string& 
     job.stoppedAt = 0;
     job.ended = now;
     job.granted = true;
-    const cluster::OrchConf c = this->_config.orch;
+    const cluster::OrchConf c = this->_config.current().orch;
     const std::string id = job.id;
     const std::string session = job.session;
     // what the owner reads: the end of its job, explicit

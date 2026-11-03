@@ -22,7 +22,9 @@ File Description:
     #define _Attribute
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include "Types.hpp"            // cluster::Json
+    #include "Tools.hpp"            // cluster::Captured
     #include <cstdint>              // std::uint32_t
+    #include <utility>              // std::pair
     #include <string>               // std::string
     #include <vector>               // std::vector
 
@@ -81,6 +83,15 @@ _cold _nodiscard std::string took(const std::int64_t ms);
 _cold _nodiscard cluster::Json display_pinned(const cluster::Snapshot& snap);
 // the types and their fields, for the MCP tool and the help
 _cold _nodiscard std::string display_help(void);
+
+// a read of git (git <args...>) in a folder of any origin (an archive unpacked, written by an agent): a display of a tree, the git panel. Its command line
+// turns off what its .git/config and its hooks would run (fsmonitor, filters, external diffs, textconv, signatures, hooks, a lazy fetch, its submodules);
+// a failed command when something cannot be turned off
+_cold _nodiscard cluster::Captured git_read(const std::vector<std::string>& args, const std::string& cwd, const int timeout);
+
+// a command given a text on its input (with its variables, capture_env): never on its command line, read by any user of the computer in /proc/<pid>/cmdline
+_cold _nodiscard cluster::Captured capture_fed(const std::vector<std::string>& args, const std::string& text, const std::vector<std::pair<std::string, std::string>>& env,
+    const std::string& cwd, const int timeout);
 
 } // namespace end
 

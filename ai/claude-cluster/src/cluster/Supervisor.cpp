@@ -44,6 +44,7 @@ File Description:
 #include <csignal>
 #include <cstdlib>
 #include <atomic>
+#include <memory>
 #include <thread>
 #include <chrono>
 #include <mutex>
@@ -122,7 +123,6 @@ namespace {
         return text.str();
     }
 
-    std::mutex env_mutex_; // the environment of this process lent to a core started for an instance: one at a time
 
     // the socket and the data of the main claude-cluster: the ones of this process when it is not an instance; the core of the web access
     // of the supervisor (an instance of its own) is given them at its start
@@ -131,11 +131,7 @@ namespace {
         static const std::filesystem::path socket = []() {
             if (const char* given = std::getenv("CLAUDE_CLUSTER_MAIN_SOCKET")) return std::filesystem::path(given);
             if (std::getenv("CLAUDE_CLUSTER_INSTANCE") == nullptr) return cluster::socket_path();
-            const std::string own = std::getenv("CLAUDE_CLUSTER_SOCKET") != nullptr ? std::getenv("CLAUDE_CLUSTER_SOCKET") : "";
-            ::unsetenv("CLAUDE_CLUSTER_SOCKET");
-            const std::filesystem::path main = cluster::socket_path();
-            if (!own.empty()) ::setenv("CLAUDE_CLUSTER_SOCKET", own.c_str(), 1);
-            return main;
+            return cluster::runtime_dir() / "control.sock"; // the one a core without an instance takes
         }();
         return socket;
     }
@@ -222,34 +218,19 @@ namespace {
         throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no claude-cluster named " + name);
     }
 
-    // the environment of an instance for what is started now (its core), this process back on its own after
-    void with_env_(const cluster::SupInstance& it, const std::function<void(void)>& run)
+    // the environment of an instance for what is started now (its core), on its command line of env: never lent by this process (setenv with its threads
+    // running: another one asking data_dir() meanwhile would write its state in that instance, and getenv under a setenv may read freed memory)
+    std::vector<std::string> env_of_(const cluster::SupInstance& it)
     {
-        std::lock_guard<std::mutex> lock(env_mutex_);
-        std::map<std::string, std::string> saved;
-        for (const char* name: {"CLAUDE_CLUSTER_SOCKET", "CLAUDE_CLUSTER_DATA_DIR", "CLAUDE_CLUSTER_INSTANCE"})
-            if (const char* value = std::getenv(name)) saved[name] = value;
-        if (it.main) {
-            ::unsetenv("CLAUDE_CLUSTER_SOCKET");
-            ::unsetenv("CLAUDE_CLUSTER_DATA_DIR");
-            ::unsetenv("CLAUDE_CLUSTER_INSTANCE");
-        } else {
-            ::setenv("CLAUDE_CLUSTER_SOCKET", it.socket.c_str(), 1);
-            ::setenv("CLAUDE_CLUSTER_DATA_DIR", it.data.c_str(), 1);
-            ::setenv("CLAUDE_CLUSTER_INSTANCE", it.name.c_str(), 1);
-        }
-        run();
-        for (const char* name: {"CLAUDE_CLUSTER_SOCKET", "CLAUDE_CLUSTER_DATA_DIR", "CLAUDE_CLUSTER_INSTANCE"}) {
-            if (saved.contains(name)) ::setenv(name, saved[name].c_str(), 1);
-            else ::unsetenv(name);
-        }
+        if (it.main) return {"env", "-u", "CLAUDE_CLUSTER_SOCKET", "-u", "CLAUDE_CLUSTER_DATA_DIR", "-u", "CLAUDE_CLUSTER_INSTANCE"};
+        return {"env", "CLAUDE_CLUSTER_SOCKET=" + it.socket.string(), "CLAUDE_CLUSTER_DATA_DIR=" + it.data.string(), "CLAUDE_CLUSTER_INSTANCE=" + it.name};
     }
 
     void start_(const cluster::SupInstance& it)
     {
-        with_env_(it, []() {
-            cluster::detach({cluster::self_exe().string(), "serve", "--restore"});
-        });
+        std::vector<std::string> command = env_of_(it);
+        command.insert(command.end(), {cluster::self_exe().string(), "serve", "--restore"});
+        cluster::detach(command);
     }
 
     // what a core answered it did: {data: {done: "..."}} (or a plain text), never thrown on an unexpected shape
@@ -424,15 +405,12 @@ _cold std::string cluster::supervisor_web_toggle(void)
     }
     std::error_code error;
     std::filesystem::create_directories(it.data, error);
-    ::setenv("CLAUDE_CLUSTER_MAIN_SOCKET", main_socket_().c_str(), 1); // what it reads: the main one and its instances
-    ::setenv("CLAUDE_CLUSTER_SUPERVISOR_PID", std::to_string(::getpid()).c_str(), 1); // its core stops when this supervisor is gone (a crash too)
     std::ofstream(it.data / "owner") << ::getpid();
-    ::setenv("CLAUDE_CLUSTER_MAIN_DATA", main_data_().c_str(), 1);
-    with_env_(it, []() {
-        ::setenv("CLAUDE_CLUSTER_SUPERVISOR", "1", 1);
-        cluster::detach({cluster::self_exe().string(), "serve", "--no-global", "--web"});
-        ::unsetenv("CLAUDE_CLUSTER_SUPERVISOR");
-    });
+    std::vector<std::string> command = env_of_(it);
+    command.insert(command.end(), {"CLAUDE_CLUSTER_MAIN_SOCKET=" + main_socket_().string(), // what it reads: the main one and its instances
+        "CLAUDE_CLUSTER_SUPERVISOR_PID=" + std::to_string(::getpid()), // its core stops when this supervisor is gone (a crash too)
+        "CLAUDE_CLUSTER_MAIN_DATA=" + main_data_().string(), "CLAUDE_CLUSTER_SUPERVISOR=1", cluster::self_exe().string(), "serve", "--no-global", "--web"});
+    cluster::detach(command);
     // its address once it listens (10 s at most), with its code; its error when it could not open (the port taken...)
     cluster::Json web = cluster::Json::object();
     for (int i = 0; i < 100 && web.value("url", std::string()).empty() && web.value("error", std::string()).empty(); ++i) {
@@ -622,6 +600,14 @@ namespace {
         unsigned long long ticks = 0;   // its CPU time (utime + stime)
     };
 
+    // a text of a file of another tool (Claude Code's sessions, jobs, transcripts): of another type (its format changed, another program wrote it), as if it were not there, never
+    // an exception that stops the view at its start and its reader thread later
+    std::string text_(const cluster::Json& from, const char* key)
+    {
+        const auto it = from.find(key);
+        return it != from.end() && it->is_string() ? it->get<std::string>() : std::string();
+    }
+
     // Claude Code from its transcript: its last entry the user's (a prompt, a tool's result): the model answers (working); a tool asked not
     // answered: working while it runs (a child of its own), else waits for you (a permission, a question); end_turn or interrupted: idle
     std::string transcript_state_(const std::filesystem::path& transcript, const bool running)
@@ -654,18 +640,18 @@ namespace {
         std::string line;
         for (int n = 0; n < 400 && std::getline(in, line); ++n) {
             if (line.find("\"summary\"") == std::string::npos && line.find("\"type\":\"user\"") == std::string::npos) continue;
-            const cluster::Json entry = cluster::Json::parse(line, nullptr, false);
+            const cluster::Json entry = cluster::json_parse(line, nullptr, false);
             if (!entry.is_object()) continue;
-            if (entry.value("type", std::string()) == "summary") {
-                title = entry.value("summary", std::string());
+            if (text_(entry, "type") == "summary") {
+                title = text_(entry, "summary");
                 break;
             }
-            if (title.empty() && entry.value("type", std::string()) == "user" && entry.contains("message") && entry["message"].is_object()) {
+            if (title.empty() && text_(entry, "type") == "user" && entry.contains("message") && entry["message"].is_object()) {
                 const cluster::Json content = entry["message"].value("content", cluster::Json());
                 if (content.is_string()) title = content.get<std::string>();
                 else if (content.is_array())
                     for (const cluster::Json& part: content)
-                        if (part.is_object() && part.value("type", std::string()) == "text" && title.empty()) title = part.value("text", std::string());
+                        if (text_(part, "type") == "text" && title.empty()) title = text_(part, "text");
                 if (title.starts_with("<")) title.clear(); // a command or a hook, not what was asked
             }
         }
@@ -770,10 +756,10 @@ _cold std::vector<cluster::SupAgent> cluster::supervisor_agents(void)
         if (a.agent == "claude") {
             const std::optional<cluster::Json> own = cluster::read_json(cluster::expand_home("~/.claude/sessions") / (std::to_string(p.pid) + ".json"));
             if (own && own->is_object()) {
-                status = own->value("status", std::string());
-                parked = own->value("parkedJobId", std::string());
-                const std::string session = own->value("sessionId", std::string());
-                a.title = own->value("name", std::string());
+                status = text_(*own, "status");
+                parked = text_(*own, "parkedJobId");
+                const std::string session = text_(*own, "sessionId");
+                a.title = text_(*own, "name");
                 for (const std::filesystem::directory_entry& project: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/projects"), error))
                     if (!session.empty() && std::filesystem::exists(project.path() / (session + ".jsonl"), error)) transcript = project.path() / (session + ".jsonl");
                 if (!transcript.empty()) {
@@ -829,18 +815,18 @@ _cold std::vector<cluster::SupAgent> cluster::supervisor_agents(void)
     for (const std::filesystem::directory_entry& job: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/jobs"), error)) {
         const std::optional<cluster::Json> state = cluster::read_json(job.path() / "state.json");
         if (!state || !state->is_object()) continue;
-        const std::string tempo = state->value("tempo", std::string());
-        const std::string phase = state->value("state", std::string());
+        const std::string tempo = text_(*state, "tempo");
+        const std::string phase = text_(*state, "state");
         const std::int64_t at = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::file_clock::to_sys(std::filesystem::last_write_time(job.path() / "state.json", error))
             .time_since_epoch()).count();
         if ((phase == "done" || tempo == "idle") && cluster::now() - at > 7200) continue;
         cluster::SupAgent a;
         a.agent = "claude job";
-        a.cwd = state->value("cwd", std::string());
+        a.cwd = text_(*state, "cwd");
         // waiting for you: what it needs (its question, the reply it suggests), else its last request
-        const std::string needs = state->value("needs", std::string());
-        const std::string reply = state->value("suggestedReply", std::string());
-        a.title = state->value("name", std::string()) + (state->value("detail", std::string()).empty() ? std::string() : " · " + cluster::one_line(state->value("detail", std::string()), 80));
+        const std::string needs = text_(*state, "needs");
+        const std::string reply = text_(*state, "suggestedReply");
+        a.title = text_(*state, "name") + (text_(*state, "detail").empty() ? std::string() : " · " + cluster::one_line(text_(*state, "detail"), 80));
         if (tempo == "blocked" && !needs.empty()) a.needs = needs + (reply.empty() ? std::string() : "  (suggested reply: " + reply + ")");
         a.state = tempo == "active" ? "working" : tempo == "blocked" ? "question" : phase == "done" ? "done" : "idle";
         a.tty = "job " + job.path().filename().string();
@@ -862,6 +848,17 @@ _cold std::string cluster::supervisor_agent_open(const cluster::SupAgent& agent)
     return "opened in the main claude-cluster as a copy (its terminal keeps the original)";
 }
 
+namespace {
+    // what a thread of an action of the view uses: it may run longer than the view (w: 10 s, force: 25 s, P), and this process goes on as the interface of the instance chosen:
+    // never its frame, gone by then
+    struct ActionState {
+        std::mutex mutex;
+        std::string note;
+        cluster::SupPerf perf;
+        ftxui::ScreenInteractive* screen = nullptr; // null: the view is gone
+    };
+}
+
 _cold int cluster::supervisor_tty(std::string& open)
 {
     // every claude-cluster of this computer, read again every 1.5 s; F2: the details (their sessions); Enter: what to do with the one
@@ -870,14 +867,16 @@ _cold int cluster::supervisor_tty(std::string& open)
     ftxui::ScreenInteractive screen = ftxui::ScreenInteractive::Fullscreen();
     screen.ForceHandleCtrlC(false); // Ctrl+C quits through q (its web access closed with it)
     screen.ForceHandleCtrlZ(false);
-    std::mutex mutex;
+    const std::shared_ptr<ActionState> shared = std::make_shared<ActionState>();
+    shared->screen = &screen;
+    std::mutex& mutex = shared->mutex;
     std::vector<cluster::SupInstance> all = cluster::supervisor_scan();
     std::string installed = cluster::supervisor_installed();
     cluster::Json webState = cluster::supervisor_web_state();
     std::vector<cluster::SupAgent> agents = cluster::supervisor_agents(); // the agents running outside claude-cluster
     bool details = false;
     int focus = 0;
-    std::string note;
+    std::string& note = shared->note;
     enum class Pop {None, Menu, Confirm, Help, Web, Perf};
     Pop pop = Pop::None;
     std::vector<std::pair<std::string, std::string>> menu; // <label, action> of the popup of the one chosen
@@ -906,11 +905,17 @@ _cold int cluster::supervisor_tty(std::string& open)
     std::string selection;          // the text under it, read while it is drawn
     cluster::Json approve;          // the device waiting now (its popup)
     int approveAt = 0;
-    cluster::SupPerf perf;
+    cluster::SupPerf& perf = shared->perf;
     std::atomic<bool> perfOn{false};
     std::atomic<bool> running{true};
     std::atomic<bool> updated{false};
-    std::thread reader([&]() {
+    // the view ends (the lock held): nothing posts to it any more, FTXUI drops what a post goes through once it has left
+    const std::function<void(void)> leave = [&]() {
+        if (shared->screen == nullptr) return;
+        shared->screen = nullptr;
+        screen.Exit();
+    };
+    std::thread reader = cluster::guarded([&]() {
         cluster::SupPerf meter;
         while (running) {
             for (int i = 0; i < 15 && running; ++i)
@@ -929,28 +934,30 @@ _cold int cluster::supervisor_tty(std::string& open)
                 agents = std::move(outside);
                 if (perfOn) perf = meter;
             }
+            std::lock_guard<std::mutex> lock(mutex);
             if (cluster::version_compare(disk, CLUSTER_VERSION) > 0) { // its own update: run again on the new binary, nothing to keep
                 updated = true;
-                screen.Exit();
+                leave();
                 break;
             }
-            screen.PostEvent(ftxui::Event::Custom);
+            if (shared->screen != nullptr) shared->screen->PostEvent(ftxui::Event::Custom);
         }
     });
     const std::function<void(const std::function<std::string(void)>&)> background = [&](const std::function<std::string(void)>& work) {
-        note = "…";
-        std::thread([&, work]() {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            note = "…";
+        }
+        cluster::guarded([shared, work]() {
             std::string done;
             try {
                 done = work();
             } catch (const std::exception& e) {
                 done = e.what();
             }
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                note = cluster::one_line(done, 200);
-            }
-            screen.PostEvent(ftxui::Event::Custom);
+            std::lock_guard<std::mutex> lock(shared->mutex);
+            shared->note = cluster::one_line(done, 200);
+            if (shared->screen != nullptr) shared->screen->PostEvent(ftxui::Event::Custom);
         }).detach();
     };
     const std::function<void(const std::string&, const std::string&)> act = [&](const std::string& name, const std::string& action) {
@@ -1010,7 +1017,8 @@ _cold int cluster::supervisor_tty(std::string& open)
         return out;
     };
     std::vector<cluster::Setting> webList = web_settings();
-    const std::function<void(const cluster::Setting&, const std::string&)> set_web = [&](const cluster::Setting& s, const std::string& value) {
+    const std::function<void(const cluster::Setting&, const std::string&)> set_web = [&](const cluster::Setting& given, const std::string& value) {
+        const cluster::Setting s = given; // it may be a row of webList, replaced below
         const std::string error = cluster::setting_check(s, value);
         if (!error.empty()) {
             note = s.label + ": " + error;
@@ -1335,7 +1343,7 @@ _cold int cluster::supervisor_tty(std::string& open)
             return false;
         }
         if (event == ftxui::Event::Special("\x03") || event.input() == "\x03") { // Ctrl+C: quit (as q)
-            screen.Exit();
+            leave();
             return true;
         }
         if (event == ftxui::Event::Special("\x1a") || event.input() == "\x1a") return true; // Ctrl+Z: nothing
@@ -1393,7 +1401,7 @@ _cold int cluster::supervisor_tty(std::string& open)
                 if (action == "cancel") return true;
                 if (action == "open") {
                     open = name;
-                    screen.Exit();
+                    leave();
                 } else if (action == "stop") {
                     ask_again(name, "stop", "Stop " + name + "? Its terminals and windows close, its sessions are kept (Start brings them back).");
                 } else if (action == "force") {
@@ -1534,20 +1542,14 @@ _cold int cluster::supervisor_tty(std::string& open)
         } else if (event == ftxui::Event::Character('p') || event == ftxui::Event::Character('P')) {
             perfOn = true;
             pop = Pop::Perf;
+            const std::vector<cluster::SupInstance> now = all;
             lock.unlock();
-            std::thread([&]() { // the first reading at once (the next with the list)
+            cluster::guarded([shared, now]() { // the first reading at once (the next with the list)
                 cluster::SupPerf meter;
-                std::vector<cluster::SupInstance> now;
-                {
-                    std::lock_guard<std::mutex> guard(mutex);
-                    now = all;
-                }
                 cluster::supervisor_perf(meter, now);
-                {
-                    std::lock_guard<std::mutex> guard(mutex);
-                    if (perf.at == 0) perf = meter;
-                }
-                screen.PostEvent(ftxui::Event::Custom);
+                std::lock_guard<std::mutex> guard(shared->mutex);
+                if (shared->perf.at == 0) shared->perf = meter;
+                if (shared->screen != nullptr) shared->screen->PostEvent(ftxui::Event::Custom);
             }).detach();
         } else if (event == ftxui::Event::Return && chosenAgent() != nullptr) {
             const cluster::SupAgent& a = *chosenAgent();
@@ -1597,7 +1599,7 @@ _cold int cluster::supervisor_tty(std::string& open)
             lock.unlock();
             background([]() {return cluster::supervisor_web_toggle();});
         } else if (event == ftxui::Event::Character('q') || event == ftxui::Event::Escape) {
-            screen.Exit();
+            leave();
         } else {
             return false;
         }
@@ -1606,6 +1608,10 @@ _cold int cluster::supervisor_tty(std::string& open)
     screen.Loop(keys);
     running = false;
     if (reader.joinable()) reader.join();
+    {
+        std::lock_guard<std::mutex> lock(mutex); // an action still running: it no longer wakes this view up
+        shared->screen = nullptr;
+    }
     (void)cluster::supervisor_web_close_mine(); // quit: its web access never left open
     if (updated) { // the binary installed is newer: this supervisor runs it at once (the same choice: the supervisor again)
         ::setenv("CLAUDE_CLUSTER_SUPERVISOR", "1", 1);

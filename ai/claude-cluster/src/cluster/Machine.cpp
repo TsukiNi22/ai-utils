@@ -253,22 +253,26 @@ _cold std::string development_(void)
         if (line.find("account") != std::string::npos && account.empty()) account = line;
     text += "| GitHub (gh) | " + (account.empty() ? std::string("not logged in") : cluster::one_line(account, 100)) + " |\n";
     text += "| git hosts | __GIT_HOSTS__ |\n\nClaude Code:\n\n";
-    const cluster::Json settings = cluster::Json::parse(read_(cluster::expand_home("~/.claude/settings.json")), nullptr, false);
-    if (settings.is_object()) text += "- model: " + settings.value("model", std::string("default")) + ", permission mode: "
-        + (settings.contains("permissions") && settings["permissions"].is_object() ? settings["permissions"].value("defaultMode", std::string("default")) : std::string("default")) + "\n";
+    const cluster::Json settings = cluster::json_parse(read_(cluster::expand_home("~/.claude/settings.json")), nullptr, false);
+    // a file of another tool: a field of another kind is its default (value() throws on it: the whole map lost)
+    const std::function<std::string(const cluster::Json&, const char*)> field = [](const cluster::Json& object, const char* key) {
+        return object.contains(key) && object[key].is_string() ? object[key].get<std::string>() : std::string("default");
+    };
+    if (settings.is_object()) text += "- model: " + field(settings, "model") + ", permission mode: "
+        + (settings.contains("permissions") && settings["permissions"].is_object() ? field(settings["permissions"], "defaultMode") : std::string("default")) + "\n";
     std::vector<std::string> skills;
     std::error_code error;
     for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(cluster::expand_home("~/.claude/skills"), error))
         if (!entry.path().filename().string().starts_with(".")) skills.push_back(entry.path().filename().string());
     std::sort(skills.begin(), skills.end());
     text += "- skills (~/.claude/skills): " + (skills.empty() ? std::string("none") : join_(skills, ", ", 80)) + "\n";
-    const cluster::Json plugins = cluster::Json::parse(read_(cluster::expand_home("~/.claude/plugins/installed_plugins.json")), nullptr, false);
+    const cluster::Json plugins = cluster::json_parse(read_(cluster::expand_home("~/.claude/plugins/installed_plugins.json")), nullptr, false);
     std::vector<std::string> pluginList;
     if (plugins.is_object() && plugins.contains("plugins") && plugins["plugins"].is_object())
         for (const auto &[name, value]: plugins["plugins"].items())
             pluginList.push_back(name);
     text += "- plugins: " + (pluginList.empty() ? std::string("none") : join_(pluginList, ", ", 60)) + "\n";
-    const cluster::Json state = cluster::Json::parse(read_(cluster::expand_home("~/.claude.json")), nullptr, false);
+    const cluster::Json state = cluster::json_parse(read_(cluster::expand_home("~/.claude.json")), nullptr, false);
     std::vector<std::string> mcp;
     if (state.is_object() && state.contains("mcpServers") && state["mcpServers"].is_object())
         for (const auto &[name, value]: state["mcpServers"].items())
@@ -333,6 +337,18 @@ _cold std::vector<std::string> editors_(void)
     return found;
 }
 
+_cold std::string no_secret_(const std::string& url)
+{
+    // an address as told to the model and the page: never what a clone may keep in it (https://oauth2:<token>@host/..., https://<token>@host/..., ?private_token=<token>);
+    // up to the last @ before the path (a password may hold one). user@host:path has no secret: a name
+    std::string out = url.substr(0, url.find_first_of("?#"));
+    const std::size_t scheme = out.find("://");
+    if (scheme == std::string::npos) return out;
+    const std::size_t at = out.rfind('@', out.find('/', scheme + 3));
+    if (at != std::string::npos && at > scheme) out.erase(scheme + 3, at - scheme - 2);
+    return out;
+}
+
 _cold Repository repository_(const std::filesystem::path& folder)
 {
     // what .git tells without running git: origin, branch, last activity; the kind from the files of the project
@@ -346,9 +362,15 @@ _cold Repository repository_(const std::filesystem::path& folder)
     const std::string config = read_(git / "config");
     const std::size_t origin = config.find("[remote \"origin\"]");
     if (origin != std::string::npos) {
-        std::smatch match;
-        const std::string rest = config.substr(origin);
-        if (std::regex_search(rest, match, std::regex(R"(url\s*=\s*(\S+))"))) repo.remote = match[1];
+        // its url in its section: the whole line first (a password with a space in it), its first word kept
+        std::istringstream lines(config.substr(origin + 17));
+        for (std::string line; std::getline(lines, line) && !cluster::trim(line).starts_with("[");) {
+            const std::size_t equal = line.find('=');
+            if (equal == std::string::npos || cluster::lower(cluster::trim(line.substr(0, equal))) != "url") continue;
+            const std::string url = no_secret_(cluster::trim(line.substr(equal + 1)));
+            repo.remote = url.substr(0, url.find_first_of(" \t"));
+            break;
+        }
     }
     const std::string head = cluster::trim(read_(git / "HEAD"));
     repo.branch = head.starts_with("ref: refs/heads/") ? head.substr(16) : head.substr(0, 8);
@@ -668,7 +690,7 @@ _cold std::vector<cluster::Project> cluster::projects(const std::string& query)
                 p.name = std::filesystem::path(p.path).filename().string();
                 p.kind = cells[2];
                 p.branch = cells[3];
-                p.origin = cells[4];
+                p.origin = no_secret_(cells[4]); // a map made by an older version: until its next sync
                 p.activity = cells[5];
                 all.push_back(p);
             }

@@ -107,7 +107,12 @@ Callbacks
   stopped) mean no answer will come: restore / continue it or route the work elsewhere. The callbacks owed survive a
   restart or an update of claude-cluster. Only when a session you wait on is idle with nothing running and still silent
   long after: one `session_status`, never a polling loop.
-- A group answers once (`[group fN ...]`), a schedule as `[scheduled wN] ...`, a form as `[form ...]`.
+- A group answers once (`[group fN ...]`), a schedule as `[scheduled wN] ...`, a form as `[form ...]`. `[status from ...]`: a
+  sub-session telling something before the end of its turn, its answer still comes.
+- A shell or an agent of a session you asked that ends or is killed wakes that session: its answer comes back to you, and
+  `[stopped: ...]` lists what stopped with an agent gone. What no session tells (a session you never asked, a process outside,
+  a deploy, a time): do not promise to look later, ask for the wake-up: `task_add` with `on_event` (`session_idle`, `git_push`,
+  `command`, `file`) or `schedule_add` (`when`, `every`, `if`).
 Tasks and schedules
 - Task or session? A task reuses a session that already has its context (a follow-up, a queue of small jobs, work after
   another one) and costs no new context; a session (`session_spawn`) is for a new project or an isolated job. A task may

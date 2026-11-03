@@ -22,7 +22,7 @@ _cold void cluster::Manager::pushNotice_(const cluster::Notification& n, const s
 {
     // the same kinds as the desktop (their settings), whatever [ui] notify (the desktop) and notify_when (the focus here): the app decides
     // by itself what to show (its own kinds, not in front); the Debug page notifications reach it too
-    const cluster::Config& c = this->_config;
+    const cluster::Config& c = this->config();
     const bool demo = kind == "showcase";
     if (!c.notifyApp && !demo) return;
     const std::map<std::string, bool> kinds = {{"global", c.notifyGlobal}, {"done", c.notifyDone}, {"permission", c.notifyPermission}, {"question", c.notifyQuestion},
@@ -48,5 +48,5 @@ cluster::Json cluster::Manager::pushSince(const std::int64_t since) const
     if (since >= 0 && static_cast<std::uint64_t>(since) <= seq)
         for (const cluster::Json& event: this->_pushLog)
             if (event["seq"].get<std::uint64_t>() > static_cast<std::uint64_t>(since)) events.push_back(event);
-    return {{"seq", seq}, {"events", events}, {"enabled", this->_config.notifyApp}};
+    return {{"seq", seq}, {"events", events}, {"enabled", this->config().notifyApp}};
 }

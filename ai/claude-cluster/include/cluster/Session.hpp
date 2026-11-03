@@ -39,7 +39,9 @@ File Description:
     //----------------------------------------------------------------//
     /* DEFINE */
 
-    #define KEEP_WARM_MARK "[claude-cluster keep-warm:" // the start of a keep-warm prompt (never a real prompt of the user)
+    #define KEEP_WARM_MARK "[claude-cluster keep-warm:" // the start of a keep-warm prompt
+    // a keep-warm wake-up, its whole text: how one is known in a transcript (its text never gives it a silent turn or a take-back: Queued::warm does; said by anyone else it asks nothing)
+    #define KEEP_WARM_PROMPT KEEP_WARM_MARK " nothing to do: reply with just: ok]"
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
@@ -54,6 +56,8 @@ struct Event {
     bool interrupted = false;   // TurnDone: stopped by an interrupt (not an error, nothing to notify)
     bool spontaneous = false;   // TurnDone: no prompt started it (a background task or a Monitor woke the agent up)
     bool warm = false;          // TurnDone: a keep-warm wake-up (no notification, sound, face, notice nor reply)
+    bool asked = false;         // TurnDone: a prompt of the global session or of a task was in this turn
+    bool askedLater = false;    // TurnDone: one still waits its turn in the queue (the callback owed is for that turn, not this one)
 };
 
 struct Queued {
@@ -64,6 +68,7 @@ struct Queued {
     bool given = false;         // written to the agent while its turn runs (taken at its next step): no longer editable
     std::string origin{};       // user (empty) | mcp | task | schedule | wake (claude-cluster woke the agent for itself: its background
                                 // done, a [job] / [tasks] told - a turn of its own): shown as the colour of the prompt
+    bool warm = false;          // a keep-warm wake-up (Session::wake only, never from its text, never saved): its turn silent, itself taken back by the next one
 };
 
 struct Launch {
@@ -94,6 +99,11 @@ class Session {
         int _outFd = -1;                    // read ends of its stdout / stderr
         int _errFd = -1;
         std::thread _worker;
+        std::atomic<std::thread::id> _workerId{};   // its thread (the reader: never joined by itself)
+        std::atomic<int> _running{-1};      // the pid of its process while it runs (-1: none)
+        std::recursive_mutex _life;         // one start / stop / take-back at a time: _worker is touched under it, never under _mutex (a reader may wait for _mutex)
+        bool _takingBack = false;           // a keep-warm wake-up being taken back (under _mutex): the prompts sent meanwhile wait, kept
+        bool _retired = false;              // replaced by a new object, or closing (under _mutex): what is sent is refused (Manager::deliver_), its agent never started again
         std::atomic<bool> _stopping{false};
         std::atomic<bool> _busy{false};     // per-turn drivers: a process is running
         std::atomic<std::uint64_t> _version{1};
@@ -103,6 +113,13 @@ class Session {
         std::string _context;               // given with the next prompt (the !commands run since the last one)
         std::string _heldContext;           // a !command waiting for its choice (given or not)
         bool _interrupted = false;          // an interrupt was asked: the end of the turn is not an error
+        struct LateWake {                   // the end of a task never seen starting (a Monitor?): claude may start a turn by itself; if not, woken
+            cluster::Queued prompt;
+            std::int64_t due = 0;
+            std::int64_t turns = 0;
+        };
+        std::vector<LateWake> _lateWakes;
+        bool _turnAsked = false;            // a prompt of the global session or of a task in the turn running (its end owes the callback)
         bool _prompted = false;             // a prompt was written since the last end of turn (else the next one is a wake-up of the agent)
         cluster::Queued _lastPrompt;        // last prompt sent (rewind: back in the prompt with its images)
         std::set<std::string> _sent;        // uuids of the prompts written here (their replay is not shown twice)
@@ -127,6 +144,7 @@ class Session {
         _cold void read_(void);             // loop of the worker: lines of stdout / stderr until the end
         _cold void runTurns_(void);         // worker of the per-turn drivers
         _cold void finished_(int code);     // the process ended
+        _cold void tell_(const std::vector<cluster::Event>& events);   // the listener told (what it throws stays here)
         _cold void write_(const cluster::Json& message);
         _cold void line_(const std::string& line);
         _cold void claude_(const cluster::Json& event);    // claude & qwen stream-json
@@ -139,9 +157,14 @@ class Session {
         _cold void agentMessage_(const cluster::Json& event);                                 // what a sub-agent says and does
         _cold void picture_(const std::string& id, const cluster::Json& block, const bool error); // a picture in a tool result (or made by its command): kept on the call
         _cold void turnDone_(const std::string& text, const bool error);
-        _cold void dispatch_(const cluster::Queued& prompt);  // claude: written now (lock held)
+        _cold void dispatch_(const cluster::Queued& prompt);  // claude: written now, recorded once written (lock held)
+        _cold void dispatchNext_(void);                         // the next queued one, out of the queue once written (lock held)
+        _cold bool give_(cluster::Queued prompt);               // written or queued; false: retired, nothing taken
+        _cold _nodiscard bool down_(void) const;                // its agent not running: started again by what needs it
         _cold void queue_(void);                                // snapshot of the queue
         _cold void emit_(const cluster::Event::Kind kind, const std::string& text = "", const bool error = false, const bool interrupted = false, const bool spontaneous = false);
+        _cold void agentEnded_(cluster::SubAgent& agent, const std::string& status, const bool unseen); // (locked) a task of claude over, the first time: said, told
+        _cold _nodiscard bool wakeLast_(void) const;       // (locked) nothing but a keep-warm wake-up over: it can be taken back
 
         // ------------ Function ---------- //
         _cold inline void touch_(void) {++this->_version;};
@@ -151,7 +174,9 @@ class Session {
         // ---------- Pre-Function -------- //
         _cold void start(void);
         _cold void restart(void);                           // its reader done (process ended): started again
-        _cold void send(const std::string& text, const std::vector<std::string>& images = {}, const std::string& origin = {}); // images: [Image #N] of the text
+        _cold _nodiscard bool send(const std::string& text, const std::vector<std::string>& images = {}, const std::string& origin = {}); // images: [Image #N] of the text; false: retired, not taken (Manager::deliver_)
+        _cold bool wake(void);                              // a keep-warm wake-up (a turn running keeps the cache: nothing); false: retired
+        _cold void retire(const bool on);                   // on: replaced or closing, what is sent from now on refused (off: not replaced after all). Before its stop, then what it holds is read
         _cold void answer(const std::string& requestId, const std::string& behavior); // allow | always | deny
         _cold void answerQuestions(const std::string& requestId, const cluster::Json& answers); // AskUserQuestion: {question: answer}
         _cold void showcasePermission(const cluster::Permission& permission); // the showcase: a permission / question answered here, never sent
@@ -160,6 +185,7 @@ class Session {
         _cold void setMode(const std::string& mode);
         _cold void interrupt(void);
         _cold void sendNext(void);                                         // the next queued prompt now: the turn interrupted, it sent
+        _cold void lateWakes(void);                                        // each second: the ends of tasks no turn took after a moment
         _cold void stopAgent(const std::string& task);                     // one of its sub-agents stopped (its task id or its Agent call id)
         _cold void giveQueued(const int delayMs);                          // a claude turn running: the prompts queued for delayMs given to it (its next step); < 0: never
         _cold _nodiscard std::optional<cluster::Queued> unqueue(void);   // the last queued prompt, removed (to edit it)
@@ -191,6 +217,7 @@ class Session {
         _cold void limitMemory(const std::uintmax_t bytes, const std::size_t entries); // the memory budget of its entries (the settings of the moment)
         _cold _nodiscard std::uintmax_t memoryUsed(void) const; // the size of its entries in memory
         _cold void trimTo(const std::uintmax_t bytes);     // its oldest entries in memory dropped down to this size (the global budget)
+        _cold _nodiscard bool takeBackWake(void); // the last prompt still a keep-warm wake-up, nothing else going on: taken back (false: left as it is; its background running: never stopped for a wake-up)
         _cold _nodiscard cluster::Queued rewind(const int back = 1, std::vector<std::string>* dropped = nullptr, const bool byUser = true); // claude: the last `back` prompts removed from the conversation, the oldest of them returned (dropped: the prompts after it; byUser: a take-back of the user, what was removed kept in rewind/; false: a keep-warm wake-up)
         _nodiscard cluster::Snapshot snapshot(void) const;
         _nodiscard cluster::Snapshot snapshotLight(void) const; // without its entries (never copied): its name, labels, state, metrics

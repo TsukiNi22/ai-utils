@@ -30,9 +30,9 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Entry, kind, text, tool, time, o
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Permission, requestId, tool, description, input, suggestions, time, reason, safety)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ToolRun, id, name, summary, done, error, time, image)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SessionSpec, id, name, cwd, backend, claudeId, leaf, resumeAt, fork, model, mode, effort, profile, extraArgs,
-    panels, global, created, deleted, cost, tokens, summary, summaryAuto, summaryTurns, category, tags, turns, pin, keepWarm)
+    panels, global, created, deleted, cost, tokens, summary, summaryAuto, summaryTurns, category, tags, turns, pin, keepWarm, context, cachedAt, usedAt)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Todo, id, content, status, activeForm)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Progress, id, title, session, now, log, done, ok, started, ended)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Progress, id, title, session, now, percent, log, done, ok, started, ended)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Failure, id, action, source, error, retry, at, other)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ScheduleRun, at, note)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(CommandMatch, out, contains, regex, code, codeAsked, every, failAfter, failures, last)

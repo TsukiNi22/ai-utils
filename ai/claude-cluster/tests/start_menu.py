@@ -24,7 +24,11 @@ ENV = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_CLUSTER_"
 ENV.update(XDG_CONFIG_HOME=f"{T}/config", XDG_DATA_HOME=f"{T}/share", XDG_RUNTIME_DIR=f"{T}/run", XDG_CACHE_HOME=f"{T}/cache", FAKE_CLAUDE_LOG=f"{T}/log", TERM="xterm-256color")
 
 
+failed = False
+
 def check(name, ok, detail=""):
+    global failed
+    failed = failed or not ok
     print(("ok   " if ok else "FAIL ") + name + (f"  ({detail})" if detail and not ok else ""), flush=True)
 
 
@@ -63,7 +67,7 @@ for folder in ("config/claude-cluster", "share", "run", "cache", "work"):
     os.makedirs(f"{T}/{folder}")
 open(f"{T}/config/claude-cluster/config.toml", "w").write('[global]\nenabled = false\n[ui]\nnotify = false\nmachine_days = 0\n[user]\nname = "t"\nemail = "t@t.t"\n[usage]\naccount = false\n'
                                                            f'[commands]\nclaude = "{FAKE}"\n')
-first = second = third = None
+first = second = third = fourth = None
 try:
     first = Term()
     first.pump(3)
@@ -135,9 +139,50 @@ try:
     third.send(b"q")
     third.pump(1)
     check("q: quits (the process ends)", True)
+    # what only looks empty stays: a state.json that does not parse (a full disk, a save cut), sessions all in the trash (its days promised), a log with no state; never deleted by a look
+    instances = f"{T}/share/claude-cluster/instances"
+    for name, state, log in (("broken-one", '{"sessions": [{"id": "s1", "na', True), ("trashed-one", '{"sessions": [], "trash": [{"id": "s2", "name": "kept 30 days"}, {"id": "s3", "name": "too"}]}', True),
+                             ("logged-one", None, True), ("odd-one", '{"sessions": "x", "trash": 3}', False), ("odd-specs", '{"sessions": [1, {"global": "x", "claude_id": 2}]}', False),
+                             ("empty-state", '{"sessions": [], "trash": []}', False), ("global-unused", '{"sessions": [{"id": "g", "global": true, "claude_id": ""}], "trash": []}', False)):
+        os.makedirs(f"{instances}/{name}/logs")
+        if state is not None:
+            with open(f"{instances}/{name}/state.json", "w", encoding="utf-8") as file:
+                file.write(state)
+        if log:
+            with open(f"{instances}/{name}/logs/s1.jsonl", "w", encoding="utf-8") as file:
+                file.write('{"kind":"user","text":"weeks of work"}\n')
+    fourth = Term()
+    fourth.pump(3)
+    for name in ("broken-one", "trashed-one", "logged-one", "odd-one", "odd-specs"):
+        check(f"{name}: kept by the menu", os.path.isdir(f"{instances}/{name}"))
+    check("broken-one: its log kept", os.path.exists(f"{instances}/broken-one/logs/s1.jsonl"))
+    for name in ("empty-state", "global-unused"):
+        check(f"{name}, nothing in it: removed", not os.path.isdir(f"{instances}/{name}"))
+    fourth.send(b"i")
+    fourth.pump(1)
+    fourth.send(b"\x1b[6~")  # the end of the list
+    fourth.pump(0.5)
+    shown = fourth.text()
+    for name, said in (("broken-one", "cannot be read"), ("trashed-one", "2 in its trash"), ("logged-one", "0 sessions kept")):
+        fourth.send(b"\x1b[5~")
+        fourth.pump(0.3)
+        for _ in range(12):
+            if name in fourth.text():
+                break
+            fourth.send(b"\x1b[B")
+            fourth.pump(0.2)
+        line = next((row for row in fourth.text().split("\n") if name in row), "")
+        rows = fourth.text().split("\n")
+        at = next((i for i, row in enumerate(rows) if name in row), -1)
+        check(f"{name}: listed, why", at >= 0 and said in " ".join(rows[at:at + 3]), f"{line} {fourth.text()[-900:]}")
+    fourth.send(b"\x1b")
+    fourth.pump(0.5)
+    fourth.send(b"q")
+    fourth.pump(1)
 finally:
-    for term in (first, second, third):
+    for term in (first, second, third, fourth):
         if term:
             term.kill()
     subprocess.run(["pkill", "-f", T], check=False)
     subprocess.run(["rm", "-rf", T], check=False)
+sys.exit(1 if failed else 0)

@@ -183,10 +183,10 @@ _cold static bool send_all_(Conn& conn, const std::string& data)
 
 static std::atomic<std::size_t> attach_cap_{0}; // the largest upload (settings: Attachments), set at each request
 
-_cold static bool read_request_(Conn& conn, Request& request)
+_cold static bool read_request_(Conn& conn, Request& request, const std::function<bool(const Request&)>& device, bool* stranger = nullptr)
 {
-    // One request: its headers (16 KB at most, 10 s), its body (Content-Length: 1 MB, a recording 16 MB, 60 s); the
-    // socket reads time out by themselves (SO_RCVTIMEO)
+    // One request: its headers (16 KB at most, 10 s), its body (Content-Length: 1 MB, a recording 16 MB; 60 s and more by its size for a device
+    // connected, the 10 s of its headers for a stranger's few KB); the socket reads time out by themselves (SO_RCVTIMEO)
     std::array<char, 16384> chunk{};
     std::string data;
     std::int64_t end = now_ms_() + 10000;
@@ -218,9 +218,12 @@ _cold static bool read_request_(Conn& conn, Request& request)
                 return false;
             }
             if (length > (request.path == "/api/listen" ? 16000000U : request.path == "/api/attach" ? attach_cap_.load() + 8192U : 1000000U)) return false;
-            // a big body (a recording, a prompt): a device connected only (its cookie); a stranger: a few KB, 10 s
-            if (length > 4096 && !(request.headers.contains("cookie") && request.headers.at("cookie").find("cc_web=") != std::string::npos)) return false;
-            if (length > 1000000) end = now_ms_() + 60000;
+            // a big body (a recording, a prompt, a file): a device connected only (its real cookies, never made up ones, read before its body is); a stranger: a few KB, 10 s
+            if (length > 4096 && !device(request)) {
+                if (stranger != nullptr) *stranger = true;
+                return false;
+            }
+            if (length > 4096) end = now_ms_() + 60000 + static_cast<std::int64_t>(length / 32); // from a phone on a slow link: 32 KB/s at least, its time accordingly
         }
         if (head != std::string::npos && data.size() >= head + 4 + length) {
             request.body = data.substr(head + 4, length);
@@ -321,13 +324,36 @@ static std::atomic<bool> hsts_on_{false}; // https on: the browsers keep https f
 
 _cold static void respond_(Conn& conn, const int code, const std::string& type, const std::string& body, const std::string& extra = "")
 {
-    static const std::map<int, std::string> reasons = {{200, "OK"}, {400, "Bad Request"}, {401, "Unauthorized"}, {403, "Forbidden"},
-        {301, "Moved Permanently"}, {404, "Not Found"}, {423, "Locked"}, {500, "Internal Server Error"}};
+    static const std::map<int, std::string> reasons = {{200, "OK"}, {202, "Accepted"}, {301, "Moved Permanently"}, {400, "Bad Request"}, {401, "Unauthorized"}, {403, "Forbidden"},
+        {404, "Not Found"}, {405, "Method Not Allowed"}, {413, "Content Too Large"}, {415, "Unsupported Media Type"}, {423, "Locked"}, {429, "Too Many Requests"}, {500, "Internal Server Error"},
+        {501, "Not Implemented"}};
     const std::string reason = reasons.contains(code) ? reasons.at(code) : "Error";
     (void)send_all_(conn, "HTTP/1.1 " + std::to_string(code) + " " + reason + "\r\nContent-Type: " + type + "\r\nContent-Length: " + std::to_string(body.size())
         + "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n"
         + (hsts_on_ ? "Strict-Transport-Security: max-age=31536000\r\n" : "") + extra
         + "Connection: close\r\n\r\n" + body);
+}
+
+_cold static void respond_file_(Conn& conn, const std::filesystem::path& path, const std::string& type, const std::string& extra)
+{
+    // a file sent as it is read: never a whole file in memory per request (512 MB, an app, several devices at once)
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    std::ifstream in(path, std::ios::binary);
+    if (error || !in) {
+        respond_(conn, 404, "text/plain", "no such file\n");
+        return;
+    }
+    if (!send_all_(conn, "HTTP/1.1 200 OK\r\nContent-Type: " + type + "\r\nContent-Length: " + std::to_string(size)
+        + "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n"
+        + (hsts_on_ ? "Strict-Transport-Security: max-age=31536000\r\n" : "") + extra + "Connection: close\r\n\r\n")) return;
+    std::string chunk(1024 * 1024, '\0');
+    for (std::uintmax_t left = size; left > 0;) {
+        in.read(chunk.data(), static_cast<std::streamsize>(std::min<std::uintmax_t>(left, chunk.size())));
+        const std::streamsize got = in.gcount();
+        if (got <= 0 || !send_all_(conn, chunk.substr(0, static_cast<std::size_t>(got)))) return; // shorter than told: the connection closed says it
+        left -= static_cast<std::uintmax_t>(got);
+    }
 }
 
 _cold static void json_(Conn& conn, const int code, const cluster::Json& body, const std::string& extra = "")
@@ -442,6 +468,14 @@ _cold static std::vector<std::string> lan_addresses_(void)
     return addresses;
 }
 
+_cold static bool host_clean_(const std::string& host)
+{
+    // a name and its port, nothing else: it goes back in a redirect and in a header of the page (no control character, no space, a port of digits)
+    if (host.empty() || std::any_of(host.begin(), host.end(), [](const unsigned char c) {return c <= 0x20 || c >= 0x7F;})) return false;
+    const std::size_t colon = host.rfind(':');
+    return colon == std::string::npos || host.find_first_not_of("0123456789", colon + 1) == std::string::npos;
+}
+
 _cold static bool host_ok_(const std::string& host)
 {
     // an address, localhost or the name of this computer: a public name pointed at the LAN (DNS rebinding) refused
@@ -462,6 +496,26 @@ _cold static std::string cookie_(const Request& request, const std::string& name
         if (pair.starts_with(name + "=")) return pair.substr(name.size() + 1);
     }
     return "";
+}
+
+_cold static bool raw_body_(const std::string& path)
+{
+    // the routes of a POST whose body is not JSON: a recording, the keys of the terminal, a file
+    return path == "/api/listen" || path == "/api/tty/write" || path == "/api/attach";
+}
+
+_cold static bool json_type_(const Request& request)
+{
+    // what no plain form can send (urlencoded, multipart, text/plain), whatever document it sits in: its fields made into JSON never run a command as this device
+    const std::string type = request.headers.contains("content-type") ? request.headers.at("content-type") : "";
+    return cluster::lower(cluster::trim(type.substr(0, type.find(';')))) == "application/json";
+}
+
+_cold static int tty_size_(const cluster::Json& json, const char* key, const int fallback)
+{
+    // a number of the page, its default for anything else (never an exception out of the loop of its WebSocket); the terminal clamps it to what it takes
+    if (!json.is_object() || !json.contains(key) || !json[key].is_number()) return fallback;
+    return static_cast<int>(std::clamp(json[key].get<double>(), 0.0, 1000.0));
 }
 
 _cold static std::string kind_name_(const cluster::EntryKind kind)
@@ -513,7 +567,7 @@ _cold static cluster::Json session_json_(cluster::Manager& manager, const std::s
         if (e.kind == cluster::EntryKind::Thinking) continue;
         if (e.kind == cluster::EntryKind::Display) {
             // its pictures left out (asked once by the page: /api/display), the rest whole
-            cluster::Json light = cluster::Json::parse(e.text, nullptr, false);
+            cluster::Json light = cluster::json_parse(e.text, nullptr, false);
             if (!light.is_object()) continue;
             light = light_display_(light);
             json["messages"].push_back({{"kind", "display"}, {"text", light.dump(-1, ' ', false, cluster::JSON_LENIENT)}, {"tool", ""}, {"time", e.time}, {"index", i}});
@@ -566,7 +620,10 @@ _cold int cluster::docs_serve(const int port, const bool lan)
         sockaddr_in peer{};
         socklen_t size = sizeof(peer);
         const int client = ::accept4(fd, reinterpret_cast<sockaddr*>(&peer), &size, SOCK_CLOEXEC);
-        if (client == -1) continue;
+        if (client == -1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50)); // no descriptor left: never a loop at full speed
+            continue;
+        }
         std::array<char, INET_ADDRSTRLEN> text{};
         ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
         if (busy >= 32 || !same_lan_(text.data())) {
@@ -574,20 +631,27 @@ _cold int cluster::docs_serve(const int port, const bool lan)
             continue;
         }
         ++busy;
-        std::thread([client]() {
-            const timeval wait{10, 0};
-            (void)::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof(wait));
-            Conn conn{client};
-            Request request;
-            if (read_request_(conn, request)) {
-                if (request.method != "GET" && request.method != "HEAD") respond_(conn, 405, "text/plain", "read only\n", "Allow: GET, HEAD\r\n");
-                else if (request.path == "/") respond_(conn, 301, "text/plain", "docs\n", "Location: /docs/\r\n");
-                else if (request.path == "/docs" || request.path.starts_with("/docs/")) docs_(conn, request);
-                else respond_(conn, 404, "text/plain", "only the documentation here: /docs/\n");
-            }
+        try {
+            cluster::guarded([client]() {
+                const timeval wait{10, 0};
+                (void)::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof(wait));
+                Conn conn{client};
+                Request request;
+                try {
+                    if (read_request_(conn, request, [](const Request&) {return false;})) {
+                        if (request.method != "GET" && request.method != "HEAD") respond_(conn, 405, "text/plain", "read only\n", "Allow: GET, HEAD\r\n");
+                        else if (request.path == "/") respond_(conn, 301, "text/plain", "docs\n", "Location: /docs/\r\n");
+                        else if (request.path == "/docs" || request.path.starts_with("/docs/")) docs_(conn, request);
+                        else respond_(conn, 404, "text/plain", "only the documentation here: /docs/\n");
+                    }
+                } catch (const std::exception&) {} // a request: never the end of the server
+                ::close(client);
+                --busy;
+            }).detach();
+        } catch (const std::system_error&) { // no thread left: this request refused
             ::close(client);
             --busy;
-        }).detach();
+        }
     }
 }
 
@@ -750,22 +814,24 @@ _cold void cluster::Web::open_(const int port)
     cluster::debug("web", this->_findFd >= 0 ? "found by the app: UDP " + std::to_string(discovery_port_()) : "UDP " + std::to_string(discovery_port_()) + " taken: not found by the app");
     if (!tls.empty()) cluster::debug("web", "no https: " + tls);
     if (!tls.empty()) this->_manager.notice(GLOBAL_ID, "web access: no https (" + tls + "), plain http: no microphone in the page", true);
-    if (!this->_certWhy.empty()) // tailscale without its real certificate: the authority of this computer meanwhile (a warning until it is trusted)
-        (void)this->_manager.fail("Get the real certificate of the tailnet (no browser warning)", "tailscale cert", this->_certWhy, [m = &this->_manager]() {
+    if (const std::string why = this->certWhy_(); !why.empty()) // tailscale without its real certificate: the authority of this computer meanwhile (a warning until it is trusted)
+        (void)this->_manager.fail("Get the real certificate of the tailnet (no browser warning)", "tailscale cert", why, [m = &this->_manager]() {
             if (m->web() != nullptr) m->web()->reopen();
         });
+    std::string pin; // a device or the interfaces may renew it as soon as the lock is free
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_fd = fd; // open now
         hsts_on_ = this->_tls != nullptr;
         this->newPin_();
+        pin = this->_pin;
         this->loadTrusted_();
         this->loadBanned_();
         this->_running = true;
-        this->_thread = std::thread(&cluster::Web::serve_, this);
+        this->_thread = cluster::guarded(&cluster::Web::serve_, this);
     }
     this->_manager.notice(GLOBAL_ID, "web access open: " + std::string(this->_tls != nullptr ? "https://" : "http://") + lan_address_() + ":"
-        + std::to_string(port) + " code " + this->_pin.substr(0, 3) + " " + this->_pin.substr(3) + " (this network only; each new device approved here)");
+        + std::to_string(port) + " code " + pin.substr(0, 3) + " " + pin.substr(3) + " (this network only; each new device approved here)");
     if (!this->_remoteState.empty()) this->_manager.notice(GLOBAL_ID, "web access from outside: " + this->_remoteState, !this->_remoteOk);
     const std::string remote = this->_manager.config().web.remote;
     // its result (outside not reached: ✗, then its failure popup after it)
@@ -774,6 +840,14 @@ _cold void cluster::Web::open_(const int port)
     if (remote != "off" && !this->_remoteOk) // asked but not reached: its popup (Retry: the router asked again)
         (void)this->_manager.fail(remote == "router" ? "Open the port of the router (the web access from outside)" : "Reach this computer by tailscale (the web access from outside)",
             remote == "router" ? "the router (UPnP, upnpc)" : "tailscale", this->_remoteWhy, [m = &this->_manager]() {if (m->web() != nullptr) m->web()->reopen();});
+}
+
+_cold void cluster::Web::stop(void)
+{
+    // the quit: the port closed, what listens stopped (the object stays: a request still ending uses it)
+    std::lock_guard<std::mutex> port(this->_portMutex);
+    if (this->_speech) this->_speech->halt(); // first: a recording being recognized ends its request, close_ then does not wait for it
+    this->close_();
 }
 
 _cold void cluster::Web::reopen(void)
@@ -806,7 +880,7 @@ _cold void cluster::Web::remote_(void)
     this->_remoteOk = false;
     this->_remoteWhy.clear();
     this->_sni.name.clear();
-    this->_certWhy.clear();
+    this->certWhy_("");
     if (conf.remote == "tailscale") {
         cluster::busy_step("tailscale: its address");
         if (!cluster::has_command("tailscale")) {
@@ -821,13 +895,13 @@ _cold void cluster::Web::remote_(void)
             return;
         }
         this->_remoteNames.push_back(ip);
-        const cluster::Json status = cluster::Json::parse(cluster::capture({"tailscale", "status", "--json"}, "", 10).out, nullptr, false);
+        const cluster::Json status = cluster::json_parse(cluster::capture({"tailscale", "status", "--json"}, "", 10).out, nullptr, false);
         std::string name = status.is_object() && status.contains("Self") && status["Self"].is_object() ? status["Self"].value("DNSName", std::string()) : "";
         while (name.ends_with(".")) name.pop_back();
         const cluster::Json domains = status.is_object() ? status.value("CertDomains", cluster::Json::array()) : cluster::Json::array();
         this->_sni.name = domains.is_array() && !domains.empty() && domains[0].is_string() ? cluster::lower(domains[0].get<std::string>()) : "";
-        this->_certWhy = this->_sni.name.empty() ? "the HTTPS certificates of your tailnet are off: turn them on (login.tailscale.com › DNS › HTTPS Certificates), "
-            "then Ask the router again (Services › Outside)" : "";
+        this->certWhy_(this->_sni.name.empty() ? "the HTTPS certificates of your tailnet are off: turn them on (login.tailscale.com › DNS › HTTPS Certificates), "
+            "then Ask the router again (Services › Outside)" : "");
         if (!name.empty()) this->_remoteNames.push_back(cluster::lower(name));
         this->_remoteUrl = "https://" + (name.empty() ? ip : cluster::lower(name)) + ":" + std::to_string(this->_port);
         this->_remoteState = this->_remoteUrl + " (tailscale: the devices of your tailnet, end to end)";
@@ -925,26 +999,37 @@ _cold void cluster::Web::serve_(void)
             expired = cluster::now_ms();
             this->_ttys.expire();
         }
-        if (ready.empty()) continue;
-        if (this->_findFd != -1 && ready.front().data.fd == this->_findFd) {
-            this->found_();
-            continue;
+        // each socket ready served, one thing each: a flood of the discovery (always readable) never starves the ports of TCP
+        for (const epoll_event& event: ready) {
+            if (this->_findFd != -1 && event.data.fd == this->_findFd) {
+                this->found_();
+                continue;
+            }
+            const bool tty = this->_ttyFd != -1 && event.data.fd == this->_ttyFd;
+            sockaddr_in peer{};
+            socklen_t size = sizeof(peer);
+            const int client = ::accept4(tty ? this->_ttyFd : this->_fd, reinterpret_cast<sockaddr*>(&peer), &size, SOCK_CLOEXEC);
+            if (client == -1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50)); // no descriptor left: never a loop at full speed
+                continue;
+            }
+            std::array<char, INET_ADDRSTRLEN> text{};
+            ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
+            if (this->_busy >= 64 || !ip_take_(text.data())) { // full, or this address alone takes too many: told, closed
+                static const std::string full = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: 20\r\nConnection: close\r\n\r\nclaude-cluster: busy\n";
+                (void)::send(client, full.data(), full.size(), MSG_NOSIGNAL);
+                ::close(client);
+                continue;
+            }
+            ++this->_busy;
+            try {
+                cluster::guarded(&cluster::Web::client_, this, client, std::string(text.data()), tty).detach();
+            } catch (const std::system_error&) { // no thread left: this request refused, never the end of the core
+                ip_give_(text.data());
+                --this->_busy;
+                ::close(client);
+            }
         }
-        const bool tty = this->_ttyFd != -1 && ready.front().data.fd == this->_ttyFd;
-        sockaddr_in peer{};
-        socklen_t size = sizeof(peer);
-        const int client = ::accept4(tty ? this->_ttyFd : this->_fd, reinterpret_cast<sockaddr*>(&peer), &size, SOCK_CLOEXEC);
-        if (client == -1) continue;
-        std::array<char, INET_ADDRSTRLEN> text{};
-        ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
-        if (this->_busy >= 64 || !ip_take_(text.data())) { // full, or this address alone takes too many: told, closed
-            static const std::string full = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: 20\r\nConnection: close\r\n\r\nclaude-cluster: busy\n";
-            (void)::send(client, full.data(), full.size(), MSG_NOSIGNAL);
-            ::close(client);
-            continue;
-        }
-        ++this->_busy;
-        std::thread(&cluster::Web::client_, this, client, std::string(text.data()), tty).detach();
     }
 }
 
@@ -956,16 +1041,16 @@ _cold void cluster::Web::found_(void)
     sockaddr_in peer{};
     socklen_t size = sizeof(peer);
     const ssize_t got = ::recvfrom(this->_findFd, packet.data(), packet.size(), 0, reinterpret_cast<sockaddr*>(&peer), &size);
-    if (got <= 0 || !this->_manager.config().web.discovery) return;
+    if (got <= 0 || !this->_manager.config().web.discovery || !std::string(packet.data(), static_cast<std::size_t>(got)).starts_with(DISCOVERY_ASK)) return;
     std::array<char, INET_ADDRSTRLEN> text{};
     ::inet_ntop(AF_INET, &peer.sin_addr, text.data(), text.size());
-    if (!std::string(packet.data(), static_cast<std::size_t>(got)).starts_with(DISCOVERY_ASK) || !same_lan_(text.data())) return;
     if (this->_foundAt.size() > 256) this->_foundAt.clear();
     std::int64_t& last = this->_foundAt[text.data()];
-    if (cluster::now_ms() - last < 500) return;
+    if (cluster::now_ms() - last < 500) return; // before same_lan_ (it reads the interfaces): a flood costs a look in this map per datagram
     last = cluster::now_ms();
+    if (!same_lan_(text.data())) return;
     const std::string answer = cluster::Json{{"app", "claude-cluster"}, {"name", cluster::host_name()}, {"port", this->_port}, {"https", this->_tls != nullptr},
-        {"authority", this->_authority}, {"version", CLUSTER_VERSION}}.dump();
+        {"authority", this->_authority}, {"version", CLUSTER_VERSION}}.dump(-1, ' ', false, cluster::JSON_LENIENT); // a host name of any bytes: never its thread ended
     (void)::sendto(this->_findFd, answer.data(), answer.size(), MSG_NOSIGNAL, reinterpret_cast<const sockaddr*>(&peer), size);
 }
 
@@ -981,6 +1066,18 @@ _cold void cluster::Web::found_(void)
         return SSL_TLSEXT_ERR_OK;
     }
 #endif
+
+_cold void cluster::Web::certWhy_(const std::string& why)
+{
+    std::lock_guard<std::mutex> lock(this->_mutex); // written by the thread of the certificate, read by the status of the interfaces
+    this->_certWhy = why;
+}
+
+_cold std::string cluster::Web::certWhy_(void) const
+{
+    std::lock_guard<std::mutex> lock(this->_mutex);
+    return this->_certWhy;
+}
 
 _cold void cluster::Web::tailnetCert_(void)
 {
@@ -999,12 +1096,12 @@ _cold void cluster::Web::tailnetCert_(void)
         this->_sniAt = cluster::now();
         if (got.code != 0) {
             const std::string out = cluster::lower(got.out);
-            this->_certWhy = out.find("access denied") != std::string::npos || out.find("operator") != std::string::npos || out.find("permission") != std::string::npos
+            this->certWhy_(out.find("access denied") != std::string::npos || out.find("operator") != std::string::npos || out.find("permission") != std::string::npos
                 ? "this user may not ask tailscale for certificates: allow it once (Services › Outside › Allow tailscale certificates: tailscale set --operator="
                     + std::string(std::getenv("USER") != nullptr ? std::getenv("USER") : "you") + ")"
                 : out.find("https") != std::string::npos || out.find("not enabled") != std::string::npos || out.find("support") != std::string::npos
                 ? "the HTTPS certificates of your tailnet are off: turn them on (login.tailscale.com › DNS › HTTPS Certificates)"
-                : "tailscale cert: " + cluster::one_line(got.out, 200);
+                : "tailscale cert: " + cluster::one_line(got.out, 200));
             return;
         }
         SSL_CTX* context = ::SSL_CTX_new(::TLS_server_method());
@@ -1013,10 +1110,10 @@ _cold void cluster::Web::tailnetCert_(void)
         (void)::SSL_CTX_set_options(context, SSL_OP_NO_RENEGOTIATION | SSL_OP_CIPHER_SERVER_PREFERENCE);
         if (::SSL_CTX_use_certificate_chain_file(context, cert.c_str()) != 1 || ::SSL_CTX_use_PrivateKey_file(context, key.c_str(), SSL_FILETYPE_PEM) != 1) {
             ::SSL_CTX_free(context);
-            this->_certWhy = "the certificate of the tailnet unreadable (" + cluster::short_path(dir.string()) + ")";
+            this->certWhy_("the certificate of the tailnet unreadable (" + cluster::short_path(dir.string()) + ")");
             return;
         }
-        this->_certWhy.clear();
+        this->certWhy_("");
         // the old one: freed once its connections end (their SSL hold it)
         if (void* old = this->_sni.context.exchange(context)) ::SSL_CTX_free(static_cast<SSL_CTX*>(old));
     #endif
@@ -1028,10 +1125,10 @@ _cold void cluster::Web::certAsync_(void)
     // served meanwhile with the authority of this computer; its popup, its failure told (Retry: again)
     if (this->_sni.name.empty() || !cluster::has_command("tailscale") || this->_certBusy.exchange(true)) return;
     if (this->_certThread.joinable()) this->_certThread.join();
-    this->_certThread = std::thread([this]() {
+    this->_certThread = cluster::guarded([this]() {
         cluster::Busy busy(this->_manager, "The real certificate of the tailnet (" + this->_sni.name + ")");
         this->tailnetCert_();
-        const std::string why = this->_certWhy;
+        const std::string why = this->certWhy_();
         busy.end(why.empty(), why.empty() ? "served to " + this->_sni.name + " (no browser warning)" : why);
         if (!why.empty())
             (void)this->_manager.fail("Get the real certificate of the tailnet (no browser warning)", "tailscale cert", why, [this]() {this->certAsync_();});
@@ -1280,7 +1377,7 @@ _cold void cluster::Web::ask_(const std::string& id)
     cluster::Notification n{"web-" + id, "web access · " + d.name + " asks to connect", d.address + " · " + cluster::one_line(d.agent, 120), cluster::Face::Attentive, true,
         "message-new-instant", {{"allow", "Allow"}, {"trust", "Allow and trust"}, {"deny", "Deny"}}};
     n.onAction = [this, id](const std::string& answer) {this->approve(id, answer);};
-    std::thread([this, n]() {(void)this->_manager.notify(n, "web");}).detach();
+    cluster::guarded([this, n]() {(void)this->_manager.notify(n, "web");}).detach();
 }
 
 _cold void cluster::Web::setOn(const bool on)
@@ -1494,11 +1591,13 @@ _cold void cluster::Web::attach_(void* connection, const void* parsed, const clu
                 return;
             }
             std::ifstream in(path, std::ios::binary);
-            const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            std::string mime = cluster::attach_sniff(bytes.substr(0, 4096));
+            std::string head(4096, '\0');
+            in.read(head.data(), static_cast<std::streamsize>(head.size()));
+            head.resize(static_cast<std::size_t>(in.gcount()));
+            std::string mime = cluster::attach_sniff(head);
             const bool image = mime == "image/png" || mime == "image/jpeg" || mime == "image/gif" || mime == "image/webp";
             if (!image) mime = "application/octet-stream"; // text, svg, html...: downloaded, never rendered by the page
-            respond_(conn, 200, mime, bytes, std::string("Content-Disposition: ") + (image ? "inline" : "attachment") + "; filename=\"" + safe_filename_(std::filesystem::path(path).filename().string())
+            respond_file_(conn, path, mime, std::string("Content-Disposition: ") + (image ? "inline" : "attachment") + "; filename=\"" + safe_filename_(std::filesystem::path(path).filename().string())
                 + "\"\r\nContent-Security-Policy: sandbox; default-src 'none'\r\n");
         } else {
             json_(conn, 404, {{"error", "unknown"}});
@@ -1517,7 +1616,18 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         "plugins", "plugins_set", "plugins_refresh"};
     Conn& conn = *static_cast<Conn*>(connection);
     Request request;
-    if (!read_request_(conn, request)) return;
+    bool stranger = false;
+    attach_cap_ = static_cast<std::size_t>(std::max(1, this->_manager.config().attach.maxMb)) * 1048576U; // before its request is read (the first one after a start may be an upload)
+    const std::function<bool(const Request&)> known = [this, &peer](const Request& asked) {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        const auto it = this->_access.find(cookie_(asked, "cc_dev"));
+        return it != this->_access.end() && it->second.device.state == "connected" && !it->second.token.empty() && same_secret_(cookie_(asked, "cc_web"), it->second.token)
+            && it->second.device.address == peer;
+    };
+    if (!read_request_(conn, request, known, &stranger)) {
+        if (stranger) json_(conn, 401, {{"ok", false}, {"error", "not connected"}}); // told before its body: a page logged out goes back to its login
+        return;
+    }
     const std::string host = request.headers.contains("host") ? request.headers.at("host") : "";
     const std::string origin = request.headers.contains("origin") ? request.headers.at("origin") : "";
     const bool post = request.method == "POST";
@@ -1526,7 +1636,7 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
 
     const std::string named = cluster::lower(host.substr(0, host.rfind(':') == std::string::npos ? host.size() : host.rfind(':')));
     const bool remoteName = std::find(this->_remoteNames.begin(), this->_remoteNames.end(), named) != this->_remoteNames.end();
-    if (!host_ok_(host) && !remoteName) {
+    if (!host_clean_(host) || (!host_ok_(host) && !remoteName)) {
         respond_(conn, 403, "text/plain", "claude-cluster: open it by the address of this computer\n");
         return;
     }
@@ -1538,7 +1648,10 @@ _cold void cluster::Web::request_(void* connection, const std::string& peer, con
         json_(conn, 403, {{"error", "another site"}});
         return;
     }
-    attach_cap_ = static_cast<std::size_t>(this->_manager.config().attach.maxMb) * 1048576U;
+    if (post && request.path.starts_with("/api/") && !raw_body_(request.path) && !json_type_(request)) {
+        json_(conn, 415, {{"error", "application/json only"}});
+        return;
+    }
     if (tty && request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
         // the terminal page (the browser only: the app has its page); its script by a nonce too
         const std::string agent = request.headers.contains("user-agent") ? request.headers.at("user-agent") : "";
@@ -1609,10 +1722,9 @@ self.addEventListener("notificationclick", (e) => {
         return;
     }
     if (request.method == "GET" && request.path == "/app.apk") { // the Android app built by setup.sh (no secret in it)
-        std::ifstream in(app / "claude-cluster.apk", std::ios::binary);
-        const std::string apk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (apk.empty()) respond_(conn, 404, "text/plain", "no Android app built on this computer (the Android SDK: setup.sh install claude-cluster)\n");
-        else respond_(conn, 200, "application/vnd.android.package-archive", apk, "Content-Disposition: attachment; filename=\"claude-cluster.apk\"\r\n");
+        std::error_code missing;
+        if (!std::filesystem::is_regular_file(app / "claude-cluster.apk", missing)) respond_(conn, 404, "text/plain", "no Android app built on this computer (the Android SDK: setup.sh install claude-cluster)\n");
+        else respond_file_(conn, app / "claude-cluster.apk", "application/vnd.android.package-archive", "Content-Disposition: attachment; filename=\"claude-cluster.apk\"\r\n");
         return;
     }
     if (request.method == "GET" && (request.path == "/docs" || request.path.starts_with("/docs/"))) { // the documentation: no login (nothing secret in it)
@@ -1629,7 +1741,7 @@ self.addEventListener("notificationclick", (e) => {
         this->expire_();
         // its device, its cookie of this connection, from its address
         auto it = this->_access.find(cookie_(request, "cc_dev"));
-        connected = it != this->_access.end() && it->second.device.state == "connected" && !it->second.token.empty() && cookie_(request, "cc_web") == it->second.token
+        connected = it != this->_access.end() && it->second.device.state == "connected" && !it->second.token.empty() && same_secret_(cookie_(request, "cc_web"), it->second.token)
             && it->second.device.address == peer;
         if (connected) it->second.device.seen = now_ms_();
         if (connected && post && request.path == "/api/logout") {
@@ -1641,8 +1753,7 @@ self.addEventListener("notificationclick", (e) => {
         json_(conn, 401, {{"error", "not connected"}});
         return;
     }
-    const cluster::Json body = post && request.path != "/api/listen" && request.path != "/api/tty/write" && request.path != "/api/attach"
-        ? cluster::Json::parse(request.body.empty() ? "{}" : request.body, nullptr, false) : cluster::Json::object();
+    const cluster::Json body = post && !raw_body_(request.path) ? cluster::json_parse(request.body.empty() ? "{}" : request.body, nullptr, false) : cluster::Json::object();
     const std::function<std::string(const char*)> field = [&body](const char* key) {
         return body.is_object() && body.contains(key) && body[key].is_string() ? body[key].get<std::string>() : std::string();
     };
@@ -1658,7 +1769,7 @@ self.addEventListener("notificationclick", (e) => {
         if (request.method == "GET" && request.path == "/api/tty/ws") {
             this->ws_(connection, &request, device, peer);
         } else if (post && request.path == "/api/tty/open") {
-            json_(conn, 200, this->_ttys.open(device, body.value("cols", 120), body.value("rows", 36)));
+            json_(conn, 200, this->_ttys.open(device, tty_size_(body, "cols", 120), tty_size_(body, "rows", 36)));
         } else if (request.method == "GET" && request.path == "/api/tty/read") {
             std::uint64_t from = 0;
             try {
@@ -1669,7 +1780,7 @@ self.addEventListener("notificationclick", (e) => {
             this->_ttys.write(device, request.body);
             json_(conn, 200, {{"ok", true}});
         } else if (post && request.path == "/api/tty/resize") {
-            this->_ttys.resize(device, body.value("cols", 120), body.value("rows", 36));
+            this->_ttys.resize(device, tty_size_(body, "cols", 120), tty_size_(body, "rows", 36));
             json_(conn, 200, {{"ok", true}});
         } else if (post && request.path == "/api/tty/close") {
             this->_ttys.close(device);
@@ -1681,7 +1792,8 @@ self.addEventListener("notificationclick", (e) => {
         json_(conn, 200, {{"ok", true}}, "Set-Cookie: cc_web=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict" + secure + "\r\n");
     } else if (post && request.path == "/api/ping") {
         // its round trip before this one, measured by the page (the ping of the devices)
-        if (body.is_object() && body.contains("rtt") && body["rtt"].is_number()) this->ping(cookie_(request, "cc_dev"), body["rtt"].get<int>());
+        if (body.is_object() && body.contains("rtt") && body["rtt"].is_number()) // clamped first: a number no int holds (1e300) is not cast, ping refuses what is out of its range
+            this->ping(cookie_(request, "cc_dev"), static_cast<int>(std::clamp(body["rtt"].get<double>(), -1.0, 200000.0)));
         json_(conn, 200, {{"ok", true}});
     } else if (request.method == "GET" && request.path == "/api/notify") {
         // the notifications of the desktop for the Android app: the ones after `since` (a number told by the last answer), waits for one
@@ -1777,20 +1889,21 @@ self.addEventListener("notificationclick", (e) => {
         } catch (const std::exception&) {}
         cluster::Json file;
         if (snap && index < snap->entries.size() && snap->entries[index].kind == cluster::EntryKind::Display) {
-            const cluster::Json d = cluster::Json::parse(snap->entries[index].text, nullptr, false);
+            const cluster::Json d = cluster::json_parse(snap->entries[index].text, nullptr, false);
             if (d.is_object() && d.contains("files") && which < d["files"].size()) file = d["files"][which];
         }
         std::error_code error;
         const std::filesystem::path path = file.is_object() ? file.value("path", std::string()) : std::string();
-        if (path.empty() || !std::filesystem::is_regular_file(path, error)) {
+        if (path.empty() || !std::filesystem::is_regular_file(path, error) || cluster::hidden_path(path.string())) { // never a hidden file, however it got in the display
             json_(conn, 404, {{"error", "no such file"}});
         } else if (std::filesystem::file_size(path, error) > 512ULL * 1024 * 1024) {
             json_(conn, 413, {{"error", "bigger than 512 MB"}});
         } else {
-            std::ifstream in(path, std::ios::binary);
-            const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             const std::string name = safe_filename_(path.filename().string());
-            respond_(conn, 200, file.value("mime", std::string("application/octet-stream")), bytes, "Content-Disposition: attachment; filename=\"" + name + "\"\r\n");
+            // its type as the display says it (written by an agent: a type and nothing else in the header), sent to download, never run by the page
+            const std::string mime = file.value("mime", std::string());
+            const bool plain = !mime.empty() && mime.size() < 128 && std::all_of(mime.begin(), mime.end(), [](const unsigned char c) {return std::isalnum(c) != 0 || c == '/' || c == '.' || c == '+' || c == '-';});
+            respond_file_(conn, path, plain ? mime : std::string("application/octet-stream"), "Content-Disposition: attachment; filename=\"" + name + "\"\r\nContent-Security-Policy: sandbox; default-src 'none'\r\n");
         }
     } else if (request.method == "GET" && request.path == "/api/display") {
         // a display whole (its picture): the page asks it once
@@ -1804,19 +1917,16 @@ self.addEventListener("notificationclick", (e) => {
     } else if (post && request.path == "/api/cmd") {
         cluster::Json command = body.is_object() ? body : cluster::Json::object();
         command["origin"] = "web"; // a device of the page (never the global session nor an interface, whatever it says)
+        command.erase("raw"); // the send of an interface of another process: its /commands already run, here they still go through the gates
         const std::string cmd = command.value("cmd", std::string());
         if (cmd == "spawn" && command.contains("cwd") && command["cwd"].is_string()) { // a relative folder: from the home folder
             const std::string cwd = cluster::trim(command["cwd"].get<std::string>());
             if (!cwd.starts_with("/") && !cwd.starts_with("~")) command["cwd"] = "~/" + cwd;
         }
-        // a shell of this computer from the page: only when allowed ([web] shell)
-        const std::string text = command.contains("text") && command["text"].is_string() ? cluster::trim(command["text"].get<std::string>()) : "";
-        const bool shell = cmd == "send" && (text.starts_with("!") || (text.starts_with(":") && text.find('!') != std::string::npos));
+        // a shell of this computer from the page, the settings, a file written: refused by Control::handle (cluster::prompt_refused, [web] shell, [web] settings)
         if (!allowed.contains(cmd) || (cluster::demo_enabled() && !cluster::demo_web_allows(cmd))) {
             json_(conn, 400, {{"ok", false}, {"error", cluster::demo_enabled() && allowed.contains(cmd) ? "the demo is read only from the web: '" + cmd + "' is not available"
                 : "command not allowed from the web: '" + cmd + "'"}});
-        } else if (shell && !this->_manager.config().web.shell) {
-            json_(conn, 200, {{"ok", false}, {"error", "the shell from the page is off (settings: Web > Shell from the page)"}});
         } else {
             const cluster::Json answer = cluster::Control::handle(this->_manager, command);
             // a prompt of this device: it is the one notified for this session (not the desktop here)
@@ -1839,9 +1949,9 @@ self.addEventListener("notificationclick", (e) => {
             for (const cluster::Candidate& c: provider(kind, field("query")))
                 items.push_back({{"value", c.value}, {"label", c.label}, {"description", c.description}, {"directory", c.directory}, {"source", c.source}});
         json_(conn, 200, {{"items", items}});
-    } else if (post && request.path == "/api/listen") {
     } else if (request.path.starts_with("/api/attach")) {
         this->attach_(connection, &request, body, peer);
+    } else if (post && request.path == "/api/listen") {
         // a sentence recorded by the browser (wav): its text by the speech model of the settings, its voice word
         if (this->_speech == nullptr || this->_voice == nullptr) {
             json_(conn, 400, {{"error", "no voice in this instance"}});
@@ -1895,7 +2005,7 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
     }
     if (request.method == "GET") {
         auto it = this->_access.find(id);
-        if (it == this->_access.end() || cookie_(request, "cc_web") != it->second.token) {
+        if (it == this->_access.end() || !same_secret_(cookie_(request, "cc_web"), it->second.token)) {
             json_(conn, 200, {{"state", "none"}});
             return;
         }
@@ -1907,7 +2017,7 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
         json_(conn, 200, {{"state", it->second.device.state}, {"name", it->second.device.name}, {"trusted", it->second.device.trusted}}, cookies);
         return;
     }
-    const cluster::Json body = cluster::Json::parse(request.body.empty() ? "{}" : request.body, nullptr, false);
+    const cluster::Json body = cluster::json_parse(request.body.empty() ? "{}" : request.body, nullptr, false);
     const std::string typed = body.is_object() ? body.value("pin", std::string()) : std::string();
     std::string name = body.is_object() ? cluster::one_line(cluster::trim(body.value("name", std::string())), 40) : std::string();
     if (name.empty()) name = device_name_(agent);
@@ -1928,6 +2038,7 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
         this->saveTrusted_();
         this->_access[id] = access;
         this->_manager.notice(GLOBAL_ID, "web: " + access.device.name + " (" + peer + ") connected (trusted)");
+        lock.unlock(); // a notification takes time (gdbus): never with every request and the status of the interfaces waiting on this lock
         (void)this->_manager.notify({"web-" + id, "web access", access.device.name + " connected (trusted) · " + peer, cluster::Face::Happy, false, "service-login"}, "web");
         json_(conn, 200, {{"ok", true}, {"state", "connected"}, {"trusted", true}}, "Set-Cookie: cc_web=" + access.token + session);
         return;
@@ -1935,11 +2046,10 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
     if (digits.empty()) {
         json_(conn, 401, {{"error", "the code"}, {"need", "code"}});
     } else if (!same_secret_(digits, this->_pin)) {
-        if (++this->_blocked[peer].first >= 5) {
+        const bool blocked = ++this->_blocked[peer].first >= 5;
+        if (blocked) {
             this->_blocked[peer] = {0, now_ms_() + 15 * 60 * 1000};
             this->_manager.notice(GLOBAL_ID, "web: 5 wrong codes from " + peer + (outside ? " (outside the LAN)" : "") + ": blocked 15 min", true);
-            (void)this->_manager.notify({"web-blocked", "web access", "5 wrong codes from " + peer + (outside ? " (outside the LAN)" : "") + ": blocked 15 min",
-                cluster::Face::Waiting, true, "dialog-warning"}, "web");
         }
         if (++this->_failures >= 5) {
             this->newPin_();
@@ -1947,12 +2057,14 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
                 + this->_pin.substr(3), true);
         }
         lock.unlock();
+        if (blocked) (void)this->_manager.notify({"web-blocked", "web access", "5 wrong codes from " + peer + (outside ? " (outside the LAN)" : "") + ": blocked 15 min",
+            cluster::Face::Waiting, true, "dialog-warning"}, "web");
         std::this_thread::sleep_for(std::chrono::seconds(1));
         json_(conn, 401, {{"error", "wrong code"}});
     } else {
         // the code right: this device waits for the host (or is in at once when [web] approve is off)
         this->_failures = 0;
-        if (id.size() != 24) id = random_hex_(12);
+        if (id.size() != 24 || id.find_first_not_of("0123456789abcdef") != std::string::npos) id = random_hex_(12); // only what it was given here: it goes back in a header
         Access access;
         access.device = {id, name, agent, peer, "waiting", false, now_ms_(), now_ms_()};
         access.token = random_hex_(24);
@@ -1966,6 +2078,7 @@ _cold void cluster::Web::login_(void* connection, const void* requestData, const
             json_(conn, 202, {{"ok", true}, {"state", "waiting"}, {"name", name}}, cookies);
         } else {
             this->_manager.notice(GLOBAL_ID, "web: " + name + " (" + peer + ") connected");
+            lock.unlock();
             (void)this->_manager.notify({"web-" + id, "web access", name + " connected · " + peer, cluster::Face::Happy, false, "service-login"}, "web");
             json_(conn, 200, {{"ok", true}, {"state", "connected"}}, cookies);
         }
@@ -2098,6 +2211,7 @@ _cold void cluster::Web::ws_(void* connection, const void* data, const std::stri
             }
             ++this->_sockets[device];
         }
+        bool upgraded = false;
         try {
             int cols = 120;
             int rows = 36;
@@ -2112,11 +2226,13 @@ _cold void cluster::Web::ws_(void* connection, const void* data, const std::stri
             unsigned int size = 0;
             if (::EVP_Digest(text.data(), text.size(), digest.data(), &size, ::EVP_sha1(), nullptr) == 1) {
                 const std::string accept = utils::smanip::codec::Base64Codec().encode(std::string(reinterpret_cast<const char*>(digest.data()), size));
-                if (send_all_(conn, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n"))
-                    this->wsLoop_(connection, device, peer, cookie_(request, "cc_web"));
+                upgraded = send_all_(conn, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n");
+                if (upgraded) this->wsLoop_(connection, device, peer, cookie_(request, "cc_web"));
             }
         } catch (const std::exception& e) {
-            json_(conn, 500, {{"error", e.what()}});
+            // its upgrade done, this connection speaks WebSocket: a close frame (1011), never an HTTP answer in the middle of its frames
+            if (upgraded) (void)ws_send_(conn, 0x8, std::string("\x03\xF3", 2));
+            else json_(conn, 500, {{"error", e.what()}});
         }
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (--this->_sockets[device] <= 0) this->_sockets.erase(device);
@@ -2133,7 +2249,13 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
     const std::function<std::int64_t()> now = []() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
     };
-    int watcher = this->_ttys.watch(device);
+    // given back however this loop ends, an exception too: its descriptor and its terminal never left behind
+    struct Watcher {
+        cluster::WebTty& ttys;
+        const std::string& device;
+        int fd;
+        ~Watcher() {this->ttys.unwatch(this->device, this->fd);}
+    } watcher{this->_ttys, device, this->_ttys.watch(device)};
     std::vector<std::string> sent;
     bool full = true;
     bool dirty = true;
@@ -2152,20 +2274,21 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
         payload += why.substr(0, 100);
         (void)ws_send_(conn, 0x8, payload);
     };
-    // one message of the page: its keys (binary), {t: resize | ping | full} (text)
+    // one message of the page: its keys (binary), {t: resize | ping | full} (text); not of that shape: not one of the page, ignored
     const std::function<bool(int, const std::string&)> handle = [&](const int op, const std::string& payload) {
         if (op == 0x2) {
             this->_ttys.write(device, payload);
             return true;
         }
-        const cluster::Json json = cluster::Json::parse(payload, nullptr, false);
-        if (!json.is_object()) return true;
-        const std::string type = json.value("t", std::string());
+        const cluster::Json json = cluster::json_parse(payload, nullptr, false);
+        if (!json.is_object() || !json.contains("t") || !json["t"].is_string()) return true;
+        const std::string type = json["t"].get<std::string>();
         if (type == "resize") {
-            this->_ttys.resize(device, json.value("cols", 120), json.value("rows", 36));
+            this->_ttys.resize(device, tty_size_(json, "cols", 120), tty_size_(json, "rows", 36));
             dirty = true;
         } else if (type == "ping") { // the page measures its latency: answered at once
-            return ws_send_(conn, 0x1, cluster::Json{{"t", "pong"}, {"n", json.value("n", 0.0)}}.dump(-1, ' ', false, cluster::JSON_LENIENT));
+            const double n = json.contains("n") && json["n"].is_number() ? json["n"].get<double>() : 0.0;
+            return ws_send_(conn, 0x1, cluster::Json{{"t", "pong"}, {"n", n}}.dump(-1, ' ', false, cluster::JSON_LENIENT));
         } else if (type == "full") {
             full = true;
             dirty = true;
@@ -2192,19 +2315,20 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
                 close(4002, "silent");
                 break;
             }
+            this->_ttys.touch(device); // the page is there, its screen quiet (no frame to send) or not: its terminal stays
             if (now() - pinged >= 10000) { // a ping of the server: a page in a background tab answers it, throttled or not
                 pinged = now();
                 if (!ws_send_(conn, 0x9, "")) break;
             }
-            if (watcher < 0) watcher = this->_ttys.watch(device); // its terminal opened again elsewhere
+            if (watcher.fd < 0) watcher.fd = this->_ttys.watch(device); // its terminal opened again elsewhere
         }
         // a frame waiting: sent once the terminal ended its update (at once), 2 ms polls meanwhile
         const int wait = conn_pending_(conn) ? 0 : dirty ? std::max(1, static_cast<int>(std::max<std::int64_t>(0, nextFrame - now()))) : 250;
-        std::array<pollfd, 2> fds{pollfd{conn.fd, POLLIN, 0}, pollfd{watcher, POLLIN, 0}};
-        (void)::poll(fds.data(), watcher >= 0 ? 2 : 1, wait);
-        if (watcher >= 0 && (fds[1].revents & POLLIN) != 0) {
+        std::array<pollfd, 2> fds{pollfd{conn.fd, POLLIN, 0}, pollfd{watcher.fd, POLLIN, 0}};
+        (void)::poll(fds.data(), watcher.fd >= 0 ? 2 : 1, wait);
+        if (watcher.fd >= 0 && (fds[1].revents & POLLIN) != 0) {
             std::uint64_t count = 0;
-            (void)!::read(watcher, &count, sizeof(count));
+            (void)!::read(watcher.fd, &count, sizeof(count));
             if (!dirty) dirtySince = now();
             dirty = true;
         }
@@ -2215,8 +2339,7 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
                 if (got < 0) gone = true;
                 if (got <= 0) break;
                 in.append(chunk.data(), static_cast<std::size_t>(got));
-                if (in.size() > 2000000) gone = true;
-                if (gone) break;
+                if (in.size() > 2000000) break; // its frames handled first (1 MB each at most: a big paste, never the connection closed), the rest read after
             }
             // its frames: masked (a page), 1 MB at most, no extension bit
             bool stop = gone;
@@ -2292,5 +2415,4 @@ _cold void cluster::Web::wsLoop_(void* connection, const std::string& device, co
             }
         }
     }
-    this->_ttys.unwatch(device, watcher);
 }

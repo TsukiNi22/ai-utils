@@ -47,6 +47,7 @@ class WebVoice {
         std::string _language;
         std::int64_t _used = 0;         // its last use (ms): ended after 10 min unused
         std::atomic<int> _count{0};     // names of the temporary files
+        std::atomic<bool> _halted{false};   // the quit: a recognition running ends, no new one
         std::filesystem::path _dir;     // the recordings, the speech made (0700, removed after use)
 
         // ---------- Pre-Function -------- //
@@ -59,6 +60,7 @@ class WebVoice {
         _cold _nodiscard std::string transcribe(const std::string& wav);   // its text (throws: no voice-listen, no answer)
         _cold _nodiscard std::string speech(const std::string& text);      // the wav of the text (throws: voice-say failed)
         _cold void tick(void);                                              // ended after 10 min unused
+        _cold void halt(void);          // the quit: its speech model stopped, its recordings gone
 
         // ---------- Constructor -------- //
         _cold WebVoice(cluster::Manager& manager, cluster::Voice& voice);

@@ -90,6 +90,10 @@ _cold void cluster::Vt::feed(const std::string& bytes)
         const unsigned char c = static_cast<unsigned char>(raw);
         if (!this->_escape.empty()) {
             this->_escape += raw;
+            if (this->_escape.size() > 65536) { // never ended: dropped, not kept growing
+                this->_escape.clear();
+                continue;
+            }
             const char kind = this->_escape[1];
             if (this->_escape.size() == 2) {
                 if (kind == '[' || kind == ']' || kind == 'P' || kind == '(' || kind == ')' || kind == '_' || kind == '^') continue; // more to come
@@ -242,12 +246,12 @@ _cold void cluster::Vt::csi_(const std::string& sequence)
     for (const char c: body + ";") {
         if (c >= '0' && c <= '9') number += c;
         else {
-            params.push_back(number.empty() ? -1 : std::atoi(number.c_str()));
+            params.push_back(number.empty() ? -1 : number.size() > 9 ? 999999999 : std::atoi(number.c_str()));
             number.clear();
         }
     }
     if (params.size() == 1 && params[0] == -1) params.clear();
-    const int n = params.empty() || params[0] <= 0 ? 1 : params[0];
+    const int n = params.empty() || params[0] <= 0 ? 1 : std::min(params[0], std::max(this->_cols, this->_rows)); // a count past the screen does nothing more (never a billion turns)
     if (priv) { // the modes
         for (const int p: params) {
             if (p == 25) this->_cursor = final == 'h';

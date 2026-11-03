@@ -484,7 +484,8 @@ _cold bool cluster::GraphView::mouse(const ftxui::Mouse& mouse)
             this->_moved = false;
             this->_lastX = x;
             this->_lastY = y;
-            this->_downHit = this->hitAt_(x, y);
+            const int hit = this->hitAt_(x, y);
+            this->_downId = hit >= 0 ? this->_nodes[static_cast<std::size_t>(hit)].id : std::string();
         } else if (mouse.button == ftxui::Mouse::Right) {
             const int hit = this->hitAt_(x, y);
             if (hit >= 0) {
@@ -506,12 +507,12 @@ _cold bool cluster::GraphView::mouse(const ftxui::Mouse& mouse)
     if (mouse.motion == ftxui::Mouse::Released && this->_pressed) {
         this->_pressed = false;
         if (this->_moved) return true;
-        if (this->_downHit < 0) {
+        if (this->_downId.empty() || this->find_(this->_downId) < 0) { // nothing under the press, or its node gone since (a session closed meanwhile)
             this->_selected.clear();
             this->_clickId.clear();
             return true;
         }
-        const std::string id = this->_nodes[static_cast<std::size_t>(this->_downHit)].id;
+        const std::string id = this->_downId;
         const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
         const bool twice = id == this->_clickId && now - this->_clickAt < DOUBLE_CLICK_MS;
         this->_selected = id;

@@ -108,6 +108,11 @@ _cold cluster::Voice::Voice(cluster::Manager& manager)
 
 _cold cluster::Voice::~Voice()
 {
+    this->halt();
+}
+
+_cold void cluster::Voice::halt(void)
+{
     this->_manager.onGlobalAnswer = nullptr;
     this->stop();
     this->mute();
@@ -122,7 +127,7 @@ _cold void cluster::Voice::start(void)
     this->_ready = false;
     this->_loadStart = cluster::now();
     this->_lastStart = now_ms_();
-    this->_listener = std::thread(&cluster::Voice::listen_, this);
+    this->_listener = cluster::guarded(&cluster::Voice::listen_, this);
     cluster::debug("voice", "listening started (" + this->_manager.config().voice.listenCommand + ")");
     ++this->_version;
 }
@@ -247,7 +252,7 @@ _cold void cluster::Voice::listen_(void)
                     const std::string line = outBuffer.substr(0, nl);
                     outBuffer.erase(0, nl + 1);
                     try {
-                        this->heard_(cluster::Json::parse(line).value("text", std::string()));
+                        this->heard_(cluster::json_parse(line).value("text", std::string()));
                     } catch (const cluster::Json::exception&) {}
                 }
             } else {
@@ -404,7 +409,7 @@ _cold std::string cluster::Voice::clickAction_(const std::string& text)
         for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && seen < 10; ++it) {
             if (it->kind != cluster::EntryKind::Display) continue;
             ++seen;
-            const cluster::Json d = cluster::Json::parse(it->text, nullptr, false);
+            const cluster::Json d = cluster::json_parse(it->text, nullptr, false);
             if (!d.is_object() || d.value("type", std::string()) != "actions") continue;
             for (std::size_t i = 0; i < d["buttons"].size(); ++i)
                 if (cluster::vocabulary_key(d["buttons"][i].value("label", std::string())) == said) {
@@ -620,7 +625,7 @@ _cold std::vector<std::string> cluster::Voice::sayArgs(const std::string& text) 
 _cold void cluster::Voice::say_(const std::string& text)
 {
     const std::vector<std::string> args = this->sayArgs(text);
-    std::thread([this, args]() {
+    cluster::guarded([this, args]() {
         utils::encapsulation::Process process;
         try {
             const int null = ::open("/dev/null", O_WRONLY | O_CLOEXEC);

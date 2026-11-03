@@ -50,7 +50,7 @@ modifier, lancer maintenant, annuler) comme les autres.
 
 | Option de `schedule_add` | Effet |
 |---|---|
-| `when` / `every` / `cron` / `reset` | une fois (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`), toutes les N minutes, une expression cron (`*/15 9-17 * * mon-fri`), ou à chaque remise à zéro de la fenêtre de limite 5 h / 7 j |
+| `when` / `every` / `cron` / `reset` | une fois (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`), toutes les N minutes, une expression cron (`*/15 9-17 * * mon-fri` ; 0 et 7 sont dimanche, `fri-sun` fait trois jours), ou à chaque remise à zéro de la fenêtre de limite 5 h / 7 j |
 | `days`, `window`, `quiet`, `tz` | seulement ces jours, dans / jamais dans ces heures, dans ce fuseau |
 | `until`, `max_runs` | terminée après une heure ou un nombre d'exécutions |
 | `if` | `session_idle`, `command` (sort à 0, ou le `code` / `stdout` / `contains` / `regex` demandé ; `fail_after` : la planification annulée après N échecs d'affilée), `file_changed`, `usage` (`5h>80`) : non remplie, l'exécution est sautée |

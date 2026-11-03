@@ -83,7 +83,7 @@ _cold static std::map<std::string, bool> plugins_installed_(const std::string& c
 {
     // the plugins Claude Code has ("name@marketplace" = enabled)
     std::map<std::string, bool> ids;
-    const cluster::Json list = cluster::Json::parse(cluster::capture({claude, "plugin", "list", "--json"}, "", 60).out, nullptr, false);
+    const cluster::Json list = cluster::json_parse(cluster::capture({claude, "plugin", "list", "--json"}, "", 60).out, nullptr, false);
     if (list.is_array())
         for (const cluster::Json& p: list)
             if (p.is_object()) ids[p.value("id", std::string())] = p.value("enabled", true);
@@ -246,7 +246,8 @@ _cold std::vector<cluster::PluginRepo> cluster::plugins_scan(const cluster::Plug
                     if (it->path().filename() != "SKILL.md") continue;
                     const std::filesystem::path folder = it->path().parent_path();
                     const auto [found, description] = front_matter_(it->path());
-                    const std::string name = found.empty() ? folder.filename().string() : found;
+                    // the name a repository gives: one word of a path only (it makes a link in ~/.claude/skills: never ../../anywhere, never an absolute path)
+                    const std::string name = found.empty() || found.find_first_of("/\\") != std::string::npos || found == "." || found == ".." ? folder.filename().string() : found;
                     const std::filesystem::path link = skills_dir_() / name;
                     const bool linked = std::filesystem::is_symlink(link) && std::filesystem::read_symlink(link, error) == folder;
                     const std::string id = repo.slug + ":" + name;
@@ -319,7 +320,7 @@ _cold std::string cluster::plugins_apply(const cluster::PluginSetup& setup)
     std::vector<std::string> done;
     std::vector<std::string> failed;
     std::set<std::string> markets;
-    const cluster::Json listed = cluster::Json::parse(cluster::capture({claude, "plugin", "marketplace", "list", "--json"}, "", 60).out, nullptr, false);
+    const cluster::Json listed = cluster::json_parse(cluster::capture({claude, "plugin", "marketplace", "list", "--json"}, "", 60).out, nullptr, false);
     if (listed.is_array())
         for (const cluster::Json& m: listed)
             if (m.is_object()) markets.insert(m.value("name", std::string()));

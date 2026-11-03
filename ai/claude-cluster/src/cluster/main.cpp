@@ -14,11 +14,13 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Core.hpp"
+#include "cluster/Demo.hpp"
 #include <algorithm>
 #include <exception>
 #include <iostream>
 #include <csignal>
 #include <cstdlib>
+#include <cstdio>
 #include <string>
 
 _cold static bool rtk_mode(const int argc, char* argv[])
@@ -50,5 +52,13 @@ _cold int main(int argc, char* argv[])
         return KO;
     }
 
-    return core.exit();
+    // everything is saved and stopped: the end at once, never the destructors of the statics under the threads still ending (a request, a notification); the
+    // demo removes its folder at its exit
+    const int code = core.exit();
+    if (cluster::demo_enabled()) return code;
+    std::cout.flush();
+    std::cerr.flush();
+    (void)std::fflush(stdout);
+    (void)std::fflush(stderr);
+    std::_Exit(code);
 }

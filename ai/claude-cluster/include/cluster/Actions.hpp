@@ -94,6 +94,7 @@ _cold _nodiscard cluster::ActionResult run_action(cluster::Manager& manager, clu
 _cold _nodiscard std::string key_action(const cluster::Config& config, const std::string& key);   // "Ctrl+K" -> "palette"
 _cold _nodiscard cluster::CompletionProvider completion_provider(cluster::Manager& manager, std::function<std::string(void)> session);
 _cold _nodiscard std::optional<cluster::ActionResult> run_slash(cluster::Manager& manager, const std::string& session, const std::string& line);
+_cold _nodiscard std::string prompt_refused(const cluster::Config& config, const std::string& tagged, const bool web, const bool global); // why a device of the page / the global session may not run this prompt ("": allowed)
 // a model change on scope (here, global, subs, all, a session): the contexts still loaded it reads again (their prompt cache belongs to
 // the old model), in tokens, and how many sessions
 _cold _nodiscard std::pair<std::int64_t, int> model_reload(cluster::Manager& manager, const std::string& model, const std::string& scope, const std::string& current);

@@ -21,6 +21,7 @@ File Description:
     #include <utils/utils.hpp>      // _cold, _nodiscard
     #include <filesystem>           // std::filesystem::path, std::filesystem::file_time_type
     #include <optional>             // std::optional
+    #include <atomic>               // std::atomic
     #include <string>               // std::string
     #include <vector>               // std::vector
     #include <map>                  // std::map
@@ -41,6 +42,8 @@ struct Style {
     std::string ok;
     std::string warn;
     std::string error;
+
+    _nodiscard bool operator==(const Style&) const = default;
 };
 
 struct Profile {
@@ -50,6 +53,8 @@ struct Profile {
     std::string mode;
     std::string prompt;
     std::vector<std::string> extraArgs;
+
+    _nodiscard bool operator==(const Profile&) const = default;
 };
 
 struct ProviderConf {
@@ -58,6 +63,8 @@ struct ProviderConf {
     std::string baseUrl;
     std::string model;          // default model
     bool key = false;           // an API key is needed (stored by `auth login`)
+
+    _nodiscard bool operator==(const ProviderConf&) const = default;
 };
 
 struct VoiceConf {
@@ -85,6 +92,8 @@ struct VoiceConf {
     std::string listenLanguage;     // voice-listen --language (whisper, the APIs): fr, en... (empty: found by the model)
     double endSilence = 0.0;        // voice-listen --end-silence: seconds of silence ending a sentence (0: its own, 1.0)
     std::string vocabulary;         // proper names written back in what is heard (empty: vocabulary.txt of the config folder)
+
+    _nodiscard bool operator==(const VoiceConf&) const = default;
 };
 
 // What the user tells about themselves (asked at the first map of this computer, the settings page: User)
@@ -94,6 +103,8 @@ struct UserConf {
     std::string editor;             // the main one (Ctrl+E too when [ui] editor is empty)
     std::string language;           // of the answers: fr | en | empty (the one of the message)
     std::string notes;              // anything the global session should know
+
+    _nodiscard bool operator==(const UserConf&) const = default;
 };
 
 // The web access: a browser of the same LAN drives claude-cluster after a 6-digit code (one at a time)
@@ -111,6 +122,8 @@ struct WebConf {
     int ttyPort = 2222;             // the terminal page (the terminal interface in a browser: its own port; 0: off)
     int ttyRemotePort = 0;          // router: the port opened outside for it (0: the same)
     bool discovery = true;          // the app searching this network answered (UDP 8789, this LAN only, nothing secret): it finds this computer
+
+    _nodiscard bool operator==(const WebConf&) const = default;
 };
 
 // The background service (claude-cluster service ...): the wake phrase opens claude-cluster with its voice on
@@ -121,6 +134,8 @@ struct ServiceConf {
     std::string wakeWord;           // empty: [voice] wake_word
     std::string python = "~/.local/share/voice/venv/bin/python"; // the python of voice-listen (sherpa-onnx)
     std::string source;             // microphone (PulseAudio / PipeWire source), empty: the default one
+
+    _nodiscard bool operator==(const ServiceConf&) const = default;
 };
 
 struct UsageConf {
@@ -128,6 +143,8 @@ struct UsageConf {
     int accountRefresh = 120;       // seconds: the account read again past this age (one read shared by every instance of this user)
     std::vector<std::string> transcripts = {"~/.claude/projects"};  // the transcripts of Claude Code summed (every session of this computer); empty: the ledger of claude-cluster only
     std::map<std::string, std::pair<double, double>> prices;        // [usage.prices] model = input $/M tokens (output 5x), or [input, output]
+
+    _nodiscard bool operator==(const UsageConf&) const = default;
 };
 
 struct LimitsConf {                 // [limits]: what the sessions may spend together
@@ -137,6 +154,8 @@ struct LimitsConf {                 // [limits]: what the sessions may spend tog
     std::string scope = "keys";     // keys: only the turns billed through an API key | all: every turn (the notional cost of a subscription too)
     bool block = true;              // a limit reached: the prompts are refused (false: only warned)
     int warnPercent = 80;           // warned at this share of a limit (0: never before it is reached)
+
+    _nodiscard bool operator==(const LimitsConf&) const = default;
 };
 
 struct PolicyConf {                 // [policy]: what the global session may choose as model / thinking for the sub-sessions
@@ -149,6 +168,8 @@ struct PolicyConf {                 // [policy]: what the global session may cho
     bool askCostly = true;          // the costly models / efforts: the user decides each time (Allow / Deny)
     std::vector<std::string> costlyModels = {"opus", "fable"};
     std::vector<std::string> costlyEfforts = {"xhigh", "max"};
+
+    _nodiscard bool operator==(const PolicyConf&) const = default;
 };
 
 struct AttachConf {                 // [attachments]: files, images and photos attached to a prompt
@@ -162,6 +183,8 @@ struct AttachConf {                 // [attachments]: files, images and photos a
     bool link = true;               // a file of this computer linked by its path, nothing copied (window, terminal, a page on this computer)
     bool globalAttach = true;       // the global session may attach a file to a prompt (MCP session_send attachments): project folder / home only
     int globalMax = 5;              // files per prompt of the global session
+
+    _nodiscard bool operator==(const AttachConf&) const = default;
 };
 
 struct OrchConf {                   // [orchestrator]: the heavy jobs of the sessions queued and limited (docs/orchestrator.md)
@@ -206,21 +229,37 @@ struct OrchConf {                   // [orchestrator]: the heavy jobs of the ses
     int history = 200;              // finished jobs kept
     std::string procDir = "/proc";  // a fake tree for the tests
     std::string sysDir = "/sys";
+
+    _nodiscard bool operator==(const OrchConf&) const = default;
 };
 
 struct ServicesConf {
     std::string refresh = "live";   // the Services tab: live (what changes, at once) | interval (every delay s) | manual (R)
     int delay = 2;                  // seconds: interval; the slow parts (systemd, its journal, tailscale) kept so long
+
+    _nodiscard bool operator==(const ServicesConf&) const = default;
 };
 
 //----------------------------------------------------------------//
 /* CLASS */
 
+// Read by every thread without a lock: never changed once in use. A reload parses a new version and publishes it (current()), the old ones stay
+// alive for the life of the process (a reference handed out stays valid, a few KB each); the first object is never written again: read it by current()
 class Config {
     private:
+        struct Published {                  // a copy of a Config is a config of its own (nothing published yet); a copy of a version: the same first object
+            std::atomic<cluster::Config*> version{nullptr};     // on the first object of a config: the version to read (none: itself)
+            cluster::Config* first = nullptr;                   // on a version: the object it follows (none: this one is it)
+
+            Published(void) = default;
+            Published(const Published& other): first(other.first) {};
+            Published& operator=(const Published&)                {return *this;};
+            _nodiscard bool operator==(const Published&) const    {return true;};
+        };
         std::filesystem::path _path;
         std::filesystem::file_time_type _mtime{};
         std::string _error;
+        Published _published;
 
         // ---------- Pre-Function -------- //
         _cold void defaults_(void);
@@ -280,6 +319,7 @@ class Config {
         std::string mode = "auto";      // permission mode of the new sessions (empty: the default of the agent)
         std::string effort;             // thinking / reasoning effort of the new sessions (empty: the default of the agent)
         std::string orchestration = "hybrid"; // how readily the global session splits work into sub-sessions: compact | hybrid | ultra
+        bool workflow = false;          // the model may (and should, on a big task) use its own multi-agent workflows (Claude Code: its Workflow tool, ultracode); off: never
         std::string keepAwake = "working";    // the computer kept from sleeping by itself (idle) : off | working (a turn runs) | always
         std::string workMethod = "free";    // the work method: free | list-review | one-task | plan-first | custom (Method.hpp)
         std::string workMethodText;         // what the user adds to it (short: injected in the prompts of the sessions)
@@ -366,8 +406,9 @@ class Config {
         std::map<std::string, cluster::ProviderConf> providers;
 
         // ---------- Pre-Function -------- //
-        _cold void load(void);                              // creates the default files on the first run
-        _cold _nodiscard bool reload(void);                 // true when the file changed and was loaded again
+        _cold void load(void);                              // this object read from the file, in place: not yet in use by other threads (creates the default files on the first run)
+        _cold _nodiscard bool reload(void);                 // true when the file changed and was loaded again: a new version published, any thread at any time
+        _nodiscard cluster::Config& current(void) const;    // the version to read now (from any version of this config)
         _cold _nodiscard const cluster::Style& currentStyle(void) const;
         _cold _nodiscard std::string command(const std::string& driver) const;
         _cold _nodiscard static std::optional<std::string> contextWindow(const std::string& value); // auto | 100k..1M (200 = 200k, 500000, 1M): "auto" or "<n>k" / "1M"; nullopt: not one
@@ -378,6 +419,9 @@ class Config {
         _nodiscard inline const std::filesystem::path& path(void) const {return this->_path;};
         _nodiscard inline const std::string& error(void) const          {return this->_error;};   // last parse error (the previous values are kept)
         _nodiscard inline bool mcpTool(const std::string& tool) const   {return !this->mcpTools.contains(tool) || this->mcpTools.at(tool);};  // on for the global session
+
+        // ------------ Operator ---------- //
+        _nodiscard bool operator==(const Config&) const = default;
 
         // ---------- Constructor -------- //
         _cold Config(void);

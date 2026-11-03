@@ -19,7 +19,6 @@ File Description:
 #include <functional>
 #include <algorithm>
 #include <cctype>
-#include <regex>
 
 /* paths */
 _cold std::string cluster::escape_path(const std::string& path)
@@ -80,6 +79,8 @@ _cold std::vector<cluster::Candidate> cluster::complete_paths(const std::string&
 /* tools */
 namespace {
 
+constexpr std::size_t VIM_COUNT_MAX = 9999; // a vim count: far more than a prompt needs, never a loop without end
+
 _cold std::size_t char_size_(const std::string& text, const std::size_t at)
 {
     // bytes of the UTF-8 character at `at` (1 on a broken byte)
@@ -115,6 +116,16 @@ _cold std::size_t start_before_(const std::string& text, std::size_t at)
     --at;
     while (at > 0 && (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80) --at;
     return at;
+}
+
+_cold std::optional<char32_t> atom_code_(const std::string& text, const std::size_t at)
+{
+    // the code point of the character at `at` when it is in the plane of the atoms
+    if (at + 4 > text.size() || static_cast<unsigned char>(text[at]) != 0xF3) return std::nullopt;
+    const char32_t c = (static_cast<char32_t>(static_cast<unsigned char>(text[at]) & 0x07) << 18) | (static_cast<char32_t>(static_cast<unsigned char>(text[at + 1]) & 0x3F) << 12)
+        | (static_cast<char32_t>(static_cast<unsigned char>(text[at + 2]) & 0x3F) << 6) | static_cast<char32_t>(static_cast<unsigned char>(text[at + 3]) & 0x3F);
+    if (c < cluster::ATOM_BASE) return std::nullopt;
+    return c;
 }
 
 } // namespace
@@ -180,7 +191,7 @@ _cold void cluster::Editor::move_(const std::size_t to, const bool select)
 }
 
 /* editing */
-_cold void cluster::Editor::insert(const std::string& text)
+_cold void cluster::Editor::put_(const std::string& text)
 {
     this->save_(text.size() == 1 && text != " ");
     const std::pair<std::size_t, std::size_t> sel = this->selection();
@@ -365,10 +376,17 @@ _cold std::string cluster::Editor::newImage(const std::string& path)
 
 _cold std::string cluster::Editor::newPaste(std::string text)
 {
-    text = std::regex_replace(text, std::regex("\r\n?"), "\n");
-    const int lines = static_cast<int>(std::count(text.begin(), text.end(), '\n')) + 1;
-    const bool lineLimit = this->_pasteLines > 0 && lines > this->_pasteLines;
-    const bool charLimit = this->_pasteChars > 0 && static_cast<int>(text.size()) > this->_pasteChars;
+    // every line break a \n, in place (megabytes pasted: a regex over them took minutes)
+    std::size_t kept = 0;
+    for (std::size_t at = 0; at < text.size(); ++at) {
+        if (text[at] == '\r' && at + 1 < text.size() && text[at + 1] == '\n') continue;
+        text[kept++] = text[at] == '\r' ? '\n' : text[at];
+    }
+    text.resize(kept);
+    const std::size_t lines = static_cast<std::size_t>(std::count(text.begin(), text.end(), '\n')) + 1;
+    const bool lineLimit = this->_pasteLines > 0 && lines > static_cast<std::size_t>(this->_pasteLines);
+    // (past 1 MB always a block, whatever the settings: no prompt line is drawn or edited over that much)
+    const bool charLimit = (this->_pasteChars > 0 && text.size() > static_cast<std::size_t>(this->_pasteChars)) || text.size() > 1024U * 1024U;
     // inline, its invisible marks around it (told to the agent as pasted) - unless it starts the prompt as a command (!, /, :): its mode kept
     const bool command = cluster::trim(this->_text).empty() && (text.starts_with("!") || text.starts_with("/") || text.starts_with(":"));
     if (!lineLimit && !charLimit) return command ? text : cluster::paste_mark(text);
@@ -389,7 +407,7 @@ _cold bool cluster::Editor::addImage(const std::string& path)
 _cold void cluster::Editor::insertAtom(const std::size_t index)
 {
     if (index >= this->_atoms.size()) return;
-    this->insert(cluster::atom_char(index) + (this->_atoms[index].image.empty() ? "" : " "));
+    this->put_(cluster::atom_char(index) + (this->_atoms[index].image.empty() ? "" : " ")); // a chip of the prompt, an old one too (a prompt back by undo)
 }
 
 std::vector<std::size_t> cluster::Editor::promptAtoms(void) const
@@ -402,9 +420,9 @@ std::vector<std::size_t> cluster::Editor::promptAtoms(void) const
 
 std::string cluster::Editor::collapse(const std::string& text) const
 {
-    // after an edit outside (Ctrl+E): a pasted text found unchanged is its block again
+    // after an edit outside (Ctrl+E): a pasted text of this prompt found unchanged is its block again
     std::string out = text;
-    for (std::size_t index = this->_atoms.size(); index-- > 0;) {
+    for (std::size_t index = this->_atoms.size(); index-- > this->_firstAtom;) {
         const std::string& content = this->_atoms[index].content;
         if (content.empty()) continue;
         for (std::size_t at = out.find(content); at != std::string::npos; at = out.find(content, at + 4))
@@ -459,11 +477,9 @@ _cold void cluster::Editor::setImages(const std::vector<std::string>& images)
 
 std::optional<std::size_t> cluster::Editor::atomAt(const std::string& text, const std::size_t at) const
 {
-    if (at + 4 > text.size() || static_cast<unsigned char>(text[at]) != 0xF3) return std::nullopt;
-    const char32_t c = (static_cast<char32_t>(static_cast<unsigned char>(text[at]) & 0x07) << 18) | (static_cast<char32_t>(static_cast<unsigned char>(text[at + 1]) & 0x3F) << 12)
-        | (static_cast<char32_t>(static_cast<unsigned char>(text[at + 2]) & 0x3F) << 6) | static_cast<char32_t>(static_cast<unsigned char>(text[at + 3]) & 0x3F);
-    if (c < cluster::ATOM_BASE || c - cluster::ATOM_BASE >= this->_atoms.size()) return std::nullopt;
-    return static_cast<std::size_t>(c - cluster::ATOM_BASE);
+    const std::optional<char32_t> c = atom_code_(text, at);
+    if (!c || *c - cluster::ATOM_BASE >= this->_atoms.size()) return std::nullopt;
+    return static_cast<std::size_t>(*c - cluster::ATOM_BASE);
 }
 
 std::string cluster::Editor::shown(const std::string& text) const
@@ -481,10 +497,29 @@ std::string cluster::Editor::shown(const std::string& text) const
     return out;
 }
 
+std::string cluster::Editor::ownAtoms_(const std::string& text) const
+{
+    // a text from outside (typed, pasted, a file read, a prompt back) only names the atoms of the prompt being written: U+F0000 + i of an earlier prompt would be
+    // sent again as that old paste or image, to whatever session this one goes to; one still to come would become the next paste
+    if (text.find('\xF3') == std::string::npos) return text;
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t i = 0; i < text.size();) {
+        const std::optional<char32_t> code = atom_code_(text, i);
+        if (code && (*code - cluster::ATOM_BASE < this->_firstAtom || *code - cluster::ATOM_BASE >= this->_atoms.size())) {
+            i += 4;
+            continue;
+        }
+        out += text[i++];
+    }
+    return out;
+}
+
 std::string cluster::Editor::atomize(const std::string& text) const
 {
-    std::string out = text;
-    for (std::size_t index = this->_atoms.size(); index-- > 0;) {
+    // the labels of the prompt being written only: one of an earlier prompt quoted in a text ("[Pasted text #1 +5 lines]", "[Image #1]": what Claude Code prints) stays a text
+    std::string out = this->ownAtoms_(text);
+    for (std::size_t index = this->_atoms.size(); index-- > this->_firstAtom;) {
         const std::string& label = this->_atoms[index].label;
         for (std::size_t at = out.find(label); at != std::string::npos; at = out.find(label, at + 4))
             out.replace(at, label.size(), cluster::atom_char(index));
@@ -578,7 +613,8 @@ _cold void cluster::Editor::refresh_(void)
             this->_start = start;
             query = word;
         } else {
-            const std::string command = cluster::split(head, ' ')[0];
+            const std::vector<std::string> parts = cluster::split(head, ' '); // ": " or ":\n": no word yet
+            const std::string command = parts.empty() ? std::string() : parts[0];
             this->_start = start;
             query = cluster::unescape_path(word);
             if (shell || command == "r" || command == "w" || command == "read" || command == "write") kind = cluster::CompletionKind::File;
@@ -703,8 +739,14 @@ _cold std::optional<std::size_t> cluster::Editor::motion_(const std::string& key
     // target of a motion from the cursor (count times); nullopt: not a motion
     const std::function<bool(char)> word = [](char c) {return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || (static_cast<unsigned char>(c) & 0x80);};
     const std::string& t = this->_text;
+    // a column or a word walked by bytes may end inside a character: its start, never a prompt cut in the middle of a character
+    const std::function<std::size_t(std::size_t)> whole = [&t](std::size_t at) {
+        while (at > 0 && at < t.size() && (static_cast<unsigned char>(t[at]) & 0xC0) == 0x80) --at;
+        return at;
+    };
     std::size_t p = this->_cursor;
     for (std::size_t n = 0; n < std::max<std::size_t>(count, 1); ++n) {
+        const std::size_t before = p;
         if (key == "h") p = p > this->lineStart_(p) ? this->prev_(p) : p;
         else if (key == "l") p = p < this->lineEnd_(p) ? this->next_(p) : p;
         else if (key == "0") p = this->lineStart_(p);
@@ -717,12 +759,12 @@ _cold std::optional<std::size_t> cluster::Editor::motion_(const std::string& key
             if (key == "j") {
                 const std::size_t end = this->lineEnd_(p);
                 if (end >= t.size()) return p;
-                p = std::min(end + 1 + column, this->lineEnd_(end + 1));
+                p = whole(std::min(end + 1 + column, this->lineEnd_(end + 1)));
             } else {
                 const std::size_t start = this->lineStart_(p);
                 if (start == 0) return p;
                 const std::size_t previous = this->lineStart_(start - 1);
-                p = std::min(previous + column, start - 1);
+                p = whole(std::min(previous + column, start - 1));
             }
         } else if (key == "w") {
             if (p < t.size() && word(t[p])) while (p < t.size() && word(t[p])) ++p;
@@ -737,18 +779,20 @@ _cold std::optional<std::size_t> cluster::Editor::motion_(const std::string& key
             while (p < t.size() && (t[p] == ' ' || t[p] == '\n')) ++p;
             if (p < t.size() && word(t[p])) while (p + 1 < t.size() && word(t[p + 1])) ++p;
             else while (p + 1 < t.size() && !word(t[p + 1]) && t[p + 1] != ' ' && t[p + 1] != '\n') ++p;
+            p = whole(p);
         } else if (key == "G") p = this->lineStart_(t.size());
         else if (key == "gg") p = 0;
         else if (key.size() == 2 && (key[0] == 'f' || key[0] == 't')) {
             const std::size_t found = t.find(key[1], p + 1);
             if (found == std::string::npos || found > this->lineEnd_(p)) return p;
-            p = key[0] == 'f' ? found : found - 1;
+            p = key[0] == 'f' ? found : whole(found - 1);
         } else if (key.size() == 2 && (key[0] == 'F' || key[0] == 'T')) {
             if (p == 0) return p;
             const std::size_t found = t.rfind(key[1], p - 1);
             if (found == std::string::npos || found < this->lineStart_(p)) return p;
             p = key[0] == 'F' ? found : found + 1;
         } else return std::nullopt;
+        if (p == before) break; // nowhere left to go: a count of 99999999999 ends here
     }
     return p;
 }
@@ -803,10 +847,10 @@ _cold bool cluster::Editor::vimCommand_(const std::string& key)
     }
     // count: 3w, 2dd (0 alone is the start of the line)
     if (key.size() == 1 && std::isdigit(static_cast<unsigned char>(key[0])) && (key != "0" || !this->_count.empty()) && this->_pending.empty()) {
-        this->_count += key;
+        if (this->_count.size() < 9) this->_count += key; // the digits past these: never a number std::stoul refuses
         return true;
     }
-    const std::size_t count = this->_count.empty() ? 1 : static_cast<std::size_t>(std::stoul(this->_count));
+    const std::size_t count = this->_count.empty() ? 1 : std::min<std::size_t>(std::stoul(this->_count), VIM_COUNT_MAX);
 
     // prefixes waiting for one more key: r<c>, f<c> / t<c> (also after an operator), g<g>
     if (!this->_pending.empty()) {
@@ -817,7 +861,7 @@ _cold bool cluster::Editor::vimCommand_(const std::string& key)
         if (sub == "r") {
             if (this->_cursor < this->lineEnd_(this->_cursor) && key.size() >= 1) {
                 this->save_();
-                this->_text.replace(this->_cursor, this->next_(this->_cursor) - this->_cursor, key);
+                this->_text.replace(this->_cursor, this->next_(this->_cursor) - this->_cursor, this->ownAtoms_(key));
             }
             this->_count.clear();
             return true;

@@ -8,6 +8,7 @@ from pathlib import Path
 
 PROMPT_FILES = ("global.md", "sessions.md", "rendering.md")
 SUBJECT = re.compile(r"^(?:feat|fix|docs|refactor|perf|test|chore|build)\(claude-cluster\):\s*(.*?)(?:,\s*(\d+\.\d+\.\d+))?\s*$")
+RELEASE = re.compile(r"^(\d+\.\d+\.\d+)\s+-\s+(.*)$", re.S)  # the subject of a release: "1.9.4 - what changed" (older ones: "what changed, 1.4.72")
 
 
 def human_size(size: int) -> str:
@@ -32,10 +33,12 @@ def changes(ctx) -> list[dict]:
         m = SUBJECT.match(subject)
         if not m:
             continue
-        item = {"hash": h, "date": date, "text": m.group(1)}
+        release = RELEASE.match(m.group(1))
+        version, what = (release.group(1), release.group(2)) if release else (m.group(2), m.group(1))
+        item = {"hash": h, "date": date, "text": what}
         pending.append(item)
-        if m.group(2):
-            versions.append({"version": m.group(2), "date": date, "commits": pending, "en": short(m.group(1)), "fr": short(m.group(1))})
+        if version:
+            versions.append({"version": version, "date": date, "commits": pending, "en": short(what), "fr": short(what)})
             pending = []
     if pending:
         versions.append({"version": "next", "date": pending[-1]["date"], "commits": pending, "en": short(pending[-1]["text"]), "fr": short(pending[-1]["text"])})

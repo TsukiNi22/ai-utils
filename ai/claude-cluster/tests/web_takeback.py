@@ -7,6 +7,7 @@
 import http.cookiejar
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -45,7 +46,12 @@ with open(f"{T}/cfg/config.toml", "w", encoding="utf-8") as config:
                  f'[sessions]\nqueue_given = "end"\n[commands]\nclaude = "{FAKE}"\n[web]\nenabled = true\nport = {PORT}\nhttps = false\napprove = false\n')
 core = subprocess.Popen([BIN, "serve", "--no-global"], env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
-    time.sleep(4)
+    for _ in range(150):  # its web access open (its first tick, seconds on a busy machine)
+        try:
+            socket.create_connection(("127.0.0.1", PORT), timeout=1).close()
+            break
+        except OSError:
+            time.sleep(0.2)
     pin = json.loads(subprocess.run([BIN, "web", "pin", "--json"], env=ENV, capture_output=True, text=True).stdout or "{}").get("pin", "").replace(" ", "")
     post("/api/login", {"pin": pin, "name": "phone"})
     spawned = post("/api/cmd", {"cmd": "spawn", "cwd": f"{T}/work", "name": "worker"})

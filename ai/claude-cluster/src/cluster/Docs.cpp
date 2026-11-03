@@ -76,7 +76,7 @@ _cold const std::vector<Hit>& index_(void)
         const std::size_t start = js.find('{');
         const std::size_t end = js.rfind('}');
         if (start == std::string::npos || end == std::string::npos || end < start) return;
-        const cluster::Json data = cluster::Json::parse(js.substr(start, end - start + 1), nullptr, false);
+        const cluster::Json data = cluster::json_parse(js.substr(start, end - start + 1), nullptr, false);
         if (!data.is_object() || !data.contains("entries") || !data["entries"].is_array()) return;
         for (const cluster::Json& e: data["entries"])
             hits.push_back({e.value("k", std::string()), e.value("l", std::string()), e.value("t", std::string()), e.value("d", std::string()), e.value("u", std::string()),
@@ -130,7 +130,7 @@ _cold std::string cluster::docs_page(const std::string& screen)
     // docs-map.json: the screens of the app and their page ("settings": "settings", "question": "callbacks-mcp#questions")
     const cluster::DocEntry* entry = find_("docs-map.json");
     if (screen.empty() || entry == nullptr) return "index.html";
-    const cluster::Json map = cluster::Json::parse(text_(*entry), nullptr, false);
+    const cluster::Json map = cluster::json_parse(text_(*entry), nullptr, false);
     if (map.is_object() && map.contains(screen) && map[screen].is_string()) {
         const std::string target = map[screen].get<std::string>();
         const std::size_t hash = target.find('#');
@@ -145,7 +145,7 @@ _cold std::vector<std::string> cluster::docs_screens(void)
     std::vector<std::string> screens;
     const cluster::DocEntry* entry = find_("docs-map.json");
     if (entry == nullptr) return screens;
-    const cluster::Json map = cluster::Json::parse(text_(*entry), nullptr, false);
+    const cluster::Json map = cluster::json_parse(text_(*entry), nullptr, false);
     if (map.is_object())
         for (const auto &[key, value]: map.items())
             screens.push_back(key);

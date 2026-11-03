@@ -25,6 +25,11 @@ File Description:
 
 namespace cluster { // namespace start
 //----------------------------------------------------------------//
+/* DEFINE */
+
+inline constexpr std::int64_t TIME_LAST = 253402300799;     // 9999-12-31 23:59:59 UTC: a time past it is refused when it is written (the rules of a zone stop, its exception in every list)
+
+//----------------------------------------------------------------//
 /* FUNCTION */
 
 // The time rules of the schedules (the zone of each: "" = this computer's, else an IANA name like Europe/Paris)
@@ -33,7 +38,8 @@ namespace cluster { // namespace start
 _cold _nodiscard std::string cron_check(const std::string& expr);                                           // "" valid, else why not
 _cold _nodiscard std::int64_t cron_next(const std::string& expr, const std::string& zone, const std::int64_t after);  // the first time after, 0 none
 _cold _nodiscard std::string zone_check(const std::string& zone);                                           // "" valid, else why not
-// weekdays: "mon-fri", "mon,wed", "weekdays", "weekend", "daily" (empty: every day); windows: "09:00-18:00,20:00-22:00"
+// weekdays: "mon-fri", "mon,wed", "5-7" (0 and 7: Sunday), "weekdays", "weekend", "daily" (empty: every day); windows: "09:00-18:00,20:00-22:00"
+// a rule read at each look: 256 characters at most, 16 ranges in a window (more: refused by the checks)
 _cold _nodiscard std::string days_check(const std::string& days);
 _cold _nodiscard std::string window_check(const std::string& window);
 _cold _nodiscard bool time_allowed(const std::string& days, const std::string& window, const std::string& quiet, const std::string& zone, const std::int64_t time);

@@ -34,6 +34,8 @@ namespace {
 
 namespace opt = cluster::opt;
 
+constexpr std::size_t ANSWER_KEPT = 6000;   // the answer of a task kept for the next ones (its group, a chain), at least
+
 // the model / thinking of a session a task starts: the policy of the user applies like for session_spawn (a costly one is dropped, not asked)
 _cold void spawn_policy_(const cluster::Config& config, cluster::TaskSpawn& spawn)
 {
@@ -59,13 +61,22 @@ _cold void spawn_policy_(const cluster::Config& config, cluster::TaskSpawn& spaw
     if (cluster::policy_costly_effort(config, spawn.effort)) spawn.effort.clear();
 }
 
+// the command of an event, as it is written: anything else than a string refused (opt::text gives the JSON text of it, and /bin/sh would run that)
+_cold std::string event_command_(const cluster::Json& on)
+{
+    const auto it = on.find("command");
+    if (it == on.end() || it->is_null()) return "";
+    if (!it->is_string()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "on_event command: a string, not " + it->dump());
+    return it->get<std::string>();
+}
+
 } // namespace
 
 /* the MCP of a sub-session */
 _cold std::vector<std::string> cluster::Manager::subArgs_(const std::string& id) const
 {
     // its own server (CLAUDE_CLUSTER_SESSION: the tools of the sub-sessions, its tasks / schedules only); the settings [agent] sub_* open it
-    if (!this->_config.subRead && !this->_config.subTasks && !this->_config.subSchedules && !this->_config.orch.enabled) return {};
+    if (!this->config().subRead && !this->config().subTasks && !this->config().subSchedules && !this->config().orch.enabled) return {};
     const std::filesystem::path path = cluster::socket_path().parent_path() / ("mcp-" + id + ".json");
     try {
         cluster::write_json(path, {{"mcpServers", {{"claude-cluster", {{"type", "stdio"}, {"command", cluster::self_exe().string()}, {"args", {"mcp"}},
@@ -113,6 +124,9 @@ _cold std::string cluster::Manager::addTaskJson(const cluster::Json& o, const st
     task.maxCost = std::max(0.0, opt::decimal(o, "max_cost"));
     task.maxTokens = std::max<std::int64_t>(0, opt::number(o, "max_tokens", 0));
     task.expect = cluster::trim(opt::text(o, "expect"));
+    // a file read into the result: from the page, the gate of :r (never by this way what the shell from the page being off refuses); "compact" stays open
+    if (opt::text(o, "origin") == "web" && !this->config().web.shell && opt::is_path(task.expect))
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the shell from the page is off (settings of the computer: Web > Shell from the page): expect reads a file, like :r");
     task.notify = opt::flag(o, "notify", false);
     task.quiet = !opt::flag(o, "reply", true);
     task.schedule = opt::text(o, "schedule");
@@ -125,10 +139,9 @@ _cold std::string cluster::Manager::addTaskJson(const cluster::Json& o, const st
             task.on.arg = opt::text(*it, "repo");
             task.on.arg2 = opt::text(*it, "branch");
         } else if (task.on.type == "command") {
-            task.on.arg = opt::text(*it, "command");
+            task.on.arg = event_command_(*it);
             task.on.match = cluster::command_match(*it); // its output / code wanted, its interval, when it gives up
-        }
-        else if (task.on.type == "file") {
+        } else if (task.on.type == "file") {
             task.on.arg = opt::text(*it, "path");
             task.on.arg2 = opt::flag(*it, "changed", false) ? "changed" : "";
             if (task.on.arg2 == "changed") task.on.base = std::to_string(opt::mtime(task.on.arg));
@@ -144,7 +157,7 @@ _cold std::string cluster::Manager::addTaskJson(const cluster::Json& o, const st
         task.spawn = {opt::text(*it, "cwd"), opt::text(*it, "name"), opt::text(*it, "backend"), opt::text(*it, "mode"), opt::text(*it, "effort"), opt::text(*it, "profile"), opt::flag(*it, "one_shot", false)};
         if (!task.target.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "spawn and target: one of them (a task starts its own session, or looks for one)");
         (void)cluster::resolve_folder(task.spawn.cwd); // a folder (or a project of the map) that exists, said now
-        spawn_policy_(this->_config, task.spawn);
+        spawn_policy_(this->config(), task.spawn);
     }
     // {{tN.result}} in the prompt: its task done first
     static const std::regex reference(R"(\{\{\s*(t\d+)\.\w+\s*\}\})");
@@ -158,12 +171,12 @@ _cold std::string cluster::Manager::addTaskJson(const cluster::Json& o, const st
                 throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no task '" + dep + "'");
         // the task queue: the tasks waiting for a free place, bounded
         const std::size_t waiting = std::count_if(this->_tasks.begin(), this->_tasks.end(), [](const cluster::Task& t) {return t.status == "queued";});
-        if (waiting >= static_cast<std::size_t>(std::max(1, this->_config.taskQueue)))
+        if (waiting >= static_cast<std::size_t>(std::max(1, this->config().taskQueue)))
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the task queue is full (" + std::to_string(waiting)
                 + " waiting: [sessions] task_queue)");
-        if (!by.empty() && by != GLOBAL_ID && !task.spawn.cwd.empty() && this->spawnedBy_(by) >= static_cast<std::size_t>(this->_config.subSpawnCap))
+        if (!by.empty() && by != GLOBAL_ID && !task.spawn.cwd.empty() && this->spawnedBy_(by) >= static_cast<std::size_t>(this->config().subSpawnCap))
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the cap of sessions started by your tasks / schedules is reached ("
-                + std::to_string(this->_config.subSpawnCap) + ": [agent] sub_spawn_cap): wait for one to end, or reuse a session");
+                + std::to_string(this->config().subSpawnCap) + ": [agent] sub_spawn_cap): wait for one to end, or reuse a session");
         id = "t" + std::to_string(this->_nextTask++);
         task.id = id;
         this->_tasks.push_back(task);
@@ -192,7 +205,10 @@ _cold std::vector<cluster::Task> cluster::Manager::tasks(void) const
 {
     if (this->_replica) return this->replicaState("tasks").get<std::vector<cluster::Task>>();
     std::lock_guard<std::mutex> lock(this->_mutex);
-    return this->_tasks;
+    std::vector<cluster::Task> list = this->_tasks;
+    for (cluster::Task& t: list) // only the core reads it (a chain, a group): never sent to every interface at each sync, its result is there
+        t.answer.clear();
+    return list;
 }
 
 _cold cluster::Json cluster::Manager::taskJson(const cluster::Task& t) const
@@ -295,15 +311,21 @@ _cold void cluster::Manager::taskDone_(const std::string& session, const bool er
         for (cluster::Task& task: this->_tasks) {
             if (task.session != session || task.status != "running") continue;
             changed = true;
-            task.answer = text;
+            const std::size_t size = static_cast<std::size_t>(std::max(200, this->config().taskResultChars));
+            task.answer = cluster::head_utf8(text, std::max(size, ANSWER_KEPT)); // saved with the state: what a chain or a group reads of it, not all of it
             task.ended = cluster::now();
-            const std::size_t size = static_cast<std::size_t>(std::max(200, this->_config.taskResultChars));
             task.result = opt::cap(text, size);
             if (!task.expect.empty() && opt::is_path(task.expect)) { // the output asked in a file: its start is the result
-                std::ifstream in(cluster::expand_home(task.expect));
-                std::stringstream content;
-                content << in.rdbuf();
-                task.result = in && !content.str().empty() ? "[file " + task.expect + "]\n" + opt::cap(content.str(), size) : "[file " + task.expect + " not written]\n" + task.result;
+                // only its start read (under the lock of every session), a plain file, never a hidden one (a device: never its end; ~/.ssh/...: never in a result)
+                std::error_code missing;
+                std::string content;
+                if (std::filesystem::is_regular_file(cluster::expand_home(task.expect), missing) && !cluster::hidden_path(task.expect)) {
+                    std::ifstream in(cluster::expand_home(task.expect), std::ios::binary);
+                    content.resize(size + 1);
+                    in.read(content.data(), static_cast<std::streamsize>(content.size()));
+                    content.resize(static_cast<std::size_t>(in.gcount()));
+                }
+                task.result = !content.empty() ? "[file " + task.expect + "]\n" + opt::cap(content, size) : "[file " + task.expect + " not written]\n" + task.result;
             }
             if (!task.group.empty()) groups.insert(task.group);
             const bool groupRetry = std::any_of(this->_groups.begin(), this->_groups.end(), [&task](const cluster::Group& g) {return g.id == task.group && g.retry;});
@@ -327,17 +349,17 @@ _cold void cluster::Manager::taskDone_(const std::string& session, const bool er
         this->groupUpdate_(group);
     this->schedule_(); // a place free: the next one at once
     for (const cluster::Task& task: ended) {
-        if (task.notify || this->_config.notifyTaskEach)
+        if (task.notify || this->config().notifyTaskEach)
             (void)this->notify({"task-" + task.id, "task " + task.id + (task.status == "done" ? " done" : " " + task.status), cluster::one_line(task.status == "done" ? task.result : task.reason, 160),
                 task.status == "done" ? cluster::Face::Grin : cluster::Face::Waiting, task.status != "done", task.status == "done" ? "complete" : "dialog-warning"}, "task");
         // a sub-session that queued it: told (the global session has its reply, a group its own end)
         const bool sub = !task.by.empty() && task.by != GLOBAL_ID && task.group.empty() && !task.quiet;
         if (sub) this->tell_(task.by, "[tasks] task " + task.id + " " + task.status + (task.status == "done" ? "\n" + task.result : ": " + (task.reason.empty() ? cluster::one_line(task.answer, 300) : task.reason)));
         if (task.spawned && task.spawn.oneShot) {
-            std::thread([this, session]() { // closed to the trash after a moment (the state settles), unless it is still of use
+            cluster::guarded([this, session]() { // closed to the trash after a moment (the state settles), unless it is still of use
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 const std::optional<cluster::Snapshot> snap = this->snapshot(session);
-                const bool shown = this->_active == session && this->_focused != 0;
+                const bool shown = this->active() == session && this->_focused != 0;
                 if (!snap || shown || snap->state != cluster::State::Idle || snap->queued > 0 || !snap->permissions.empty()) return;
                 try {
                     this->close(session);
@@ -365,6 +387,9 @@ _cold void cluster::Manager::taskDone_(const std::string& session, const bool er
 
 _cold void cluster::Manager::schedule_(void)
 {
+    // an update waiting for the turns: a task started now has its prompt held too (held.json), and the new version would run both copies: it stays queued, the new version starts
+    // it once; the restore not answered yet: its sessions are not there, the tasks that name them would fail
+    if (this->_holding || this->_restoreAsk) return;
     // <task id, session id>, decided under the lock, run after
     std::vector<std::pair<std::string, std::string>> starts;
     std::vector<std::string> spawns;
@@ -401,7 +426,7 @@ _cold void cluster::Manager::schedule_(void)
         std::stable_sort(order.begin(), order.end(), [this](const std::size_t a, const std::size_t b) {return this->_tasks[a].priority > this->_tasks[b].priority;});
         for (const std::size_t index: order) {
             cluster::Task& task = this->_tasks[index];
-            if (task.status != "queued" || task.notBefore > now || (!task.forced && running >= static_cast<std::size_t>(std::max(1, this->_config.maxParallel)))) continue;
+            if (task.status != "queued" || task.notBefore > now || (!task.forced && running >= static_cast<std::size_t>(std::max(1, this->config().maxParallel)))) continue;
             bool ready = true;
             for (const std::string& dep: task.after) {
                 auto it = std::find_if(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == dep;});
@@ -441,12 +466,14 @@ _cold void cluster::Manager::schedule_(void)
                 ++running;
                 continue;
             }
+            if (task.spawned) task.target = task.session; // its own session again (a restart): that one, never the first idle session of another project
             const bool folder = task.target.find('/') != std::string::npos || task.target.starts_with("~") || task.target == ".";
             if (!folder && !task.target.empty() && !find(task.target)) {
                 fail(task, "its target session '" + task.target + "' does not exist (closed or never created)");
                 continue;
             }
-            const std::string wantedCwd = folder ? std::filesystem::weakly_canonical(cluster::expand_home(task.target)).string() : "";
+            std::error_code unreadable; // a folder it may not read: as it is written, never an exception out of the tick
+            const std::string wantedCwd = folder ? std::filesystem::weakly_canonical(cluster::expand_home(task.target), unreadable).string() : "";
             std::string chosen;
             for (const std::string& id: this->_order) {
                 const cluster::Snapshot snap = this->_sessions.at(id)->snapshot();
@@ -487,7 +514,7 @@ _cold void cluster::Manager::schedule_(void)
                     request.mode = task.spawn.mode;
                     request.effort = task.spawn.effort;
                     request.profile = task.spawn.profile;
-                    capped = own && !by.empty() && by != GLOBAL_ID && this->spawnedBy_(by) > static_cast<std::size_t>(std::max(0, this->_config.subSpawnCap));
+                    capped = own && !by.empty() && by != GLOBAL_ID && this->spawnedBy_(by) > static_cast<std::size_t>(std::max(0, this->config().subSpawnCap));
                 }
             }
             if (capped) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the cap of sessions started by your tasks / schedules is reached ([agent] sub_spawn_cap)");
@@ -521,6 +548,10 @@ _cold void cluster::Manager::schedule_(void)
             std::lock_guard<std::mutex> lock(this->_mutex);
             for (cluster::Task& task: this->_tasks) {
                 if (task.id != taskId) continue;
+                if (this->_holding) { // an update began since it was chosen (a session starting takes a while): as above
+                    task.status = "queued";
+                    continue;
+                }
                 prompt = task.prompt;
                 group = task.group;
                 by = task.by;
@@ -539,7 +570,7 @@ _cold void cluster::Manager::schedule_(void)
                     auto before = std::find_if(this->_tasks.begin(), this->_tasks.end(), [&](const cluster::Task& t) {return t.id == (*it)[1].str();});
                     rendered += prompt.substr(from, static_cast<std::size_t>(it->position()) - from);
                     rendered += before == this->_tasks.end() ? "[no task " + (*it)[1].str() + "]" : key == "status" ? before->status : key == "error" ? before->reason
-                        : key == "session" ? before->session : before->result.empty() ? opt::cap(before->answer, static_cast<std::size_t>(std::max(200, this->_config.taskResultChars))) : before->result;
+                        : key == "session" ? before->session : before->result.empty() ? opt::cap(before->answer, static_cast<std::size_t>(std::max(200, this->config().taskResultChars))) : before->result;
                     from = static_cast<std::size_t>(it->position() + it->length());
                 }
                 prompt = rendered + prompt.substr(from);
@@ -553,12 +584,14 @@ _cold void cluster::Manager::schedule_(void)
         }
         if (expect == "compact") prompt += "\n\n[output asked: answer compactly - the facts only, no recap; your answer is kept as the result of this task and may be chained into other prompts]";
         else if (!expect.empty() && opt::is_path(expect)) prompt += "\n\n[output asked: write your result to " + expect + " and answer with that path and one line only]";
+        if (prompt.empty()) continue; // gone back to the queue, or gone
         const bool answered = by == GLOBAL_ID && group.empty(); // a task of the global session: its answer comes back to it (a group has its own)
         try {
             if (answered) this->replyTo(sessionId); // before: a short turn could end before it is known
             else if (!by.empty() && group.empty() && !quiet) this->replyTo(sessionId, by); // a sub-session's: its wake-up turns told to it too
             try {
-                this->send(sessionId, prompt, false, {}, prompt.starts_with("[from the global session]") ? "mcp" : "task");
+                // a task a session queued for itself: a wake-up of its own, its result goes to whoever follows it
+                this->send(sessionId, prompt, false, {}, prompt.starts_with("[from the global session]") ? "mcp" : by == sessionId ? "wake" : "task");
             } catch (const utils::exception::IException&) {
                 if (answered) this->replyUndo_(sessionId);
                 throw;
@@ -606,9 +639,54 @@ _cold void cluster::Manager::tell_(const std::string& by, const std::string& tex
         try {
             this->send(by, text, true, {}, "wake"); // a turn of its own: its end goes to the global session if it follows it
             return;
-        } catch (const utils::exception::IException&) {}
+        } catch (const utils::exception::IException&) {
+            // not reached right now (its agent starting again): tried for a while, a callback is not dropped for that
+            cluster::guarded([this, by, text]() {
+                for (int tries = 0; tries < 12 && !this->_closing; ++tries) {
+                    std::this_thread::sleep_for(std::chrono::seconds(5));
+                    try {
+                        this->send(by, text, true, {}, "wake");
+                        return;
+                    } catch (const utils::exception::IException&) {}
+                }
+                this->notice_("", text);
+            }).detach();
+            return;
+        }
     }
     this->notice_("", text);
+}
+
+_cold std::string cluster::Manager::reportStatus(const std::string& id, const std::string& text)
+{
+    // a sub-session tells whoever follows it now, without ending its turn (MCP report_status); its final message reaches them by itself: this is for what cannot wait
+    if (cluster::trim(text).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "report_status: nothing to say");
+    std::vector<std::string> followers;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        const std::int64_t now = cluster::now();
+        const auto last = this->_reported.find(id);
+        if (last != this->_reported.end() && now - last->second < 30)
+            throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "report_status: one every 30 s (each one costs a turn of who reads it); the rest in your final message");
+        const auto it = this->_followed.find(id);
+        if (it != this->_followed.end()) followers.assign(it->second.begin(), it->second.end());
+        if (!followers.empty()) this->_reported[id] = now;
+    }
+    if (followers.empty()) return "nobody follows this session: your final message reaches the user";
+    const std::optional<cluster::Snapshot> snap = this->snapshot(id);
+    const std::string message = "[status from " + (snap ? snap->spec.name : id) + " (" + id + ")]\n" + cluster::head_utf8(text, 2000);
+    for (const std::string& by: followers) {
+        if (by != GLOBAL_ID) {
+            this->tell_(by, message);
+            continue;
+        }
+        try {
+            this->send(GLOBAL_ID, message, true, {}, "mcp");
+        } catch (const utils::exception::IException& e) {
+            this->notice_(GLOBAL_ID, std::string("status not given to the global session: ") + e.info(), true);
+        }
+    }
+    return "told to " + std::to_string(followers.size()) + " session(s)";
 }
 
 _cold std::string cluster::Manager::taskAct(const std::string& id, const std::string& action, const std::string& reason)

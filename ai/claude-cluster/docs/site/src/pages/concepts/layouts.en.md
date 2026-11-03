@@ -10,7 +10,7 @@ keywords = "layout list grid tabs hub board tree f2 layout panels grid_open navi
 
 ## List {#list}
 
-The session list on the left with the active conversation and its **panels** on the right: tokens (last prompt, current, total), context (used / window), cost (session, last turn, budget, 5 h / 7 d limits), usage (the vendor: today, 7 days, lifetime, the account windows), skills, git (branch, graph), diff, tools (timeline), files (modified). `[ui] panels` sets the default ones of a new session; each is toggled per session from the palette. The list scrolls (`↑ n more / ↓ n more`) and keeps the **Tasks** entry on top.
+The session list on the left with the active conversation and its **panels** on the right: tokens (last prompt, current, total), context (used / window), cost (session, last turn, budget, 5 h / 7 d limits with the time left before their reset: `5h limit (4h40m)`, `7d limit (3d5h)`, `(40m12s)` under an hour), usage (the vendor: today, 7 days, lifetime, the account windows), skills, git (branch, graph), diff, tools (timeline), files (modified). `[ui] panels` sets the default ones of a new session; each is toggled per session from the palette. The list scrolls (`↑ n more / ↓ n more`) and keeps the **Tasks** entry on top.
 
 ## Grid {#grid}
 

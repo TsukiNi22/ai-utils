@@ -59,6 +59,7 @@ struct Ask {
         std::string other;
     };
     std::map<std::size_t, Given> given;  // by question index
+    std::map<std::size_t, std::string> typed;   // what is written on its Other, by question index, validated or not: never lost by leaving it
 };
 
 //----------------------------------------------------------------//

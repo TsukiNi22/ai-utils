@@ -19,6 +19,7 @@ File Description:
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <algorithm>
 #include <sys/un.h>
@@ -163,6 +164,11 @@ static const std::string& paste_open_(void)
 {
     static const std::string open = cluster::slash_tag("paste{");
     return open;
+}
+
+bool cluster::pasted_first(const std::string& text)
+{
+    return cluster::trim(text).starts_with(paste_open_());
 }
 
 static const std::string& paste_close_(void)
@@ -361,6 +367,16 @@ std::string cluster::human_age(const std::int64_t time)
     return std::to_string(age / 86400) + "d";
 }
 
+std::string cluster::left_time(const std::int64_t at)
+{
+    const std::int64_t left = at - cluster::now();
+    if (at <= 0 || left <= 0) return "";
+    if (left >= 86400) return std::to_string(left / 86400) + "d" + std::to_string(left % 86400 / 3600) + "h";
+    if (left >= 3600) return std::to_string(left / 3600) + "h" + std::to_string(left % 3600 / 60) + "m";
+    if (left >= 60) return std::to_string(left / 60) + "m" + std::to_string(left % 60) + "s";
+    return std::to_string(left) + "s";
+}
+
 std::string cluster::clock_time(const std::int64_t time)
 {
     const std::time_t t = static_cast<std::time_t>(time);
@@ -407,7 +423,8 @@ _cold void cluster::stop_group(const int pid, const bool force)
     (void)::kill(pid, force ? SIGKILL : SIGTERM);
 }
 
-_cold static cluster::Captured capture_(const std::vector<std::string>& args, const std::string& cwd, const int timeout, std::atomic<int>* pidOut)
+_cold static cluster::Captured capture_(const std::vector<std::string>& args, const std::string& cwd, const int timeout, std::atomic<int>* pidOut, const std::size_t limit = 0,
+    const std::function<void(std::size_t)>* told = nullptr)
 {
     cluster::Captured result;
     ++captures_running_;
@@ -458,13 +475,32 @@ _cold static cluster::Captured capture_(const std::vector<std::string>& args, co
     utils::encapsulation::Poll poll;
     poll.link(out.getRead(), EPOLLIN);
     const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout);
-    std::array<char, 4096> buffer{};
+    std::array<char, 65536> buffer{};
+    std::chrono::steady_clock::time_point toldAt = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() < deadline) {
         const int left = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count());
         if (poll.wait(std::max(left, 1)).empty()) break;
         const ssize_t size = ::read(out.getRead(), buffer.data(), buffer.size());
         if (size <= 0) break;
         result.out.append(buffer.data(), static_cast<std::size_t>(size));
+        if (limit > 0 && result.out.size() > limit) { // more than what it is read for (a clipboard of gigabytes)
+            cluster::stop_group(running.pid, true);
+            process.kill();
+            result.code = -2;
+            return result;
+        }
+        // its end only past 64 MB (a !yes running for hours: never the memory of the computer, the core killed by it)
+        if (limit == 0 && result.out.size() > 64 * 1024 * 1024) result.out.erase(0, result.out.size() - 32 * 1024 * 1024);
+        if (told != nullptr && std::chrono::steady_clock::now() - toldAt >= std::chrono::milliseconds(100)) {
+            toldAt = std::chrono::steady_clock::now();
+            (*told)(result.out.size());
+        }
+    }
+    // its outputs closed: its end waited for within its time too (a program closing them and going on: never a thread stuck here)
+    while (process.is() && std::chrono::steady_clock::now() < deadline) {
+        siginfo_t ended{};
+        if (::waitid(P_PID, static_cast<id_t>(running.pid), &ended, WEXITED | WNOHANG | WNOWAIT) != 0 || ended.si_pid != 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     if (process.is() && std::chrono::steady_clock::now() >= deadline) {
         cluster::stop_group(running.pid, true); // the command and what it started: nothing left spinning
@@ -490,6 +526,41 @@ _cold cluster::Captured cluster::capture(const std::vector<std::string>& args, c
     }
 }
 
+_cold cluster::Captured cluster::capture_big(const std::vector<std::string>& args, const int timeout, const std::size_t limit, const std::function<void(std::size_t)>& told)
+{
+    if (args.empty()) return {};
+    try {
+        return capture_(args, "", timeout, nullptr, limit, &told);
+    } catch (const std::exception& e) {
+        cluster::debug("platform", "capture of " + args[0] + " failed: " + e.what());
+        return {}; // code -1
+    }
+}
+
+_cold cluster::Captured cluster::capture_env(const std::vector<std::string>& args, const std::vector<std::pair<std::string, std::string>>& env, const std::string& cwd, const int timeout)
+{
+    // its variables (an API key) in a file of this user alone, read and removed by the shell before the command runs: never on a command line
+    // (/proc/<pid>/cmdline is readable by every user of the computer)
+    static std::atomic<std::uint64_t> counter{0};
+    std::string variables;
+    for (const auto &[name, value]: env)
+        if (name.find('\n') == std::string::npos && value.find('\n') == std::string::npos) variables += name + "=" + value + "\n";
+    if (variables.empty()) return cluster::capture(args, cwd, timeout);
+    const std::filesystem::path file = cluster::private_temp("env-" + std::to_string(::getpid()) + "-" + std::to_string(++counter));
+    try {
+        cluster::write_text(file, variables);
+    } catch (const utils::exception::IException& e) {
+        cluster::debug("platform", std::string("the variables of a command not written: ") + e.info());
+        return {}; // code -1
+    }
+    std::vector<std::string> command = {"sh", "-c", "while IFS= read -r v; do export \"$v\"; done < \"$0\"; rm -f \"$0\"; exec \"$@\"", file.string()};
+    command.insert(command.end(), args.begin(), args.end());
+    const cluster::Captured result = cluster::capture(command, cwd, timeout);
+    std::error_code error;
+    std::filesystem::remove(file, error);
+    return result;
+}
+
 static bool claude_driver_(const std::string& provider)
 {
     return provider == "claude" || provider.starts_with("anthropic");
@@ -512,7 +583,8 @@ _cold static std::string claude_default_model_read_(void)
 {
     // the "model" of ~/.claude/settings.json; an alias (sonnet, opus...) resolved to the id of the last turn run on it (the usage ledger), else the alias
     const cluster::Json settings = claude_settings_();
-    const std::string model = settings.is_object() ? settings.value("model", std::string()) : std::string();
+    // a file of another tool: anything else than a text is no model (a value() of the wrong type would fail every list of the sessions)
+    const std::string model = settings.is_object() && settings.contains("model") && settings["model"].is_string() ? settings["model"].get<std::string>() : std::string();
     if (model.empty() || std::any_of(model.begin(), model.end(), [](const unsigned char c) {return std::isdigit(c) != 0;})) return model;
     std::ifstream ledger(cluster::data_dir() / "usage.jsonl");
     std::string line;
@@ -537,7 +609,7 @@ _cold void cluster::keep_awake(const bool want)
     const std::lock_guard<std::mutex> guard(lock);
     if (!want || cluster::now() - last < 100) return;
     last = cluster::now();
-    std::thread([]() {
+    cluster::guarded([]() {
         (void)std::system("systemd-inhibit --what=idle --who=claude-cluster --why='sessions working' --mode=block sleep 120 >/dev/null 2>&1");
     }).detach();
 }
@@ -562,7 +634,7 @@ _cold std::string cluster::claude_default_effort(const std::string& model)
     if (model.empty() || !settings.is_object() || !settings.contains("modelSettings") || !settings["modelSettings"].is_object()) return "";
     std::string best;
     for (const auto &[name, value]: settings["modelSettings"].items())
-        if (value.is_object() && value.contains("effortLevel") && (model.find(name) == 0 || name.find(model) != std::string::npos) && name.size() >= best.size()) best = value.value("effortLevel", std::string());
+        if (value.is_object() && value.contains("effortLevel") && value["effortLevel"].is_string() && (model.find(name) == 0 || name.find(model) != std::string::npos) && name.size() >= best.size()) best = value["effortLevel"].get<std::string>();
     return best;
 }
 
@@ -607,11 +679,11 @@ std::string cluster::head_utf8(const std::string& text, const std::size_t max)
     return text.substr(0, to) + "\n[...]";
 }
 
-_cold void cluster::detach(const std::vector<std::string>& args)
+_cold static void detach_(const std::vector<std::string>& args, const int input)
 {
     // started and left alone (a viewer, a file manager, a notification): its own session (never killed with a group of ours, never
-    // waited for), /dev/null for its input and outputs, none of our descriptors (a socket of the core never held by a viewer); the
-    // middle child ends at once and is reaped here, the program itself is a child of init
+    // waited for), /dev/null for its input (or the one given) and outputs, none of our descriptors (a socket of the core never held by a
+    // viewer); the middle child ends at once and is reaped here, the program itself is a child of init
     if (args.empty() || !cluster::has_command(args[0])) return;
     std::vector<char*> argv;
     for (const std::string& arg: args)
@@ -624,7 +696,7 @@ _cold void cluster::detach(const std::vector<std::string>& args)
         if (::fork() != 0) ::_exit(0);
         const int null = ::open("/dev/null", O_RDWR);
         if (null >= 0) {
-            (void)::dup2(null, STDIN_FILENO);
+            (void)::dup2(input >= 0 ? input : null, STDIN_FILENO);
             (void)::dup2(null, STDOUT_FILENO);
             (void)::dup2(null, STDERR_FILENO);
         }
@@ -634,6 +706,27 @@ _cold void cluster::detach(const std::vector<std::string>& args)
     }
     int status = 0;
     while (::waitpid(middle, &status, 0) < 0 && errno == EINTR) {}
+}
+
+_cold void cluster::detach(const std::vector<std::string>& args)
+{
+    detach_(args, -1);
+}
+
+_cold static bool detach_fed_(const std::vector<std::string>& args, const std::string& text)
+{
+    // the same, the text on its input: never on its command line (read by anyone in ps, and past 128 KB refused by exec without a word)
+    const int fd = ::memfd_create("claude-cluster-copy", MFD_CLOEXEC);
+    if (fd < 0) return false;
+    bool written = true;
+    for (std::size_t at = 0; written && at < text.size();) {
+        const ssize_t size = ::write(fd, text.data() + at, text.size() - at);
+        written = size > 0;
+        at += written ? static_cast<std::size_t>(size) : 0;
+    }
+    if (written && ::lseek(fd, 0, SEEK_SET) == 0) detach_(args, fd);
+    ::close(fd);
+    return written;
 }
 
 _cold void cluster::complete_path(void)
@@ -804,7 +897,7 @@ _cold std::optional<cluster::Json> cluster::read_json(const std::filesystem::pat
     std::ifstream file(path);
     if (!file) return std::nullopt;
     try {
-        return cluster::Json::parse(file);
+        return cluster::json_parse(file);
     } catch (const cluster::Json::exception&) {
         return std::nullopt;
     }
@@ -818,28 +911,70 @@ _cold void cluster::private_dir(const std::filesystem::path& dir)
     ::chmod(dir.c_str(), S_IRWXU);
 }
 
+_cold std::filesystem::path cluster::private_temp(const std::string& name)
+{
+    // a temporary file of this user alone (/tmp: its name guessed, its content read by the others)
+    const std::filesystem::path dir = cluster::runtime_dir() / "tmp";
+    cluster::private_dir(cluster::runtime_dir());
+    cluster::private_dir(dir);
+    return dir / name;
+}
+
 _cold bool cluster::hidden_path(const std::string& path)
 {
-    // a component starting with a dot (the keys, the configs, the credentials of everything), the folders of claude-cluster
-    const std::filesystem::path full = std::filesystem::absolute(cluster::expand_home(path)).lexically_normal();
-    for (const std::filesystem::path& part: full)
-        if (part.string().size() > 1 && part.string().starts_with(".")) return true;
-    const std::string text = full.string();
-    return text.starts_with(cluster::config_dir().string()) || text.starts_with(cluster::data_dir().string());
+    // a component starting with a dot (the keys, the configs, the credentials of everything), the folders of claude-cluster; as it is
+    // written and where it really is (a link to ~/.ssh is ~/.ssh)
+    if (path.empty()) return false;
+    if (path.find('\0') != std::string::npos) return true; // never a real path: the kernel stops at it, the normal form reads past it (~/.bashrc\0/../../x.md is /x.md)
+    std::error_code error;
+    const std::filesystem::path written = std::filesystem::absolute(cluster::expand_home(path), error);
+    const std::filesystem::path full = written.lexically_normal();
+    const std::filesystem::path real = std::filesystem::weakly_canonical(written, error); // as written: a .. after a link is the parent of its target, the normal form has dropped the link
+    for (const std::filesystem::path& each: {full, real}) {
+        // the secrets of the running processes, the devices: never a file to show (/proc/self/environ: the keys of this core)
+        if (each.string().starts_with("/proc/") || each.string().starts_with("/sys/") || each.string().starts_with("/dev/")) return true;
+        for (const std::filesystem::path& part: each)
+            if (part.string().size() > 1 && part.string().starts_with(".")) return true;
+        if (each.string().starts_with(cluster::config_dir().string()) || each.string().starts_with(cluster::data_dir().string())) return true;
+    }
+    return false;
+}
+
+_cold static void replace_file_(const std::filesystem::path& path, const std::string& text, const mode_t mode)
+{
+    // written whole next to it, then in its place at once: never half a file after a crash, never two writers in one temporary file
+    // (a state.json of both, unreadable at the next start)
+    static std::atomic<std::uint64_t> counter{0};
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    const std::filesystem::path tmp = path.string() + ".tmp." + std::to_string(::getpid()) + "." + std::to_string(++counter);
+    const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode);
+    if (fd < 0) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, tmp.string() + ": " + std::strerror(errno));
+    bool written = true;
+    for (std::size_t at = 0; written && at < text.size();) {
+        const ssize_t size = ::write(fd, text.data() + at, text.size() - at);
+        if (size < 0 && errno == EINTR) continue;
+        written = size > 0;
+        at += written ? static_cast<std::size_t>(size) : 0;
+    }
+    ::close(fd);
+    if (written) std::filesystem::rename(tmp, path, error);
+    if (!written || error) {
+        const std::string why = written ? error.message() : std::string(std::strerror(errno));
+        std::filesystem::remove(tmp, error);
+        throw utils::exception::ErrorException(utils::exception::InternalCode::Write, path.string() + ": " + why);
+    }
 }
 
 _cold void cluster::write_json(const std::filesystem::path& path, const cluster::Json& data)
 {
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    const std::filesystem::path tmp = path.string() + ".tmp";
-    {
-        std::ofstream file(tmp);
-        if (!file) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, tmp.string());
-        file << data.dump(2, ' ', false, cluster::JSON_LENIENT) << "\n";
-    }
-    std::filesystem::rename(tmp, path, error);
-    if (error) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, path.string() + ": " + error.message());
+    replace_file_(path, data.dump(2, ' ', false, cluster::JSON_LENIENT) + "\n", S_IRUSR | S_IWUSR); // what claude-cluster keeps: this user only
+}
+
+_cold void cluster::write_text(const std::filesystem::path& path, const std::string& text)
+{
+    struct stat info{};
+    replace_file_(path, text, ::stat(path.c_str(), &info) == 0 ? static_cast<mode_t>(info.st_mode & 07777) : static_cast<mode_t>(S_IRUSR | S_IWUSR)); // a file of the user: its mode kept
 }
 
 _cold std::string cluster::host_name(void)
@@ -899,15 +1034,9 @@ _cold std::string cluster::open_terminal(const std::filesystem::path& folder)
 _cold bool cluster::copy_text(const std::string& text)
 {
     // the clipboard of the desktop: Wayland (wl-copy), else X11 (xclip, xsel: the text given on their input)
-    if (std::getenv("WAYLAND_DISPLAY") != nullptr && cluster::has_command("wl-copy")) {
-        cluster::detach({"wl-copy", "--", text});
-        return true;
-    }
+    if (std::getenv("WAYLAND_DISPLAY") != nullptr && cluster::has_command("wl-copy")) return detach_fed_({"wl-copy"}, text);
     for (const char* tool: {"xclip -selection clipboard", "xsel --clipboard --input"})
-        if (std::getenv("DISPLAY") != nullptr && cluster::has_command(cluster::split(tool, ' ')[0])) {
-            cluster::detach({"sh", "-c", std::string("printf %s \"$1\" | ") + tool, "sh", text});
-            return true;
-        }
+        if (std::getenv("DISPLAY") != nullptr && cluster::has_command(cluster::split(tool, ' ')[0])) return detach_fed_(cluster::split(tool, ' '), text);
     return false;
 }
 
@@ -1092,6 +1221,49 @@ _cold std::string cluster::open_terminal_command(const std::filesystem::path& fo
     return "";
 }
 
+#define JSON_DEPTH 512 // far more than any message; far less than a stack
+
+cluster::Json cluster::json_parse(const std::string& text, const std::nullptr_t callback, const bool exceptions)
+{
+    std::size_t depth = 0;
+    bool inside = false; // a string
+    for (std::size_t at = 0; at < text.size(); ++at) {
+        const char c = text[at];
+        if (inside) {
+            if (c == '\\') ++at;
+            else if (c == '"') inside = false;
+        } else if (c == '"') {
+            inside = true;
+        } else if (c == '[' || c == '{') {
+            if (++depth <= JSON_DEPTH) continue;
+            if (!exceptions) return cluster::Json(cluster::Json::value_t::discarded);
+            throw cluster::Json::parse_error::create(101, at, "JSON nested too deep", nullptr);
+        } else if ((c == ']' || c == '}') && depth > 0) {
+            --depth;
+        }
+    }
+    return cluster::Json::parse(text, callback, exceptions);
+}
+
+cluster::Json cluster::json_parse(std::istream& in, const std::nullptr_t callback, const bool exceptions)
+{
+    return cluster::json_parse(std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()), callback, exceptions);
+}
+
+_cold void cluster::thread_failed(const char* why)
+{
+    std::cerr << "claude-cluster: a thread ended on: " << why << std::endl; // the log of the core (core.log), debug or not
+    cluster::debug("thread", std::string("ended on: ") + why);
+}
+
+_cold std::string cluster::size_text(const std::uint64_t bytes)
+{
+    if (bytes < 1024) return std::to_string(bytes) + " B";
+    if (bytes < 1024 * 1024) return std::to_string(bytes / 1024) + " KB";
+    const std::uint64_t tenths = bytes * 10 / (1024 * 1024);
+    return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + " MB";
+}
+
 _cold std::string cluster::clean_utf8(const std::string& text)
 {
     // a paste of binary data (an image pasted as text), a byte cut out of its character: never invalid UTF-8 (a JSON dump of it throws)
@@ -1129,6 +1301,180 @@ _cold std::string cluster::read_small(const std::string& path)
     }
 }
 
+_cold std::string cluster::read_end(const std::string& path, const std::size_t size)
+{
+    // the output of a shell can be gigabytes, and is read at each frame: never whole. Its path comes from the agent: a fifo must not block the open, a device must not be read
+    const int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd == -1) return std::string();
+    struct stat info{};
+    std::string text;
+    if (::fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size > 0) {
+        const std::uint64_t length = static_cast<std::uint64_t>(info.st_size);
+        const std::uint64_t from = length > size ? length - size : 0;
+        text.resize(static_cast<std::size_t>(length - from));
+        std::size_t done = 0;
+        while (done < text.size()) {
+            const ssize_t got = ::pread(fd, text.data() + done, text.size() - done, static_cast<off_t>(from + done));
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0) break;
+            done += static_cast<std::size_t>(got);
+        }
+        text.resize(done);
+    }
+    (void)::close(fd);
+    return text;
+}
+
+/* a regex built from what someone typed or sent */
+namespace {
+    // the compiler of std::regex recurses on each parenthesis and each term (50 000 "(": the stack gone, a SIGSEGV of the core)
+    constexpr std::size_t REGEX_SIZE = 512;
+    constexpr int REGEX_DEPTH = 64;
+    // what a back-reference needs (the backtracking executor): its frames grow with the text, without the bound of the other one
+    constexpr std::size_t REGEX_BACKTRACK_TEXT = 16384;
+
+    // A position in the text searched, each step counted (a character read, a comparison): std::regex has no limit of its own ("(a*)*b" over 40 letters never ends, "a*b" over
+    // a megabyte takes hours: a thread at full speed for each request). Past its budget: stopped at the next character read (std::regex_error)
+    class ReadCounted {
+        private:
+            const char* _at = nullptr;
+            std::int64_t* _left = nullptr;
+
+        public:
+            using iterator_category = std::bidirectional_iterator_tag;
+            using value_type = char;
+            using difference_type = std::ptrdiff_t;
+            using pointer = const char*;
+            using reference = const char&;
+
+            ReadCounted(void) = default;
+            ReadCounted(const char* at, std::int64_t* left): _at(at), _left(left) {}
+
+            reference operator*(void) const
+            {
+                if (--*this->_left < 0) throw std::regex_error(std::regex_constants::error_complexity);
+                return *this->_at;
+            }
+
+            ReadCounted& operator++(void)
+            {
+                ++this->_at;
+                return *this;
+            }
+
+            ReadCounted operator++(int)
+            {
+                const ReadCounted before = *this;
+                ++this->_at;
+                return before;
+            }
+
+            ReadCounted& operator--(void)
+            {
+                --this->_at;
+                return *this;
+            }
+
+            ReadCounted operator--(int)
+            {
+                const ReadCounted before = *this;
+                --this->_at;
+                return before;
+            }
+
+            bool operator==(const ReadCounted& other) const
+            {
+                --*this->_left; // never thrown from here: libstdc++ compares in its noexcept functions
+                return this->_at == other._at;
+            }
+    };
+
+    // what a replacement writes, on the same budget (the text "$&$&$&..." or a new text of a megabyte for each letter: gigabytes for a small request)
+    class WriteCounted {
+        private:
+            std::string* _out = nullptr;
+            std::int64_t* _left = nullptr;
+
+        public:
+            using iterator_category = std::output_iterator_tag;
+            using value_type = void;
+            using difference_type = std::ptrdiff_t;
+            using pointer = void;
+            using reference = void;
+
+            WriteCounted(std::string* out, std::int64_t* left): _out(out), _left(left) {}
+
+            WriteCounted& operator=(const char c)
+            {
+                if (--*this->_left < 0) throw std::regex_error(std::regex_constants::error_complexity);
+                this->_out->push_back(c);
+                return *this;
+            }
+
+            WriteCounted& operator*(void)  {return *this;};
+            WriteCounted& operator++(void) {return *this;};
+            WriteCounted operator++(int)   {return *this;};
+    };
+} // namespace
+
+_cold static void regex_bounds_(const std::string& pattern)
+{
+    if (pattern.size() > REGEX_SIZE) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "a regex of " + std::to_string(REGEX_SIZE) + " characters at most, not " + std::to_string(pattern.size()));
+    int depth = 0;
+    bool inside = false; // between [ and ]: a parenthesis is a character there
+    for (std::size_t i = 0; i < pattern.size(); ++i) {
+        const char c = pattern[i];
+        if (c == '\\') ++i;
+        else if (inside) inside = c != ']';
+        else if (c == '[') inside = true;
+        else if (c == ')') depth = std::max(0, depth - 1);
+        else if (c == '(' && ++depth > REGEX_DEPTH) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "a regex of " + std::to_string(REGEX_DEPTH) + " levels of parentheses at most");
+    }
+}
+
+_cold static std::regex regex_built_(const std::string& pattern, const std::regex::flag_type flags, const std::size_t text)
+{
+    // the polynomial executor of libstdc++: its memory is the size of the pattern, whatever the text (the backtracking one stacks frames for each character); a back-reference
+    // only exists in the other one, refused here by the compiler: there on a small text
+    regex_bounds_(pattern);
+    try {
+        return std::regex(pattern, flags | std::regex_constants::__polynomial);
+    } catch (const std::regex_error& e) {
+        if (e.code() != std::regex_constants::error_complexity) throw;
+    }
+    if (text > REGEX_BACKTRACK_TEXT) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "a regex with a back-reference: on " + std::to_string(REGEX_BACKTRACK_TEXT) + " characters of text at most");
+    return std::regex(pattern, flags);
+}
+
+_nodiscard static std::int64_t regex_budget_(const std::size_t text)
+{
+    // a few seconds at most, over any pattern (a search over a long text and its copies: about 8 steps a character, in what it gets for its size)
+    return 10000000 + 16 * static_cast<std::int64_t>(text);
+}
+
+// xstyle: ignore-next CPP-SINGLE-STATEMENT (regex_built_ is only in this file, <regex> not in its header)
+_cold void cluster::regex_check(const std::string& pattern)
+{
+    (void)regex_built_(pattern, std::regex::ECMAScript, 0);
+}
+
+_cold bool cluster::regex_found(const std::string& pattern, const std::string& text)
+{
+    const std::regex compiled = regex_built_(pattern, std::regex::ECMAScript, text.size());
+    std::int64_t left = regex_budget_(text.size());
+    return std::regex_search(ReadCounted(text.data(), &left), ReadCounted(text.data() + text.size(), &left), compiled);
+}
+
+_cold std::string cluster::regex_changed(const std::string& pattern, const std::string& text, const std::string& format, const bool icase, const bool all)
+{
+    const std::regex compiled = regex_built_(pattern, icase ? std::regex::ECMAScript | std::regex::icase : std::regex::ECMAScript, text.size());
+    std::int64_t left = regex_budget_(text.size());
+    std::string changed;
+    (void)std::regex_replace(WriteCounted(&changed, &left), ReadCounted(text.data(), &left), ReadCounted(text.data() + text.size(), &left), compiled, format,
+        all ? std::regex_constants::format_default : std::regex_constants::format_first_only);
+    return changed;
+}
+
 /* command triggers */
 _cold cluster::CommandMatch cluster::command_match(const cluster::Json& options)
 {
@@ -1147,9 +1493,9 @@ _cold cluster::CommandMatch cluster::command_match(const cluster::Json& options)
     match.regex = text("regex");
     if (!match.regex.empty()) {
         try {
-            (void)std::regex(match.regex);
+            cluster::regex_check(match.regex);
         } catch (const std::regex_error& e) {
-            bad("regex " + match.regex + ": " + e.what());
+            bad("regex " + cluster::one_line(match.regex, 120) + ": " + e.what());
         }
     }
     if (options.contains("code")) {
@@ -1177,11 +1523,16 @@ _cold cluster::CommandVerdict cluster::command_check(const std::string& command,
     const cluster::Captured run = cluster::capture({"/bin/sh", "-c", command}, "", 30);
     const std::string out = cluster::trim(run.out);
     bool output = (match.out.empty() || out == match.out) && (match.contains.empty() || out.find(match.contains) != std::string::npos);
+    std::string refused; // a pattern saved before these limits, too much work on this output: not met, told
     if (output && !match.regex.empty()) {
         try {
-            output = std::regex_search(out, std::regex(match.regex));
-        } catch (const std::regex_error&) {
+            output = cluster::regex_found(match.regex, out);
+        } catch (const utils::exception::IException& e) {
             output = false;
+            refused = e.info();
+        } catch (const std::exception& e) {
+            output = false;
+            refused = e.what();
         }
     }
     if (run.code == match.code && output) {
@@ -1192,7 +1543,7 @@ _cold cluster::CommandVerdict cluster::command_check(const std::string& command,
     const bool failed = run.code < 0 || (!match.codeAsked && run.code != 0);
     if (!failed) {
         match.failures = 0;
-        match.last = "exited " + std::to_string(run.code) + ": " + cluster::one_line(out, 120);
+        match.last = "exited " + std::to_string(run.code) + ": " + cluster::one_line(out, 120) + (refused.empty() ? "" : " (its regex: " + refused + ")");
         return cluster::CommandVerdict::NotYet;
     }
     ++match.failures;
@@ -1205,7 +1556,7 @@ _cold std::string cluster::command_label(const std::string& text)
     // what a background command / agent does, judged from its command or its task: stopped and run again by an update only when safe
     // (a build, tests, a search, a server: run again from the start, nothing lost); dangerous: it changes things outside or cannot be
     // run twice (a push, a deploy, a removal, root, a migration, a publish, a payment, a message sent...)
-    static const std::regex danger(R"((^|[^\w-])(git\s+(push|reset\s+--hard|clean|rebase|commit|tag)|rm\s+-[a-z]*[rf]|sudo|pkexec|dd\s+if=|mkfs|shred|truncate|kill(all)?|pkill|systemctl|reboot|shutdown|deploy|publish|release|upload|migrat|drop\s+table|delete\s+from|terraform\s+apply|kubectl\s+(apply|delete)|helm\s+(install|upgrade)|docker\s+(push|rm|system\s+prune)|npm\s+publish|cargo\s+publish|twine|scp|rsync|ssh|curl[^|]*\|\s*(ba)?sh|wget[^|]*\|\s*(ba)?sh|mail|send|pay|transfer|format|wipe|overwrite|install)($|[^\w]))",
+    static const std::regex danger(R"((^|[^\w-])(git\s+(push|reset\s+--hard|clean|rebase|commit|tag)|rm\s+-[a-z]*[rf]|sudo|pkexec|dd\s+if=|mkfs|shred|truncate|kill(all)?|pkill|systemctl|reboot|shutdown|deploy|publish|release|upload|[\w-]*migrat[\w-]*|alembic\s+upgrade|drop\s+table|delete\s+from|terraform\s+apply|kubectl\s+(apply|delete)|helm\s+(install|upgrade)|docker\s+(push|rm|system\s+prune)|npm\s+publish|cargo\s+publish|twine|scp|rsync|ssh|curl[^|]*\|\s*(ba)?sh|wget[^|]*\|\s*(ba)?sh|mail|send|pay|transfer|format|wipe|overwrite|install)($|[^\w]))",
         std::regex::icase | std::regex::ECMAScript);
     return std::regex_search(text, danger) ? "dangerous" : "safe";
 }

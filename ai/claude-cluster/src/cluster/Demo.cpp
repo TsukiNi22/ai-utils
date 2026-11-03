@@ -210,7 +210,7 @@ _cold void cluster::demo_cleanup(const bool core)
 _cold void cluster::demo_seed(cluster::Manager& manager)
 {
     // in a thread of its own, behind one progress popup: the sessions, the labels, then every agent starts at once, then the tasks and the schedules
-    std::thread([&manager]() {
+    cluster::guarded([&manager]() {
         const std::function<void(int)> wait = [](const int ms) {std::this_thread::sleep_for(std::chrono::milliseconds(ms));};
         try {
             const std::int64_t now = cluster::now();
@@ -345,7 +345,7 @@ namespace {
             const std::optional<std::string> line = agent.input.line(std::max(0, left));
             if (agent.input.eof() || ::getppid() != agent.parent) ::_exit(0); // its core gone: the demo is over
             if (!line) return;
-            const cluster::Json message = cluster::Json::parse(*line, nullptr, false);
+            const cluster::Json message = cluster::json_parse(*line, nullptr, false);
             if (!message.is_object()) continue;
             const std::string type = message.value("type", std::string());
             if (type == "control_request" && message.contains("request") && message["request"].value("subtype", std::string()) == "stop_task") {

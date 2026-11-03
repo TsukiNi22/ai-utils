@@ -109,29 +109,38 @@ _cold static bool display_(void)
 _cold void cluster::App::start(void)
 {
     // 1 s tick: config reload, task queue, trash purge, voice confirmations
-    this->ticker = std::thread([this]() {
+    this->ticker = cluster::guarded([this]() {
         int ms = 0;
+        // what one of them throws stays here (a state of an unexpected shape, a file gone): this thread ending ends the core and every session
+        const std::function<void(const char*, const std::function<void(void)>&)> guarded = [](const char* what, const std::function<void(void)>& run) {
+            try {
+                run();
+            } catch (const std::exception& e) {
+                cluster::debug("core", std::string("the tick of ") + what + ": " + e.what());
+            }
+        };
         while (this->running) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            if (this->voice) this->voice->tick();
+            if (this->voice) guarded("the voice", [this]() {this->voice->tick();});
             if ((ms += 100) < 1000) continue;
             ms = 0;
-            try {
-                this->manager->tick();
-            } catch (const utils::exception::IException&) {} // reported as notices by the manager
-            if (this->web) this->web->tick();
+            guarded("the manager", [this]() {this->manager->tick();});
+            if (this->web) guarded("the web access", [this]() {this->web->tick();});
         }
     });
 }
 
 _cold void cluster::App::stop(void)
 {
+    // stopped, never destroyed: the threads of the requests still running (a long poll of an interface, a slow page, a wait of 110 s) use them to
+    // the end; nothing is freed under them (a crash at the quit, the watcher then starting a core nobody wants), main ends the process at once after
     this->running = false;
     if (this->ticker.joinable()) this->ticker.join();
+    if (this->manager) this->manager->closing();
     if (this->manager) this->manager->setWeb(nullptr);
     if (this->manager) this->manager->setVoice(nullptr);
-    this->web.reset();      // before the voice: a request of the page may still use it
-    this->voice.reset();
+    if (this->web) this->web->stop();
+    if (this->voice) this->voice->halt();
     if (this->control) this->control->stop();
     if (this->manager) this->manager->shutdown();
     cluster::end_captures(2000); // a notification waiting for its click, a command still running: ended before the quit
@@ -533,7 +542,7 @@ _cold bool cluster::Core::otherBuild_(const bool window)
 _cold int cluster::Core::ui_(const bool serve)
 {
     (void)cluster::build_id(); // its build read now (the binary may be installed again while it runs)
-    cluster::App app;
+    cluster::App& app = *new cluster::App(); // never destroyed (App::stop): what still runs at the quit uses it until the end of the process
     app.options = this->_options;
     if (this->_options.values.contains("voice")) app.config.voiceForce = this->_options.values.at("voice");
     app.config.load();
@@ -549,7 +558,7 @@ _cold int cluster::Core::ui_(const bool serve)
         // its supervisor gone (quit, crash): this core with it, its web access never left open
         if (const char* owner = std::getenv("CLAUDE_CLUSTER_SUPERVISOR_PID"); owner != nullptr && std::atoi(owner) > 1) {
             const int pid = std::atoi(owner);
-            std::thread([pid]() {
+            cluster::guarded([pid]() {
                 const std::function<bool(void)> alive = [pid]() { // there, and not a zombie waiting for its parent (a crash)
                     if (::kill(pid, 0) != 0 && errno != EPERM) return false;
                     std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
@@ -1290,7 +1299,7 @@ _cold int cluster::Core::machine_(void)
         (void)config.reload();
     }
     std::size_t shown = 0;
-    const std::size_t repos = cluster::machine_scan(config, [&shown](const cluster::MachineProgress& progress) {
+    const std::size_t repos = cluster::machine_scan(config.current(), [&shown](const cluster::MachineProgress& progress) {
         // the lines of the log done since the last report (the log keeps the last 3)
         for (; shown < progress.finished && !progress.log.empty(); ++shown)
             std::cout << "✓ " << progress.log[progress.log.size() - std::min(progress.log.size(), progress.finished - shown)] << std::endl;

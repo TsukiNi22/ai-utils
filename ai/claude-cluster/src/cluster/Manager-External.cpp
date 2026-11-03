@@ -86,13 +86,14 @@ _cold static std::vector<cluster::Json> branch_(const std::filesystem::path& pat
     std::ifstream in(path);
     std::string line;
     while (std::getline(in, line)) {
-        cluster::Json json = cluster::Json::parse(line, nullptr, false);
+        cluster::Json json = cluster::json_parse(line, nullptr, false);
         if (json.is_discarded() || !json.is_object() || !json.contains("uuid") || !json["uuid"].is_string() || json.value("isSidechain", false)) continue;
         last = json.value("uuid", std::string());
         messages[last] = std::move(json);
     }
     std::vector<cluster::Json> chain;
-    for (std::string at = last; !at.empty() && messages.contains(at) && chain.size() < 100000;) {
+    std::set<std::string> seen; // a line once: a cycle of parents (a file of another tool) would copy it until the memory is gone
+    for (std::string at = last; !at.empty() && messages.contains(at) && chain.size() < 100000 && seen.insert(at).second;) {
         chain.push_back(messages[at]);
         const cluster::Json& parent = messages[at]["parentUuid"];
         at = parent.is_string() ? parent.get<std::string>() : "";
@@ -116,10 +117,11 @@ _cold static std::set<std::string> tool_ids_(const cluster::Json& message, const
 {
     // the tool_use ids of a message (its tool_use blocks: "id", its tool_result blocks: "tool_use_id")
     std::set<std::string> ids;
-    const cluster::Json& content = message["message"].value("content", cluster::Json());
+    if (!message.contains("message") || !message["message"].is_object()) return ids; // a line of the chain that is no message (an attachment, a summary)
+    const cluster::Json content = message["message"].value("content", cluster::Json());
     if (content.is_array())
         for (const cluster::Json& block: content)
-            if (block.value("type", std::string()) == type && block.contains(key)) ids.insert(block.value(key, std::string()));
+            if (block.is_object() && block.value("type", std::string()) == type && block.contains(key)) ids.insert(block.value(key, std::string()));
     return ids;
 }
 
@@ -151,7 +153,7 @@ _cold std::string cluster::Manager::importConversation(const std::string& agent,
     request.backend = cluster::external_backend(found->agent);
     if (found->agent == "claude") { // the provider of every session, not the login of the CLI (when it drives claude: else its own)
         try {
-            if (this->_auth.resolve(this->_config.provider).provider.driver == "claude") request.backend = this->_config.provider;
+            if (this->_auth.resolve(this->config().provider).provider.driver == "claude") request.backend = this->config().provider;
         } catch (const utils::exception::IException&) {}
     }
     request.resume = found->id;
@@ -207,6 +209,7 @@ _cold void cluster::Manager::loadContext(const std::string& id, const std::strin
 {
     // a context given to a session as a prompt: another session ("session:<id>"), a conversation of an agent
     // ("<agent>:<id>"), or a file; it keeps it and only answers "ok"
+    const std::size_t kept = 60000; // its last bytes
     std::string content;
     std::string label = source;
     if (source.starts_with("session:")) {
@@ -218,12 +221,19 @@ _cold void cluster::Manager::loadContext(const std::string& id, const std::strin
         content = markdown_(cluster::external_entries(*found, 400));
         label = agent_label_(found->agent) + " conversation \"" + found->title + "\"";
     } else {
-        std::ifstream in(cluster::expand_home(source));
+        std::error_code error;
+        if (!std::filesystem::is_regular_file(cluster::expand_home(source), error)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "not a file: " + source); // never /dev/zero, a pipe
+        std::ifstream in(cluster::expand_home(source), std::ios::binary);
         if (!in) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "not readable: " + source);
-        content.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        // its end only (one byte more: it tells its start is cut): a disk image, a sparse file never whole in memory
+        const std::uintmax_t size = std::filesystem::file_size(cluster::expand_home(source), error);
+        if (!error && size > kept + 1) in.seekg(static_cast<std::streamoff>(size - kept - 1));
+        content.resize(kept + 1);
+        in.read(content.data(), static_cast<std::streamsize>(content.size()));
+        content.resize(static_cast<std::size_t>(in.gcount()));
     }
     if (cluster::trim(content).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "an empty context: " + source);
-    if (content.size() > 60000) content = "[... its start cut]\n" + content.substr(content.size() - 60000);
+    if (content.size() > kept) content = "[... its start cut]\n" + content.substr(content.size() - kept);
     this->send(id, "[context given by the global session: " + label + "]\n" + content
         + "\n[end of the context: keep it for the next requests; answer only \"ok\"]", false, {}, "mcp");
 }
@@ -259,9 +269,9 @@ _cold cluster::Json cluster::Manager::conversationMessages(const std::string& id
         // the files attached to the prompt: its "@path" of this session, with their type and size (an image given as a picture: counted)
         cluster::Json attached = cluster::Json::array();
         for (std::size_t at = text.find("@/"); at != std::string::npos; at = text.find("@/", at + 1)) {
-            const std::string file = cluster::attach_resolve(this->_config, snap->spec.id, text.substr(at + 1, text.find_first_of(" \t\n", at) == std::string::npos ? std::string::npos : text.find_first_of(" \t\n", at) - at - 1));
+            const std::string file = cluster::attach_resolve(this->config(), snap->spec.id, text.substr(at + 1, text.find_first_of(" \t\n", at) == std::string::npos ? std::string::npos : text.find_first_of(" \t\n", at) - at - 1));
             if (file.empty()) continue;
-            for (const cluster::Attachment& entry: cluster::attach_list(this->_config, snap->spec.id))
+            for (const cluster::Attachment& entry: cluster::attach_list(this->config(), snap->spec.id))
                 if (entry.path == file) attached.push_back({{"path", entry.path}, {"type", entry.mime}, {"size", entry.size}, {"name", entry.name}});
         }
         if (pictures > 0) item["images"] = pictures;
@@ -353,15 +363,17 @@ _cold std::string cluster::Manager::editConversation(const std::string& id, cons
 
     // the new conversation: its messages chained again, its own id, next to the old one
     const std::string conversation = uuid_();
-    std::ofstream out(path.parent_path() / (conversation + ".jsonl"));
+    std::string written;
     std::string parent;
     for (cluster::Json& message: kept) {
         message["parentUuid"] = parent.empty() ? cluster::Json(nullptr) : cluster::Json(parent);
         message["sessionId"] = conversation;
         parent = message.value("uuid", std::string());
-        out << message.dump(-1, ' ', false, cluster::Json::error_handler_t::replace) << "\n";
+        written += message.dump(-1, ' ', false, cluster::Json::error_handler_t::replace) + "\n";
     }
-    out.close();
+    // its prompts, answers and tool results: this user only, as Claude Code keeps them (its folders are 0755), whole or not at all (a full disk: told,
+    // the session left on the old one, never started on half a conversation)
+    cluster::write_text(path.parent_path() / (conversation + ".jsonl"), written);
 
     // its transcript shown again from it, the session on it
     const cluster::Conversation edited{"claude", conversation, "", snap->spec.cwd, "", cluster::now(), 0, path.parent_path() / (conversation + ".jsonl")};
@@ -369,9 +381,10 @@ _cold std::string cluster::Manager::editConversation(const std::string& id, cons
     entries.push_back({cluster::EntryKind::System, "conversation edited: " + std::to_string(changes) + " change(s), "
         + std::to_string(left) + " message(s) (the previous one kept: " + snap->spec.claudeId.substr(0, 8) + ")", "", cluster::now()});
     {
-        std::ofstream log(cluster::data_dir() / "logs" / (id + ".jsonl"), std::ios::trunc);
+        std::string log;
         for (const cluster::Entry& e: entries)
-            log << cluster::Json{{"time", e.time}, {"kind", static_cast<int>(e.kind)}, {"text", e.text}, {"tool", e.tool}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
+            log += cluster::Json{{"time", e.time}, {"kind", static_cast<int>(e.kind)}, {"text", e.text}, {"tool", e.tool}}.dump(-1, ' ', false, cluster::JSON_LENIENT) + "\n";
+        cluster::write_text(cluster::data_dir() / "logs" / (id + ".jsonl"), log); // whole or not at all
     }
     cluster::SessionSpec spec = snap->spec;
     spec.claudeId = conversation;
@@ -387,11 +400,11 @@ _cold static std::string spoken_(const cluster::Config& config, const std::strin
 {
     // an audio from a text: voice-say -o (the engine and the voice of the settings), a wav file of its own
     const cluster::VoiceConf& conf = config.voice;
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / ("claude-cluster-say-" + std::to_string(::getpid()) + "-" + std::to_string(cluster::now()) + ".wav");
+    const std::filesystem::path path = cluster::private_temp("say-" + std::to_string(::getpid()) + "-" + std::to_string(cluster::now()) + ".wav");
     const std::string language = cluster::language_of(text);
-    std::vector<std::string> args = {cluster::expand_home(conf.sayCommand).string(), "-e", conf.sayEngine.empty() ? "piper" : conf.sayEngine, "-l", language,
-        "-f", language == "en" ? conf.voiceEn : conf.voiceFr, "-o", path.string(), text};
-    const cluster::Captured out = cluster::capture(args, "", 120);
+    const std::vector<std::string> args = {cluster::expand_home(conf.sayCommand).string(), "-e", conf.sayEngine.empty() ? "piper" : conf.sayEngine, "-l", language,
+        "-f", language == "en" ? conf.voiceEn : conf.voiceFr, "-o", path.string()};
+    const cluster::Captured out = cluster::capture_fed(args, text, {}, "", 120); // no text in its arguments: it reads its input
     std::error_code error;
     if (out.code != 0 || !std::filesystem::exists(path, error))
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "audio: voice-say failed: " + cluster::one_line(out.out, 160));
@@ -411,7 +424,7 @@ _cold std::string cluster::Manager::display(const std::string& id, const cluster
     if (input.value("type", std::string()) == "file" && !input.contains("cwd")) input["cwd"] = cluster::expand_home(this->get_(id)->spec().cwd).string();
     std::string spoken;
     if (input.value("type", std::string()) == "audio" && !input.contains("path") && input.contains("text"))
-        input["path"] = spoken = spoken_(this->_config, input.value("text", std::string()));
+        input["path"] = spoken = spoken_(this->config(), input.value("text", std::string()));
     const cluster::Json ready = cluster::display_prepare(input);
     std::error_code error;
     if (!spoken.empty()) std::filesystem::remove(spoken, error);
@@ -433,7 +446,7 @@ _cold std::optional<cluster::Json> cluster::Manager::displayOf(const std::string
     if (!snap) return std::nullopt;
     for (auto it = snap->entries.rbegin(); it != snap->entries.rend(); ++it) {
         if (it->kind != cluster::EntryKind::Display) continue;
-        const cluster::Json d = cluster::Json::parse(it->text, nullptr, false);
+        const cluster::Json d = cluster::json_parse(it->text, nullptr, false);
         if (d.is_object() && d.value("id", std::string()) == displayId) return d;
     }
     return std::nullopt;
@@ -449,7 +462,7 @@ _cold static void pin_allowed_(const cluster::Config& config, const std::string&
 
 _cold cluster::Json cluster::Manager::pin(const std::string& id, const cluster::Json& what, const std::string& by)
 {
-    pin_allowed_(this->_config, by);
+    pin_allowed_(this->config(), by);
     if (this->_replica) {
         cluster::Json request = what.is_object() ? what : cluster::Json::object();
         request.update({{"cmd", "pin"}, {"session", id}});
@@ -474,7 +487,7 @@ _cold cluster::Json cluster::Manager::pin(const std::string& id, const cluster::
         if (index < 0 || index >= total) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no entry " + std::to_string(index) + " (0 to " + std::to_string(total - 1) + ")");
         const cluster::Entry& entry = snap.entries[static_cast<std::size_t>(index)];
         if (entry.kind == cluster::EntryKind::Display) {
-            displayId = cluster::Json::parse(entry.text, nullptr, false).value("id", std::string());
+            displayId = cluster::json_parse(entry.text, nullptr, false).value("id", std::string());
         } else if (entry.kind == cluster::EntryKind::User || entry.kind == cluster::EntryKind::Assistant || entry.kind == cluster::EntryKind::System) {
             pinned["kind"] = "message";
             pinned["role"] = entry.kind == cluster::EntryKind::User ? "user" : entry.kind == cluster::EntryKind::Assistant ? "assistant" : "system";
@@ -502,7 +515,7 @@ _cold cluster::Json cluster::Manager::pin(const std::string& id, const cluster::
 
 _cold void cluster::Manager::unpin(const std::string& id, const std::string& by)
 {
-    pin_allowed_(this->_config, by);
+    pin_allowed_(this->config(), by);
     if (this->_replica) {
         (void)this->call({{"cmd", "unpin"}, {"session", id}});
         return;
@@ -525,7 +538,7 @@ _cold void cluster::Manager::displayUpdate(const std::string& id, const std::str
     cluster::Json input = display;
     input["id"] = displayId;
     if (input.value("type", std::string()) == "audio" && !input.contains("path") && input.contains("text"))
-        input["path"] = spoken_(this->_config, input.value("text", std::string()));
+        input["path"] = spoken_(this->config(), input.value("text", std::string()));
     this->get_(id)->updateDisplay(displayId, dump_(cluster::display_prepare(input)));
     ++this->_version;
 }
@@ -600,7 +613,7 @@ _cold std::string cluster::Manager::displayAct(const std::string& id, const std:
         done = "form sent";
     } else if (type == "audio") {
         // played on this computer (the web page plays it itself)
-        const std::filesystem::path path = std::filesystem::temp_directory_path() / ("claude-cluster-play-" + displayId);
+        const std::filesystem::path path = cluster::private_temp("claude-cluster-play-" + displayId);
         std::ofstream(path, std::ios::binary) << cluster::display_bytes(d);
         if (act.value("stop", false)) { // stopped: its player (its file is unique to the display) ended
             (void)cluster::capture({"pkill", "-f", "claude-cluster-play-" + displayId}, "", 5);

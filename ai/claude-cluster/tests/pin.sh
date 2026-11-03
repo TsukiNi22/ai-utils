@@ -41,6 +41,17 @@ call() { # <tool> <arguments json>
         | { cat; sleep 2; } | "${BIN}" mcp 2>/dev/null | grep "\"id\":${n}" || true
 }
 
+# a setting changed by the user (the global session never changes these: protected)
+user_set() { # <section> <key> <value>
+    python3 -I - "${WORK}/sock" "$1" "$2" "$3" <<'P'
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+s.sendall((json.dumps({"cmd": "settings_set", "section": sys.argv[2], "key": sys.argv[3], "value": sys.argv[4]}) + "\n").encode())
+s.makefile().readline()
+P
+}
+
 # a checklist put in the transcript, then pinned by its id
 SHOWN="$(call session_display "{\"session\":\"${A}\",\"display\":{\"type\":\"checklist\",\"title\":\"Todo\",\"items\":[{\"text\":\"one\"},{\"text\":\"two\"}]}}")"
 ID="$(sed -n 's/.*\\"id\\":\\"\([^\\]*\)\\".*/\1/p' <<< "${SHOWN}")"
@@ -77,12 +88,13 @@ check "a message pinned by its index" 'message' "$(call session_pin "{\"session\
 call session_unpin "{\"session\":\"${A}\"}" > /dev/null
 
 # the settings: the global session refused when off, a sub-session on itself only
-call settings_set '{"section":"agent","key":"global_pin","value":"false"}' > /dev/null
+check "the global session never changes the setting" 'changed by the user only' "$(call settings_set '{"section":"agent","key":"global_pin","value":"true"}')"
+user_set agent global_pin false
 check "the global session refused when off" 'not allowed' "$(call session_pin "{\"session\":\"${A}\",\"display\":{\"type\":\"callout\",\"text\":\"x\"}}")"
-call settings_set '{"section":"agent","key":"global_pin","value":"true"}' > /dev/null
+user_set agent global_pin true
 SUB() { CLAUDE_CLUSTER_SESSION="${A}" call "$@"; }
 check "a sub-session pins on itself" 'sub' "$(SUB session_pin "{\"session\":\"${A}\",\"display\":{\"type\":\"callout\",\"text\":\"mine\"},\"title\":\"sub\"}")"
-call settings_set '{"section":"agent","key":"sub_pin","value":"false"}' > /dev/null
+user_set agent sub_pin false
 check "a sub-session refused when off" 'sub-sessions' "$(SUB session_pin "{\"session\":\"${A}\",\"display\":{\"type\":\"callout\",\"text\":\"x\"}}")"
 
 exit "${fail}"

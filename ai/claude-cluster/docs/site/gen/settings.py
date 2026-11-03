@@ -22,7 +22,6 @@ SECTION_TITLES = {
 }
 HELPERS = {"flag_": "bool", "count_": "int", "list_": "list"}
 
-
 def entries(ctx) -> list[dict]:
     root = ctx.code_root / "src" / "cluster"
     out: list[dict] = []
@@ -51,10 +50,8 @@ def entries(ctx) -> list[dict]:
             unique.append(e)
     return unique
 
-
 def cell(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("|", "\\|")).strip()
-
 
 def render(items: list[dict], lang: str) -> str:
     en = lang == "en"
@@ -71,18 +68,16 @@ def render(items: list[dict], lang: str) -> str:
         out.append("| %s | %s | %s |" % (("Setting", "Type", "What it does") if en else ("Réglage", "Type", "Rôle")))
         out.append("|---|---|---|")
         for e in rows:
-            kind = e["kind"] + ((": " + " \\| ".join(e["choices"])) if e["choices"] else "")
+            kind = e["kind"] + ((": " + " | ".join(e["choices"])) if e["choices"] else "")
             out.append("| **%s**<br>`%s.%s`%s | %s | %s |" % (cell(e["label"]), sec, e["key"], " ↻" if e["restart"] else "", cell(kind), cell(e["desc"])))
         out.append("")
     return "\n".join(out)
-
 
 def pages(ctx) -> list[dict]:
     items = entries(ctx)
     return [{"slug": "settings-reference", "section": "reference", "order": 35,
              "en": {"title": "Settings reference", "summary": "Every option of the settings page, with its key, kind, choices and help - generated from the code.", "keywords": "settings f9 options keys config.toml", "md": render(items, "en")},
              "fr": {"title": "Référence des réglages", "summary": "Chaque option de la page de réglages, avec sa clé, son type, ses choix et son aide - générée depuis le code.", "keywords": "réglages settings f9 options clés config.toml", "md": render(items, "fr")}}]
-
 
 def search_entries(ctx) -> list[dict]:
     return [{"k": "settings", "t": "%s.%s" % (e["section"], e["key"]), "d": "%s - %s" % (e["label"], e["desc"][:100]), "u": "settings-reference.html#s-%s" % e["section"].replace("_", "-"),

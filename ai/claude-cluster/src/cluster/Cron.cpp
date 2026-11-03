@@ -37,6 +37,10 @@ struct Parts {
 
 namespace chr = std::chrono;
 
+constexpr std::size_t RULE_BYTES = 256;     // a cron, days or window rule: read at each look, bounded when it is written
+constexpr std::size_t WINDOW_RANGES = 16;   // the ranges of a window
+constexpr int CRON_DAYS = 1470;             // how far a cron is looked for, a day at a time (a rare date: Feb 29, within four years)
+
 _cold const chr::time_zone* zone_(const std::string& zone)
 {
     if (zone.empty()) return chr::current_zone();
@@ -45,7 +49,8 @@ _cold const chr::time_zone* zone_(const std::string& zone)
 
 _cold Parts parts_(const chr::time_zone* zone, const std::int64_t time)
 {
-    const chr::zoned_time<chr::seconds> zoned(zone, chr::sys_seconds(chr::seconds(time)));
+    // kept to what the rules of a zone reach (past them the library throws, garbled before): a time of an old state.json never ends a list of the schedules
+    const chr::zoned_time<chr::seconds> zoned(zone, chr::sys_seconds(chr::seconds(std::clamp<std::int64_t>(time, 0, cluster::TIME_LAST))));
     const chr::local_seconds local = zoned.get_local_time();
     const chr::local_days days = chr::floor<chr::days>(local);
     const chr::year_month_day ymd{days};
@@ -132,8 +137,7 @@ _cold std::string field_(const std::string& text, const int low, const int high,
                 return "bad range '" + item + "'";
             }
         }
-        if (names && high == 6 && to == 7) to = 6; // 7 = Sunday
-        if (names && high == 6 && from == 7) from = 0;
+        if (names && high == 7 && from > 0 && to == 0) to = 7; // a range up to Sunday by its name: fri-sun
         if (from < low || to > high || from > to) return "'" + item + "' out of " + std::to_string(low) + ".." + std::to_string(high);
         for (int v = from; v <= to; v += step)
             mark(v);
@@ -143,6 +147,7 @@ _cold std::string field_(const std::string& text, const int low, const int high,
 
 _cold std::string parse_(const std::string& expr, Cron& cron)
 {
+    if (expr.size() > RULE_BYTES) return "cron: " + std::to_string(RULE_BYTES) + " characters at most";
     std::vector<std::string> words;
     std::stringstream stream(expr);
     std::string word;
@@ -153,7 +158,7 @@ _cold std::string parse_(const std::string& expr, Cron& cron)
     if (error.empty()) error = field_(words[1], 0, 23, false, [&](const int v) {cron.hours.set(static_cast<std::size_t>(v));});
     if (error.empty()) error = field_(words[2], 1, 31, false, [&](const int v) {cron.days.set(static_cast<std::size_t>(v));});
     if (error.empty()) error = field_(words[3], 1, 12, true, [&](const int v) {cron.months.set(static_cast<std::size_t>(v));});
-    if (error.empty()) error = field_(words[4], 0, 6, true, [&](const int v) {cron.weekdays.set(static_cast<std::size_t>(v));});
+    if (error.empty()) error = field_(words[4], 0, 7, true, [&](const int v) {cron.weekdays.set(static_cast<std::size_t>(v % 7));}); // 0 and 7: Sunday, as in a crontab
     cron.anyDay = words[2].starts_with("*");
     cron.anyWeekday = words[4].starts_with("*");
     return error.empty() ? "" : "cron: " + error;
@@ -183,7 +188,7 @@ _cold std::int64_t cluster::cron_next(const std::string& expr, const std::string
     if (!parse_(expr, cron).empty()) return 0;
     const chr::time_zone* tz = zone_(zone);
     const Parts start = parts_(tz, after);
-    for (int offset = 0; offset < 800; ++offset) { // a day at a time (a rare date: Feb 29, within two years)
+    for (int offset = 0; offset < CRON_DAYS; ++offset) {
         const std::int64_t noon = add_days_(tz, start, offset, 12, 0);
         if (noon == 0) continue;
         const Parts day = parts_(tz, noon);
@@ -216,7 +221,11 @@ _cold std::bitset<7> days_(const std::string& days, std::string& error)
     }
     if (text == "weekdays") return std::bitset<7>("0111110");
     if (text == "weekend") return std::bitset<7>("1000001");
-    error = field_(text, 0, 6, true, [&](const int v) {set.set(static_cast<std::size_t>(v));});
+    if (text.size() > RULE_BYTES) {
+        error = "days: " + std::to_string(RULE_BYTES) + " characters at most";
+        return set;
+    }
+    error = field_(text, 0, 7, true, [&](const int v) {set.set(static_cast<std::size_t>(v % 7));}); // 0 and 7: Sunday
     if (!error.empty()) error = "days: " + error + " (mon-fri, mon,wed, weekdays, weekend)";
     return set;
 }
@@ -229,14 +238,21 @@ struct Range {
 
 _cold std::vector<Range> ranges_(const std::string& text, std::string& error)
 {
+    // read at each look, under the lock of the manager for a schedule that just ran: its pattern built once, its size bounded (a long list held every request for seconds)
+    static const std::regex pattern(R"((\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2}))");
     std::vector<Range> out;
-    std::stringstream stream(text);
+    if (text.size() > RULE_BYTES) error = "window: " + std::to_string(RULE_BYTES) + " characters at most";
+    std::stringstream stream(text.substr(0, RULE_BYTES));
     std::string item;
     while (std::getline(stream, item, ',')) {
         std::smatch match;
         const std::string trimmed = cluster::trim(item);
         if (trimmed.empty()) continue;
-        if (!std::regex_match(trimmed, match, std::regex(R"((\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2}))")) || std::stoi(match[1]) > 24 || std::stoi(match[3]) > 24
+        if (out.size() >= WINDOW_RANGES) {
+            error = "window: " + std::to_string(WINDOW_RANGES) + " ranges at most";
+            return out;
+        }
+        if (!std::regex_match(trimmed, match, pattern) || std::stoi(match[1]) > 24 || std::stoi(match[3]) > 24
             || std::stoi(match[2]) > 59 || std::stoi(match[4]) > 59) {
             error = "window: HH:MM-HH:MM[,HH:MM-HH:MM] - not '" + trimmed + "'";
             return out;
@@ -249,6 +265,25 @@ _cold std::vector<Range> ranges_(const std::string& text, std::string& error)
 _cold bool in_(const std::vector<Range>& list, const int minute)
 {
     return std::any_of(list.begin(), list.end(), [minute](const Range& r) {return r.from <= r.to ? minute >= r.from && minute < r.to : minute >= r.from || minute < r.to;});
+}
+
+// the days and windows of a schedule, read once for a whole search
+struct Rules {
+    std::bitset<7> days;
+    std::vector<Range> allowed;
+    std::vector<Range> blocked;
+};
+
+_cold Rules rules_(const std::string& days, const std::string& window, const std::string& quiet)
+{
+    std::string error; // said when the schedule was written
+    return {days_(days, error), ranges_(window, error), ranges_(quiet, error)};
+}
+
+_cold bool allowed_(const Rules& rules, const Parts& p)
+{
+    const int minute = p.hour * 60 + p.minute;
+    return rules.days.test(static_cast<std::size_t>(p.weekday)) && (rules.allowed.empty() || in_(rules.allowed, minute)) && !in_(rules.blocked, minute);
 }
 
 } // namespace
@@ -270,30 +305,37 @@ _cold std::string cluster::window_check(const std::string& window)
 _cold bool cluster::time_allowed(const std::string& days, const std::string& window, const std::string& quiet, const std::string& zone, const std::int64_t time)
 {
     if (days.empty() && window.empty() && quiet.empty()) return true;
-    std::string error;
-    const std::bitset<7> set = days_(days, error);
-    const std::vector<Range> allowed = ranges_(window, error);
-    const std::vector<Range> blocked = ranges_(quiet, error);
-    const Parts p = parts_(zone_(zone), time);
-    const int minute = p.hour * 60 + p.minute;
-    return set.test(static_cast<std::size_t>(p.weekday)) && (allowed.empty() || in_(allowed, minute)) && !in_(blocked, minute);
+    return allowed_(rules_(days, window, quiet), parts_(zone_(zone), time));
 }
 
 _cold std::int64_t cluster::time_next_allowed(const std::string& days, const std::string& window, const std::string& quiet, const std::string& zone, const std::int64_t time)
 {
+    // the rules and the zone read once; a day left out skipped but for its last hour (a change of hour makes a day shorter), not looked at minute by minute
+    const Rules rules = rules_(days, window, quiet);
+    const chr::time_zone* tz = zone_(zone);
     std::int64_t at = time - time % 60;
     if (at < time) at += 60;
-    for (int i = 0; i < 8 * 1440; ++i, at += 60)
-        if (cluster::time_allowed(days, window, quiet, zone, at)) return at;
+    const std::int64_t end = at + 8 * 86400;
+    while (at < end) {
+        const Parts p = parts_(tz, at);
+        if (allowed_(rules, p)) return at;
+        const int left = 1440 - (p.hour * 60 + p.minute);
+        at += rules.days.test(static_cast<std::size_t>(p.weekday)) || left <= 60 ? 60 : (left - 60) * 60;
+    }
     return 0;
 }
 
 _cold std::string cluster::zone_clock(const std::int64_t time, const std::string& zone)
 {
-    const Parts p = parts_(zone_(zone), time);
-    char buffer[32];
-    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d", p.year, p.month, p.day, p.hour, p.minute);
-    return buffer;
+    // never an exception (a zone gone from this computer): it is in every list of the schedules
+    try {
+        const Parts p = parts_(zone_(zone), time);
+        char buffer[32];
+        std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d", p.year, p.month, p.day, p.hour, p.minute);
+        return buffer;
+    } catch (const std::exception&) {
+        return "?";
+    }
 }
 
 _cold std::int64_t cluster::zone_parse(const std::string& when, const std::string& zone, const std::int64_t now)

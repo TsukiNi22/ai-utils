@@ -58,7 +58,7 @@ _cold static std::string mime_(const std::string& bytes, const std::filesystem::
 _cold static std::filesystem::path temporary_(const std::string& name)
 {
     static std::atomic<int> count{0};
-    return std::filesystem::temp_directory_path() / ("claude-cluster-" + std::to_string(::getpid()) + "-" + std::to_string(++count) + "-" + name);
+    return cluster::private_temp(std::to_string(::getpid()) + "-" + std::to_string(++count) + "-" + name);
 }
 
 _cold static std::string dot_(const std::string& source, const std::string& format)
@@ -120,6 +120,16 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
         "tree", "terminal", "checklist", "steps", "timeline", "kanban", "actions", "form", "details", "compare", "metrics", "heatmap", "audio", "math", "file"};
     if (!types.contains(type))
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display: unknown type '" + type + "' (" + cluster::display_help() + ")");
+    // the kinds of its fields, as every interface reads them: a number for a text ended a terminal at each drawing of the session (a display stays in its log)
+    static const std::set<std::string> texts = {"title", "text", "code", "language", "label", "summary", "alt", "caption", "level", "diff", "before", "after", "output", "command",
+        "file", "kind", "mime", "dot", "svg", "latex", "path", "submit"};
+    static const std::set<std::string> lists = {"rows", "columns", "series", "labels", "items", "steps", "tasks", "buttons", "fields", "files", "paths", "xlabels", "ylabels"};
+    static const std::set<std::string> objects = {"left", "right", "root"};
+    for (const auto &[key, value]: display.items()) {
+        const char* wanted = texts.contains(key) && !value.is_string() ? "a text" : lists.contains(key) && !value.is_array() ? "a list" : objects.contains(key) && !value.is_object() ? "an object"
+            : (key == "value" || key == "max") && type == "progress" && !value.is_number() ? "a number" : key == "data" && type == "image" && !value.is_string() ? "a text" : nullptr;
+        if (wanted != nullptr) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "display " + type + ": '" + key + "' is " + wanted);
+    }
     if (type == "markdown" || type == "callout") require_(display, "text");
     if (type == "code") require_(display, "code");
     if (type == "table") {
@@ -187,7 +197,7 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
     if (type == "json") {
         require_(display, "data");
         if (display["data"].is_string()) { // a JSON text: read
-            const cluster::Json parsed = cluster::Json::parse(display.value("data", std::string()), nullptr, false);
+            const cluster::Json parsed = cluster::json_parse(display.value("data", std::string()), nullptr, false);
             if (!parsed.is_discarded()) display["data"] = parsed;
         }
     }
@@ -198,10 +208,10 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
             if (!std::filesystem::is_directory(root, error))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "tree: not a folder: " + root.string());
             std::map<std::string, std::string> git;
-            const cluster::Captured status = cluster::capture({"git", "-C", root.string(), "status", "--porcelain", "--untracked-files=all"}, "", 10);
-            if (status.code == 0)
-                for (const std::string& line: cluster::split(status.out, '\n'))
-                    if (line.size() > 3) git[cluster::trim(line.substr(3))] = cluster::trim(line.substr(0, 2));
+            const cluster::Captured status = cluster::git_read({"status", "--porcelain", "--untracked-files=all"}, root.string(), 10);
+            std::istringstream lines(status.code == 0 ? status.out : std::string()); // as they are: its first column is a space for a change not staged
+            for (std::string line; std::getline(lines, line);)
+                if (line.size() > 3) git[cluster::trim(line.substr(3))] = cluster::trim(line.substr(0, 2));
             std::size_t count = 0;
             display["root"] = {{"name", cluster::short_path(root.string())}, {"dir", true},
                 {"children", tree_(root, std::clamp(display.value("depth", 3), 1, 8), count, git, root)}};
@@ -332,9 +342,14 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
         cluster::Json files = cluster::Json::array();
         for (const std::string& raw: paths) {
             std::filesystem::path path = cluster::expand_home(raw);
-            if (path.is_relative()) path = base / path;
+            const bool relative = path.is_relative();
+            if (relative) path = base / path;
             std::error_code error;
             path = std::filesystem::weakly_canonical(path, error);
+            // a relative one judged here, where it lands: the gate of the global session and of the page reads a path alone, it knows neither a cwd given nor the
+            // folder of the session; a whole path is judged by that gate, the user of the computer behind none
+            if (relative && cluster::hidden_path(path.string()))
+                throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "not allowed: a hidden file is not shown from a relative path (" + raw + "): only the user, by its whole path");
             if (!std::filesystem::is_regular_file(path, error)) continue;
             std::string ext = path.extension().string();
             std::transform(ext.begin(), ext.end(), ext.begin(), [](const unsigned char c) {return static_cast<char>(std::tolower(c));});
@@ -366,6 +381,9 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
         require_(display, "latex");
         display["unicode"] = cluster::display_math(display.value("latex", std::string()));
     }
+    // its id given by an agent: a name, nothing else (it goes in a file name and a search)
+    if (display.contains("id") && (!display["id"].is_string() || display["id"].get_ref<const std::string&>().empty() || display["id"].get_ref<const std::string&>().size() > 80
+        || display["id"].get_ref<const std::string&>().find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)) display.erase("id");
     if (!display.contains("id")) { // its id: updated (session_display_update), clicked, ticked
         static std::atomic<unsigned> next{0};
         display["id"] = "d" + std::to_string(::time(nullptr) % 1000000) + "-" + std::to_string(++next);
@@ -374,7 +392,7 @@ _cold cluster::Json cluster::display_prepare(const cluster::Json& input)
     return display;
 }
 
-_cold std::string cluster::display_text(const cluster::Json& d)
+_cold static std::string display_text_(const cluster::Json& d)
 {
     const std::string type = d.value("type", std::string());
     const std::string title = d.value("title", std::string());
@@ -418,6 +436,16 @@ _cold std::string cluster::display_text(const cluster::Json& d)
         {"actions", "buttons"}, {"form", "fields"}, {"metrics", "items"}};
     if (lists.contains(type)) return text + "[" + type + "] " + d[lists.at(type)].dump(-1, ' ', false, cluster::JSON_LENIENT) + (d.contains("values") ? " values: " + d["values"].dump(-1, ' ', false, cluster::JSON_LENIENT) : "");
     return text + "[" + type + "] " + d.value("alt", d.value("caption", std::string()));
+}
+
+_cold std::string cluster::display_text(const cluster::Json& d)
+{
+    // one of an unexpected shape (of an older version, a log edited): its type, never the whole search or export refused for it
+    try {
+        return display_text_(d);
+    } catch (const std::exception&) {
+        return "[display]";
+    }
 }
 
 _cold std::vector<std::vector<cluster::Cell>> cluster::display_cells(const std::string& bytes, const int columns, const int rows)
@@ -597,10 +625,61 @@ _cold cluster::Json cluster::display_pinned(const cluster::Snapshot& snap)
     const std::string mark = "\"id\":\"" + pin.value("id", std::string()) + "\"";
     for (auto it = snap.entries.rbegin(); it != snap.entries.rend(); ++it) {
         if (it->kind != cluster::EntryKind::Display || it->text.find(mark) == std::string::npos) continue;
-        cluster::Json block = cluster::Json::parse(it->text, nullptr, false);
+        cluster::Json block = cluster::json_parse(it->text, nullptr, false);
         if (block.is_object() && block.value("id", std::string()) == pin.value("id", std::string())) return block;
     }
     return nullptr;
+}
+
+_cold cluster::Captured cluster::git_read(const std::vector<std::string>& args, const std::string& cwd, const int timeout)
+{
+    // off for every read: an index written (its hooks, those of its config too: core.hooksPath does not stop them), its fsmonitor, a signature checked by its gpg.program; a
+    // transport (the lazy fetch of a partial clone: its ssh command, its ext:: remote...), in the environment: a version of git that does not know it ignores it
+    std::vector<std::string> command = {"env", "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none", "git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+        "-c", "log.showSignature=false"};
+    const std::string what = args.empty() ? std::string() : args[0];
+    if (what == "status" || what == "diff") {
+        // they read the files through the clean filter of the folder, with no switch for all of them: each one its repository sets, off (the user's own, in his global config: kept)
+        const cluster::Captured config = cluster::capture({"sh", "-c", "exec git config --show-scope --name-only --null --list 2> /dev/null"}, cwd, timeout);
+        if (config.code != 0) return {}; // not known (a config it refuses, a git of before 2.26): nothing run, code -1
+        const std::vector<std::string> fields = cluster::split(config.out, '\0');
+        std::set<std::string> filters;
+        for (std::size_t i = 0; i + 1 < fields.size(); i += 2) {
+            const std::string& key = fields[i + 1];
+            if (fields[i] == "global" || fields[i] == "system" || !key.starts_with("filter.") || key.rfind('.') < 7) continue; // filter.x: no filter named, git ignores it
+            filters.insert(key.substr(7, key.rfind('.') - 7));
+        }
+        for (const std::string& filter: filters) {
+            if (filter.find('=') != std::string::npos) return {}; // -c cannot name it (it would set another key, that filter still on)
+            for (const char* setting: {".clean=", ".smudge=", ".process=", ".required=false"})
+                command.insert(command.end(), {"-c", "filter." + filter + setting});
+        }
+    }
+    command.insert(command.end(), args.begin(), args.end());
+    // a submodule is a repository of its own, its config not read here: its commit compared only, git never started in it (status, a diff.submodule = diff would)
+    if (what == "status") command.emplace_back("--ignore-submodules=dirty");
+    if (what == "diff") command.insert(command.end(), {"--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--submodule=short"});
+    return cluster::capture(command, cwd, timeout);
+}
+
+_cold cluster::Captured cluster::capture_fed(const std::vector<std::string>& args, const std::string& text, const std::vector<std::pair<std::string, std::string>>& env,
+    const std::string& cwd, const int timeout)
+{
+    // its text in a file of this user alone, opened then removed by a shell before the command runs (exec refuses more than 128 KB on a command line too)
+    static std::atomic<std::uint64_t> counter{0};
+    const std::filesystem::path file = cluster::private_temp("fed-" + std::to_string(::getpid()) + "-" + std::to_string(++counter));
+    try {
+        cluster::write_text(file, text);
+    } catch (const utils::exception::IException& e) {
+        cluster::debug("platform", std::string("the input of a command not written: ") + e.info());
+        return {}; // code -1
+    }
+    std::vector<std::string> command = {"sh", "-c", "exec < \"$0\" || exit 127; rm -f \"$0\"; exec \"$@\"", file.string()};
+    command.insert(command.end(), args.begin(), args.end());
+    const cluster::Captured result = cluster::capture_env(command, env, cwd, timeout);
+    std::error_code error;
+    std::filesystem::remove(file, error);
+    return result;
 }
 
 _cold std::string cluster::display_help(void)
@@ -642,7 +721,7 @@ _cold std::string cluster::display_spark(const cluster::Json& values, const std:
     std::string spark;
     const std::size_t step = std::max<std::size_t>(1, (values.size() + width - 1) / std::max<std::size_t>(1, width));
     for (std::size_t i = 0; i < values.size(); i += step)
-        spark += levels[values[i].is_number() && high > low ? static_cast<std::size_t>((values[i].get<double>() - low) / (high - low) * 7.0 + 0.5) : 0];
+        spark += levels[values[i].is_number() && high > low ? static_cast<std::size_t>(cluster::between(values[i].get<double>(), low, high) * 7.0 + 0.5) : 0];
     return spark;
 }
 

@@ -35,6 +35,12 @@ File Description:
 //----------------------------------------------------------------//
 /* TOOLS */
 
+_cold static std::string why_(const std::exception& e)
+{
+    const utils::exception::IException* detail = dynamic_cast<const utils::exception::IException*>(&e);
+    return detail != nullptr ? detail->info() : e.what();
+}
+
 _cold static std::filesystem::path upgrade_file_(void)
 {
     return cluster::data_dir() / "upgrade.json"; // {"ignored": "<version>"}
@@ -159,10 +165,14 @@ _cold bool cluster::Manager::hold_(const std::string& id, const std::string& tex
 {
     // an update switching: this prompt kept on disk (never lost, never a new turn now), sent by the new version once it runs
     if (!this->_holding) return false;
-    cluster::Json held = cluster::read_json(held_file_()).value_or(cluster::Json::array());
-    if (!held.is_array()) held = cluster::Json::array();
-    held.push_back({{"session", id}, {"text", text}, {"images", images}, {"origin", origin}});
-    cluster::write_json(held_file_(), held);
+    {
+        static std::mutex writing; // read, added to, written: two prompts at once never lose one
+        std::lock_guard<std::mutex> lock(writing);
+        cluster::Json held = cluster::read_json(held_file_()).value_or(cluster::Json::array());
+        if (!held.is_array()) held = cluster::Json::array();
+        held.push_back({{"session", id}, {"text", text}, {"images", images}, {"origin", origin}});
+        cluster::write_json(held_file_(), held);
+    }
     this->notice_(id, "prompt held: an update is switching, it is sent by the new version");
     ++this->_version;
     return true;
@@ -185,7 +195,7 @@ _cold void cluster::Manager::holdAsk_(const cluster::Snapshot& s)
         std::string one = p.tool;
         if (p.tool == "AskUserQuestion" && p.input.contains("questions") && p.input["questions"].is_array()) {
             for (const cluster::Json& q: p.input["questions"])
-                if (q.is_object()) one += "\n  - " + q.value("question", std::string());
+                if (q.is_object() && q.contains("question") && q["question"].is_string()) one += "\n  - " + q["question"].get<std::string>(); // as an agent wrote it: any shape
         } else {
             one += " " + cluster::one_line(p.description.empty() ? p.input.dump(-1, ' ', false, cluster::JSON_LENIENT) : p.description, 300);
         }
@@ -242,12 +252,22 @@ _cold void cluster::Manager::restartYoung_(std::set<std::string>& restarted)
 _cold void cluster::Manager::holdQueues_(void)
 {
     // the prompts waiting in the queue of a turn (not given to the agent yet): held in their order, the turn ends without them
-    for (const cluster::Snapshot& s: this->list(true)) {
+    for (const cluster::Snapshot& s: this->listLight(true)) { // the sessions that exist (never the placeholder of a global session not started yet)
         std::vector<cluster::Queued> taken;
-        while (const std::optional<cluster::Queued> queued = this->unqueue(s.spec.id))
-            taken.push_back(*queued);
-        for (auto it = taken.rbegin(); it != taken.rend(); ++it)
-            (void)this->hold_(s.spec.id, it->text, it->images, it->origin);
+        try {
+            while (const std::optional<cluster::Queued> queued = this->unqueue(s.spec.id))
+                taken.push_back(*queued);
+        } catch (const utils::exception::IException& e) { // closed meanwhile: nothing queued any more, the others still held
+            cluster::debug("core", s.spec.id + ": its queue not held: " + e.info());
+        }
+        for (auto it = taken.rbegin(); it != taken.rend(); ++it) {
+            try {
+                (void)this->hold_(s.spec.id, it->text, it->images, it->origin);
+            } catch (const std::exception& e) { // not written (a full disk): back in its queue, never lost
+                cluster::debug("core", s.spec.id + ": a prompt not held: " + e.what());
+                (void)this->get_(s.spec.id)->send(it->text, it->images, it->origin);
+            }
+        }
     }
 }
 
@@ -266,12 +286,13 @@ _cold void cluster::Manager::releaseHeld_(void)
     if (!held.is_array() || held.empty()) return;
     std::size_t sent = 0;
     for (const cluster::Json& item: held) {
+        if (!item.is_object()) continue;
         const std::string session = item.value("session", std::string());
         try {
             this->send(session, item.value("text", std::string()), true, item.value("images", std::vector<std::string>()), item.value("origin", std::string()));
             ++sent;
-        } catch (const utils::exception::IException& e) {
-            this->notice_(session, "a prompt held for the update not sent (" + std::string(e.info()) + "): " + cluster::one_line(item.value("text", std::string()), 120), true);
+        } catch (const std::exception& e) { // one prompt: never the others
+            this->notice_(session, "a prompt held for the update not sent (" + why_(e) + "): " + cluster::one_line(item.dump(-1, ' ', false, cluster::JSON_LENIENT), 120), true);
         }
     }
     this->notice_("", std::to_string(sent) + " prompt(s) held during the update sent");
@@ -288,7 +309,7 @@ _cold void cluster::Manager::upgradeKeep_(void)
     // the switch keeps the config and the sessions; what was set for this run only (the web access opened or closed by hand, the core
     // kept in background with no interface) is written here, the new version sets it again at its start
     cluster::Json keep = {{"at", cluster::now()}, {"background", this->_background}};
-    if (this->_web != nullptr) keep["web"] = this->_web->status().on;
+    if (this->_web != nullptr) keep["web"] = this->_web.load()->status().on;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         keep["web_before_background"] = this->_webBeforeBackground;
@@ -353,7 +374,7 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         }
         ++this->_version;
         if (action == "update") {
-            std::thread([this]() {
+            cluster::guarded([this]() {
                 const std::uint64_t id = this->progressBegin("Updating claude-cluster to 9.9.9 (showcase)");
                 for (const char* step: {"trying the new binary first", "waiting for the turns running", "saving the sessions", "starting claude-cluster 9.9.9"}) {
                     this->progressStep(id, step);
@@ -416,7 +437,7 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
     }
     if (action == "quit") {
         const std::vector<int> interfaces = cluster::interface_pids();
-        std::thread([interfaces]() { // its answer sent first; the sessions saved by the quit of the core
+        cluster::guarded([interfaces]() { // its answer sent first; the sessions saved by the quit of the core
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             for (const int pid: interfaces)
                 (void)::kill(pid, SIGTERM);
@@ -440,84 +461,105 @@ _cold std::string cluster::Manager::upgradeAct(const std::string& action)
         this->_upgradeTarget = version;
     }
     ++this->_version;
-    std::thread([this, version]() {
+    cluster::guarded([this, version]() {
         // the turns running end first (their sessions named), the sessions saved, then the new binary run in place of this one
         const std::uint64_t id = this->progressBegin("Updating claude-cluster to " + version);
-        this->progressStep(id, "trying the new binary first (it must start on its own)");
-        const std::filesystem::path exe = cluster::self_exe();
-        std::string problem;
-        if (cluster::binary_version(exe) != version) problem = "the binary on disk is not " + version + " (an install in progress?)";
-        else problem = cluster::upgrade_selftest(exe);
-        if (!problem.empty()) { // nothing was stopped: this version goes on, the update offered again
-            this->progressEnd(id, false, "update to " + version + " cancelled, still on " + CLUSTER_VERSION + ": " + problem, false);
-            this->notice_("", "update to " + version + " cancelled (" + problem + "): claude-cluster " + CLUSTER_VERSION + " goes on", true);
-            this->_upgradeStarted = false;
-            ++this->_version;
-            return;
-        }
-        // from now on nothing starts a turn: the prompts, the queued ones, the tasks and the schedules are held (not the keep-warm wake-ups: a session would cool while the update waits) (held.json) and
-        // sent by the new version; only the turns running are waited for (before: their queue started new ones, the update never came)
-        this->_holding = true;
-        this->holdQueues_();
-        std::set<std::string> asked; // the sessions whose question / permission is held
-        std::set<std::string> restarted; // the background items stopped to be run again after the update
-        for (;;) {
-            std::string names;
-            const std::int64_t now = cluster::now_ms();
-            // a session waiting for the user only (a question, a permission): its request held - the new version tells it, it asks again
-            // (the popup back) - and its turn stopped; it no longer holds the update back
-            this->holdAsks_(asked);
-            this->restartYoung_(restarted);
-            for (const cluster::Snapshot& s: this->list(true)) {
-                if (asked.contains(s.spec.id) && s.state != cluster::State::Working) continue; // its request held: stopped, not waited for
-                const bool agents = std::any_of(s.agents.begin(), s.agents.end(), [now, &s, &restarted](const cluster::SubAgent& a) {
-                    // its agents and shells in the background too (an hour at most), but not the ones stopped to be run again
-                    return a.status == "running" && now - a.started < 3600 * 1000 && !restarted.contains(s.spec.id + ":" + a.taskId);
-                });
-                if (s.state == cluster::State::Working || s.state == cluster::State::Waiting || agents)
-                    names += (names.empty() ? "" : ", ") + s.spec.name + (s.state == cluster::State::Waiting ? " (waits for your answer)" : agents && s.state != cluster::State::Working ? " (its agents)" : "");
+        try {
+            this->progressStep(id, "trying the new binary first (it must start on its own)");
+            const std::filesystem::path exe = cluster::self_exe();
+            std::string problem;
+            if (cluster::binary_version(exe) != version) problem = "the binary on disk is not " + version + " (an install in progress?)";
+            else problem = cluster::upgrade_selftest(exe);
+            if (!problem.empty()) { // nothing was stopped: this version goes on, the update offered again
+                this->progressEnd(id, false, "update to " + version + " cancelled, still on " + CLUSTER_VERSION + ": " + problem, false);
+                this->notice_("", "update to " + version + " cancelled (" + problem + "): claude-cluster " + CLUSTER_VERSION + " goes on", true);
+                this->_upgradeStarted = false;
+                ++this->_version;
+                return;
             }
-            // the jobs of the orchestrator running (a build, tests): waited for too, but not the ones stopped to be run again
-            for (const cluster::Json& job: this->jobsState().value("jobs", cluster::Json::array()))
-                if (job.value("state", std::string()) == "running" && !restarted.contains("job:" + job.value("id", std::string())))
-                    names += (names.empty() ? "" : ", ") + std::string("job ") + job.value("id", std::string()) + " (" + cluster::one_line(job.value("command", std::string()), 40) + ")";
-            const std::size_t held = this->heldCount_();
+            // from now on nothing starts a turn: the prompts, the queued ones, the tasks and the schedules are held (not the keep-warm wake-ups: a session would cool while the update waits) (held.json) and
+            // sent by the new version; only the turns running are waited for (before: their queue started new ones, the update never came)
+            this->_holding = true;
+            this->holdQueues_();
+            std::set<std::string> asked; // the sessions whose question / permission is held
+            std::set<std::string> restarted; // the background items stopped to be run again after the update
+            for (;;) {
+                std::string names;
+                const std::int64_t now = cluster::now_ms();
+                // a session waiting for the user only (a question, a permission): its request held - the new version tells it, it asks again
+                // (the popup back) - and its turn stopped; it no longer holds the update back
+                this->holdAsks_(asked);
+                this->restartYoung_(restarted);
+                for (const cluster::Snapshot& s: this->list(true)) {
+                    if (asked.contains(s.spec.id) && s.state != cluster::State::Working) continue; // its request held: stopped, not waited for
+                    const bool agents = std::any_of(s.agents.begin(), s.agents.end(), [now, &s, &restarted](const cluster::SubAgent& a) {
+                        // its agents and shells in the background too (an hour at most), but not the ones stopped to be run again
+                        return a.status == "running" && now - a.started < 3600 * 1000 && !restarted.contains(s.spec.id + ":" + a.taskId);
+                    });
+                    if (s.state == cluster::State::Working || s.state == cluster::State::Waiting || agents)
+                        names += (names.empty() ? "" : ", ") + s.spec.name + (s.state == cluster::State::Waiting ? " (waits for your answer)" : agents && s.state != cluster::State::Working ? " (its agents)" : "");
+                }
+                // the jobs of the orchestrator running (a build, tests): waited for too, but not the ones stopped to be run again
+                for (const cluster::Json& job: this->jobsState().value("jobs", cluster::Json::array()))
+                    if (job.value("state", std::string()) == "running" && !restarted.contains("job:" + job.value("id", std::string())))
+                        names += (names.empty() ? "" : ", ") + std::string("job ") + job.value("id", std::string()) + " (" + cluster::one_line(job.value("command", std::string()), 40) + ")";
+                const std::size_t held = this->heldCount_();
+                {
+                    std::lock_guard<std::mutex> lock(this->_mutex);
+                    this->_upgradeWaiting = names.empty() ? std::string() : names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held" : std::string());
+                }
+                if (names.empty()) break;
+                this->progressStep(id, "waiting for the turns running: " + names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held, sent after the update" : std::string()));
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+            // the binary switched to: the one on disk now (a newer one installed meanwhile), tested again; a problem: nothing switched, what was held sent
+            std::string target;
             {
                 std::lock_guard<std::mutex> lock(this->_mutex);
-                this->_upgradeWaiting = names.empty() ? std::string() : names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held" : std::string());
+                target = this->_upgradeTarget;
             }
-            if (names.empty()) break;
-            this->progressStep(id, "waiting for the turns running: " + names + (held > 0 ? " · " + std::to_string(held) + " prompt(s) held, sent after the update" : std::string()));
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        }
-        // the binary switched to: the one on disk now (a newer one installed meanwhile), tested again; a problem: nothing switched, what was held sent
-        std::string target;
-        {
-            std::lock_guard<std::mutex> lock(this->_mutex);
-            target = this->_upgradeTarget;
-        }
-        const std::string onDisk = cluster::binary_version(exe);
-        std::string late = onDisk.empty() || cluster::version_compare(onDisk, CLUSTER_VERSION) <= 0 ? "the binary on disk is no longer a newer version" : std::string();
-        if (late.empty() && onDisk != version) late = cluster::upgrade_selftest(exe);
-        if (!late.empty()) {
+            const std::string onDisk = cluster::binary_version(exe);
+            std::string late = onDisk.empty() || cluster::version_compare(onDisk, CLUSTER_VERSION) <= 0 ? "the binary on disk is no longer a newer version" : std::string();
+            if (late.empty() && onDisk != version) late = cluster::upgrade_selftest(exe);
+            if (!late.empty()) {
+                this->_holding = false;
+                this->releaseHeld_();
+                this->progressEnd(id, false, "update cancelled, still on " + std::string(CLUSTER_VERSION) + ": " + late, false);
+                this->notice_("", "update cancelled (" + late + "): claude-cluster " + CLUSTER_VERSION + " goes on, the held prompts sent", true);
+                this->_upgradeStarted = false;
+                ++this->_version;
+                return;
+            }
+            if (onDisk != target) this->progressStep(id, "a newer version is on disk: switching to " + onDisk);
+            this->progressAdvance(id, "saving the sessions");
+            this->save();
+            this->upgradeKeep_(); // the web access opened by hand, the background: on again in the new version
+            this->progressAdvance(id, "starting claude-cluster " + onDisk + " (the terminals and windows follow it)");
+            this->_upgrading = true; // the interfaces see it: they follow the new core
+            ++this->_version;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+            cluster::upgrade_request(true);
+            cluster::quit_signal = true; // the normal quit (sessions saved, stopped), then the exec (main)
+        } catch (const std::exception& e) {
+            // whatever stopped it (a file not written, a disk full): nothing switched, this version goes on; never left holding (every prompt, task and schedule
+            // frozen, for ever "already updating")
+            const std::string why = why_(e);
+            this->_upgrading = false;
             this->_holding = false;
-            this->releaseHeld_();
-            this->progressEnd(id, false, "update cancelled, still on " + std::string(CLUSTER_VERSION) + ": " + late, false);
-            this->notice_("", "update cancelled (" + late + "): claude-cluster " + CLUSTER_VERSION + " goes on, the held prompts sent", true);
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                this->_upgradeWaiting.clear();
+            }
+            try {
+                this->releaseHeld_();
+            } catch (const std::exception& released) {
+                cluster::debug("core", std::string("the prompts held not released: ") + released.what());
+            }
+            this->progressEnd(id, false, "update cancelled, still on " + std::string(CLUSTER_VERSION) + ": " + why, false);
+            this->notice_("", "update cancelled (" + why + "): claude-cluster " + CLUSTER_VERSION + " goes on, the held prompts sent", true);
             this->_upgradeStarted = false;
             ++this->_version;
-            return;
         }
-        if (onDisk != target) this->progressStep(id, "a newer version is on disk: switching to " + onDisk);
-        this->progressAdvance(id, "saving the sessions");
-        this->save();
-        this->upgradeKeep_(); // the web access opened by hand, the background: on again in the new version
-        this->progressAdvance(id, "starting claude-cluster " + onDisk + " (the terminals and windows follow it)");
-        this->_upgrading = true; // the interfaces see it: they follow the new core
-        ++this->_version;
-        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-        cluster::upgrade_request(true);
-        cluster::quit_signal = true; // the normal quit (sessions saved, stopped), then the exec (main)
     }).detach();
     return "updating to " + version + "…";
 }

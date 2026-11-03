@@ -122,7 +122,7 @@ _cold void cluster::Manager::attach(void)
     this->_replica->client = std::string(host.data()) + ":" + std::to_string(::getpid());
     sync_once_(this->_replica, false);
     this->_replica->running = true;
-    this->_replica->thread = std::thread([replica = this->_replica]() {
+    this->_replica->thread = cluster::guarded([replica = this->_replica]() {
         int failures = 0;
         while (replica->running) {
             try {
@@ -158,7 +158,7 @@ _cold void cluster::Manager::attach(void)
                 }
                 // the core gone (the last interface closed it, a crash): started again (at the first try, then every 5, Retry now), its sessions resumed
                 if ((failures++ % 5 == 0 || replica->retryNow) && replica->running && !cluster::Control::alive() && !replica->starting.exchange(true))
-                    std::thread([replica]() { // never waited here: the tries and Retry now go on meanwhile
+                    cluster::guarded([replica]() { // never waited here: the tries and Retry now go on meanwhile
                         (void)cluster::start_core({"--restore"}); // its sessions resumed as they were (never asked again: nobody quit)
                         replica->starting = false;
                     }).detach();
@@ -188,7 +188,7 @@ _cold cluster::Json cluster::Manager::call(cluster::Json request) const
 _cold std::uint64_t cluster::Manager::syncVersion(void)
 {
     // what the interfaces wait for: the sessions, the questions, the voice (its live text, its countdown)
-    return this->version() + this->asking().version() * 1000003 + (this->_voice ? this->_voice->version() * 7919 : 0);
+    return this->version() + this->asking().version() * 1000003 + (this->_voice ? this->_voice.load()->version() * 7919 : 0);
 }
 
 _cold cluster::Json cluster::Manager::replicaState(const std::string& key) const
@@ -299,7 +299,7 @@ _cold void cluster::Manager::clientSeen(const std::string& client)
         this->_clients[client] = cluster::awake_s(); // awake time: a suspend of the computer never makes its interfaces look gone
         this->_hadClients = true;
     }
-    if (webBack && this->_web != nullptr) this->_web->setOn(true); // the web access closed by the background: open again (outside the lock)
+    if (webBack && this->_web != nullptr) this->_web.load()->setOn(true); // the web access closed by the background: open again (outside the lock)
 }
 
 _cold void cluster::Manager::clientGone(const std::string& client)
@@ -331,8 +331,8 @@ _cold void cluster::Manager::setBackground(const bool on)
     if (on && cluster::demo_enabled()) return; // the demo never stays behind its terminal: it stops with it
     // the web access closed meanwhile (nobody to approve a device, nothing to show); open again when an interface comes back
     if (on && !this->_background && this->_web != nullptr) {
-        const bool open = this->_web->status().on;
-        this->_web->setOn(false);
+        const bool open = this->_web.load()->status().on;
+        this->_web.load()->setOn(false);
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_webBeforeBackground = open;
     }
@@ -395,14 +395,14 @@ _cold cluster::Json cluster::Manager::syncState(const cluster::Json& request)
         std::lock_guard<std::mutex> lock(this->_mutex);
         ui = this->_ui;
     }
-    const bool listening = this->_voice && this->_voice->listening();
+    const bool listening = this->_voice && this->_voice.load()->listening();
     cluster::Json machine = nullptr;
     if (const std::optional<std::pair<cluster::MachineProgress, std::int64_t>> progress = this->machineProgress()) machine = {{"progress", progress->first}, {"end", progress->second}};
-    return {{"version", this->syncVersion()}, {"sessions", sessions}, {"voice", this->_voice ? this->_voice->json() : cluster::Json()}, {"notices", this->notices(50)},
+    return {{"version", this->syncVersion()}, {"sessions", sessions}, {"voice", this->_voice ? this->_voice.load()->json() : cluster::Json()}, {"notices", this->notices(50)},
         {"trash", this->trash()}, {"previous", this->previous()}, {"tasks", this->tasks()}, {"schedules", this->schedules()}, {"taxonomy", this->taxonomyJson()}, {"ui", ui}, {"asking", this->asking().json()},
         {"face", this->appFace(listening)}, {"focus", {this->_focusVersion.load(), this->_focus}}, {"raise", this->_raiseVersion.load()}, {"raise_token", this->raiseToken()},
         {"machine_request", this->_machineRequest.load()}, {"machine_ask", this->machineAsk()}, {"machine", machine},
-        {"restore_ask", this->_restoreAsk.load() && this->restorable()}, {"listening", listening},
+        {"restore_ask", this->_restoreAsk.load() && !this->_restoreAnswered.load() && this->restorable()}, {"listening", listening},
         {"progress", this->progressAll()}, {"jobs", this->jobsState()}, {"failures", this->failures()}, {"upgrade", upgrade_json_(this->upgradeOffer())}, {"accounts", this->accountsJson()}};
 }
 
@@ -436,7 +436,10 @@ _cold void cluster::Manager::setFocused(const bool focused)
 
 _cold void cluster::Manager::noteActive(const std::string& id)
 {
-    this->_active = id;
+    {
+        std::lock_guard<std::mutex> lock(this->_activeMutex);
+        this->_active = id;
+    }
     if (!this->_replica || id == this->_lastActive) return;
     this->_lastActive = id;
     try {
@@ -486,7 +489,7 @@ _cold void cluster::Manager::answer(const std::string& id, const std::string& re
     for (const cluster::Permission& asked: this->get_(id)->snapshot().permissions)
         if (asked.requestId == requestId) this->statsRecord("perm", {{"tool", asked.tool}, {"decision", behavior}, {"session", id}});
     this->get_(id)->answer(requestId, behavior);
-    if (callback) std::thread([callback, behavior]() {callback(behavior == "deny" ? "deny" : behavior);}).detach();
+    if (callback) cluster::guarded([callback, behavior]() {callback(behavior == "deny" ? "deny" : behavior);}).detach();
 }
 
 _cold void cluster::Manager::answerQuestions(const std::string& id, const std::string& requestId, const cluster::Json& answers)
@@ -503,7 +506,7 @@ _cold void cluster::Manager::answerQuestions(const std::string& id, const std::s
             label = answer.is_string() ? answer.get<std::string>() : answer.dump(-1, ' ', false, cluster::JSON_LENIENT);
             break;
         }
-        std::thread([callback, label]() {callback(label);}).detach();
+        cluster::guarded([callback, label]() {callback(label);}).detach();
     }
 }
 
@@ -569,14 +572,14 @@ _cold cluster::Json cluster::Manager::shell(const std::string& id, const std::st
         job->started = cluster::now();
         this->_jobs[job->id] = job;
         while (this->_jobs.size() > 30) { // the oldest ended ones forgotten
-            const std::map<std::string, std::shared_ptr<cluster::ShellJob>>::iterator old = std::find_if(this->_jobs.begin(), this->_jobs.end(), [](const std::pair<const std::string, std::shared_ptr<cluster::ShellJob>>& item) {return item.second->done;});
+            const std::map<std::string, std::shared_ptr<cluster::ShellJob>>::iterator old = std::find_if(this->_jobs.begin(), this->_jobs.end(), [](const std::pair<const std::string, std::shared_ptr<cluster::ShellJob>>& item) {return item.second->done.load();});
             if (old == this->_jobs.end()) break;
             this->_jobs.erase(old);
         }
     }
     const char* env = std::getenv("SHELL");
     const std::string shell = env != nullptr ? env : "/bin/sh";
-    std::thread([this, job, shell, session]() {
+    cluster::guarded([this, job, shell, session]() {
         const cluster::Captured out = cluster::capture({shell, "-c", job->command}, job->cwd, 6 * 3600, &job->pid);
         bool background = false;
         {
@@ -595,7 +598,7 @@ _cold cluster::Json cluster::Manager::shell(const std::string& id, const std::st
     }).detach();
     {
         std::unique_lock<std::mutex> lock(this->_jobMutex);
-        this->_jobEnded.wait_for(lock, std::chrono::seconds(8), [&job]() {return job->done;});
+        this->_jobEnded.wait_for(lock, std::chrono::seconds(8), [&job]() {return job->done.load();});
         if (!job->done) { // still running: in the background, its end told in the conversation
             job->background = true;
             return {{"background", job->id}, {"command", command}, {"code", 0}, {"lines", 0}, {"shown", false}};
@@ -614,7 +617,7 @@ _cold cluster::Json cluster::Manager::shells(void)
         std::string tail;
         for (std::size_t i = lines.size() > 3 ? lines.size() - 3 : 0; i < lines.size(); ++i)
             tail += (tail.empty() ? "" : " | ") + cluster::one_line(lines[i], 60);
-        list.push_back({{"id", id}, {"session", job->session}, {"command", job->command}, {"running", !job->done}, {"code", job->code}, {"killed", job->killed},
+        list.push_back({{"id", id}, {"session", job->session}, {"command", job->command}, {"running", !job->done}, {"code", job->code}, {"killed", job->killed.load()},
             {"seconds", (job->done ? job->ended : cluster::now()) - job->started}, {"lines", job->output.empty() ? 0 : lines.size()}, {"tail", tail}});
     }
     return list;
@@ -635,7 +638,7 @@ _cold std::string cluster::Manager::shellKill(const std::string& which)
     if (targets.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, which == "all" ? "no shell running" : "no shell '" + which + "' running (/shells)");
     for (const std::shared_ptr<cluster::ShellJob>& job: targets) {
         cluster::stop_group(job->pid, false);
-        std::thread([job]() { // still there after 2 s: killed
+        cluster::guarded([job]() { // still there after 2 s: killed
             std::this_thread::sleep_for(std::chrono::seconds(2));
             if (!job->done) cluster::stop_group(job->pid, true);
         }).detach();

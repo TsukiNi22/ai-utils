@@ -2,7 +2,7 @@
 # Regression test: the graph view of the terminal (Alt+G): drawn, panned, zoomed, a node selected / opened, left with Esc.
 # An isolated core (own config / data / socket dirs, a fake `claude`) and the terminal client in a pty read with pyte.
 # Usage: tests/graph_tty.py [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster); needs python3-pyte
-import os, pty, select, shutil, signal, struct, subprocess, sys, tempfile, time, fcntl, termios
+import json, os, pty, select, shutil, signal, socket, struct, subprocess, sys, tempfile, time, fcntl, termios
 import pyte
 
 BIN = sys.argv[1] if len(sys.argv) > 1 else "/tmp/cc-build/claude-cluster"
@@ -24,6 +24,20 @@ def check(what: str, ok: bool) -> None:
     global fails
     print(("ok   " if ok else "FAIL ") + what)
     fails += 0 if ok else 1
+
+def ask(request: dict) -> dict:
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(30)
+    s.connect(WORK + "/sock")
+    s.sendall((json.dumps(request) + "\n").encode())
+    data = b""
+    while not data.endswith(b"\n"):
+        chunk = s.recv(1 << 20)
+        if not chunk:
+            break
+        data += chunk
+    s.close()
+    return json.loads(data or b"{}")
 
 try:
     time.sleep(3)
@@ -102,6 +116,21 @@ try:
         check("node2 found for the click", False)
     send("\x1bg", 0.8)
     check("Alt+G opens it again", "Graph" in text())
+    # a node pressed, closed before its release (a one-shot sub-session, the global session closing one): its index of an older frame is not read
+    spot = where("node5")
+    if spot:
+        x, y = spot[0] + 1, spot[1] + 1
+        send("\x1b[<0;%d;%dM" % (x, y), 0.4)
+        for session in ask({"cmd": "list"}).get("data") or []:
+            if str(session.get("name", "")).startswith("node"):
+                ask({"cmd": "close", "session": session.get("id", "")})
+        pump(2.5)
+        check("the sessions closed under the press", "node5" not in text())
+        send("\x1b[<0;%d;%dm" % (x, y), 1.0)
+        check("its release: the terminal alive, nothing selected of it", os.waitpid(client_pid, os.WNOHANG) == (0, 0) and "Graph" in text())
+        send("x", 0.5)
+    else:
+        check("node5 found for the press", False)
     send("\x1b", 0.8)
     check("Esc closes it", "Graph" not in text().split("\n")[0])
 finally:

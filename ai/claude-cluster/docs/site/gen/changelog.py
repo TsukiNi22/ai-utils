@@ -11,15 +11,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import _data  # noqa: E402
 
-
 def series(version: str) -> str:
     parts = version.split(".")
     return ".".join(parts[:2]) if len(parts) >= 2 and version != "next" else "next"
 
-
 def ident(version: str) -> str:
     return "v" + re.sub(r"[^0-9a-z]+", "-", version)
 
+def commit_text(text: str) -> str:
+    """A commit subject is text, not Markdown: what it says of the markup is shown as it is (a ![](path) is no image); its `code` stays code."""
+    pieces = re.split(r"(`[^`]*`)", text)
+    return "".join(piece if n % 2 else re.sub(r"([\\\[\]!*<~])", r"\\\1", piece) for n, piece in enumerate(pieces))
 
 def changelog_md(ctx, lang: str) -> str:
     en = lang == "en"
@@ -39,11 +41,9 @@ def changelog_md(ctx, lang: str) -> str:
             out.append("### %s {#%s}\n" % (label, ident(v["version"])))
             out.append("*%s*\n" % v["date"])
             for c in v["commits"]:
-                text = c["text"].replace("|", "\\|")
-                out.append("- %s (`%s`)" % (text, c["hash"]))
+                out.append("- %s (`%s`)" % (commit_text(c["text"]), c["hash"]))
             out.append("")
     return "\n".join(out)
-
 
 def versions_md(ctx, lang: str) -> str:
     en = lang == "en"
@@ -69,7 +69,6 @@ def versions_md(ctx, lang: str) -> str:
         hashes = ", ".join("`%s`" % c["hash"] for c in v["commits"][:6]) + (" ..." if len(v["commits"]) > 6 else "")
         out.append("| %s | %s | %s |" % (v["version"], v["date"], hashes))
     return "\n".join(out)
-
 
 def downloads_md(ctx, lang: str) -> str:
     en = lang == "en"
@@ -99,7 +98,6 @@ def downloads_md(ctx, lang: str) -> str:
     out.append("The sources are in the `ai/claude-cluster` folder of [the repository](%s); build them as described in [Install](page:install)." % ctx.config["site"]["repo"] if en else
                "Les sources sont dans le dossier `ai/claude-cluster` du [dépôt](%s) ; compilez-les comme décrit dans [Installation](page:install)." % ctx.config["site"]["repo"])
     return "\n".join(out)
-
 
 def pages(ctx) -> list[dict]:
     return [

@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Tools.hpp"
 #include <sys/epoll.h>
 #include <sys/stat.h>
+#include <algorithm>
 #include <unistd.h>
 #include <iterator>
 #include <fcntl.h>
@@ -41,6 +42,12 @@ _cold cluster::WebVoice::WebVoice(cluster::Manager& manager, cluster::Voice& voi
 
 _cold cluster::WebVoice::~WebVoice()
 {
+    this->halt();
+}
+
+_cold void cluster::WebVoice::halt(void)
+{
+    this->_halted = true; // a recognition running stops waiting (0.2 s at most): the quit never waits for its model
     std::lock_guard<std::mutex> lock(this->_mutex);
     this->stop_();
     std::error_code error;
@@ -104,6 +111,7 @@ _cold std::string cluster::WebVoice::transcribe(const std::string& wav)
 {
     // the recording written, its path given to voice-listen, its text read (the model loads once: ~10 s the first time)
     std::lock_guard<std::mutex> lock(this->_mutex);
+    if (this->_halted) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "claude-cluster is ending");
     const cluster::VoiceConf& conf = this->_manager.config().voice;
     if (this->_process && (conf.listenModel != this->_model || conf.listenLanguage != this->_language)) this->stop_(); // the settings changed
     if (!this->_process) this->start_();
@@ -123,7 +131,11 @@ _cold std::string cluster::WebVoice::transcribe(const std::string& wav)
     const std::int64_t end = now_ms_() + 120000;
     while (this->_buffer.find('\n') == std::string::npos) {
         const std::int64_t left = end - now_ms_();
-        const ssize_t size = left > 0 && !poll.wait(static_cast<int>(left)).empty() ? ::read(this->_out->getRead(), chunk.data(), chunk.size()) : 0;
+        ssize_t size = 0;
+        if (left > 0 && !this->_halted) {
+            if (poll.wait(static_cast<int>(std::min<std::int64_t>(left, 200))).empty()) continue; // 0.2 s at a time: the quit seen
+            size = ::read(this->_out->getRead(), chunk.data(), chunk.size());
+        }
         if (size <= 0) {
             this->stop_();
             std::filesystem::remove(path, error);
@@ -137,7 +149,7 @@ _cold std::string cluster::WebVoice::transcribe(const std::string& wav)
     this->_buffer.erase(0, nl + 1);
     this->_used = now_ms_();
     try {
-        const cluster::Json json = cluster::Json::parse(answer);
+        const cluster::Json json = cluster::json_parse(answer);
         if (json.contains("error")) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, json.value("error", std::string()));
         return json.value("text", std::string());
     } catch (const cluster::Json::exception&) {
@@ -147,14 +159,16 @@ _cold std::string cluster::WebVoice::transcribe(const std::string& wav)
 
 _cold void cluster::WebVoice::tick(void)
 {
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    if (this->_process && now_ms_() - this->_used > 600000) this->stop_();
+    // never waits: the lock taken means a recognition is running (up to 2 min, it is in use), and this runs in the tick of the whole core
+    const std::unique_lock<std::mutex> lock(this->_mutex, std::try_to_lock);
+    if (lock.owns_lock() && this->_process && now_ms_() - this->_used > 600000) this->stop_();
 }
 
 /* speech */
 _cold std::string cluster::WebVoice::speech(const std::string& text)
 {
     // voice-say -o: the engine and the voice of the settings for the language of the text, Piper when it fails
+    if (this->_halted) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "claude-cluster is ending");
     std::vector<std::string> args = this->_voice.sayArgs(text);
     const std::filesystem::path path = this->file_("say");
     args.insert(args.end() - 1, {"-o", path.string()});

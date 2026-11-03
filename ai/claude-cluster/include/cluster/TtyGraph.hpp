@@ -109,7 +109,7 @@ class GraphView {
         bool _fitted = false;
         bool _pressed = false;
         bool _moved = false;
-        int _downHit = -1;          // the node under the press (a click selects it at the release)
+        std::string _downId;        // the node under the press (a click selects it at the release), its id: the nodes change at every frame
         int _lastX = 0;
         int _lastY = 0;
         std::string _clickId;       // the last node clicked and when: a second click is a double click

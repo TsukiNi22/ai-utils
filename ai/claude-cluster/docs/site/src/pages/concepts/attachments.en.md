@@ -12,6 +12,8 @@ Files, images and photos go with a prompt like in a chat: the **paperclip** next
 
 An image reaches the agent as the picture itself (`[Image #N]`); any other file as `@path` (text, code, PDF...). The transcript shows them with a thumbnail and a link to open or download.
 
+**A big one takes time: its popup tells it.** After 0.4 s, in the window and on the page like in the terminal: *Importing name*, what it does (reading, preparing the image with `magick`, storing it), how much, and a bar when its total is known. On the page the bar follows the upload and **Cancel** stops it; a slow connection has its time. The window imports in the background and goes on. On the page a text pasted over 200 KB is attached as `pasted-text.txt`: a prompt that long stops a page, and a request takes 1 MB at most.
+
 ## What is checked {#checks}
 
 - **Upload**: the file is sent to the core and stored in `<data>/attachments/<session>/<id>-<name>` with mode `0600`, never executable. The name is made safe, the type is **sniffed from the content** (a program, ELF or PE, is refused), images are re-encoded **without EXIF** and downscaled to `max_pixels` (needs ImageMagick).

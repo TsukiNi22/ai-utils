@@ -1,73 +1,137 @@
-/* docs demo - extra styles on top of html-style */
+/* claude-cluster docs - on top of html-style: a copy of better-html-style/templates/site.css and better-html-doc/templates/markdown.css (keep them equal), then its own rules */
+/* better-html-style - the documentation site style (from the claude-cluster docs), on top of html-style: home hero, search
+   box and results, section tiles, sidebar groups, page meta, changelog list, kinds of results; phone / tablet / print */
 .layout.wide { grid-template-columns: minmax(0, 1fr); max-width: 1040px; margin-left: auto; margin-right: auto; }
-@media (min-width: 1340px) { .layout.wide { max-width: 1040px; } .layout.wide > main { grid-column: 1; } } /* the home centered (html-style: main in column 2) */
+/* a page without sidebar (the home): its column centered at every width (html-style puts main in column 2 from 1340px) */
+@media (min-width: 1340px) { .layout.wide { max-width: 1040px; } .layout.wide > main { grid-column: 1; } }
 .embed .topbar, .embed footer.site { display: none; }
 .embed .sidebar { top: 0; }
+/* what a link reaches (a section, a heading, a message) stays visible under what sticks on top: the bar, the search of a phone */
+main, main [id] { scroll-margin-top: 72px; }
+.embed main, .embed main [id] { scroll-margin-top: 16px; }
+
+/* ----- home ----- */
 .hero { text-align: center; padding: 28px 0 8px; }
 .hero h1 { font-size: 40px; margin: 0 0 6px; }
 .hero .lead { margin: 0 auto 18px; }
-.badge { display: inline-block; padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); background: var(--surface); }
+.badge { display: inline-block; max-width: 100%; padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); background: var(--surface); text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; } /* a version, a commit: never the capitals of the eyebrow */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); gap: 16px; margin: 24px 0; }
+.tile { display: block; padding: 20px 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none; transition: border-color .15s, background .15s; }
+.tile:hover { border-color: var(--accent); background: var(--code-bg); }
+.tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tile h2 { margin: 8px 0 4px; font-size: 17px; } /* a tile is a section of the home: h2 under the h1 (RGAA 9.1) */
+.tile p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.tile svg { width: 26px; height: 26px; color: var(--accent); }
+.tile .count { float: right; font-size: 12.5px; color: var(--muted); }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; } /* minmax(0): a wide table or code scrolls in its column, never pushes it out of the card */
+.links { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 8px 0 0; }
+.links a { min-width: 0; padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-decoration: none; overflow-wrap: anywhere; }
+.links a:hover { border-color: var(--accent); }
+.cl { list-style: none; margin: 0; padding: 0; }
+.cl li { display: flex; gap: 12px; max-width: none; padding: 8px 0; border-top: 1px solid var(--border); }
+.cl li:first-child { border-top: 0; }
+.cl b { flex: none; min-width: 56px; max-width: 38%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; overflow-wrap: anywhere; } /* a long version wraps in its column, the text keeps the width of the row */
+.cl li > span { flex: 1; min-width: 0; max-width: 75ch; overflow-wrap: anywhere; }
+
+/* ----- search ----- */
 .sbox { position: relative; max-width: 640px; margin: 0 auto; text-align: left; }
-.sbox input { width: 100%; box-sizing: border-box; padding: 14px 16px 14px 44px; font: inherit; font-size: 17px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.sbox input { display: block; width: 100%; box-sizing: border-box; padding: 14px 16px 14px 44px; font: inherit; font-size: 17px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
 .sbox input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
-.sbox > svg { position: absolute; left: 14px; top: 15px; width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
+.sbox > svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
 .sbox.small input { padding: 7px 10px 7px 34px; font-size: 14.5px; }
-.sbox.small > svg { left: 10px; top: 8px; width: 16px; height: 16px; }
+.sbox.small > svg { left: 10px; width: 16px; height: 16px; }
+.sbox kbd.hint { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; pointer-events: none; }
+.sbox input:focus ~ kbd.hint, .sbox input:not(:placeholder-shown) ~ kbd.hint { display: none; }
 .results { position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, .2); max-height: 60vh; overflow: auto; }
 .results[hidden] { display: none; }
 .results a { display: flex; gap: 10px; align-items: baseline; padding: 8px 10px; border-radius: 6px; color: var(--text); text-decoration: none; }
 .results li.sel a, .results a:hover { background: var(--code-bg); }
-.results .t { flex: 1; min-width: 0; }
+.results .t { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
 .results .d { display: block; font-size: 13px; color: var(--muted); }
 .results mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; }
 .results .none { padding: 10px; color: var(--muted); }
-.kind { flex: none; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
-.kind.settings { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
-.kind.docs { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
-.kind.tools { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; margin: 24px 0; }
-.tile { display: block; padding: 20px 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none; transition: border-color .15s, background .15s; }
-.tile:hover { border-color: var(--accent); background: var(--code-bg); }
-.tile h3 { margin: 8px 0 4px; }
-.tile p { margin: 0; color: var(--muted); font-size: 14.5px; }
-.tile svg { width: 26px; height: 26px; color: var(--accent); }
-.two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.links { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 8px 0 0; }
-.links a { padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-decoration: none; }
-.links a:hover { border-color: var(--accent); }
-.cl { list-style: none; margin: 0; padding: 0; }
-.cl li { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
-.cl li:first-child { border-top: 0; }
-.cl b { flex: none; min-width: 56px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; }
-.feedback { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 24px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-.feedback button { padding: 5px 14px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
-.feedback button:hover { border-color: var(--accent); }
-.feedback button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.topbar .sbox.small { width: 260px; margin: 0 8px; }
-@media (max-width: 860px) { .two { grid-template-columns: 1fr; } .hero h1 { font-size: 30px; } }
-@media (max-width: 480px) { .tile { padding: 16px; } }
+.kind { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.results .kind { flex: 0 1 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* a long kind never takes the room of its title */
+.kind.docs, .kind.page { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.kind.settings, .kind.config { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.kind.tools, .kind.api, .kind.message, .kind.protocol { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.kind.keys, .kind.explain { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+/* the bar holds everything on one line at any width: its name gives way first, then the search */
+.topbar .brand { flex-shrink: 100; min-width: 28px; }
+.topbar .top-actions { flex: 0 1 auto; min-width: 0; }
+.top-actions .divider { flex: none; }
+.topbar .sbox.small { flex: 0 1 260px; width: 260px; min-width: 110px; margin: 0 8px; }
+.topbar .sbox.small .results { left: auto; right: 0; width: 440px; max-width: calc(100vw - 24px); }
+/* a narrow bar: the switches after the box leave it far from the right of the screen, the results hold to the screen, never past its left edge */
+@media (max-width: 1100px) { .topbar .sbox.small .results { position: fixed; top: 62px; right: 12px; width: min(440px, calc(100vw - 24px)); } }
+@media (max-width: 1100px) and (max-height: 480px) and (orientation: landscape) { .topbar .sbox.small .results { top: 54px; } }
 .sbox.small.mob { position: sticky; top: 56px; z-index: 19; width: auto; margin: 0; padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
-.embed .sbox.small.mob { top: 0; } /* the embedded copy (web page, app): no top bar, the search at the very top (the script sets the real height too) */
+.embed .sbox.small.mob { top: 0; } /* the embedded copy has no top bar: the very top */
 @media (max-height: 480px) and (orientation: landscape) { .sbox.small.mob { top: 48px; } .embed .sbox.small.mob { top: 0; } }
-.sbox.small.mob > svg { left: 22px; top: 17px; }
-.sbox.small.mob .results { left: 12px; right: 12px; }
-/* docs site - additions */
-.layout.wide { grid-template-columns: minmax(0, 1fr); max-width: 1040px; }
+.sbox.small.mob > svg { left: 22px; }
+.sbox.small.mob .results, .topbar .sbox.small.mob .results { left: 12px; right: 12px; width: auto; }
+
+/* ----- pages ----- */
+kbd { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: break-word; padding: 0 6px; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); background: var(--code-bg); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; }
 .sidebar .grp { margin: 16px 0 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .sidebar a.cur { color: var(--accent); font-weight: 600; }
 .sidebar hr { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
 .brand .logo { width: 28px; height: 28px; }
-.page-meta { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+header p:has(+ .page-meta) { margin-bottom: 12px; }
+.page-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 24px; font-size: 13px; color: var(--muted); } /* close to the lead, not stuck on the first card */
+.page-meta > * { min-width: 0; overflow-wrap: anywhere; }
+.page-meta a { color: var(--muted); }
+.page-meta a:hover { color: var(--accent); }
 main pre { overflow-x: auto; }
 main li > ul, main li > ol { margin-top: 4px; }
-.table-wrap td code { white-space: nowrap; }
 .callout.planned { border-left-color: var(--warn); }
-.pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); color: var(--muted); }
-.kind.keys { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.pill { display: inline-block; max-width: 100%; padding: 0 8px; overflow-wrap: anywhere; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); color: var(--muted); }
+details.more { margin: 14px 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+details.more > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; }
+details.more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.more > div { padding: 0 14px 6px; }
+.feedback { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 24px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.feedback > span { min-width: 0; overflow-wrap: anywhere; }
+.feedback button { padding: 5px 14px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.feedback button:hover { border-color: var(--accent); }
+.feedback button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ----- responsive ----- */
+@media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } .hero h1 { font-size: 30px; } .topbar .sbox.small { flex-basis: 200px; width: 200px; } .sbox.small input { font-size: 16px; } .sbox kbd.hint { display: none; } } /* 16px: under it iOS zooms the page on focus; the hint: the box may be too small for it */
+@media (max-width: 480px) { body:has(.sbox.small) .hero .sbox { display: none; } } /* a phone: the search under the top bar only (never two, one in the middle of the home) */
+@media (max-width: 480px) { .tile { padding: 16px; } .hero { padding-top: 12px; } .hero h1 { font-size: 26px; } .sbox input { font-size: 16px; } main, main [id] { scroll-margin-top: 128px; } .embed main, .embed main [id] { scroll-margin-top: 72px; } } /* the bar + the search under it */
+@media (pointer: coarse) { .results a { min-height: 44px; align-items: center; } .links a { min-height: 44px; display: inline-flex; align-items: center; } .topbar .menu-btn { width: 40px; height: 40px; } summary { display: list-item; } } /* a summary keeps its marker: a flex one loses it */
+@media print {
+  .topbar, .sidebar, .pager, .feedback, .sbox, .page-meta a.edit, .keys-toggle { display: none !important; }
+  /* paper does not scroll: the short cells docTables kept on one line wrap there and the table is denser, so that a wide one fits the page */
+  table { font-size: 12px; }
+  th, td { padding: 4px 6px; white-space: normal !important; }
+}
+
+/* RGAA 12.10: the one-character shortcut of the search can be turned off */
+.sbox kbd.hint[hidden] { display: none; }
+.keys-toggle { display: inline-flex; align-items: center; gap: 8px; margin-left: 16px; cursor: pointer; }
+@media (max-width: 480px) { .keys-toggle { display: flex; margin: 6px 0 0; } } /* its own line under the text of the footer, not indented */
+.keys-toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.keys-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) { .keys-toggle { display: none; } }
+/* better-html-doc - what mdlib.py and the generator write and the style skills do not know: on top of better-html-style, tokens only */
+/* a task item: the box where the bullet would be, its text aligned like any item, the state readable in both themes (a disabled box of the browser is pale) */
+main li.task { position: relative; list-style: none; }
+main li.task > input { appearance: none; position: absolute; left: -1.45em; top: .3em; width: 1em; height: 1em; margin: 0; border: 1.5px solid var(--muted); border-radius: 3px; background: var(--surface); }
+main li.task > input:checked { border-color: var(--accent); background: var(--accent); }
+main li.task > input:checked::after { content: ""; position: absolute; left: 30%; top: 8%; width: 28%; height: 56%; border: solid var(--surface); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+/* an item with blocks: its paragraphs without the margin that would push its first line under its bullet */
+main li > p:first-child { margin-top: 0; }
+main li > p:last-child { margin-bottom: 0; }
+main del { color: var(--muted); }
+/* raw HTML of a page: a frame never wider than its card (the other media are in html-style) */
+main iframe, main embed, main object, main audio { max-width: 100%; }
+/* the title of the previous / next page: every language in its span, the same as the bare text of a site of one language (only the label is small) */
+.pager a > span + span { font-size: inherit; color: inherit; }
+/* on paper a table has the width of the page: what its columns keep (a min-width on its first row) is for a screen, where it can scroll */
+@media print { main th, main td { min-width: 0 !important; } }
+/* ----- the claude-cluster docs ----- */
 .kind.glossary { color: var(--muted); }
 .helpbtn { display: inline-block; margin-left: 8px; }
 .sec-top { float: right; font-size: 13px; }
-@media print { .topbar, .sidebar, .pager, .feedback, .sbox { display: none !important; } }
-.topbar .sbox.small .results { left: auto; right: 0; width: 440px; max-width: 92vw; }
-.topbar .sbox.small.mob .results { left: 12px; right: 12px; width: auto; }
-@media (max-width: 480px) { .hero .sbox { display: none; } } /* a phone: the search under the top bar only (never two, one in the middle of the home) */

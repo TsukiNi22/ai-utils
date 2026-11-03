@@ -61,7 +61,7 @@ _cold cluster::Json cluster::Manager::taxonomyJson(void) const
 {
     // every node with its parent, then the labels used by the sessions (alive and archived) with their number of sessions below
     cluster::Json json = this->taxonomy().json();
-    json["edit"] = this->_config.taxonomyEdit;
+    json["edit"] = this->config().taxonomyEdit;
     return json;
 }
 

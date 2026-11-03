@@ -41,6 +41,16 @@ _cold static std::string model_warn_text_(const std::string& model, const std::p
 _cold static cluster::Json sched_rule_(const std::string& kind, const std::string& value);                           // a schedule made by its steps: its rule
 _cold static cluster::Json sched_options_(const std::string& target, const cluster::Json& rule, const std::string& prompt); // ... and its options
 
+_cold static std::string export_file_(const std::string& name)
+{
+    // the file /export and :w write without a path: one file of the home, not hidden. The name of a session is a text anyone renames, never a path (".claude/CLAUDE": the prompt of every agent)
+    std::string file;
+    for (const char c: name)
+        file += c == '/' || c == '\\' || static_cast<unsigned char>(c) < 32 ? '_' : c;
+    file.erase(0, file.find_first_not_of('.'));
+    return "~/" + (file.empty() ? std::string("session") : file) + ".md";
+}
+
 /* actions */
 _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, const std::string& session)
 {
@@ -64,8 +74,8 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         {"info", "Session info: model, thinking, api / login, cost, limits, everything about the one in focus", "", "", false},
         {"stats", "Statistics: cost and tokens per day / model / provider, sessions ranking, cache, uptime, heatmap, tools, limits (F10)", "", "", false},
         {"jobs", "Background jobs: what runs (!commands, heavy jobs, tasks, working sessions) with the id to stop it (a popup, /kill <id>)", "", "", false},
-        {"agents", "Agents of this session: the ones it made itself (its Agent tool) - their time, model, effort, activity; stop one (F7)", "", "", true},
-        {"shells", "Background shells: the !commands running (a popup), stop one with /kill", "", "", false},
+        {"agents", "Agents and shells of this session: what it made itself (its Agent tool, its shells), in the background or not - their time, model, effort, activity; stop one (F7)", "", "", true},
+        {"shells", "Background shells: the !commands running and the agents and shells of this session (a popup), stop one with /kill", "", "", false},
         {"shells_kill", "Background shells: stop them all", "", "", false},
         {"settings_search", "Settings: search one (its name, its description) and open it", "", "", true},
         {"machine_sync", "Map of this computer: scan again (asks first)", "", "", true},
@@ -153,7 +163,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         } else {
             list.push_back({manager.remote() ? "remote_off" : "remote_on", manager.remote() ? "Remote Control: off (back here)" : "Remote Control: on (claude.ai / app)", "", "", false});
         }
-        list.push_back({"export", "Export the conversation to Markdown", "file", "~/" + snap->spec.name + ".md", false});
+        list.push_back({"export", "Export the conversation to Markdown", "file", export_file_(snap->spec.name), false});
         list.push_back({"where_folder", "Open its folder (" + cluster::short_path(snap->spec.cwd) + ")", "", "", false});
         list.push_back({"where_terminal", "Open a terminal in its folder (" + cluster::short_path(snap->spec.cwd) + ")", "", "", false});
         if (!snap->spec.global && !snap->spec.claudeId.empty() && snap->spec.backend.substr(0, snap->spec.backend.find('/')) != "codex")
@@ -166,7 +176,7 @@ _cold std::vector<cluster::Action> cluster::actions(cluster::Manager& manager, c
         for (auto it = snap->entries.rbegin(); it != snap->entries.rend() && seen < 30; ++it) {
             if (it->kind != cluster::EntryKind::Display) continue;
             ++seen;
-            const cluster::Json d = cluster::Json::parse(it->text, nullptr, false);
+            const cluster::Json d = cluster::json_parse(it->text, nullptr, false);
             if (!d.is_object()) continue;
             const std::string id = d.value("id", std::string());
             const std::string type = d.value("type", std::string());
@@ -480,7 +490,7 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
             result.message = (opened.opened ? "docs opened: " : "docs, no display: open ") + opened.url;
         } else if (base == "web_trust_ca") {
             // claude-cluster web trust-ca in the background (the window of the password), its end told
-            std::thread([&manager]() {
+            cluster::guarded([&manager]() {
                 const cluster::Captured done = cluster::capture({cluster::self_exe().string(), "web", "trust-ca"}, "", 300);
                 manager.notice(GLOBAL_ID, done.code == 0 ? "web: its certificate trusted by this computer (restart the browser: no warning)"
                     : "web: certificate not trusted (" + cluster::one_line(done.out, 160) + ")", done.code != 0);
@@ -573,7 +583,6 @@ _cold static cluster::ActionResult run_action_(cluster::Manager& manager, cluste
         } else if (base == "unpin") {
             manager.unpin(session);
             result.message = "unpinned";
-            result.message = manager.upgradeAct("update"); // the newer claude-cluster installed: switched to it
         } else if (base == "fork") {
             result.focus = manager.forkSession(session, "");
             result.message = "forked";
@@ -751,8 +760,8 @@ _cold const std::vector<std::pair<std::string, std::string>>& cluster::slash_com
         {"info", "everything about the session in focus: agent, model, thinking, api / login, cost, limits (a popup)"},
         {"stats", "the statistics: usage, activity (the Stats session, F10)"},
         {"jobs", "everything running in the background (!commands, heavy jobs, tasks, working sessions) in a popup; /kill <id> stops one"},
-        {"agents", "the agents this session made itself (its Agent tool): their time, model, effort, activity, stop one (a popup, F7)"},
-        {"shells", "the !commands running in the background (and the last ended ones): a popup; /kill <id|all> stops them"},
+        {"agents", "the agents and shells this session made itself (its Agent tool, its shells), in the background or not: their time, model, effort, activity, stop one (a popup, F7)"},
+        {"shells", "the !commands running in the background (and the last ended ones), then the agents and shells of this session: a popup; /kill <id|all> stops them"},
         {"kill", "<id|all>: stop a background shell (and everything it started)"},
         {"status", "the same as /info"},
         {"mcp", "the MCP servers given to the sessions: a popup"},
@@ -1048,10 +1057,18 @@ _cold cluster::CompletionProvider cluster::completion_provider(cluster::Manager&
     };
 }
 
+_cold static std::string agent_line_(const cluster::SubAgent& a, const std::string& where = "")
+{
+    // an agent or a shell a session made itself: the id /kill takes, in the background or in its turn, its state and time
+    const std::int64_t seconds = a.started > 0 ? std::max<std::int64_t>(0, ((a.ended > 0 ? a.ended : cluster::now_ms()) - a.started) / 1000) : 0;
+    return (a.taskId.empty() ? std::string("-") : a.taskId) + "  " + (a.kind == "shell" ? "shell" : "agent") + " · " + (a.background ? "background" : "foreground") + "  "
+        + (a.stopping ? std::string("stopping") : a.status) + " " + std::to_string(seconds) + " s  " + cluster::one_line(a.description.empty() ? a.type : a.description, 70) + where;
+}
+
 _cold static std::string jobs_text_(cluster::Manager& manager)
 {
-    // everything that runs without a prompt: the !commands (b1...), the heavy jobs of the orchestrator (j1...), the tasks (t1...), the
-    // sessions working; each with the id /kill takes
+    // everything that runs without a prompt: the !commands (b1...), the heavy jobs of the orchestrator (j1...), the tasks (t1...), the agents and
+    // shells the sessions made themselves (their task id), the sessions working; each with the id /kill takes
     std::string out = "Background jobs";
     int count = 0;
     const cluster::Json shells = manager.shells();
@@ -1074,18 +1091,32 @@ _cold static std::string jobs_text_(cluster::Manager& manager)
         ++count;
         out += "\n" + t.id + "  task  " + t.status + (t.session.empty() ? "" : " in " + t.session) + "  " + cluster::one_line(t.prompt, 70);
     }
-    for (const cluster::Snapshot& s: manager.listLight(true))
+    const std::vector<cluster::Snapshot> sessions = manager.listLight(true);
+    for (const cluster::Snapshot& s: sessions)
+        for (const cluster::SubAgent& a: s.agents)
+            if (a.status == "running") {
+                ++count;
+                out += "\n" + agent_line_(a, "  (" + (s.spec.global ? std::string("global") : s.spec.name) + ")");
+            }
+    for (const cluster::Snapshot& s: sessions)
         if (s.state == cluster::State::Working) {
             ++count;
             out += "\n" + s.spec.id + "  session  working  " + s.spec.name + " (Ctrl+C in it stops the turn)";
         }
-    if (count == 0) out += "\nnothing runs: no !command, heavy job, task or working session";
-    else out += "\n\n/kill <id> stops one (b1 a !command, j1 a heavy job, t1 a task), /kill all the !commands";
+    if (count == 0) out += "\nnothing runs: no !command, heavy job, task, agent or working session";
+    else out += "\n\n/kill <id> stops one (b1 a !command, j1 a heavy job, t1 a task, the id of an agent or a shell), /kill all the !commands";
     return out;
 }
 
 _cold static std::string jobs_kill_(cluster::Manager& manager, const std::string& which)
 {
+    if (!which.empty() && which != "all")
+        for (const cluster::Snapshot& s: manager.listLight(true))
+            for (const cluster::SubAgent& a: s.agents)
+                if (a.taskId == which && a.status == "running") {
+                    manager.stopAgent(s.spec.id, which);
+                    return std::string(a.kind == "shell" ? "shell " : "agent ") + which + " of " + (s.spec.global ? std::string("the global session") : s.spec.name) + " stopping: its session goes on";
+                }
     if (which.empty() || which == "all" || (which.size() > 1 && which[0] == 'b' && std::all_of(which.begin() + 1, which.end(), [](const unsigned char c) {return std::isdigit(c) != 0;})))
         return manager.shellKill(which.empty() ? std::string("all") : which);
     if (which.size() > 1 && which[0] == 't' && std::all_of(which.begin() + 1, which.end(), [](const unsigned char c) {return std::isdigit(c) != 0;})) {
@@ -1096,7 +1127,7 @@ _cold static std::string jobs_kill_(cluster::Manager& manager, const std::string
         (void)manager.jobsCommand("job_kill", {{"id", which}});
         return "job " + which + " killed";
     }
-    throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no job '" + which + "' (b1 a !command, j1 a heavy job, t1 a task)");
+    throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no job '" + which + "' (b1 a !command, j1 a heavy job, t1 a task, the id of a running agent or shell: /jobs)");
 }
 
 _cold static std::string session_info_(cluster::Manager& manager, const std::string& id)
@@ -1265,6 +1296,12 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 result.message += "\n" + j.value("id", std::string()) + "  " + (j.value("running", false) ? "running " : j.value("killed", false) ? "stopped " : "exit " + std::to_string(j.value("code", -1)) + " ")
                     + std::to_string(j.value("seconds", std::int64_t{0})) + " s  " + cluster::one_line(j.value("command", std::string()), 70) + (j.value("tail", std::string()).empty() ? "" : "\n      " + j.value("tail", std::string()));
             result.message += jobs.empty() ? "" : "\n\n/kill <id|all> stops one";
+            // what the session made itself, in the background or in its turn
+            std::string own;
+            if (const std::optional<cluster::Snapshot> snap = manager.snapshot(session); snap)
+                for (const cluster::SubAgent& a: snap->agents)
+                    own += "\n" + agent_line_(a);
+            if (!own.empty()) result.message += "\n\nagents and shells of this session (F7 / Alt+B opens them; /kill <id> stops a running one)" + own;
             result.ui = "message";
         } else if (name == "kill") {
             result.message = jobs_kill_(manager, arg);
@@ -1285,7 +1322,7 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                 result.message = "usage (" + u.vendor + ")";
                 for (const cluster::UsageWindow& w: u.windows)
                     result.message += "\n" + w.name + ": " + (w.used < 0 ? std::string("?") : std::to_string(static_cast<int>(w.used * 100 + 0.5)) + "%")
-                        + (w.reset > 0 ? " (reset in " + cluster::took((w.reset - cluster::now()) * 1000) + ")" : "") + (w.locked.empty() ? "" : " · " + w.locked);
+                        + (cluster::left_time(w.reset).empty() ? "" : " (reset in " + cluster::left_time(w.reset) + ")") + (w.locked.empty() ? "" : " · " + w.locked);
                 if (u.windows.empty() && u.limit5h >= 0) result.message += "\n5 h: " + std::to_string(static_cast<int>(u.limit5h * 100 + 0.5)) + "%";
                 if (u.windows.empty() && u.limit7d >= 0) result.message += "\n7 d: " + std::to_string(static_cast<int>(u.limit7d * 100 + 0.5)) + "%";
                 result.message += "\ntoday: " + sum(u.today) + "\n7 days: " + sum(u.week) + "\nthis session: " + cluster::human_tokens(m.total.total()) + " tokens, "
@@ -1308,7 +1345,7 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
                     row += (row.empty() ? "" : ", ") + n;
                 lines.push_back(cluster::short_path(dir.string()) + " (" + std::to_string(names.size()) + "): " + (row.empty() ? "none" : row));
             }
-            const cluster::Json plugins = cluster::Json::parse(cluster::capture({manager.config().command("claude"), "plugin", "list", "--json"}, "", 30).out, nullptr, false);
+            const cluster::Json plugins = cluster::json_parse(cluster::capture({manager.config().command("claude"), "plugin", "list", "--json"}, "", 30).out, nullptr, false);
             std::string row;
             std::size_t count = 0;
             if (plugins.is_array())
@@ -1353,7 +1390,7 @@ _cold static std::optional<cluster::ActionResult> run_slash_(cluster::Manager& m
             manager.interrupt(session);
         } else if (name == "export") {
             const std::optional<cluster::Snapshot> snap = manager.snapshot(session);
-            const std::string path = arg.empty() ? "~/" + (snap ? snap->spec.name : session) + ".md" : arg;
+            const std::string path = arg.empty() ? export_file_(snap ? snap->spec.name : session) : arg;
             std::ofstream(cluster::expand_home(path)) << manager.exportMarkdown(session);
             result.message = "exported to " + cluster::expand_home(path).string();
         } else if (name == "restore") {
@@ -1385,6 +1422,7 @@ _cold std::optional<cluster::ActionResult> cluster::run_slash(cluster::Manager& 
 {
     // a local command run here: its popup while it takes time, its failure (OK / Retry); else sent as the prompt. The /word picked in
     // the completion among several of the same name (its hidden id): the agent's own one or a skill never run here
+    if (cluster::pasted_first(tagged)) return std::nullopt; // what is pasted is never run: a text copied from a page, "!curl ... | sh" as its first line under its [Pasted text] block
     std::string pick;
     const std::string line = cluster::slash_untag(tagged, &pick);
     if (!pick.empty() && !pick.starts_with("c")) return std::nullopt;

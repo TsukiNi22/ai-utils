@@ -37,7 +37,7 @@
   // typo tolerance (the idea of c2dmp-hsm: a missing, doubled, wrong or swapped letter still finds it), swaps counted as one
   function typo(q, s) {
     if (q.length < 4) return -1;
-    var max = q.length >= 8 ? 2 : 1, words = s.split(/[^a-z0-9]+/), best = max + 1;
+    var max = q.length >= 8 ? 2 : 1, words = s.split(/[^a-z0-9à-ÿ]+/), best = max + 1;
     for (var k = 0; k < words.length; k++) {
       var w = words[k];
       if (w.length < 3) continue;
@@ -50,7 +50,7 @@
     s = (s || '').toLowerCase();
     var i = s.indexOf(w);
     if (i === 0) return 3000 - s.length / 10;
-    if (i > 0) return (/[^a-z0-9]/.test(s[i - 1]) ? 2600 : 2000) - i / 10;
+    if (i > 0) return (/[^a-z0-9à-ÿ]/.test(s[i - 1]) ? 2600 : 2000) - i / 10;
     var t = typo(w, s);
     if (t >= 0) return t;
     if (w.length >= 4) { // letters in order, tight (sesend -> session_send)
@@ -62,6 +62,7 @@
   }
   function entryScore(words, e) {
     var total = 0;
+    if ((e.t || '').toLowerCase().replace(/\s+/g, ' ').trim() === words.join(' ')) return 1e6; // its whole title: that page first, not a section of it
     for (var n = 0; n < words.length; n++) {
       var w = words[n], best = Math.max(wscore(w, e.t), wscore(w, e.d) - 400, wscore(w, e.x) - 800);
       if (best < 0) return -1;
@@ -71,13 +72,10 @@
   }
   function queryWords(q) { return q.toLowerCase().split(/\s+/).filter(Boolean); }
   function esc(x) { return String(x).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
-  function mark(q, s) {
-    var out = esc(s);
-    queryWords(q).forEach(function (w) {
-      var re = new RegExp('(' + esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
-      out = out.replace(re, '<mark>$1</mark>');
-    });
-    return out;
+  function mark(q, s) { // one pass on the raw text: a word of the query never matches inside a <mark> or an &amp; written before it
+    var words = queryWords(q).map(function (w) { return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).sort(function (a, b) { return b.length - a.length; });
+    if (!words.length) return esc(s);
+    return String(s).split(new RegExp('(' + words.join('|') + ')', 'ig')).map(function (part, n) { return n % 2 ? '<mark>' + esc(part) + '</mark>' : esc(part); }).join('');
   }
   function localSearch(q) {
     var l = lang(), words = queryWords(q);
@@ -117,14 +115,17 @@
     input.addEventListener('keydown', function (ev) {
       if (ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
       else if (ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }
-      else if (ev.key === 'Enter' && cur[sel]) location.href = ul.querySelectorAll('a')[sel].getAttribute('href');
+      else if (ev.key === 'Enter' && cur[sel]) { ev.preventDefault(); ul.querySelectorAll('a')[sel].click(); ul.hidden = true; }
       else if (ev.key === 'Escape') { ul.hidden = true; input.blur(); }
     });
+    ul.addEventListener('click', function (ev) { if (ev.target.closest('a')) ul.hidden = true; });
     document.addEventListener('click', function (ev) { if (!box.contains(ev.target)) ul.hidden = true; });
   }
   document.querySelectorAll('.sbox input').forEach(bind);
   if (Q.get('q')) window.addEventListener('load', function () { var qi = document.querySelector('.sbox input'); if (qi) { qi.value = Q.get('q'); qi.dispatchEvent(new Event('input')); } }); // ?q=text opens the results
 
+  var menuBtn = document.querySelector('#menuBtn');
+  if (menuBtn && !document.querySelector('#sidebar')) menuBtn.style.display = 'none'; // a page without sidebar: nothing for the menu to open
   (function () { // phone: the small search moves under the top bar (sticky), else it lives in the top bar
     var sb = document.querySelector('.sbox.small'); if (!sb) return;
     var home = sb.parentNode, mq = window.matchMedia('(max-width: 480px)');

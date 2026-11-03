@@ -7,6 +7,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import select
 import signal
 import socket
@@ -95,6 +96,22 @@ try:
     if "Other" not in term.text():
         term.send(b"\x1bn", 1.5)  # Alt+N: the next session (the one asking)
     check("the question popup is shown", "Other" in term.text() or "Type something" in term.text(), term.text()[-800:])
+    # the single choice: written on Other, no Enter, left and back by Tab: still there, on it, never an answer by itself
+    number = re.search(r"(\d)\. Other", term.text())
+    term.send(number.group(1).encode(), 0.8)
+    for c in b"NOTVALIDATED":
+        term.send(bytes([c]), 0.05)
+    term.pump(0.8)
+    check("written on its Other, no Enter", "NOTVALIDATED" in term.text(), term.text()[-900:])
+    term.send(b"\x1b[A", 0.8)  # up: another option under the cursor
+    check("     an arrow away: still written", "NOTVALIDATED" in term.text(), term.text()[-900:])
+    term.send(b"\x1b[B", 0.8)
+    term.send(b"\t", 1.2)  # the next question, nothing validated
+    check("     Tab: the next question", "What should the showcase show next" in term.text() and "NOTVALIDATED" not in term.text(), term.text()[-900:])
+    term.send(b"\x1b[Z", 1.2)  # back
+    check("     back on it: still written, on it", "NOTVALIDATED" in term.text() and re.search(r"› \d\. Other", term.text()) is not None, term.text()[-900:])
+    term.send(b"\x7f" * 12, 0.5)
+    term.send(b"\x1b[A", 0.5)  # off its Other: a digit chooses again (on it, a digit is text)
     term.send(b"1", 1.2)  # the single choice answered: the multiple one
     check("on the multiple choice", "What should the showcase show next" in term.text(), term.text()[-900:])
     term.send(b"4", 0.8)  # its Other
@@ -109,7 +126,10 @@ try:
     check("back on it: its Other text kept, ticked", "What should the showcase show next" in shown and "[x] 4. Other" in shown and "MYOTHER" in shown, shown[-900:])
     for _ in range(7):
         term.send(b"\x7f", 0.1)
-    term.pump(0.8)
+    for _ in range(40):  # a machine under load: the frame comes when it comes
+        if "[ ] 4. Other" in term.text():
+            break
+        term.pump(0.2)
     check("its text emptied: Other no longer ticked", "[ ] 4. Other" in term.text(), term.text()[-900:])
     check("the interface runs", term.alive())
 finally:

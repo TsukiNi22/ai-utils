@@ -56,10 +56,24 @@ _cold static std::string number_(const double value)
 
 _cold static std::string quote_(const std::string& text)
 {
+    // a TOML basic string on one line: a line break in a value (a device of the page, the global session) broke the whole file (its defaults at the next start)
     std::string out = "\"";
     for (const char c: text) {
-        if (c == '"' || c == '\\') out += '\\';
-        out += c;
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += c;
+        } else if (c == '\n') {
+            out += "\\n";
+        } else if (c == '\r') {
+            out += "\\r";
+        } else if (c == '\t') {
+            out += "\\t";
+        } else if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F) {
+            static const char* hex = "0123456789ABCDEF";
+            out += std::string("\\u00") + hex[(static_cast<unsigned char>(c) >> 4) & 15] + hex[static_cast<unsigned char>(c) & 15];
+        } else {
+            out += c;
+        }
     }
     return out + "\"";
 }
@@ -256,6 +270,9 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                     return value == "compact" ? std::string("one session per project, asks before splitting") : value == "ultra" ? std::string("a sub-session or sub-global per task")
                         : std::string("several sub-sessions when it pays, sub-globals rarely");
                 }},
+            {"agent", "workflow", "Workflows of the model", SettingKind::Bool, {}, "the multi-agent workflows of the model itself, when it has them (Claude Code: its Workflow tool, ultracode: "
+                "dozens of agents, a lot of tokens): on - allowed and asked, it uses them on a big task; off - never (the tool taken away from it). For the sessions started from now", true,
+                [](const cluster::Config& cf) {return cf.workflow ? std::string("true") : std::string("false");}},
             {"service", "keep_awake", "Keep the computer awake", SettingKind::Choice, {"off", "working", "always"},
                 "the computer does not go to sleep by itself (idle suspend; a locked screen never stops claude-cluster, only a suspend does): off - never; working - while a "
                 "session works on a turn; always - while claude-cluster runs. The lid and the suspend menu still work (systemd-inhibit, idle only)", false,
@@ -373,8 +390,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 "default of Claude Code), 60 with a 1 h cache", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmTtl);}},
             {"sessions", "keep_warm_margin", "Keep warm: margin (s)", SettingKind::Int, {}, "the wake-up this long before the cache expires (16 to 600 s: checked every 10 s; "
                 "45: room for a slow start)", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmMargin);}},
-            {"sessions", "keep_warm_hours", "Keep warm: for (hours)", SettingKind::Int, {}, "kept warm so long after its last real prompt, then left to "
-                "cool (0: always)", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmHours);}},
+            {"sessions", "keep_warm_hours", "Keep warm: for (hours)", SettingKind::Int, {}, "kept warm so long after its last real use (a prompt, a take-back, /keepwarm), then "
+                "left to cool, its ♨ gone (0: never stops)", false, [](const cluster::Config& cf) {return std::to_string(cf.keepWarmHours);}},
             {"sessions", "task_queue", "Task queue", SettingKind::Int, {}, "tasks waiting for a free place, at most (a new one past it is refused)", false,
                 [](const cluster::Config& cf) {return std::to_string(cf.taskQueue);}},
             {"sessions", "task_result_chars", "Task result size", SettingKind::Int, {}, "the answer kept in a task (its result, chained into the prompt of the "
@@ -595,7 +612,7 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 }},
         }},
         {"debug", "Debug", {
-            {"debug", "showcase_all", "Show everything", SettingKind::Action, {}, "everything below in a row, on this interface: the display blocks in the "
+            {"debug", "showcase_all", "Show everything", SettingKind::Action, {}, "every popup below in a row (the sounds apart), on this interface: the display blocks in the "
                 "showcase session, its states, a progress popup, a failure popup, a notification, a permission, the questions (QCM, Q&A, chat, review)", false,
                 [](const cluster::Config&) {return std::string("run");}},
             {"debug", "showcase_displays", "Display blocks", SettingKind::Action, {}, "markdown, callouts, code, table, charts (bar, line, pie), progress, "
@@ -618,6 +635,16 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
                 [](const cluster::Config&) {return std::string("show");}},
             {"debug", "showcase_notify", "Notifications", SettingKind::Action, {}, "a desktop / phone notification and the notices (information, error)",
                 false, [](const cluster::Config&) {return std::string("show");}},
+            {"debug", "sound_all", "Sounds: all of them", SettingKind::Action, {}, "every sound of the notifications, one after the other, on this computer (whatever "
+                "With a sound says): what you hear when something happens", false, [](const cluster::Config&) {return std::string("play");}},
+            {"debug", "sound_message", "Sound: a turn done", SettingKind::Action, {}, "message: a turn done, a message", false, [](const cluster::Config&) {return std::string("play");}},
+            {"debug", "sound_complete", "Sound: a job done", SettingKind::Action, {}, "complete: a heavy job done", false, [](const cluster::Config&) {return std::string("play");}},
+            {"debug", "sound_message-new-instant", "Sound: for you", SettingKind::Action, {}, "message-new-instant: a question, a permission, a reminder", false,
+                [](const cluster::Config&) {return std::string("play");}},
+            {"debug", "sound_dialog-warning", "Sound: a problem", SettingKind::Action, {}, "dialog-warning: an error, a dangerous permission, a job failed", false,
+                [](const cluster::Config&) {return std::string("play");}},
+            {"debug", "sound_service-login", "Sound: ready", SettingKind::Action, {}, "service-login: claude-cluster ready, a device connected", false,
+                [](const cluster::Config&) {return std::string("play");}},
         }},
         {"services", "Services", {
             {"services", "refresh", "Refresh", SettingKind::Choice, {"live", "interval", "manual"},
@@ -692,7 +719,8 @@ _cold std::vector<cluster::SettingsPage> cluster::settings_pages(const cluster::
         // a program run with your rights: the one you mean only (a path, a name of the PATH)
         {"ui.editor", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights (Ctrl+E)");}},
         {"ui.image_viewer", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights (a picture opened)");}},
-        {"service.terminal", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights by the service");}},
+        {"ui.terminal", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights by the service");}},
+        {"user.editor", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights (Ctrl+E)");}},
         {"service.python", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program runs the wake word detector with your rights");}},
         {"voice.listen_command", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program hears the microphone, with your rights");}},
         {"voice.say_command", [](const std::string& v) {return cluster::trim(v).empty() ? std::string() : std::string("this program is run with your rights (the voice)");}},
@@ -934,6 +962,8 @@ _cold bool cluster::settings_set(const cluster::Config& config, const std::strin
     for (const cluster::SettingsPage& page: cluster::settings_pages(config))
         for (const cluster::Setting& setting: page.settings)
             if (setting.section == section && setting.key == key && setting.kind != cluster::SettingKind::Action) {
+                if (const std::string why = cluster::setting_check(setting, value); !why.empty())
+                    throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, section + "." + key + ": " + why);
                 cluster::settings_write(config, {{{section, key}, {setting, value}}});
                 return setting.restart;
             }
@@ -972,7 +1002,9 @@ _cold void cluster::settings_write(const cluster::Config& config,
 {
     if (cluster::demo_enabled()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the demo: the settings are shown, not changed");
     // Line edit of config.toml: the value of "key = value" in its [section] is replaced (comment kept), a missing key
-    // is added at the end of its section, a missing section at the end of the file
+    // is added at the end of its section, a missing section at the end of the file; one writer at a time (a change read and written back: never lost)
+    static std::mutex writing;
+    const std::lock_guard<std::mutex> lock(writing);
     std::vector<std::string> lines;
     {
         std::ifstream in(config.path());
@@ -1016,16 +1048,13 @@ _cold void cluster::settings_write(const cluster::Config& config,
             lines.insert(lines.begin() + static_cast<long>(at), key + " = " + value);
         }
     }
-    const std::filesystem::path tmp = config.path().string() + ".tmp";
-    {
-        std::ofstream out(tmp);
-        if (!out) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, tmp.string());
-        for (const std::string& line: lines)
-            out << line << "\n";
-    }
-    std::error_code error;
-    std::filesystem::rename(tmp, config.path(), error);
-    if (error) throw utils::exception::ErrorException(utils::exception::InternalCode::Write, config.path().string() + ": " + error.message());
+    std::string text;
+    for (const std::string& line: lines)
+        text += line + "\n";
+    // never a file it could not read at its next start: every other setting back to its default
+    if (const std::string why = cluster::Config::check(text); !why.empty())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "config.toml not written: " + why);
+    cluster::write_text(config.path(), text);
 }
 
 /* the accounts */
@@ -1244,9 +1273,11 @@ _cold bool cluster::setting_protected(const std::string& section, const std::str
 {
     // a shell / a program run as the user, the web opened wider, the permissions of the agents, the tools of the global session
     static const std::set<std::string> keys = {"web.shell", "web.settings", "web.tty_port", "web.tty_remote_port", "web.discovery", "usage.transcripts", "web.remote", "web.remote_host", "web.remote_port", "web.approve", "web.https", "web.enabled", "web.port",
-        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "agent.work_method", "agent.orchestration", "agent.work_method_text", "agent.work_method_detect", "agent.work_method_every", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "global.answers", "global.fork", "global.edit",
-        "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "orchestrator.memory_guard", "orchestrator.guard_free_mb", "ui.editor", "ui.image_viewer", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command"};
-    return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy"
+        "agent.permission_mode", "agent.allow_bypass", "agent.extra_args", "agent.work_method", "agent.orchestration", "agent.workflow", "agent.work_method_text", "agent.work_method_detect", "agent.work_method_every", "global.permission_mode", "sessions.bypass_to_global", "sessions.global_prompts", "sessions.rewrite_global_prompt", "sessions.rewrite_sessions_prompt", "sessions.global_answers", "sessions.global_fork", "sessions.global_edit", "agent.global_pin", "agent.taxonomy_edit", "agent.sub_read", "agent.sub_tasks", "agent.sub_schedules", "agent.sub_spawn", "agent.sub_spawn_cap", "agent.sub_pin",
+        "mcp.servers", "orchestrator.sub_add", "orchestrator.sub_kill_own", "orchestrator.sub_see_others", "orchestrator.kill_on_oom", "orchestrator.memory_guard", "orchestrator.guard_free_mb", "ui.editor", "ui.image_viewer", "ui.terminal", "user.editor", "service.terminal", "service.python", "service.frontend", "voice.listen_command", "voice.say_command",
+        // the path of a file the global session may then read and write (config_read, config_write): ~/.bashrc, ~/.ssh/id_rsa
+        "voice.words", "voice.vocabulary", "global.prompt", "sessions.prompt"};
+    return section == "commands" || section == "mcp_tools" || section == "plugins" || section.starts_with("plugins.") || section == "limits" || section == "policy" || section == "attachments"
         || (section == "sessions" && key == "budget_usd") || keys.contains(section + "." + key);
 }
 
@@ -1270,7 +1301,7 @@ _cold std::vector<std::string> cluster::protected_changes(const std::string& old
         return out.str();
     };
     std::set<std::string> keys;
-    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "service", "voice", "usage", "limits", "policy", "orchestrator"})
+    for (const char* section: {"web", "agent", "global", "sessions", "mcp", "ui", "user", "service", "voice", "usage", "limits", "policy", "orchestrator", "attachments"})
         for (const toml::table* table: {before.at_path(section).as_table(), after.at_path(section).as_table()})
             if (table != nullptr)
                 for (const auto &[key, node]: *table)

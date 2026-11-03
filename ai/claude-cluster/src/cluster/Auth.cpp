@@ -90,7 +90,7 @@ _cold std::vector<cluster::Provider> cluster::Auth::providers(void) const
 {
     std::vector<cluster::Provider> list = builtin_providers_();
 
-    for (const auto &[name, conf]: this->_config.providers) {
+    for (const auto &[name, conf]: this->_config.current().providers) {
         cluster::Provider provider{name, conf.driver, conf.key ? cluster::AuthKind::Key : cluster::AuthKind::None, conf.baseUrl, conf.model,
             "own provider (config.toml)", conf.baseUrl.find("localhost") != std::string::npos || conf.baseUrl.find("127.0.0.1") != std::string::npos};
         std::erase_if(list, [&](const cluster::Provider& p) {return p.name == name;});
@@ -125,7 +125,7 @@ _cold std::pair<bool, std::string> cluster::Auth::status(const cluster::Provider
 {
     // the demo: no key read, no local server asked - only the fake agent of the default provider
     if (cluster::demo_enabled()) return {provider.name == "anthropic", provider.name == "anthropic" ? "the demo agent (nothing real, nothing spent)" : "not in the demo"};
-    const std::string command = this->_config.command(provider.driver);
+    const std::string command = this->_config.current().command(provider.driver);
 
     if (provider.driver != "voice" && !cluster::has_command(command)) return {false, "`" + command + "` is not installed"};
     if (provider.auth == cluster::AuthKind::Key) {
@@ -143,7 +143,7 @@ _cold std::pair<bool, std::string> cluster::Auth::status(const cluster::Provider
     if (provider.driver == "claude") {
         const cluster::Captured out = cluster::capture({command, "auth", "status"}, "", 15);
         try {
-            const cluster::Json json = cluster::Json::parse(out.out);
+            const cluster::Json json = cluster::json_parse(out.out);
             if (json.value("loggedIn", false))
                 return {true, json.value("authMethod", std::string("logged in")) + " " + json.value("subscriptionType", std::string())};
         } catch (const cluster::Json::exception&) {}
@@ -192,7 +192,7 @@ _cold cluster::Env cluster::Auth::env(const cluster::Backend& backend) const
 /* login */
 _cold std::vector<std::string> cluster::Auth::loginCommand(const cluster::Provider& provider) const
 {
-    const std::string command = this->_config.command(provider.driver);
+    const std::string command = this->_config.current().command(provider.driver);
     if (provider.driver == "claude") return {command, "auth", "login"};
     if (provider.driver == "codex") return {command, "login"};
     if (provider.driver == "opencode") return {command, "auth", "login"};
@@ -201,7 +201,7 @@ _cold std::vector<std::string> cluster::Auth::loginCommand(const cluster::Provid
 
 _cold std::vector<std::string> cluster::Auth::logoutCommand(const cluster::Provider& provider) const
 {
-    const std::string command = this->_config.command(provider.driver);
+    const std::string command = this->_config.current().command(provider.driver);
     if (provider.driver == "claude") return {command, "auth", "logout"};
     if (provider.driver == "codex") return {command, "logout"};
     if (provider.driver == "opencode") return {command, "auth", "logout"};

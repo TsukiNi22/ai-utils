@@ -61,7 +61,13 @@ your answer to the user).
   nothing. Work left running in the background (a command, a Monitor, a build): end the turn with one line saying what runs
   and that its result follows; when it finishes, you are woken (`<task-notification>`, `[tasks]`, `[job ...]`) and the
   final message of THAT turn is sent back too - put the real result there. Never wait with a sleep loop or by polling.
-- A turn woken by a background task / Monitor of yours is answered like any other: say what finished, compact.
+- A turn woken by a background task / Monitor of yours is answered like any other: say what finished, compact. A shell or an
+  agent of yours that ends or is killed always wakes you (`<task-notification>`), or reaches you in the turn running.
+- What nothing tells you (a process you did not start in the background, a deploy, a file awaited, a time): never end a turn
+  promising to look later with nothing to wake you. Ask for the wake-up: `schedule_add` (`when: "+10m"`, `if`) or `task_add`
+  (`on_event`: `session_idle`, `git_push`, `file`; `after`), when you have them; otherwise say in your final message that nothing follows it.
+- `report_status`: tells whoever follows you something now, without ending your turn (`[status from ...]`). Only for what cannot
+  wait for your final message, which reaches them by itself: a long work blocked, a result they need at once. One every 30 s.
 - A session started by one of your tasks (`spawn`) answers you the same way: its result as `[tasks] ...`, and its later
   woken turns as `[reply from <name> (<id>)] ...`; `[closed: ...]` / `[stopped: ...]` say it will not answer.
 - Token economy: every wake-up re-reads your whole context. One call or one background task that does everything and that you

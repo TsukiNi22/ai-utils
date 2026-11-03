@@ -25,6 +25,7 @@ File Description:
     #include <sstream>           // std::stringstream
     #include <string>            // std::string
     #include <vector>            // std::vector
+    #include <cmath>             // std::isfinite
 
 namespace cluster::opt { // namespace start
 //----------------------------------------------------------------//
@@ -55,12 +56,15 @@ _cold _nodiscard inline double decimal(const cluster::Json& o, const char* key)
 {
     const auto it = o.find(key);
     if (it == o.end() || it->is_null()) return 0.0;
-    if (it->is_number()) return it->get<double>();
+    double value = 0.0;
     try {
-        return std::stod(it->get<std::string>());
+        value = it->is_number() ? it->get<double>() : std::stod(it->get<std::string>());
     } catch (const std::exception&) {
         throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, std::string(key) + ": a number, not " + it->dump());
     }
+    // "inf", "nan": written null in state.json, which the next start cannot read
+    if (!std::isfinite(value)) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, std::string(key) + ": a number, not " + it->dump());
+    return value;
 }
 
 _cold _nodiscard inline bool flag(const cluster::Json& o, const char* key, const bool fallback)

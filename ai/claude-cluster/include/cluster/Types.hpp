@@ -219,7 +219,7 @@ struct SessionSpec {
     bool keepWarm = false;          // chosen to be kept warm ([sessions] keep_warm = chosen): woken up before its prompt cache expires
     std::string context;            // its context at most, asked when it was started (the global session sizes it to the task: 200k); "": [global] / [sessions] context
     std::int64_t cachedAt = 0;      // the last request of its agent (each message it gets back): its prompt cache counted from it, kept over a rewind (the cut prefix stays cached)
-    std::int64_t rewoundAt = 0;     // the last take-back of the user (a rewind): a use of the session, like a real prompt (keep_warm_hours)
+    std::int64_t usedAt = 0;        // its last real use (a prompt that is not a keep-warm wake-up, a take-back of the user, /keepwarm on): keep_warm_hours counts from it
 };
 
 // A shell command checked by a trigger (on_event command of a task, if.command of a schedule): what it must print or return, how
@@ -387,6 +387,7 @@ struct Progress {
     std::string title;
     std::string session;            // its session (the notices of it under it), empty: claude-cluster
     std::string now;                // what it does now (its end: the result)
+    int percent = -1;               // of what it does now, -1: not known (a file: known; a pasted text: its size only)
     std::vector<std::string> log;   // its last lines (greyed under it)
     bool done = false;
     bool ok = true;

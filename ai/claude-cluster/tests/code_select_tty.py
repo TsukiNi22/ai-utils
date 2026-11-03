@@ -13,10 +13,10 @@ REPLY = "before text\n```python\ndef f(x):\n    return x  \n\n\tvalue = 1\n```\n
 for d in ("cfg", "data", "proj", "bin"):
     os.makedirs(WORK + "/" + d)
 with open(WORK + "/bin/wl-copy", "w", encoding="utf-8") as f:
-    f.write('#!/bin/sh\nprintf "%s" "$2" > ' + WORK + '/copied\n')
+    f.write('#!/bin/sh\ncat > ' + WORK + '/copied\n')  # what is copied comes on its input (never on a command line)
 os.chmod(WORK + "/bin/wl-copy", 0o755)
 ENV = dict(os.environ, CLAUDE_CLUSTER_CONFIG_DIR=WORK + "/cfg", CLAUDE_CLUSTER_DATA_DIR=WORK + "/data", CLAUDE_CLUSTER_SOCKET=WORK + "/sock",
-           FAKE_CLAUDE_LOG=WORK + "/log", FAKE_CLAUDE_REPLY=REPLY, PATH=WORK + "/bin:" + os.environ["PATH"], TERM="xterm-256color", COLORTERM="truecolor")
+           FAKE_CLAUDE_LOG=WORK + "/log", FAKE_CLAUDE_REPLY=REPLY, PATH=WORK + "/bin:" + os.environ["PATH"], TERM="xterm-256color", COLORTERM="truecolor", WAYLAND_DISPLAY="wayland-test")
 with open(WORK + "/cfg/config.toml", "w", encoding="utf-8") as f:
     f.write('[commands]\nclaude = "%s/fake_claude.py"\n' % HERE)
 

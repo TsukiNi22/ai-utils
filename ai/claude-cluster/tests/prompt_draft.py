@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # A prompt typed and not sent survives the interface: saved a moment after it is typed (drafts.json), the terminal killed (a crash)
-# then started again: the prompt is back in it; sent, the draft is gone (the next start has an empty prompt).
+# then started again: the prompt is back in it; sent, the draft is gone (the next start has an empty prompt); a quit while the worker runs a job keeps it too.
 # Usage: tests/prompt_draft.py [path/to/claude-cluster]   (default: /tmp/cc-build/claude-cluster); needs python3-pyte
 """The unsent prompt kept over a crash of the terminal."""
 import fcntl
@@ -101,6 +101,26 @@ try:
     term.kill()
     term = start()
     check("the next start: nothing given back", "unsent prompt is back" not in term.text(), term.text()[-500:])
+    term.kill()
+    # a quit while the worker runs a job: the save of the draft queued behind it never ran, the quit saves it (a slow clipboard: 5 s of the worker)
+    os.makedirs(f"{T}/bin")
+    with open(f"{T}/bin/wl-paste", "w", encoding="utf-8") as out:
+        out.write('#!/bin/sh\nsleep 5\necho text/plain\n')
+    os.chmod(f"{T}/bin/wl-paste", 0o755)
+    ENV.update(PATH=f"{T}/bin:" + os.environ.get("PATH", ""), WAYLAND_DISPLAY="wayland-9")
+    term = start()
+    term.send(b"\x16", 0.4)  # Ctrl+V: the worker busy
+    term.send(DRAFT.encode(), 1.8)  # typed; a moment after: its save queued
+    check("the worker busy: its save still queued", "tty" not in drafts(), json.dumps(drafts()))
+    term.send(b"\x11", 0.5)  # Ctrl+Q
+    begun = time.time()
+    while time.time() - begun < 20 and os.waitpid(term.pid, os.WNOHANG) == (0, 0):
+        term.pump(0.2)
+        if "background" in term.text() and "quit" in term.text().lower():
+            os.write(term.fd, b"s")
+    check("a quit during a job: the prompt saved", drafts().get("tty", {}).get("text") == DRAFT, json.dumps(drafts()))
+    term = start()
+    check("     the next start: it is back", DRAFT in term.text(), term.text()[-700:])
 finally:
     if term:
         term.kill()

@@ -28,6 +28,18 @@ File Description:
 #include <chrono>
 #include <cmath>
 
+_nodiscard const std::vector<std::pair<std::string, std::string>>& cluster::notify_sounds(void)
+{
+    static const std::vector<std::pair<std::string, std::string>> sounds = {
+        {"message", "a turn done, a message"},
+        {"complete", "a heavy job done"},
+        {"message-new-instant", "a question, a permission, a reminder"},
+        {"dialog-warning", "an error, a dangerous permission, a job failed"},
+        {"service-login", "claude-cluster ready, a device connected"},
+    };
+    return sounds;
+}
+
 /* tools */
 namespace {
     std::atomic<unsigned> showcaseNext{0};
@@ -311,7 +323,7 @@ _cold std::string cluster::showcase(cluster::Manager& manager, const std::string
     manager.requestFocus(id);
     const std::string shown = platform.empty() ? std::string("interface") : platform;
     if (what == "displays") {
-        std::thread([&manager, id, shown]() {
+        cluster::guarded([&manager, id, shown]() {
             try {
                 displays_(manager, id, shown);
             } catch (const std::exception& e) {
@@ -344,7 +356,7 @@ _cold std::string cluster::showcase(cluster::Manager& manager, const std::string
             : "two notices; no desktop notification: no notification daemon here (gdbus / notify-send)";
     }
     // the timed ones: in the background (the interface keeps drawing them)
-    std::thread([&manager, what, id, shown]() {
+    cluster::guarded([&manager, what, id, shown]() {
         const std::function<void(int)> wait = [](const int ms) {std::this_thread::sleep_for(std::chrono::milliseconds(ms));};
         try {
             if (what == "states" || what == "all") {

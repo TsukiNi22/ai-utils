@@ -12,6 +12,8 @@ Fichiers, images et photos partent avec un prompt comme dans une messagerie : le
 
 Une image arrive à l'agent comme l'image elle-même (`[Image #N]`) ; tout autre fichier en `@chemin` (texte, code, PDF...). La transcription les montre avec une vignette et un lien pour ouvrir ou télécharger.
 
+**Un gros fichier prend du temps : son popup le dit.** Après 0,4 s, dans la fenêtre et sur la page comme dans le terminal : *Importing nom*, ce qu'il fait (lecture, préparation de l'image avec `magick`, enregistrement), combien, et une barre quand le total est connu. Sur la page la barre suit l'envoi et **Cancel** l'arrête ; une connexion lente a son temps. La fenêtre importe en arrière-plan et continue. Sur la page un texte collé de plus de 200 Ko est joint en `pasted-text.txt` : un prompt aussi long bloque une page, et une requête prend 1 Mo au plus.
+
 ## Ce qui est vérifié {#checks}
 
 - **Téléversement** : le fichier est envoyé au cœur et stocké dans `<data>/attachments/<session>/<id>-<nom>` en mode `0600`, jamais exécutable. Le nom est assaini, le type est **deviné d'après le contenu** (un programme, ELF ou PE, est refusé), les images sont ré-encodées **sans EXIF** et réduites à `max_pixels` (demande ImageMagick).

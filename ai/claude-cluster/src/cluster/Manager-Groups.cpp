@@ -117,6 +117,23 @@ _cold cluster::Json cluster::Manager::fanout(const cluster::Json& args)
     if (wants.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "no task: tasks or match");
     for (const Want& want: wants)
         if (cluster::trim(want.prompt).empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "a task without its prompt");
+    // tasks waiting for each other (a cycle in their after): none of them would ever start, the group never end, their places in the queue taken for good
+    std::vector<std::vector<std::size_t>> waitedBy(wants.size());
+    std::vector<std::size_t> waits(wants.size(), 0);
+    for (std::size_t i = 0; i < wants.size(); ++i)
+        for (const int a: wants[i].after)
+            if (a >= 0 && static_cast<std::size_t>(a) < wants.size() && static_cast<std::size_t>(a) != i) {
+                waitedBy[static_cast<std::size_t>(a)].push_back(i);
+                ++waits[i];
+            }
+    std::vector<std::size_t> free;
+    for (std::size_t i = 0; i < wants.size(); ++i)
+        if (waits[i] == 0) free.push_back(i);
+    for (std::size_t at = 0; at < free.size(); ++at)
+        for (const std::size_t next: waitedBy[free[at]])
+            if (--waits[next] == 0) free.push_back(next);
+    if (free.size() < wants.size())
+        throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "tasks waiting for each other (a cycle in their after): they would never start");
 
     // the group and its tasks (the queue: a place each, as many at once as the parallel sessions allow)
     cluster::Group group;
@@ -137,9 +154,9 @@ _cold cluster::Json cluster::Manager::fanout(const cluster::Json& args)
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         const std::size_t waiting = std::count_if(this->_tasks.begin(), this->_tasks.end(), [](const cluster::Task& t) {return t.status == "queued";});
-        if (waiting + wants.size() > static_cast<std::size_t>(std::max(1, this->_config.taskQueue)))
+        if (waiting + wants.size() > static_cast<std::size_t>(std::max(1, this->config().taskQueue)))
             throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the task queue is full (" + std::to_string(waiting) + " waiting, "
-                + std::to_string(this->_config.taskQueue) + " at most: [sessions] task_queue)");
+                + std::to_string(this->config().taskQueue) + " at most: [sessions] task_queue)");
         group.id = "f" + std::to_string(this->_nextGroup++);
         std::vector<std::string> ids;
         for (const Want& want: wants) {
@@ -324,7 +341,7 @@ _cold void cluster::Manager::groupUpdate_(const std::string& id)
             this->interrupt(session);
         } catch (const utils::exception::IException&) {}
     if (!wake.empty()) {
-        std::thread([this, wake, merge, id]() {
+        cluster::guarded([this, wake, merge, id]() {
             try {
                 if (merge == "session") {
                     // a big merge: done by a session of its own, its answer to the global session (its context kept small)

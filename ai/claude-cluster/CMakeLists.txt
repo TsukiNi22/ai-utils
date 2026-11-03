@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 set(TARGET claude-cluster)
 set(CMAKE_CXX_COMPILER clang++)
-project(${TARGET} VERSION 1.9.4 LANGUAGES CXX)
+project(${TARGET} VERSION 1.10.0 LANGUAGES CXX)
 
 # =========================
 # Compilateur & Standard
@@ -53,7 +53,9 @@ if (FLOCK_PROGRAM)
     message(STATUS "claude-cluster: ${GATE_JOBS} compilations at once at most (BUILD_MEMORY_MB=${BUILD_MEMORY_MB}, BUILD_JOBS to force)")
 endif()
 
-# FTXUI (terminal front-end): not packaged on Fedora, fetched at a fixed version
+# FTXUI (terminal front-end): not packaged on Fedora, fetched at a fixed version; optimized like the code here (Optimized is a build type of ours: CMake has
+# no flags for it, FTXUI was built at -O0: every frame of the terminal, every key)
+set(CMAKE_CXX_FLAGS_OPTIMIZED "-O2 -pipe -DNDEBUG")
 include(FetchContent)
 set(FTXUI_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(FTXUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -78,6 +80,7 @@ add_compile_options(
     -Wunused-parameter
     -Wshadow
     -Wuninitialized
+    -Wno-pass-failed # the "#pragma GCC unroll" of std::find in libstdc++ 16: "loop not unrolled" says nothing of this code
 )
 
 # =========================
@@ -179,10 +182,12 @@ if(CLUSTER_GUI AND Qt6Widgets_FOUND)
     list(APPEND SRC src/cluster/ui/Gui.cpp)
 endif()
 add_executable(${TARGET} ${SRC})
+target_compile_options(${TARGET} PRIVATE "SHELL:-include ${CMAKE_SOURCE_DIR}/include/cluster/JsonAssert.hpp") # the asserts of nlohmann::json: exceptions, never undefined behaviour
 
 # cluster-run: the wrapper of a heavy command (resource orchestrator), a small binary of its own installed next to claude-cluster
 add_executable(cluster-run src/run/cluster-run.cpp src/cluster/RunProfile.cpp)
 target_include_directories(cluster-run PRIVATE include)
+target_compile_options(cluster-run PRIVATE "SHELL:-include ${CMAKE_SOURCE_DIR}/include/cluster/JsonAssert.hpp")
 target_link_libraries(cluster-run PRIVATE nlohmann_json::nlohmann_json)
 
 # =========================
@@ -308,6 +313,7 @@ if(CLUSTER_TESTS)
     list(FILTER TEST_SRC EXCLUDE REGEX "/(main|Tty|Gui|Docs)\\.cpp$")
     add_executable(line_editor_test tests/line_editor.cpp ${TEST_SRC})
     target_include_directories(line_editor_test PRIVATE include ${CMAKE_BINARY_DIR}/generated)
+    target_compile_options(line_editor_test PRIVATE "SHELL:-include ${CMAKE_SOURCE_DIR}/include/cluster/JsonAssert.hpp")
     target_compile_definitions(line_editor_test PRIVATE CLUSTER_VERSION="${PROJECT_VERSION}")
     target_link_libraries(line_editor_test PRIVATE utils::utils nlohmann_json::nlohmann_json tomlplusplus::tomlplusplus Threads::Threads util ftxui::screen ftxui::dom ftxui::component)
     if(OpenSSL_FOUND)

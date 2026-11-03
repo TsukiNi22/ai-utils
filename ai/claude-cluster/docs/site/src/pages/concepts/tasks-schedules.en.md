@@ -49,7 +49,7 @@ cancel) like any other.
 
 | `schedule_add` option | What it does |
 |---|---|
-| `when` / `every` / `cron` / `reset` | once (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`), every N minutes, a cron expression (`*/15 9-17 * * mon-fri`), or at each reset of the 5 h / 7 d limit window |
+| `when` / `every` / `cron` / `reset` | once (`+30m`, `HH:MM`, `YYYY-MM-DD HH:MM`), every N minutes, a cron expression (`*/15 9-17 * * mon-fri`; 0 and 7 are Sunday, `fri-sun` is three days), or at each reset of the 5 h / 7 d limit window |
 | `days`, `window`, `quiet`, `tz` | only on these days, inside / never inside these hours, in this timezone |
 | `until`, `max_runs` | ended after a time or a number of runs |
 | `if` | `session_idle`, `command` (exits 0, or the `code` / `stdout` / `contains` / `regex` asked; `fail_after`: the schedule cancelled after N failures in a row), `file_changed`, `usage` (`5h>80`): not met, the run is skipped |

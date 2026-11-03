@@ -71,6 +71,15 @@ try:
     while time.time() < deadline and wakes() == 0:
         time.sleep(1)
     check("woken up before its cache expires, its background running", wakes() >= 1, str(wakes()))
+    # the next one too, its agent never stopped for it (taking the wake-up back starts the agent again: its background stopped with it)
+    pid = (ask({"cmd": "status", "session": sid}).get("data") or {}).get("where", {}).get("pid")
+    deadline = time.time() + 90
+    while time.time() < deadline and wakes() < 2:
+        time.sleep(1)
+    check("woken up again", wakes() >= 2, str(wakes()))
+    time.sleep(2)
+    now = (ask({"cmd": "status", "session": sid}).get("data") or {}).get("where", {}).get("pid")
+    check("its agent not started again: its background goes on", pid is not None and now == pid and bool(running(sid)), f"{pid} -> {now}")
 finally:
     core.terminate()
     try:

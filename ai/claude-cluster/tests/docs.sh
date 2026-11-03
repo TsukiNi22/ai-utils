@@ -23,7 +23,10 @@ check() { # <what> <condition: 0 = ok>
 printf '[commands]\nclaude = "%s/fake_claude.py"\n[web]\nenabled = true\nport = %s\nhttps = false\n' "${HERE}" "${PORT}" > "${WORK}/cfg/config.toml"
 "${BIN}" serve --no-global > "${WORK}/serve.log" 2>&1 < /dev/null &
 SERVE=$!
-sleep 4
+for _ in $(seq 1 120); do # its web access open (a loaded computer: more than a few seconds)
+    command curl -s -o /dev/null "${URL}/docs/" && break
+    sleep 0.25
+done
 
 version="$("${BIN}" --version | awk '{print $2}')"
 home="$(command curl -s -D "${WORK}/head" "${URL}/docs/")"

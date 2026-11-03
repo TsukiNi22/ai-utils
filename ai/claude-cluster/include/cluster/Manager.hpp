@@ -77,9 +77,9 @@ struct ShellJob {                   // a !command running or done (the backgroun
     std::int64_t started = 0;
     std::int64_t ended = 0;
     std::atomic<int> pid{0};        // its process group
-    bool done = false;
+    std::atomic<bool> done{false};
     bool background = false;        // given up by its waiter: its end is told in the conversation
-    bool killed = false;
+    std::atomic<bool> killed{false};
     int code = -1;
     std::string output;
 };
@@ -129,10 +129,11 @@ struct Hit {
 /* FUNCTION */
 
 _cold bool start_core(const std::vector<std::string>& args = {});   // the core in a process of its own (its options), false not started
-// the session kept warm (its prompt cache never let expire): [sessions] keep_warm = all, or chosen and the session marked
-_nodiscard inline bool keep_warm_on(const cluster::Config& c, const cluster::SessionSpec& s) {return c.keepWarm == "all" || (c.keepWarm == "chosen" && s.keepWarm);};
-// the same for a session as it is now: background, only while it waits on its background (shells / agents running, a long compilation)
-_nodiscard inline bool keep_warm_on(const cluster::Config& c, const cluster::Snapshot& s) {return c.keepWarm == "background" ? cluster::background_busy(s) : keep_warm_on(c, s.spec);};
+// asked to be kept warm (its prompt cache never let expire): [sessions] keep_warm = all, chosen and the session marked, background and it waits on its background
+// (shells / agents running, a long compilation)
+_nodiscard inline bool keep_warm_asked(const cluster::Config& c, const cluster::Snapshot& s) {return c.keepWarm == "all" || (c.keepWarm == "chosen" && s.spec.keepWarm) || (c.keepWarm == "background" && cluster::background_busy(s));};
+// really kept warm now: asked, and keep_warm_hours not over since its last real use (what the lists mark with ♨)
+_nodiscard bool keep_warm_on(const cluster::Config& c, const cluster::Snapshot& s);
 // the prompt cache of a session: seconds left before it expires ([sessions] keep_warm_ttl after its last turn; <= 0: expired that long ago),
 // none before its first turn
 _nodiscard std::optional<std::int64_t> cache_left(const cluster::Config& c, const cluster::Snapshot& s);
@@ -143,10 +144,12 @@ _nodiscard std::string cache_text(const cluster::Config& c, const cluster::Snaps
 
 class Manager {
     private:
-        cluster::Config& _config;
+        cluster::Config& _config;                       // the first object of the settings: read by config() (the version of the moment)
         cluster::Auth _auth;
         mutable std::mutex _mutex;
         std::map<std::string, std::shared_ptr<cluster::Session>> _sessions;
+        std::map<std::string, std::vector<cluster::Queued>> _replacing;     // the sessions being replaced by a new object (a model, a folder, /clear): the prompts sent meanwhile, given to it
+        std::condition_variable _replaced;              // (with _mutex) one replacement of a session at a time
         std::vector<std::string> _order;                // sub-sessions, in creation order
         std::vector<cluster::SessionSpec> _trash;
         std::vector<cluster::SessionSpec> _previous;    // sessions of the previous run (restore prompt)
@@ -155,6 +158,8 @@ class Manager {
         std::int64_t _scanEnd = 0;                      // ms of its end (0: running)
         std::atomic<std::int64_t> _globalEnsured{0};    // the last time the tick started the missing global session
         std::atomic<bool> _globalRetrying{false};       // a loop starts the global session again until it runs
+        std::atomic<bool> _globalStarting{false};       // startGlobal runs: never two (only one gets its saved conversation)
+        std::atomic<bool> _startDecided{false};         // startGlobal called once: no question of the previous run, or answered. Before it the tick starts nothing
         std::int64_t _globalRestart = 0;                // last time the global session was started again (its process ended)
         std::atomic<bool> _closing{false};              // claude-cluster quits: the agents ending are not an error
         std::map<std::string, int> _replies;            // sessions whose next turn ends are sent back to the global session
@@ -165,7 +170,8 @@ class Manager {
         bool _globalNew = false;                        // the global session starts a new conversation (marked in its transcript)
         std::atomic<std::uint64_t> _focusVersion{0};
         std::atomic<std::uint64_t> _raiseVersion{0};    // a notification clicked: the interface to the front
-        std::string _active = "g";                      // the session they show
+        std::string _active = "g";                      // the session they show (_activeMutex: every thread reads it)
+        mutable std::mutex _activeMutex;
         std::vector<cluster::Task> _tasks;
         std::vector<cluster::Group> _groups;            // the requests of the global session on several sessions (this run)
         int _nextGroup = 1;
@@ -228,6 +234,12 @@ class Manager {
         std::map<std::string, std::pair<cluster::Notification, std::string>> _notifyShown;   // by its DBus id: the notification, its token when clicked
         std::thread _notifyMonitor;                     // gdbus monitor: the clicks of the notifications (ActionInvoked, ActivationToken)
         std::atomic<bool> _notifyMonitorUp{false};
+        std::atomic<bool> _notifyMonitorStop{false};
+        std::set<std::string> _warmMissed;                           // the keep-warm stops already told (session:time): once each
+        std::set<std::string> _waking;                               // the sessions being woken up now (out of the tick: a take-back takes seconds)
+        mutable std::mutex _saveMutex;                               // one save at a time, the last state last
+        std::map<std::string, std::int64_t> _reported;  // the last status told by each session (report_status)
+        std::atomic<pid_t> _notifyMonitorPid{0};        // its process: stopped with this manager (it never ends by itself: it only writes when a signal comes)
         std::string _raiseToken;                        // the activation token of the last click (XDG_ACTIVATION_TOKEN: the window to the front)
         std::map<std::string, std::string> _origin;     // who sent the last prompt of a session: "host" or "web:<device>" (notified)
         std::pair<cluster::Face, std::int64_t> _moment{cluster::Face::Idle, 0};   // a finished turn / a global answer: shown a moment
@@ -235,7 +247,7 @@ class Manager {
         std::atomic<bool> _readyTold{false};            // "claude-cluster is ready" told (once a run)
         std::int64_t _startedAt = cluster::now();       // the start of this run
         std::atomic<int> _focused{-1};                  // the interface has the focus: 1, not: 0, unknown: -1 (notified)
-        cluster::Web* _web = nullptr;                   // the web access of this instance (owned by the App)
+        std::atomic<cluster::Web*> _web{nullptr};                   // the web access of this instance (owned by the App)
         std::unique_ptr<cluster::Asking> _asking;       // the question of an agent being answered (the interfaces, the voice)
         mutable std::mutex _statsMutex;                 // stats.jsonl
         std::int64_t _statsUp = 0;                      // the last sign of life written
@@ -257,16 +269,17 @@ class Manager {
         };
         std::shared_ptr<Describer> _describer = std::make_shared<Describer>();
         std::shared_ptr<cluster::ReplicaState> _replica; // this process: an interface of another core (null: it is the core)
-        cluster::Voice* _voice = nullptr;               // the voice of this core (its actions run here)
+        std::atomic<cluster::Voice*> _voice{nullptr};               // the voice of this core (its actions run here)
         std::map<std::string, std::int64_t> _clients;   // the interfaces of other processes: last seen (sync)
         std::map<std::string, bool> _clientFocus;       // their focus (one in front: no notification)
-        bool _hadClients = false;
+        std::atomic<bool> _hadClients{false};
         std::size_t _historyWrites = 0;                 // prompts added since the history was last cut
         bool _background = false;                       // kept without interface: the web closed, stopped by itself once every session is idle
         bool _webBeforeBackground = false;              // the web access was open when the core went in background: opened again by an interface back
         std::int64_t _backgroundSince = 0;              // unix s: when it went in background (0: not)
         std::map<std::string, std::pair<std::string, std::int64_t>> _lastSender;   // by session: the interface of its last prompt, when
-        std::atomic<bool> _restoreAsk{false};           // started alone (a core of its own): the previous run asked by its first interface
+        std::atomic<bool> _restoreAsk{false};           // started alone (a core of its own): the previous run asked by its first interface; off once its answer is done
+        std::atomic<bool> _restoreAnswered{false};      // the first answer taken: another interface showing the question changes nothing
         std::string _lastActive;                        // a replica: the session shown, told to the core once
 
         // ---------- Pre-Function -------- //
@@ -329,11 +342,15 @@ class Manager {
         _cold void limitMemory_(const std::vector<std::shared_ptr<cluster::Session>>& sessions);
         _cold void restartYoung_(std::set<std::string>& restarted);  // an update: the young safe background items stopped (run again after it), noted
         _cold void wake_(const std::string& id);                     // a keep-warm wake-up: the previous one taken back first if it is still the last prompt
-        std::set<std::string> _warmMissed;                           // the keep-warm stops already told (session:time): once each
         _cold void keepWarm_(void);                                  // the idle sessions kept warm woken up before their prompt cache expires // the transcripts in memory: each within its budget, all within the global one
         _cold void recordUsage_(const std::string& session); // a turn finished: in the ledger, its limits kept
         void archive_(const std::string& id);               // its transcript to logs/archive/<id>-<time>.jsonl (search only)
         _cold void relaunch_(const std::string& id, const cluster::SessionSpec& spec); // started again with this spec (same conversation)
+        // a session replaced by a new object: its spec changed once its agent stopped; resend: its running turn and queue given to the new one. What is sent meanwhile is kept for it
+        _cold std::shared_ptr<cluster::Session> replace_(const std::string& id, const std::function<void(cluster::SessionSpec&)>& change, const bool resend);
+        _cold void deliver_(std::shared_ptr<cluster::Session> session, const std::string& text, const std::vector<std::string>& images, const std::string& origin); // given to it, or to the object replacing it
+        _cold void giveBack_(const std::shared_ptr<cluster::Session>& session, const cluster::Queued& queued);   // a prompt kept during a replacement: held by an update, else sent (never lost: told)
+        _cold void refuseOver_(const std::string& id, const cluster::Snapshot& snap);   // [limits] and the budget of a session reached: refused, told
 
     public:
         std::function<void(const std::string&)> onGlobalAnswer;   // voice: text of an answer of the global session
@@ -382,6 +399,8 @@ class Manager {
         _cold void limitsWarn(void);                                         // the share of a limit reached: told once
         _cold _nodiscard cluster::Json accountsJson(void);                   // the providers (state) and the spending, cached a few seconds
         _cold _nodiscard std::string authKind(const std::string& backend) const;   // api (an API key: billed per token) | auth (a login: a subscription) | local
+        _cold std::string reportStatus(const std::string& id, const std::string& text); // a sub-session tells whoever follows it now (MCP report_status); its message
+        _cold std::string playSound(const std::string& name);               // the soundboard of the Debug page: a sound of the notifications (all: each one, one after the other) played on this computer, whatever the settings; its message
         _cold void showcaseUpgrade(void);                                   // the Debug page: a pretend newer version offered
         _cold _nodiscard cluster::UpgradeOffer upgradeOffer(void) const;    // a newer claude-cluster installed (the core's)
         _cold std::string upgradeAct(const std::string& action);            // update | ignore | quit
@@ -557,7 +576,7 @@ class Manager {
         _cold void stopAgent(const std::string& id, const std::string& task);   // one sub-agent of the session stopped (the session goes on)
         // a long operation: its popup in every interface (begin, what it does now, a line of its log, its end)
         _cold std::uint64_t progressBegin(const std::string& title, const std::string& session = "");
-        _cold void progressStep(const std::uint64_t id, const std::string& now);
+        _cold void progressStep(const std::uint64_t id, const std::string& now, const int percent = -1);
         _cold void progressAdvance(const std::uint64_t id, const std::string& now);    // the step before in its log (done)
         _cold void progressLog(const std::uint64_t id, const std::string& line);
         _cold void progressEnd(const std::uint64_t id, const bool ok, const std::string& text, const bool notice = true);
@@ -577,12 +596,13 @@ class Manager {
 
         // ---------- Function -------- //
         _nodiscard inline bool replica(void) const                                                              {return this->_replica != nullptr;};
-        _nodiscard inline bool hadClients(void) const                                                           {return this->_hadClients;};
+        _nodiscard inline bool hadClients(void) const                                                           {return this->_hadClients.load();};
         _nodiscard inline bool background(void) const                                                           {return this->_background;};
         _nodiscard inline std::int64_t backgroundSince(void) const                                              {return this->_background ? this->_backgroundSince : 0;};
+        inline void closing(void)                                                                               {this->_closing = true;};  // the quit begins: nothing starts a turn any more
         inline void askRestoreLater(void)                                                                       {this->_restoreAsk = true;};   // its first interface asks the previous run
         inline void setVoice(cluster::Voice* voice)                                                             {this->_voice = voice;};
-        _nodiscard inline cluster::Voice* voice(void) const                                                     {return this->_voice;};
+        _nodiscard inline cluster::Voice* voice(void) const                                                     {return this->_voice.load();};
         _nodiscard inline std::int64_t startedAt(void) const                                                    {return this->_startedAt;};   // the start of this run (unix s)
         _cold _nodiscard inline bool progressActive(void) const                                                 {return !this->progressQueue_().empty();}; // one running or its result shown (the interfaces redraw)
         _cold inline void notice(const std::string& session, const std::string& text, const bool error = false) {this->notice_(session, text, error);}; // the notices of the interfaces
@@ -591,13 +611,13 @@ class Manager {
         inline void machineLater(void)                                                                          {this->setUi("machine_later", std::to_string(cluster::now()));}; // an old map: proposed again machine_days later
         inline void machineDecline(void)                                                                        {this->setUi("machine", "no");};
         inline void requestRaise(const std::string& token = "")                                                 {{std::lock_guard<std::mutex> lock(this->_mutex); this->_raiseToken = token;} ++this->_raiseVersion; ++this->_version;};
-        _nodiscard inline std::string active(void) const                                                        {return this->_active;};
+        _nodiscard inline std::string active(void) const                                                        {std::lock_guard<std::mutex> lock(this->_activeMutex); return this->_active;};
         _nodiscard inline cluster::Auth& auth(void)                                                             {return this->_auth;};
-        _nodiscard inline cluster::Config& config(void)                                                         {return this->_config;};
+        _nodiscard inline cluster::Config& config(void) const                                                   {return this->_config.current();}; // the settings of the moment (a reference stays valid, a reload makes a new version)
         _nodiscard inline bool remote(void) const                                                               {return this->ui("remote", "false") == "true";}; // Remote Control of the global session
         inline void setWeb(cluster::Web* web)                                                                   {this->_web = web;};
         _nodiscard inline cluster::Asking& asking(void)                                                         {return *this->_asking;};
-        _nodiscard inline cluster::Web* web(void) const                                                         {return this->_web;};
+        _nodiscard inline cluster::Web* web(void) const                                                         {return this->_web.load();};
         _nodiscard inline std::uint64_t pushSeq(void) const                                                     {return this->_pushSeq.load();};   // the last notification published to the app
 
         // ---------- Constructor -------- //

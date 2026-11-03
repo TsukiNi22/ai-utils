@@ -72,6 +72,8 @@ std::string socket_path_(void)
 
 int connect_(const std::string& path)
 {
+    struct stat info{};
+    if (::stat(path.c_str(), &info) != 0 || info.st_uid != ::getuid()) return -1; // a socket of another user is not a claude-cluster of this one (never told our commands)
     const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0); // xstyle: ignore LU-SOCKET (standalone binary, libutils not linked)
     if (fd == -1) return -1;
     sockaddr_un addr{};
@@ -163,6 +165,9 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
     std::vector<std::string> argv = limited ? cluster::grant_argv(options.command, grant.threads) : options.command;
     const bool teeOut = !::isatty(STDOUT_FILENO);
     const bool teeErr = !::isatty(STDERR_FILENO);
+    // the command runs in a group of its own: it reads the terminal (a password prompt) and gets Ctrl+C only as its foreground group, else SIGTTIN stops it for good
+    const int tty = ::open("/dev/tty", O_RDWR | O_NOCTTY | O_CLOEXEC); // none: an agent's shell, nothing to read there
+    const bool foreground = tty >= 0 && ::tcgetpgrp(tty) == ::getpgrp();
     int outPipe[2] = {-1, -1};
     int errPipe[2] = {-1, -1};
     if ((teeOut && ::pipe(outPipe) != 0) || (teeErr && ::pipe(errPipe) != 0)) { // xstyle: ignore LU-SYSCALL (standalone binary)
@@ -176,6 +181,7 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
     }
     if (pid == 0) {
         ::setpgid(0, 0);
+        if (foreground) (void)::tcsetpgrp(tty, ::getpid()); // before its first read (here too: whichever runs first)
         if (teeOut) {
             ::dup2(outPipe[1], STDOUT_FILENO); // xstyle: ignore LU-SYSCALL (standalone binary)
             ::close(outPipe[0]);
@@ -187,7 +193,7 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
             ::close(errPipe[1]);
         }
         if (core >= 0) ::close(core);
-        for (const int s: {SIGINT, SIGTERM, SIGHUP, SIGPIPE})
+        for (const int s: {SIGINT, SIGTERM, SIGHUP, SIGPIPE, SIGTTOU})
             std::signal(s, SIG_DFL);
         if (!options.cwd.empty() && ::chdir(options.cwd.c_str()) != 0) {
             warn_("cannot enter " + options.cwd + ": " + std::strerror(errno));
@@ -207,6 +213,7 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
         ::_exit(errno == ENOENT ? 127 : 126);
     }
     ::setpgid(pid, pid); // both sides: whichever runs first
+    if (foreground) (void)::tcsetpgrp(tty, pid);
     if (teeOut) ::close(outPipe[1]);
     if (teeErr) ::close(errPipe[1]);
     int coreFd = core;
@@ -235,10 +242,22 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
             done += written;
         }
     };
+    const std::function<void(const int)> tell = [pid](const int signal) { // to the command; a stopped group would keep it pending for ever
+        ::kill(-pid, signal);
+        ::kill(-pid, SIGCONT);
+    };
+    const std::function<void(void)> suspend = [&]() {
+        // Ctrl+Z, or the terminal read from the background: what the shell expects of its job, this wrapper stops too and gives the terminal back (never stopped when nothing could
+        // continue it: an orphan group ignores SIGTSTP); continued (fg, bg): the command too, the terminal given again when it came back
+        if (tty >= 0 && ::tcgetpgrp(tty) == pid) (void)::tcsetpgrp(tty, ::getpgrp());
+        ::kill(0, SIGTSTP);
+        if (tty >= 0 && ::tcgetpgrp(tty) == ::getpgrp()) (void)::tcsetpgrp(tty, pid);
+        ::kill(-pid, SIGCONT);
+    };
     while (!exited || fds[0] >= 0 || fds[1] >= 0) {
         if (g_signal != 0 && g_signal != forwarded) { // our own signal: to the command
             forwarded = g_signal;
-            ::kill(-pid, g_signal);
+            tell(g_signal);
         }
         pollfd polls[3];
         int count = 0;
@@ -262,7 +281,7 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
                         if (message.value("event", std::string()) == "killed") {
                             killedBy = message.value("by", std::string("claude-cluster"));
                             killedWhy = message.value("reason", std::string());
-                            ::kill(-pid, SIGTERM);
+                            tell(SIGTERM);
                         }
                     if (got < 0) {
                         if (!coreWarned) say_("claude-cluster is gone: the command goes on, no longer counted");
@@ -272,7 +291,11 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
                     }
                 }
             }
-        if (!exited && ::waitpid(pid, &status, WNOHANG) == pid) exited = true;
+        if (!exited && ::waitpid(pid, &status, WNOHANG | WUNTRACED) == pid) {
+            // stopped by the terminal: told to the shell; by SIGSTOP (the core, the pressure of the computer): the core continues it
+            if (!WIFSTOPPED(status)) exited = true;
+            else if (WSTOPSIG(status) != SIGSTOP) suspend();
+        }
         // a pipe that stays open after the exit (a daemon of the command): read what is there, then stop waiting for it
         if (exited && ready == 0) {
             for (int k = 0; k < 2; ++k)
@@ -281,6 +304,10 @@ int run_(const Options& options, const cluster::Grant& grant, const bool limited
                     fds[k] = -1;
                 }
         }
+    }
+    if (tty >= 0) {
+        if (::tcgetpgrp(tty) == pid) (void)::tcsetpgrp(tty, ::getpgrp()); // the terminal back: for the shell, for what comes after it in a script
+        ::close(tty);
     }
     if (coreFd >= 0 && killedBy.empty() && WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM) {
         // the core stopped the command itself and tells who right after: its event is waited for a moment (the command ended first)
@@ -372,11 +399,19 @@ int main(int argc, char* argv[])
         ::sigaction(s, &action, nullptr);
     }
     std::signal(SIGPIPE, SIG_IGN);
+    std::signal(SIGTTOU, SIG_IGN); // the terminal taken back (tcsetpgrp) and its lines written from the background: never stopped for that
     // the low profile when the core can't say (not running, off): 1 thread, nice 19, ionice idle
     const cluster::Grant low{1, 19, 3, 0};
     if (std::getenv("CLUSTER_RUN_OFF") != nullptr && std::string(std::getenv("CLUSTER_RUN_OFF")) == "1") return run_(options, low, false, -1);
     const std::string socket = socket_path_();
-    const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+    // the core gone: 30 s for it to come back, counted from the last time it answered (never from the start: a job waiting long in the queue would run at once, at any restart of the
+    // core, with every other one waiting: what the queue exists to prevent)
+    std::chrono::steady_clock::time_point lost = std::chrono::steady_clock::now();
+    const std::function<bool(void)> too_long = [&]() {return std::chrono::steady_clock::now() - lost > std::chrono::seconds(30);};
+    const std::function<int(void)> direct = [&]() {
+        warn_("claude-cluster is not back: the command runs directly, in the low profile");
+        return run_(options, low, true, -1);
+    };
     std::string lastLine;
     bool first = true;
     for (;;) {
@@ -386,10 +421,7 @@ int main(int argc, char* argv[])
                 warn_("claude-cluster is not running: the command runs directly, in the low profile");
                 return run_(options, low, true, -1);
             }
-            if (std::chrono::steady_clock::now() - began > std::chrono::seconds(30)) {
-                warn_("claude-cluster is not back: the command runs directly, in the low profile");
-                return run_(options, low, true, -1);
-            }
+            if (too_long()) return direct();
             ::sleep(1);
             continue;
         }
@@ -402,9 +434,12 @@ int main(int argc, char* argv[])
         }
         if (!send_(fd, request)) {
             ::close(fd);
+            if (too_long()) return direct();
+            ::sleep(1);
             continue;
         }
         std::string buffer;
+        bool answered = false;
         for (;;) {
             if (g_signal != 0) { // asked to stop while it waits: the job is dropped with the connection
                 ::close(fd);
@@ -415,9 +450,11 @@ int main(int argc, char* argv[])
             if (got < 0) { // the core went: tried again for a while
                 ::close(fd);
                 warn_("lost claude-cluster while waiting: trying again");
+                if (answered) lost = std::chrono::steady_clock::now(); // (a core that drops each connection at once: the same 30 s go on)
                 break;
             }
             if (got == 0) continue;
+            answered = true;
             const std::string event = message.value("event", std::string());
             if (!message.value("ok", false)) {
                 warn_("refused: " + message.value("error", std::string("?")));
@@ -448,10 +485,7 @@ int main(int argc, char* argv[])
                 return run_(options, grant, true, fd);
             }
         }
-        if (std::chrono::steady_clock::now() - began > std::chrono::seconds(30)) {
-            warn_("claude-cluster is not back: the command runs directly, in the low profile");
-            return run_(options, low, true, -1);
-        }
+        if (too_long()) return direct();
         ::sleep(1);
     }
 }

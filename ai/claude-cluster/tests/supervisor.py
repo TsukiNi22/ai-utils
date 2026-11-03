@@ -27,7 +27,7 @@ BIN = sys.argv[1] if len(sys.argv) > 1 else "/tmp/cc-build/claude-cluster"
 FAKE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_claude.py")
 ENV = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_CLUSTER_")}
 ENV.update(XDG_CONFIG_HOME=f"{T}/config", XDG_DATA_HOME=f"{T}/share", XDG_RUNTIME_DIR=f"{T}/run", XDG_CACHE_HOME=f"{T}/cache", FAKE_CLAUDE_LOG=f"{T}/log",
-           TERM="xterm-256color")
+           TERM="xterm-256color", HOME=f"{T}/home") # a home of its own: the jobs and sessions of the real ~/.claude are read for each view (slow with many agents running)
 MAIN = f"{T}/run/claude-cluster/control.sock"
 INST = f"{T}/share/claude-cluster/instances"
 failed = False
@@ -115,7 +115,7 @@ class Term:
         except OSError:
             pass
 
-for folder in ("config/claude-cluster", "share/claude-cluster/instances/beta", "share/claude-cluster/instances/.supervisor", "run", "cache", "work"):
+for folder in ("config/claude-cluster", "share/claude-cluster/instances/beta", "share/claude-cluster/instances/.supervisor", "run", "cache", "work", "home"):
     os.makedirs(f"{T}/{folder}")
 with open(f"{T}/config/claude-cluster/config.toml", "w", encoding="utf-8") as config:
     config.write('[global]\nenabled = false\n[ui]\nnotify = false\nmachine_days = 0\n[user]\nname = "t"\nemail = "t@t.t"\n[usage]\naccount = false\n'

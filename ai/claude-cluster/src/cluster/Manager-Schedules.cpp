@@ -16,6 +16,7 @@ File Description:
 #include "cluster/Manager.hpp"
 #include "cluster/Options.hpp"
 #include "cluster/Machine.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Tools.hpp"
 #include "cluster/Cron.hpp"
 #include "cluster/Wire.hpp"
@@ -23,6 +24,7 @@ File Description:
 #include <filesystem>
 #include <functional>
 #include <algorithm>
+#include <cstdlib>
 #include <regex>
 #include <map>
 #include <set>
@@ -36,6 +38,9 @@ constexpr std::int64_t TASK_ARCHIVE_SECONDS = 1800;     // a finished task stays
 constexpr std::size_t HISTORY_RUNS = 10;                // the runs kept in a schedule
 constexpr int MAX_ASKS = 12;                            // a reminder asking again until acknowledged: at most this many times
 constexpr std::int64_t RECHECK_SECONDS = 300;           // a one-time schedule whose window / condition is not met: looked at again
+constexpr std::int64_t CRON_REACH_SECONDS = 1470 * 86400; // a cron outside its days / windows: its next time looked for this far (what cron_next reaches: Feb 29)
+constexpr std::size_t TEXT_BYTES = 64;                  // a time as it is written, an if.usage: nothing longer goes to a regex (it recurses per character)
+constexpr std::ptrdiff_t TASKS_KEPT = 1000;             // the archived tasks kept, at most: the oldest leave first
 
 _cold std::int64_t when_(const std::string& when, const std::string& tz)
 {
@@ -43,26 +48,35 @@ _cold std::int64_t when_(const std::string& when, const std::string& tz)
     const std::string w = cluster::trim(when);
     const std::int64_t now = cluster::now();
     std::smatch match;
-    if (std::regex_match(w, match, std::regex(R"(\+?(\d+)\s*([smhd]))"))) {
-        static const std::map<std::string, std::int64_t> units = {{"s", 1}, {"m", 60}, {"h", 3600}, {"d", 86400}};
-        return now + std::stoll(match[1]) * units.at(match[2]);
+    std::int64_t at = 0;
+    if (w.size() <= TEXT_BYTES) {
+        if (std::regex_match(w, match, std::regex(R"(\+?(\d+)\s*([smhd]))"))) {
+            static const std::map<std::string, std::int64_t> units = {{"s", 1}, {"m", 60}, {"h", 3600}, {"d", 86400}};
+            at = now + std::min<std::int64_t>(std::strtoll(match[1].str().c_str(), nullptr, 10), 3650000) * units.at(match[2]); // past 10000 years (in any unit): no overflow
+        } else if (std::regex_match(w, std::regex(R"(\d{9,})"))) {
+            at = std::strtoll(w.c_str(), nullptr, 10); // too many digits: the biggest, refused below
+        } else {
+            at = cluster::zone_parse(w, tz, now);
+        }
     }
-    if (std::regex_match(w, std::regex(R"(\d{9,})"))) return std::stoll(w);
-    const std::int64_t at = cluster::zone_parse(w, tz, now);
+    if (at > cluster::TIME_LAST) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "when: past the year 9999 - '" + cluster::one_line(when, 80) + "'");
     if (at > 0) return at;
     throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument,
-        "when: +30m, +2h, +1d, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM - not '" + when + "'");
+        "when: +30m, +2h, +1d, HH:MM (today, else tomorrow), YYYY-MM-DD HH:MM - not '" + cluster::one_line(when, 80) + "'");
 }
 
 // the next time after t by the rules of w (its cron, or its every counted from base), inside its days / windows (0: none)
 _cold std::int64_t next_after_(const cluster::Schedule& w, const std::int64_t base, const std::int64_t t)
 {
     if (!w.cron.empty()) {
-        std::int64_t from = t;
-        for (int i = 0; i < 60; ++i) {
+        // outside its days / windows: on to the next minute they allow, however many times of the cron that skips (every minute, a window opening in 8 h); bounded by a date
+        const std::int64_t limit = t + CRON_REACH_SECONDS;
+        for (std::int64_t from = t; from < limit;) {
             const std::int64_t next = cluster::cron_next(w.cron, w.tz, from);
             if (next == 0 || cluster::time_allowed(w.days, w.window, w.quiet, w.tz, next)) return next;
-            from = next;
+            const std::int64_t allowed = cluster::time_next_allowed(w.days, w.window, w.quiet, w.tz, next);
+            if (allowed == 0) return 0; // its days / windows allow nothing
+            from = std::max(next, allowed - 1); // (cron_next: strictly after)
         }
         return 0;
     }
@@ -81,10 +95,48 @@ const std::vector<std::string>& option_keys_(void)
     return keys;
 }
 
+// "5h>80", "7d < 30 %": its window, its sign, its percent, in a size stod reads (a number of 400 digits: its exception stopped every schedule after it, at each pass)
+_cold bool usage_cond_(const std::string& usage, std::smatch& match)
+{
+    static const std::regex pattern(R"((5h|7d)\s*([<>])\s*(\d{1,9}(?:\.\d{1,9})?)\s*%?)");
+    return usage.size() <= TEXT_BYTES && std::regex_match(usage, match, pattern);
+}
+
 _cold std::string usage_cond_check_(const std::string& usage)
 {
-    static const std::regex pattern(R"((5h|7d)\s*[<>]\s*\d+(\.\d+)?\s*%?)");
-    return std::regex_match(usage, pattern) ? "" : "if.usage: 5h>80 or 7d<30 (a limit window used above / below a percent), not '" + usage + "'";
+    std::smatch match;
+    return usage_cond_(usage, match) ? "" : "if.usage: 5h>80 or 7d<30 (a limit window used above / below a percent), not '" + cluster::one_line(usage, 80) + "'";
+}
+
+// the command of a schedule, as it is written: anything else than a string refused (opt::text gives the JSON text of it, and /bin/sh would run that)
+_cold std::string command_of_(const cluster::Json& o)
+{
+    const auto it = o.find("command");
+    if (it == o.end() || it->is_null()) return "";
+    if (!it->is_string()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidArgument, "command: a string, not " + it->dump());
+    return it->get<std::string>();
+}
+
+// the archived tasks leave for good: past the days of the trash, then past a count (a schedule of every minute makes 1440 a day, each saved, each sent to every interface);
+// never one a task still waiting comes after, nor one of a group still open
+_cold bool forget_tasks_(std::vector<cluster::Task>& tasks, const std::vector<cluster::Group>& groups, const std::int64_t now, const int days)
+{
+    const std::function<std::int64_t(const cluster::Task&)> over = [](const cluster::Task& t) {return t.ended > 0 ? t.ended : t.created;};
+    std::set<std::string> needed;
+    for (const cluster::Task& t: tasks)
+        if (t.status == "queued" || t.status == "running") needed.insert(t.after.begin(), t.after.end());
+    for (const cluster::Group& g: groups)
+        if (!g.finished) needed.insert(g.tasks.begin(), g.tasks.end());
+    std::vector<std::int64_t> ends;
+    for (const cluster::Task& t: tasks)
+        if (t.archived && !needed.contains(t.id)) ends.push_back(over(t));
+    std::int64_t limit = now - static_cast<std::int64_t>(std::max(1, days)) * 86400;
+    if (static_cast<std::ptrdiff_t>(ends.size()) > TASKS_KEPT) {
+        const auto first = ends.end() - TASKS_KEPT;
+        std::nth_element(ends.begin(), first, ends.end());
+        limit = std::max(limit, *first);
+    }
+    return std::erase_if(tasks, [&](const cluster::Task& t) {return t.archived && !needed.contains(t.id) && over(t) < limit;}) > 0;
 }
 
 } // namespace
@@ -143,7 +195,7 @@ _cold void cluster::Manager::applySchedule_(cluster::Schedule& w, const cluster:
     }
     if (const auto it = o.find("if"); it != o.end() && it->is_object()) {
         w.cond.sessionIdle = opt::text(*it, "session_idle");
-        w.cond.command = opt::text(*it, "command");
+        w.cond.command = command_of_(*it);
         if (!w.cond.command.empty()) w.cond.match = cluster::command_match(*it); // its output / code wanted, its failures before giving up
         w.cond.fileChanged = opt::text(*it, "file_changed");
         w.cond.fileBase = w.cond.fileChanged.empty() ? 0 : opt::mtime(w.cond.fileChanged);
@@ -155,7 +207,15 @@ _cold void cluster::Manager::applySchedule_(cluster::Schedule& w, const cluster:
     if (const auto it = o.find("options"); it != o.end() && it->is_object()) w.options = *it;
     for (const std::string& key: option_keys_())
         if (o.contains(key)) w.options[key] = o.at(key);
-    if (w.action == "command" && cluster::trim(opt::text(w.options, "command")).empty()) bad("action command: the command to run (command)");
+    if (w.action == "command" && cluster::trim(command_of_(w.options)).empty()) bad("action command: the command to run (command)");
+    (void)command_of_(w.options); // a later edit may make it the action
+    if (const auto it = w.options.find("on_event"); it != w.options.end() && it->is_object()) (void)command_of_(*it);
+    // a file read into the result of its task: from the page, the gate of :r (addTaskJson, at its time, sees no page); only what this request brings: what the user set stays editable
+    if (opt::text(o, "origin") == "web" && !this->config().web.shell) {
+        const auto given = o.find("options");
+        if (opt::is_path(cluster::trim(opt::text(o, "expect"))) || (given != o.end() && given->is_object() && opt::is_path(cluster::trim(opt::text(*given, "expect")))))
+            bad("the shell from the page is off (settings of the computer: Web > Shell from the page): expect reads a file, like :r");
+    }
     if (w.action == "spawn") {
         if (opt::text(w.options, "cwd").empty()) bad("action spawn: the project folder (cwd)");
         (void)cluster::resolve_folder(opt::text(w.options, "cwd"));
@@ -202,11 +262,13 @@ _cold cluster::Json cluster::Manager::scheduleJson(const cluster::Schedule& w) c
         out["in_minutes"] = (w.at - cluster::now()) / 60;
         cluster::Json next = cluster::Json::array();   // the times after it
         std::int64_t base = w.at;
-        for (int i = 0; i < 3 && w.reset.empty(); ++i) {
-            base = next_after_(w, w.at, base);
-            if (base == 0) break;
-            next.push_back(cluster::zone_clock(base, w.tz));
-        }
+        try {
+            for (int i = 0; i < 3 && w.reset.empty(); ++i) {
+                base = next_after_(w, w.at, base);
+                if (base == 0) break;
+                next.push_back(cluster::zone_clock(base, w.tz));
+            }
+        } catch (const std::exception&) {} // a zone gone from this computer (an older state.json): the whole list stays readable, its run says why
         out["then"] = next;
     }
     if (w.every > 0) out["every_minutes"] = w.every;
@@ -255,9 +317,9 @@ _cold cluster::Json cluster::Manager::addScheduleJson(const cluster::Json& optio
         std::lock_guard<std::mutex> lock(this->_mutex);
         if (!by.empty() && by != GLOBAL_ID && w.action == "spawn") {
             std::size_t waiting = std::count_if(this->_schedules.begin(), this->_schedules.end(), [&](const cluster::Schedule& s) {return s.by == by && s.action == "spawn" && s.status == "waiting";});
-            if (this->spawnedBy_(by) + waiting >= static_cast<std::size_t>(this->_config.subSpawnCap))
+            if (this->spawnedBy_(by) + waiting >= static_cast<std::size_t>(this->config().subSpawnCap))
                 throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "the cap of sessions started by your tasks / schedules is reached ("
-                    + std::to_string(this->_config.subSpawnCap) + ": [agent] sub_spawn_cap)");
+                    + std::to_string(this->config().subSpawnCap) + ": [agent] sub_spawn_cap)");
         }
         w.id = "w" + std::to_string(this->_nextSchedule++);
         this->_schedules.push_back(w);
@@ -360,21 +422,23 @@ _cold bool cluster::Manager::conditionMet_(cluster::ScheduleIf& cond, std::strin
     }
     if (!cond.usage.empty()) {
         std::smatch match;
-        if (std::regex_match(cond.usage, match, std::regex(R"((5h|7d)\s*([<>])\s*(\d+(?:\.\d+)?)\s*%?)"))) {
-            const cluster::UsageReport report = this->usage("anthropic");
-            double used = match[1] == "5h" ? report.limit5h : report.limit7d;
-            for (const cluster::UsageWindow& u: report.windows)
-                if (u.name == (match[1] == "5h" ? "5 h" : "7 d") && u.used >= 0.0) used = u.used;
-            const double percent = used * 100.0;
-            if (used < 0.0) {
-                why = "the " + match[1].str() + " limit is not known";
-                return false;
-            }
-            const double wanted = std::stod(match[3]);
-            if (match[2] == ">" ? percent <= wanted : percent >= wanted) {
-                why = "the " + match[1].str() + " limit is at " + std::to_string(static_cast<int>(percent)) + " %, not " + match[2].str() + " " + match[3].str();
-                return false;
-            }
+        if (!usage_cond_(cond.usage, match)) { // refused when it is written: from an older state.json
+            why = "if.usage cannot be read";
+            return false;
+        }
+        const cluster::UsageReport report = this->usage("anthropic");
+        double used = match[1] == "5h" ? report.limit5h : report.limit7d;
+        for (const cluster::UsageWindow& u: report.windows)
+            if (u.name == (match[1] == "5h" ? "5 h" : "7 d") && u.used >= 0.0) used = u.used;
+        const double percent = used * 100.0;
+        if (used < 0.0) {
+            why = "the " + match[1].str() + " limit is not known";
+            return false;
+        }
+        const double wanted = std::stod(match[3]);
+        if (match[2] == ">" ? percent <= wanted : percent >= wanted) {
+            why = "the " + match[1].str() + " limit is at " + std::to_string(static_cast<int>(percent)) + " %, not " + match[2].str() + " " + match[3].str();
+            return false;
         }
     }
     return true;
@@ -401,7 +465,7 @@ _cold std::string cluster::Manager::execute_(const cluster::Schedule& w)
     }
     if (w.action == "command") {
         // a program of the user, no model: only its output is sent, when there is one
-        const std::string command = opt::text(w.options, "command");
+        const std::string command = command_of_(w.options);
         const int seconds = static_cast<int>(std::clamp<std::int64_t>(opt::number(w.options, "timeout_seconds", 60), 1, 600));
         cluster::Captured result;
         if (const cluster::Json heavy = this->runHeavy_(command, opt::text(w.options, "cwd"), seconds, w.by); !heavy.is_null()) { // a heavy command waits its turn (the orchestrator)
@@ -567,7 +631,8 @@ _cold void cluster::Manager::pollEvents_(void)
     for (auto &[id, on]: checks) {
         on.checked = now;
         if (on.type == "file") {
-            const bool exists = std::filesystem::exists(cluster::expand_home(on.arg));
+            std::error_code missing; // a folder it may not read: not there yet, never an exception out of the tick
+            const bool exists = std::filesystem::exists(cluster::expand_home(on.arg), missing);
             on.met = on.arg2 == "changed" ? exists && std::to_string(opt::mtime(on.arg)) != on.base : exists;
         } else if (on.type == "command") {
             const cluster::CommandVerdict verdict = cluster::command_check(on.arg, on.match);
@@ -578,11 +643,14 @@ _cold void cluster::Manager::pollEvents_(void)
         } else if (on.type == "git_push") {
             const std::string repo = cluster::expand_home(on.arg).string();
             std::string branch = on.arg2;
-            if (branch.empty()) branch = cluster::trim(cluster::capture({"git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"}, "", 10).out);
-            const cluster::Captured remote = cluster::capture({"git", "-C", repo, "ls-remote", "origin", "refs/heads/" + branch}, "", 25);
-            const std::string head = remote.code == 0 ? remote.out.substr(0, remote.out.find_first_of(" \t")) : "";
-            if (on.base.empty()) on.base = head; // the commit when the task was queued (seen at the first look)
-            else on.met = !head.empty() && head != on.base;
+            if (branch.empty()) branch = cluster::trim(cluster::git_read({"-C", repo, "rev-parse", "--abbrev-ref", "HEAD"}, "", 10).out);
+            const cluster::Captured remote = cluster::capture({"git", "-c", "core.sshCommand=ssh", "-c", "protocol.ext.allow=never", "-c", "remote.origin.uploadpack=git-upload-pack", "-C", repo, "ls-remote", "origin", "refs/heads/" + branch}, "", 25);
+            // on.base: "" not looked yet, "-" no such branch at the first look (its first push is what it waits for), else the commit when the task was queued
+            if (remote.code == 0) { // the remote not reached: it tells nothing, looked at again
+                const std::string head = remote.out.substr(0, remote.out.find_first_of(" \t"));
+                if (on.base.empty()) on.base = head.empty() ? "-" : head;
+                else on.met = !head.empty() && head != on.base;
+            }
         }
         met |= on.met;
         std::lock_guard<std::mutex> lock(this->_mutex);
@@ -613,9 +681,37 @@ _cold void cluster::Manager::pollEvents_(void)
 
 _cold void cluster::Manager::bgPass_(const std::vector<std::string>& due)
 {
-    this->pollEvents_();
-    for (const std::string& id: due)
-        this->runSchedule_(id);
+    try {
+        this->pollEvents_();
+    } catch (const std::exception& e) { // the schedules run all the same
+        cluster::debug("tasks", std::string("the events of the tasks: ") + e.what());
+    }
+    for (const std::string& id: due) {
+        try {
+            this->runSchedule_(id);
+        } catch (const std::exception& e) {
+            // what it could not do never stops the ones after it, at each pass again: said in its note, on to its next time (none: ended)
+            const std::string why = cluster::one_line(e.what(), 200);
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                for (cluster::Schedule& w: this->_schedules) {
+                    if (w.id != id) continue;
+                    w.busy = false;
+                    w.now = false;
+                    w.note = "failed: " + why;
+                    ++w.skipped;
+                    try {
+                        this->advance_(w, cluster::now(), false);
+                    } catch (const std::exception&) {
+                        w.status = "cancelled";
+                        w.reason = why;
+                    }
+                }
+            }
+            this->save();
+            ++this->_version;
+        }
+    }
 }
 
 _cold void cluster::Manager::handoff_(void)
@@ -623,12 +719,15 @@ _cold void cluster::Manager::handoff_(void)
     // a core of another version replaced by this one (Core::otherBuild_, without waiting for its turns): what it had going - its web
     // access open, the turns it was running (stopped by the replace: continued here), the prompts of its queues (sent again) - given
     // back as soon as their session runs here; read once, never applied twice, dropped after 30 min
+    // save() copies _handoff from any thread: read and changed under the lock only, each send outside it (a send takes the lock)
     const std::filesystem::path file = cluster::data_dir() / "handoff.json";
+    bool reopen = false;
     if (!this->_handoffRead) {
         this->_handoffRead = true;
         const cluster::Json given = cluster::read_json(file).value_or(cluster::Json());
         std::error_code error;
         std::filesystem::remove(file, error);
+        std::lock_guard<std::mutex> lock(this->_mutex);
         if (given.is_object()) { // merged with the queues saved by the last run (load)
             if (!this->_handoff.is_object()) this->_handoff = {{"turns", cluster::Json::array()}, {"queued", cluster::Json::object()}, {"at", cluster::now()}};
             this->_handoff["web"] = given.value("web", false);
@@ -639,76 +738,138 @@ _cold void cluster::Manager::handoff_(void)
                 if (!this->_handoff["queued"].contains(it.key())) this->_handoff["queued"][it.key()] = it.value();
             this->_handoff["background"] = given.value("background", cluster::Json::object()); // a forced switch: the background it stopped
         }
-        if (!this->_handoff.is_object()) return;
-        if (this->_handoff.value("web", false) && this->_web != nullptr && !this->_web->status().on) {
-            this->_web->setOn(true);
-            this->notice_("", "the web access was open in the replaced core: opened again");
-        }
+        reopen = this->_handoff.is_object() && this->_handoff.value("web", false);
     }
-    if (!this->_handoff.is_object()) return;
-    if (cluster::now() - this->_handoff.value("at", std::int64_t(0)) > 1800) // a turn stopped long ago: not continued any more (its queue: still sent)
-        this->_handoff["turns"] = cluster::Json::array();
+    if (reopen && this->_web != nullptr && !this->_web.load()->status().on) {
+        this->_web.load()->setOn(true);
+        this->notice_("", "the web access was open in the replaced core: opened again");
+    }
+    // what is left to give back: a copy
+    cluster::Json turns;
+    std::vector<std::string> queuedFor;
+    cluster::Json background;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        if (!this->_handoff.is_object()) return;
+        if (cluster::now() - this->_handoff.value("at", std::int64_t(0)) > 1800) // a turn stopped long ago: not continued any more (its queue: still sent)
+            this->_handoff["turns"] = cluster::Json::array();
+        turns = this->_handoff.value("turns", cluster::Json::array());
+        const cluster::Json queued = this->_handoff.value("queued", cluster::Json::object());
+        for (cluster::Json::const_iterator it = queued.begin(); queued.is_object() && it != queued.end(); ++it)
+            queuedFor.push_back(it.key());
+        background = this->_handoff.value("background", cluster::Json::object());
+    }
     const std::function<bool(const std::string&)> ready = [this](const std::string& id) {
         const std::optional<cluster::Snapshot> snap = this->snapshot(id);
         return snap && snap->state == cluster::State::Idle;
     };
-    cluster::Json& turns = this->_handoff["turns"];
-    for (auto it = turns.begin(); turns.is_array() && it != turns.end();) {
-        const std::string id = it->is_string() ? it->get<std::string>() : "";
+    bool gaveBack = false; // saved at the end: a crash after it never gives it back twice
+    cluster::Json waitingTurns = cluster::Json::array(); // not continued yet: their queue and their background after them
+    for (const cluster::Json& entry: turns) {
+        const std::string id = entry.is_string() ? entry.get<std::string>() : "";
         if (id.empty() || !ready(id)) {
-            ++it;
+            waitingTurns.push_back(entry);
             continue;
         }
+        gaveBack = true;
         try {
             this->send(id, "[claude-cluster was replaced by another version while this turn ran: the turn was stopped. Continue where you were - "
                 "what was done is in the conversation above.]", false, {}, "wake");
-        } catch (const utils::exception::IException&) {}
-        it = turns.erase(it);
-    }
-    cluster::Json& queued = this->_handoff["queued"];
-    for (auto it = queued.begin(); queued.is_object() && it != queued.end();) {
-        if (!ready(it.key()) || (turns.is_array() && std::find(turns.begin(), turns.end(), cluster::Json(it.key())) != turns.end())) { // after its turn
-            ++it;
-            continue;
+        } catch (const std::exception& e) {
+            cluster::debug("core", "the turn of " + id + " not continued: " + e.what());
         }
-        for (const cluster::Json& q: it.value())
+    }
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_handoff["turns"] = waitingTurns;
+    }
+    const std::function<bool(const std::string&)> after_its_turn = [&](const std::string& id) {
+        return !ready(id) || std::find(waitingTurns.begin(), waitingTurns.end(), cluster::Json(id)) != waitingTurns.end();
+    };
+    for (const std::string& id: queuedFor) {
+        if (after_its_turn(id)) continue;
+        // one by one, each one still there until it is sent. Forced like the prompts held by an update (releaseHeld_): accepted when they were given (a queue that went on would have
+        // sent them), a limit reached since never loses them. A failure (the core quitting): kept, saved with the state, tried again
+        for (;;) {
+            cluster::Json prompt;
+            {
+                std::lock_guard<std::mutex> lock(this->_mutex);
+                cluster::Json& queued = this->_handoff["queued"];
+                const auto entry = queued.find(id);
+                if (entry == queued.end()) break;
+                if (!entry->is_array() || entry->empty()) {
+                    queued.erase(entry);
+                    break;
+                }
+                prompt = entry->front();
+            }
             try {
-                this->send(it.key(), q.value("text", std::string()), false, q.value("images", std::vector<std::string>()), q.value("origin", std::string()));
-            } catch (const utils::exception::IException&) {}
-        it = queued.erase(it);
+                this->send(id, prompt.at("text").get<std::string>(), true, prompt.value("images", std::vector<std::string>()), prompt.value("origin", std::string()));
+            } catch (const cluster::Json::exception&) { // not a prompt (a state of another shape): dropped
+                cluster::debug("core", "a prompt kept for " + id + " is not a prompt: dropped");
+            } catch (const std::exception&) {
+                break;
+            }
+            gaveBack = true;
+            std::lock_guard<std::mutex> lock(this->_mutex);
+            cluster::Json& queued = this->_handoff["queued"];
+            if (const auto entry = queued.find(id); entry != queued.end() && entry->is_array() && !entry->empty()) entry->erase(entry->begin());
+        }
     }
     // a forced switch stopped its background shells / agents: its session asked to run them again, once its turn is over
-    cluster::Json& background = this->_handoff["background"];
-    for (auto it = background.begin(); background.is_object() && it != background.end();) {
-        if (!ready(it.key()) || (turns.is_array() && std::find(turns.begin(), turns.end(), cluster::Json(it.key())) != turns.end())) {
-            ++it;
-            continue;
-        }
-        std::string list;
-        for (const cluster::Json& b: it.value())
-            list += "\n- " + std::string(b.value("kind", std::string()) == "shell" ? "background shell" : "background agent") + " \""
-                + cluster::one_line(b.value("description", std::string()), 160) + "\"" + (b.value("prompt", std::string()).empty() ? std::string()
-                : " (it was: " + cluster::one_line(b.value("prompt", std::string()), 300) + ")");
+    for (cluster::Json::const_iterator it = background.begin(); background.is_object() && it != background.end(); ++it) {
+        if (after_its_turn(it.key())) continue;
+        gaveBack = true;
         try {
+            std::string list;
+            for (const cluster::Json& b: it.value())
+                list += "\n- " + std::string(b.value("kind", std::string()) == "shell" ? "background shell" : "background agent") + " \""
+                    + cluster::one_line(b.value("description", std::string()), 160) + "\"" + (b.value("prompt", std::string()).empty() ? std::string()
+                    : " (it was: " + cluster::one_line(b.value("prompt", std::string()), 300) + ")");
             this->send(it.key(), "[claude-cluster was switched to another version: these background items of yours were stopped by the switch:" + list
                 + "\nStart again the ones still needed, the same way.]", false, {}, "wake");
-        } catch (const utils::exception::IException&) {}
-        it = background.erase(it);
+        } catch (const std::exception& e) {
+            cluster::debug("core", "the background of " + it.key() + " not told: " + e.what());
+        }
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        this->_handoff["background"].erase(it.key());
     }
-    if ((!turns.is_array() || turns.empty()) && (!queued.is_object() || queued.empty()) && (!background.is_object() || background.empty()))
-        this->_handoff = cluster::Json();
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        const std::function<bool(const char*)> nothing = [this](const char* key) {
+            const auto left = this->_handoff.find(key);
+            return left == this->_handoff.end() || !left->is_structured() || left->empty();
+        };
+        if (nothing("turns") && nothing("queued") && nothing("background")) this->_handoff = cluster::Json();
+    }
+    if (gaveBack) this->save();
 }
 
 _cold void cluster::Manager::fireSchedules_(void)
 {
-    this->handoff_();
+    // the tick and a client thread (schedule_act run): one at a time, or two passes give the handoff twice, and with the thread clearing _bgBusy before it is stored one replaces a
+    // _bgThread still joinable (std::terminate: the core gone). The pass that finds it taken leaves it: what was asked is done by the next one (a second at most)
+    static std::mutex firing;
+    const std::unique_lock<std::mutex> one(firing, std::try_to_lock);
+    if (!one.owns_lock()) return;
+    try {
+        this->handoff_();
+    } catch (const std::exception& e) { // what a version before left, of another shape: the schedules run all the same
+        cluster::debug("core", std::string("what the last run left: ") + e.what());
+    }
     // due: its action (a prompt wakes its session up, a notification, a task, a command), then again (every, cron) or ended; the checks
     // that may take a while (commands, git) run in a thread of their own, never in the second of the tick
     const std::int64_t now = cluster::now();
+    bool forgotten = false;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
         for (cluster::Task& task: this->_tasks) // the finished tasks leave the list after a while (their archive)
             if (!task.archived && task.status != "queued" && task.status != "running" && now - (task.ended > 0 ? task.ended : task.created) > TASK_ARCHIVE_SECONDS) task.archived = true;
+        forgotten = forget_tasks_(this->_tasks, this->_groups, now, this->config().trashDays);
+    }
+    if (forgotten) {
+        this->save();
+        ++this->_version;
     }
     this->enforceTasks_();
     if (this->_bgBusy.exchange(true)) return;
@@ -721,14 +882,14 @@ _cold void cluster::Manager::fireSchedules_(void)
             w.busy = true;
             due.push_back(w.id);
         }
-        poll = now - this->_bgPoll >= 5 && std::any_of(this->_tasks.begin(), this->_tasks.end(), [](const cluster::Task& t) {return t.status == "queued" && !t.on.type.empty() && !t.on.met && t.on.type != "session_idle";});
+        poll = now - this->_bgPoll >= 2 && std::any_of(this->_tasks.begin(), this->_tasks.end(), [](const cluster::Task& t) {return t.status == "queued" && !t.on.type.empty() && !t.on.met && t.on.type != "session_idle";});
     }
     if (due.empty() && !poll) {
         this->_bgBusy = false;
         return;
     }
     if (this->_bgThread.joinable()) this->_bgThread.join();
-    this->_bgThread = std::thread([this, due]() {
+    this->_bgThread = cluster::guarded([this, due]() {
         try {
             this->bgPass_(due);
         } catch (...) {

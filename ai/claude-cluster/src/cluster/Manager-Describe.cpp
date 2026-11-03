@@ -14,6 +14,7 @@ File Description:
 #define _Attribute
 #include <utils/utils.hpp>
 #include "cluster/Showcase.hpp"
+#include "cluster/Display.hpp"
 #include "cluster/Manager.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
@@ -42,7 +43,7 @@ _cold static std::string ai_title_(const std::string& claudeId)
     std::string title;
     while (std::getline(in, line)) {
         if (line.find("\"type\":\"ai-title\"") == std::string::npos && line.find("\"type\":\"custom-title\"") == std::string::npos) continue;
-        const cluster::Json json = cluster::Json::parse(line, nullptr, false);
+        const cluster::Json json = cluster::json_parse(line, nullptr, false);
         if (json.is_discarded()) continue;
         for (const char* key: {"aiTitle", "customTitle"})
             if (json.contains(key) && json[key].is_string() && !json[key].get<std::string>().empty()) title = json[key].get<std::string>();
@@ -58,7 +59,7 @@ _cold static Source source_(const std::string& id)
     std::string answer;
     std::string line;
     while (std::getline(in, line)) {
-        const cluster::Json json = cluster::Json::parse(line, nullptr, false);
+        const cluster::Json json = cluster::json_parse(line, nullptr, false);
         if (json.is_discarded() || !json.is_object()) continue;
         const cluster::EntryKind kind = static_cast<cluster::EntryKind>(json.value("kind", 0));
         if (kind == cluster::EntryKind::User) prompts.push_back(json.value("text", std::string()));
@@ -73,7 +74,13 @@ _cold static Source source_(const std::string& id)
     return {prompts.front(), text};
 }
 
-_cold static std::vector<std::string> one_shot_(const cluster::Config& config, const cluster::Auth& auth, const std::string& backendSpec,
+struct OneShot {
+    std::vector<std::string> args;  // the command (empty: none for this driver)
+    cluster::Env env;               // its keys, its base URL: given apart, never on its command line
+    std::string prompt;             // the words of the conversation: on its input, never on its command line
+};
+
+_cold static OneShot one_shot_(const cluster::Config& config, const cluster::Auth& auth, const std::string& backendSpec,
     const std::string& prompt, const std::filesystem::path& answer, const bool small = true)
 {
     // one question to a model, its own process, nothing kept: the driver of the provider (claude, codex, opencode, qwen) with its
@@ -82,36 +89,31 @@ _cold static std::vector<std::string> one_shot_(const cluster::Config& config, c
     const std::string& driver = backend.provider.driver;
     const bool anthropic = backend.provider.name == "anthropic" || backend.provider.name == "anthropic-api";
     const std::string model = small && anthropic && config.describeModel.empty() ? "haiku" : backend.model;
-    std::vector<std::string> args = {"env"};
-    for (const auto &[key, value]: auth.env(backend))
-        args.push_back(key + "=" + value);
-    args.push_back(config.command(driver));
+    std::vector<std::string> args = {config.command(driver)};
+    // none with the prompt in its arguments: each one reads its input when it is no terminal
     if (driver == "claude") {
         args.insert(args.end(), {"-p", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--setting-sources", ""});
         if (!model.empty()) args.insert(args.end(), {"--model", model});
-        args.push_back(prompt);
     } else if (driver == "codex") {
         args.insert(args.end(), {"exec", "--skip-git-repo-check", "--sandbox", "read-only", "--output-last-message", answer.string()});
         if (!model.empty()) args.insert(args.end(), {"-m", model});
-        args.push_back(prompt);
+        args.emplace_back("-");
     } else if (driver == "opencode") {
-        args.push_back("run");
+        args.emplace_back("run");
         if (!model.empty()) args.insert(args.end(), {"-m", model});
-        args.insert(args.end(), {"--", prompt});
     } else if (driver == "qwen") {
         args.insert(args.end(), {"--auth-type", "openai"});
         if (!model.empty()) args.insert(args.end(), {"-m", model});
-        args.insert(args.end(), {"-p", prompt});
     } else {
         return {};
     }
-    return args;
+    return {args, auth.env(backend), prompt};
 }
 
-_cold static std::string answer_(const std::vector<std::string>& command, const std::filesystem::path& answer)
+_cold static std::string answer_(const OneShot& command, const std::filesystem::path& answer)
 {
     // its whole answer: the file it wrote (codex), else its output, its colors out ("" failed)
-    const cluster::Captured out = cluster::capture(command, cluster::data_dir().string(), 120);
+    const cluster::Captured out = cluster::capture_fed(command.args, command.prompt, command.env, cluster::data_dir().string(), 120);
     if (out.code != 0) return "";
     std::error_code error;
     std::string text = out.out;
@@ -123,10 +125,10 @@ _cold static std::string answer_(const std::vector<std::string>& command, const 
     return cluster::trim(std::regex_replace(text, std::regex("\x1b\\[[0-9;?]*[A-Za-z]"), ""));
 }
 
-_cold static std::string written_(const std::vector<std::string>& command, const std::filesystem::path& answer)
+_cold static std::string written_(const OneShot& command, const std::filesystem::path& answer)
 {
     // its answer: the file it wrote (codex), else the last line of its output (a warning may come before it), its colors out
-    const cluster::Captured out = cluster::capture(command, cluster::data_dir().string(), 90);
+    const cluster::Captured out = cluster::capture_fed(command.args, command.prompt, command.env, cluster::data_dir().string(), 90);
     if (out.code != 0) return "";
     std::error_code error;
     std::string text = out.out;
@@ -168,7 +170,7 @@ _cold std::vector<cluster::Snapshot> cluster::Manager::shown(void) const
     // the order of the lists of the interfaces: the global session first, then (grouped by category: [ui] group_by_category, the palette)
     // the category in alphabetical order, none last, the order of the sessions kept in a group
     std::vector<cluster::Snapshot> all = this->list(true);
-    if (this->ui("group_by_category", this->_config.groupByCategory ? "true" : "false") != "true") return all;
+    if (this->ui("group_by_category", this->config().groupByCategory ? "true" : "false") != "true") return all;
     // nested: the path of each session in the taxonomy (its category, else its first tag, under its parents), alphabetical level by level
     const cluster::Taxonomy taxonomy = this->taxonomy();
     std::vector<std::vector<std::string>> paths;
@@ -267,19 +269,19 @@ _cold void cluster::Manager::describeAuto_(const std::string& id)
 {
     // written in a thread of its own, one at a time (a model process each): the title of Claude Code when it made one, else a few
     // words of a small model ([sessions] describe = "model"), else its first prompt
-    if (this->_config.describe == "off") return;
+    if (this->config().describe == "off") return;
     std::lock_guard<std::mutex> lock(this->_describer->mutex);
     std::deque<std::string>& queue = this->_describer->queue;
     if (!this->_describer->alive || std::find(queue.begin(), queue.end(), id) != queue.end()) return;
     queue.push_back(id);
     if (this->_describer->running) return;
     this->_describer->running = true;
-    std::thread([this, describer = this->_describer]() {
+    cluster::guarded([this, describer = this->_describer]() {
         for (;;) {
             std::string id;
             std::string claudeId;
             std::string mode;
-            std::vector<std::string> command;   // the model that writes it (none: its first prompt)
+            OneShot command;                    // the model that writes it (none: its first prompt)
             Source source;
             {
                 // what it needs read while claude-cluster runs (it quits: nothing more touched)
@@ -290,7 +292,7 @@ _cold void cluster::Manager::describeAuto_(const std::string& id)
                 }
                 id = describer->queue.front();
                 describer->queue.pop_front();
-                mode = this->_config.describe;
+                mode = this->config().describe;
                 std::string backend;
                 if (const std::optional<cluster::Snapshot> snap = this->snapshot(id)) {
                     claudeId = snap->spec.claudeId;
@@ -306,7 +308,7 @@ _cold void cluster::Manager::describeAuto_(const std::string& id)
                 // the provider set for it ([sessions] describe_model), else the one of the session
                 if (mode == "model" && !source.first.empty())
                     try {
-                        command = one_shot_(this->_config, this->_auth, this->_config.describeModel.empty() ? backend : this->_config.describeModel,
+                        command = one_shot_(this->config(), this->_auth, this->config().describeModel.empty() ? backend : this->config().describeModel,
                             "Write a short description, 12 words at most, of what this conversation with a coding agent works on or holds, to find "
                             "it again in a list of sessions. Write it in the language of the user's messages. Answer with the description only: "
                             "no quotes, no final period.\n\n" + source.text, cluster::data_dir() / ("describe-" + id + ".txt"));
@@ -314,9 +316,8 @@ _cold void cluster::Manager::describeAuto_(const std::string& id)
             }
             if (source.first.empty()) continue; // nothing said yet
             std::string text = mode == "prompt" ? std::string() : ai_title_(claudeId);
-            // its program: the first word after env and its variables (installed, else its first prompt)
-            const auto program = std::find_if(command.begin() + (command.empty() ? 0 : 1), command.end(), [](const std::string& a) {return a.find('=') == std::string::npos;});
-            if (text.empty() && program != command.end() && cluster::has_command(*program))
+            // its program installed, else its first prompt
+            if (text.empty() && !command.args.empty() && cluster::has_command(command.args.front()))
                 text = written_(command, cluster::data_dir() / ("describe-" + id + ".txt"));
             if (text.empty()) text = cluster::summary_of(source.first, 90);
             std::lock_guard<std::mutex> hold(describer->mutex);
@@ -360,7 +361,7 @@ _cold void cluster::Manager::describeMissing_(void)
 _cold void cluster::Manager::chatAbout(const cluster::Ask& ask)
 {
     if (ask.requestId.starts_with("core-")) { // a question of claude-cluster itself (a costly model asked by the global session): a fixed answer, nothing spent
-        std::thread([this, describer = this->_describer, requestId = ask.requestId]() {
+        cluster::guarded([this, describer = this->_describer, requestId = ask.requestId]() {
             std::lock_guard<std::mutex> hold(describer->mutex);
             if (!describer->alive) return;
             this->asking().chatAnswer(requestId, "This question comes from claude-cluster, not from an agent: the global session asked to run a session on a costly model or "
@@ -371,7 +372,7 @@ _cold void cluster::Manager::chatAbout(const cluster::Ask& ask)
         return;
     }
     if (cluster::showcase_request(ask.requestId)) { // the showcase: a fixed answer, nothing spent
-        std::thread([this, describer = this->_describer, requestId = ask.requestId, said = ask.chat.empty() ? std::string() : ask.chat.back().second]() {
+        cluster::guarded([this, describer = this->_describer, requestId = ask.requestId, said = ask.chat.empty() ? std::string() : ask.chat.back().second]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1200));
             std::lock_guard<std::mutex> hold(describer->mutex);
             if (!describer->alive) return;
@@ -401,9 +402,9 @@ _cold void cluster::Manager::chatAbout(const cluster::Ask& ask)
         "about these questions before answering them (you do not answer the agent, you help the user choose: explain the options, their "
         "consequences, what you would pick and why). Answer the last message of the user, short and clear, in their language.\n\n" + chat;
     const std::filesystem::path file = cluster::data_dir() / ("chat-" + ask.requestId + ".txt");
-    const std::vector<std::string> command = one_shot_(this->_config, this->_auth, snap->spec.backend, prompt, file, false);
-    if (command.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "its provider can't chat here");
-    std::thread([this, describer = this->_describer, command, file, requestId = ask.requestId]() {
+    const OneShot command = one_shot_(this->config(), this->_auth, snap->spec.backend, prompt, file, false);
+    if (command.args.empty()) throw utils::exception::ErrorException(utils::exception::InternalCode::InvalidAction, "its provider can't chat here");
+    cluster::guarded([this, describer = this->_describer, command, file, requestId = ask.requestId]() {
         const std::string text = answer_(command, file);
         std::lock_guard<std::mutex> hold(describer->mutex);
         if (!describer->alive) return; // claude-cluster quits

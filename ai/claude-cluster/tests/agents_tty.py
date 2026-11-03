@@ -108,7 +108,7 @@ try:
     term.pump(4)
     if "asked again at the next start" in term.text():
         term.send(b"n", 1.5)
-    ask({"cmd": "spawn", "cwd": f"{T}/work", "name": "worker"})
+    worker = ask({"cmd": "spawn", "cwd": f"{T}/work", "name": "worker"}).get("data", {}).get("id", "s1")
     term.pump(2)
     for _ in range(3):
         if "worker" in term.text().split("\n")[1]:
@@ -127,6 +127,17 @@ try:
     after = shell_time(later)
     check("the time of the running shell goes on live", before >= 0 and after > before, f"{before} -> {after}")
     check("its last lines shown as they come", "SHELL-LINE-" in later, later[-900:])
+    check("an agent says it runs in the background", "· background" in later, later[-900:])
+    check("an agent says it runs in its turn", "· foreground" in later, later[-900:])
+    jobs = ask({"cmd": "slash", "session": "worker", "text": "/jobs"}).get("data", {}).get("message", "")
+    check("/jobs: the agent running of a session", "task-bg  agent · background  running" in jobs and "(worker)" in jobs, jobs)
+    check("/jobs: the shell running of a session", "task-sh  shell · background  running" in jobs, jobs)
+    shells = ask({"cmd": "slash", "session": worker, "text": "/shells"}).get("data", {}).get("message", "")
+    check("/shells: the agents and shells of this session", "agents and shells of this session" in shells and "task-bg" in shells and "task-fg  agent · foreground" in shells, shells)
+    stopped = ask({"cmd": "slash", "session": "worker", "text": "/kill task-bg"}).get("data", {}).get("message", "")
+    check("/kill: an agent by its id", "agent task-bg of worker stopping" in stopped, stopped)
+    refused = ask({"cmd": "slash", "session": "worker", "text": "/kill nothing-here"})
+    check("/kill: an unknown id told", "no job 'nothing-here'" in json.dumps(refused), json.dumps(refused)[:300])
     check("the interface runs", term.alive())
 finally:
     if term:

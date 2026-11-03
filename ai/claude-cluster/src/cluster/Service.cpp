@@ -325,7 +325,7 @@ _cold int run_(const bool verbose, const bool debug)
                 std::this_thread::sleep_for(std::chrono::seconds(delay)); // a broken detector: slower
             }
             try {
-                detector.start(config, verbose, debug);
+                detector.start(config.current(), verbose, debug);
             } catch (const utils::exception::IException& e) {
                 std::cerr << "service: detector not started: " << e.info() << std::endl;
                 ++failures;
@@ -336,7 +336,7 @@ _cold int run_(const bool verbose, const bool debug)
             failures = 0;
             detector.stop();
             try {
-                launch_(config);
+                launch_(config.current());
             } catch (const utils::exception::IException& e) {
                 std::cerr << "service: " << e.info() << std::endl;
             }

@@ -8,10 +8,8 @@ import html
 
 FILES = (("global.md", "global"), ("sessions.md", "sessions"), ("rendering.md", "rendering"))
 
-
 def text_of(ctx, name: str) -> str:
     return (ctx.code_root / "templates" / name).read_text()
-
 
 def blocks(ctx, lang: str) -> str:
     en = lang == "en"
@@ -19,10 +17,9 @@ def blocks(ctx, lang: str) -> str:
     for name, _ in FILES:
         body = text_of(ctx, name)
         summary = ("%s - full text (%d lines, %d KB)" if en else "%s - texte complet (%d lignes, %d Ko)") % (name, body.count("\n") + 1, max(1, round(len(body.encode()) / 1024)))
-        out.append('<details><summary>%s</summary><pre data-title="%s"><code class="language-markdown">%s</code></pre></details>' % (html.escape(summary), name, html.escape(body, quote=False)))
+        out.append('<details><summary>%s</summary><pre data-title="%s" tabindex="0" role="region" aria-label="%s"><code class="language-markdown">%s</code></pre></details>' % (html.escape(summary), name, name, html.escape(body, quote=False)))
     out.append(":::")
     return "\n".join(out)
-
 
 def md(ctx, lang: str) -> str:
     en = lang == "en"
@@ -144,7 +141,6 @@ Générés depuis les modèles de ce build (version %s, commit `%s`) : ce sont t
 
 - [global.md](downloads/global.md), [sessions.md](downloads/sessions.md), [rendering.md](downloads/rendering.md) : les fichiers exacts de ce build, avec leur taille dans [Téléchargements](page:downloads#prompts).
 """ % (ctx.version, ctx.commit, t)
-
 
 def pages(ctx) -> list[dict]:
     return [{"slug": "system-prompts", "section": "concepts", "order": 160,

@@ -18,6 +18,7 @@ File Description:
 #include "cluster/Asking.hpp"
 #include "cluster/Tools.hpp"
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <thread>
 #include <map>
@@ -29,6 +30,43 @@ _cold static const cluster::Json& question_at_(const cluster::Json& questions, c
     static const cluster::Json none = cluster::Json::object();
     if (!questions.is_array() || index < 0 || static_cast<std::size_t>(index) >= questions.size() || !questions[static_cast<std::size_t>(index)].is_object()) return none;
     return questions[static_cast<std::size_t>(index)];
+}
+
+_cold static std::string shown_text_(const cluster::Json& value)
+{
+    return value.is_string() ? value.get<std::string>() : value.is_null() ? std::string() : value.dump(-1, ' ', false, cluster::JSON_LENIENT);
+}
+
+_cold static cluster::Json question_shaped_(const cluster::Json& given)
+{
+    // a question as an agent wrote it: only a non-empty array is checked before it gets here. The shape every line here and every interface reads: its texts are strings,
+    // multiSelect a boolean, each option an object (value() throws on anything else: a request refused, a question that cannot even be declined). A normal one stays as it is
+    const std::function<bool(const cluster::Json&, const char*)> text = [](const cluster::Json& object, const char* key) {return !object.contains(key) || object[key].is_string();};
+    bool normal = given.is_object() && text(given, "question") && text(given, "header") && (!given.contains("multiSelect") || given["multiSelect"].is_boolean())
+        && (!given.contains("options") || given["options"].is_array());
+    if (normal && given.contains("options"))
+        for (const cluster::Json& option: given["options"])
+            normal = normal && option.is_object() && text(option, "label") && text(option, "description");
+    if (normal) return given;
+    cluster::Json q = {{"options", cluster::Json::array()}, {"multiSelect", false}};
+    if (!given.is_object()) {
+        q["question"] = shown_text_(given);
+        return q;
+    }
+    for (const char* key: {"question", "header"})
+        if (given.contains(key)) q[key] = shown_text_(given[key]);
+    q["multiSelect"] = given.contains("multiSelect") && given["multiSelect"].is_boolean() && given["multiSelect"].get<bool>();
+    if (!given.contains("options")) return q;
+    for (const cluster::Json& option: given["options"]) {
+        cluster::Json shown = {{"label", option.is_object() ? std::string() : shown_text_(option)}};
+        if (option.is_object()) {
+            for (const char* key: {"label", "description"})
+                if (option.contains(key)) shown[key] = shown_text_(option[key]);
+            if (option.contains("preview")) shown["preview"] = option["preview"];
+        }
+        q["options"].push_back(std::move(shown));
+    }
+    return q;
 }
 
 _cold static int number_(const std::string& key)
@@ -58,16 +96,24 @@ _cold static void restore_(cluster::Ask& a)
     a.cursor = 0;
     a.picked.clear();
     a.other.clear();
+    // what was written on its Other and not validated stays, on any way back (Tab, an arrow, the review); the answer recorded does not change by it
+    const auto typed = a.typed.find(a.index);
     const auto kept = a.given.find(a.index);
     if (kept != a.given.end()) {
         a.cursor = kept->second.cursor;
         a.picked = kept->second.picked;
-        a.other = kept->second.other;
+        a.other = typed != a.typed.end() ? typed->second : kept->second.other;
         return;
     }
     const cluster::Json& q = question_at_(a.questions, a.index);
     const std::string previous = a.answers.value(q.value("question", std::string()), std::string());
-    if (previous.empty()) return;
+    if (previous.empty()) {
+        if (typed != a.typed.end()) { // nothing else on this question: back on what was being written
+            a.other = typed->second;
+            a.cursor = static_cast<int>(q.value("options", cluster::Json::array()).size());
+        }
+        return;
+    }
     // answered by another way (the voice, the page): from its text
     const cluster::Json options = q.value("options", cluster::Json::array());
     const bool multi = q.value("multiSelect", false);
@@ -84,6 +130,13 @@ _cold static void restore_(cluster::Ask& a)
         a.cursor = static_cast<int>(options.size());
         a.other = previous;
     }
+    if (typed != a.typed.end()) a.other = typed->second;
+}
+
+_cold static void keep_typed_(cluster::Ask& a)
+{
+    if (a.other.empty()) a.typed.erase(a.index);
+    else a.typed[a.index] = a.other;
 }
 
 _cold static void record_(cluster::Ask& a)
@@ -153,7 +206,9 @@ _cold bool cluster::Asking::check(void)
             ask.session = snap.spec.id;
             ask.name = snap.spec.global ? "global" : snap.spec.name;
             ask.requestId = p.requestId;
-            ask.questions = p.input["questions"];
+            ask.questions = cluster::Json::array();
+            for (const cluster::Json& question: p.input["questions"])
+                ask.questions.push_back(question_shaped_(question));
             this->_ask = ask;
             ++this->_version;
             return true;
@@ -216,7 +271,7 @@ _cold void cluster::Asking::post_(cluster::Json request)
         if (this->_posting) return;
         this->_posting = true;
     }
-    std::thread([this]() {
+    cluster::guarded([this]() {
         while (true) {
             cluster::Json next;
             {
@@ -330,6 +385,7 @@ _cold void cluster::Asking::type(const std::string& raw)
     std::lock_guard<std::mutex> lock(this->_mutex);
     if (!this->_ask) return;
     this->_ask->other += text;
+    keep_typed_(*this->_ask);
     this->_ask->touched = true;
     if (question_at_(this->_ask->questions, this->_ask->index).value("multiSelect", false)) {
         this->_ask->picked.insert(static_cast<int>(question_at_(this->_ask->questions, this->_ask->index).value("options", cluster::Json::array()).size()));
@@ -355,6 +411,7 @@ _cold void cluster::Asking::erase(void)
     std::string& other = this->_ask->other;
     while (!other.empty() && (static_cast<unsigned char>(other.back()) & 0xC0) == 0x80) other.pop_back();
     if (!other.empty()) other.pop_back();
+    keep_typed_(*this->_ask);
     if (question_at_(this->_ask->questions, this->_ask->index).value("multiSelect", false)) {
         if (other.empty()) this->_ask->picked.erase(static_cast<int>(question_at_(this->_ask->questions, this->_ask->index).value("options", cluster::Json::array()).size())); // empty: Other untick
         record_(*this->_ask);
@@ -383,6 +440,7 @@ _cold void cluster::Asking::setOther(const std::string& raw)
     const cluster::Json& q = question_at_(this->_ask->questions, this->_ask->index);
     const int count = static_cast<int>(q.value("options", cluster::Json::array()).size());
     this->_ask->other = text;
+    keep_typed_(*this->_ask);
     this->_ask->cursor = count;
     this->_ask->touched = true;
     if (q.value("multiSelect", false)) {

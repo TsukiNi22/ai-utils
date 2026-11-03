@@ -211,9 +211,17 @@ _cold cluster::Json cluster::WebTty::open(const std::string& device, const int c
     session->pty = cluster::pty_spawn(session->cols, session->rows, true);
     session->seen = cluster::now_ms();
     Session* raw = session.get();
-    session->reader = std::thread(&cluster::WebTty::read_, this, raw);
-    std::lock_guard<std::mutex> lock(this->_mutex);
-    this->_sessions[device] = session;
+    session->reader = cluster::guarded(&cluster::WebTty::read_, this, raw);
+    bool made = false;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        made = this->_sessions.try_emplace(device, session).second;
+    }
+    if (!made) { // two pages opening at once: the first one kept, this one ended (its reader joined: a thread dropped running ends the core)
+        this->drop_(session);
+        return this->open(device, cols, rows);
+    }
+    std::lock_guard<std::mutex> hold(raw->mutex); // another page of this device may resize it already
     return {{"cols", raw->cols}, {"rows", raw->rows}, {"next", 0}, {"kept", false}};
 }
 
@@ -302,6 +310,19 @@ _cold void cluster::WebTty::expire(void)
         this->drop_(session);
 }
 
+_cold void cluster::WebTty::touch(const std::string& device)
+{
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(this->_mutex);
+        auto it = this->_sessions.find(device);
+        if (it == this->_sessions.end()) return;
+        session = it->second;
+    }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    session->seen = cluster::now_ms();
+}
+
 _cold void cluster::WebTty::closeAll(void)
 {
     std::vector<std::shared_ptr<Session>> gone;
@@ -328,21 +349,28 @@ _cold int cluster::WebTty::watch(const std::string& device)
     if (it == this->_sessions.end()) return -1;
     const int fd = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (fd < 0) return -1;
+    this->_watched[fd] = it->second;
     std::lock_guard<std::mutex> hold(it->second->mutex);
     it->second->watchers.push_back(fd);
     return fd;
 }
 
-_cold void cluster::WebTty::unwatch(const std::string& device, const int fd)
+_cold void cluster::WebTty::unwatch(const std::string&, const int fd)
 {
     if (fd < 0) return;
+    // out of the list of the terminal it was made for, closed or not: its reader still tells that list (a descriptor closed in it: 8 bytes written in whatever opens next)
+    std::shared_ptr<Session> session;
     {
         std::lock_guard<std::mutex> lock(this->_mutex);
-        auto it = this->_sessions.find(device);
-        if (it != this->_sessions.end()) {
-            std::lock_guard<std::mutex> hold(it->second->mutex);
-            std::erase(it->second->watchers, fd);
+        auto it = this->_watched.find(fd);
+        if (it != this->_watched.end()) {
+            session = it->second;
+            this->_watched.erase(it);
         }
+    }
+    if (session) {
+        std::lock_guard<std::mutex> hold(session->mutex);
+        std::erase(session->watchers, fd);
     }
     ::close(fd);
 }

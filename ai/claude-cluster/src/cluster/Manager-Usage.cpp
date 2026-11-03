@@ -114,7 +114,8 @@ _cold static std::string left_text_(const double used, const std::int64_t reset,
 {
     // what is left of a window and when it is reset
     const int left = std::clamp(static_cast<int>(100.0 - used * 100.0 + 0.5), 0, 100);
-    return std::to_string(left) + "%" + (reset > 0 ? " · " + date_(reset, format) : std::string());
+    const std::string coming = cluster::left_time(reset);
+    return std::to_string(left) + "%" + (reset > 0 ? " · " + date_(reset, format) : std::string()) + (coming.empty() ? "" : " (" + coming + ")");
 }
 
 /* ledger */
@@ -125,7 +126,7 @@ _cold void cluster::Manager::loadUsage_(void)
     std::vector<cluster::UsageRecord> records;
 
     while (std::getline(file, line)) {
-        const cluster::Json json = cluster::Json::parse(line, nullptr, false);
+        const cluster::Json json = cluster::json_parse(line, nullptr, false);
         if (!json.is_object()) continue;
         records.push_back({json.value("time", std::int64_t{0}), json.value("vendor", std::string()), json.value("model", std::string()), json.value("session", std::string()),
             json.value("tokens", std::int64_t{0}), json.value("cache", std::int64_t{0}), json.value("cost", 0.0), json.value("cost_known", true),
@@ -181,7 +182,7 @@ _cold void cluster::Manager::recordUsage_(const std::string& session)
             }
             told = level;
             const std::string when = reset > 0 ? ", reset in " + cluster::human_age(cluster::now() + (cluster::now() - reset)) : std::string();
-            std::thread([this, vendor, window, level, when]() {
+            cluster::guarded([this, vendor, window, level, when]() {
                 (void)this->notify({"limit-" + vendor, vendor + " · " + window + " limit " + (level >= 100 ? "reached" : "close"),
                     std::to_string(level) + " % of the " + window + " window used" + when, level >= 100 ? cluster::Face::Idle : cluster::Face::Waiting, level >= 95, "dialog-warning"}, "limit");
             }).detach();
@@ -220,7 +221,7 @@ _cold std::vector<cluster::Json> cluster::Manager::statsEvents(const std::int64_
     std::ifstream file(cluster::data_dir() / "stats.jsonl");
     std::string line;
     while (std::getline(file, line)) {
-        cluster::Json json = cluster::Json::parse(line, nullptr, false);
+        cluster::Json json = cluster::json_parse(line, nullptr, false);
         if (json.is_object() && json.value("t", std::int64_t{0}) >= since) events.push_back(std::move(json));
     }
     return events;
@@ -325,7 +326,7 @@ _cold cluster::UsageReport cluster::Manager::usage(const std::string& vendor) co
                 usage.cacheCreation1h = sum.cacheWrite1h;
                 usage.cacheRead = sum.cacheRead;
                 usage.output = sum.output;
-                const std::optional<double> cost = cluster::cost_of(this->_config, model, usage);
+                const std::optional<double> cost = cluster::cost_of(this->config(), model, usage);
                 add_sum_(report.total, sum, cost);
                 if (day >= weekDay) add_sum_(report.week, sum, cost);
                 if (day == todayDay) add_sum_(report.today, sum, cost);
@@ -410,8 +411,8 @@ _cold std::vector<std::pair<std::string, std::string>> cluster::Manager::usageLi
         else if (w.used >= 0.0) lines.emplace_back(w.name + " left", left_text_(w.used, w.reset, "%a %H:%M"));
     }
     if (report.accountAt > 0) lines.emplace_back("account", "read " + cluster::human_age(report.accountAt));
-    if (this->_config.budget > 0.0 && snap.metrics.costKnown)
-        lines.emplace_back("budget left", cluster::human_cost(std::max(0.0, this->_config.budget - snap.metrics.cost)));
+    if (this->config().budget > 0.0 && snap.metrics.costKnown)
+        lines.emplace_back("budget left", cluster::human_cost(std::max(0.0, this->config().budget - snap.metrics.cost)));
     return lines;
 }
 
@@ -442,9 +443,13 @@ _cold cluster::Json cluster::Manager::usageJson(const std::string& vendor) const
 /* the sources read in the background */
 _cold void cluster::Manager::scanTranscripts_(void)
 {
+    // asked by the tick and by each usage request: one start at a time. The thread clears the flag when it ends, maybe before it is stored here: without this lock a second caller
+    // sees no thread, and one of the two assignments lands on a joinable one (std::terminate: the core gone); the join is short, the thread is at its end when the flag is false
+    static std::mutex starting;
+    const std::lock_guard<std::mutex> lock(starting);
     if (this->_replica || this->_usageStop || this->_usageBusy.exchange(true)) return;
     if (this->_scanThread.joinable()) this->_scanThread.join(); // the one before (done: _usageBusy was false)
-    this->_scanThread = std::thread([this]() {
+    this->_scanThread = cluster::guarded([this]() {
         try {
             const std::function<std::int64_t()> count = [this]() {
                 std::int64_t total = 0;
@@ -464,18 +469,20 @@ _cold void cluster::Manager::scanTranscripts_(void)
 _cold void cluster::Manager::refreshAccount_(void)
 {
     // the windows of the account: its utilization in percent, the resets in ISO dates; the extra usage; kept per vendor
-    if (this->_replica || !this->_config.usage.account) return;
+    if (this->_replica || !this->config().usage.account) return;
     {
         std::lock_guard<std::mutex> lock(this->_mutex); // read by this core moments ago: kept
         if (cluster::now() - this->_accountTried < 25) return;
         this->_accountTried = cluster::now();
     }
+    static std::mutex starting; // one start at a time, as scanTranscripts_
+    const std::lock_guard<std::mutex> lock(starting);
     if (this->_usageStop || this->_accountBusy.exchange(true)) return;
     if (this->_accountThread.joinable()) this->_accountThread.join(); // the one before (done)
-    this->_accountThread = std::thread([this]() {
+    this->_accountThread = cluster::guarded([this]() {
         // the copy shared by every core of this user; the account itself asked only when that copy is too old
         std::int64_t at = 0;
-        const std::optional<cluster::Json> json = cluster::account_usage_shared(this->_config.usage.accountRefresh, &at);
+        const std::optional<cluster::Json> json = cluster::account_usage_shared(this->config().usage.accountRefresh, &at);
         bool known = false;
         {
             std::lock_guard<std::mutex> lock(this->_mutex);
@@ -569,7 +576,7 @@ _cold static std::int64_t window_start_(const std::string& window)
 _cold double cluster::Manager::spent(const std::int64_t since) const
 {
     // the usage ledger since then; keys: only the providers billed through a key (never a subscription or a local model)
-    const bool keysOnly = this->_config.limits.scope != "all";
+    const bool keysOnly = this->config().limits.scope != "all";
     std::map<std::string, bool> counted;
     std::lock_guard<std::mutex> lock(this->_mutex);
     double total = 0.0;
@@ -590,7 +597,7 @@ _cold double cluster::Manager::spent(const std::int64_t since) const
 
 _cold std::string cluster::Manager::limitReached(void) const
 {
-    const cluster::LimitsConf& limits = this->_config.limits;
+    const cluster::LimitsConf& limits = this->config().limits;
     for (const auto &[window, limit]: {std::pair<std::string, double>{"day", limits.dailyUsd}, {"week", limits.weeklyUsd}, {"month", limits.monthlyUsd}})
         if (limit > 0.0 && this->spent(window_start_(window)) >= limit)
             return "the limit per " + window + " of " + cluster::human_cost(limit) + " is reached (" + cluster::human_cost(this->spent(window_start_(window))) + " spent)";
@@ -600,7 +607,7 @@ _cold std::string cluster::Manager::limitReached(void) const
 _cold void cluster::Manager::limitsWarn(void)
 {
     // each limit: told at the warn share and when reached, once per window (told again after it opened again)
-    const cluster::LimitsConf& limits = this->_config.limits;
+    const cluster::LimitsConf& limits = this->config().limits;
     for (const auto &[window, limit]: {std::pair<std::string, double>{"day", limits.dailyUsd}, {"week", limits.weeklyUsd}, {"month", limits.monthlyUsd}}) {
         const double used = limit > 0.0 ? this->spent(window_start_(window)) / limit : 0.0;
         const int level = limit <= 0.0 ? 0 : used >= 1.0 ? 100 : limits.warnPercent > 0 && used * 100.0 >= limits.warnPercent ? limits.warnPercent : 0;
@@ -613,7 +620,7 @@ _cold void cluster::Manager::limitsWarn(void)
         if (level <= told) continue;
         const std::string text = "the limit per " + window + " (" + cluster::human_cost(limit) + "): " + (level >= 100 ? "reached" : std::to_string(static_cast<int>(used * 100.0)) + " % used");
         this->notice_("", text + (level >= 100 && limits.block ? ": the prompts are refused (send --force passes)" : ""), level >= 100);
-        std::thread([this, window, level, text]() {
+        cluster::guarded([this, window, level, text]() {
             (void)this->notify({"limit-budget-" + window, "claude-cluster · spending limit", text, level >= 100 ? cluster::Face::Idle : cluster::Face::Waiting, level >= 100,
                 "dialog-warning"}, "limit");
         }).detach();
@@ -632,7 +639,7 @@ _cold cluster::Json cluster::Manager::accountsJson(void)
         providers = this->_accountsProviders;
     }
     if (stale && !this->_accountsBusy.exchange(true)) {
-        std::thread([this]() {
+        cluster::guarded([this]() {
             cluster::Json list = cluster::Json::array();
             for (const cluster::Provider& p: this->_auth.providers()) {
                 const auto [ready, detail] = this->_auth.status(p);

@@ -32,8 +32,8 @@ Everything goes through a unix socket in your runtime folder (`0700`, the socket
 - **Cookies** are `HttpOnly`, `SameSite=Strict` and `Secure`, and the session is **bound to the address** of the device.
 - **Scope**: only private addresses of a subnet of your computer, the tailnet range, or (with `remote = router`) any address over https; the `Host` is checked (no DNS rebinding) and a `POST` needs the right `Origin`.
 - **Found by the app** (`[web] discovery`, on by default): while the access is open, the core answers a broadcast on UDP 8789 from a private address of a subnet of the computer only, once per address every 0.5 s, with its name, its port, https, the fingerprint of its authority and its version - never the code; the app connects only to the authority it pinned. Turn it off to stay silent on the network.
-- **The page**: a per-response CSP nonce, `X-Frame-Options: DENY`, `nosniff`, HSTS; everything shown is escaped; attachments are sandboxed. 8 connections per address and 64 at once at most.
-- **What a device can do**: everything the keyboard can, except a shell (`!command`) and the settings you did not open to it (`[web] settings`). A trusted phone lost or unlocked is your claude-cluster: *Web devices > trust no more / ban*, and keep the shell off unless you need it.
+- **The page**: a per-response CSP nonce, `X-Frame-Options: DENY`, `nosniff`, HSTS; everything shown is escaped; attachments are sandboxed; a file an agent wrote opens as text when it is HTML, SVG or XML, never as a page of your origin; the routes taking JSON refuse any other type, which is all a plain form can send. 8 connections per address and 64 at once at most.
+- **What a device can do**: everything the keyboard can, except a shell (`!command`, `:r`, a task or a schedule that runs a command, whatever the shape of the prompt or of its fields) and the settings you did not open to it (`[web] settings`, `:set` too); a file it writes is a `.md` / `.txt` out of the hidden folders. On the **terminal page** too, with the shell off: no editor by `Ctrl+E` (an editor is a shell), no viewer, no file manager, no clipboard of the computer (its own), and the code, the approvals and the bans stay on the computer. A trusted phone lost or unlocked is your claude-cluster: *Web devices > trust no more / ban*, and keep the shell off unless you need it.
 - **From outside**: `tailscale` opens nothing to the Internet; `router` makes the login page reachable by anyone, so the code, your approval and the bans are what stand. The code, the conversation and the cookies are encrypted end to end and the key never leaves your computer.
 
 > [!WARN]
@@ -43,15 +43,17 @@ Everything goes through a unix socket in your runtime folder (`0700`, the socket
 
 The global session runs in `bypassPermissions` by default, so it obeys what reaches it with your rights: that is the point of an orchestrator and its risk, because a prompt injected in a sub-session returns to it as a reply. Its MCP tools run without a prompt, so what they may do is bounded:
 
-- the **protected settings** are never changed by it (`settings_set` and `config_write` refuse them: it asks you): the web opened wider, the permissions of the agents, the programs run as you, the MCP servers and tools, the limits and the model policy, the plugin sources, and the switches `rewrite_*`;
-- it writes only `.md` / `.txt` files outside hidden folders (`export`), never gives a hidden file (`~/.ssh`, `~/.config`, claude-cluster's folders) to a session as a context, and rewrites the system prompts only when you allowed it;
+- the **protected settings** are never changed by it (`settings_set` and `config_write` refuse them: it asks you): the web opened wider, the permissions of the agents, the programs run as you, the MCP servers and tools, the limits and the model policy, the plugin sources, the files of the voice (their path is a file it could then read and write), and the switches `rewrite_*`;
+- it writes only `.md` / `.txt` files outside hidden folders (`export`, `/export`), never gives a hidden file (`~/.ssh`, `~/.config`, claude-cluster's folders, `/proc`, `/dev`) to a session as a context, a display or a preview (a link to one is one), and rewrites the system prompts only when you allowed it; the `!` and `:` commands of a prompt and `/update` are yours;
 - **the voice keys and the palette actions** (log in / out, quit everything, start over) are the user's: never run by its tools nor by the web page.
 
 > [!NOTE]
 > These limits bound the **tools** of the global session, not the session process itself, which has its own shell and file tools in `bypassPermissions`.
 
-> [!WARN]
-> Found by the audit in this version: the switches `global_answers`, `global_fork` and `global_edit` are meant to be protected but a naming error leaves them changeable by the global session (F2), the hidden-file rule misses the `path` of a displayed file (F3), and a sub-session can run a command through `heavy_run` without a prompt (F1). Fixes are recommended in the [audit](page:audit-report).
+> [!OK]
+> Fixed since the [first audit](page:audit-report): the switches `global_answers`, `global_fork`, `global_edit`, the attachments and the rights of the sub-sessions are protected (F2), the hidden-file rule covers every path of a display (F3), `heavy_run` of a sub-session needs `[orchestrator] sub_add` (F1).
+
+**Input that cannot take the core down.** JSON from outside (a request, a line of an agent, a file) is nested at most 512 levels: its copies and dumps recurse, a line of 200 000 `[` used to end the core. A regex from outside (`:s`, a command trigger of a task) has 512 characters and 64 levels at most, and its search a budget. A question or a display of an agent is drawn bounded whatever its shape and its size, the settings are published as a new version instead of being rewritten under the threads reading them, and a state written by anything else loses that item, never the core. The numbers of a display can be anything (`1e308`, `[1e300, -1e300, 1]`): an index never leaves its table, a bar never grows without end. An exception in a thread, a frame of the terminal or a handler of the window is told in the log and ends that thread or that frame only. A paste is never keys: a letter of a text no longer allows a device or quits. A big body is read for a device really connected only (its cookies checked before the body).
 
 ## Secrets {#secrets}
 

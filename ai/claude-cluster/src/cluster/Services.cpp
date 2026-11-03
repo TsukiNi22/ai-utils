@@ -64,7 +64,7 @@ _cold static cluster::Json slow_state_(cluster::Manager& manager)
     // tailscale: missing, not connected, connected (its name)
     std::string tailscale = "missing";
     if (cluster::has_command("tailscale")) {
-        const cluster::Json status = cluster::Json::parse(cluster::capture({"tailscale", "status", "--json"}, "", 5).out, nullptr, false);
+        const cluster::Json status = cluster::json_parse(cluster::capture({"tailscale", "status", "--json"}, "", 5).out, nullptr, false);
         tailscale = status.is_object() && status.value("BackendState", std::string()) == "Running" ? "connected" : "not connected";
     }
     out["tailscale"] = tailscale;
@@ -365,7 +365,7 @@ _cold static std::string act_(cluster::Manager& manager, const std::string& serv
         }
         need(action == "restart" || action == "stop");
         const std::vector<int> interfaces = cluster::interface_pids();
-        std::thread([action, interfaces]() {
+        cluster::guarded([action, interfaces]() {
             // its answer sent first; stop: its interfaces too (else they start a core again)
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             if (action == "stop")

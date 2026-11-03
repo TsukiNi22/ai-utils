@@ -14,10 +14,12 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/External.hpp"
 #include "cluster/Tools.hpp"
+#include <functional>
 #include <algorithm>
 #include <fstream>
 #include <chrono>
 #include <map>
+#include <set>
 
 /* tools */
 _cold static std::int64_t mtime_(const std::filesystem::path& path)
@@ -30,7 +32,7 @@ _cold static std::int64_t mtime_(const std::filesystem::path& path)
 
 _cold static std::optional<cluster::Json> parse_(const std::string& line)
 {
-    cluster::Json json = cluster::Json::parse(line, nullptr, false);
+    cluster::Json json = cluster::json_parse(line, nullptr, false);
     if (json.is_discarded() || !json.is_object()) return std::nullopt;
     return json;
 }
@@ -123,7 +125,8 @@ _cold static std::vector<cluster::Entry> claude_entries_(const std::filesystem::
         messages[last] = *json;
     }
     std::vector<const cluster::Json*> chain;
-    for (std::string at = last; !at.empty() && messages.contains(at) && chain.size() < 100000;) {
+    std::set<std::string> seen; // a line once: a cycle of parents (a file of another tool) would copy its text until the memory is gone
+    for (std::string at = last; !at.empty() && messages.contains(at) && chain.size() < 100000 && seen.insert(at).second;) {
         chain.push_back(&messages[at]);
         const cluster::Json& parent = messages[at]["parentUuid"];
         at = parent.is_string() ? parent.get<std::string>() : "";
@@ -197,7 +200,7 @@ _cold static std::vector<cluster::Entry> codex_entries_(const std::filesystem::p
             const bool user = payload.value("role", std::string()) == "user";
             if (user ? human_(text) : !text.empty()) entries.push_back({user ? cluster::EntryKind::User : cluster::EntryKind::Assistant, text, "", 0});
         } else if (type == "function_call") {
-            const cluster::Json arguments = cluster::Json::parse(payload.value("arguments", std::string("{}")), nullptr, false);
+            const cluster::Json arguments = cluster::json_parse(payload.value("arguments", std::string("{}")), nullptr, false);
             entries.push_back({cluster::EntryKind::Tool, tool_summary_(arguments.is_discarded() ? cluster::Json(payload.value("arguments", std::string())) : arguments),
                 payload.value("name", std::string()), 0});
         }
@@ -249,13 +252,17 @@ _cold static std::vector<cluster::Conversation> opencode_(const std::size_t limi
     std::vector<cluster::Conversation> list;
     if (!cluster::has_command("opencode")) return list;
     const cluster::Captured out = cluster::capture({"opencode", "session", "list", "--format", "json", "-n", std::to_string(limit)}, "", 30);
-    const cluster::Json json = cluster::Json::parse(out.out, nullptr, false);
+    const cluster::Json json = cluster::json_parse(out.out, nullptr, false);
     if (out.code != 0 || !json.is_array()) return list;
+    // the output of another tool: a field of another kind is empty (value() throws on it: the list of every agent lost for one session)
+    const std::function<std::string(const cluster::Json&, const char*)> text = [](const cluster::Json& s, const char* key) {
+        return s.contains(key) && s[key].is_string() ? s[key].get<std::string>() : std::string();
+    };
     for (const cluster::Json& s: json) {
-        if (!s.is_object()) continue;
-        const std::string title = s.value("title", std::string());
-        list.push_back({"opencode", s.value("id", std::string()), title, s.value("directory", std::string()), title,
-            s.value("updated", std::int64_t{0}) / 1000, 0, {}});
+        if (!s.is_object() || text(s, "id").empty()) continue;
+        const std::string title = text(s, "title");
+        list.push_back({"opencode", text(s, "id"), title, text(s, "directory"), title,
+            s.contains("updated") && s["updated"].is_number_integer() ? s["updated"].get<std::int64_t>() / 1000 : 0, 0, {}});
     }
     return list;
 }
@@ -279,9 +286,13 @@ _cold std::vector<cluster::Conversation> cluster::external_conversations(const s
     std::sort(files.begin(), files.end(), [](const File& a, const File& b) {return a.first > b.first;});
     for (const auto &[time, file]: files) {
         if (list.size() >= limit) break;
-        const cluster::Conversation c = file.first == "claude" ? claude_(file.second) : file.first == "codex" ? codex_(file.second) : qwen_(file.second);
-        if (c.id.empty() || c.first.empty() || std::find(known.begin(), known.end(), c.id) != known.end()) continue; // empty, or opened here
-        list.push_back(c);
+        try { // a file of another tool, of a shape not expected: that one skipped, never the whole list
+            const cluster::Conversation c = file.first == "claude" ? claude_(file.second) : file.first == "codex" ? codex_(file.second) : qwen_(file.second);
+            if (c.id.empty() || c.first.empty() || std::find(known.begin(), known.end(), c.id) != known.end()) continue; // empty, or opened here
+            list.push_back(c);
+        } catch (const std::exception& e) {
+            cluster::debug("external", file.second.string() + " not read: " + e.what());
+        }
     }
     if (agent.empty() || agent == "opencode")
         for (const cluster::Conversation& c: opencode_(limit))
@@ -299,7 +310,11 @@ _cold std::optional<cluster::Conversation> cluster::external_conversation(const 
     if (wanted.empty()) return std::nullopt;
     if (agent == "claude" || agent.empty())
         for (const std::filesystem::path& path: files_(cluster::expand_home("~/.claude/projects"), wanted, 1))
-            return claude_(path);
+            try {
+                return claude_(path);
+            } catch (const std::exception& e) {
+                cluster::debug("external", path.string() + " not read: " + e.what());
+            }
     std::optional<cluster::Conversation> found;
     for (const cluster::Conversation& c: cluster::external_conversations(agent, 400)) {
         if (c.id == wanted) return c;
@@ -315,9 +330,13 @@ _cold std::vector<cluster::Entry> cluster::external_entries(const cluster::Conve
 {
     std::vector<cluster::Entry> entries;
     if (conversation.path.empty()) return entries;
-    if (conversation.agent == "claude") entries = claude_entries_(conversation.path);
-    else if (conversation.agent == "codex") entries = codex_entries_(conversation.path);
-    else if (conversation.agent == "qwen") entries = qwen_entries_(conversation.path);
+    try {
+        if (conversation.agent == "claude") entries = claude_entries_(conversation.path);
+        else if (conversation.agent == "codex") entries = codex_entries_(conversation.path);
+        else if (conversation.agent == "qwen") entries = qwen_entries_(conversation.path);
+    } catch (const std::exception& e) {
+        cluster::debug("external", conversation.path.string() + " not read: " + e.what());
+    }
     if (entries.size() > max) entries.erase(entries.begin(), entries.end() - static_cast<std::ptrdiff_t>(max));
     for (cluster::Entry& entry: entries)
         entry.time = conversation.updated;

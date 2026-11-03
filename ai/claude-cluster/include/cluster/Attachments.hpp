@@ -68,6 +68,8 @@ _cold _nodiscard std::string attach_sniff(const std::string& bytes);
 _cold _nodiscard cluster::Attachment attach_store(const cluster::Config& config, const std::string& session, const std::string& name, const std::string& bytes);
 
 // links a file of this computer (a symlink in the folder of the session): checked by its scope
+// a file of this computer copied: its size checked before a byte is read, read by pieces (told to the operation of this thread: its percent)
+_cold _nodiscard cluster::Attachment attach_file(const cluster::Config& config, const std::string& session, const std::string& path);
 _cold _nodiscard cluster::Attachment attach_link(const cluster::Config& config, const std::string& session, const std::string& path,
     const cluster::AttachScope scope, const std::string& cwd = "");
 

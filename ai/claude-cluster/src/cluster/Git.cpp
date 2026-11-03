@@ -14,6 +14,7 @@ File Description:
 #include <utils/utils.hpp>
 #include "cluster/Tools.hpp"
 #include "cluster/Git.hpp"
+#include "cluster/Display.hpp"
 #include <sstream>
 #include <thread>
 
@@ -34,15 +35,15 @@ _cold cluster::GitInfo cluster::Git::read(const std::string& cwd, const bool wit
 {
     cluster::GitInfo info;
     info.time = cluster::now();
-    const cluster::Captured inside = cluster::capture({"git", "rev-parse", "--is-inside-work-tree"}, cwd, 5);
+    const cluster::Captured inside = cluster::git_read({"rev-parse", "--is-inside-work-tree"}, cwd, 5);
     if (inside.code != 0 || cluster::trim(inside.out) != "true") return info;
 
     info.repository = true;
-    info.branch = cluster::trim(cluster::capture({"git", "branch", "--show-current"}, cwd, 5).out);
-    if (info.branch.empty()) info.branch = "(detached " + cluster::trim(cluster::capture({"git", "rev-parse", "--short", "HEAD"}, cwd, 5).out) + ")";
-    info.graph = lines_(cluster::capture({"git", "log", "--graph", "--oneline", "--decorate", "--all", "--color=never", "-n", "40"}, cwd, 5).out, 40);
-    info.diffStat = lines_(cluster::capture({"git", "diff", "--stat", "HEAD", "--color=never"}, cwd, 5).out, 30);
-    if (withDiff) info.diff = lines_(cluster::capture({"git", "diff", "HEAD", "--color=never"}, cwd, 5).out, 400);
+    info.branch = cluster::trim(cluster::git_read({"branch", "--show-current"}, cwd, 5).out);
+    if (info.branch.empty()) info.branch = "(detached " + cluster::trim(cluster::git_read({"rev-parse", "--short", "HEAD"}, cwd, 5).out) + ")";
+    info.graph = lines_(cluster::git_read({"log", "--graph", "--oneline", "--decorate", "--all", "--color=never", "-n", "40"}, cwd, 5).out, 40);
+    info.diffStat = lines_(cluster::git_read({"diff", "--stat", "HEAD", "--color=never"}, cwd, 5).out, 30);
+    if (withDiff) info.diff = lines_(cluster::git_read({"diff", "HEAD", "--color=never"}, cwd, 5).out, 400);
     return info;
 }
 
@@ -58,7 +59,7 @@ _cold cluster::GitInfo cluster::Git::info(const std::string& cwd, const bool wit
         if (fresh || this->_refreshing.contains(cwd)) return cached;
         this->_refreshing.insert(cwd);
     }
-    std::thread([this, cwd, withDiff]() {
+    cluster::guarded([this, cwd, withDiff]() {
         cluster::GitInfo info = cluster::Git::read(cwd, withDiff);
         std::lock_guard<std::mutex> lock(this->_mutex);
         this->_cache[cwd] = info;

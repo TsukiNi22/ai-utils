@@ -13,19 +13,24 @@ Nothing in claude-cluster polls. When the global session sends a prompt (`sessio
 | Message | When |
 |---|---|
 | `[reply from <name> (<id>)] ...` | a sub-session finished the turn started for the global session |
-| `[reply from ...]` with a note | a later turn the agent started by itself, when a background task completes - or claude-cluster woke it with the `<task-notification>` of its command done, a `[job ...]` / `[tasks]` result: its real result after a "waiting for my build" answer (that answer noted "its background still runs") |
-| `[closed: ...]` / `[stopped: ...]` | the session was closed before it answered / its agent stopped: no answer will come |
+| `[reply from ...]` with a note | a later turn the agent started by itself, when a background task completes - or claude-cluster woke it with the `<task-notification>` of its command done or killed, a `[job ...]` / `[tasks]` result: its real result after a "waiting for my build" answer (that answer noted "its background still runs"). A background task ending during another turn (the user's, a keep-warm wake-up) makes the end of that turn its result, told the same way |
+| `[closed: ...]` / `[stopped: ...]` | the session was closed before it answered / its agent stopped: no answer will come. `[stopped: ...]` also comes after the answer when something ran in the background, and names what stopped with it |
+| `[status from <name> (<id>)] ...` | a sub-session telling something now, before the end of its turn (its tool `report_status`, one every 30 s) |
 | `[error from ...]` | an API error (a limit, the weekly limit...) |
 | `[interrupted: ...]` | an interrupted turn or an agent that exited |
 | `[job jN finished\|failed\|killed]` | a job added by `jobs_add`, with exit code, duration, tail |
 | `[tasks] ...` | the result of a task, to the sub-session that queued it |
 | `[form "<title>" (<id>) filled by the user] {...}` | a display form you submitted |
 
-`reply: false` opts out of a callback. The tests `callbacks.sh` and `send_prompt.sh` check the behaviour with a fake `claude`.
+The callback owed goes with its turn: a turn of the user ending while the prompt of the global session waits in the queue is not its answer. It is not dropped when the session told is away for a moment (starting again): tried for two minutes, then a notice. A shell or an agent of the background that ends or is killed is also a line of the conversation, its last output kept in its log (`F7`), even when no model says anything about it.
+
+What no session can tell (a process outside, a deploy, a time) has its own wake-up: `task_add` with `on_event` and `schedule_add`; the system prompts tell the agents to ask for one rather than promise to look later. The end of a turn woken that way (a schedule, a task a session queued for itself) goes to whoever follows the session, like a background task done.
+
+`reply: false` opts out of a callback. The tests `callbacks.sh`, `send_prompt.sh` and `callbacks_background.py` check the behaviour with a fake `claude`.
 
 ## Questions of the agents {#questions}
 
-An agent can ask a question (`AskUserQuestion` of Claude Code, even in `bypassPermissions`). It shows as a **popup** on the session shown, in every interface: one question at a time with its options, `1`-`9` to pick, Enter to validate, `Other` to type, Esc to decline; several choices tick with Enter or Space, and a **Next →** row after `Other` (*Review →* / *Submit →* on the last question, like Claude Code) goes on with the ticks kept.
+An agent can ask a question (`AskUserQuestion` of Claude Code, even in `bypassPermissions`). It shows as a **popup** on the session shown, in every interface: one question at a time with its options, `1`-`9` to pick, Enter to validate, `Other` to type, Esc to decline; several choices tick with Enter or Space, and a **Next →** row after `Other` (*Review →* / *Submit →* on the last question, like Claude Code) goes on with the ticks kept. What is written on **Other** stays without Enter, in every interface: an arrow away, another question and back, the page drawn again; it is an answer once validated.
 
 - **One at a time for the whole cluster**, shared by keys, mouse, voice and web page. The question of a sub-session is shown on the global session (`[sessions] questions_to_global`, on) with the sub-session's own view greyed.
 - **Review**: after the last question every answer is shown on one page: *Submit*, *Cancel*, or back to edit.

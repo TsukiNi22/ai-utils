@@ -84,9 +84,9 @@ _cold std::vector<cluster::Hit> cluster::Manager::search(const std::string& text
         while (std::getline(in, line)) {
             if (cluster::lower(line).find(wanted) == std::string::npos) continue;
             try {
-                const cluster::Json json = cluster::Json::parse(line);
+                const cluster::Json json = cluster::json_parse(line);
                 std::string body = json.value("text", std::string());
-                if (json.value("kind", 0) == static_cast<int>(cluster::EntryKind::Display)) body = cluster::display_text(cluster::Json::parse(body, nullptr, false));
+                if (json.value("kind", 0) == static_cast<int>(cluster::EntryKind::Display)) body = cluster::display_text(cluster::json_parse(body, nullptr, false));
                 if (cluster::lower(body).find(wanted) == std::string::npos) continue;
                 const std::string name = names.contains(id) ? names[id] : id + " (deleted)";
                 hits.push_back({id, archived ? name + " (archive)" : name, json.value("time", std::int64_t{0}), cluster::one_line(body, 200)});
@@ -113,6 +113,9 @@ _cold std::string cluster::Manager::exportMarkdown(const std::string& id) const
                 cwd = spec.cwd;
             }
     }
+    // an id, nothing else in its path (../ out of the logs: any .jsonl of this computer)
+    if (id.empty() || id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)
+        throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no history for '" + id + "'");
     std::ifstream in(cluster::data_dir() / "logs" / (id + ".jsonl"));
     if (!in) throw utils::exception::ErrorException(utils::exception::InternalCode::UnknownId, "no history for '" + id + "'");
     std::ostringstream md;
@@ -122,7 +125,7 @@ _cold std::string cluster::Manager::exportMarkdown(const std::string& id) const
     while (std::getline(in, line)) {
         cluster::Json json;
         try {
-            json = cluster::Json::parse(line);
+            json = cluster::json_parse(line);
         } catch (const cluster::Json::exception&) {
             continue;
         }
@@ -135,7 +138,7 @@ _cold std::string cluster::Manager::exportMarkdown(const std::string& id) const
             case cluster::EntryKind::Tool: md << "\n- `" << json.value("tool", std::string()) << "` " << text << "\n"; break;
             case cluster::EntryKind::Error: md << "\n> [!WARNING]\n> " << cluster::one_line(text, 400) << "\n"; break;
             case cluster::EntryKind::System: md << "\n*" << text << "*\n"; break;
-            case cluster::EntryKind::Display: md << "\n" << cluster::display_text(cluster::Json::parse(text, nullptr, false)) << "\n"; break;
+            case cluster::EntryKind::Display: md << "\n" << cluster::display_text(cluster::json_parse(text, nullptr, false)) << "\n"; break;
             default: break;
         }
     }
@@ -153,8 +156,8 @@ _cold void cluster::Manager::addHistory(const cluster::Draft& draft, const std::
     std::lock_guard<std::mutex> lock(this->_mutex);
     std::ofstream(cluster::data_dir() / "history.jsonl", std::ios::app) << cluster::Json{{"time", cluster::now()}, {"session", session}, {"text", text},
         {"images", draft.images}, {"pastes", draft.pastes}}.dump(-1, ' ', false, cluster::JSON_LENIENT) << "\n";
-    if (this->_config.historyLimit > 0 && this->_historyWrites++ % 25 == 0) // its oldest prompts dropped (checked every 25: not rewritten each time)
-        (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->_config.historyLimit), 0);
+    if (this->config().historyLimit > 0 && this->_historyWrites++ % 25 == 0) // its oldest prompts dropped (checked every 25: not rewritten each time)
+        (void)cluster::keep_newest(cluster::data_dir() / "history.jsonl", static_cast<std::size_t>(this->config().historyLimit), 0);
 }
 
 _cold std::vector<std::string> cluster::Manager::history(const std::size_t max, const std::string& session) const
@@ -177,7 +180,7 @@ _cold std::vector<cluster::Draft> cluster::Manager::drafts(const std::size_t max
     }
     std::vector<cluster::Draft> list;
     for (auto it = lines.rbegin(); it != lines.rend() && list.size() < max; ++it) {
-        const cluster::Json json = cluster::Json::parse(*it, nullptr, false);
+        const cluster::Json json = cluster::json_parse(*it, nullptr, false);
         if (json.is_discarded() || (!session.empty() && json.value("session", std::string()) != session)) continue;
         const cluster::Draft draft{json.value("text", std::string()), json.value("images", std::vector<std::string>()), json.value("pastes", std::vector<std::string>())};
         if (!draft.text.empty() && std::none_of(list.begin(), list.end(), [&](const cluster::Draft& d) {return d.text == draft.text;})) list.push_back(draft);
@@ -187,7 +190,7 @@ _cold std::vector<cluster::Draft> cluster::Manager::drafts(const std::size_t max
 
 _cold cluster::StashAdd cluster::Manager::stashPush(const cluster::Draft& draft, const std::string& session, const bool force)
 {
-    return cluster::stash_add(draft, session, this->_config.stashMax, this->_config.stashFull == "drop_oldest", force);
+    return cluster::stash_add(draft, session, this->config().stashMax, this->config().stashFull == "drop_oldest", force);
 }
 
 _cold std::optional<cluster::Draft> cluster::Manager::stashPop(const std::string& session)
@@ -259,11 +262,11 @@ _cold cluster::Json cluster::Manager::toJson(const cluster::Snapshot& snap, cons
         {"model", snap.modelUsed.empty() ? snap.spec.model : snap.modelUsed}, {"state", cluster::state_name(snap.state)}, {"background_busy", cluster::background_busy(snap)},
         {"warming", snap.warming}, // its turn is a keep-warm wake-up: the page / app tell nothing of it
         {"mode", snap.spec.mode}, {"effort", snap.spec.effort.empty() ? std::string("default") : snap.spec.effort}, {"auth", this->authKind(snap.spec.backend)},
-        {"model_label", cluster::model_label(snap.spec.backend, snap.modelUsed)}, {"effort_label", cluster::effort_label(snap.spec.effort, this->_config.effort, snap.spec.backend, snap.modelUsed)},
+        {"model_label", cluster::model_label(snap.spec.backend, snap.modelUsed)}, {"effort_label", cluster::effort_label(snap.spec.effort, this->config().effort, snap.spec.backend, snap.modelUsed)},
         {"queued", snap.queued}, {"queue_given", snap.queueGiven}, {"summary", snap.spec.summary}, {"pinned", snap.spec.pin.is_object() ? cluster::Json{{"kind", snap.spec.pin.value("kind", std::string())}, {"id", snap.spec.pin.value("id", std::string())}, {"title", snap.spec.pin.value("title", std::string())}} : cluster::Json()}, {"category", snap.spec.category}, {"tags", snap.spec.tags}, {"resumable", cluster::resumable(snap)},
         {"warning", !snap.warning.empty() && cluster::now() - snap.warningAt < 60 ? snap.warning : std::string()},
-        {"keep_warm", cluster::keep_warm_on(this->_config, snap)},
-        {"cache_left", cluster::cache_left(this->_config, snap) ? cluster::Json(*cluster::cache_left(this->_config, snap)) : cluster::Json()},
+        {"keep_warm", cluster::keep_warm_on(this->config(), snap)},
+        {"cache_left", cluster::cache_left(this->config(), snap) ? cluster::Json(*cluster::cache_left(this->config(), snap)) : cluster::Json()},
         {"tokens", {{"last", m.last.total()}, {"current", m.current.total()}, {"total", m.total.total()},
             {"detail", {{"last", usage_json_(m.last)}, {"current", usage_json_(m.current)}, {"total", usage_json_(m.total)}}}}},
         {"context", {{"used", m.contextUsed}, {"window", m.contextWindow}}},

@@ -163,7 +163,7 @@ and closes, **↑ ↓** choose, **Space** / **Esc** close it (`\ ` + Space: a sp
 | Prompt | What it does |
 |---|---|
 | `!<command>` | run by your shell (`$SHELL -c`) in the folder of the session, like `!` in Claude Code: the command and its output go in the conversation; given to the agent with your next prompt (not shown in it)? asked after it ran: **this time**, **always**, **not this time**, **never** (the palette, a list in the web page, `:share yes/no/always/never`); always / never are written in `[ui] shell_context = ask / always / never` (Settings > Interface: asked again); no session: its output is told. The web page and the app: refused unless `[web] shell = true`. Completion: the commands of your real shell (its aliases, functions, builtins, programs: read once from `zsh -i` / `bash -i`), then files; a command that lasts more than 8 s goes **to the background** (a shell `b1`: `/shells` lists them with their last lines, `/kill <id|all>` stops one and everything it started, its output comes in the conversation when it ends, a notice tells it); a **program that needs a terminal** (vim, nano, less, man, top, htop, ssh, a REPL, an interactive container...) is never run without one: the terminal interface hands it its terminal and takes it back when it quits (exit code told), the window opens a terminal emulator in the folder, the page says to use a terminal; Ctrl+K *Background shells* |
-| `:s/old/new/[g][i]` | your last prompt of the conversation changed (a regex, any delimiter, `:%s` = every match), back in the prompt to send |
+| `:s/old/new/[g][i]` | your last prompt of the conversation changed (a regex of 512 characters and 64 levels of parentheses at most, its search bounded; any delimiter, `:%s` = every match), back in the prompt to send |
 | `:r <file>` / `:r !<command>` | the file / the output of the command in the prompt |
 | `:w [file]` · `:e <folder>` · `:q` · `:qa` | export the conversation (Markdown) · the session in another folder · close the session · quit claude-cluster |
 | `:set <key>=<value>` | a setting (`ui.notify=false`, `layout=grid`; completed with their current value) |
@@ -317,13 +317,23 @@ whichever session is in focus. At most `[ui] stash_max` prompts (10, settings pa
 room instead, with a notice. The copies claude-cluster makes by itself (a prompt replaced by a queued one, a history entry, a
 rewind) are never refused, so the list may pass the maximum until you clean it. Limits: 256 KB a prompt, 4 MB in all.
 
+**Limits of the account** (panel *Cost*, `/usage`, the stats): each window with what is left before its reset: `5h limit (4h40m)  13%`, `7d limit (3d5h)  21%`, `(40m12s)` under an hour; none when it is not known.
+
 **Pasted text**: a paste of more than `[ui] paste_lines` lines (3) or `paste_chars` characters (800) is one
 `[Pasted text #N +L lines]` block in the prompt (0: never); it is sent, stashed, edited (Ctrl+E) as its full text. In
 the terminal the paste of the terminal itself (Ctrl+Shift+V, bracketed paste) arrives in one piece: its new lines don't
 send the prompt. **What is pasted is told to the agent**: every paste (a block or a short text; the terminal, the window,
 the web page) carries two invisible marks in the prompt, and the agent gets it between `<pasted>` and `</pasted>` - you see
 the plain text in the prompt, the transcript and the history. A command pasted at the start of an empty prompt (`!`, `/`, `:`)
-keeps its mode, without marks.
+keeps its mode, without marks, seen as it is; a **block is never run**, whatever its first line (a text copied from a page: `!curl ... | sh` under its
+`[Pasted text]`): it goes to the agent as text (`!` typed first, then the block: run).
+
+**A big paste takes time: its popup tells where it is.** A terminal gives a paste character by character, and Ctrl+V reads the clipboard
+(`wl-paste`) in the background: past 0.4 s the popup *Importing...* shows its size so far, its steps (reading, preparing the image, storing it)
+and the screen goes on. A text over 64 MB is cut, and told. A paste is **never keys**: taken first of all, its letters are not the keys of a popup
+over the screen (an update offered, the core lost); with a popup of keys open (a device asking to connect, the map of this computer...) it is
+refused with a note, never its answer; an end of paste that never comes (nothing of it for 10 s): what came is kept, the keys are keys again. The
+terminal of the page removes the escapes of what it pastes, like a real terminal.
 
 **Unsent prompt**: what is typed and not sent is kept - saved a moment after each change and at the quit
 (`drafts.json` of the data folder, one per interface: the terminal, the window; the web page and the app keep theirs in their
@@ -445,6 +455,11 @@ Files, images and photos go with a prompt, like in a chat: the **paperclip** nex
 
 - **What the agent gets**: an image as the picture itself (like the image paste of the terminal: `[Image #N]`), any other file
   as `@path` (text, code, PDF...). The transcript shows them (a thumbnail, a link to open / download).
+- **A big one takes time: its popup tells it** (after 0.4 s, in the window and on the page like in the terminal): *Importing name*, what it does
+  (reading, preparing the image with `magick`, storing it), how much, a bar when its total is known. On the page the bar follows the upload and
+  **Cancel** stops it; a slow connection has its time (32 KB/s at least assumed). The window imports in the background, the window goes on; a picture
+  of the clipboard is taken as its source gives it (never decoded to be coded again). On the page a text pasted over 200 KB is attached as
+  `pasted-text.txt` (a prompt that long stops a page, and a request takes 1 MB at most).
 - **The picker**: web page: *Files*, *Photo library*, and on a phone *Take a photo / video* (the camera); the window: a file dialog
   (several files, an images filter); the app: the Android picker (+ the camera, asked once with its reason; the files picked need no
   permission). A chip per attachment above the prompt (thumbnail or icon, name, size, a **✕** to remove it before sending).
@@ -506,7 +521,7 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   in it, shows it right now, it waits for a permission / question, another prompt is queued, or its turn failed / was interrupted;
 - the task queue: a task whose target session does not exist (closed, never created) or whose dependency failed fails
   with its reason (`error` in `task_list`, told to the session that queued it); the finished tasks are archived after
-  30 minutes (`task_list` `archived: true` lists them too; the Tasks session shows them under "archived");
+  30 minutes (`task_list` `archived: true` lists them too; the Tasks session shows them under "archived"), and leave for good past the days of the trash or the last 1000;
 - **notifications** (`[ui] notify`, `notify_global` / `notify_done` / `notify_permission` / `notify_sound`, `notify_app` for the Android app): the end of
   its answers, of the turns of the sub-sessions, a permission waiting; failsafe (no `notify-send`: nothing). See
   [The icon and the notifications](#the-icon-and-the-notifications);
@@ -552,7 +567,7 @@ A session of its own (`[global]`: folder, model; its provider is `[agent] provid
   allowed without asking (`--allowedTools mcp__claude-cluster`);
 - **questions of the agents** (AskUserQuestion of Claude Code, asked even in `bypassPermissions`): a popup on the
   session shown, like Claude Code / Claude Desktop - the terminal: one question at a time, its options and their
-  description, ↑↓ move the cursor only (it is never an answer), 1-9 pick; one choice: Enter validates the option under the cursor and goes on; several choices: Enter / Space tick and untick (the answer follows the ticks), and a **Next →** row after Other (*Review →* /
+  description, ↑↓ move the cursor only (it is never an answer), 1-9 pick; what is written on **Other** stays without Enter, in every interface: an arrow away, another question and back, the page drawn again (it is never an answer until it is validated, a multiple choice ticks it); one choice: Enter validates the option under the cursor and goes on; several choices: Enter / Space tick and untick (the answer follows the ticks), and a **Next →** row after Other (*Review →* /
 *Submit →* on the last question, like Claude Code): ↓ reaches it, Enter or a click on it goes on with the ticks kept; ← / Shift+Tab the question before, → / Tab the next one (answered or not, like Claude Code: going to and fro never changes a validated answer - it shows again with its option marked ✔, only Enter on another option changes it - and the review flags the ones left; on the only question → / Tab sends it once answered), Other typed, Esc declines; the window / the web page: the same (a click on a radio validates it, check boxes tick, Enter ticks a box, Next only goes on); the voice: a bare "next" needs an option chosen first - Esc declines; the window: a dialog
   (radio buttons or check boxes, Other, Answer / Decline); its notice and notification tell the question; the global
   session sees them in `session_status` and answers with `session_allow` `answers` {question: label}; a plain allow
@@ -859,12 +874,18 @@ tasks of a project go in ONE session, it asks you before splitting, no sub-globa
 they pay, sub-globals rarely) or `ultra` (a sub-session or sub-global per task). Both system prompts also say to prefer ONE call or
 ONE background task read once at the end over many wake-ups that each reload the context.
 
+`[agent] workflow` (Settings > Agent > *Workflows of the model*, right under it, off by default) decides about the multi-agent workflows of the model
+itself when it has them (Claude Code: its `Workflow` tool, ultracode; dozens of agents, a lot of tokens). Off: never, the tool taken away from it
+(`--disallowedTools Workflow`) and said in its system prompt. On: allowed and asked, it uses them on a big task without asking. For the sessions
+started from then on (a protected setting: the global session never changes it).
+
 A heavy job is opened like an agent or a shell: a click (or Enter) on it in the **Tasks** session shows its command, session, folder, pid,
 memory in use, threads, priority, its time live and the end of its output (read again every second), with its actions (stop / resume,
 priority, kill with a reason, its session) - terminal, window, web page and app.
 
 `/jobs` (palette: *Background jobs*) lists everything that runs without a prompt - the `!commands` (`b1`), the heavy jobs (`j1`),
-the tasks (`t1`) and the working sessions - and `/kill <id>` stops one (`/kill all`: the `!commands`).
+the tasks (`t1`), the agents and shells the sessions made themselves (by their task id, foreground or background) and the working
+sessions - and `/kill <id>` stops one (`/kill all`: the `!commands`).
 
 The global session always exists: if it is missing (a restore waiting, a failed start) the core starts it again, and a live update
 first starts the new binary in isolation - if it does not run, the update is cancelled and nothing is stopped. The previous sessions
@@ -1247,7 +1268,7 @@ the agents, a new session, a session closed.
 The terminal interface of claude-cluster itself (`claude-cluster --tty`: its panels, its keys, its mouse, its popups)
 can run in the browser and in the window, as if you sat at the terminal of the computer.
 
-- **In the browser**: the web access serves a *terminal page* on its own port, `[web] tty_port` (2222 by default; 0:
+- **In the browser** (a device has the keyboard of the page, not the computer: with `[web] shell` off nothing of the computer starts from it, no editor by `Ctrl+E`, no viewer, no file manager; its clipboard is its own; the code, the approvals and the bans stay on the computer): the web access serves a *terminal page* on its own port, `[web] tty_port` (2222 by default; 0:
   off; outside: `tty_remote_port`, 0: the same port), with the same code and approval as the page; the ⌨ button of the
   page opens it. A real `claude-cluster --tty` runs in a pty on the computer for each connected device (kept while the
   page reads it, closed 2 minutes after the page is gone, 8 at once at most). One encrypted WebSocket (`wss://`, the
@@ -1344,8 +1365,8 @@ What protects the three ways of using claude-cluster, and what stays your respon
   (nothing secret in them). The answer to the app searching the network (UDP 8789, `[web] discovery`) goes to the
   devices of this network only, once per address every 0.5 s: the name of the computer, its port, https, the
   fingerprint of its authority and its version - the code and the approval are still asked.
-- **What an approved device can do**: everything you can from the keyboard, except a shell (`!command`, `:r !`)
-  unless *Shell from the page* is on, and except the settings of claude-cluster: read only from the page unless
+- **What an approved device can do**: everything you can from the keyboard, except a shell (`!command`, `:r`, a task or a
+  schedule that runs a command, whatever the shape of the prompt) unless *Shell from the page* is on, a file written anywhere (`/export`, `:w`: a `.md` / `.txt` out of the hidden folders), the update, and except the settings of claude-cluster: read only from the page unless
   `[web] settings` names the sections it may change (`all`, or `ui, notify, services...`; `services`: the actions of
   the Services tab; *Settings from the page* itself never from the page). *This device* stays the page's own. A trusted phone lost or unlocked = your claude-cluster: *Web devices* › trust
   no more / ban, and keep the shell off unless you need it.
@@ -1359,7 +1380,7 @@ What protects the three ways of using claude-cluster, and what stays your respon
 - **The global session and its MCP tools** run without a permission prompt (`--allowedTools mcp__claude-cluster`):
   what it may do is bounded. The **protected settings** - a shell or the web opened wider (`web.shell`, `web.remote`,
   `web.approve`, `web.https`, `web.enabled`, `web.port`), the permissions of the agents (`agent.permission_mode`,
-  `agent.allow_bypass`, `global.permission_mode`, `sessions.bypass_to_global`, `global.answers / fork / edit`, `sessions.rewrite_global_prompt / rewrite_sessions_prompt`), the
+  `agent.allow_bypass`, `global.permission_mode`, `sessions.bypass_to_global`, `sessions.global_answers / global_fork / global_edit`, `sessions.rewrite_global_prompt / rewrite_sessions_prompt`, `agent.sub_*`, `agent.global_pin`, `agent.taxonomy_edit`, `attachments.*`), the
   programs run as you (`commands.*`, `ui.editor`, `ui.image_viewer`, `service.*`, `voice.*_command`), the MCP servers
   and tools - are **never changed by it** (`settings_set`, `config_write` refuse them: it asks you, you change them
   in the settings page). The other dangerous changes ask you (`confirmed`). `[mcp_tools]` turns any of its tools off.
@@ -1385,7 +1406,10 @@ What protects the three ways of using claude-cluster, and what stays your respon
 
 **Background state.** A session whose turn is over but whose shells, tasks or agents still run in the background is
 purple, `~_~ background` (terminal, window, page); it turns grey (idle) only once all of them ended. **F7 / Alt+B** opens
-what it runs: each agent and shell with its time going on live, a running shell's last lines as they come.
+what it runs: each agent (foreground or background) and shell with its time going on live, a running shell's last lines as they come. `/shells` adds
+them under the `!commands`, `/jobs` lists the running ones of every session, `/kill <id>` stops one. One that ends or is killed is a line of the
+conversation, its last output kept in its log, and wakes the session: the answer goes back to whoever follows it (`[reply from ...]`); an agent gone with its
+background: `[stopped: ...]` names what stopped. A sub-session can tell something before the end of its turn: `report_status`, `[status from ...]`.
 
 **Locked or asleep.** A locked screen never stops claude-cluster (nor its agents): only a *suspend* does. `[service] keep_awake`
 (*Keep the computer awake*) keeps the computer from suspending by itself (idle) with a `systemd-inhibit` that claude-cluster renews
@@ -1529,9 +1553,9 @@ it again; the window, the web page: its buttons):
 newest entries within **25 MB** (`transcript_limit_mb`, checked at its start and every minute); the conversation of the
 agent itself is never touched; 0 = no limit. **Keep warm** (`[sessions] keep_warm`: `off` by default, `chosen`, `all`, `background`): an idle
 session is woken up a little before its prompt cache expires (`keep_warm_ttl` 5 min, 60 with a 1 h cache; `keep_warm_margin` 45 s, 16 at least: checked every 10 s
-before), a tiny turn the agent answers *ok*, so its context is never unloaded; kept so for `keep_warm_hours` (2) after its last real
-prompt, never when it works or asks, an update switching or not (its wake-ups are not held). The cache counts from the last request the agent **answered**: a wake-up sent and never answered (an error, a process that died) refreshed nothing, so it is tried again until the cache really expires; a wake-up refused, a cache that expired before one could run, or the `keep_warm_hours` stop are told in a notice of the session (topic `keepwarm` of the debug log). A wake-up never piles on the previous one: when the last prompt of the session is still a
-wake-up (nothing real since), that one is **taken back** first (a rewind of Claude Code, its backup not kept) and the same prompt sent
+before), a tiny turn the agent answers *ok*, so its context is never unloaded; kept so for `keep_warm_hours` (2; 0: never stops) after its last real
+use (a prompt, a take-back, `/keepwarm`): past it the session is no longer kept warm and its ♨ goes away, told once in a notice; a prompt or `/keepwarm` warms it again; never when it works or asks, an update switching or not (its wake-ups are not held). The cache counts from the last request the agent **answered**: a wake-up sent and never answered (an error, a process that died) refreshed nothing, so it is tried again until the cache really expires; a wake-up refused, a cache that expired before one could run, or the `keep_warm_hours` stop are told in a notice of the session (topic `keepwarm` of the debug log). A wake-up never piles on the previous one: when the last prompt of the session is still a
+wake-up (nothing real since, its background not running: taking it back restarts the agent, which would stop its background), that one is **taken back** first (a rewind of Claude Code, its backup not kept) and the same prompt sent
 again on the same cached prefix, so the conversation holds one wake-up at most instead of one more every 5 min (its context, and
 the cost of every later turn, never growing with them); a session not of Claude Code, or a compacted one, gets it after as before. A wake-up is **silent**: no notification (desktop, page, app), sound, face, notice nor reply to the global session, and the device that sent the last real prompt is still the one told of the next turn. Its background running (shells / agents) changes nothing: an idle session waiting on a long compilation is woken up like any other
 (its context not unloaded then loaded again when it ends); the `background` mode keeps warm only those sessions, and leaves them to cool
@@ -1565,7 +1589,9 @@ buttons, form, details, compare, math, audio, files - with a table of how this p
 *Questions popup* (a single choice, a multiple choice, Other, the chat about them, the review, answered here and sent
 to nobody), *Permission popup* (Allow / Always / Deny, nothing run), *Session states* (working, waiting, error, idle:
 the icons, the titles, the face), *Progress popup*, *Failure popup* (OK / Retry), *Notifications* (the desktop or
-the phone, the notices). The buttons and forms of the showcase say what they would do instead of sending it. The
+the phone, the notices). The buttons and forms of the showcase say what they would do instead of sending it. *Sounds* is
+a soundboard: each sound of the notifications (and all of them in a row) played on the computer of the core, whatever *With a
+sound* says, the settings staying open. The
 questions of the settings are popups too (save the changes, a risky action of Services, dangerous values), and the
 terminal is given back clean (mouse, screen, cursor) even when the interface crashes. A trace file for a bug report
 stays possible from `config.toml` only (`[debug] enabled = true`, `topics`: `~/.local/share/claude-cluster/debug.log`).

@@ -90,12 +90,13 @@ def load_generated_pages(ctx: Context) -> tuple[dict[str, dict], list[dict]]:
     return pages, extra
 
 def split_sections(blocks: list[dict]) -> tuple[list[str], list[dict]]:
-    """The blocks before the first h2 (intro) and the h2 sections (id, title, raw, html)."""
+    """The blocks before the first section (intro) and the sections (id, title, raw, html): a ## line, or a # line (the page has one h1, its title)."""
     intro: list[str] = []
     sections: list[dict] = []
     for b in blocks:
-        if b.get("h") == 2:
-            sections.append({"id": b["id"], "title": b["title"], "raw": b["raw"], "html": [], "md": ""})
+        if b.get("h") in (1, 2):
+            number = len(sections) + 1
+            sections.append({"id": b["id"], "title": mdlib.unnumbered(b["title"], number), "raw": mdlib.unnumbered(b["raw"], number), "html": [], "md": ""})
         elif b.get("h"):
             html_b = '<h%d id="%s">%s</h%d>' % (b["h"], b["id"], b["title"], b["h"])
             (sections[-1]["html"] if sections else intro).append(html_b)
@@ -107,10 +108,11 @@ def parse_page(page: dict) -> None:
     for lang in LANGS:
         if lang not in page:
             raise SystemExit("page %s: the %s version is missing" % (page["slug"], lang))
-        blocks = mdlib.Renderer(lang).render(page[lang]["md"])
+        markdown = mdlib.without_title(page[lang]["md"], page[lang]["title"])
+        blocks = mdlib.Renderer(lang).render(markdown)
         page[lang]["intro"], page[lang]["sections"] = split_sections(blocks)
         # the text of each section for the search index
-        parts = re.split(r"^## .*$", page[lang]["md"], flags=re.M)
+        parts = mdlib.section_texts(markdown)
         for n, s in enumerate(page[lang]["sections"]):
             s["text"] = mdlib.plain_text(parts[n + 1] if n + 1 < len(parts) else "")
         page[lang]["lead_text"] = mdlib.plain_text(parts[0])
@@ -144,7 +146,7 @@ def sidebar(ctx: Context, page: dict | None, all_pages: list[dict]) -> str:
         out.append('<div class="grp">%s</div>' % both(esc(sec["en"]), esc(sec["fr"])))
         for p in all_pages:
             if p["section"] == sec["id"]:
-                cls = ' class="cur"' if page and p["slug"] == page["slug"] else ""
+                cls = ' class="cur" aria-current="page"' if page and p["slug"] == page["slug"] else ""
                 out.append('<a href="%s.html"%s>%s</a>' % (p["slug"], cls, both(esc(p["en"]["title"]), esc(p["fr"]["title"]))))
     out.append("</aside>")
     return "".join(out)
@@ -190,11 +192,11 @@ def home_body(ctx: Context, all_pages: list[dict], changes: list[dict], download
         first = next((p for p in all_pages if p["section"] == sec["id"]), None)
         if not first:
             continue
-        out.append('<a class="tile" href="%s.html">%s<h3>%s</h3><p>%s</p></a>' % (
+        out.append('<a class="tile" href="%s.html">%s<h2>%s</h2><p>%s</p></a>' % (
             first["slug"], TILE_SVG % sec["icon"], both(esc(sec["en"]), esc(sec["fr"])), both(esc(sec["desc_en"]), esc(sec["desc_fr"]))))
     out.append("</div>")
     out.append('<div class="two"><section id="downloads"><h2>%s</h2>' % both("Downloads", "Téléchargements"))
-    out.append('<div class="table-wrap"><table><thead><tr><th>%s</th><th>Version</th><th>%s</th></tr></thead><tbody>' % (both("File", "Fichier"), both("Size", "Taille")))
+    out.append('<div class="table-wrap" tabindex="0" role="region" aria-label="Downloads"><table><thead><tr><th scope="col">%s</th><th scope="col">Version</th><th scope="col">%s</th></tr></thead><tbody>' % (both("File", "Fichier"), both("Size", "Taille")))
     for d in downloads[:4]:
         out.append('<tr><td><a href="%s">%s</a></td><td>%s</td><td>%s</td></tr>' % (esc(d["href"]), esc(d["name"]), esc(d["version"]), esc(d["size"])))
     out.append('</tbody></table></div><p><a href="downloads.html">%s</a></p></section>' % both("All downloads", "Tous les téléchargements"))
@@ -208,13 +210,13 @@ def home_body(ctx: Context, all_pages: list[dict], changes: list[dict], download
 def make_page(ctx: Context, body: str, out: Path, title: str, wide: bool = False) -> None:
     ver, commit = ctx.shown_version()
     tmp = ctx.out / ".body.html"
-    tmp.write_text(body)
+    tmp.write_text(re.sub(r"\{\{(?=[A-Z_]+\}\})", "&#123;&#123;", body))  # what a page says of {{NAME}} is text
     script = REPO_ROOT / "docs" / "html-style" / "scripts" / "new_page.py"
     footer = "claude-cluster v%s · %s · %s" % (ver, commit, "docs")
     cmd = [sys.executable, str(script), str(tmp), "-o", str(out), "--force", "--lang-switch",
            "--css", str(HERE / "src/assets/extra.css"), "--js", str(HERE / "src/assets/extra.js"),
            "--actions", str(HERE / "src/assets/actions.html"),
-           "--set", "PROJECT=claude-cluster docs", "TITLE=%s" % title, "STORAGE_KEY=claude-cluster-docs", "FOOTER=%s" % footer, "VERSION=%s" % ver]
+           "--set", "PROJECT=claude-cluster docs", "TITLE=%s" % esc(title), "STORAGE_KEY=claude-cluster-docs", "FOOTER=%s" % footer, "VERSION=%s" % ver]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
     tmp.unlink()
     text = out.read_text()

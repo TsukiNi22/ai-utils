@@ -56,6 +56,8 @@ namespace {
         Seen seen;
         std::size_t kept = 0;       // stopped: its sessions kept
         std::int64_t last = 0;      // its last use: the conversation of its global session written, else its state saved
+        std::size_t trashed = 0;    // stopped: its sessions in its trash
+        bool damaged = false;       // stopped: its state cannot be read (what it holds: not known)
     };
 
     // a core on its socket: its sessions (asked on that socket, this process back on its own afterwards)
@@ -91,10 +93,41 @@ namespace {
     {
         const std::optional<cluster::Json> state = cluster::read_json(data / "state.json");
         std::size_t count = 0;
-        if (state && state->is_object())
-            for (const cluster::Json& spec: state->value("sessions", cluster::Json::array()))
-                count += !spec.value("global", false) || !spec.value("claude_id", std::string()).empty() ? 1 : 0;
+        if (!state || !state->is_object() || !state->contains("sessions") || !(*state)["sessions"].is_array()) return 0;
+        for (const cluster::Json& spec: (*state)["sessions"]) {
+            const bool global = spec.is_object() && spec.contains("global") && spec["global"].is_boolean() && spec["global"].get<bool>();
+            const bool used = spec.is_object() && spec.contains("claude_id") && spec["claude_id"].is_string() && !spec["claude_id"].get<std::string>().empty();
+            count += !global || used ? 1 : 0; // a shape not known: a session all the same
+        }
         return count;
+    }
+
+    // what its stopped instance can still give back besides its sessions: its trash (the days it promises), a state that cannot be read, a log written
+    void look_inside_(Instance& instance, const std::filesystem::path& data)
+    {
+        std::error_code error;
+        if (std::filesystem::exists(data / "state.json", error)) {
+            const std::optional<cluster::Json> state = cluster::read_json(data / "state.json");
+            const bool lists = state && state->is_object() && (!state->contains("sessions") || (*state)["sessions"].is_array()) && (!state->contains("trash") || (*state)["trash"].is_array());
+            instance.damaged = !lists;
+            if (lists && state->contains("trash")) instance.trashed = (*state)["trash"].size();
+        }
+    }
+
+    _nodiscard bool has_log_(const std::filesystem::path& data)
+    {
+        std::error_code error;
+        for (const std::filesystem::directory_entry& entry: std::filesystem::directory_iterator(data / "logs", error))
+            if (entry.file_size(error) > 0 && !error) return true;
+        return false;
+    }
+
+    // what is written of a stopped instance: what it keeps, why it is still listed
+    std::string kept_text_(const Instance& instance)
+    {
+        if (instance.damaged) return "its state cannot be read: kept, nothing deleted";
+        if (instance.kept > 0 || instance.trashed == 0) return std::to_string(instance.kept) + " session" + (instance.kept == 1 ? "" : "s") + " kept";
+        return std::to_string(instance.trashed) + " in its trash";
     }
 
     // when a data folder was last used: the transcript of its global session, else its saved state (unix seconds, 0: unknown)
@@ -137,7 +170,8 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
     const Seen running = look_(cluster::socket_path());
     const std::size_t previous = running.alive ? 0 : previous_(cluster::data_dir());
     const std::int64_t lastMain = last_used_(cluster::data_dir());
-    // the independent instances worth listing: running, or stopped with sessions kept; the empty ones (started and left at once) are removed
+    // the independent instances worth listing: running, or stopped with something kept; the empty ones (started and left at once) are removed, never one
+    // whose state does not parse (what it holds is not known) nor one with a trash or a log (the trash promises its days)
     std::vector<Instance> instances;
     std::set<std::string> taken;
     std::error_code error;
@@ -145,8 +179,11 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
         if (!entry.is_directory(error) || entry.path().filename().string().starts_with(".")) continue; // .supervisor: its web access, not an instance
         Instance instance{entry.path().filename().string(), look_(entry.path() / "sock"), 0, last_used_(entry.path())};
         taken.insert(instance.name);
-        if (!instance.seen.alive) instance.kept = previous_(entry.path());
-        if (!instance.seen.alive && instance.kept == 0) {
+        if (!instance.seen.alive) {
+            instance.kept = previous_(entry.path());
+            look_inside_(instance, entry.path());
+        }
+        if (!instance.seen.alive && instance.kept == 0 && instance.trashed == 0 && !instance.damaged && !has_log_(entry.path())) {
             std::filesystem::remove_all(entry.path(), error);
             continue;
         }
@@ -173,7 +210,7 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
             for (const Instance& instance: instances)
                 list.push_back({{cluster::StartChoice::Kind::Independent, instance.name}, "", instance.name,
                     instance.seen.alive ? "running · " + count_(instance.seen) + " · " + ago_(instance.last)
-                        : "stopped · " + std::to_string(instance.kept) + " session" + (instance.kept == 1 ? "" : "s") + " kept · " + ago_(instance.last)});
+                        : "stopped · " + kept_text_(instance) + " · " + ago_(instance.last)});
             list.push_back({{cluster::StartChoice::Kind::Independent, ""}, "n", "+ New independent instance…", "you name it; its own sessions and global session, nothing shared (no web access)"});
             return list;
         }
@@ -212,8 +249,8 @@ _cold cluster::StartChoice cluster::start_menu(const std::string& version)
         if (view == View::Delete) {
             const auto found = std::find_if(instances.begin(), instances.end(), [&](const Instance& i) {return i.name == target;});
             rows.push_back(ftxui::text("   Delete the independent instance \"" + target + "\"?") | ftxui::bold);
-            rows.push_back(ftxui::text(found != instances.end() ? "   its " + std::to_string(found->seen.alive ? found->seen.sessions : found->kept) + " sessions, its global conversation and its data go for good ("
-                "the Claude Code conversations stay)" : "   it is gone already") | ftxui::dim);
+            rows.push_back(ftxui::text(found != instances.end() ? "   its " + (found->seen.alive ? std::to_string(found->seen.sessions) + " sessions" : kept_text_(*found))
+                + ", its global conversation and its data go for good (the Claude Code conversations stay)" : "   it is gone already") | ftxui::dim);
             rows.push_back(ftxui::text(problem.empty() ? "" : "   " + problem) | ftxui::color(ftxui::Color::Red));
             rows.push_back(ftxui::text(""));
             rows.push_back(ftxui::text(" y / Enter delete · Esc / n keep it") | ftxui::dim);
@@ -358,8 +395,11 @@ _cold cluster::StartChoice cluster::start_menu_buttons(const std::string& versio
         if (!entry.is_directory(error) || entry.path().filename().string().starts_with(".")) continue; // .supervisor: its web access, not an instance
         Instance instance{entry.path().filename().string(), look_(entry.path() / "sock"), 0, last_used_(entry.path())};
         taken.insert(instance.name);
-        if (!instance.seen.alive) instance.kept = previous_(entry.path());
-        if (instance.seen.alive || instance.kept > 0) instances.push_back(instance);
+        if (!instance.seen.alive) {
+            instance.kept = previous_(entry.path());
+            look_inside_(instance, entry.path());
+        }
+        if (instance.seen.alive || instance.kept > 0 || instance.trashed > 0 || instance.damaged || has_log_(entry.path())) instances.push_back(instance);
     }
     std::sort(instances.begin(), instances.end(), [](const Instance& a, const Instance& b) {return a.name < b.name;});
     std::vector<std::string> buttons;
@@ -397,8 +437,7 @@ _cold cluster::StartChoice cluster::start_menu_buttons(const std::string& versio
     std::string list = "Independent instances\n\n";
     for (const Instance& instance: instances) {
         names.push_back(instance.name);
-        list += instance.name + ": " + (instance.seen.alive ? "running · " + count_(instance.seen) : "stopped · " + std::to_string(instance.kept) + " session(s) kept")
-            + " · " + ago_(instance.last) + "\n";
+        list += instance.name + ": " + (instance.seen.alive ? "running · " + count_(instance.seen) : "stopped · " + kept_text_(instance)) + " · " + ago_(instance.last) + "\n";
     }
     names.push_back("New (" + suggestion + ")");
     names.push_back("Back");
