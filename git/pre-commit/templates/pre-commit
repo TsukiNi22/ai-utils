@@ -47,7 +47,7 @@ if ! command -v "$XSTYLE_BIN" > /dev/null 2>&1; then
     case "$MISSING" in
         fail) echo "pre-commit: xstyle not found ($XSTYLE_BIN): commit refused (MISSING=fail)" >&2; exit 1 ;;
         ignore) exit 0 ;;
-        *) echo "pre-commit: warning: xstyle not found ($XSTYLE_BIN), style not checked (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh install xstyle))" >&2; exit 0 ;;
+        *) echo "pre-commit: warning: xstyle not found ($XSTYLE_BIN), style not checked (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/xstyle/main/setup.sh --install))" >&2; exit 0 ;;
     esac
 fi
 mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACMR)

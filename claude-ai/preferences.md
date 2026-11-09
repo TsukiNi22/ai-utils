@@ -27,7 +27,7 @@ Style checker (xstyle)
   `xstyle <paths>`, `xstyle --fix [CODES] <paths>` (`-n` to preview). The output I paste may be the compact
   `--rtk` form for an AI: `>file`, then `line:col CODE severity fix`, a legend line, `* CODE` shared texts, `=` summary.
 - Install commands you give me use the remote form (I may not have the repositories locally):
-  `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install xstyle`
+  `curl -fsSL https://tsukini22.github.io/my-universe/install.sh | bash -s` then `sudo dnf install xstyle` ([TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle))
   (`wget -qO-` instead of `curl -fsSL` when curl is missing).
 
 Answers

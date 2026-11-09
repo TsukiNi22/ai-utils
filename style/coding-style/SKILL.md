@@ -141,7 +141,7 @@ Follow the closest existing file of the project; otherwise the common rules abov
 formatter conventions, and say that no specific rule covers it.
 
 ## Checking
-`xstyle` (`style/xstyle`, `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install xstyle` (no curl: `wget -qO-` instead of `curl -fsSL`)) checks the generic rules of every language (tabs, trailing
+`xstyle` ([TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle), `curl -fsSL https://tsukini22.github.io/my-universe/install.sh | bash -s` then `sudo dnf|apt|pacman install xstyle` (packages of [my-universe](https://tsukini22.github.io/my-universe/), sources: [TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle); no curl: `wget -qO-` instead of `curl -fsSL`)) checks the generic rules of every language (tabs, trailing
 spaces, empty lines, indentation by 4, TODO tags) and the Python / shell ones (wildcard imports, bare `except:`,
 type hints, `print` to stderr, `open` without encoding, shebang, `set -euo pipefail`, `[[ ]]`) and the Rust ones
 (`unwrap` / `panic!` / `todo!` outside the tests, glob imports, naming, `unsafe` without `// SAFETY:`, errors on

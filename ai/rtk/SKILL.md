@@ -47,7 +47,7 @@ as `key=value` records; a doc / README for a context file -> terse bullet facts,
 - **Interface**: flag `--rtk` + env `<TOOL>_RTK=1` (activated from the start, before the parsing, so the parsing
   errors are plain too); implies no color and no hyperlink; stays combinable with the filters (`-S` -> only the
   summary line); help text `Compact output for an AI (token saving): ...`; shell completion updated.
-- **Output**: a separate renderer (ex: `Reporter::rtk_()` in `style/xstyle/src/xstyle/Reporter.cpp`), never `if`s
+- **Output**: a separate renderer (ex: `Reporter::rtk_()` in `src/xstyle/Reporter.cpp` of [TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle)), never `if`s
   scattered in the human output; reuses the same data, so both modes never disagree. Format of section 1.
 - **Errors**: `main` catches and prints `<tool>: error: <what>: <info>` in rtk mode (argv / env checked directly).
 - **Tests**: the rtk output of a sample (golden file or asserts on the lines), the size ratio against the human

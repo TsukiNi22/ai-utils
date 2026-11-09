@@ -103,7 +103,7 @@ Programs stored next to the skills they enforce, built and installed by the same
 
 | Tool | Description |
 |---|---|
-| [`xstyle`](style/xstyle/README.md) | C++20 / libutils checker and fixer of my coding style (C++ first, then Python, shell, Rust and the generic rules): issues with file, line, hyperlink, rule and proposed fix, summary by severity (unforgivable / major / minor / negligible) and by rule (plus the mandatory, never counted, reminder R34: `--r34` or `34` in the code to acknowledge it), `--fix` for every fixable rule or only some codes, files or directories, libutils rules (sections, attributes, deprecated names, code libutils already gives) when libutils is installed and used, CMake and comment layout rules, `--diff` / `--staged` (changed lines only, pre-commit hook), `--commit` of the fixes, `--libutils-check`, bash / zsh / fish completion. Requires libutils, clang++ and CMake. |
+| [`xstyle`](https://github.com/TsukiNi22/xstyle) | **Own repository** (moved out of `style/xstyle` with its history): checker / fixer of my coding style used by the skills, the pre-commit hook and the CI images; RPM / DEB / Arch packages, also in [my-universe](https://tsukini22.github.io/my-universe/) (`sudo dnf install xstyle`) |
 | [`claude-cluster`](ai/claude-cluster/README.md) | Several Claude Code sessions in parallel (one or more per project) from one terminal (FTXUI) or window (Qt6), list / grid / tabs: per session the transcript, loaded skills, git graph and diff, tokens (last prompt, current, total), context, cost and limits, live permissions; a **global session** drives the others through its MCP server (spawn, prompts, permissions, modes, task queue, trash / restore, search, export) with its own system prompt and Remote Control; other agents too (Ollama local, Anthropic- / OpenAI-compatible endpoints, opencode, Codex) with `auth login / logout`; voice (push-to-talk, always, or a wake phrase like "ok claude"); headless commands (`--rtk`). Requires libutils, nlohmann/json, toml++ (Qt6 optional). |
 | [Graph explorer](https://tsukini22.github.io/ai-utils/) | Web page (branch [`gh-pages`](https://github.com/TsukiNi22/ai-utils/tree/gh-pages), nothing to install): the project graph of [`html-doc`](docs/html-doc/SKILL.md) for any public GitHub / GitLab repository (`?repo=owner/name`), see [Graph explorer](#graph-explorer). |
 
@@ -171,17 +171,17 @@ cd ai-utils
 ./setup.sh status                         # what is installed (skills, tools, context)
 ./setup.sh install cpp-class              # only one skill (and the skills it requires)
 ./setup.sh install skills                 # every skill, nothing else (no tool, no context)
-./setup.sh install tools                  # every tool (xstyle, claude-cluster...)
+./setup.sh install tools                  # every tool (claude-cluster...)
 ./setup.sh install cpp/ docs/             # whole categories: every skill and tool of cpp/ and docs/ (also @cpp)
 ./setup.sh install skills context         # kinds and names mix: every skill + the context
 ./setup.sh remove tools                   # the same selections for remove
-./setup.sh install xstyle                 # only one tool (built with CMake, installed in ~/.local/bin, + bash / zsh / fish completion)
-./setup.sh install xstyle --prefix /usr/local
+./setup.sh install claude-cluster         # only one tool (built with CMake, installed in ~/.local/bin, + bash / zsh / fish completion)
+./setup.sh install claude-cluster --prefix /usr/local
 ./setup.sh install context                # only the context (CLAUDE.md, RTK.md, hooks, sudo-askpass), --no-rtk / --no-hooks
 ./setup.sh install --no-context           # everything but the context
 ./setup.sh install --project ~/my/project # in <project>/.claude/skills instead
 ./setup.sh install --copy                 # copy instead of symlink
-./setup.sh install xstyle --verbose       # the raw build output instead of the progress display (--quiet: one line per tool)
+./setup.sh install claude-cluster --verbose # the raw build output instead of the progress display (--quiet: one line per tool)
 SETUP_PROGRESS=plain ./setup.sh install   # force the display: plain | bar | off (default: bar on a terminal, plain in a pipe / CI)
 SETUP_JOBS=2 ./setup.sh install tools     # parallel jobs of the builds (default: the processors, lowered under ~1.5 GB free per job)
 ./setup.sh update                         # git pull of the repository (+ rebuild of the installed tools)
@@ -255,7 +255,7 @@ cpp/       cpp-project, cpp-class, cpp-style, cpp-comments, cmake-style
 python/    python-project, python-class, python-style, python-comments
 libutils/  libutils, libutils-exception, libutils-install, libutils-setup
 tests/     tests, cpp-tests, coverage
-style/     coding-style, comments, xstyle (tool)
+style/     coding-style, comments
 docs/      readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, better-html-doc, better-html-style, better-explain-doc, better-protocol-doc, report, docs-update
 git/       git-conventions, git-commit, ci-cd, pre-commit
 audit/     audit-bugs, audit-security, audit-quality, audit-deps, benchmark

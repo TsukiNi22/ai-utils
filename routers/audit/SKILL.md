@@ -41,7 +41,7 @@ scope, mode, iterations, fixes) are asked by that audit when it starts, in one c
 
 `xstyle` (when installed: `command -v xstyle`) is always run with **`--rtk`** by the audits (compact output made for
 the assistant; `-o <file>.json` for counters kept in a report): `audit-quality` uses all its rules, `audit-bugs` the ones
-that hide bugs. Not installed: say once that `curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install xstyle`
+that hide bugs. Not installed: say once that `curl -fsSL https://tsukini22.github.io/my-universe/install.sh | bash -s` then `sudo dnf install xstyle` ([TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle))
 (no curl: `wget -qO-` instead of `curl -fsSL`) would add those checks.
 
 ## 3. Run (in this order, sequentially)

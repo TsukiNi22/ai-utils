@@ -139,7 +139,7 @@ case "$COMMAND" in
         else echo "Hook:       not installed"
         fi
         if command -v xstyle > /dev/null 2>&1; then echo "xstyle:     $(xstyle --version)"
-        else echo "xstyle:     not installed (the hook only warns; install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh install xstyle))"
+        else echo "xstyle:     not installed (the hook only warns; install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/xstyle/main/setup.sh --install))"
         fi
         ;;
 
@@ -168,7 +168,7 @@ case "$COMMAND" in
             echo "  warning: core.hooksPath=$CURRENT_PATH: git ignores $HOOKS (--shared, or git config --unset core.hooksPath)"
         fi
         echo "  installed $HOOK"
-        command -v xstyle > /dev/null 2>&1 || echo "  warning: xstyle is not installed: the hook only warns (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh install xstyle))"
+        command -v xstyle > /dev/null 2>&1 || echo "  warning: xstyle is not installed: the hook only warns (install: $(remote_setup https://raw.githubusercontent.com/TsukiNi22/xstyle/main/setup.sh --install))"
         ;;
 
     remove)

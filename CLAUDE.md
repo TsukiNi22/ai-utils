@@ -1,17 +1,15 @@
 # ai-utils repository
 
 Skills of the user for Claude Code (`<category>/<skill>/SKILL.md`), the routers (`routers/`), the tools built by
-`setup.sh` (`<category>/<tool>/tool.txt`, ex: `style/xstyle`) and the claude.ai packaging (`claude-ai/`).
+`setup.sh` (`<category>/<tool>/tool.txt`, ex: `ai/claude-cluster`) and the claude.ai packaging (`claude-ai/`).
 The global context (`~/.claude/CLAUDE.md`, `RTK.md`, hooks) lives in `context/` (`./setup.sh context ...`).
 
 ## Checking with xstyle
 - Check / fix the style with `xstyle`, **always with `--rtk`** (compact output made for the assistant, ~5x fewer
   tokens): `xstyle --rtk <paths>`, `xstyle --rtk --fix [CODES] <paths>`, `xstyle --rtk --diff` (changed lines only).
   The human output (colors, tables, source lines) is for the user's terminal only.
-- Local build while working on xstyle itself: `cmake -S style/xstyle -B /tmp/xstyle-build -DCMAKE_BUILD_TYPE=Optimized`
-  then `cmake --build /tmp/xstyle-build --parallel`; xstyle must stay clean on its own sources
-  (`/tmp/xstyle-build/xstyle --rtk style/xstyle`) and build without warning (Debug too).
-- Same for the other tools (`ai/claude-cluster`: `cmake -S ai/claude-cluster -B /tmp/cc-build`, then
+- xstyle itself lives in its own repository ([TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle), `~/personal_delivery/other/xstyle`).
+- Local build of the tools (`ai/claude-cluster`: `cmake -S ai/claude-cluster -B /tmp/cc-build`, then
   `xstyle --rtk -r ai/claude-cluster`); test claude-cluster isolated with `CLAUDE_CLUSTER_CONFIG_DIR`,
   `CLAUDE_CLUSTER_DATA_DIR` and `CLAUDE_CLUSTER_SOCKET` (`claude-cluster serve` + the headless commands).
 
@@ -22,7 +20,7 @@ The global context (`~/.claude/CLAUDE.md`, `RTK.md`, hooks) lives in `context/` 
 - Scripts tested for real before committing (generated files, outputs), placeholders `{{NAME}}` in the templates.
 
 ## Versions
-- The tools (claude-cluster, xstyle...) follow major.minor.patch by the size of the change: a real feature (a new mode, view,
+- The tools (claude-cluster...) follow major.minor.patch by the size of the change: a real feature (a new mode, view,
   subsystem: the supervisor) -> **minor** (1.5.0); fixes, look changes, a few settings -> **patch** (1.5.1); a breaking change (config /
   data format, a command removed) -> **major**. Several features in one release: one minor bump.
 

@@ -56,7 +56,7 @@ Ask all of them, even when a default exists (only skip what the request already 
   languages>` · `Ignorer des règles (lesquelles ?)` · `Aucun`.
 - **Sortie** (`--output`): `Auto (Recommandé: lisible au terminal, compacte sous Claude Code)` · `Toujours lisible` ·
   `Toujours compacte (--rtk)`.
-Then, when xstyle is missing (only if): **Installer xstyle ?** `Oui, via le setup.sh des skills (Recommandé)` (`curl -fsSL https://raw.githubusercontent.com/TsukiNi22/ai-utils/main/setup.sh | bash -s -- install xstyle` (no curl: `wget -qO-` instead of `curl -fsSL`)) ·
+Then, when xstyle is missing (only if): **Installer xstyle ?** `Oui, via my-universe (Recommandé)` (`curl -fsSL https://tsukini22.github.io/my-universe/install.sh | bash -s` then `sudo dnf|apt|pacman install xstyle` (packages of [my-universe](https://tsukini22.github.io/my-universe/), sources: [TsukiNi22/xstyle](https://github.com/TsukiNi22/xstyle); no curl: `wget -qO-` instead of `curl -fsSL`)) ·
 `Non, le hook avertira seulement`; libutils missing for the build: the `libutils-install` skill (ask first), cmake /
 clang++ missing: give the `dnf` / `apt` command (root through `SUDO_ASKPASS=~/.local/bin/sudo-askpass sudo -A`, ask).
 Last: **Dépôt de démonstration ?** `Oui, /tmp/xstyle-hook-demo pour essayer` · `Non`.

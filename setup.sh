@@ -26,7 +26,7 @@
 # remove). Part of the default `install` / `remove` / `status` (not with --project: it is global), `--no-context`
 # skips it, `--no-rtk` / `--no-hooks` are given to it, see context/README.md.
 #
-# Tools (<category>/<tool>/tool.txt, ex: style/xstyle): C++ programs built with CMake (clang++, libutils)
+# Tools (<category>/<tool>/tool.txt, ex: ai/claude-cluster): C++ programs built with CMake (clang++, libutils)
 # and installed in <prefix>/bin; a tool that can't be built is skipped with the reason, never fatal.
 # Their completion is installed for bash (bash-completion), zsh (block in ~/.zshrc) and fish.
 #
