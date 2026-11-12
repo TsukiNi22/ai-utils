@@ -55,8 +55,8 @@ html.noanim .slide > h1, html.noanim .slide > h2 { animation: none !important; }
 .js .slide [data-s] { transform: translateY(10px); transition: opacity .35s, transform .35s cubic-bezier(.2,.8,.2,1); } .js .slide [data-s].on { transform: none; }
 
 /* bottom bar of the web page */
-#hud { height: 52px; margin: 0 14px 10px; padding-top: 6px; overflow: hidden; display: flex; align-items: center; background: var(--paper); border: 1.5px solid var(--ink); border-radius: var(--radius); font-size: 15px; color: var(--ink); }
-#bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; pointer-events: none; } /* the line sits above the row (the hud's top padding), never behind a button */ #bar i { display: block; height: 100%; width: 100%; background: var(--ink); transform: scaleX(var(--p, 0)); transform-origin: 0 0; transition: transform .4s; }
+#hud { height: 52px; margin: 0 14px 10px; padding-top: 5.5px; overflow: hidden; display: flex; align-items: center; background: var(--paper); border: 1.5px solid var(--ink); border-radius: var(--radius); font-size: 15px; color: var(--ink); }
+#bar { position: absolute; left: 0; right: 0; top: 0; height: 4px; pointer-events: none; } /* the line sits above the row (the hud's top padding), never behind a button */ #bar i { display: block; height: 100%; width: 100%; background: var(--ink); transform: scaleX(var(--p, 0)); transform-origin: 0 0; transition: transform .4s; }
 #hud::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1.5px; background: var(--ink); z-index: 1; } /* the line under the progress track */
 #chapters { flex: 0 1 auto; max-width: 100%; display: flex; gap: 1px; background: var(--ink); border-right: 1px solid var(--ink); min-width: 0; height: 100%; overflow: hidden; } /* the separators are the gaps: the container's colour shows through, nothing to misalign */
 #steps { margin-left: auto; }
