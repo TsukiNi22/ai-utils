@@ -258,6 +258,21 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
         shp.shadow.inherit = False
         return shp
 
+    def borders(cell, color, width=12700):
+        """The four borders of a table cell (python-pptx has no API for it): drawn lines, as in the web page and the PDF."""
+        from lxml import etree
+        props = cell._tc.get_or_add_tcPr()
+        for tag in ("a:lnL", "a:lnR", "a:lnT", "a:lnB"):
+            for old in props.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}" + tag[2:]):
+                props.remove(old)
+        ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        for i, tag in enumerate(("lnL", "lnR", "lnT", "lnB")):
+            line = etree.Element(f"{{{ns}}}{tag}", w=str(width), cap="flat", cmpd="sng", algn="ctr")
+            fill = etree.SubElement(line, f"{{{ns}}}solidFill")
+            etree.SubElement(fill, f"{{{ns}}}srgbClr", val=color.lstrip("#").upper())
+            etree.SubElement(line, f"{{{ns}}}prstDash", val="solid")
+            props.insert(i, line)  # the lines come before the fill in the schema
+
     def text(slide, x, y, w, h, runs, size, color, font=None, bold=False, anchor=MSO_ANCHOR.TOP, upper=False):
         """runs = list of paragraphs; a paragraph is a string (with **bold** / `code`) or (string, level)."""
         frame = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h)).text_frame
@@ -342,6 +357,7 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
                     cell.text = plain(name)
                     cell.fill.solid()
                     cell.fill.fore_color.rgb = rgb(theme["ink"])
+                    borders(cell, theme["ink"])
                     for run in cell.text_frame.paragraphs[0].runs:
                         run.font.size, run.font.bold, run.font.name = Pt(16), True, sans
                         run.font.color.rgb = rgb(theme["paper"])
@@ -351,6 +367,7 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
                         cell.text = plain(value)
                         cell.fill.solid()
                         cell.fill.fore_color.rgb = rgb(theme["paper"] if r % 2 == 0 else theme["bg"])
+                        borders(cell, theme["dim"], 9525)
                         for run in cell.text_frame.paragraphs[0].runs:
                             run.font.size, run.font.name = Pt(15), sans
                             run.font.color.rgb = rgb(theme["tx"])

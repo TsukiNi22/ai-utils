@@ -19,7 +19,7 @@
     var chBox = $('chapters'), bar = $('bar'), count = $('count'), dots = $('steps'), map = $('map');
     chapters.forEach(function (c, n) {
         var b = document.createElement('button'); b.type = 'button'; b.textContent = c.name; b.setAttribute('data-n', n);
-        b.addEventListener('click', function () { go(c.first, 0); b.blur(); }); chBox.appendChild(b);
+        b.addEventListener('click', function () { go(c.first, 0); b.blur(); }); b.tabIndex = -1; chBox.appendChild(b); /* the arrows / the map are the keyboard way: no focus ring left on a chapter */
     });
     function title(s) { return s.getAttribute('data-title') || (s.querySelector('h1,h2') || {}).textContent || 'Diapo'; }
     chapters.forEach(function (c, n) {
