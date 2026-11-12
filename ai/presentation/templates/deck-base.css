@@ -13,7 +13,7 @@ html.notes .slide[data-state="active"] .notes { display: block; position: absolu
 .zone { position: absolute; top: 0; bottom: 64px; width: 5%; z-index: 20; cursor: pointer; }
 #zl { left: 0; } #zr { right: 0; }
 #map[hidden] { display: none; }
-#map { position: absolute; inset: 0; z-index: 50; overflow: hidden; }
+#map { position: fixed; inset: 0; z-index: 100; overflow: hidden; } /* outside the scaled stage: the whole window, whatever its shape */
 .mapch button { display: block; text-align: left; font: inherit; cursor: pointer; }
 .mapch h3 { margin: 0; }
 #hud button, .mapch button { font-family: inherit; }

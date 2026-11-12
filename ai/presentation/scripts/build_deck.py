@@ -180,8 +180,8 @@ SKELETON = """<div id="stage"><main id="deck" class="{cls}">
 </main>
 <div class="zone" id="zl" aria-hidden="true"></div><div class="zone" id="zr" aria-hidden="true"></div>
 <div id="hud"><nav id="chapters" aria-label="Chapters"></nav><div id="bar"><i></i></div><div id="steps" aria-hidden="true"></div><span id="count"></span><div id="btns"><button type="button" id="prev" aria-label="Previous (left arrow)">&#8249;</button><button type="button" id="ovbtn" aria-label="Chapter map (O)">&#9638;</button><button type="button" id="fsbtn" aria-label="Full screen (F)">&#9974;</button><button type="button" id="next" aria-label="Next (right arrow)">&#8250;</button></div></div>
-<div id="map" hidden></div>
-</div>"""
+</div>
+<div id="map" hidden></div>"""
 
 
 def build_web(deck: dict, theme: dict, base: Path, out: Path) -> None:
