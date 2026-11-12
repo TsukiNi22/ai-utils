@@ -28,6 +28,8 @@ the request (French here), code and comments in English.
 2. **Format** - options: `PDF + HTML (Recommended)` · `PDF + HTML + PPTX (tout)` · `PPTX seulement` · a custom mix
    through *Other*. The HTML is one self-contained file with build animations (the points appear one by one), the PDF is
    the same without motion (every step shown), the PPTX is editable (no animation) and carries the notes.
+   Ask in the same question whether the file will be **imported into Canva** (or Google Slides / Keynote): then
+   build with `--canva` (section 5b); the user can also say it in *Other*.
 3. **Style** - **3 proposals that fit the subject** (the catalogue below, chosen by the "when" column), the first
    one marked as the default and recommended; the others different in mood. Always add the means to give a model:
    the *Other* answer ("copie le style de <fichier>") is read as such. Use `preview` to show a mini mock-up of each look
@@ -102,9 +104,29 @@ python3 SKILL_DIR/scripts/check_deck.py deck.json --dir <folder> [--sheets <tmpd
 - Tools: `weasyprint` (PDF), `python-pptx` (PPTX), `firefox`, `pdftoppm`, `soffice` (checks). A missing one is said with
   its install command; ask before installing (`pip install --user python-pptx`, `sudo dnf install python3-python-pptx`).
 
+## 5b. Import into Canva (PDF or PPTX)
+Canva rebuilds a PDF / PPTX as editable elements: it cuts a text where the font changes, drops a font it does not have,
+merges lines into one box, turns grouped shapes and gradients into one picture. So for a deck going to Canva:
+```bash
+python3 SKILL_DIR/scripts/build_deck.py deck.json -o <folder> --formats pdf,pptx --canva
+python3 SKILL_DIR/scripts/check_deck.py deck.json --dir <folder> --canva
+```
+- `--canva` keeps ONE family per role (body, headings, code) chosen in the Canva library (`templates/canva.json`, installed
+  here so that it is embedded in the PDF), no fallback fonts, no letter spacing, no gradient grid background, no
+  background / padding on inline code, no auto-fit in the PPTX. The look of the theme (colours, frames, layout) stays.
+- `check_deck.py --canva` reads the built files back: every string of every slide is found again as real text on its
+  PDF page / in its PPTX shapes (a miss = text cut or turned into a picture), every font embedded and in the Canva list,
+  no Type 3 font, no group or placeholder in the PPTX, no picture on a page that has none, no run without a font.
+  An ERROR is fixed and rebuilt; a WARN is said to the user.
+- Prefer the **PPTX** when the text must stay editable in Canva (it keeps one box per text and the table as a table); the PDF
+  when the look matters more. `svg` slides become pictures in Canva: use `image` or `columns` / `steps` for what must be edited.
+- What no script can check is how Canva itself imports it: tell the user to open it once and compare with the contact
+  sheets; a font that Canva replaces anyway goes into `templates/canva.json` / out of it, then build again.
+
 ## 6. Deliver
 - Folder: the one the user names, otherwise `presentation/<name>/` at the root of the current repository (or of the
   current folder): `deck.json`, `<name>.html`, `<name>.pdf`, `<name>.pptx`, `<name>-notes.md`, the images used.
 - Tell in French: the files, the time and number of slides, the style, what was not verified (a command not run, a
-  figure to check), and what the PPTX does not carry (animations, inline drawings: give an `image` for those).
+  figure to check), and what the PPTX does not carry (animations, inline drawings: give an `image` for those), and for a Canva import that the
+  import itself was not tried.
 - A change asked afterwards ("plus court", "autre style"): edit `deck.json`, rebuild, no rewrite.

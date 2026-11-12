@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a presentation from one deck.json: an animated web page (one HTML file), a PDF, a PPTX and the oral notes.
 
-    python3 build_deck.py deck.json [-o OUTDIR] [--formats html,pdf,pptx,notes] [--theme NAME | --theme-file FILE]
+    python3 build_deck.py deck.json [-o OUTDIR] [--formats html,pdf,pptx,notes] [--theme NAME | --theme-file FILE] [--canva]
 
 deck.json (see ../templates/example.json):
     {"title", "subtitle", "lang", "author", "date", "duration": minutes, "theme": "blueprint", "slides": [slide, ...]}
@@ -42,6 +42,29 @@ def pick_theme(deck: dict, args: argparse.Namespace) -> tuple[str, dict]:
     if name not in themes:
         sys.exit(f"build_deck: unknown theme {name!r} (known: {', '.join(themes)})")
     return name, {**themes["blueprint"], **themes[name]}
+
+
+def installed(family: str) -> bool:
+    import subprocess
+    out = subprocess.run(["fc-match", "-f", "%{family}", family], capture_output=True, text=True, check=False).stdout
+    return family.lower() in out.lower().split(",")[0].strip().lower() or out.lower().startswith(family.lower())
+
+
+def canva_theme(theme: dict) -> dict:
+    """Theme made for an import into Canva: ONE family per role taken from Canva's library (and installed here, so it is
+    embedded in the PDF), no fallback stack (a fallback glyph = another font = a text cut in pieces), no letter spacing,
+    no background drawn with gradients (hundreds of vector lines on import)."""
+    canva = json.loads((TEMPLATES / "canva.json").read_text(encoding="utf-8"))
+
+    def pick(stack: str, fallback: str) -> str:
+        for name in (n.strip().strip("'\"") for n in stack.split(",")):
+            if name in canva["fonts"] and installed(name):
+                return f"'{name}'"
+        return f"'{fallback}'"
+
+    sans = pick(theme["font"], canva["sans"])
+    return {**theme, "font": sans, "head_font": pick(theme["head_font"], canva["sans"]) if theme["head_font"] != theme["font"] else sans,
+            "mono": pick(theme["mono"], canva["mono"]), "head_spacing": "0", "bgimg": "none"}
 
 
 def check_model(deck: dict) -> None:
@@ -171,6 +194,16 @@ def build_web(deck: dict, theme: dict, base: Path, out: Path) -> None:
     out.write_text(page, encoding="utf-8")
 
 
+# what Canva cuts, merges or flattens when it reads a PDF: letter spacing, justified text, transforms, opacity, shadows
+CANVA_CSS = """
+.canva, .canva * { letter-spacing: 0 !important; text-shadow: none !important; box-shadow: none !important; text-align-last: auto; }
+.canva .slide { text-rendering: auto; font-kerning: none; }
+.canva .slide p, .canva .slide li, .canva .slide h1, .canva .slide h2, .canva .slide h3 { text-align: left; hyphens: none; }
+.canva .slide code { background: none; padding: 0; }
+.canva .slide pre { background: var(--code); }
+"""
+
+
 def build_pdf(deck: dict, theme: dict, base: Path, out: Path) -> None:
     try:
         from weasyprint import HTML
@@ -178,6 +211,9 @@ def build_pdf(deck: dict, theme: dict, base: Path, out: Path) -> None:
         sys.exit("build_deck: the PDF needs weasyprint (sudo dnf install python3-weasyprint, or pip install --user weasyprint)")
     css = theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8")
     cls = "print cartouche" if theme.get("cartouche") else "print"
+    if theme.get("canva"):
+        css += CANVA_CSS
+        cls += " canva"
     page = (f'<!DOCTYPE html><html lang="{deck.get("lang", "en")}"><head><meta charset="utf-8"><title>{html.escape(plain(deck.get("title", "")))}</title>'
             f'<style>{css}</style></head><body class="{cls}"><div class="{cls}">{slides_html(deck, base, False)}</div></body></html>')
     HTML(string=page, base_url=str(base)).write_pdf(str(out))
@@ -197,7 +233,7 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
     try:
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE
-        from pptx.enum.text import MSO_ANCHOR
+        from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE
         from pptx.util import Emu, Inches, Pt
     except ImportError:
         sys.exit("build_deck: the PPTX needs python-pptx (pip install --user python-pptx, or sudo dnf install python3-python-pptx)")
@@ -226,6 +262,7 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
         """runs = list of paragraphs; a paragraph is a string (with **bold** / `code`) or (string, level)."""
         frame = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h)).text_frame
         frame.word_wrap = True
+        frame.auto_size = MSO_AUTO_SIZE.NONE  # no "shrink on overflow": Canva would import the unscaled size
         frame.vertical_anchor = anchor
         for i, para in enumerate(runs):
             string, level = (para, 0) if isinstance(para, str) else para
@@ -372,11 +409,14 @@ def main() -> None:
     parser.add_argument("--formats", default="html,pdf,notes", help="html, pdf, pptx, notes (comma separated)")
     parser.add_argument("--theme", default=None)
     parser.add_argument("--theme-file", default=None)
+    parser.add_argument("--canva", action="store_true", help="made for an import into Canva: one Canva font per role, no gradient background, nothing a PDF import cuts or merges")
     args = parser.parse_args()
     source = Path(args.deck).resolve()
     deck = json.loads(source.read_text(encoding="utf-8"))
     check_model(deck)
     name, theme = pick_theme(deck, args)
+    if args.canva:
+        theme = {**canva_theme(theme), "canva": True}
     out = Path(args.out).resolve() if args.out else source.parent
     out.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^a-z0-9]+", "-", plain(deck.get("title", "deck")).lower()).strip("-") or "deck"

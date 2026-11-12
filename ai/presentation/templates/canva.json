@@ -1,0 +1,6 @@
+{
+    "_": "Fonts Canva has in its library (a text in another font is replaced when the file is imported). Edit when Canva refuses or substitutes one.",
+    "fonts": ["Noto Sans", "Inter", "Open Sans", "Roboto", "Montserrat", "Lato", "Poppins", "Source Sans 3", "Playfair Display", "Noto Serif", "JetBrains Mono", "Roboto Mono", "Space Mono"],
+    "sans": "Noto Sans",
+    "mono": "JetBrains Mono"
+}
