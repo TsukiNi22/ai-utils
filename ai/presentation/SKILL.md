@@ -30,11 +30,15 @@ the request (French here), code and comments in English.
    the same without motion (every step shown), the PPTX is editable (no animation) and carries the notes.
    Ask in the same question whether the file will be **imported into Canva** (or Google Slides / Keynote): then
    build with `--canva` (section 5b); the user can also say it in *Other*.
-3. **Style** - **3 proposals that fit the subject** (the catalogue below, chosen by the "when" column), the first
-   one marked as the default and recommended; the others different in mood. Always add the means to give a model:
-   the *Other* answer ("copie le style de <fichier>") is read as such. Use `preview` to show a mini mock-up of each look
-   (title line, colours, font) when it helps to choose.
-   Without a better fit: `White blueprint (default)` first.
+3. **Style** - exactly **4 options**, in this order:
+   1. `White blueprint (default)` - recommended, always first, the label ends with "(default)".
+   2. One other catalogue style that fits the subject (the "when" column below), different in mood.
+   3. `Sur mesure (sans template)` - a look designed from scratch for this subject and this plan: its own palette, fonts,
+      frame and background drawn from the subject's world, not taken from any catalogue theme (section 3, "Custom
+      look"). Say in its description what it would look like (colours, mood) in a few words.
+   4. `Autre / custom` - the user gives a file to copy ("copie le style de <fichier>", a PPTX / PDF / HTML / image) or
+      describes the look in words; the free-text answer is read as such.
+   Use `preview` to show a mini mock-up of each look (title line, colours, font) when it helps to choose.
 - Several decks asked in one go: one question call for all, not one per deck.
 - Unclear subject / audience / level: ask it in the same call (header "Public").
 
@@ -50,6 +54,14 @@ colour in a slide: the theme is the only place of the look.
 | `warm-keynote` | Warm keynote | talks, pitches, ideas: cream, orange, rounded, big words |
 | `slate-corporate` | Slate corporate | business case, company, formal defense: slate and deep blue |
 | `neon-dark` | Neon dark | games, creative, AI: deep violet, magenta and cyan |
+
+**Custom look (`Sur mesure`)**: do not start from a catalogue row. Read the subject, then write a complete theme file
+`<deck folder>/theme.json` with every key of `themes.json` (`label`, `dark`, `bg`, `paper`, `ink`, `ink2`, `tx`, `dim`,
+`code`, `codetx`, `warn`, `ok`, `font`, `head_font`, `mono`, `head_transform`, `head_spacing`, `head_weight`, `radius`,
+`bgimg`, `frame`, `inner_frame`, `cartouche`): a palette that belongs to the subject (contrast checked: text on `bg` and
+on `ink`), fonts that exist on the machine (`fc-list`), a frame / background only when it means something. Build with
+`--theme-file theme.json`, LOOK at the sheets (section 5) and adjust; offer to keep it with the other user themes
+(`~/.claude/presentation/themes/`).
 
 **Copy the style of a file** the user gives (or "le style de la présentation sur le repo C++"):
 ```bash
