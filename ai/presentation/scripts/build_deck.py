@@ -215,8 +215,17 @@ def build_pdf(deck: dict, theme: dict, base: Path, out: Path) -> None:
         css += CANVA_CSS
         cls += " canva"
     page = (f'<!DOCTYPE html><html lang="{deck.get("lang", "en")}"><head><meta charset="utf-8"><title>{html.escape(plain(deck.get("title", "")))}</title>'
-            f'<style>{css}</style></head><body class="{cls}"><div class="{cls}">{slides_html(deck, base, False)}</div></body></html>')
+            f'<style>{css}</style></head><body class="{cls}"><div class="{cls}">{pdf_svg(slides_html(deck, base, False), theme)}</div></body></html>')
     HTML(string=page, base_url=str(base)).write_pdf(str(out))
+
+
+def pdf_svg(page: str, theme: dict) -> str:
+    """WeasyPrint does not pass the page colour nor the CSS variables into an inline SVG: currentColor would be black.
+    Give each <svg> the text colour of the theme and turn var(--key) into its value (the web page keeps the variables)."""
+    def resolve(match: re.Match) -> str:
+        block = re.sub(r"var\(--([a-z0-9-]+)\)", lambda v: str(theme.get(v.group(1).replace("-", "_"), v.group(0))), match.group(0))
+        return block if re.match(r"<svg[^>]*\scolor=", block) else block.replace("<svg", f'<svg color="{theme["tx"]}"', 1)
+    return re.sub(r"<svg\b.*?</svg>", resolve, page, flags=re.S)
 
 
 # ======================================================================= pptx

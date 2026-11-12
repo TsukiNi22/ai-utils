@@ -55,11 +55,13 @@ html.noanim .slide > h1, html.noanim .slide > h2 { animation: none !important; }
 .js .slide [data-s] { transform: translateY(10px); transition: opacity .35s, transform .35s cubic-bezier(.2,.8,.2,1); } .js .slide [data-s].on { transform: none; }
 
 /* bottom bar of the web page */
-#hud { height: 52px; margin: 0 14px 10px; padding-top: 5px; overflow: hidden; display: flex; align-items: center; background: var(--paper); border: 1.5px solid var(--ink); border-radius: var(--radius); font-size: 15px; color: var(--ink); }
+#hud { height: 52px; margin: 0 14px 10px; padding-top: 6px; overflow: hidden; display: flex; align-items: center; background: var(--paper); border: 1.5px solid var(--ink); border-radius: var(--radius); font-size: 15px; color: var(--ink); }
 #bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; pointer-events: none; } /* the line sits above the row (the hud's top padding), never behind a button */ #bar i { display: block; height: 100%; width: 100%; background: var(--ink); transform: scaleX(var(--p, 0)); transform-origin: 0 0; transition: transform .4s; }
-#chapters { flex: 1; display: flex; min-width: 0; height: 100%; overflow: hidden; }
-#chapters button { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; background: none; border: 0; border-right: 1px solid var(--ink); border-radius: 0; color: var(--dim); padding: 0 10px; cursor: pointer; font: inherit; white-space: nowrap; outline: none; }
-#chapters button:last-child { border-right: 0; } #hud button, #hud button:focus { outline: none; } #hud button:focus-visible { box-shadow: inset 0 0 0 2px var(--ink2); } /* flush with the button, never an offset ring */
+#hud::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1.5px; background: var(--ink); z-index: 1; } /* the line under the progress track */
+#chapters { flex: 0 1 auto; display: flex; gap: 1px; background: var(--ink); border-right: 1px solid var(--ink); min-width: 0; height: 100%; overflow: hidden; } /* the separators are the gaps: the container's colour shows through, nothing to misalign */
+#steps { margin-left: auto; }
+#chapters button { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; background: var(--paper); border: 0; border-radius: 0; color: var(--dim); padding: 0 10px; cursor: pointer; font: inherit; white-space: nowrap; outline: none; }
+#hud button, #hud button:focus { outline: none; } #hud button:focus-visible { box-shadow: inset 0 0 0 2px var(--ink2); } /* flush with the button, never an offset ring */
 #chapters button.cur, #chapters button.cur:focus-visible { box-shadow: none; }
 #chapters button.done { color: var(--ink); } #chapters button.cur { color: var(--paper); background: var(--ink); }
 #steps { display: flex; gap: 4px; padding: 0 10px; } #steps i { width: 9px; height: 9px; border: 1px solid var(--ink); } #steps i.on { background: var(--ink); }
@@ -79,7 +81,7 @@ html.noanim .slide > h1, html.noanim .slide > h2 { animation: none !important; }
 .mapch button .num { flex: none; width: 2em; text-align: right; color: var(--dim); font-family: var(--mono); font-size: .85em; } .mapch button .ttl { min-width: 0; overflow-wrap: anywhere; }
 .mapch button:hover { background: var(--bg); color: var(--ink); } .mapch button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ink2); }
 .mapch button.seen { color: var(--dim); } .mapch button.cur { color: var(--ink); font-weight: 700; background: var(--bg); border-left-color: var(--ink); } .mapch button.cur .num { color: var(--ink); }
-.portrait #chapters button:not(.cur) { display: none; } .portrait #steps { display: none; }
+.portrait #chapters button:not(.cur) { display: none; } .portrait #steps { display: none; } .portrait #count { margin-left: auto; }
 .portrait .slide { padding: 28px 30px 84px; font-size: 24px; } .portrait .slide h1 { font-size: 52px; } .portrait .slide h2 { font-size: 38px; }
 .portrait .mapgrid { padding: 1em; grid-template-columns: 1fr; } .portrait .maphead { padding: .8em 1em; } .portrait .maphint { display: none; }
 .portrait .cols, .portrait .flow { grid-template-columns: 1fr; }

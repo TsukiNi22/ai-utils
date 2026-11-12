@@ -87,7 +87,7 @@ next decks. It is a first guess: build the example (`templates/example.json`) wi
 | `code` | `code`, `lang`, `caption` | a command or a few lines (never a whole file) |
 | `steps` | `steps`: `{head, text}` | a path in 3-4 stages, revealed one by one |
 | `image` | `src` (relative path), `caption`, `alt` | a screenshot, a photo, a QR code |
-| `svg` | `svg`, `caption` | a diagram drawn inline (`currentColor`, no fixed colour); HTML / PDF only |
+| `svg` | `svg`, `caption` | a diagram drawn inline (`currentColor` = the text colour, `<g style="color:var(--ink)">` for the accent, no fixed colour; the PDF resolves them from the theme); HTML / PDF only |
 | `quote` | `text`, `by` | the sentence to remember |
 | `end` | `title`, `subtitle`, `links`, `src` | last slide: questions, links, QR code |
 Text accepts `` `code` `` and `**bold**`.
