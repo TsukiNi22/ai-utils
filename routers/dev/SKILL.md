@@ -50,6 +50,8 @@ The category routers (`cpp`, `python`, `setup-project`, `git`, `doc`, `style`, `
 | no interruption until the end ("ne pose aucune question", "fais tout d'une traite", "pose tes questions à la fin") | `ask-at-end` (asks at the end with `interactive-questions` / `ideation`) | - |
 | write in the user's own voice ("écris comme moi", "avec mes mots", a message / note / prompt in his style) | `write-like-me` | - |
 | set up the context of a project / folder before working on it (read the repo, its git history, the earlier sessions that touched it: "setup le contexte", "onboard", "lis tout le repo") | `onboard` (uses `rtk`) | - |
+| make a presentation / slides / a deck / a PDF or PPT from a plan or an idea ("fais une présentation", "un ppt") | `presentation` (uses `interactive-questions`) | - |
+| give every git / repository permission from the prompt ("tu as tous les droits", "commit/push sans demander", /full-permission) | `full-permission` | - |
 | set up a whole new project (architecture + tests + license + git + CI/CD + README) | the steps of `setup-project` (its table, skills loaded in that order) | `setup-project` |
 | several / all audits of the project at once | follow the `audit` router (checklist of audits + format) | `audit` |
 | bugs / UB / crashes / sanitizers audit | `audit-bugs` | `cpp` |

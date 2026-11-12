@@ -1,0 +1,70 @@
+{
+    "blueprint": {
+        "label": "White blueprint (default)",
+        "when": "technical, code, architecture, repositories, courses: an architect's plan",
+        "dark": false,
+        "bg": "#f7f8fa", "paper": "#ffffff", "ink": "#1f4e9c", "ink2": "#3c6fc4", "tx": "#1d2a3f", "dim": "#5b6b84",
+        "code": "#eef2f8", "codetx": "#1d2a3f", "warn": "#b3261e", "ok": "#1f7a4d",
+        "font": "Inter, 'Noto Sans', 'Liberation Sans', sans-serif", "head_font": "'Liberation Sans Narrow', 'Arial Narrow', Inter, sans-serif",
+        "mono": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+        "head_transform": "uppercase", "head_spacing": ".04em", "head_weight": "700", "radius": "2px",
+        "bgimg": "linear-gradient(#e3eaf3 1px, transparent 1px) 0 0 / 28px 28px, linear-gradient(90deg, #e3eaf3 1px, transparent 1px) 0 0 / 28px 28px",
+        "frame": "2px solid var(--ink)", "inner_frame": "1px solid var(--ink2)", "cartouche": true
+    },
+    "paper": {
+        "label": "Clean paper",
+        "when": "any subject, reports, school defenses, a neutral and readable look",
+        "dark": false,
+        "bg": "#ffffff", "paper": "#f6f6f4", "ink": "#0f766e", "ink2": "#14b8a6", "tx": "#1c1c1c", "dim": "#666666",
+        "code": "#f1f1ee", "codetx": "#1c1c1c", "warn": "#b42318", "ok": "#15803d",
+        "font": "'Noto Sans', Inter, 'Liberation Sans', sans-serif", "head_font": "'Noto Serif', Georgia, serif",
+        "mono": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+        "head_transform": "none", "head_spacing": "0", "head_weight": "700", "radius": "8px",
+        "bgimg": "none", "frame": "0", "inner_frame": "0", "cartouche": false
+    },
+    "night-terminal": {
+        "label": "Night terminal",
+        "when": "system, shell, security, low level, dev tools: dark, monospace, green accent",
+        "dark": true,
+        "bg": "#0d1117", "paper": "#161b22", "ink": "#3fb950", "ink2": "#58a6ff", "tx": "#e6edf3", "dim": "#8b949e",
+        "code": "#010409", "codetx": "#e6edf3", "warn": "#f85149", "ok": "#3fb950",
+        "font": "'JetBrains Mono', 'DejaVu Sans Mono', monospace", "head_font": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+        "mono": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+        "head_transform": "none", "head_spacing": "0", "head_weight": "700", "radius": "6px",
+        "bgimg": "none", "frame": "1px solid #30363d", "inner_frame": "0", "cartouche": false
+    },
+    "warm-keynote": {
+        "label": "Warm keynote",
+        "when": "talks, pitches, ideas, big words and few of them: cream, orange, rounded",
+        "dark": false,
+        "bg": "#fff8ef", "paper": "#ffffff", "ink": "#d9480f", "ink2": "#f08c00", "tx": "#2b2118", "dim": "#7a6a5a",
+        "code": "#f6ebdc", "codetx": "#2b2118", "warn": "#c92a2a", "ok": "#2f9e44",
+        "font": "'Noto Sans', Inter, 'Liberation Sans', sans-serif", "head_font": "'Noto Sans', Inter, sans-serif",
+        "mono": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+        "head_transform": "none", "head_spacing": "-.01em", "head_weight": "800", "radius": "18px",
+        "bgimg": "none", "frame": "0", "inner_frame": "0", "cartouche": false
+    },
+    "slate-corporate": {
+        "label": "Slate corporate",
+        "when": "business case, company, formal defense: slate and deep blue, sober",
+        "dark": false,
+        "bg": "#f1f4f8", "paper": "#ffffff", "ink": "#1e3a5f", "ink2": "#2f6fba", "tx": "#17212e", "dim": "#5d6b7c",
+        "code": "#e6ebf2", "codetx": "#17212e", "warn": "#b42318", "ok": "#1a7f4b",
+        "font": "'Noto Sans', Inter, 'Liberation Sans', sans-serif", "head_font": "'Noto Sans', Inter, sans-serif",
+        "mono": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+        "head_transform": "none", "head_spacing": "0", "head_weight": "700", "radius": "4px",
+        "bgimg": "none", "frame": "0", "inner_frame": "0", "cartouche": false
+    },
+    "neon-dark": {
+        "label": "Neon dark",
+        "when": "games, creative, AI, futuristic subjects: deep violet, magenta and cyan",
+        "dark": true,
+        "bg": "#120b2a", "paper": "#1d1440", "ink": "#ff4fd8", "ink2": "#38e1ff", "tx": "#f3eeff", "dim": "#a99bd0",
+        "code": "#0a061a", "codetx": "#f3eeff", "warn": "#ff6b6b", "ok": "#5af2a6",
+        "font": "'Noto Sans', Inter, sans-serif", "head_font": "'Noto Sans', Inter, sans-serif",
+        "mono": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+        "head_transform": "none", "head_spacing": "-.01em", "head_weight": "800", "radius": "12px",
+        "bgimg": "radial-gradient(circle at 85% 8%, rgba(56,225,255,.18), transparent 38%), radial-gradient(circle at 8% 95%, rgba(255,79,216,.16), transparent 40%)",
+        "frame": "1px solid rgba(255,79,216,.5)", "inner_frame": "0", "cartouche": false
+    }
+}

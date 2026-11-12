@@ -82,6 +82,8 @@ directly); it is remembered by the browser until **Ctrl + Shift + R** (forgets i
 | [`ask-at-end`](ai/ask-at-end/SKILL.md) | Runs the whole task without one interruption: no question, confirmation or plan to approve; every doubt decided with the sensible default (noted), blockers worked around or set aside, the user's hard rules kept (an action needing consent is prepared, not done); at the very end one report and every open point asked at once (`interactive-questions`, `ideation`) |
 | [`write-like-me`](ai/write-like-me/SKILL.md) | Writes in my own voice, measured on what I typed myself (my prompts, my `.info` notes): French with the English words of the trade, lowercase, few accents, imperative requests chained with `et`, `a/b/c` alternatives, `ou autre` / `ect...`, asides, `->`, `???` / `!!!`; notes as short todo lines; typos off by default; `scripts/sample.py` reads a fresh sample of my writing (local only) |
 | [`onboard`](ai/onboard/SKILL.md) | The whole context of a project before working on it: the folder read entirely (tree, docs, code, build / CI, license and credits, links), its git history (branches, tags, worktrees, stashes, pending and unpushed work), every earlier session on this computer that touched it (Claude Code, claude-cluster, Codex, Qwen, opencode, PASSATION.md) - merged, checked against the code, reported tersely; read-only |
+| [`presentation`](ai/presentation/SKILL.md) | A presentation from a plan or an idea: the time (given, or estimated and confirmed) sets the number of slides, the format (PDF, one-file animated HTML, PPTX, several or all) and the style (proposals fitting the subject, `White blueprint` by default, or copied from a PPTX / PDF / HTML given) are asked through `interactive-questions`; one `deck.json` builds every format plus the speaker notes; checked with contact sheets and a selftest of the web page |
+| [`full-permission`](ai/full-permission/SKILL.md) | Says plainly that the prompt gives every permission on the repository or the scope named (commit, push, description, `Co-Authored-By`, version, changelog, docs) whatever the context rules say about asking first; commits and pushes as the tasks go, only what the prompt restricts stays restricted; manual command (`/full-permission`) |
 | [`multilingual-project`](ux/multilingual-project/SKILL.md) | Any project in several languages: the languages asked (a few, Europe, the most spoken, as many as possible, RTL), every user string in standard catalogs (Qt `.ts`, gettext `.po`, Fluent, Android / iOS, ICU JSON) with named placeholders, plurals, locale formats, RTL and fonts, the language setting + system locale + fallbacks, AI-drafted translations marked for review, missing / unused keys checked in the CI. |
 | [`multilingual-website`](ux/multilingual-website/SKILL.md) | The web part of `multilingual-project`: the framework's library, `/fr/` URLs and translated slugs, hreflang + x-default, sitemaps, `lang` / `dir`, a switcher with the languages written in themselves (no flags), Accept-Language suggested never forced, SEO meta, emails in the user's language, legal pages per language. |
 | [`color-modes-project`](ux/color-modes-project/SKILL.md) | Light / dark / system (and high contrast, sepia, palettes, an accent) for any project: the modes asked, semantic colour tokens, WCAG contrast checked in each mode, the system scheme followed live (Qt, GTK portal, Windows, macOS, Android, iOS, terminals), persisted and switched without restart, icons / charts / highlighting adapted. |
@@ -219,7 +221,7 @@ handy on another machine or in a Claude Code on the web session (no `setup.sh` n
 | `libutils-skills` | libutils, libutils-exception, libutils-install, libutils-setup |
 | `doc-skills` | readme-style, wiki-style, html-doc, html-style, explain-doc, protocol-doc, better-html-doc, better-html-style, better-explain-doc, better-protocol-doc, report, docs-update |
 | `git-skills` | git-conventions, git-commit, ci-cd, pre-commit |
-| `ai-skills` | interactive-questions, clarify, ideation, ask-at-end, setup-context, write-like-me, export, onboard, rtk |
+| `ai-skills` | interactive-questions, clarify, ideation, ask-at-end, setup-context, write-like-me, export, onboard, presentation, full-permission, rtk |
 | `style-skills` | coding-style, comments |
 | `python-skills` | python-project, python-class, python-style, python-comments |
 | `test-skills` | tests, cpp-tests, coverage |
@@ -262,7 +264,7 @@ audit/     audit-bugs, audit-security, audit-quality, audit-deps, benchmark
 legal/     license, legal-check, legal-setup
 ux/        multilingual-project, multilingual-website, color-modes-project, color-modes-website
 system/    computer-clean
-ai/        interactive-questions, clarify, ideation, ask-at-end, setup-context, write-like-me, export, onboard, rtk, claude-cluster (tool)
+ai/        interactive-questions, clarify, ideation, ask-at-end, setup-context, write-like-me, export, onboard, presentation, full-permission, rtk, claude-cluster (tool)
 context/   global context of Claude Code (CLAUDE.md, RTK.md, hooks, sudo-askpass), installed by setup.sh
 ```
 
