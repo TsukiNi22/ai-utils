@@ -35,7 +35,7 @@
     },
     {
       "name": "ai-skills",
-      "description": "AI context: token-minimal outputs, --rtk modes of programs, questions through the built-in QCM / Q&A popup, clarification of unclear requests, ideation (ideas, opinions, variants) through that popup, a run without any interruption (every question at the end), the setup of the context of a session (the repo, the earlier and archived sessions, the skills and MCP servers that fit), writing in the user's own voice, a handover file for another session / machine / model, the onboarding of a project (files, git history, earlier sessions) (skills: ask-at-end, clarify, export, ideation, interactive-questions, onboard, rtk, setup-context, write-like-me)",
+      "description": "AI context: token-minimal outputs and --rtk modes, questions through the QCM / Q&A popup, clarification, ideation, a run without interruption, session context setup, writing in the user's voice, handover file, project onboarding, presentations from a plan or an idea (PDF / HTML / PPTX), full git permission from the prompt (skills: ask-at-end, clarify, export, full-permission, ideation, interactive-questions, onboard, presentation, rtk, setup-context, write-like-me)",
       "source": "./",
       "strict": false,
       "skills": [

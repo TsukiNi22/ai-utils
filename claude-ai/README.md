@@ -19,6 +19,9 @@ python3 claude-ai/build.py            # every skill -> dist/claude-ai/<skill>.zi
 python3 claude-ai/build.py html-doc   # only some skills
 ```
 
+Plugin of the marketplace: claude.ai warns when a plugin description is over 500 characters; `python3 claude-ai/check_marketplace.py`
+checks every description (and that each plugin names its skills) before a push.
+
 Then on claude.ai: **Customize > Skills > Add > Upload**, one archive at a time (the skill folder is at the top of
 each archive, as expected). Re-run the script and upload again after a change of a skill.
 
