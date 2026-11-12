@@ -22,15 +22,30 @@
         b.addEventListener('click', function () { go(c.first, 0); b.blur(); }); b.tabIndex = -1; chBox.appendChild(b); /* the arrows / the map are the keyboard way: no focus ring left on a chapter */
     });
     function title(s) { return s.getAttribute('data-title') || (s.querySelector('h1,h2') || {}).textContent || 'Diapo'; }
+    var fr = /^fr/i.test(document.documentElement.lang || ''), mapBtns = [];
+    var head = document.createElement('div'); head.className = 'maphead';
+    head.innerHTML = '<strong></strong><span class="maphint"></span><button type="button" class="mapclose" aria-label="Close"></button>';
+    head.querySelector('strong').textContent = (fr ? 'Plan' : 'Outline') + ' \u00b7 ' + slides.length + (fr ? ' diapos' : ' slides');
+    head.querySelector('.maphint').textContent = fr ? 'Cliquer pour aller \u00e0 une diapo \u00b7 \u00c9chap pour fermer' : 'Click to jump to a slide \u00b7 Esc to close';
+    head.querySelector('.mapclose').textContent = '\u00d7';
+    head.querySelector('.mapclose').addEventListener('click', function () { toggleMap(false); });
+    map.appendChild(head);
+    var grid = document.createElement('div'); grid.className = 'mapgrid'; map.appendChild(grid);
     chapters.forEach(function (c, n) {
-        var g = document.createElement('div'); g.className = 'mapch';
-        var h = document.createElement('h3'); h.textContent = c.name; g.appendChild(h);
+        var g = document.createElement('section'); g.className = 'mapch';
+        var count = 0; slides.forEach(function (s, i) { if (chOf[i] === n) count++; });
+        var h = document.createElement('h3');
+        h.innerHTML = '<span class="chnum"></span><span class="chname"></span><span class="chcount"></span>';
+        h.querySelector('.chnum').textContent = n + 1; h.querySelector('.chname').textContent = c.name; h.querySelector('.chcount').textContent = count;
+        g.appendChild(h);
         slides.forEach(function (s, i) {
             if (chOf[i] !== n) return;
-            var b = document.createElement('button'); b.type = 'button'; b.textContent = (i + 1) + '. ' + title(s);
-            b.addEventListener('click', function () { toggleMap(false); go(i, 0); b.blur(); }); g.appendChild(b);
+            var b = document.createElement('button'); b.type = 'button';
+            b.innerHTML = '<span class="num"></span><span class="ttl"></span>';
+            b.querySelector('.num').textContent = i + 1; b.querySelector('.ttl').textContent = title(s);
+            b.addEventListener('click', function () { toggleMap(false); go(i, 0); b.blur(); }); g.appendChild(b); mapBtns[i] = b;
         });
-        map.appendChild(g);
+        grid.appendChild(g);
     });
     function fit() {
         var w = innerWidth, h = innerHeight, portrait = w / h < 0.9;
@@ -60,7 +75,10 @@
     function go(i, kk) { cur = Math.max(0, Math.min(N - 1, i)); k = Math.max(0, Math.min(maxk[cur], kk || 0)); render(); }
     function next() { if (k < maxk[cur]) { k++; render(); } else if (cur < N - 1) go(cur + 1, 0); }
     function prev() { if (k > 0) { k--; render(); } else if (cur > 0) go(cur - 1, maxk[cur - 1]); }
-    function toggleMap(on) { map.hidden = on === undefined ? !map.hidden : !on; root.classList.toggle('mapopen', !map.hidden); }
+    function toggleMap(on) {
+        map.hidden = on === undefined ? !map.hidden : !on; root.classList.toggle('mapopen', !map.hidden);
+        if (!map.hidden) { mapBtns.forEach(function (b, i) { b.classList.toggle('cur', i === cur); b.classList.toggle('seen', i < cur); }); if (mapBtns[cur]) mapBtns[cur].scrollIntoView({ block: 'nearest' }); }
+    }
     function fullscreen() {
         if (document.fullscreenElement) { document.exitFullscreen(); return; }
         var f = root.requestFullscreen || root.webkitRequestFullscreen; if (f) f.call(root);
@@ -115,6 +133,7 @@
     if (!parseHash()) render();
     requestAnimationFrame(function () { requestAnimationFrame(function () { if (!/selftest/.test(location.search)) root.classList.remove('noanim'); }); });
 
+    if (/[?&]map\b/.test(location.search)) toggleMap(true); /* ?map opens the outline at once (a link to it, the checks) */
     if (/selftest/.test(location.search)) {
         var rep = [], seen = {}, states = 0, sr = stage.getBoundingClientRect();
         var add = function (kind, i, kk, e) {

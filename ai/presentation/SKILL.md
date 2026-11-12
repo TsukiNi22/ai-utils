@@ -112,7 +112,7 @@ python3 SKILL_DIR/scripts/check_deck.py deck.json --dir <folder> [--sheets <tmpd
   LibreOffice) and the **selftest** of the web page (headless Firefox: text out of the slide, hidden by the bar, clipped,
   the keys). Open the PNGs (Read) and LOOK: a slide that overflows, a table too wide, a title on four lines, black on
   black. Fix the JSON (split the slide, shorten) and build again. Put the PNGs in /tmp, not in the folder delivered.
-- The web page keys: arrows / space (next step), Home / End, `O` (chapter map), `F` (full screen), `N` (notes), swipe.
+- The web page keys: arrows / space (next step), Home / End, `O` (outline: chapter cards, the current slide marked, close with the cross or Esc; `?map` in the address opens it), `F` (full screen), `N` (notes), swipe.
 - Tools: `weasyprint` (PDF), `python-pptx` (PPTX), `firefox`, `pdftoppm`, `soffice` (checks). A missing one is said with
   its install command; ask before installing (`pip install --user python-pptx`, `sudo dnf install python3-python-pptx`).
 
