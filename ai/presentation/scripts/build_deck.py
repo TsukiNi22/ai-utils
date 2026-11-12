@@ -29,14 +29,14 @@ def load_themes() -> dict:
     themes = json.loads((TEMPLATES / "themes.json").read_text(encoding="utf-8"))
     if USER_THEMES.is_dir():
         for file in sorted(USER_THEMES.glob("*.json")):
-            themes[file.stem] = json.loads(file.read_text(encoding="utf-8"))
+            themes[file.stem] = {**json.loads(file.read_text(encoding="utf-8")), "_dir": str(file.parent)}
     return themes
 
 
 def pick_theme(deck: dict, args: argparse.Namespace) -> tuple[str, dict]:
     if args.theme_file:
         file = Path(args.theme_file)
-        return file.stem, {**load_themes()["blueprint"], **json.loads(file.read_text(encoding="utf-8"))}
+        return file.stem, {**load_themes()["blueprint"], **json.loads(file.read_text(encoding="utf-8")), "_dir": str(file.resolve().parent)}
     themes = load_themes()
     name = args.theme or deck.get("theme") or "blueprint"
     if name not in themes:
@@ -168,6 +168,22 @@ def slides_html(deck: dict, base: Path, with_notes: bool) -> str:
     return "\n".join(out)
 
 
+def custom_css(theme: dict, base: Path) -> str:
+    """Free CSS of a 'Sur mesure' theme (`css` text and / or `css_file`): decor, shapes, gradients, @font-face, a layout
+    per kind, even its own transitions - the look is not limited to the variables. Not used for a Canva import."""
+    if theme.get("canva"):
+        return ""
+    text = theme.get("css", "")
+    if theme.get("css_file"):
+        for folder in (Path(theme.get("_dir", ".")), base):
+            if (folder / theme["css_file"]).is_file():
+                text += "\n" + (folder / theme["css_file"]).read_text(encoding="utf-8")
+                break
+        else:
+            sys.exit(f"build_deck: css_file {theme['css_file']!r} not found")
+    return "\n/* theme css */\n" + text if text else ""
+
+
 def theme_css(theme: dict) -> str:
     keys = ("bg", "paper", "ink", "ink2", "tx", "dim", "code", "codetx", "warn", "ok", "font", "head_font", "mono",
             "head_transform", "head_spacing", "head_weight", "radius", "bgimg", "frame", "inner_frame")
@@ -185,7 +201,7 @@ SKELETON = """<div id="stage"><main id="deck" class="{cls}">
 
 
 def build_web(deck: dict, theme: dict, base: Path, out: Path) -> None:
-    css = (TEMPLATES / "deck-base.css").read_text(encoding="utf-8") + "\n" + theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8")
+    css = (TEMPLATES / "deck-base.css").read_text(encoding="utf-8") + "\n" + theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") + custom_css(theme, base)
     js = (TEMPLATES / "deck.js").read_text(encoding="utf-8")
     body = SKELETON.format(slides=slides_html(deck, base, True), cls="cartouche" if theme.get("cartouche") else "")
     page = (f'<!DOCTYPE html>\n<html lang="{deck.get("lang", "en")}">\n<head>\n<meta charset="utf-8">\n'
@@ -209,7 +225,7 @@ def build_pdf(deck: dict, theme: dict, base: Path, out: Path) -> None:
         from weasyprint import HTML
     except ImportError:
         sys.exit("build_deck: the PDF needs weasyprint (sudo dnf install python3-weasyprint, or pip install --user weasyprint)")
-    css = theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8")
+    css = theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") + custom_css(theme, base)
     cls = "print cartouche" if theme.get("cartouche") else "print"
     if theme.get("canva"):
         css += CANVA_CSS

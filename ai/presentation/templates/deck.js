@@ -17,10 +17,47 @@
         chOf[i] = chapters.length - 1;
     });
     var chBox = $('chapters'), bar = $('bar'), count = $('count'), dots = $('steps'), map = $('map');
+    var chBtns = [], widths = [];
+    function more(side) {
+        var m = document.createElement('button'); m.type = 'button'; m.className = 'more ' + side; m.textContent = '\u2026'; m.tabIndex = -1;
+        m.addEventListener('click', function () { var t = +m.getAttribute('data-to'); go(chapters[t].first, 0); m.blur(); });
+        return m;
+    }
+    var moreL = more('l'), moreR = more('r');
+    chBox.appendChild(moreL);
     chapters.forEach(function (c, n) {
         var b = document.createElement('button'); b.type = 'button'; b.textContent = c.name; b.setAttribute('data-n', n);
-        b.addEventListener('click', function () { go(c.first, 0); b.blur(); }); b.tabIndex = -1; chBox.appendChild(b); /* the arrows / the map are the keyboard way: no focus ring left on a chapter */
+        b.addEventListener('click', function () { go(c.first, 0); b.blur(); }); b.tabIndex = -1; chBox.appendChild(b); chBtns.push(b); /* the arrows / the map are the keyboard way: no focus ring left on a chapter */
     });
+    chBox.appendChild(moreR);
+    /* The bar shows the current chapter in full, then as many neighbours as fit (the coming ones first); what does not fit
+       folds into one "..." cell on each side, and slides in / out as the talk goes on. */
+    function measure() {
+        chBtns.forEach(function (b) { b.classList.remove('off'); }); moreL.classList.remove('off'); moreR.classList.remove('off');
+        widths = chBtns.map(function (b) { return b.offsetWidth + 1; });
+        widths.more = Math.max(moreL.offsetWidth, moreR.offsetWidth, 36) + 1;
+    }
+    function layoutChapters() {
+        if (!widths.length) measure();
+        var hud = $('hud'), used = 0;
+        [].forEach.call(hud.children, function (e) { if (e !== chBox && e !== bar && e.offsetWidth) used += e.offsetWidth; });
+        var avail = hud.clientWidth - used - 2, c = chOf[cur], lo = c, hi = c, n = chapters.length;
+        function fits(a, b) {
+            var w = 0; for (var i = a; i <= b; i++) w += widths[i];
+            return w + (a > 0 ? widths.more : 0) + (b < n - 1 ? widths.more : 0) <= avail;
+        }
+        var grew = true;
+        while (grew) {
+            grew = false;
+            if (hi < n - 1 && fits(lo, hi + 1)) { hi++; grew = true; }
+            if (lo > 0 && fits(lo - 1, hi)) { lo--; grew = true; }
+        }
+        chBtns.forEach(function (b, i) { b.classList.toggle('off', i < lo || i > hi); });
+        moreL.classList.toggle('off', lo === 0); moreR.classList.toggle('off', hi === n - 1);
+        moreL.setAttribute('data-to', Math.max(0, lo - 1)); moreR.setAttribute('data-to', Math.min(n - 1, hi + 1));
+        moreL.title = chapters.slice(0, lo).map(function (x) { return x.name; }).join(' \u00b7 ');
+        moreR.title = chapters.slice(hi + 1).map(function (x) { return x.name; }).join(' \u00b7 ');
+    }
     function title(s) { return s.getAttribute('data-title') || (s.querySelector('h1,h2') || {}).textContent || 'Diapo'; }
     var fr = /^fr/i.test(document.documentElement.lang || ''), mapBtns = [];
     var head = document.createElement('div'); head.className = 'maphead';
@@ -54,6 +91,9 @@
         stage.style.width = sw + 'px'; stage.style.height = sh + 'px';
         stage.style.transform = 'translate(' + ((w - sw * sc) / 2) + 'px,' + ((h - sh * sc) / 2) + 'px) scale(' + sc + ')';
     }
+    var dotEls = [];
+    for (var q = 0; q <= Math.max.apply(null, maxk); q++) { var dd = document.createElement('i'); dots.appendChild(dd); dotEls.push(dd); }
+    count.style.minWidth = (String(N).length * 2 + 5) + 'ch';
     function render() {
         slides.forEach(function (s, i) {
             var kk = i === cur ? k : (i < cur ? maxk[i] : 0);
@@ -64,10 +104,10 @@
         var p = (cur + (maxk[cur] ? k / (maxk[cur] + 1) : 0)) / (N - 1);
         bar.style.setProperty('--p', Math.min(1, p).toFixed(4));
         count.textContent = (cur + 1) + ' / ' + N;
-        dots.innerHTML = '';
-        for (var i = 0; i <= maxk[cur]; i++) { var d = document.createElement('i'); if (i <= k) d.className = 'on'; dots.appendChild(d); }
-        dots.style.visibility = 'visible'; /* a slide without build still shows its one square */
-        [].forEach.call(chBox.children, function (b, n) { b.className = n === chOf[cur] ? 'cur' : (n < chOf[cur] ? 'done' : ''); });
+        /* the squares: room kept for the slide with the most steps, so nothing moves from one slide to the next */
+        for (var i = 0; i < dotEls.length; i++) dotEls[i].className = i > maxk[cur] ? 'off' : (i <= k ? 'on' : '');
+        chBtns.forEach(function (b, n) { b.classList.toggle('cur', n === chOf[cur]); b.classList.toggle('done', n < chOf[cur]); });
+        layoutChapters();
         root.setAttribute('data-slide', cur + 1); root.setAttribute('data-first', cur === 0); root.setAttribute('data-last', cur === N - 1);
         var h = '#' + (cur + 1) + (k ? '.' + k : '');
         if (location.hash !== h) { try { history.replaceState(null, '', h); } catch (e) { /* file: pages may refuse */ } }
@@ -104,6 +144,8 @@
     }
     window.addEventListener('keydown', key);
     window.addEventListener('resize', fit);
+    window.addEventListener('resize', function () { widths = []; layoutChapters(); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { widths = []; layoutChapters(); });
     window.addEventListener('hashchange', parseHash);
     $('prev').addEventListener('click', function (e) { prev(); e.currentTarget.blur(); });
     $('next').addEventListener('click', function (e) { next(); e.currentTarget.blur(); });

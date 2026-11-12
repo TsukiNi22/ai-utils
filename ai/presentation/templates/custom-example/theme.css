@@ -1,0 +1,17 @@
+/* Poster pop: hard shadows, full-colour section pages, a giant number, tilted cards. Everything the variables cannot say. */
+.slide h2 { display: inline-block; background: var(--ink); color: var(--paper); padding: 6px 22px 8px; box-shadow: 8px 8px 0 var(--ink2); }
+.slide ul { list-style-type: square; }
+.k-title { background-image: linear-gradient(115deg, transparent 0 62%, var(--ink) 62% 100%), linear-gradient(115deg, transparent 0 60%, var(--ink2) 60% 62%, transparent 62%); }
+.k-title h1 { font-size: 92px; color: var(--ink); text-shadow: 6px 6px 0 var(--ink2); }
+.k-title .sub { font-weight: 700; color: var(--tx); }
+.k-title .meta li { background: #ffd23f; border-color: var(--tx); color: var(--tx); transform: rotate(-2deg); box-shadow: 4px 4px 0 var(--tx); }
+.k-section { background-color: var(--ink); background-image: none; color: var(--paper); }
+.k-section h2 { background: none; box-shadow: none; color: var(--paper); font-size: 92px; padding: 0; }
+.k-section .num { position: absolute; right: 70px; top: 40px; font-size: 230px; line-height: 1; color: var(--ink2); opacity: .9; font-weight: 800; }
+.k-section .lead { color: #ffd23f; font-weight: 700; }
+.col, .flow > li { border: 3px solid var(--tx); box-shadow: 8px 8px 0 var(--tx); background: var(--paper); }
+.col:nth-child(even), .flow > li:nth-child(even) { transform: rotate(.8deg); } .col:nth-child(odd), .flow > li:nth-child(odd) { transform: rotate(-.6deg); }
+.col h3, .flow h3 { display: inline-block; background: var(--ink2); color: var(--paper); padding: 2px 12px; }
+.slide th { background: var(--tx); } .slide table { box-shadow: 8px 8px 0 var(--ink2); }
+.k-quote blockquote { background: #ffd23f; color: var(--tx); border: 3px solid var(--tx); box-shadow: 10px 10px 0 var(--tx); padding: 28px 36px; }
+#hud { border-width: 3px; box-shadow: 6px 6px 0 var(--tx); }

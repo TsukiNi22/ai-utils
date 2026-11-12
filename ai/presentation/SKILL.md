@@ -55,13 +55,23 @@ colour in a slide: the theme is the only place of the look.
 | `slate-corporate` | Slate corporate | business case, company, formal defense: slate and deep blue |
 | `neon-dark` | Neon dark | games, creative, AI: deep violet, magenta and cyan |
 
-**Custom look (`Sur mesure`)**: do not start from a catalogue row. Read the subject, then write a complete theme file
-`<deck folder>/theme.json` with every key of `themes.json` (`label`, `dark`, `bg`, `paper`, `ink`, `ink2`, `tx`, `dim`,
-`code`, `codetx`, `warn`, `ok`, `font`, `head_font`, `mono`, `head_transform`, `head_spacing`, `head_weight`, `radius`,
-`bgimg`, `frame`, `inner_frame`, `cartouche`): a palette that belongs to the subject (contrast checked: text on `bg` and
-on `ink`), fonts that exist on the machine (`fc-list`), a frame / background only when it means something. Build with
-`--theme-file theme.json`, LOOK at the sheets (section 5) and adjust; offer to keep it with the other user themes
-(`~/.claude/presentation/themes/`).
+**Custom look (`Sur mesure`)** - the free, bold option: it is NOT limited to colours, a neon or a catalogue mood; the
+subject decides everything. Do not start from a catalogue row, start from an idea (a concept taken from the subject:
+a poster, a notebook, a terminal, a map, a comic page, a museum label, a blueprint of something else...) and push it:
+flashy colours or quiet ones, big type, hard shadows, full-colour section pages, giant numbers, tilted cards, gradients,
+patterns, drawn shapes (inline SVG in `bgimg` as `url("data:image/svg+xml,...")`), an unusual layout per kind.
+Two files in the deck folder, then `--theme-file theme.json`:
+- `theme.json`: every key of `themes.json` (`label`, `dark`, `bg`, `paper`, `ink`, `ink2`, `tx`, `dim`, `code`, `codetx`,
+  `warn`, `ok`, `font`, `head_font`, `mono`, `head_transform`, `head_spacing`, `head_weight`, `radius`, `bgimg`, `frame`,
+  `inner_frame`, `cartouche`) + `"css_file": "theme.css"` (or `"css": "..."`).
+- `theme.css`: free CSS loaded after the layout (HTML and PDF): override anything (`.k-title`, `.k-section`, `.col`,
+  `.flow > li`, `.k-quote`, `#hud`, `@font-face`, even transitions). Class names are in `templates/slides.css`.
+`templates/custom-example/` is a complete bold example ("Poster pop": cobalt, coral and yellow, hard shadows) to take
+the level of boldness from, not to copy. Rules that stay: text readable (contrast on every background, checked on the
+sheets), fonts that exist on the machine (`fc-list`), nothing leaving the slide (the selftest says it), no
+`::marker { content }` (it crashes the PDF engine: use `list-style-type`). The PPTX carries the colours, fonts and
+background colour of the theme only (not the CSS), the `--canva` build ignores the CSS: say it. Offer to keep the
+result with the user's own themes (`~/.claude/presentation/themes/`, `theme.css` next to it).
 
 **Copy the style of a file** the user gives (or "le style de la présentation sur le repo C++"):
 ```bash
