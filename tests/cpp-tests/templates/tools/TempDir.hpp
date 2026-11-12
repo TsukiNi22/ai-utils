@@ -40,7 +40,7 @@ class TempDir {
         std::filesystem::path _path;
 
     public:
-        const std::filesystem::path& path(void) const {return this->_path;};
+        const std::filesystem::path& path(void) const                  {return this->_path;};
         std::filesystem::path operator/(const std::string& name) const {return this->_path / name;};
 
         TempDir(void)

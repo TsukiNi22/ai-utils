@@ -24,15 +24,15 @@ File Description:
     /* INCLUDE */
 
     /* type */
-    #include "../../attribute/Attribute.hpp"                // _cold, _hot, _nodiscard, _unused, _migration
-    #include "../../exception/ExceptionDefine.hpp"          // utils::exception::InternalCode
     #include "../../exception/custom/FatalException.hpp"    // utils::exception::FatalException
+    #include "../../exception/ExceptionDefine.hpp"          // utils::exception::InternalCode
+    #include "../../attribute/Attribute.hpp"                // _cold, _hot, _nodiscard, _unused, _migration
     #include "../NetworkDefine.hpp"                         // SOCKET_CHUNK_SIZE, OVERFLOW_LIMIT
     #include "../NetworkType.hpp"                           // utils::network::Address
     #include "ISocket.hpp"                                  // utils::network::ISocket
+    #include <unordered_map>                                // std::unordered_map
     #include <sys/socket.h>                                 // socklen_t, sockaddr
     #include <sys/types.h>                                  // ssize_t
-    #include <unordered_map>                                // std::unordered_map
     #include <cstddef>                                      // std::size_t
     #include <vector>                                       // std::vector
     #include <string>                                       // std::string, std::to_string

@@ -8,3 +8,9 @@ cpp-comments
 comments
 report
 python-comments
+protocol-doc
+better-html-doc
+better-html-style
+better-explain-doc
+better-protocol-doc
+docs-update

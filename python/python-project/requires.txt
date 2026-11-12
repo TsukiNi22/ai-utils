@@ -3,3 +3,4 @@ readme-style
 git-conventions
 ci-cd
 python-class
+cpp-class

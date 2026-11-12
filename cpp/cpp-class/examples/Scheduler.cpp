@@ -18,12 +18,12 @@ File Description:
 ##  for me, life is all about functions...
 \**************************************************************/
 
-#include "utils/attribute/Attribute.hpp"
-#include "utils/exception/ExceptionDefine.hpp"
 #include "utils/exception/basic/ErrorException.hpp"
+#include "utils/exception/ExceptionDefine.hpp"
+#include "utils/attribute/Attribute.hpp"
 #include "utils/system/Scheduler.hpp"
-#include <cstddef>
 #include <algorithm>
+#include <cstddef>
 #include <thread>
 #include <string>
 #include <mutex>
@@ -54,4 +54,3 @@ _cold void utils::system::Scheduler::cancel(std::size_t id)
     }
     this->_idHandler.free(id);
 }
-

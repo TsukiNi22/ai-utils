@@ -44,6 +44,6 @@
 ## 4. Sources
 
 **[Category]**:
-- [Title]: <https://...>
+- \[Title\]: <https://...>
 
 [What is an **assumption** to replace with a real measurement.]

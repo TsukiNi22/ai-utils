@@ -22,7 +22,9 @@ HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE.parent / "templates"
 USER_THEMES = Path.home() / ".claude" / "presentation" / "themes"
 KINDS = ("title", "section", "bullets", "columns", "table", "code", "image", "svg", "steps", "quote", "end")
-
+NEEDS = {"bullets": "points", "columns": "columns", "table": "rows", "code": "code", "image": "src", "svg": "svg", "steps": "steps",
+         "quote": "text"} # what a slide of this kind cannot be built without
+LISTS = ("points", "columns", "rows", "steps")
 
 # ======================================================================= model
 def load_themes() -> dict:
@@ -32,23 +34,30 @@ def load_themes() -> dict:
             themes[file.stem] = {**json.loads(file.read_text(encoding="utf-8")), "_dir": str(file.parent)}
     return themes
 
-
 def pick_theme(deck: dict, args: argparse.Namespace) -> tuple[str, dict]:
     if args.theme_file:
-        file = Path(args.theme_file)
-        return file.stem, {**load_themes()["blueprint"], **json.loads(file.read_text(encoding="utf-8")), "_dir": str(file.resolve().parent)}
+        file = Path(args.theme_file).expanduser()
+        if not file.is_file():
+            sys.exit(f"build_deck: theme file {args.theme_file!r} not found")
+        try:
+            custom = json.loads(file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            sys.exit(f"build_deck: {file}: not valid JSON ({error})")
+        name = file.stem if file.stem != "theme" else file.resolve().parent.name # <look>/theme.json: the folder names it
+        return name, {**load_themes()["blueprint"], **custom, "_dir": str(file.resolve().parent)}
     themes = load_themes()
     name = args.theme or deck.get("theme") or "blueprint"
     if name not in themes:
         sys.exit(f"build_deck: unknown theme {name!r} (known: {', '.join(themes)})")
     return name, {**themes["blueprint"], **themes[name]}
 
+class MissingTool(RuntimeError):
+    """A format that cannot be built here (its library is not installed): the other formats are still built."""
 
 def installed(family: str) -> bool:
     import subprocess
     out = subprocess.run(["fc-match", "-f", "%{family}", family], capture_output=True, text=True, check=False).stdout
     return family.lower() in out.lower().split(",")[0].strip().lower() or out.lower().startswith(family.lower())
-
 
 def canva_theme(theme: dict) -> dict:
     """Theme made for an import into Canva: ONE family per role taken from Canva's library (and installed here, so it is
@@ -66,18 +75,27 @@ def canva_theme(theme: dict) -> dict:
     return {**theme, "font": sans, "head_font": pick(theme["head_font"], canva["sans"]) if theme["head_font"] != theme["font"] else sans,
             "mono": pick(theme["mono"], canva["mono"]), "head_spacing": "0", "bgimg": "none"}
 
-
 def check_model(deck: dict) -> None:
     slides = deck.get("slides")
     if not isinstance(slides, list) or not slides:
         sys.exit("build_deck: deck.json needs a non-empty 'slides' list")
     for index, slide in enumerate(slides, 1):
+        if not isinstance(slide, dict):
+            sys.exit(f"build_deck: slide {index} must be an object with a 'kind'")
         kind = slide.get("kind")
         if kind not in KINDS:
             sys.exit(f"build_deck: slide {index}: unknown kind {kind!r} (known: {', '.join(KINDS)})")
         if kind not in ("quote", "svg", "end") and not slide.get("title"):
             sys.exit(f"build_deck: slide {index} ({kind}) has no title")
-
+        key = NEEDS.get(kind)
+        if key and not slide.get(key):
+            sys.exit(f"build_deck: slide {index} ({kind}) has no '{key}'")
+        if key in LISTS and not isinstance(slide[key], list):
+            sys.exit(f"build_deck: slide {index} ({kind}): '{key}' must be a list")
+        if key in ("columns", "steps") and not all(isinstance(item, dict) for item in slide[key]):
+            sys.exit(f"build_deck: slide {index} ({kind}): each of '{key}' must be an object (head, {'points' if key == 'columns' else 'text'})")
+        if key == "points" and not all(isinstance(item, str) or (isinstance(item, dict) and item.get("text")) for item in slide[key]):
+            sys.exit(f"build_deck: slide {index} ({kind}): a point is a text or an object with a 'text' (and 'sub')")
 
 def inline(text: str) -> str:
     """Escape, then `code` and **bold**."""
@@ -85,10 +103,8 @@ def inline(text: str) -> str:
     out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
     return re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", out)
 
-
 def plain(text: str) -> str:
     return re.sub(r"\*\*([^*]+)\*\*|`([^`]+)`", lambda m: m.group(1) or m.group(2), str(text))
-
 
 def points(slide: dict, key: str = "points") -> list[tuple[str, list[str]]]:
     """A list of "text" or {"text", "sub": [...]} as (text, subs)."""
@@ -97,14 +113,12 @@ def points(slide: dict, key: str = "points") -> list[tuple[str, list[str]]]:
         out.append((item, []) if isinstance(item, str) else (item["text"], list(item.get("sub", []))))
     return out
 
-
 def data_uri(path: str, base: Path) -> str:
     file = (base / path).resolve()
     if not file.is_file():
         sys.exit(f"build_deck: image not found: {file}")
     kind = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
     return f"data:{kind};base64," + base64.b64encode(file.read_bytes()).decode("ascii")
-
 
 # ======================================================================= html (web page and PDF share it)
 def slide_inner(slide: dict, number: int, base: Path) -> str:
@@ -154,7 +168,6 @@ def slide_inner(slide: dict, number: int, base: Path) -> str:
     image = f'<figure><img src="{data_uri(slide["src"], base)}" alt="{html.escape(slide.get("alt", ""))}" style="max-height:260px"></figure>' if slide.get("src") else ""
     return f'<h1>{inline(title or "Thank you")}</h1><p class="sub">{inline(slide.get("subtitle", ""))}</p><ul>{links}</ul>{image}'
 
-
 def slides_html(deck: dict, base: Path, with_notes: bool) -> str:
     out = []
     chapter = ""
@@ -166,7 +179,6 @@ def slides_html(deck: dict, base: Path, with_notes: bool) -> str:
         out.append(f'<section class="slide k-{slide["kind"]}" id="s{number}" data-ch="{html.escape(chapter)}" '
                    f'data-title="{html.escape(title)}">{slide_inner(slide, number, base)}{foot}{notes}</section>')
     return "\n".join(out)
-
 
 def custom_css(theme: dict, base: Path) -> str:
     """Free CSS of a 'Sur mesure' theme (`css` text and / or `css_file`): decor, shapes, gradients, @font-face, a layout
@@ -183,13 +195,11 @@ def custom_css(theme: dict, base: Path) -> str:
             sys.exit(f"build_deck: css_file {theme['css_file']!r} not found")
     return "\n/* theme css */\n" + text if text else ""
 
-
 def theme_css(theme: dict) -> str:
     keys = ("bg", "paper", "ink", "ink2", "tx", "dim", "code", "codetx", "warn", "ok", "font", "head_font", "mono",
             "head_transform", "head_spacing", "head_weight", "radius", "bgimg", "frame", "inner_frame")
     rows = "; ".join(f"--{k.replace('_', '-')}: {theme[k]}" for k in keys)
     return f":root {{ {rows}; }}"
-
 
 SKELETON = """<div id="stage"><main id="deck" class="{cls}">
 {slides}
@@ -198,7 +208,6 @@ SKELETON = """<div id="stage"><main id="deck" class="{cls}">
 <div id="hud"><nav id="chapters" aria-label="Chapters"></nav><div id="bar"><i></i></div><div id="steps" aria-hidden="true"></div><span id="count"></span><div id="btns"><button type="button" id="prev" aria-label="Previous (left arrow)">&#8249;</button><button type="button" id="ovbtn" aria-label="Chapter map (O)">&#9638;</button><button type="button" id="fsbtn" aria-label="Full screen (F)">&#9974;</button><button type="button" id="next" aria-label="Next (right arrow)">&#8250;</button></div></div>
 </div>
 <div id="map" hidden></div>"""
-
 
 def build_web(deck: dict, theme: dict, base: Path, out: Path) -> None:
     css = (TEMPLATES / "deck-base.css").read_text(encoding="utf-8") + "\n" + theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") + custom_css(theme, base)
@@ -209,7 +218,6 @@ def build_web(deck: dict, theme: dict, base: Path, out: Path) -> None:
             f'<style>\n{css}\n</style>\n</head>\n<body>\n{body}\n<script>\n{js}\n</script>\n</body>\n</html>\n')
     out.write_text(page, encoding="utf-8")
 
-
 # what Canva cuts, merges or flattens when it reads a PDF: letter spacing, justified text, transforms, opacity, shadows
 CANVA_CSS = """
 .canva, .canva * { letter-spacing: 0 !important; text-shadow: none !important; box-shadow: none !important; text-align-last: auto; }
@@ -219,12 +227,11 @@ CANVA_CSS = """
 .canva .slide pre { background: var(--code); }
 """
 
-
 def build_pdf(deck: dict, theme: dict, base: Path, out: Path) -> None:
     try:
         from weasyprint import HTML
     except ImportError:
-        sys.exit("build_deck: the PDF needs weasyprint (sudo dnf install python3-weasyprint, or pip install --user weasyprint)")
+        raise MissingTool("the PDF needs weasyprint (sudo dnf install python3-weasyprint, or pip install --user weasyprint)") from None
     css = theme_css(theme) + "\n" + (TEMPLATES / "slides.css").read_text(encoding="utf-8") + custom_css(theme, base)
     cls = "print cartouche" if theme.get("cartouche") else "print"
     if theme.get("canva"):
@@ -234,7 +241,6 @@ def build_pdf(deck: dict, theme: dict, base: Path, out: Path) -> None:
             f'<style>{css}</style></head><body class="{cls}"><div class="{cls}">{pdf_svg(slides_html(deck, base, False), theme)}</div></body></html>')
     HTML(string=page, base_url=str(base)).write_pdf(str(out))
 
-
 def pdf_svg(page: str, theme: dict) -> str:
     """WeasyPrint does not pass the page colour nor the CSS variables into an inline SVG: currentColor would be black.
     Give each <svg> the text colour of the theme and turn var(--key) into its value (the web page keeps the variables)."""
@@ -243,16 +249,13 @@ def pdf_svg(page: str, theme: dict) -> str:
         return block if re.match(r"<svg[^>]*\scolor=", block) else block.replace("<svg", f'<svg color="{theme["tx"]}"', 1)
     return re.sub(r"<svg\b.*?</svg>", resolve, page, flags=re.S)
 
-
 # ======================================================================= pptx
-def rgb(value: str):
+def rgb(value: str) -> object:
     from pptx.dml.color import RGBColor
     return RGBColor.from_string(value.lstrip("#").upper())
 
-
 def first_font(stack: str) -> str:
     return stack.split(",")[0].strip().strip("'\"")
-
 
 def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
     try:
@@ -261,14 +264,14 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
         from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE
         from pptx.util import Emu, Inches, Pt
     except ImportError:
-        sys.exit("build_deck: the PPTX needs python-pptx (pip install --user python-pptx, or sudo dnf install python3-python-pptx)")
+        raise MissingTool("the PPTX needs python-pptx (pip install --user python-pptx, or sudo dnf install python3-python-pptx)") from None
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     blank = prs.slide_layouts[6]
     sans, mono, head = first_font(theme["font"]), first_font(theme["mono"]), first_font(theme["head_font"])
     W, H, M = 13.333, 7.5, 0.7
 
-    def box(slide, x, y, w, h, fill=None, line=None, shape=MSO_SHAPE.RECTANGLE):
+    def box(slide: object, x: float, y: float, w: float, h: float, fill: str | None = None, line: str | None = None, shape: object = MSO_SHAPE.RECTANGLE) -> object:
         shp = slide.shapes.add_shape(shape, Inches(x), Inches(y), Inches(w), Inches(h))
         if fill:
             shp.fill.solid()
@@ -283,7 +286,7 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
         shp.shadow.inherit = False
         return shp
 
-    def borders(cell, color, width=12700):
+    def borders(cell: object, color: str, width: int = 12700) -> None:
         """The four borders of a table cell (python-pptx has no API for it): drawn lines, as in the web page and the PDF."""
         from lxml import etree
         props = cell._tc.get_or_add_tcPr()
@@ -298,7 +301,8 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
             etree.SubElement(line, f"{{{ns}}}prstDash", val="solid")
             props.insert(i, line)  # the lines come before the fill in the schema
 
-    def text(slide, x, y, w, h, runs, size, color, font=None, bold=False, anchor=MSO_ANCHOR.TOP, upper=False):
+    def text(slide: object, x: float, y: float, w: float, h: float, runs: list, size: int, color: str, font: str | None = None, bold: bool = False,
+             anchor: object = MSO_ANCHOR.TOP, upper: bool = False) -> object:
         """runs = list of paragraphs; a paragraph is a string (with **bold** / `code`) or (string, level)."""
         frame = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h)).text_frame
         frame.word_wrap = True
@@ -432,7 +436,6 @@ def build_pptx(deck: dict, theme: dict, base: Path, out: Path) -> None:
     prs.core_properties.author = deck.get("author", "")
     prs.save(str(out))
 
-
 # ======================================================================= notes
 def build_notes(deck: dict, out: Path) -> None:
     rows = [f"# {plain(deck.get('title', 'Presentation'))}: speaker notes", "",
@@ -441,7 +444,6 @@ def build_notes(deck: dict, out: Path) -> None:
         label = plain(slide.get("title") or slide.get("text") or slide["kind"])
         rows += [f"## {number}. {label}", "", plain(slide.get("notes", "")) or "—", ""]
     out.write_text("\n".join(rows), encoding="utf-8")
-
 
 # ======================================================================= main
 def main() -> None:
@@ -453,8 +455,19 @@ def main() -> None:
     parser.add_argument("--theme-file", default=None)
     parser.add_argument("--canva", action="store_true", help="made for an import into Canva: one Canva font per role, no gradient background, nothing a PDF import cuts or merges")
     args = parser.parse_args()
-    source = Path(args.deck).resolve()
-    deck = json.loads(source.read_text(encoding="utf-8"))
+    source = Path(args.deck).expanduser().resolve()
+    if not source.is_file():
+        sys.exit(f"build_deck: {args.deck!r} not found")
+    try:
+        deck = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        sys.exit(f"build_deck: {source.name}: not valid JSON ({error})")
+    if not isinstance(deck, dict):
+        sys.exit(f"build_deck: {source.name} must be an object with a 'slides' list")
+    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+    unknown = [f for f in formats if f not in ("html", "pdf", "pptx", "notes")]
+    if unknown or not formats:
+        sys.exit(f"build_deck: unknown format {', '.join(unknown) or '(none)'} (known: html, pdf, pptx, notes)")
     check_model(deck)
     name, theme = pick_theme(deck, args)
     if args.canva:
@@ -462,19 +475,24 @@ def main() -> None:
     out = Path(args.out).resolve() if args.out else source.parent
     out.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^a-z0-9]+", "-", plain(deck.get("title", "deck")).lower()).strip("-") or "deck"
-    for fmt in (f.strip() for f in args.formats.split(",") if f.strip()):
-        if fmt == "html":
-            build_web(deck, theme, source.parent, out / f"{stem}.html")
-        elif fmt == "pdf":
-            build_pdf(deck, theme, source.parent, out / f"{stem}.pdf")
-        elif fmt == "pptx":
-            build_pptx(deck, theme, source.parent, out / f"{stem}.pptx")
-        elif fmt == "notes":
-            build_notes(deck, out / f"{stem}-notes.md")
-        else:
-            sys.exit(f"build_deck: unknown format {fmt!r}")
+    failed = []
+    for fmt in formats:
+        try:
+            if fmt == "html":
+                build_web(deck, theme, source.parent, out / f"{stem}.html")
+            elif fmt == "pdf":
+                build_pdf(deck, theme, source.parent, out / f"{stem}.pdf")
+            elif fmt == "pptx":
+                build_pptx(deck, theme, source.parent, out / f"{stem}.pptx")
+            else:
+                build_notes(deck, out / f"{stem}-notes.md")
+        except MissingTool as error: # the other formats are still built
+            failed.append(fmt)
+            sys.stderr.write(f"build_deck: {fmt} not built: {error}\n")
+            continue
         print(f"{out / (stem + {'notes': '-notes.md'}.get(fmt, '.' + fmt))}  ({len(deck['slides'])} slides, theme {name})")
-
+    if failed:
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

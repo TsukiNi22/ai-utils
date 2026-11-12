@@ -24,8 +24,8 @@ File Description:
     /* INCLUDE */
 
     /* type */
-    #include "../../attribute/Attribute.hpp"        // _migration
     #include "../../security/observer/Observer.hpp" // utils::security::observer::Observer
+    #include "../../attribute/Attribute.hpp"        // _migration
     #include "../NetworkType.hpp"                   // utils::network::Address
     #include <sys/socket.h>                         // socklen_t
     #include <sys/types.h>                          // ssize_t

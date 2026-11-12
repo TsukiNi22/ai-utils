@@ -1,0 +1,15 @@
+cpp-project
+python-project
+cpp-class
+python-class
+cmake-style
+coding-style
+libutils-setup
+cpp-tests
+tests
+license
+git-conventions
+ci-cd
+pre-commit
+readme-style
+audit-quality

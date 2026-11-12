@@ -5,6 +5,8 @@ description: Set up a new C++20 project in Tsukini's way with the setup.sh of th
 
 # New C++ project
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 The base is always **`cpp_project_template`** and **its own `setup.sh`** (local clone
 `~/personal_delivery/cpp/cpp_project_template`, otherwise `https://github.com/TsukiNi22/cpp_project_template.git`): it
 renames, adapts the copy to the kind, writes the README, the CHANGELOG, the docs and the gh-pages branch. This skill

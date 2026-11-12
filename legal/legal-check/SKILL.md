@@ -49,5 +49,5 @@ binding (a contract, a sanction risk, a sensitive processing) is flagged "to ver
   basis, data never deleted, plaintext passwords...) · **high** · **medium** · **low** · then `to verify` and `ok`.
 - The inventory tables (data, recipients, documents present / missing), the `n/a` items with their reason, the sources
   checked with their date, the "not legal advice" line.
-- Saved in `audit/` at the repository root (`legal-check-<date>.md` / `.pdf`).
+- Saved in `audit/` at the repository root (`audit/<YYYY-MM-DD>-legal.md` / `.pdf`, the naming of `report`).
 - Last: offer `legal-setup` for the fixes (through the popup: all / the blocking ones / a choice / later).

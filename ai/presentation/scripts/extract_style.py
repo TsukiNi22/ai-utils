@@ -23,24 +23,19 @@ USER_THEMES = Path.home() / ".claude" / "presentation" / "themes"
 BASE = {"font": "Inter, 'Noto Sans', sans-serif", "head_font": "Inter, 'Noto Sans', sans-serif", "mono": "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
         "head_transform": "none", "head_spacing": "0", "head_weight": "700", "radius": "6px", "bgimg": "none", "frame": "0", "inner_frame": "0", "cartouche": False}
 
-
 def hex_of(rgb: tuple) -> str:
     return "#%02x%02x%02x" % tuple(int(v) for v in rgb[:3])
-
 
 def lightness(color: str) -> float:
     r, g, b = (int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
     return colorsys.rgb_to_hls(r, g, b)[1]
 
-
 def saturation(color: str) -> float:
     r, g, b = (int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
     return colorsys.rgb_to_hls(r, g, b)[2]
 
-
 def mix(a: str, b: str, ratio: float) -> str:
     return hex_of([int(a[i:i + 2], 16) * (1 - ratio) + int(b[i:i + 2], 16) * ratio for i in (1, 3, 5)])
-
 
 def theme_from(colors: list[str], fonts: list[str], source: str, name: str) -> dict:
     """colors: most frequent first (the first is the background)."""
@@ -61,7 +56,6 @@ def theme_from(colors: list[str], fonts: list[str], source: str, name: str) -> d
         theme["head_font"] = f"'{fonts[1] if len(fonts) > 1 else fonts[0]}', Inter, sans-serif"
     return theme
 
-
 def from_pptx(path: Path) -> tuple[list[str], list[str]]:
     colors, fonts = [], []
     with zipfile.ZipFile(path) as z:
@@ -77,7 +71,6 @@ def from_pptx(path: Path) -> tuple[list[str], list[str]]:
                 used.update("#" + c.lower() for c in re.findall(r"srgbClr val=\"([0-9A-Fa-f]{6})\"", z.read(name).decode("utf-8", "ignore")))
         colors = colors[:1] + [c for c, _ in used.most_common(8)] + colors[1:]
     return colors, [f for f in fonts if f and not f.startswith("+")]
-
 
 def from_pages(path: Path) -> tuple[list[str], list[str]]:
     from PIL import Image
@@ -102,7 +95,6 @@ def from_pages(path: Path) -> tuple[list[str], list[str]]:
                     accents[key] += 1
     return [c for c, _ in counter.most_common(4)] + [c for c, _ in accents.most_common(3)], fonts
 
-
 def from_web(path: Path) -> tuple[list[str], list[str]]:
     text = path.read_text(encoding="utf-8", errors="ignore")
     variables = dict(re.findall(r"--([\w-]+)\s*:\s*(#[0-9a-fA-F]{6})\b", text))
@@ -111,7 +103,6 @@ def from_web(path: Path) -> tuple[list[str], list[str]]:
     colors = pick + [c for c, _ in counter.most_common(8)]
     fonts = [f.strip().strip("'\"") for f in re.findall(r"font-family\s*:\s*([^;}]+)", text) for f in f.split(",")[:1]]
     return colors, [f for f, _ in Counter(f for f in fonts if f and "var(" not in f and f not in ("inherit", "sans-serif", "monospace", "serif")).most_common(2)]
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -137,8 +128,7 @@ def main() -> None:
     if args.save:
         USER_THEMES.mkdir(parents=True, exist_ok=True)
         (USER_THEMES / f"{name}.json").write_text(json.dumps(theme, indent=4, ensure_ascii=False), encoding="utf-8")
-        print(f"saved: {USER_THEMES / (name + '.json')} (use: build_deck.py deck.json --theme {name})", file=sys.stderr)
-
+        sys.stderr.write(f"saved: {USER_THEMES / (name + '.json')} (use: build_deck.py deck.json --theme {name})\n")
 
 if __name__ == "__main__":
     main()

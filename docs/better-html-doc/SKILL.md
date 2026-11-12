@@ -14,7 +14,8 @@ description: A whole documentation site in the better-html-style (the look and e
 2. **Emplacement** : `docs/site/ (Recommandé)` (sources) + `docs/` or the gh-pages branch for the built pages · other.
 3. **Sections** (multiSelect, the ones the project needs pre-described): `Guide utilisateur` · `Concepts / explications`
    (pages of `better-explain-doc`) · `Référence` (configuration, commands, API, formats; `Protocole` with `better-protocol-doc`)
-   · `Ressources` (FAQ, glossary, changelog, downloads) · `Sécurité`.
+   · `Ressources` (FAQ, glossary, changelog, downloads). Four options at most in the popup: another section (`Sécurité`...) is typed
+   in "Other", or asked in a second question when the project clearly needs it.
 4. **Logo**: as `html-style` "Logo of the brand" (repository logo / custom SVG / default), only when the site has none yet.
 
 ## 2. Create the site

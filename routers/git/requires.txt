@@ -1,2 +1,4 @@
 git-conventions
 ci-cd
+git-commit
+pre-commit

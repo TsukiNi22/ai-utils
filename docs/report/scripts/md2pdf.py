@@ -221,6 +221,9 @@ def main() -> int:
     ap.add_argument("--lang", default="en")
     ap.add_argument("--format", choices=["both", "pdf", "md"], default="both")
     a = ap.parse_args()
+    if not os.path.isfile(a.input):
+        sys.stderr.write(f"md2pdf: {a.input} not found\n")
+        return 1
 
     src = split_callouts(github_callouts(commonmark_tables(commonmark_lists(open(a.input, encoding="utf-8").read()))))
     if a.format == "md":

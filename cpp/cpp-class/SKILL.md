@@ -6,6 +6,8 @@ allowed-tools: Read, Write, Edit, AskUserQuestion, Bash(python3:*), Bash(bash:*)
 
 # C++ files in Tsukini's style
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Read before writing the first file:
 - `reference/layout.md`: file/class layout, header, includes, attributes, **empty bodies rule**;
 - the `cpp-style` skill (`SKILL_DIR/../cpp-style/SKILL.md`): naming, formatting, spacing;

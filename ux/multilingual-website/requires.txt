@@ -1,1 +1,1 @@
-multilingual-project
+multilingual-project html-style

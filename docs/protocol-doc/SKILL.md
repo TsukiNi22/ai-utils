@@ -5,6 +5,8 @@ description: Document a network / application protocol in Tsukini's way (from th
 
 # Protocol documentation
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 `SKILL_DIR` = the directory of this file. The reference is the **2ETP** doc of the user (the `README.md` of
 `~/delivery/year_2/nwp/G-NWP-400-BDX-4-1-myteams-1`): its order, its tables and its notation are the model, improved by
 the checks below. Every byte, code, field and command is **read from the code** (the parser, the enums of the control

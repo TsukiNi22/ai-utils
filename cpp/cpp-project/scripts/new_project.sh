@@ -20,6 +20,7 @@ set -euo pipefail
 
 usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
+[[ "${1:-}" = "-h" ]] || [[ "${1:-}" = "--help" ]] && usage 0
 [[ $# -lt 3 ]] && usage 1
 TARGET="$1"
 NAME="$2"

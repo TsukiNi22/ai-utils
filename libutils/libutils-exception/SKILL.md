@@ -5,6 +5,8 @@ description: libutils exception handling (utils::exception) - IException/AExcept
 
 # libutils exceptions
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Based on the libutils sources (`include/utils/exception/`, `src/utils/exception/AException.cpp`,
 `cmake/scripts/`), the wiki page *Exception (usage)* and the real setup of `context-forge`.
 Existing codes: `../libutils/reference/exception-codes.md` (the `libutils` skill).

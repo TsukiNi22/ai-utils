@@ -437,6 +437,9 @@ def main() -> None:
     ap.add_argument("files", nargs="+")
     ap.add_argument("--compare")
     a = ap.parse_args()
+    missing = [f for f in [*a.files, *([a.compare] if a.compare else [])] if not Path(f).is_file()]
+    if missing:
+        sys.exit(f"check_style: not found: {', '.join(missing)}")
     reference = block(strip_comments(css_of(Path(a.compare))), ":root") if a.compare else None
     total = sum(check(Path(f), reference) for f in a.files)
     sys.exit(1 if total else 0)

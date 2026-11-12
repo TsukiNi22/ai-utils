@@ -14,7 +14,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LIMIT = 500
 
-
 def main() -> None:
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     problems = 0
@@ -36,7 +35,6 @@ def main() -> None:
             print(f"WARN {name}: skills not named in the description: {sorted(found - listed)}; named but absent: {sorted(listed - found)}")
     print(f"{len(market['plugins'])} plugins checked, {problems} problem(s)")
     sys.exit(1 if problems else 0)
-
 
 if __name__ == "__main__":
     main()

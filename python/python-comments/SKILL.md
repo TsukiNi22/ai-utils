@@ -5,6 +5,8 @@ description: How Tsukini writes comments in Python - the Python equivalent of cp
 
 # Tsukini comment style (Python)
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Always in **English**, short, no final period. Comment the **why** and the non-obvious, never paraphrase the code.
 General rules of every language: `comments` (section 1). Code style: `python-style`. When a file already has its own
 comment style (an older file of MAGIC with `""" Import """` banners), the local style wins.

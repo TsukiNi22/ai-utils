@@ -40,7 +40,9 @@ if __name__ != "__main__":
 ##### Const #####
 SKILL = Path(__file__).resolve().parent.parent
 TEMPLATES = SKILL / "templates"
-HEADER_SCRIPT = SKILL.parent.parent / "cpp" / "cpp-class" / "scripts" / "header.py"
+HEADER_SCRIPTS = [SKILL.parent / "cpp-class" / "scripts" / "header.py", # skills side by side (setup.sh --copy, claude.ai)
+    SKILL.parent.parent / "cpp" / "cpp-class" / "scripts" / "header.py"] # category folders (the repository, a plugin)
+HEADER_SCRIPT = next((path for path in HEADER_SCRIPTS if path.is_file()), None)
 LAYOUTS = { # kind -> [(template, destination)]
     "script": [("common/script.py", "{{NAME}}.py"), ("common/const.py", "const.py"), ("common/gitignore", ".gitignore")],
     "app": [("app/main.py", "src/main.py"), ("app/app.py", "src/app.py"), ("common/const.py", "src/const.py"), ("common/gitignore", ".gitignore")],
@@ -53,6 +55,9 @@ FOLDERS = {"script": [], "app": ["src/Class", "src/tool", "data"], "package": []
 
 ##### Tools #####
 def load_header() -> object:
+    if HEADER_SCRIPT is None:
+        stderr.write("Error: header.py of the cpp-class skill not found (install cpp-class next to this skill)\n")
+        exit(1)
     spec = spec_from_file_location("header", HEADER_SCRIPT)
     module = module_from_spec(spec)
     spec.loader.exec_module(module)

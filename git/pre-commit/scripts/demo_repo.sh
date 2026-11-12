@@ -20,6 +20,7 @@ remote_setup() {
 }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ "${1:-}" = "-h" ]] || [[ "${1:-}" = "--help" ]] && { sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
 DIR="${1:-/tmp/xstyle-hook-demo}"
 [[ $# -gt 0 ]] && shift
 case "$DIR" in

@@ -52,7 +52,13 @@ def check(path: Path) -> list[str]:
         return ["not a workflow (no mapping at the root)"]
     if not NAME.match(str(workflow.get("name", ""))):
         problems.append(f"name '{workflow.get('name')}' is not 'Name - Kind (CI|CD)' / 'Name (CI|CD)'")
-    for job_id, job in (workflow.get("jobs") or {}).items():
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, dict):
+        return problems + ["no jobs (a mapping of jobs is expected)"]
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            problems.append(f"job {job_id}: not a mapping")
+            continue
         runs_on = str(job.get("runs-on", ""))
         if "vars.RUNNER" not in runs_on:
             problems.append(f"job {job_id}: runs-on '{runs_on}' (convention: ${{{{ vars.RUNNER }}}})")
@@ -60,7 +66,10 @@ def check(path: Path) -> list[str]:
         if image and not IMAGES.match(image) and "slim" not in image and "alpine" not in image:
             problems.append(f"job {job_id}: image '{image}' (ghcr.io/tsukini22/* first, else a slim / alpine image)")
         for step in job.get("steps") or []:
-            run = step.get("run", "")
+            if not isinstance(step, dict):
+                problems.append(f"job {job_id}: a step is not a mapping")
+                continue
+            run = str(step.get("run") or "")
             commands = [line for line in run.strip().splitlines() if line.strip() and not line.rstrip().endswith("\\") and not line.strip().startswith("#")]
             if len(commands) > 1 and "set -e" not in run and "set -uo" not in run:
                 problems.append(f"job {job_id}, step '{step.get('name', '?')}': multi-line run without set -euo pipefail")
@@ -69,7 +78,15 @@ def check(path: Path) -> list[str]:
     return problems
 
 ##### Program #####
+if any(arg in ("-h", "--help") for arg in argv[1:]):
+    print("Usage: check_workflows.py [workflow.yml ...]   (default: .github/workflows/*.yml of the current folder)\n"
+        "Checks the YAML, actionlint when installed, and the conventions (name, runner, images, set -euo pipefail, step names)")
+    exit(0)
 paths = [Path(p) for p in argv[1:]] or sorted(Path(".github/workflows").glob("*.y*ml"))
+missing = [str(path) for path in paths if not path.is_file()]
+if missing:
+    stderr.write(f"Error: not found: {', '.join(missing)}\n")
+    exit(1)
 if not paths:
     stderr.write("Error: no workflow (give the files or run from the repository root)\n")
     exit(1)

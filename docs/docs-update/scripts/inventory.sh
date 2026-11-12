@@ -5,6 +5,8 @@
 set -uo pipefail
 
 ##### Variables #####
+[[ "${1:-}" = "-h" ]] || [[ "${1:-}" = "--help" ]] && { sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+[[ -d "${1:-.}" ]] || { echo "Error: ${1} is not a folder" >&2; exit 1; }
 REPO="$(command cd "${1:-.}" && command pwd)"
 command cd "$REPO" || exit 1
 
@@ -18,7 +20,7 @@ section "documentation files"
 section "branches with published docs"
 \git branch -a 2>/dev/null | grep -Ei 'gh-pages|docs|pages' || echo "(none)"
 wiki="../$(basename "$REPO").wiki"
-if [ -d "$wiki" ]; then echo "wiki clone: $wiki"; else echo "wiki: no local clone (<repo>.wiki.git)"; fi
+if [[ -d "$wiki" ]]; then echo "wiki clone: $wiki"; else echo "wiki: no local clone (<repo>.wiki.git)"; fi
 
 section "package / manifest / install files"
 \git ls-files 2>/dev/null | grep -Ei '(^|/)(CMakeLists\.txt|pyproject\.toml|setup\.py|package\.json|Cargo\.toml|.*\.spec|control|Dockerfile|marketplace\.json|plugin\.json|setup\.sh|install\.sh)$' | head -40
@@ -37,13 +39,13 @@ section "last change of the docs vs the code"
 printf 'docs : %s\n' "$(\git log -1 --format='%h %cs %s' -- README.md CHANGELOG.md docs 2>/dev/null | cut -c1-100)"
 printf 'code : %s\n' "$(\git log -1 --format='%h %cs %s' -- . ':!README.md' ':!CHANGELOG.md' ':!docs' 2>/dev/null | cut -c1-100)"
 base="$(\git log -1 --format=%H -- README.md CHANGELOG.md docs 2>/dev/null)"
-[ -n "$base" ] && printf 'commits since the last docs change: %s\n' "$(\git rev-list --count "$base"..HEAD)"
+[[ -n "$base" ]] && printf 'commits since the last docs change: %s\n' "$(\git rev-list --count "$base"..HEAD)"
 
 section "links of the Markdown docs to missing files"
 for doc in README.md $(\git ls-files 'docs/*.md' 2>/dev/null); do
-    [ -f "$doc" ] || continue
+    [[ -f "$doc" ]] || continue
     grep -oE '\]\(([^)#: ]+)(#[^)]*)?\)' "$doc" | sed -E 's/^\]\(([^)#]+).*/\1/' | sort -u | while read -r p; do
-        [ -e "$(dirname "$doc")/$p" ] || printf '%s -> %s (missing)\n' "$doc" "$p"
+        [[ -e "$(dirname "$doc")/$p" ]] || printf '%s -> %s (missing)\n' "$doc" "$p"
     done
 done | head -40
 

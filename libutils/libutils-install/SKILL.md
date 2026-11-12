@@ -5,6 +5,8 @@ description: Install, update, remove or check libutils (TsukiNi22/libutils) on t
 
 # libutils on the system
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Everything goes through `scripts/libutils.sh` (`SKILL_DIR` = directory of this file):
 ```bash
 bash SKILL_DIR/scripts/libutils.sh status                      # always first (no root needed)

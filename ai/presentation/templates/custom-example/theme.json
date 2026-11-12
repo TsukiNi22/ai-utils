@@ -2,7 +2,7 @@
     "label": "Poster pop (custom example)",
     "when": "an example of a 'Sur mesure' look: a theme.json for the variables AND a theme.css for everything else",
     "dark": false,
-    "bg": "#fff4e0", "paper": "#ffffff", "ink": "#1f3bd1", "ink2": "#ff5a45", "tx": "#14163a", "dim": "#59597a",
+    "bg": "#fff4e0", "paper": "#ffffff", "ink": "#1f3bd1", "ink2": "#f04e38", "tx": "#14163a", "dim": "#59597a",
     "code": "#e9edff", "codetx": "#14163a", "warn": "#d62839", "ok": "#0b8f5a",
     "font": "'Montserrat', 'Noto Sans', sans-serif", "head_font": "'Montserrat', 'Noto Sans', sans-serif", "mono": "'JetBrains Mono', monospace",
     "head_transform": "uppercase", "head_spacing": "-0.01em", "head_weight": "800", "radius": "0px",

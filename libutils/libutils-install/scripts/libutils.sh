@@ -60,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 [[ -z "$COMMAND" ]] && usage 1
+[[ "$COMMAND" = "-h" ]] || [[ "$COMMAND" = "--help" ]] || [[ "$COMMAND" = "help" ]] && usage 0
 [[ "$VARIANTS" = "all" ]] && VARIANTS="db,as"
 for v in ${VARIANTS//,/ }; do [[ "$v" =~ ^(db|as)$ ]] || { echo "Error: unknown variant '$v' (db, as, all)" >&2; exit 1; }; done
 

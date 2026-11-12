@@ -22,11 +22,9 @@ from pathlib import Path
 PER_MINUTE = (0.5, 1.0)  # content slides per minute: below = slow, above = rushed
 MAX_POINTS, MAX_WORDS = 6, 60
 
-
 def words(slide: dict) -> int:
     text = json.dumps({k: v for k, v in slide.items() if k not in ("notes", "svg", "kind", "chapter")}, ensure_ascii=False)
     return len(re.findall(r"[\w'-]+", re.sub(r'"[a-z_]+":', " ", text)))
-
 
 def lint(deck: dict, base: Path) -> int:
     errors = 0
@@ -52,16 +50,14 @@ def lint(deck: dict, base: Path) -> int:
             errors += 1
     return errors
 
-
 def squash(text: str) -> str:
     return re.sub(r"[^\w]+", "", re.sub(r"\*\*|`", "", text)).lower()
-
 
 def strings_of(slide: dict) -> list[str]:
     """Every visible string of a slide (what must be found again in the built files)."""
     found: list[str] = []
 
-    def walk(value) -> None:
+    def walk(value: object) -> None:
         if isinstance(value, str):
             found.append(value)
         elif isinstance(value, list):
@@ -74,7 +70,6 @@ def strings_of(slide: dict) -> list[str]:
 
     walk({k: v for k, v in slide.items() if k != "notes"})
     return [t for t in found if squash(t)]
-
 
 def canva_pdf(deck: dict, pdf: Path, allowed: list[str]) -> int:
     """What a PDF import (Canva) needs: real text on each page, every font embedded and in its library, no font made of
@@ -111,7 +106,6 @@ def canva_pdf(deck: dict, pdf: Path, allowed: list[str]) -> int:
         if slide["kind"] not in ("image", "end") and per_page.get(number):
             print(f"WARN canva pdf: page {number} holds {per_page[number]} picture(s) (a background or text turned into an image)")
     return errors
-
 
 def canva_pptx(deck: dict, pptx: Path, allowed: list[str]) -> int:
     """What a PPTX import needs: every text in a Canva font, no group / placeholder / empty box, no shrink-on-overflow,
@@ -158,7 +152,6 @@ def canva_pptx(deck: dict, pptx: Path, allowed: list[str]) -> int:
     print(f"canva pptx: fonts {sorted(fonts)}")
     return errors
 
-
 def sheet(pdf: Path, out: Path) -> None:
     from PIL import Image
     with tempfile.TemporaryDirectory() as tmp:
@@ -176,7 +169,6 @@ def sheet(pdf: Path, out: Path) -> None:
         canvas.save(out)
         print(f"sheet: {out} ({len(pages)} pages)")
 
-
 def selftest(page: Path, out: Path) -> None:
     firefox = shutil.which("firefox")
     if not firefox:
@@ -187,7 +179,6 @@ def selftest(page: Path, out: Path) -> None:
                         "--screenshot", str(out), f"file://{page}?selftest"], capture_output=True, check=False)
     print(f"selftest screenshot: {out} (read the first line: SELFTEST OK or FAIL and the list)" if out.exists() else "ERROR selftest screenshot not written")
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("deck")
@@ -195,8 +186,15 @@ def main() -> None:
     parser.add_argument("--canva", action="store_true", help="also check the PDF / PPTX for an import into Canva (text kept, fonts embedded and in its library)")
     parser.add_argument("--sheets", default=None, help="folder of the PNG sheets (default: the same folder)")
     args = parser.parse_args()
-    source = Path(args.deck).resolve()
-    deck = json.loads(source.read_text(encoding="utf-8"))
+    source = Path(args.deck).expanduser().resolve()
+    if not source.is_file():
+        sys.exit(f"check_deck: {args.deck!r} not found")
+    try:
+        deck = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        sys.exit(f"check_deck: {source.name}: not valid JSON ({error})")
+    if not isinstance(deck, dict) or not isinstance(deck.get("slides"), list) or not all(isinstance(s, dict) and s.get("kind") for s in deck["slides"]):
+        sys.exit(f"check_deck: {source.name} needs a 'slides' list of objects with a 'kind' (build_deck.py says what is wrong)")
     folder = Path(args.dir).resolve() if args.dir else source.parent
     sheets = Path(args.sheets).resolve() if args.sheets else folder
     sheets.mkdir(parents=True, exist_ok=True)
@@ -225,7 +223,6 @@ def main() -> None:
     if page.exists():
         selftest(page, sheets / f"{stem}-selftest.png")
     sys.exit(1 if errors else 0)
-
 
 if __name__ == "__main__":
     main()

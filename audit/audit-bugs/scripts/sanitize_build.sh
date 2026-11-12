@@ -20,7 +20,10 @@
 
 set -uo pipefail # no -e: a failing build / test is reported, not fatal (xstyle: ignore-file SH-STRICT)
 
-PROJECT="${1:-}"; [[ -z "$PROJECT" ]] && { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+PROJECT="${1:-}"
+[[ "$PROJECT" = "-h" ]] || [[ "$PROJECT" = "--help" ]] && { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+[[ -z "$PROJECT" ]] && { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[[ -d "$PROJECT" ]] || { echo "Error: $PROJECT is not a folder" >&2; exit 2; }
 shift
 MODE="all"; RUN=""; KEEP=false; TIMEOUT=120; LSAN_SUPP=""; TSAN_SUPP=""
 while [[ $# -gt 0 ]]; do

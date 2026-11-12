@@ -18,14 +18,15 @@ C++ project: copied from the local clone `~/personal_delivery/cpp/cpp_project_te
 (`git remote -v` shows `github.com`, or the user creates it with `gh repo create`): they hand over the CI/CD step here.
 Check: `python3 SKILL_DIR/scripts/check_workflows.py [files]` (YAML, actionlint when installed, the conventions below).
 
-## 1. Ask first, always (one AskUserQuestion call, French)
+## 1. Ask first, always (AskUserQuestion, French)
 Even when the request looks clear, confirm what the CI/CD must do (multiSelect), with the project's obvious choices
-pre-selected in the description:
+pre-selected in the description. The popup takes 4 options per question and 4 questions per call (`interactive-questions`):
+the CI is one question, the CD two (publication: Release · Packages · Image · PyPI; then Docs · Dispatch · none):
 - CI: **Build** (compile check, executables present) · **Tests unitaires** · **Style (xstyle)** · **Coverage**
 - CD: **Release** GitHub sur tag (notes = section du CHANGELOG) · **Packages** RPM/DEB (+ gh-pages repository) ·
   **Image** de conteneur (ghcr.io) · **PyPI** (Python) · **Docs** (html-doc on gh-pages) · **Dispatch** vers d'autres
   repos (which repository, which event: `repository_dispatch` type)
-Then, in the same call when not obvious: **déclencheurs** (push main, pull requests, tags `v*`, manual
+Then, in the fourth question (or a second call) when not obvious: **déclencheurs** (push main, pull requests, tags `v*`, manual
 `workflow_dispatch`, commit keywords `[build]` / `[release]` / `[ignore]` of `git-conventions`) and **runner**
 (`${{ vars.RUNNER }}`, the self-hosted runner of the user: default; `ubuntu-latest` only if asked).
 

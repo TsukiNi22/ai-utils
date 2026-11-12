@@ -24,10 +24,10 @@ File Description:
     /* INCLUDE */
 
     /* type */
-    #include "../attribute/Attribute.hpp"               // _hot, _cold, _unlikely, _likely, _nodiscard
-    #include "../exception/ExceptionDefine.hpp"         // utils::exception::InternalCode
-    #include "../exception/basic/ErrorException.hpp"    // utils::exception::ErrorException
     #include "../exception/custom/FatalException.hpp"   // utils::exception::FatalException
+    #include "../exception/basic/ErrorException.hpp"    // utils::exception::ErrorException
+    #include "../exception/ExceptionDefine.hpp"         // utils::exception::InternalCode
+    #include "../attribute/Attribute.hpp"               // _hot, _cold, _unlikely, _likely, _nodiscard
     #include <type_traits>                              // std::is_integral_v
     #include <limits>                                   // std::numeric_limits<T>
     #include <mutex>                                    // std::mutex

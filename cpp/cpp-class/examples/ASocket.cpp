@@ -17,11 +17,11 @@ File Description:
 ##  Definition of basic method for any socket
 \**************************************************************/
 
-#include "utils/attribute/Attribute.hpp"
-#include "utils/exception/ExceptionDefine.hpp"
 #include "utils/exception/basic/ErrorException.hpp"
 #include "utils/exception/basic/NoneException.hpp"
+#include "utils/exception/ExceptionDefine.hpp"
 #include "utils/network/socket/ASocket.hpp"
+#include "utils/attribute/Attribute.hpp"
 #include "utils/verbose/Verbose.hpp"
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -30,8 +30,8 @@ File Description:
 #include <unistd.h>
 #include <cstring>
 #include <netdb.h>
-#include <cerrno>
 #include <cstddef>
+#include <cerrno>
 #include <vector>
 #include <string>
 

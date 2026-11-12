@@ -38,13 +38,19 @@ if __name__ != "__main__":
     exit(255)
 
 ##### Const #####
-HEADER_SCRIPT = Path(__file__).resolve().parents[3] / "cpp" / "cpp-class" / "scripts" / "header.py"
+SKILL = Path(__file__).resolve().parent.parent
+HEADER_SCRIPTS = [SKILL.parent / "cpp-class" / "scripts" / "header.py", # skills side by side (setup.sh --copy, claude.ai)
+    SKILL.parent.parent / "cpp" / "cpp-class" / "scripts" / "header.py"] # category folders (the repository, a plugin)
+HEADER_SCRIPT = next((path for path in HEADER_SCRIPTS if path.is_file()), None)
 DEFAULTS = {"int": "0", "float": "0.0", "str": '""', "bool": "False", "bytes": 'b""', "list": "[]", "dict": "{}", "set": "set()",
     "tuple": "()"} # smallest return of an empty body
 SIGNATURE = re.compile(r"^\s*(\w+)\s*\(\)\s*(?:->\s*([^#]+?))?\s*(?:#\s*(.*))?$") # parameters taken out before
 
 ##### Tools #####
 def header(file: str, desc: str, banner: str) -> str:
+    if HEADER_SCRIPT is None:
+        stderr.write("Error: header.py of the cpp-class skill not found (install cpp-class next to this skill)\n")
+        exit(1)
     spec = spec_from_file_location("header", HEADER_SCRIPT)
     module = module_from_spec(spec)
     spec.loader.exec_module(module)

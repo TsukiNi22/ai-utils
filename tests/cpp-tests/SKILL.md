@@ -1,6 +1,6 @@
 ---
 name: cpp-tests
-description: Set up and write the unit tests of a C++ project the way libutils does it (GoogleTest) - tests/CMakeLists.txt with BUILD_TESTS + gtest_discover_tests, unit_tests binary, one test file per module mirroring the tree, nominal/edge/error cases with libutils exception codes, sub-process isolation with timeout for threads/IPC, fixtures, parametrized cases, mocks of the interfaces, known bugs kept as failing tests, CI workflow, and an inventory script of what is not tested yet. Use whenever the user wants to add, write, complete, run or set up unit tests (GTest) for C++ code, or "test the whole project".
+description: Set up and write the unit tests of a C++ project the way libutils does it (GoogleTest) - tests/CMakeLists.txt with BUILD_TESTS + gtest_discover_tests, unit_tests binary, one test file per module mirroring the tree, nominal/edge/error cases with libutils exception codes, sub-process isolation with timeout for threads/IPC, fixtures, parametrized cases, mocks of the interfaces, known bugs kept as failing tests, CI workflow, and an inventory script of what is not tested yet. Use whenever the user wants to add, write, complete, run or set up unit tests (GTest) for C++ code, or "test the whole project" on a C++ project (another language: tests).
 ---
 
 # C++ unit tests (GoogleTest, libutils way)

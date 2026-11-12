@@ -23,6 +23,7 @@ import argparse
 import re
 import sys
 import unicodedata
+from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -32,7 +33,6 @@ HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)")
 CODE_SPAN = re.compile(r"`[^`]*`")
 
-
 def slug(heading: str) -> str:
     """Anchor GitHub gives to a heading."""
     text = re.sub(r"[`*_]", "", heading.strip().lower())
@@ -40,12 +40,10 @@ def slug(heading: str) -> str:
     text = "".join(c for c in text if c in " -" or unicodedata.category(c)[0] in "LN")
     return text.replace(" ", "-")
 
-
 def split_row(line: str) -> list[str]:
     line = re.sub(r"`[^`]*`", lambda m: m.group(0).replace("|", "\0"), line.strip())
     line = re.sub(r"\\\|", "\0", line)
     return line.strip("|").split("|")
-
 
 class Page:
     def __init__(self, path: Path) -> None:
@@ -88,7 +86,7 @@ class Page:
         if fence is not None:
             self.problem("error", fence[2], "code block never closed")
 
-    def text_lines(self):
+    def text_lines(self) -> Iterator[tuple[int, str]]:
         for i, line in enumerate(self.lines, 1):
             if i not in self.code:
                 yield i, line
@@ -140,7 +138,6 @@ class Page:
             if lv == 2 and i != toc and slug(t) not in linked:
                 self.problem("warning", i, f"`## {t}` is not in the Table of Contents")
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check a GitHub wiki folder against the user's wiki style")
     parser.add_argument("folder", type=Path)
@@ -148,11 +145,11 @@ def main() -> int:
     args = parser.parse_args()
     folder: Path = args.folder
     if not folder.is_dir():
-        print(f"error: {folder} is not a folder", file=sys.stderr)
+        sys.stderr.write(f"error: {folder} is not a folder\n")
         return 2
     pages = {p.stem.lower(): Page(p) for p in sorted(folder.glob("*.md"))}
     if not pages:
-        print(f"error: no .md page in {folder}", file=sys.stderr)
+        sys.stderr.write(f"error: no .md page in {folder}\n")
         return 2
     missing = [f"{need}.md" for need in ("Home", "_Sidebar", "_Footer") if need.lower() not in pages]
     for name in missing:
@@ -192,7 +189,6 @@ def main() -> int:
             warnings += kind == "warning"
     print(f"== {len(pages)} page(s): {errors} error(s), {warnings} warning(s)")
     return 1 if errors or (args.strict and warnings) else 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

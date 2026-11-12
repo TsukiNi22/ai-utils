@@ -5,6 +5,8 @@ description: Tsukini's Python style (from his real scripts - libutils cmake/scri
 
 # Tsukini Python style
 
+`<name>` (a skill) = the folder of that skill: `~/.claude/skills/<name>` (setup.sh) or `${CLAUDE_SKILL_DIR}/../../*/<name>` (plugin of the marketplace).
+
 Measured on the user's own scripts (libutils `cmake/scripts/const.py`, `generate_exception_header.py`, 2026) and on
 MAGIC (2025, older form: `""" Import """` banners, plain classes for the constants, `print` errors): **the 2026 form
 wins**, the older one is only kept when editing a file already written that way (the local style of a file wins).

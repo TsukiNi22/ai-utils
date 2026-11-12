@@ -65,7 +65,7 @@ Two files in the deck folder, then `--theme-file theme.json`:
   `warn`, `ok`, `font`, `head_font`, `mono`, `head_transform`, `head_spacing`, `head_weight`, `radius`, `bgimg`, `frame`,
   `inner_frame`, `cartouche`) + `"css_file": "theme.css"` (or `"css": "..."`).
 - `theme.css`: free CSS loaded after the layout (HTML and PDF): override anything (`.k-title`, `.k-section`, `.col`,
-  `.flow > li`, `.k-quote`, `#hud`, `@font-face`, even transitions). Class names are in `templates/slides.css`.
+  `.flow > li`, `.k-quote`, `#hud`, `@font-face`, even transitions). Class names are in `templates/slides.css` (the stage, its scaling and the outline shell: `templates/deck-base.css`).
 `templates/custom-example/` is a complete bold example ("Poster pop": cobalt, coral and yellow, hard shadows) to take
 the level of boldness from, not to copy. Rules that stay: text readable (contrast on every background, checked on the
 sheets), fonts that exist on the machine (`fc-list`), nothing leaving the slide (the selftest says it), no

@@ -57,7 +57,6 @@ def read_cluster() -> list:
                 texts.append(text)
     return texts
 
-
 def read_claude_code() -> list:
     """The messages the user typed in the newest Claude Code transcripts (no tool results, no commands)"""
     texts = []
@@ -82,12 +81,10 @@ def read_claude_code() -> list:
                 texts.append(content)
     return texts
 
-
 def read_notes() -> list:
     """His .info notes (delivery / personal_delivery)"""
     paths = glob.glob(f"{HOME}/delivery/**/.info", recursive=True) + glob.glob(f"{HOME}/personal_delivery/**/.info", recursive=True)
     return [open(p, encoding="utf-8", errors="replace").read() for p in paths if os.path.isfile(p) and "/build" not in p]
-
 
 def clean(texts: list) -> list:
     """His own words only: images / pasted blocks dropped, generated prompts and continuations skipped, no duplicate"""
@@ -122,7 +119,6 @@ def main() -> int:
         print("--- note")
         print(text[:600])
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
