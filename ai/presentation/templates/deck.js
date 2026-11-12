@@ -51,7 +51,7 @@
         count.textContent = (cur + 1) + ' / ' + N;
         dots.innerHTML = '';
         for (var i = 0; i <= maxk[cur]; i++) { var d = document.createElement('i'); if (i <= k) d.className = 'on'; dots.appendChild(d); }
-        dots.style.visibility = maxk[cur] ? 'visible' : 'hidden';
+        dots.style.visibility = 'visible'; /* a slide without build still shows its one square */
         [].forEach.call(chBox.children, function (b, n) { b.className = n === chOf[cur] ? 'cur' : (n < chOf[cur] ? 'done' : ''); });
         root.setAttribute('data-slide', cur + 1); root.setAttribute('data-first', cur === 0); root.setAttribute('data-last', cur === N - 1);
         var h = '#' + (cur + 1) + (k ? '.' + k : '');
@@ -133,6 +133,8 @@
                     var r = e.getBoundingClientRect(); if (r.width === 0 && r.height === 0) continue;
                     var tol = 3 * (r0.width / stage.offsetWidth), hr = $('hud').getBoundingClientRect();
                     if (r.right > hr.left + tol && r.left < hr.right - tol && r.bottom > hr.top + tol && r.top < hr.bottom - tol) add('HUD', i, kk, e);
+                    var bx = e.closest('.col, .flow > li, .k-title .meta li');
+                    if (bx && bx !== e) { var br = bx.getBoundingClientRect(); if (r.right > br.right + tol || r.left < br.left - tol || r.bottom > br.bottom + tol) add('BOX', i, kk, e); }
                     if (r.left < r0.left - tol || r.right > r0.right + tol || r.top < r0.top - tol || r.bottom > r0.bottom + tol)
                         add('OUT', i, kk, e);
                     if (!(e instanceof SVGElement) && cs.overflow !== 'visible' && (e.scrollWidth > e.clientWidth + 2 || e.scrollHeight > e.clientHeight + 2) && !e.classList.contains('slide'))
